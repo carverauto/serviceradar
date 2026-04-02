@@ -23,6 +23,26 @@ helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/c
   -n serviceradar --create-namespace
 ```
 
+### Verify Harbor Images
+
+ServiceRadar signs published Harbor images with Cosign. The public key is available in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub).
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10
+```
+
+Use immutable `sha-<commit>` tags when you want to verify an exact build:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
+```
+
 ## Edge Agent Deployment
 
 Edge agents are installed using the edge onboarding flow from the web UI (generating an agent package/config for a specific gateway and security mode).

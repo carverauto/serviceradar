@@ -26,6 +26,13 @@ natsCreds:
   autoGenerate: true
 
 logCollector:
+  probes:
+    liveness:
+      timeoutSeconds: 10
+      failureThreshold: 6
+    readiness:
+      timeoutSeconds: 10
+      failureThreshold: 6
   resources:
     requests:
       cpu: "250m"
