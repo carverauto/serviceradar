@@ -17,10 +17,10 @@ OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 BAZEL_BIN="${BAZEL_BIN:-$(cd "${REPO_ROOT}" && bazel info bazel-bin 2>/dev/null)}"
 IMAGE_METADATA_DIR="${BAZEL_BIN}/docker/images"
 
-# Harbor's cosign integration is most reliable with legacy signature tags
-# rather than OCI 1.1 referrers.
+# Harbor is storing Cosign signatures as OCI referrer accessories. Force that
+# path explicitly so publish and verification use the same storage mode.
 export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
-COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-legacy}"
+COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
 
 if [[ ! -d "${IMAGE_METADATA_DIR}" ]]; then
   echo "error: bazel image metadata directory not found: ${IMAGE_METADATA_DIR}" >&2

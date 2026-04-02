@@ -11,6 +11,11 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+  echo "error: curl is required" >&2
+  exit 1
+fi
+
 if [[ "$#" -eq 0 ]]; then
   TAGS=("latest")
 else
@@ -39,6 +44,22 @@ declare -a IMAGE_SPECS=(
 fail() {
   echo "error: $*" >&2
   exit 1
+}
+
+resolve_registry_auth() {
+  if [[ -n "${OCI_USERNAME:-}" && -n "${OCI_TOKEN:-}" ]]; then
+    printf '%s|%s\n' "${OCI_USERNAME}" "${OCI_TOKEN}"
+    return 0
+  fi
+  if [[ -n "${HARBOR_ROBOT_USERNAME:-}" && -n "${HARBOR_ROBOT_SECRET:-}" ]]; then
+    printf '%s|%s\n' "${HARBOR_ROBOT_USERNAME}" "${HARBOR_ROBOT_SECRET}"
+    return 0
+  fi
+  if [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]]; then
+    printf '%s|%s\n' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}"
+    return 0
+  fi
+  printf '|\n'
 }
 
 assert_eq() {
@@ -151,13 +172,52 @@ check_config() {
   esac
 }
 
+check_signature_accessory() {
+  local tag="$1"
+  local ref="$2"
+  local digest
+  digest="$(skopeo inspect "docker://${ref}:${tag}" | jq -r '.Digest')"
+  [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
+
+  local repo_path="${ref#${REGISTRY_HOST}/}"
+  local auth user pass token
+  auth="$(resolve_registry_auth)"
+  IFS='|' read -r user pass <<<"${auth}"
+
+  local token_url="https://${REGISTRY_HOST}/service/token?service=harbor-registry&scope=repository:${repo_path}:pull"
+  if [[ -n "${user}" && -n "${pass}" ]]; then
+    token="$(curl -fsSL -u "${user}:${pass}" "${token_url}" | jq -r '.token')"
+  else
+    token="$(curl -fsSL "${token_url}" | jq -r '.token')"
+  fi
+  [[ -n "${token}" && "${token}" != "null" ]] || fail "${ref}:${tag} registry token lookup failed"
+
+  local referrers
+  referrers="$(
+    curl -fsSL \
+      -H "Authorization: Bearer ${token}" \
+      "https://${REGISTRY_HOST}/v2/${repo_path}/referrers/${digest}"
+  )"
+
+  jq -e '
+    (.manifests // []) as $m
+    | ($m | length) > 0
+    and any(
+      $m[];
+      ((.artifactType // "") | startswith("application/vnd.dev.sigstore"))
+      or ((.annotations["dev.sigstore.bundle.predicateType"] // "") == "https://sigstore.dev/cosign/sign/v1")
+    )
+  ' <<<"${referrers}" >/dev/null || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
+}
+
 for tag in "${TAGS[@]}"; do
   for spec in "${IMAGE_SPECS[@]}"; do
     IFS="|" read -r ref kind <<<"$spec"
     echo "checking ${ref}:${tag}"
     check_image_shape "$tag" "$ref" "$kind"
     check_config "$tag" "$ref"
+    check_signature_accessory "$tag" "$ref"
   done
 done
 
-echo "verified OCI publish metadata for tags: ${TAGS[*]}"
+echo "verified OCI publish metadata and Harbor Cosign accessories for tags: ${TAGS[*]}"
