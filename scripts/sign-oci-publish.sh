@@ -162,6 +162,25 @@ upload_blob() {
     /*) upload_url="https://${REGISTRY_HOST}${upload_url}" ;;
     *) upload_url="https://${REGISTRY_HOST}/${upload_url}" ;;
   esac
+
+  local patch_headers
+  patch_headers="$(mktemp)"
+  curl -fsS -D "${patch_headers}" -X PATCH \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Content-Type: application/octet-stream' \
+    --data-binary @"${file_path}" \
+    "${upload_url}" >/dev/null
+  upload_url="$(awk 'tolower($1)=="location:" {print $2}' "${patch_headers}" | tr -d '\r')"
+  rm -f "${patch_headers}"
+  [[ -n "${upload_url}" ]] || {
+    echo "error: registry did not return upload location for ${repo_path}" >&2
+    return 1
+  }
+  case "${upload_url}" in
+    http*) ;;
+    /*) upload_url="https://${REGISTRY_HOST}${upload_url}" ;;
+    *) upload_url="https://${REGISTRY_HOST}/${upload_url}" ;;
+  esac
   if [[ "${upload_url}" == *\?* ]]; then
     upload_url="${upload_url}&digest=${digest}"
   else
@@ -170,7 +189,6 @@ upload_blob() {
 
   curl -fsS -X PUT \
     -H "Authorization: Bearer ${token}" \
-    --data-binary @"${file_path}" \
     "${upload_url}" >/dev/null
   printf '%s\n' "${digest}"
 }
