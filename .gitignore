@@ -236,6 +236,7 @@ elixir/**/priv/static/assets/
 .venv
 #.bin
 .gemini/
+.codex
 
 # Docker generated certificates
 docker/compose/certs/

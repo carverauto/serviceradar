@@ -8,16 +8,16 @@ This directory contains Docker configurations for ServiceRadar components.
 
 1. **Copy environment configuration (optional):**
    ```bash
-   cp .env.example .env
+   cp .env-sample .env
    # Edit .env as needed (all values have sensible defaults)
    ```
 
 2. **Start with pre-built images:**
    ```bash
-   docker-compose up
+   docker compose up -d
    ```
    This automatically:
-   - Pulls pre-built images from GitHub Container Registry (GHCR)
+   - Pulls pre-built images from `registry.carverauto.dev`
    - Generates mTLS certificates
    - Starts the core services stack
    - Sets up networking and volumes
@@ -26,7 +26,7 @@ This directory contains Docker configurations for ServiceRadar components.
 
 1. **Build and start locally:**
    ```bash
-   docker-compose -f docker-compose.dev.yml up
+   docker compose -f docker-compose.dev.yml up
    ```
    This automatically:
    - Generates mTLS certificates
@@ -63,10 +63,10 @@ This directory contains Docker configurations for ServiceRadar components.
 
 ServiceRadar provides pre-built multi-architecture (amd64/arm64) container images:
 
-- **Core Service (Elixir)**: `ghcr.io/carverauto/serviceradar-core-elx:latest`
-- **Certificate Generator**: `ghcr.io/carverauto/serviceradar-cert-generator:latest`
+- **Core Service (Elixir)**: `registry.carverauto.dev/serviceradar/serviceradar-core-elx:latest`
+- **Certificate Generator**: `registry.carverauto.dev/serviceradar/serviceradar-cert-generator:latest`
 
-Images are automatically built and published via GitHub Actions on every push to main/develop branches and tagged releases.
+Images are published to Harbor from the current Forgejo-based release workflow.
 
 ### Image Versioning
 
@@ -75,7 +75,7 @@ Images are automatically built and published via GitHub Actions on every push to
 - `v1.2.3`: Specific version tags
 - `1.2`: Major.minor tags for compatibility
 
-Pin releases in Docker Compose by setting `APP_TAG` in `.env` (example: `APP_TAG=v1.0.78`).
+Pin releases in Docker Compose by setting `APP_TAG` in `.env` (example: `APP_TAG=sha-<git-sha>`).
 
 ## Architecture
 
