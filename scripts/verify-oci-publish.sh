@@ -237,6 +237,39 @@ check_signature_accessory() {
   ' <<<"${referrers}" >/dev/null || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
 }
 
+check_legacy_signature_tag() {
+  local tag="$1"
+  local ref="$2"
+  local digest
+  digest="$(skopeo inspect "docker://${ref}:${tag}" | jq -r '.Digest')"
+  [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
+
+  local signature_ref
+  signature_ref="$(cosign triangulate "${ref}@${digest}")"
+  [[ -n "${signature_ref}" ]] || fail "${ref}:${tag} legacy signature reference lookup failed"
+
+  local signature_repo="${signature_ref%:*}"
+  local signature_tag="${signature_ref##*:}"
+  local signature_repo_path="${signature_repo#${REGISTRY_HOST}/}"
+  local auth user pass token
+  auth="$(resolve_registry_auth)"
+  IFS='|' read -r user pass <<<"${auth}"
+
+  local token_url="https://${REGISTRY_HOST}/service/token?service=harbor-registry&scope=repository:${signature_repo_path}:pull"
+  if [[ -n "${user}" && -n "${pass}" ]]; then
+    token="$(curl -fsSL -u "${user}:${pass}" "${token_url}" | jq -r '.token')"
+  else
+    token="$(curl -fsSL "${token_url}" | jq -r '.token')"
+  fi
+  [[ -n "${token}" && "${token}" != "null" ]] || fail "${ref}:${tag} legacy signature token lookup failed"
+
+  curl -fsSI \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+    "https://${REGISTRY_HOST}/v2/${signature_repo_path}/manifests/${signature_tag}" >/dev/null \
+    || fail "${ref}:${tag} is missing the legacy cosign signature tag ${signature_tag}"
+}
+
 check_cosign_verify() {
   local tag="$1"
   local ref="$2"
@@ -265,8 +298,9 @@ for tag in "${TAGS[@]}"; do
     check_image_shape "$tag" "$ref" "$kind"
     check_config "$tag" "$ref"
     check_signature_accessory "$tag" "$ref"
+    check_legacy_signature_tag "$tag" "$ref"
     check_cosign_verify "$tag" "$ref"
   done
 done
 
-echo "verified OCI publish metadata, Harbor Cosign accessories, and signature verification for tags: ${TAGS[*]}"
+echo "verified OCI publish metadata, Harbor Cosign accessories, legacy signature tags, and signature verification for tags: ${TAGS[*]}"

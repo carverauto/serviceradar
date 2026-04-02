@@ -11,6 +11,16 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "error: jq is required" >&2
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "error: curl is required" >&2
+  exit 1
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
@@ -56,6 +66,106 @@ Set one of:
 MSG
   exit 1
 fi
+
+resolve_registry_auth() {
+  if [[ -n "${OCI_USERNAME:-}" && -n "${OCI_TOKEN:-}" ]]; then
+    printf '%s|%s\n' "${OCI_USERNAME}" "${OCI_TOKEN}"
+    return 0
+  fi
+  if [[ -n "${HARBOR_ROBOT_USERNAME:-}" && -n "${HARBOR_ROBOT_SECRET:-}" ]]; then
+    printf '%s|%s\n' "${HARBOR_ROBOT_USERNAME}" "${HARBOR_ROBOT_SECRET}"
+    return 0
+  fi
+  if [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]]; then
+    printf '%s|%s\n' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}"
+    return 0
+  fi
+  printf '|\n'
+}
+
+delete_existing_legacy_signature() {
+  local ref="$1"
+  local signature_ref repo tag repo_path auth user pass token token_url headers status manifest_digest
+  signature_ref="$(cosign triangulate "${ref}")"
+  repo="${signature_ref%:*}"
+  tag="${signature_ref##*:}"
+  repo_path="${repo#${REGISTRY_HOST}/}"
+  auth="$(resolve_registry_auth)"
+  IFS='|' read -r user pass <<<"${auth}"
+
+  token_url="https://${REGISTRY_HOST}/service/token?service=harbor-registry&scope=repository:${repo_path}:pull,push,delete"
+  if [[ -n "${user}" && -n "${pass}" ]]; then
+    token="$(curl -fsSL -u "${user}:${pass}" "${token_url}" | jq -r '.token')"
+  else
+    token="$(curl -fsSL "${token_url}" | jq -r '.token')"
+  fi
+  [[ -n "${token}" && "${token}" != "null" ]] || return 0
+
+  headers="$(mktemp)"
+  status="$(
+    curl -sS -o /dev/null -D "${headers}" \
+      -H "Authorization: Bearer ${token}" \
+      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" \
+      -w '%{http_code}' || true
+  )"
+  if [[ "${status}" == "404" ]]; then
+    rm -f "${headers}"
+    return 0
+  fi
+
+  manifest_digest="$(awk 'tolower($1)=="docker-content-digest:" {print $2}' "${headers}" | tr -d '\r')"
+  rm -f "${headers}"
+  [[ -n "${manifest_digest}" ]] || return 0
+
+  curl -fsS -X DELETE \
+    -H "Authorization: Bearer ${token}" \
+    "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${manifest_digest}" >/dev/null
+}
+
+attach_legacy_signature() {
+  local ref="$1"
+  local payload_file
+  local signature_file
+  local bundle_file
+  local stdout_file
+
+  payload_file="$(mktemp)"
+  signature_file="$(mktemp)"
+  bundle_file="$(mktemp)"
+  stdout_file="$(mktemp)"
+
+  # Publish a classic cosign signature tag alongside the OCI bundle accessory
+  # using a local sign-blob bundle, which works even when cosign does not
+  # reliably populate the detached signature file or stdout on this version.
+  cosign generate "${ref}" >"${payload_file}"
+  cosign sign-blob \
+    --yes \
+    --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
+    "${cosign_key_args[@]}" \
+    --bundle "${bundle_file}" \
+    --output-signature "${signature_file}" \
+    "${payload_file}" >"${stdout_file}"
+
+  if [[ ! -s "${signature_file}" && -s "${stdout_file}" ]]; then
+    cp "${stdout_file}" "${signature_file}"
+  fi
+  if [[ ! -s "${signature_file}" ]]; then
+    jq -r '.messageSignature.signature // .base64Signature // empty' "${bundle_file}" >"${signature_file}"
+  fi
+  if [[ ! -s "${signature_file}" ]]; then
+    echo "error: detached cosign signature was empty for ${ref}" >&2
+    exit 1
+  fi
+
+  delete_existing_legacy_signature "${ref}"
+
+  cosign attach signature \
+    --payload "${payload_file}" \
+    --signature "${signature_file}" \
+    "${ref}"
+  rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}"
+}
 
 mapfile -t image_rows < <(
   python3 - <<'PY2' "${REPO_ROOT}/docker/images/image_inventory.bzl" "${REGISTRY_HOST}" "${OCI_PROJECT}"
@@ -123,6 +233,8 @@ PY3
     --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
     "${cosign_key_args[@]}" \
     "${ref}"
+
+  attach_legacy_signature "${ref}"
 done
 
 echo "signed OCI images via cosign"
