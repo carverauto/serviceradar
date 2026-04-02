@@ -13,7 +13,7 @@ image:
 bmpCollector:
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
-    tag: "latest"
+    tag: "sha-ff77da50bee57bda07036888c757ea8c8359d7e7"
 
 agentGateway:
   enabled: true
