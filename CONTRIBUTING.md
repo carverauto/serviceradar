@@ -126,10 +126,18 @@ Enhancement suggestions are tracked as [GitHub issues](ServiceRadar/issues).
 <!-- You might want to create an issue template for enhancement suggestions that can be used as a guide and that defines the structure of the information to be included. If you do so, reference it here in the description. -->
 
 ### Your First Code Contribution
-<!-- TODO
-include Setup of env, IDE and typical getting started instructions?
+For local guardrails before code reaches Forgejo:
 
--->
+- set the repo hooks path once with `git config core.hooksPath .githooks`
+- install `pre-commit` on your workstation
+- run `pre-commit install-hooks` from the repo root to prefetch the managed hook environments
+
+This repo uses:
+
+- `.githooks/pre-commit` to chain the repo-managed checks and the existing `god_view` quick checks
+- `.githooks/pre-push` to run a local `gitleaks` scan of commits being pushed when `gitleaks` or Docker is available
+
+The authoritative merge gate remains Forgejo Actions, but keeping the local hooks enabled is the fastest way to catch accidental secrets before they leave your machine.
 
 ### Improving The Documentation
 <!-- TODO
