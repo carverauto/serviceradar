@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+zero_oid='0000000000000000000000000000000000000000'
+ranges=()
+
+while read -r _local_ref local_oid _remote_ref remote_oid; do
+  [[ -z "${local_oid:-}" ]] && continue
+  if [[ "${local_oid}" == "${zero_oid}" ]]; then
+    continue
+  fi
+
+  if [[ "${remote_oid:-$zero_oid}" == "${zero_oid}" ]]; then
+    ranges+=("${local_oid} --not --remotes=origin")
+  else
+    ranges+=("${remote_oid}..${local_oid}")
+  fi
+done
+
+if [[ "${#ranges[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+run_gitleaks() {
+  local range="${1}"
+
+  if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks git --no-banner --redact --verbose --log-opts "${range}" .
+    return
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    docker run --rm -v "${ROOT_DIR}:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.0 \
+      git --no-banner --redact --verbose --log-opts "${range}" /repo
+    return
+  fi
+
+  echo "Skipping local pre-push secret scan because neither gitleaks nor docker is installed." >&2
+  echo "Forgejo Actions still enforces the repository secret scan." >&2
+}
+
+for range in "${ranges[@]}"; do
+  echo "Running gitleaks pre-push scan for ${range}"
+  run_gitleaks "${range}"
+done

@@ -4,6 +4,27 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
+run_pre_commit_hooks() {
+  if [[ ! -f .pre-commit-config.yaml ]]; then
+    return 0
+  fi
+
+  if ! command -v pre-commit >/dev/null 2>&1; then
+    echo "pre-commit not installed; skipping repo-managed local checks." >&2
+    echo "Install pre-commit and run 'pre-commit install-hooks' to enable the gitleaks hook." >&2
+    return 0
+  fi
+
+  mapfile -t staged_files < <(git diff --cached --name-only --diff-filter=ACMR)
+  if [[ "${#staged_files[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  pre-commit run --hook-stage pre-commit --files "${staged_files[@]}"
+}
+
+run_pre_commit_hooks
+
 if ! git diff --cached --name-only | rg -q '^elixir/web-ng/assets/js/lib/god_view/'; then
   exit 0
 fi
