@@ -358,7 +358,7 @@ cnpg:
   instances: 3
   storageClass: local-path
   storageSize: 100Gi
-  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2
+  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd
   sharedPreloadLibraries:
     - timescaledb
     - age
@@ -780,7 +780,7 @@ spire:
     # Existing secrets are reused; delete the secret to rotate.
     image: registry.carverauto.dev/serviceradar/serviceradar-cnpg
     imageTag: ""
-    imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2
+    imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd
     imagePullSecrets: []
     sharedPreloadLibraries:
       - timescaledb
