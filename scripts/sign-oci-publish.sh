@@ -80,60 +80,142 @@ resolve_registry_auth() {
     printf '%s|%s\n' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}"
     return 0
   fi
+  local docker_config
+  docker_config="${DOCKER_CONFIG:-${HOME}/.docker}/config.json"
+  if [[ -f "${docker_config}" ]]; then
+    python3 - <<'PY' "${docker_config}" "${REGISTRY_HOST}"
+import base64
+import json
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+registry_host = sys.argv[2]
+config = json.loads(config_path.read_text())
+auths = config.get("auths") or {}
+entry = auths.get(registry_host) or auths.get(f"https://{registry_host}") or {}
+auth = entry.get("auth") or ""
+if auth:
+    decoded = base64.b64decode(auth).decode("utf-8")
+    user, _, password = decoded.partition(":")
+    print(f"{user}|{password}")
+else:
+    print("|")
+PY
+    return 0
+  fi
   printf '|\n'
 }
 
-delete_existing_legacy_signature() {
-  local ref="$1"
-  local signature_ref repo tag repo_path auth user pass token token_url headers status manifest_digest
-  signature_ref="$(cosign triangulate "${ref}")"
-  repo="${signature_ref%:*}"
-  tag="${signature_ref##*:}"
-  repo_path="${repo#${REGISTRY_HOST}/}"
+fetch_registry_token() {
+  local repo_path="$1"
+  local scope_actions="${2:-pull,push}"
   auth="$(resolve_registry_auth)"
   IFS='|' read -r user pass <<<"${auth}"
 
-  token_url="https://${REGISTRY_HOST}/service/token?service=harbor-registry&scope=repository:${repo_path}:pull,push,delete"
+  local token_url="https://${REGISTRY_HOST}/service/token?service=harbor-registry&scope=repository:${repo_path}:${scope_actions}"
   if [[ -n "${user}" && -n "${pass}" ]]; then
-    token="$(curl -fsSL -u "${user}:${pass}" "${token_url}" | jq -r '.token')"
+    curl -fsSL -u "${user}:${pass}" "${token_url}" | jq -r '.token'
   else
-    token="$(curl -fsSL "${token_url}" | jq -r '.token')"
+    curl -fsSL "${token_url}" | jq -r '.token'
   fi
-  [[ -n "${token}" && "${token}" != "null" ]] || return 0
+}
 
-  headers="$(mktemp)"
+upload_blob() {
+  local repo_path="$1"
+  local file_path="$2"
+  local token
+  token="$(fetch_registry_token "${repo_path}" "pull,push")"
+  [[ -n "${token}" && "${token}" != "null" ]] || {
+    echo "error: registry token lookup failed for ${repo_path}" >&2
+    return 1
+  }
+
+  local digest
+  digest="sha256:$(shasum -a 256 "${file_path}" | awk '{print $1}')"
+  local status
   status="$(
-    curl -sS -o /dev/null -D "${headers}" \
+    curl -sS -o /dev/null \
       -H "Authorization: Bearer ${token}" \
-      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-      "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" \
+      -I "https://${REGISTRY_HOST}/v2/${repo_path}/blobs/${digest}" \
       -w '%{http_code}' || true
   )"
-  if [[ "${status}" == "404" ]]; then
-    rm -f "${headers}"
+  if [[ "${status}" == "200" ]]; then
+    printf '%s\n' "${digest}"
     return 0
   fi
 
-  manifest_digest="$(awk 'tolower($1)=="docker-content-digest:" {print $2}' "${headers}" | tr -d '\r')"
-  rm -f "${headers}"
-  [[ -n "${manifest_digest}" ]] || return 0
+  local upload_url
+  upload_url="$(
+    curl -fsSI -X POST \
+      -H "Authorization: Bearer ${token}" \
+      "https://${REGISTRY_HOST}/v2/${repo_path}/blobs/uploads/" \
+      | awk 'tolower($1)=="location:" {print $2}' \
+      | tr -d '\r'
+  )"
+  [[ -n "${upload_url}" ]] || {
+    echo "error: failed to start blob upload for ${repo_path}" >&2
+    return 1
+  }
+  case "${upload_url}" in
+    http*) ;;
+    /*) upload_url="https://${REGISTRY_HOST}${upload_url}" ;;
+    *) upload_url="https://${REGISTRY_HOST}/${upload_url}" ;;
+  esac
+  if [[ "${upload_url}" == *\?* ]]; then
+    upload_url="${upload_url}&digest=${digest}"
+  else
+    upload_url="${upload_url}?digest=${digest}"
+  fi
 
-  curl -fsS -X DELETE \
+  curl -fsS -X PUT \
     -H "Authorization: Bearer ${token}" \
-    "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${manifest_digest}" >/dev/null
+    --data-binary @"${file_path}" \
+    "${upload_url}" >/dev/null
+  printf '%s\n' "${digest}"
+}
+
+put_manifest_tag() {
+  local repo_path="$1"
+  local tag="$2"
+  local manifest_file="$3"
+  local token
+  token="$(fetch_registry_token "${repo_path}" "pull,push")"
+  [[ -n "${token}" && "${token}" != "null" ]] || {
+    echo "error: registry token lookup failed for ${repo_path}" >&2
+    return 1
+  }
+
+  curl -fsS -X PUT \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Content-Type: application/vnd.oci.image.manifest.v1+json' \
+    --data-binary @"${manifest_file}" \
+    "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null
 }
 
 attach_legacy_signature() {
   local ref="$1"
+  local repo="${ref%@*}"
+  local digest="${ref##*@}"
+  local repo_path="${repo#${REGISTRY_HOST}/}"
+  local signature_ref signature_tag
   local payload_file
   local signature_file
   local bundle_file
   local stdout_file
+  local config_file
+  local manifest_file
+  local payload_digest payload_size config_digest config_size
+
+  signature_ref="$(cosign triangulate "${ref}")"
+  signature_tag="${signature_ref##*:}"
 
   payload_file="$(mktemp)"
   signature_file="$(mktemp)"
   bundle_file="$(mktemp)"
   stdout_file="$(mktemp)"
+  config_file="$(mktemp)"
+  manifest_file="$(mktemp)"
 
   # Publish a classic cosign signature tag alongside the OCI bundle accessory
   # using a local sign-blob bundle, which works even when cosign does not
@@ -158,13 +240,24 @@ attach_legacy_signature() {
     exit 1
   fi
 
-  delete_existing_legacy_signature "${ref}"
+  payload_digest="sha256:$(shasum -a 256 "${payload_file}" | awk '{print $1}')"
+  payload_size="$(wc -c < "${payload_file}" | tr -d ' ')"
 
-  cosign attach signature \
-    --payload "${payload_file}" \
-    --signature "${signature_file}" \
-    "${ref}"
-  rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}"
+  cat >"${config_file}" <<EOF
+{"architecture":"","created":"0001-01-01T00:00:00Z","history":[{"created":"0001-01-01T00:00:00Z"}],"os":"","rootfs":{"type":"layers","diff_ids":["${payload_digest}"]},"config":{}}
+EOF
+  config_digest="sha256:$(shasum -a 256 "${config_file}" | awk '{print $1}')"
+  config_size="$(wc -c < "${config_file}" | tr -d ' ')"
+
+  upload_blob "${repo_path}" "${config_file}" >/dev/null
+  upload_blob "${repo_path}" "${payload_file}" >/dev/null
+
+  cat >"${manifest_file}" <<EOF
+{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","size":${config_size},"digest":"${config_digest}"},"layers":[{"mediaType":"application/vnd.dev.cosign.simplesigning.v1+json","size":${payload_size},"digest":"${payload_digest}","annotations":{"dev.cosignproject.cosign/signature":"$(cat "${signature_file}")"}}]}
+EOF
+
+  put_manifest_tag "${repo_path}" "${signature_tag}" "${manifest_file}"
+  rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}" "${config_file}" "${manifest_file}"
 }
 
 mapfile -t image_rows < <(
