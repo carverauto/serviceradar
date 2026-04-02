@@ -23,7 +23,7 @@ spec:
           type: RuntimeDefault
       initContainers:
       - name: init-debug-tools
-        image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
@@ -102,7 +102,7 @@ spec:
           mountPath: /shared
       containers:
       - name: tools
-        image: registry.carverauto.dev/serviceradar/serviceradar-tools:latest
+        image: registry.carverauto.dev/serviceradar/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
         imagePullPolicy: Always
         command: ["/bin/bash", "-c"]
         args:

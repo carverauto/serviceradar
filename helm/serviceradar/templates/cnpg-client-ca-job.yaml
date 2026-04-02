@@ -1,5 +1,5 @@
 {{- if and .Values.cnpg.clientCAFromCerts .Values.cnpg.clientCASecret }}
-{{- $toolsTag := default "latest" .Values.image.tags.tools -}}
+{{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 ---
