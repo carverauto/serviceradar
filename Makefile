@@ -96,6 +96,12 @@ help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_CYAN)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 
+.PHONY: hooks-setup
+hooks-setup: ## Configure repo-local git hooks and install pre-commit environments
+	@which pre-commit > /dev/null || (echo "pre-commit not found, please install it first" && exit 1)
+	@git config core.hooksPath .githooks
+	@pre-commit install-hooks
+
 .PHONY: compose-up
 compose-up: ## Start Docker Compose stack
 	@docker compose up -d

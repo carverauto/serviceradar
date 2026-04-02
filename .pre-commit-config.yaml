@@ -1,0 +1,9 @@
+minimum_pre_commit_version: 3.5.0
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        stages:
+          - pre-commit
