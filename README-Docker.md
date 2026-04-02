@@ -47,13 +47,13 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
 
 1. **Clone and navigate**:
    ```bash
-   git clone https://github.com/carverauto/serviceradar.git
+   git clone https://code.carverauto.dev/carverauto/serviceradar.git
    cd serviceradar
    ```
 
 2. **Create environment file**:
    ```bash
-   cp .env.example .env
+   cp .env-sample .env
    ```
 
 3. **Pull the images**:
@@ -201,7 +201,7 @@ ServiceRadar container images are built with Bazel. Load the agent image into yo
 bazel run //docker/images:agent_image_amd64_tar
 ```
 
-To publish the agent image (and the rest of the stack) to GHCR using the same Bazel targets:
+To publish the agent image (and the rest of the stack) to Harbor using the same Bazel targets:
 
 ```bash
 # Push just the agent image
@@ -288,5 +288,5 @@ docker compose exec web-ng cat /etc/serviceradar/admin/admin-password
 ## Support
 
 - [Complete Documentation](docs/docs/)
-- [Report Issues](https://github.com/carverauto/serviceradar/issues)
-- [Community Support](https://github.com/carverauto/serviceradar/discussions)
+- [Report Issues](https://code.carverauto.dev/carverauto/serviceradar/issues)
+- [Project Repository](https://code.carverauto.dev/carverauto/serviceradar)

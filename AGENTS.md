@@ -282,7 +282,7 @@ If you need a host-side IEx shell, run a one-off container on the same Docker ne
 CERT_VOLUME=$(docker volume ls --format '{{.Name}}' | rg 'cert-data' | head -n1)
 docker run --rm -it --network serviceradar-net \
   -v "${CERT_VOLUME}:/etc/serviceradar/certs" \
-  ghcr.io/carverauto/serviceradar-web-ng:sha-<sha> \
+  registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<sha> \
   /app/bin/serviceradar_web_ng remote
 ```
 
@@ -430,7 +430,7 @@ Restart the checker using the persisted config:
 2. Tag the release:
    - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
 3. Build and push Bazel images:
-   - Authenticate to GHCR if needed: `./scripts/docker-login.sh`.
+   - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
    - Run `bazel run --config=remote_push //docker/images:push_all`. This reuses the build artifacts, downloads OCI publish metadata locally, publishes `latest`, `sha-<commit>`, and short-digest tags, and refreshes the embedded `build-info.json`.
    - If a single image needs republishing, run `bazel run --config=remote_push //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
@@ -438,7 +438,7 @@ Restart the checker using the persisted config:
 4. Roll the demo namespace:
    - Run `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic` so the mutable-tag demo workloads roll to the newest published `latest` images.
    - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
-5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with GitHub release packaging if required.
+5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with Forgejo release packaging if required.
 
 ## When Updating This File
 

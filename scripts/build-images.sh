@@ -16,8 +16,8 @@ BUILDER_NAME="multiarch"
 declare -A SERVICE_GROUPS=(
     ["infrastructure"]="cert-generator config-updater"
     ["core"]="core web agent-gateway agent"
-    ["data"]="kv db-event-writer"
-    ["observability"]="otel flowgger trapd zen"
+    ["data"]="datasvc db-event-writer"
+    ["observability"]="log-collector flow-collector trapd zen"
     ["checkers"]="rperf-client"
     ["tools"]="tools"
 )
@@ -73,8 +73,8 @@ OPTIONS:
 SERVICE GROUPS:
   infrastructure: cert-generator, config-updater
   core:          core, web, agent-gateway, agent
-  data:          kv, db-event-writer
-  observability: otel, flowgger, trapd, zen
+  data:          datasvc, db-event-writer
+  observability: log-collector, flow-collector, trapd, zen
   checkers:      rperf-client
   tools:         tools
   all:           Build all services (default if no services specified)
@@ -82,7 +82,7 @@ SERVICE GROUPS:
 SERVICES:
   You can specify individual services to build:
   cert-generator, config-updater, core, web, agent-gateway, agent,
-  kv, db-event-writer, otel, flowgger, trapd, zen,
+  datasvc, db-event-writer, log-collector, flow-collector, trapd, zen,
   rperf-client, tools
 
 EXAMPLES:
@@ -306,13 +306,14 @@ log "Starting build process..."
 declare -A SERVICE_DOCKERFILES=(
     ["cert-generator"]="docker/compose/Dockerfile.cert-generator:DYNAMIC"
     ["config-updater"]="docker/compose/Dockerfile.config-updater"
-    ["core"]="docker/compose/Dockerfile.core"
-    ["web"]="docker/compose/Dockerfile.web"
+    ["core"]="docker/compose/Dockerfile.core-elx"
+    ["web"]="docker/compose/Dockerfile.web-ng"
     ["agent-gateway"]="docker/compose/Dockerfile.agent-gateway"
     ["agent"]="docker/compose/Dockerfile.agent"
     ["datasvc"]="docker/compose/Dockerfile.datasvc"
     ["db-event-writer"]="docker/compose/Dockerfile.db-event-writer"
     ["log-collector"]="docker/compose/Dockerfile.log-collector"
+    ["flow-collector"]="rust/flow-collector/Dockerfile"
     ["trapd"]="docker/compose/Dockerfile.trapd"
     ["zen"]="docker/compose/Dockerfile.zen"
     ["rperf-client"]="docker/compose/Dockerfile.rperf-client"
@@ -411,7 +412,7 @@ if [[ "$PUSH" == false ]]; then
     echo ""
     warn "Images were built locally but not pushed."
     log "To push images, run with --push flag after logging in:"
-    log "  echo \$GITHUB_TOKEN | docker login ghcr.io -u \$GITHUB_USERNAME --password-stdin"
+    log "  echo \$HARBOR_ROBOT_SECRET | docker login $REGISTRY -u \$HARBOR_ROBOT_USERNAME --password-stdin"
     log "  $0 --push --tag $TAG"
 fi
 
