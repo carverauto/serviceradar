@@ -17,6 +17,11 @@ OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 BAZEL_BIN="${BAZEL_BIN:-$(cd "${REPO_ROOT}" && bazel info bazel-bin 2>/dev/null)}"
 IMAGE_METADATA_DIR="${BAZEL_BIN}/docker/images"
 
+# Harbor's cosign integration is most reliable with legacy signature tags
+# rather than OCI 1.1 referrers.
+export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
+COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-legacy}"
+
 if [[ ! -d "${IMAGE_METADATA_DIR}" ]]; then
   echo "error: bazel image metadata directory not found: ${IMAGE_METADATA_DIR}" >&2
   echo "run the Bazel image publish first so index metadata exists locally" >&2
@@ -111,7 +116,11 @@ PY3
 
   ref="${repository}@${digest}"
   echo "signing ${ref}"
-  cosign sign --yes "${cosign_key_args[@]}" "${ref}"
+  cosign sign \
+    --yes \
+    --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
+    "${cosign_key_args[@]}" \
+    "${ref}"
 done
 
 echo "signed OCI images via cosign"
