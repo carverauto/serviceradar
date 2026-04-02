@@ -633,7 +633,7 @@ services:
     restart: unless-stopped
 
   bmp-collector:
-    image: ghcr.io/carverauto/arancini:${ARANCINI_TAG:-v0.7.2}
+    image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
     container_name: serviceradar-bmp-collector-mtls
     ports:
       - "11019:11019"

@@ -22,9 +22,9 @@ help:
 	@echo "  make -f Makefile.docker build      - Build Docker images"
 	@echo ""
 	@echo "Image building and pushing:"
-	@echo "  make -f Makefile.docker docker-login    - Login to GitHub Container Registry"
+	@echo "  make -f Makefile.docker docker-login    - Login to Harbor"
 	@echo "  make -f Makefile.docker docker-build    - Build images locally"
-	@echo "  make -f Makefile.docker docker-push     - Build and push images to GHCR"
+	@echo "  make -f Makefile.docker docker-push     - Build and push images to Harbor"
 
 # Generate mTLS certificates
 certs:
@@ -125,23 +125,23 @@ test:
 	@echo "Testing Metrics..."
 	@curl -sf http://localhost:9090/metrics > /dev/null && echo "✓ Metrics endpoint is working" || echo "✗ Metrics endpoint is not responding"
 
-# Login to GitHub Container Registry
+# Login to Harbor
 docker-login:
 	@./scripts/docker-login.sh
 
 # Build Docker images locally (without pushing)
 docker-build:
-	@./scripts/build-and-push-docker.sh --all --tag local
+	@./scripts/build-images.sh --local --tag local
 
-# Build and push Docker images to GHCR
+# Build and push Docker images to Harbor
 docker-push:
 	@read -p "Enter tag (default: latest): " tag; \
 	tag=$${tag:-latest}; \
-	./scripts/build-and-push-docker.sh --all --push --tag $$tag
+	./scripts/build-images.sh --push --tag $$tag
 
 # Build specific image
 docker-build-core:
-	@./scripts/build-and-push-docker.sh --core --tag local
+	@./scripts/build-images.sh --local --tag local core
 
 docker-build-cert-gen:
-	@./scripts/build-and-push-docker.sh --cert-gen --tag local
+	@./scripts/build-images.sh --local --tag local cert-generator
