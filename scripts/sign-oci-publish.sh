@@ -17,10 +17,11 @@ OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 BAZEL_BIN="${BAZEL_BIN:-$(cd "${REPO_ROOT}" && bazel info bazel-bin 2>/dev/null)}"
 IMAGE_METADATA_DIR="${BAZEL_BIN}/docker/images"
 
-# Harbor is storing Cosign signatures as OCI referrer accessories. Force that
-# path explicitly so publish and verification use the same storage mode.
+# Harbor and Kyverno can both resolve Cosign signatures reliably when we use
+# legacy referrer mode without tlog bundles for key-based signing.
 export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
-COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
+COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-legacy}"
+COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-false}"
 
 if [[ ! -d "${IMAGE_METADATA_DIR}" ]]; then
   echo "error: bazel image metadata directory not found: ${IMAGE_METADATA_DIR}" >&2
@@ -118,6 +119,7 @@ PY3
   echo "signing ${ref}"
   cosign sign \
     --yes \
+    --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
     --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
     "${cosign_key_args[@]}" \
     "${ref}"

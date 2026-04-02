@@ -16,6 +16,11 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v cosign >/dev/null 2>&1; then
+  echo "error: cosign is required" >&2
+  exit 1
+fi
+
 if [[ "$#" -eq 0 ]]; then
   TAGS=("latest")
 else
@@ -57,6 +62,28 @@ resolve_registry_auth() {
   fi
   if [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]]; then
     printf '%s|%s\n' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}"
+    return 0
+  fi
+  printf '|\n'
+}
+
+resolve_cosign_verify_args() {
+  if [[ -n "${COSIGN_PUBLIC_KEY_FILE:-}" ]]; then
+    printf -- "--key|%s\n" "${COSIGN_PUBLIC_KEY_FILE}"
+    return 0
+  fi
+  if [[ -n "${COSIGN_KEY_FILE:-}" && -f "${COSIGN_KEY_FILE}" ]]; then
+    local pubkey
+    pubkey="$(mktemp)"
+    cosign public-key --key "${COSIGN_KEY_FILE}" >"${pubkey}"
+    printf -- "--key|%s\n" "${pubkey}"
+    return 0
+  fi
+  if [[ -n "${COSIGN_PUBLIC_KEY:-}" ]]; then
+    local pubkey
+    pubkey="$(mktemp)"
+    printf '%s\n' "${COSIGN_PUBLIC_KEY}" >"${pubkey}"
+    printf -- "--key|%s\n" "${pubkey}"
     return 0
   fi
   printf '|\n'
@@ -210,6 +237,27 @@ check_signature_accessory() {
   ' <<<"${referrers}" >/dev/null || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
 }
 
+check_cosign_verify() {
+  local tag="$1"
+  local ref="$2"
+  local digest
+  digest="$(skopeo inspect "docker://${ref}:${tag}" | jq -r '.Digest')"
+  [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
+
+  local verify_spec verify_flag verify_value
+  verify_spec="$(resolve_cosign_verify_args)"
+  IFS='|' read -r verify_flag verify_value <<<"${verify_spec}"
+  if [[ -z "${verify_flag}" || -z "${verify_value}" ]]; then
+    return 0
+  fi
+
+  cosign verify \
+    --experimental-oci11 \
+    --insecure-ignore-tlog=true \
+    "${verify_flag}" "${verify_value}" \
+    "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
+}
+
 for tag in "${TAGS[@]}"; do
   for spec in "${IMAGE_SPECS[@]}"; do
     IFS="|" read -r ref kind <<<"$spec"
@@ -217,7 +265,8 @@ for tag in "${TAGS[@]}"; do
     check_image_shape "$tag" "$ref" "$kind"
     check_config "$tag" "$ref"
     check_signature_accessory "$tag" "$ref"
+    check_cosign_verify "$tag" "$ref"
   done
 done
 
-echo "verified OCI publish metadata and Harbor Cosign accessories for tags: ${TAGS[*]}"
+echo "verified OCI publish metadata, Harbor Cosign accessories, and signature verification for tags: ${TAGS[*]}"
