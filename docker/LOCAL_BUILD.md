@@ -1,214 +1,152 @@
 # Local Docker Build and Push
 
-This guide shows how to build and push ServiceRadar Docker images locally without using CI/CD.
+This guide shows how to build and publish ServiceRadar Docker images locally for
+the Docker Compose stack now that images are hosted in Harbor at
+`registry.carverauto.dev`.
 
 ## Quick Start
 
-### 1. Setup Authentication
+### 1. Authenticate to Harbor
 
-First, create a GitHub Personal Access Token with `write:packages` scope:
-1. Go to https://github.com/settings/tokens/new
-2. Select `write:packages` scope
-3. Copy the generated token
-
-Then authenticate:
+Use a Harbor robot account or a Harbor user with push access:
 
 ```bash
-# Option 1: Using environment variables (recommended)
-export GITHUB_USERNAME="your-username"
-export GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
-make -f Makefile.docker docker-login
-
-# Option 2: Using the script directly
-./scripts/docker-login.sh --username your-username --token ghp_xxxxxxxxxxxx
+export HARBOR_ROBOT_USERNAME='robot$serviceradar-ci'
+export HARBOR_ROBOT_SECRET='<harbor-secret>'
+./scripts/docker-login.sh
 ```
 
-### 2. Build and Push Images
+You can also pass credentials directly:
 
 ```bash
-# Build and push all images (interactive - prompts for tag)
-make -f Makefile.docker docker-push
-
-# Or use the script directly with specific tag
-./scripts/build-and-push-docker.sh --all --push --tag v1.2.3
+./scripts/docker-login.sh \
+  --username 'robot$serviceradar-ci' \
+  --token '<harbor-secret>'
 ```
 
-## Available Commands
+### 2. Build Images Locally
 
-### Make Targets
+Build all supported compose images for your current platform:
 
 ```bash
-# Authentication
-make -f Makefile.docker docker-login
-
-# Build locally (no push)
-make -f Makefile.docker docker-build
-make -f Makefile.docker docker-build-core
-make -f Makefile.docker docker-build-cert-gen
-
-# Build and push
-make -f Makefile.docker docker-push
+./scripts/build-images.sh --local --tag local
 ```
 
-### Direct Script Usage
+Build a subset:
 
 ```bash
-# Show help
-./scripts/build-and-push-docker.sh --help
-
-# Build all images locally
-./scripts/build-and-push-docker.sh --all --tag local
-
-# Build and push specific image
-./scripts/build-and-push-docker.sh --core --push --tag v1.2.3
-
-# Build for specific platform
-./scripts/build-and-push-docker.sh --all --platform linux/amd64
-
-# Build without cache
-./scripts/build-and-push-docker.sh --all --no-cache
+./scripts/build-images.sh --local --tag local core web agent-gateway agent
 ```
 
-## Examples
+### 3. Push Images to Harbor
 
-### Development Workflow
+Push a tagged build:
 
 ```bash
-# 1. Make changes to code
-# 2. Build images locally for testing
-make -f Makefile.docker docker-build
-
-# 3. Test locally
-docker-compose up
-
-# 4. If everything works, push to registry
-make -f Makefile.docker docker-push
+./scripts/build-images.sh --push --tag sha-$(git rev-parse HEAD)
 ```
 
-### Release Workflow
+### 4. Run the Compose Stack Against That Tag
 
 ```bash
-# 1. Login to GHCR
-make -f Makefile.docker docker-login
-
-# 2. Build and push release
-./scripts/build-and-push-docker.sh --all --push --tag v1.2.3
-
-# 3. Also tag as latest if this is a stable release
-./scripts/build-and-push-docker.sh --all --push --tag latest
+export APP_TAG=sha-$(git rev-parse HEAD)
+export ARANCINI_TAG=latest
+docker compose pull
+docker compose up -d --force-recreate
 ```
 
-### Platform-Specific Builds
+## Common Commands
+
+Show script help:
 
 ```bash
-# Build only for x86_64
-./scripts/build-and-push-docker.sh --all --platform linux/amd64 --tag local-amd64
-
-# Build only for ARM64 (Apple Silicon)
-./scripts/build-and-push-docker.sh --all --platform linux/arm64 --tag local-arm64
-
-# Multi-platform (requires --push)
-./scripts/build-and-push-docker.sh --all --push --platform linux/amd64,linux/arm64 --tag multi-arch
+./scripts/build-images.sh --help
 ```
 
-## Authentication Details
-
-### Environment Variables
-
-Set these for seamless authentication:
+Build all images for amd64:
 
 ```bash
-export GITHUB_USERNAME="your-github-username"
-export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+./scripts/build-images.sh --platform-amd64 --push --tag sha-$(git rev-parse HEAD)
 ```
 
-### Token Requirements
-
-Your GitHub Personal Access Token needs:
-- `write:packages` scope for pushing images
-- `read:packages` scope for pulling private images (if needed)
-
-### Checking Authentication
+Build all images for arm64:
 
 ```bash
-# Check if already logged in
-docker system info | grep ghcr.io
+./scripts/build-images.sh --platform-arm64 --push --tag sha-$(git rev-parse HEAD)
+```
 
-# Test authentication
-docker pull ghcr.io/carverauto/serviceradar-core:latest
+Build a named group:
+
+```bash
+./scripts/build-images.sh --group core --local --tag local
+```
+
+Build without cache:
+
+```bash
+./scripts/build-images.sh --local --no-cache --tag local
 ```
 
 ## Image Naming
 
-Images follow this naming convention:
+Compose pulls ServiceRadar images from:
 
-- `ghcr.io/carverauto/serviceradar-core:TAG`
-- `ghcr.io/carverauto/serviceradar-cert-generator:TAG`
+- `registry.carverauto.dev/serviceradar/serviceradar-core-elx:<tag>`
+- `registry.carverauto.dev/serviceradar/serviceradar-web-ng:<tag>`
+- `registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:<tag>`
+- `registry.carverauto.dev/serviceradar/arancini:<tag>`
 
-Where TAG can be:
-- `latest` - Latest stable release
-- `develop` - Development builds
-- `v1.2.3` - Specific version tags
-- `local` - Local development builds
+Typical tags are:
+
+- `latest`
+- `sha-<git-sha>`
+- release tags published by the release workflow
+
+## Verification
+
+Verify Harbor authentication:
+
+```bash
+docker login registry.carverauto.dev
+docker manifest inspect registry.carverauto.dev/serviceradar/serviceradar-core-elx:latest
+```
+
+Verify your compose tag resolves:
+
+```bash
+docker manifest inspect registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
+docker manifest inspect registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
+```
 
 ## Troubleshooting
 
-### Build Issues
+If login fails:
 
 ```bash
-# Clean Docker buildx cache
-docker buildx prune
-
-# Recreate builder
-docker buildx rm serviceradar-builder
-./scripts/build-and-push-docker.sh --all
+echo "$HARBOR_ROBOT_SECRET" | \
+  docker login registry.carverauto.dev -u "$HARBOR_ROBOT_USERNAME" --password-stdin
 ```
 
-### Authentication Issues
+If a push fails, confirm the target tag and repository:
 
 ```bash
-# Re-login
-./scripts/docker-login.sh
-
-# Check token permissions
-curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user
+./scripts/build-images.sh --help
 ```
 
-### Platform Issues
+If Compose still uses an older image:
 
 ```bash
-# Check available platforms
-docker buildx inspect
-
-# Build for current platform only
-./scripts/build-and-push-docker.sh --all --platform linux/$(uname -m)
+docker compose pull
+docker compose up -d --force-recreate
+docker compose ps
 ```
 
-### Common Error Messages
+## Bazel Alternative
 
-**"authentication required"**
-- Run `make -f Makefile.docker docker-login` first
+If you want to publish the official OCI images the same way CI does, use Bazel:
 
-**"platform not supported"**
-- Use `--platform linux/amd64` for compatibility
+```bash
+bazel run --config=remote_push //docker/images:push_all
+```
 
-**"denied: access forbidden"**
-- Check token has `write:packages` scope
-- Verify repository permissions
-
-**"buildx builder not found"**
-- Script will automatically create one, or run:
-  ```bash
-  docker buildx create --name serviceradar-builder --use
-  ```
-
-## Integration with CI/CD
-
-The local scripts use the same structure as GitHub Actions, so images built locally are compatible with CI/CD builds. The main differences:
-
-- **Local**: Uses `--load` for single-platform builds
-- **CI/CD**: Uses `--push` for multi-platform builds
-- **Local**: Interactive tag selection with make targets
-- **CI/CD**: Automatic versioning based on git tags/branches
-
-This ensures consistency between local development and automated builds.
+That publishes the Harbor-hosted images used by the default Compose stack.
