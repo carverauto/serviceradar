@@ -79,7 +79,6 @@ generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log
 generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "serviceradar-bmp-collector" "DNS:serviceradar-bmp-collector,DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "falcosidekick" "serviceradar-falcosidekick" "DNS:serviceradar-falcosidekick,DNS:falcosidekick,DNS:falcosidekick-nats-auth,DNS:localhost,IP:127.0.0.1"
-generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "DNS:serviceradar-trivy-sidecar,DNS:trivy-sidecar,DNS:trivy-sidecar.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
