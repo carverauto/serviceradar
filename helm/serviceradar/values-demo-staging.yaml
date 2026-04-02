@@ -10,6 +10,11 @@ global:
 image:
   registryPullSecret: registry-carverauto-dev-cred
 
+bmpCollector:
+  image:
+    repository: registry.carverauto.dev/serviceradar/arancini
+    tag: "latest"
+
 agentGateway:
   enabled: true
 

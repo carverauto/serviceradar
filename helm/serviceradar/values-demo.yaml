@@ -328,6 +328,7 @@ certs:
 bmpCollector:
   enabled: true
   image:
+    repository: registry.carverauto.dev/serviceradar/arancini
     tag: "latest"
   args:
     - "--bmp-address=0.0.0.0:11019"
