@@ -3,6 +3,9 @@
 {{- $tcpCollectorServicePorts := default (dict) $tcpCollectorService.ports }}
 {{- $tcpCollectorExternalService := default (dict) $tcpCollector.externalService }}
 {{- $tcpCollectorExternalServicePorts := default (dict) $tcpCollectorExternalService.ports }}
+{{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
+{{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
+{{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
 {{- if $tcpCollector.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -138,17 +141,17 @@ spec:
         livenessProbe:
           grpc:
             port: 50044
-          initialDelaySeconds: 30
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 3
+          initialDelaySeconds: {{ default 30 $logCollectorLiveness.initialDelaySeconds }}
+          periodSeconds: {{ default 30 $logCollectorLiveness.periodSeconds }}
+          timeoutSeconds: {{ default 5 $logCollectorLiveness.timeoutSeconds }}
+          failureThreshold: {{ default 3 $logCollectorLiveness.failureThreshold }}
         readinessProbe:
           grpc:
             port: 50044
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          initialDelaySeconds: {{ default 10 $logCollectorReadiness.initialDelaySeconds }}
+          periodSeconds: {{ default 10 $logCollectorReadiness.periodSeconds }}
+          timeoutSeconds: {{ default 5 $logCollectorReadiness.timeoutSeconds }}
+          failureThreshold: {{ default 3 $logCollectorReadiness.failureThreshold }}
         resources:
           {{- toYaml (default .Values.logCollector.resources $tcpCollector.resources) | nindent 10 }}
         volumeMounts:

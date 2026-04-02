@@ -4,7 +4,7 @@
 namespace: demo-staging
 
 global:
-  imageTag: "sha-dc0513544a7b5edd5eec17e07bbb416fc39ffd73"
+  imageTag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
   imagePullPolicy: Always
 
 image:
@@ -13,7 +13,7 @@ image:
 bmpCollector:
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
-    tag: "sha-ff77da50bee57bda07036888c757ea8c8359d7e7"
+    tag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
 
 agentGateway:
   enabled: true

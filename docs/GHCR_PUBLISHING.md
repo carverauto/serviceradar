@@ -115,4 +115,14 @@ The script checks:
 
 - single-arch repos still publish single OCI manifests where expected
 - multi-arch repos publish OCI indexes with `linux/amd64` and `linux/arm64/v8`
+- Cosign signature artifacts are present in Harbor and resolve via `cosign verify`
 - critical runtime metadata such as `Entrypoint`, `Cmd`, `WorkingDir`, and selected environment values still match the Bazel image declarations
+
+For customer-facing verification, publish the public key from [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub) alongside the image tag you want them to validate:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10
+```

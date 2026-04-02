@@ -899,17 +899,6 @@ data:
             }
           },
           {
-            user: "CN=serviceradar-trivy-sidecar,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-            permissions: {
-              publish: {
-                allow: ["trivy.report.>", "$JS.API.STREAM.INFO.trivy_reports", "$JS.API.STREAM.CREATE.trivy_reports", "$JS.API.>"]
-              }
-              subscribe: {
-                allow: ["$JS.API.>", "_INBOX.>"]
-              }
-            }
-          },
-          {
             user: "O=ServiceRadar"
             permissions: {
               publish: {
