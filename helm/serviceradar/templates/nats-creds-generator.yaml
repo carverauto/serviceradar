@@ -1,6 +1,6 @@
 {{- $auto := default true .Values.natsCreds.autoGenerate -}}
 {{- if and $auto (not (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.operator)) }}
-{{- $toolsTag := default "latest" .Values.image.tags.tools -}}
+{{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") -}}
 ---
 apiVersion: v1
 kind: ServiceAccount

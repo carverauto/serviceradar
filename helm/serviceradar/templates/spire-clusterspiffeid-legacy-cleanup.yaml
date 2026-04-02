@@ -1,6 +1,6 @@
 {{- if .Values.spire.enabled }}
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
-{{- $toolsTag := default "latest" .Values.image.tags.tools }}
+{{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
 {{- $legacyNames := list
   "serviceradar-core"
   "serviceradar-web-ng"
