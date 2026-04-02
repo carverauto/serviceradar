@@ -108,6 +108,30 @@ kubectl get secret serviceradar-secrets -n serviceradar \
 
 Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
 
+## Verifying Published Images
+
+ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub).
+
+Verify a released or immutable image tag with:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10
+```
+
+For build-specific images, prefer the immutable `sha-<commit>` tags:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
+```
+
+Successful verification proves the image was signed with the ServiceRadar release key and that the signature published in Harbor matches the requested image.
+
 Docker Compose notes:
 - Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.1.1`).
 - Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.

@@ -517,6 +517,17 @@ dbEventWriter:
   kvBootstrap:
     enabled: true
 logCollector:
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
   resources:
     requests:
       memory: "256Mi"
