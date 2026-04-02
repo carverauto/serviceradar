@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIRROR_REPOSITORY: git@github.com:carverauto/serviceradar-forgejo.git
-      MIRROR_SSH_PRIVATE_KEY: ${{ secrets.GITHUB_MIRROR_SSH_PRIVATE_KEY }}
+      MIRROR_SSH_PRIVATE_KEY: ${{ secrets.GH_MIRROR_SSH_PRIVATE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${MIRROR_SSH_PRIVATE_KEY:-}" ]]; then
-            echo "GITHUB_MIRROR_SSH_PRIVATE_KEY secret is not configured." >&2
+            echo "GH_MIRROR_SSH_PRIVATE_KEY secret is not configured." >&2
             exit 1
           fi
 
