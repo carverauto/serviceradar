@@ -44,7 +44,7 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
         - name: agent
-          image: registry.carverauto.dev/serviceradar/serviceradar-agent:latest
+          image: registry.carverauto.dev/serviceradar/serviceradar-agent:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
           imagePullPolicy: Always
           volumeMounts:
             - name: serviceradar-config
