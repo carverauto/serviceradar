@@ -139,6 +139,12 @@ push_all: ## Build, sign, and verify all OCI images in the configured OCI regist
 		printf '\n' >&2; \
 		export COSIGN_PASSWORD; \
 	fi; \
+	if [ -f "$${COSIGN_KEY_FILE}" ]; then \
+		cosign public-key --key "$${COSIGN_KEY_FILE}" >/dev/null || { \
+			echo "error: unable to decrypt COSIGN_KEY_FILE with the provided password" >&2; \
+			exit 1; \
+		}; \
+	fi; \
 	if [ -n "$(PUSH_TAG)" ]; then \
 		bazel run --config=remote_push --stamp //:push -- --tag "$(PUSH_TAG)"; \
 		./scripts/sign-oci-publish.sh; \
