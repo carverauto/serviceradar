@@ -22,6 +22,19 @@ defmodule ServiceRadarWebNGWeb.Router do
          "base-uri 'self'; " <>
          "form-action 'self'"
 
+  @api_docs_csp "default-src 'self'; " <>
+                  "script-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; " <>
+                  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " <>
+                  "img-src 'self' data: https:; " <>
+                  "font-src 'self' data: https://fonts.gstatic.com; " <>
+                  "connect-src 'self' https: wss:; " <>
+                  "worker-src 'self' blob:; " <>
+                  "child-src blob:; " <>
+                  "frame-src 'none'; " <>
+                  "object-src 'none'; " <>
+                  "base-uri 'self'; " <>
+                  "form-action 'self'"
+
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
@@ -52,6 +65,18 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api do
     plug(:accepts, ["json"])
+  end
+
+  pipeline :api_docs_ui do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @api_docs_csp})
+    plug(GatewayAuth)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
   end
 
   pipeline :api_auth do
@@ -270,6 +295,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/collectors/:id/bundle", CollectorController, :bundle)
     put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
     post("/plugin-packages/:id/blob/download", PluginPackageController, :download_blob)
+  end
+
+  scope "/api/v2" do
+    pipe_through(:api_docs_ui)
+
+    forward("/swaggerui", OpenApiSpex.Plug.SwaggerUI,
+      path: "/api/v2/open_api",
+      default_model_expand_depth: 4
+    )
+
+    forward("/redoc", Redoc.Plug.RedocUI, spec_url: "/api/v2/open_api")
   end
 
   # Ash JSON:API v2 endpoints

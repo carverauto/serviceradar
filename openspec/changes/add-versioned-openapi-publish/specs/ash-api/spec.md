@@ -22,3 +22,16 @@ The system SHALL validate the published OpenAPI artifact in automated checks.
 #### Scenario: CI validates OpenAPI artifact
 - **WHEN** CI runs for a change that affects the published OpenAPI contract or its publication path
 - **THEN** CI fails if the artifact is missing, malformed, or inconsistent with the defined publishing contract
+
+### Requirement: Canonical OpenAPI UI Routes Are Available
+The system SHALL expose stable SwaggerUI and Redoc routes for the canonical Ash JSON:API OpenAPI document.
+
+#### Scenario: SwaggerUI renders from the canonical OpenAPI path
+- **WHEN** a maintainer opens the supported SwaggerUI route
+- **THEN** the UI loads successfully
+- **AND** it points at the canonical Ash JSON:API OpenAPI path rather than a duplicated document
+
+#### Scenario: Redoc renders from the canonical OpenAPI path
+- **WHEN** a maintainer opens the supported Redoc route
+- **THEN** the UI loads successfully
+- **AND** it points at the canonical Ash JSON:API OpenAPI path rather than a duplicated document
