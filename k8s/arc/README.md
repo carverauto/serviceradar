@@ -21,6 +21,9 @@ Current upstream references when this file was updated:
 Dockerfile today. It only re-publishes the already-pushed
 `ghcr.io/carverauto/arc-runner` image pinned in `MODULE.bazel`.
 
+`make push_all` no longer publishes or signs `arc-runner`. Treat the runner
+image as a separate operational artifact with its own explicit upgrade flow.
+
 For runner upgrades, rebuild/push the image from `docker/arc-runner/` directly,
 then update the digests in this repo.
 
