@@ -120,6 +120,7 @@ defmodule ServiceRadarWebNG.MixProject do
 
       # OpenAPI spec generation for AshJsonApi
       {:open_api_spex, "~> 3.16"},
+      {:redoc_ui_plug, "~> 0.2"},
 
       # Igniter - code generation and refactoring
       {:igniter, "~> 0.5", only: [:dev, :test]},
