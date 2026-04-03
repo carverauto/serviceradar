@@ -53,6 +53,10 @@ var (
 	errUnsupportedArtifactExt = errors.New("unsupported artifact extension")
 	errSigningKeyMissing      = errors.New("agent release signing private key is not configured")
 	errSigningKeyInvalid      = errors.New("agent release signing private key is invalid")
+	errTagRequired            = errors.New("--tag is required")
+	errInvalidRepoFormat      = errors.New("--repo must be in owner/repo format")
+	errForgejoURLEmpty        = errors.New("--forgejo-url must not be empty")
+	errForgejoTokenMissing    = errors.New("FORGEJO_TOKEN, GITEA_TOKEN, GITHUB_TOKEN, or GH_TOKEN must be set unless --dry_run is used")
 )
 
 type runfileResolver struct {
@@ -115,7 +119,64 @@ type agentReleaseManifestArtifact struct {
 	Entrypoint string `json:"entrypoint,omitempty"`
 }
 
+type publishConfig struct {
+	repo            string
+	tag             string
+	name            string
+	commit          string
+	notes           string
+	notesFile       string
+	draft           bool
+	prerelease      bool
+	dryRun          bool
+	overwriteAssets bool
+	appendNotes     bool
+	manifestPath    string
+	forgejoURL      string
+}
+
+type publishContext struct {
+	config         publishConfig
+	releaseVersion string
+	rpmVersion     string
+	rpmRelease     string
+	token          string
+	resolver       *runfileResolver
+	client         *githubClient
+}
+
 func main() {
+	if err := run(); err != nil {
+		failf("%v", err)
+	}
+}
+
+func run() error {
+	config := parsePublishConfig()
+	ctx, err := buildPublishContext(config)
+	if err != nil {
+		return err
+	}
+
+	rel, err := ensureReleaseForPublish(ctx)
+	if err != nil {
+		return err
+	}
+
+	existingAssets := releaseAssetsByName(rel)
+	if err := uploadPackageArtifacts(ctx, rel, existingAssets); err != nil {
+		return err
+	}
+
+	if err := uploadManagedAgentArtifacts(ctx, rel, existingAssets); err != nil {
+		return err
+	}
+
+	fmt.Println("All artifacts processed successfully")
+	return nil
+}
+
+func parsePublishConfig() publishConfig {
 	repoFlag := flag.String("repo", "carverauto/serviceradar", "Repository in owner/repo format")
 	tagFlag := flag.String("tag", "", "Release tag to create or update")
 	nameFlag := flag.String("name", "", "Release name (defaults to the tag)")
@@ -132,139 +193,176 @@ func main() {
 
 	flag.Parse()
 
-	if strings.TrimSpace(*tagFlag) == "" {
-		failf("--tag is required")
+	return publishConfig{
+		repo:            strings.TrimSpace(*repoFlag),
+		tag:             strings.TrimSpace(*tagFlag),
+		name:            strings.TrimSpace(*nameFlag),
+		commit:          strings.TrimSpace(*commitFlag),
+		notes:           strings.TrimSpace(*notesFlag),
+		notesFile:       strings.TrimSpace(*notesFileFlag),
+		draft:           *draftFlag,
+		prerelease:      *prereleaseFlag,
+		dryRun:          *dryRunFlag,
+		overwriteAssets: *overwriteAssetsFlag,
+		appendNotes:     *appendNotesFlag,
+		manifestPath:    *manifestFlag,
+		forgejoURL:      strings.TrimRight(strings.TrimSpace(*forgejoURLFlag), "/"),
+	}
+}
+
+func buildPublishContext(config publishConfig) (*publishContext, error) {
+	if config.tag == "" {
+		return nil, errTagRequired
+	}
+	if config.repo == "" || strings.Count(config.repo, "/") != 1 {
+		return nil, fmt.Errorf("%w (got %q)", errInvalidRepoFormat, config.repo)
 	}
 
-	repo := strings.TrimSpace(*repoFlag)
-	if repo == "" || strings.Count(repo, "/") != 1 {
-		failf("--repo must be in owner/repo format (got %q)", repo)
-	}
-
-	releaseVersion, rpmVersion, rpmRelease, err := deriveVersionMetadata(*tagFlag)
+	releaseVersion, rpmVersion, rpmRelease, err := deriveVersionMetadata(config.tag)
 	if err != nil {
-		failf("invalid tag %q: %v", *tagFlag, err)
-	}
-
-	token := strings.TrimSpace(os.Getenv("FORGEJO_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GITEA_TOKEN"))
-	}
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	}
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
-	}
-	if token == "" && !*dryRunFlag {
-		failf("FORGEJO_TOKEN, GITEA_TOKEN, GITHUB_TOKEN, or GH_TOKEN must be set unless --dry_run is used")
+		return nil, fmt.Errorf("invalid tag %q: %w", config.tag, err)
 	}
 
 	resolver, err := newRunfileResolver()
 	if err != nil {
-		failf("failed to initialise runfile resolver: %v", err)
+		return nil, fmt.Errorf("failed to initialise runfile resolver: %w", err)
 	}
 
-	assets, err := collectAssets(resolver, *manifestFlag)
+	token, err := resolveForgejoToken(config.dryRun)
 	if err != nil {
-		failf("failed to resolve package artifacts: %v", err)
+		return nil, err
 	}
 
-	fmt.Printf("Found %d package artifacts\n", len(assets))
-
-	agentRuntimeArtifact, err := resolver.resolve(defaultAgentRuntimeRunfile)
-	if err != nil {
-		failf("failed to resolve managed agent runtime artifact: %v", err)
-	}
-
-	notes := strings.TrimSpace(*notesFlag)
-	if notes == "" && strings.TrimSpace(*notesFileFlag) != "" {
-		content, err := readMaybeRunfile(resolver, *notesFileFlag)
+	if config.notes == "" && config.notesFile != "" {
+		content, err := readMaybeRunfile(resolver, config.notesFile)
 		if err != nil {
-			failf("failed to read release notes: %v", err)
+			return nil, fmt.Errorf("failed to read release notes: %w", err)
 		}
-		notes = strings.TrimSpace(content)
+		config.notes = strings.TrimSpace(content)
 	}
 
-	commit := strings.TrimSpace(*commitFlag)
-	if commit == "" {
-		commit = firstNonEmpty(
+	if config.commit == "" {
+		config.commit = firstNonEmpty(
 			os.Getenv("GITHUB_SHA"),
 			os.Getenv("COMMIT_SHA"),
 			os.Getenv("STABLE_COMMIT_SHA"),
 		)
 	}
 
-	name := strings.TrimSpace(*nameFlag)
-	if name == "" {
-		name = strings.TrimSpace(*tagFlag)
+	if config.name == "" {
+		config.name = config.tag
 	}
 
-	forgejoURL := strings.TrimRight(strings.TrimSpace(*forgejoURLFlag), "/")
-	if forgejoURL == "" {
-		failf("--forgejo-url must not be empty")
+	if config.forgejoURL == "" {
+		return nil, errForgejoURLEmpty
 	}
 
-	client := newGithubClient(token, repo, forgejoURL, *dryRunFlag)
+	return &publishContext{
+		config:         config,
+		releaseVersion: releaseVersion,
+		rpmVersion:     rpmVersion,
+		rpmRelease:     rpmRelease,
+		token:          token,
+		resolver:       resolver,
+		client:         newGithubClient(token, config.repo, config.forgejoURL, config.dryRun),
+	}, nil
+}
 
-	rel, created, err := ensureRelease(client, ensureReleaseArgs{
-		tag:         *tagFlag,
-		name:        name,
-		commit:      commit,
-		notes:       notes,
-		appendNotes: *appendNotesFlag,
-		draft:       *draftFlag,
-		prerelease:  *prereleaseFlag,
+func resolveForgejoToken(dryRun bool) (string, error) {
+	token := firstNonEmpty(
+		strings.TrimSpace(os.Getenv("FORGEJO_TOKEN")),
+		strings.TrimSpace(os.Getenv("GITEA_TOKEN")),
+		strings.TrimSpace(os.Getenv("GITHUB_TOKEN")),
+		strings.TrimSpace(os.Getenv("GH_TOKEN")),
+	)
+	if token == "" && !dryRun {
+		return "", errForgejoTokenMissing
+	}
+	return token, nil
+}
+
+func ensureReleaseForPublish(ctx *publishContext) (*release, error) {
+	rel, created, err := ensureRelease(ctx.client, ensureReleaseArgs{
+		tag:         ctx.config.tag,
+		name:        ctx.config.name,
+		commit:      ctx.config.commit,
+		notes:       ctx.config.notes,
+		appendNotes: ctx.config.appendNotes,
+		draft:       ctx.config.draft,
+		prerelease:  ctx.config.prerelease,
 	})
 	if err != nil {
-		failf("failed to ensure release: %v", err)
+		return nil, fmt.Errorf("failed to ensure release: %w", err)
 	}
 
 	if created {
-		fmt.Printf("Created release %s for %s\n", rel.TagName, repo)
+		fmt.Printf("Created release %s for %s\n", rel.TagName, ctx.config.repo)
 	} else {
-		fmt.Printf("Updating existing release %s for %s\n", rel.TagName, repo)
+		fmt.Printf("Updating existing release %s for %s\n", rel.TagName, ctx.config.repo)
 	}
 
-	existingAssets := map[string]int64{}
+	return rel, nil
+}
+
+func releaseAssetsByName(rel *release) map[string]int64 {
+	existingAssets := make(map[string]int64, len(rel.Assets))
 	for _, asset := range rel.Assets {
 		existingAssets[asset.Name] = asset.ID
 	}
+	return existingAssets
+}
+
+func uploadPackageArtifacts(ctx *publishContext, rel *release, existingAssets map[string]int64) error {
+	assets, err := collectAssets(ctx.resolver, ctx.config.manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve package artifacts: %w", err)
+	}
+
+	fmt.Printf("Found %d package artifacts\n", len(assets))
 
 	for _, artifact := range assets {
-		uploadName, err := resolveUploadName(artifact, releaseVersion, rpmVersion, rpmRelease)
+		uploadName, err := resolveUploadName(artifact, ctx.releaseVersion, ctx.rpmVersion, ctx.rpmRelease)
 		if err != nil {
-			failf("failed to derive upload name for %q: %v", artifact, err)
+			return fmt.Errorf("failed to derive upload name for %q: %w", artifact, err)
 		}
-		if err := uploadReleaseAsset(client, rel.UploadURL, existingAssets, uploadAsset{
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
 			sourcePath: artifact,
 			uploadName: uploadName,
-		}, *overwriteAssetsFlag); err != nil {
-			failf("failed to upload asset %q: %v", uploadName, err)
+		}, ctx.config.overwriteAssets); err != nil {
+			return fmt.Errorf("failed to upload asset %q: %w", uploadName, err)
 		}
 	}
 
-	runtimeUploadName := managedAgentRuntimeUploadName(releaseVersion)
-	if err := uploadReleaseAsset(client, rel.UploadURL, existingAssets, uploadAsset{
-		sourcePath: agentRuntimeArtifact,
-		uploadName: runtimeUploadName,
-	}, *overwriteAssetsFlag); err != nil {
-		failf("failed to upload managed agent runtime asset %q: %v", runtimeUploadName, err)
+	return nil
+}
+
+func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAssets map[string]int64) error {
+	agentRuntimeArtifact, err := ctx.resolver.resolve(defaultAgentRuntimeRunfile)
+	if err != nil {
+		return fmt.Errorf("failed to resolve managed agent runtime artifact: %w", err)
 	}
 
-	runtimeURL, err := client.getReleaseAssetDownloadURL(rel.TagName, runtimeUploadName)
+	runtimeUploadName := managedAgentRuntimeUploadName(ctx.releaseVersion)
+	if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
+		sourcePath: agentRuntimeArtifact,
+		uploadName: runtimeUploadName,
+	}, ctx.config.overwriteAssets); err != nil {
+		return fmt.Errorf("failed to upload managed agent runtime asset %q: %w", runtimeUploadName, err)
+	}
+
+	runtimeURL, err := ctx.client.getReleaseAssetDownloadURL(rel.TagName, runtimeUploadName)
 	if err != nil {
-		failf("failed to resolve managed agent runtime download url: %v", err)
+		return fmt.Errorf("failed to resolve managed agent runtime download url: %w", err)
 	}
 
 	tempDir, manifestAssets, err := buildManagedAgentManifestAssets(
-		releaseVersion,
+		ctx.releaseVersion,
 		runtimeURL,
 		agentRuntimeArtifact,
-		*dryRunFlag,
+		ctx.config.dryRun,
 	)
 	if err != nil {
-		failf("failed to build managed agent release manifest assets: %v", err)
+		return fmt.Errorf("failed to build managed agent release manifest assets: %w", err)
 	}
 	defer func() {
 		if tempDir != "" {
@@ -273,12 +371,12 @@ func main() {
 	}()
 
 	for _, asset := range manifestAssets {
-		if err := uploadReleaseAsset(client, rel.UploadURL, existingAssets, asset, *overwriteAssetsFlag); err != nil {
-			failf("failed to upload asset %q: %v", asset.uploadName, err)
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, asset, ctx.config.overwriteAssets); err != nil {
+			return fmt.Errorf("failed to upload asset %q: %w", asset.uploadName, err)
 		}
 	}
 
-	fmt.Println("All artifacts processed successfully")
+	return nil
 }
 
 func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets map[string]int64, asset uploadAsset, overwrite bool) error {
