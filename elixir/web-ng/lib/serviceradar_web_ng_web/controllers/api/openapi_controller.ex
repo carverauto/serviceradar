@@ -19,4 +19,8 @@ defmodule ServiceRadarWebNGWeb.Api.OpenapiController do
       |> json(%{error: "forbidden", message: "Not authorized"})
     end
   end
+
+  def published_admin_v1(conn, _params) do
+    json(conn, AdminSpec.published_document("v1"))
+  end
 end
