@@ -54,4 +54,42 @@ defmodule ServiceRadarWebNGWeb.Api.OpenapiControllerTest do
       assert get_in(body, ["components", "schemas", "BmpSettings"])
     end
   end
+
+  describe "GET /api/v2/open_api" do
+    test "returns the Ash JSON:API OpenAPI document without authentication", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/open_api")
+
+      assert conn.status == 200
+      body = json_response(conn, 200)
+
+      assert body["openapi"] == "3.0.3"
+      assert get_in(body, ["info", "title"]) == "ServiceRadar API"
+      assert get_in(body, ["info", "version"]) == "2.0.0"
+      assert is_map(body["paths"])
+    end
+  end
+
+  describe "GET /api/v2/swaggerui" do
+    test "renders SwaggerUI for the Ash JSON:API OpenAPI document", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/swaggerui")
+
+      assert conn.status == 200
+      body = html_response(conn, 200)
+
+      assert body =~ "Swagger UI"
+      assert body =~ "/api/v2/open_api"
+    end
+  end
+
+  describe "GET /api/v2/redoc" do
+    test "renders Redoc for the Ash JSON:API OpenAPI document", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/redoc")
+
+      assert conn.status == 200
+      body = html_response(conn, 200)
+
+      assert body =~ "ReDoc"
+      assert body =~ "/api/v2/open_api"
+    end
+  end
 end
