@@ -3,8 +3,31 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   OpenAPI 3.0 spec for custom admin JSON endpoints.
   """
 
+  @portal_doc_version "v1"
+  @portal_doc_surface "admin"
+  @portal_doc_source "serviceradar-web-ng"
+
   @spec document() :: map()
   def document do
+    portal_metadata(base_document())
+  end
+
+  @spec published_document(String.t()) :: map()
+  def published_document(@portal_doc_version) do
+    document()
+  end
+
+  def published_document(version) do
+    raise ArgumentError, "unsupported OpenAPI document version: #{inspect(version)}"
+  end
+
+  def portal_doc_version, do: @portal_doc_version
+
+  def portal_artifact_path do
+    "/api/docs/#{@portal_doc_version}/#{@portal_doc_surface}/openapi.json"
+  end
+
+  defp base_document do
     %{
       "openapi" => "3.0.3",
       "info" => %{
@@ -60,6 +83,14 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         }
       }
     }
+  end
+
+  defp portal_metadata(document) do
+    document
+    |> Map.put("x-serviceradar-doc-version", @portal_doc_version)
+    |> Map.put("x-serviceradar-doc-surface", @portal_doc_surface)
+    |> Map.put("x-serviceradar-doc-source", @portal_doc_source)
+    |> Map.put("x-serviceradar-doc-artifact-path", portal_artifact_path())
   end
 
   defp admin_paths do

@@ -94,6 +94,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/metrics", MetricsController, :index)
   end
 
+  scope "/api/docs", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api)
+
+    get("/v1/admin/openapi.json", OpenapiController, :published_admin_v1)
+  end
+
   # JSON:API pipeline for Ash resources (v2 API)
   pipeline :ash_json_api do
     plug(:accepts, ["json"])
