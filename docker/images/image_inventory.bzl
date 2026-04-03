@@ -1,7 +1,6 @@
 """Shared inventory for publishable OCI images."""
 
 PUBLISHABLE_IMAGES = [
-    {"image": "arc_runner_image_amd64", "repository": "registry.carverauto.dev/serviceradar/arc-runner"},
     {"image": "core_elx_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent"},
     {"image": "db_event_writer_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-db-event-writer"},
