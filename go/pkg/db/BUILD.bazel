@@ -13,7 +13,6 @@ go_library(
         "ocsf_network_activity.go",
         "ocsf_events.go",
         "pgx_batch_helper.go",
-        "time_json_helpers.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/db",
     visibility = ["//visibility:public"],
