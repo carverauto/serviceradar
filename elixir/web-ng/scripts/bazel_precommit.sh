@@ -37,26 +37,92 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+openssl_dir="${OPENSSL_DIR:-}"
 openssl_lib_dir="${OPENSSL_LIB_DIR:-}"
+openssl_include_dir="${OPENSSL_INCLUDE_DIR:-}"
+uname_s="$(uname -s)"
+
+if [ -n "$openssl_dir" ] && [ ! -d "$openssl_dir" ]; then
+  openssl_dir=""
+fi
+
 if [ -n "$openssl_lib_dir" ] && [ ! -d "$openssl_lib_dir" ]; then
   openssl_lib_dir=""
 fi
 
-if [ -z "$openssl_lib_dir" ]; then
-  for dir in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
-    if [ -d "$dir" ] && ls "$dir"/libssl.so* >/dev/null 2>&1; then
-      openssl_lib_dir="$dir"
+if [ -n "$openssl_include_dir" ] && [ ! -d "$openssl_include_dir" ]; then
+  openssl_include_dir=""
+fi
+
+if [ "$uname_s" = "Darwin" ]; then
+  for candidate in \
+    /opt/homebrew/opt/openssl@3 \
+    /usr/local/opt/openssl@3 \
+    /opt/homebrew/opt/openssl \
+    /usr/local/opt/openssl
+  do
+    if [ -d "$candidate/lib" ] && [ -d "$candidate/include" ]; then
+      openssl_dir="$candidate"
+      openssl_lib_dir="$candidate/lib"
+      openssl_include_dir="$candidate/include"
       break
     fi
   done
+else
+  if [ -z "$openssl_dir" ] && [ -d /usr ]; then
+    openssl_dir=/usr
+  fi
+
+  if [ -z "$openssl_lib_dir" ]; then
+    for dir in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
+      if [ -d "$dir" ] && ls "$dir"/libssl.so* >/dev/null 2>&1; then
+        openssl_lib_dir="$dir"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$openssl_include_dir" ] && [ -d /usr/include/openssl ]; then
+    openssl_include_dir=/usr/include
+  fi
+fi
+
+if [ -n "$openssl_dir" ]; then
+  export OPENSSL_DIR="$openssl_dir"
+else
+  unset OPENSSL_DIR
 fi
 
 if [ -n "$openssl_lib_dir" ]; then
   export OPENSSL_LIB_DIR="$openssl_lib_dir"
+else
+  unset OPENSSL_LIB_DIR
 fi
 
-if [ -z "${OPENSSL_INCLUDE_DIR:-}" ] && [ -d /usr/include/openssl ]; then
-  export OPENSSL_INCLUDE_DIR=/usr/include
+if [ -n "$openssl_include_dir" ]; then
+  export OPENSSL_INCLUDE_DIR="$openssl_include_dir"
+else
+  unset OPENSSL_INCLUDE_DIR
+fi
+
+openssl_pkgconfig_dir=""
+if [ -n "${OPENSSL_DIR:-}" ] && [ -d "${OPENSSL_DIR}/lib/pkgconfig" ]; then
+  openssl_pkgconfig_dir="${OPENSSL_DIR}/lib/pkgconfig"
+elif [ -n "${OPENSSL_LIB_DIR:-}" ] && [ -d "${OPENSSL_LIB_DIR}/pkgconfig" ]; then
+  openssl_pkgconfig_dir="${OPENSSL_LIB_DIR}/pkgconfig"
+fi
+
+if [ -n "$openssl_pkgconfig_dir" ]; then
+  case ":${PKG_CONFIG_PATH:-}:" in
+    *:"$openssl_pkgconfig_dir":*) ;;
+    *)
+      if [ -n "${PKG_CONFIG_PATH:-}" ]; then
+        export PKG_CONFIG_PATH="$openssl_pkgconfig_dir:$PKG_CONFIG_PATH"
+      else
+        export PKG_CONFIG_PATH="$openssl_pkgconfig_dir"
+      fi
+      ;;
+  esac
 fi
 
 # Hex can time out in CI when a precommit run needs to fetch a large dependency

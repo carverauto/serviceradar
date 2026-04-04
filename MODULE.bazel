@@ -736,6 +736,66 @@ filegroup(
     ],
 )
 
+http_archive(
+    name = "tinygo_darwin_arm64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "tinygo_bin",
+    srcs = ["tinygo/bin/tinygo"],
+)
+""",
+    sha256 = "a20841a616de3b3403e52e3789cb60c147ab52b3fe6c33b31fdffba0164ae031",
+    urls = [
+        "https://github.com/tinygo-org/tinygo/releases/download/v0.40.1/tinygo0.40.1.darwin-arm64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "tinygo_darwin_amd64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "tinygo_bin",
+    srcs = ["tinygo/bin/tinygo"],
+)
+""",
+    sha256 = "36c9423a63f9548d142908b06c67e198d878a0fed076b8ec5dbf8a3350a73eb4",
+    urls = [
+        "https://github.com/tinygo-org/tinygo/releases/download/v0.40.1/tinygo0.40.1.darwin-amd64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "tinygo_linux_amd64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "tinygo_bin",
+    srcs = ["tinygo/bin/tinygo"],
+)
+""",
+    sha256 = "064fc0c07f4d71f7369b168c337caa88ef32a6b00b16449cea44790ccadfc2b4",
+    urls = [
+        "https://github.com/tinygo-org/tinygo/releases/download/v0.40.1/tinygo0.40.1.linux-amd64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "tinygo_linux_arm64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "tinygo_bin",
+    srcs = ["tinygo/bin/tinygo"],
+)
+""",
+    sha256 = "4720693b333826569d5c1ed746a735c4d1983719c95af5bdd4d9dfeaa755e933",
+    urls = [
+        "https://github.com/tinygo-org/tinygo/releases/download/v0.40.1/tinygo0.40.1.linux-arm64.tar.gz",
+    ],
+)
+
 http_file(
     name = "postgresql_server_dev_18_deb",
     sha256 = "afc115928cceca97aa93f4b803012af51ce51cef111962b8cbc72746416b6738",
