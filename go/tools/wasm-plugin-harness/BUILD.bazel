@@ -1,0 +1,16 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "config.schema.json",
+    "display_contract.json",
+    "main.go",
+    "plugin.yaml",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = ["dist/**"],
+    ),
+)

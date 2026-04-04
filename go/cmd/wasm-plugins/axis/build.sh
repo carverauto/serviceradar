@@ -1,29 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+cd "${REPO_ROOT}"
 
-mkdir -p dist
+bazel build \
+  //build/wasm_plugins:axis_camera_bundle_zip \
+  //build/wasm_plugins:axis_camera_bundle_sha256 \
+  //build/wasm_plugins:axis_camera_stream_bundle_zip \
+  //build/wasm_plugins:axis_camera_stream_bundle_sha256
 
-echo "Building axis-camera WASM plugin..."
+BAZEL_BIN="$(bazel info bazel-bin)"
 
-tinygo build \
-  -o dist/plugin.wasm \
-  -target=wasi \
-  -gc=leaking \
-  -scheduler=none \
-  -no-debug \
-  ./
-
-cp plugin.yaml dist/plugin.yaml
-cp plugin.stream.yaml dist/plugin.stream.yaml
-cp config.schema.json dist/config.schema.json
-cp config.stream.schema.json dist/config.stream.schema.json
-
-echo "Built: dist/plugin.wasm"
-ls -lh dist/plugin.wasm
-echo "Packaged: dist/plugin.yaml"
-echo "Packaged: dist/plugin.stream.yaml"
-echo "Packaged: dist/config.schema.json"
-echo "Packaged: dist/config.stream.schema.json"
+echo "Built Bazel-managed bundle artifacts:"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/axis_camera_bundle.zip"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/axis_camera_bundle.sha256"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/axis_camera_stream_bundle.zip"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/axis_camera_stream_bundle.sha256"
