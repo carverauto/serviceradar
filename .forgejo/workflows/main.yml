@@ -23,7 +23,30 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+
+          mkdir -p "${GITHUB_WORKSPACE}"
+          cd "${GITHUB_WORKSPACE}"
+
+          if [ -d .git ]; then
+            git reset --hard
+            git clean -ffdx
+            if git remote get-url origin >/dev/null 2>&1; then
+              git remote set-url origin "${REPO_URL}"
+            else
+              git remote add origin "${REPO_URL}"
+            fi
+          else
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q
+            git remote add origin "${REPO_URL}"
+          fi
+
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
 
       - name: Cache Bazel artifacts
         uses: actions/cache@v5
@@ -90,9 +113,20 @@ jobs:
           elixir-version: "1.19.4"
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
