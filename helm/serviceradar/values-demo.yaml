@@ -25,6 +25,9 @@ tools:
 natsCreds:
   autoGenerate: true
 
+cnpg:
+  storageClass: local-path-big
+
 logCollector:
   probes:
     liveness:
