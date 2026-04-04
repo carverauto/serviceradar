@@ -1,10 +1,13 @@
 use super::Decoder;
+#[cfg(feature = "rfc5424")]
+use super::RFC5424Decoder;
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
 use crate::flowgger::utils;
 use std::env;
 use std::fs;
 use std::io::{stderr, Write};
+use time::format_description::well_known::Rfc3339;
 use time::{format_description, OffsetDateTime, PrimitiveDateTime};
 use time_tz::timezones::get_by_name;
 use time_tz::PrimitiveDateTimeExt;
@@ -47,6 +50,14 @@ impl Decoder for RFC3164Decoder {
         res = decode_rfc_custom(&pri, _msg, line, default_timezone);
         if let Ok(record) = res {
             return Ok(record);
+        }
+
+        #[cfg(feature = "rfc5424")]
+        {
+            let res = RFC5424Decoder.decode(line);
+            if let Ok(record) = res {
+                return Ok(record);
+            }
         }
 
         let _ = writeln!(stderr(), "Unable to parse the rfc3164 input: '{line}'");
@@ -172,6 +183,12 @@ fn parse_date_token<'a>(
     ts_tokens: &'a [&str],
     default_timezone: Option<&str>,
 ) -> Result<(f64, Vec<&'a str>), &'static str> {
+    if let Some(ts_token) = ts_tokens.first() {
+        if let Ok(ts) = rfc3339_to_unix(ts_token) {
+            return Ok((ts, ts_tokens[1..].to_vec()));
+        }
+    }
+
     // If we don't have at least 3 tokens, don't even try, parsing will fail
     if ts_tokens.len() < 3 {
         return Err("Invalid time format");
@@ -238,6 +255,13 @@ fn parse_date<'a>(
             Ok((ts, ts_tokens[idx..].to_vec()))
         }
         Err(_) => Err("Unable to parse the date in RFC3164 decoder"),
+    }
+}
+
+fn rfc3339_to_unix(rfc3339: &str) -> Result<f64, &'static str> {
+    match OffsetDateTime::parse(rfc3339, &Rfc3339) {
+        Ok(date) => Ok(utils::PreciseTimestamp::from_offset_datetime(date).as_f64()),
+        Err(_) => Err("Unable to parse RFC3339 timestamp in RFC3164 decoder"),
     }
 }
 
@@ -541,4 +565,50 @@ fn test_rfc3164_decode_custom_trimed() {
         Some("<13>testhostname: 2019 Mar 27 12:09:39 UTC: appname: test message".to_string())
     );
     assert!(res.sd.is_none());
+}
+
+#[test]
+fn test_rfc3164_decode_rfc3339_timestamp_prefix() {
+    let msg = r#"<6>2026-04-04T07:52:18Z harbor-core-5db8776484-b5rht audit[1]: action:create, resource:serviceradar/serviceradar-web"#;
+    let cfg = Config::from_string(
+        "[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n",
+    )
+    .unwrap();
+    let expected_ts = ts_from_date_time(2026, Month::April, 4, 7, 52, 18, 0);
+
+    let decoder = RFC3164Decoder::new(&cfg);
+    let res = decoder.decode(msg).unwrap();
+    assert_eq!(res.facility, Some(0));
+    assert_eq!(res.severity, Some(6));
+    assert_eq!(res.ts, expected_ts);
+    assert_eq!(res.hostname, "harbor-core-5db8776484-b5rht");
+    assert_eq!(
+        res.msg,
+        Some("audit[1]: action:create, resource:serviceradar/serviceradar-web".to_string())
+    );
+    assert_eq!(res.full_msg, Some(msg.to_string()));
+    assert!(res.sd.is_none());
+}
+
+#[cfg(feature = "rfc5424")]
+#[test]
+fn test_rfc3164_decode_strict_rfc5424_fallback() {
+    let msg = r#"<23>1 2015-08-05T15:53:45.637824Z testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
+    let cfg = Config::from_string(
+        "[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n",
+    )
+    .unwrap();
+
+    let decoder = RFC3164Decoder::new(&cfg);
+    let res = decoder.decode(msg).unwrap();
+    assert_eq!(res.facility, Some(2));
+    assert_eq!(res.severity, Some(7));
+    assert_eq!(res.ts, 1438790025.637824);
+    assert_eq!(res.hostname, "testhostname");
+    assert_eq!(res.appname, Some("appname".to_string()));
+    assert_eq!(res.procid, Some("69".to_string()));
+    assert_eq!(res.msgid, Some("42".to_string()));
+    assert_eq!(res.msg, Some("test message".to_string()));
+    assert_eq!(res.full_msg, Some(msg.to_string()));
+    assert!(res.sd.is_some());
 }
