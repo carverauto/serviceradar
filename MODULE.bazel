@@ -603,6 +603,7 @@ crates.spec(
 )
 crates.from_cargo(
     name = "rust_crates",
+    cargo_config = "//:.cargo/config.toml",
     cargo_lockfile = "//:Cargo.lock",
     manifests = ["//:Cargo.toml"],
 )

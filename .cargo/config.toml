@@ -1,0 +1,12 @@
+[registries.crates-io]
+index = "sparse+https://index.crates.io/"
+protocol = "sparse"
+
+[http]
+timeout = 600
+low-speed-limit = 1
+multiplexing = false
+
+[net]
+retry = 10
+git-fetch-with-cli = true
