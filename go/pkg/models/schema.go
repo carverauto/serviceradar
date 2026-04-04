@@ -3,7 +3,7 @@ package models
 // ColumnKey represents a column in the schema
 type ColumnKey int
 
-// ColumnDefinition represents a column in the netflow_metrics stream
+// ColumnDefinition represents a column in a collector schema definition.
 type ColumnDefinition struct {
 	Key       ColumnKey
 	Name      string

@@ -6,7 +6,8 @@ use crate::netflow::NetflowHandler;
 use crate::sflow::SflowHandler;
 use anyhow::Result;
 use log::{error, info, warn};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use prost::Message;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -53,86 +54,9 @@ pub fn filter_and_track_flows(
     valid
 }
 
-/// Convert raw IP bytes to a string representation.
-fn bytes_to_ip(bytes: &[u8]) -> Option<String> {
-    match bytes.len() {
-        4 => {
-            let addr = Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]);
-            Some(IpAddr::V4(addr).to_string())
-        }
-        16 => {
-            let octets: [u8; 16] = bytes.try_into().ok()?;
-            let addr = Ipv6Addr::from(octets);
-            Some(IpAddr::V6(addr).to_string())
-        }
-        _ => None,
-    }
-}
-
-fn mac_to_string(mac: u64) -> Option<String> {
-    if mac == 0 {
-        return None;
-    }
-
-    Some(format!(
-        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-        (mac >> 40) & 0xFF,
-        (mac >> 32) & 0xFF,
-        (mac >> 24) & 0xFF,
-        (mac >> 16) & 0xFF,
-        (mac >> 8) & 0xFF,
-        mac & 0xFF
-    ))
-}
-
-/// Map FlowType enum to a human-readable version label.
-fn flow_source_label(flow_type: i32) -> &'static str {
-    use crate::flowpb::flow_message::FlowType;
-    match FlowType::try_from(flow_type) {
-        Ok(FlowType::Sflow5) => "sFlow v5",
-        Ok(FlowType::NetflowV5) => "NetFlow v5",
-        Ok(FlowType::NetflowV9) => "NetFlow v9",
-        Ok(FlowType::Ipfix) => "IPFIX",
-        _ => "Unknown",
-    }
-}
-
-/// Serialize a FlowMessage to JSON bytes for the Elixir EventWriter.
-pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
-    let src_addr = bytes_to_ip(&msg.src_addr).unwrap_or_default();
-    let dst_addr = bytes_to_ip(&msg.dst_addr).unwrap_or_default();
-    let sampler_addr = bytes_to_ip(&msg.sampler_address).unwrap_or_default();
-    let src_mac = mac_to_string(msg.src_mac);
-    let dst_mac = mac_to_string(msg.dst_mac);
-
-    let json = serde_json::json!({
-        "src_addr": src_addr,
-        "dst_addr": dst_addr,
-        "src_port": msg.src_port,
-        "dst_port": msg.dst_port,
-        "protocol": msg.proto,
-        "packets": msg.packets,
-        "bytes": msg.bytes,
-        "bytes_in": msg.bytes_in,
-        "bytes_out": msg.bytes_out,
-        "packets_in": msg.packets_in,
-        "packets_out": msg.packets_out,
-        "sampling_rate": msg.sampling_rate,
-        "sampler_address": sampler_addr,
-        "input_snmp": msg.in_if,
-        "output_snmp": msg.out_if,
-        "tcp_flags": msg.tcp_flags,
-        "ip_tos": msg.ip_tos,
-        "src_as": msg.src_as,
-        "dst_as": msg.dst_as,
-        "protocol_name": msg.protocol_name,
-        "src_mac": src_mac,
-        "dst_mac": dst_mac,
-        "timestamp": msg.time_received_ns,
-        "flow_source": flow_source_label(msg.r#type),
-    });
-
-    serde_json::to_vec(&json).ok()
+/// Serialize a FlowMessage to protobuf bytes for downstream consumers.
+pub fn flow_to_bytes(msg: &FlowMessage) -> Vec<u8> {
+    msg.encode_to_vec()
 }
 
 pub trait FlowHandler: Send + Sync {
@@ -187,13 +111,7 @@ impl Listener {
                     let messages = self.handler.parse_datagram(&buf[..len], len, peer_addr);
 
                     for flow_msg in messages {
-                        let encoded = match flow_to_json(&flow_msg) {
-                            Some(json) => json,
-                            None => {
-                                error!("[{}] Failed to encode JSON", protocol);
-                                continue;
-                            }
-                        };
+                        let encoded = flow_to_bytes(&flow_msg);
 
                         match self.tx.try_send((self.subject.clone(), encoded)) {
                             Ok(_) => {}

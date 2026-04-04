@@ -145,13 +145,21 @@ push_all: ## Build, sign, and verify all OCI images in the configured OCI regist
 			exit 1; \
 		}; \
 	fi; \
-	if [ -n "$(PUSH_TAG)" ]; then \
+	if [ "$(HOST_OS)" = "Darwin" ]; then \
+		if [ -n "$(PUSH_TAG)" ]; then \
+			./scripts/push_all_images.sh --tag "$(PUSH_TAG)"; \
+		else \
+			./scripts/push_all_images.sh; \
+		fi; \
+	elif [ -n "$(PUSH_TAG)" ]; then \
 		bazel run --config=remote_push --stamp //:push -- --tag "$(PUSH_TAG)"; \
-		./scripts/sign-oci-publish.sh; \
-		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
 	else \
 		bazel run --config=remote_push --stamp //:push; \
-		./scripts/sign-oci-publish.sh; \
+	fi; \
+	./scripts/sign-oci-publish.sh; \
+	if [ -n "$(PUSH_TAG)" ]; then \
+		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
+	else \
 		$(MAKE) verify_publish; \
 	fi
 

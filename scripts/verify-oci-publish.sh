@@ -107,6 +107,11 @@ assert_contains_env() {
   fi
 }
 
+resolve_digest() {
+  local ref="$1"
+  skopeo inspect --override-os linux --override-arch amd64 "docker://${ref}" | jq -r '.Digest'
+}
+
 check_image_shape() {
   local tag="$1"
   local ref="$2"
@@ -133,7 +138,7 @@ check_config() {
   local tag="$1"
   local ref="$2"
   local config
-  config="$(skopeo inspect --override-arch amd64 --config "docker://${ref}:${tag}")"
+  config="$(skopeo inspect --override-os linux --override-arch amd64 --config "docker://${ref}:${tag}")"
 
   case "${ref##*/}" in
     serviceradar-web-ng)
@@ -203,7 +208,7 @@ check_signature_accessory() {
   local tag="$1"
   local ref="$2"
   local digest
-  digest="$(skopeo inspect "docker://${ref}:${tag}" | jq -r '.Digest')"
+  digest="$(resolve_digest "${ref}:${tag}")"
   [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
 
   local repo_path="${ref#${REGISTRY_HOST}/}"
@@ -226,7 +231,7 @@ check_signature_accessory() {
       "https://${REGISTRY_HOST}/v2/${repo_path}/referrers/${digest}"
   )"
 
-  jq -e '
+  if jq -e '
     (.manifests // []) as $m
     | ($m | length) > 0
     and any(
@@ -234,14 +239,43 @@ check_signature_accessory() {
       ((.artifactType // "") | startswith("application/vnd.dev.sigstore"))
       or ((.annotations["dev.sigstore.bundle.predicateType"] // "") == "https://sigstore.dev/cosign/sign/v1")
     )
-  ' <<<"${referrers}" >/dev/null || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
+  ' <<<"${referrers}" >/dev/null; then
+    return 0
+  fi
+
+  local referrer_digests=()
+  mapfile -t referrer_digests < <(jq -r '.manifests[]?.digest // empty' <<<"${referrers}")
+  [[ ${#referrer_digests[@]} -gt 0 ]] || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
+
+  local referrer_manifest
+  local referrer_digest
+  for referrer_digest in "${referrer_digests[@]}"; do
+    referrer_manifest="$(
+      curl -fsSL \
+        -H "Authorization: Bearer ${token}" \
+        -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.oci.artifact.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+        "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${referrer_digest}"
+    )"
+
+    if jq -e '
+      any(
+        .layers[]?;
+        (.mediaType == "application/vnd.dev.cosign.simplesigning.v1+json")
+        and ((.annotations["dev.cosignproject.cosign/signature"] // "") != "")
+      )
+    ' <<<"${referrer_manifest}" >/dev/null; then
+      return 0
+    fi
+  done
+
+  fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
 }
 
 check_legacy_signature_tag() {
   local tag="$1"
   local ref="$2"
   local digest
-  digest="$(skopeo inspect "docker://${ref}:${tag}" | jq -r '.Digest')"
+  digest="$(resolve_digest "${ref}:${tag}")"
   [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
 
   local signature_ref
@@ -274,7 +308,7 @@ check_cosign_verify() {
   local tag="$1"
   local ref="$2"
   local digest
-  digest="$(skopeo inspect "docker://${ref}:${tag}" | jq -r '.Digest')"
+  digest="$(resolve_digest "${ref}:${tag}")"
   [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
 
   local verify_spec verify_flag verify_value

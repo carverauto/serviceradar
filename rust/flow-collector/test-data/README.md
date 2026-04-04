@@ -85,13 +85,11 @@ psql -h localhost -p 5455 -U serviceradar -d serviceradar << 'EOF'
 -- Show recent flows with BGP data
 SELECT
     timestamp,
-    src_addr,
-    dst_addr,
-    src_port,
-    dst_port,
+    src_ip,
+    dst_ip,
     as_path,
     bgp_communities
-FROM netflow_metrics
+FROM bgp_routing_info
 WHERE timestamp > NOW() - INTERVAL '5 minutes'
     AND (as_path IS NOT NULL OR bgp_communities IS NOT NULL)
 ORDER BY timestamp DESC
@@ -99,12 +97,12 @@ LIMIT 10;
 
 -- Test AS number filtering
 SELECT COUNT(*)
-FROM netflow_metrics
+FROM bgp_routing_info
 WHERE as_path @> ARRAY[64512]::INTEGER[];
 
 -- Test BGP community filtering
 SELECT COUNT(*)
-FROM netflow_metrics
+FROM bgp_routing_info
 WHERE bgp_communities @> ARRAY[4259840100]::INTEGER[];
 EOF
 ```
