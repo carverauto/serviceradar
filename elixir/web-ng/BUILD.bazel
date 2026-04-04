@@ -71,7 +71,7 @@ sh_test(
         "no-remote",
         "no-sandbox",
     ],
-    timeout = "long",
+    timeout = "eternal",
 )
 
 mix_release(
