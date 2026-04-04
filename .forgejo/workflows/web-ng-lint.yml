@@ -35,7 +35,7 @@ on:
 jobs:
   assets_js:
     name: Assets JS (Bun)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: elixir/web-ng/assets
