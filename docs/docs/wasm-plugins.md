@@ -11,6 +11,55 @@ The current edge model is push-based: the agent streams results to `agent-gatewa
 
 Wasm is also how ServiceRadar ships certain first-party checks. For example, the Dusk checker runs as a Wasm plugin executed by `serviceradar-agent` (it is not a standalone service).
 
+## First-Party Plugin Publication
+
+First-party Wasm plugins now build and publish as signed OCI artifacts instead of ad hoc `dist/` folders.
+
+Current host prerequisites:
+
+- `tinygo` available on the workstation
+- `oras` available on the workstation
+
+Build the canonical bundle artifacts locally with Bazel:
+
+```bash
+make build_wasm_plugins
+```
+
+Publish, sign, and verify the first-party plugin artifacts only:
+
+```bash
+make push_wasm_plugins
+```
+
+Or run the repo-wide release publish path, which now includes both container images and first-party Wasm plugin OCI artifacts:
+
+```bash
+make push_all
+```
+
+Each published artifact uses an immutable `sha-<git-commit>` tag under a deterministic Harbor repository:
+
+- `registry.carverauto.dev/serviceradar/wasm-plugin-hello-wasm`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-axis-camera`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-axis-camera-stream`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-unifi-protect-camera`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-unifi-protect-camera-stream`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-dusk-checker`
+
+The bundle payload is a zip archive that contains the canonical import shape:
+
+- `plugin.yaml`
+- `plugin.wasm`
+- optional sidecars such as `config.schema.json` or `display_contract.json`
+
+Inspect a published artifact with `oras`:
+
+```bash
+oras manifest fetch registry.carverauto.dev/serviceradar/wasm-plugin-dusk-checker:sha-<commit> --format json
+oras pull registry.carverauto.dev/serviceradar/wasm-plugin-dusk-checker:sha-<commit>
+```
+
 Wasm plugins are one part of the edge runtime. The agent also runs embedded engines (sync integrations, SNMP polling, discovery/mapping, mDNS) alongside plugins.
 
 ## Package Format

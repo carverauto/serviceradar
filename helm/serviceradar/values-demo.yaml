@@ -52,8 +52,9 @@ agentGateway:
       external-dns.alpha.kubernetes.io/hostname: "demo-gw.serviceradar.cloud."
 
 agent:
-  enabled: false
+  enabled: true
   hostNetwork: false
+  allowNetRaw: false
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
@@ -336,7 +337,6 @@ bmpCollector:
   enabled: true
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
-    tag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
   args:
     - "--bmp-address=0.0.0.0:11019"
     - "--kafka-disable"

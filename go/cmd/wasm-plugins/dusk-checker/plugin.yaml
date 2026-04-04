@@ -1,0 +1,26 @@
+id: dusk-checker
+name: Dusk Checker
+version: 1.0.0
+description: Monitors Dusk blockchain nodes via WebSocket API
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - websocket_connect
+  - websocket_send
+  - websocket_recv
+  - websocket_close
+permissions:
+  allowed_domains:
+    - "*"
+  allowed_ports:
+    - 8080
+    - 443
+    - 9000
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+  max_open_connections: 1

@@ -130,9 +130,10 @@ build:ci --strategy=CopyDirectory=local
 test:ci --test_tag_filters=-manual --test_output=errors
 
 # Remote execution profile settings shared by CI and --config=remote.
-# NOTE: `bazel run` targets (like push_all) will fail locally on macOS when
-# using remote execution because host tools (Python, jq) are built for Linux.
-# Use `./scripts/push_all_images.sh` for local pushing, or push from CI.
+# NOTE: aggregate `bazel run` targets backed by rules_multirun (like //:push)
+# fail locally on macOS when using remote execution because host Python tools
+# may be resolved for Linux. Use `./scripts/push_all_images.sh` locally, or
+# push from CI/Linux where the aggregate target works as intended.
 build:remote_base --remote_executor=grpcs://remote.buildbuddy.io
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform

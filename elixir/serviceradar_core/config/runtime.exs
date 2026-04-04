@@ -572,7 +572,7 @@ if config_env() == :prod do
         %{
           name: "NETFLOW_RAW",
           subject: "flows.raw.netflow",
-          processor: ServiceRadar.EventWriter.Processors.NetFlowMetrics,
+          processor: Flows,
           batch_size: 50,
           batch_timeout: 500
         }
