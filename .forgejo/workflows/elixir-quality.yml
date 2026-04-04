@@ -95,7 +95,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup Beam
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'
