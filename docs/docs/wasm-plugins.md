@@ -17,8 +17,8 @@ First-party Wasm plugins now build and publish as signed OCI artifacts instead o
 
 Current host prerequisites:
 
-- `tinygo` available on the workstation
-- `oras` available on the workstation
+- Bazel fetches the pinned `tinygo` release automatically for first-party plugin builds
+- `oras` available on the workstation for publish and inspection workflows
 
 Build the canonical bundle artifacts locally with Bazel:
 
