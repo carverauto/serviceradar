@@ -226,7 +226,8 @@ securityContext:
 {{- end -}}
 
 {{/*
-Baseline-compliant container securityContext with NET_RAW (for ICMP/network tools).
+Container securityContext with NET_RAW for workloads that need raw network sockets.
+This is not Pod Security Baseline compliant.
 Usage: {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10 }}
 */}}
 {{- define "serviceradar.networkContainerSecurityContext" -}}

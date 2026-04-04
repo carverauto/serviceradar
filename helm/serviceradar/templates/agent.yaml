@@ -5,9 +5,13 @@
 {{- $agentLimits := default (dict) $agentResources.limits -}}
 {{- $agentRequests := default (dict) $agentResources.requests -}}
 {{- $agentHostNetwork := true -}}
+{{- $agentAllowNetRaw := true -}}
 {{- $agentEnabled := true -}}
 {{- if hasKey $agentVals "hostNetwork" -}}
   {{- $agentHostNetwork = $agentVals.hostNetwork -}}
+{{- end -}}
+{{- if hasKey $agentVals "allowNetRaw" -}}
+  {{- $agentAllowNetRaw = $agentVals.allowNetRaw -}}
 {{- end -}}
 {{- if hasKey $agentVals "enabled" -}}
   {{- $agentEnabled = $agentVals.enabled -}}
@@ -61,7 +65,11 @@ spec:
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           command: ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"]
           args: ["-config", "/etc/serviceradar/agent.json"]
+          {{- if $agentAllowNetRaw }}
           {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10 }}
+          {{- else }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
+          {{- end }}
           volumeMounts:
           - name: serviceradar-config
             mountPath: /etc/serviceradar

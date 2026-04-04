@@ -1,25 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+cd "${REPO_ROOT}"
 
-# Output directory
-mkdir -p dist
+bazel build \
+  //build/wasm_plugins:dusk_checker_bundle_zip \
+  //build/wasm_plugins:dusk_checker_bundle_sha256 \
+  //build/wasm_plugins:dusk_checker_bundle_metadata
 
-echo "Building dusk-checker WASM plugin..."
+BAZEL_BIN="$(bazel info bazel-bin)"
 
-# Build with TinyGo
-# - gc=leaking: Required for stable WASM execution (no GC pauses)
-# - scheduler=none: Single-threaded execution model for WASM
-# - target=wasi: WebAssembly System Interface target
-tinygo build \
-    -o dist/plugin.wasm \
-    -target=wasi \
-    -gc=leaking \
-    -scheduler=none \
-    -no-debug \
-    ./
-
-echo "Built: dist/plugin.wasm"
-ls -lh dist/plugin.wasm
+echo "Built Bazel-managed bundle artifacts:"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/dusk_checker_bundle.zip"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/dusk_checker_bundle.sha256"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/dusk_checker_bundle.metadata.json"

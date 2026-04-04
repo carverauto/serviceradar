@@ -73,7 +73,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: bmp-collector
-        image: {{ .Values.bmpCollector.image.repository }}:{{ .Values.bmpCollector.image.tag }}
+        image: {{ .Values.bmpCollector.image.repository }}{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "bmpCollector") }}
         imagePullPolicy: {{ .Values.bmpCollector.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
         ports:
         {{- if .Values.bmpCollector.service.ports.bmp.enabled }}

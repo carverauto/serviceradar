@@ -128,7 +128,7 @@ push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI r
 	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
-push_all: ## Build, sign, and verify all OCI images in the configured OCI registry
+push_all: ## Build, sign, and verify all OCI images and first-party Wasm plugin OCI artifacts
 	@set -eu; \
 	COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
 	if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
@@ -161,6 +161,11 @@ push_all: ## Build, sign, and verify all OCI images in the configured OCI regist
 		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
 	else \
 		$(MAKE) verify_publish; \
+	fi; \
+	if [ -n "$(PUSH_TAG)" ]; then \
+		$(MAKE) push_wasm_plugins PUSH_TAG="$(PUSH_TAG)"; \
+	else \
+		$(MAKE) push_wasm_plugins; \
 	fi
 
 .PHONY: verify_publish
@@ -169,6 +174,42 @@ verify_publish: ## Verify published OCI image shape and runtime metadata (set VE
 	./scripts/verify-oci-publish.sh latest "sha-$$(git rev-parse HEAD)"; \
 	if [ -n "$(VERIFY_TAG)" ]; then \
 		./scripts/verify-oci-publish.sh "$(VERIFY_TAG)"; \
+	fi
+
+.PHONY: build_wasm_plugins
+build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally with Bazel
+	@bazel build //build/wasm_plugins:all_bundles
+
+.PHONY: push_wasm_plugins
+push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin OCI artifacts
+	@set -eu; \
+	COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
+	if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
+		printf 'Cosign password: ' >&2; \
+		stty -echo; \
+		IFS= read -r COSIGN_PASSWORD; \
+		stty echo; \
+		printf '\n' >&2; \
+		export COSIGN_PASSWORD; \
+	fi; \
+	if [ -n "$(PUSH_TAG)" ]; then \
+		./scripts/push_all_wasm_plugins.sh --tag "$(PUSH_TAG)"; \
+	else \
+		./scripts/push_all_wasm_plugins.sh; \
+	fi; \
+	./scripts/sign-wasm-plugin-publish.sh; \
+	if [ -n "$(PUSH_TAG)" ]; then \
+		$(MAKE) verify_wasm_plugins VERIFY_TAG="$(PUSH_TAG)"; \
+	else \
+		$(MAKE) verify_wasm_plugins; \
+	fi
+
+.PHONY: verify_wasm_plugins
+verify_wasm_plugins: ## Verify published Wasm plugin OCI artifacts and signatures (set VERIFY_TAG=<tag> to include an extra tag)
+	@set -eu; \
+	./scripts/verify-wasm-plugin-publish.sh "sha-$$(git rev-parse HEAD)"; \
+	if [ -n "$(VERIFY_TAG)" ]; then \
+		./scripts/verify-wasm-plugin-publish.sh "$(VERIFY_TAG)"; \
 	fi
 
 .PHONY: check-dev-image-tags
