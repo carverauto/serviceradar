@@ -306,6 +306,7 @@ func TestNetworkSweeper_ProgressLogging(t *testing.T) {
 	// Mock processor to capture all results
 	var processedResults []*models.Result
 
+	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
 	mockStore.EXPECT().SaveResult(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().Process(gomock.Any()).DoAndReturn(func(result *models.Result) error {
 		processedResults = append(processedResults, result)

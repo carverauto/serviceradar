@@ -66,6 +66,15 @@ func TestNATSPublisherPublishesToJetStream(t *testing.T) {
 		t.Fatalf("stream info: %v", err)
 	}
 
+	deadline := time.Now().Add(2 * time.Second)
+	for info.State.Msgs < 1 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		info, err = stream.Info(ctx)
+		if err != nil {
+			t.Fatalf("stream info: %v", err)
+		}
+	}
+
 	if info.State.Msgs < 1 {
 		t.Fatalf("expected at least 1 message in stream, got %d", info.State.Msgs)
 	}
