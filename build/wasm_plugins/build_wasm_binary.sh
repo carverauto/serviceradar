@@ -2,6 +2,7 @@
 set -euo pipefail
 
 tinygo_bin=""
+go_bin=""
 tinygo_darwin_arm64_bin=""
 tinygo_darwin_amd64_bin=""
 tinygo_linux_arm64_bin=""
@@ -14,6 +15,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tinygo)
       tinygo_bin="$2"
+      shift 2
+      ;;
+    --go-bin)
+      go_bin="$2"
       shift 2
       ;;
     --tinygo-darwin-arm64)
@@ -55,15 +60,6 @@ done
 [[ -n "${out}" ]] || { echo "error: --out is required" >&2; exit 1; }
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
-
-for prefix in "${PWD}" "$(dirname "${PWD}")" "$(dirname "$(dirname "${PWD}")")"; do
-  candidate="${prefix}/external/rules_go++go_sdk+go_sdk/bin/go"
-  if [[ -x "${candidate}" ]]; then
-    export GOROOT="$(cd "$(dirname "${candidate}")/.." && pwd)"
-    export PATH="$(dirname "${candidate}"):${PATH}"
-    break
-  fi
-done
 
 resolve_from_host() {
   command -v "$1" 2>/dev/null || true
@@ -111,6 +107,22 @@ else
   if [[ -n "${resolved_tinygo}" ]]; then
     tinygo_bin="${resolved_tinygo}"
   fi
+fi
+
+resolved_go_bin="$(resolve_relative_candidate "${go_bin}")"
+if [[ -n "${resolved_go_bin}" ]]; then
+  go_bin="${resolved_go_bin}"
+  export GOROOT="$(cd "$(dirname "${go_bin}")/.." && pwd)"
+  export PATH="$(dirname "${go_bin}"):${PATH}"
+else
+  for prefix in "${PWD}" "$(dirname "${PWD}")" "$(dirname "$(dirname "${PWD}")")"; do
+    candidate="${prefix}/external/go_sdk/bin/go"
+    if [[ -x "${candidate}" ]]; then
+      export GOROOT="$(cd "$(dirname "${candidate}")/.." && pwd)"
+      export PATH="$(dirname "${candidate}"):${PATH}"
+      break
+    fi
+  done
 fi
 
 if [[ "${tinygo_bin}" != /* ]]; then

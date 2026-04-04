@@ -14,6 +14,8 @@ def declare_wasm_targets(build_targets, plugin_bundles):
         wasm_out = "{}.wasm".format(build["name"])
         cmd_parts = [
             "$(location :build_wasm_binary.sh)",
+            "--go-bin",
+            "$(location @go_sdk//:bin/go)",
             "--tinygo-darwin-arm64",
             "$(location @tinygo_darwin_arm64//:tinygo_bin)",
             "--tinygo-darwin-amd64",
@@ -44,6 +46,8 @@ def declare_wasm_targets(build_targets, plugin_bundles):
             ],
             tools = [
                 ":build_wasm_binary.sh",
+                "@go_sdk//:bin/go",
+                "@go_sdk//:files",
                 "@tinygo_darwin_arm64//:tinygo_bin",
                 "@tinygo_darwin_amd64//:tinygo_bin",
                 "@tinygo_linux_arm64//:tinygo_bin",
