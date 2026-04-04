@@ -106,7 +106,18 @@ jobs:
           echo "Resolved Bazel: ${actual}"
           test "${actual}" = "${expected}"
 
+      - name: Report unavailable SRQL fixture secrets
+        if: ${{ env.SRQL_TEST_DATABASE_URL == '' || env.SRQL_TEST_ADMIN_URL == '' || env.SRQL_TEST_DATABASE_CA_CERT == '' }}
+        run: |
+          {
+            echo "## SRQL Fixture"
+            echo
+            echo "SRQL fixture secrets are unavailable in this workflow context."
+            echo "Skipping fixture-dependent configuration and serviceradar_core integration tests."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Configure SRQL fixture database for tests
+        if: ${{ env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
         env:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
@@ -199,4 +210,5 @@ jobs:
             //...
 
       - name: serviceradar_core integration tests
+        if: ${{ env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
         run: ./scripts/test-integration.sh
