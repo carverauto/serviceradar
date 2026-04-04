@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   image-security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
