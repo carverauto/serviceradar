@@ -29,10 +29,10 @@ jobs:
         run: echo "GOCACHE=${{ runner.temp }}/go-build" >> $GITHUB_ENV
 
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         
       - name: setup go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
           go-version-file: go.mod
           cache: true
@@ -62,4 +62,4 @@ jobs:
         run: make lint-go
           
       - name: go mod tidy check
-        uses: katexochen/go-tidy-check@v2
+        uses: katexochen/go-tidy-check@427c8c07d3d83ab8d7290cad04ce71c12eab3674
