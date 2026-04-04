@@ -231,6 +231,7 @@ jobs:
           bazel test \
             --config=ci \
             --test_tag_filters=-manual \
+            --test_output=streamed \
             --test_env=PGSSLROOTCERT \
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
