@@ -203,6 +203,8 @@ jobs:
 
       - name: Test
         run: |
+          mapfile -t bazel_targets < <(bazel query 'tests(//...) except attr("tags", "manual", tests(//...))')
+
           bazel test \
             --config=ci \
             --test_tag_filters=-manual \
@@ -210,7 +212,7 @@ jobs:
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
             --test_env=SRQL_TEST_DATABASE_CA_CERT \
-            //...
+            "${bazel_targets[@]}"
 
       - name: serviceradar_core integration tests
         if: ${{ env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
