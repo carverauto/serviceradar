@@ -225,8 +225,9 @@ jobs:
         run: ./buildbuddy_setup_docker_auth.sh
 
       - name: Test
+        id: bazel_tests
         run: |
-          mapfile -t bazel_targets < <(bazel query 'tests(//...) except attr("tags", "manual", tests(//...))')
+          mapfile -t bazel_targets < <(bazel query 'tests(//...) except attr("tags", "manual", tests(//...)) except set(//elixir/web-ng:precommit)')
 
           bazel test \
             --config=ci \
@@ -237,6 +238,46 @@ jobs:
             --test_env=PGSSLKEY \
             --test_env=SRQL_TEST_DATABASE_CA_CERT \
             "${bazel_targets[@]}"
+
+      - name: Dump Bazel test logs
+        if: ${{ failure() && steps.bazel_tests.conclusion == 'failure' }}
+        run: |
+          set +e
+
+          if [ ! -d bazel-testlogs ]; then
+            echo "bazel-testlogs not found"
+            exit 0
+          fi
+
+          find bazel-testlogs -type f \( -name test.log -o -name test.xml \) | sort | while read -r file; do
+            echo "===== ${file} ====="
+            sed -n '1,400p' "${file}" || cat "${file}" || true
+            echo
+          done
+
+      - name: web-ng precommit
+        id: web_ng_precommit
+        run: |
+          bazel test \
+            --config=ci \
+            --test_output=streamed \
+            //elixir/web-ng:precommit
+
+      - name: Dump web-ng precommit logs
+        if: ${{ failure() && steps.web_ng_precommit.conclusion == 'failure' }}
+        run: |
+          set +e
+
+          if [ ! -d bazel-testlogs/elixir/web-ng ]; then
+            echo "web-ng bazel-testlogs not found"
+            exit 0
+          fi
+
+          find bazel-testlogs/elixir/web-ng -type f \( -name test.log -o -name test.xml \) | sort | while read -r file; do
+            echo "===== ${file} ====="
+            sed -n '1,400p' "${file}" || cat "${file}" || true
+            echo
+          done
 
       - name: serviceradar_core integration tests
         if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
