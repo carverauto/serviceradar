@@ -26,7 +26,8 @@ bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
 # using remote execution from a different host platform (e.g., macOS -> Linux RBE).
 # See: https://github.com/keith/rules_multirun/issues/43
 # A Go port exists (PR #57) but isn't ready for use yet.
-# Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh
+# Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh,
+# which runs the per-image push targets sequentially without rules_multirun.
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
 bazel_dep(name = "rules_shell", version = "0.6.1", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.9.0", repo_name = "bazel_skylib")

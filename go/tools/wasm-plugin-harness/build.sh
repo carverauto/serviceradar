@@ -1,24 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-OUT_DIR="$ROOT_DIR/dist"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "${REPO_ROOT}"
 
-TINYGO_BIN="${TINYGO_BIN:-tinygo}"
-if ! command -v "$TINYGO_BIN" >/dev/null 2>&1; then
-  echo "tinygo is required but not installed (missing: $TINYGO_BIN)." >&2
-  echo "Install tinygo and re-run this script." >&2
-  exit 1
-fi
+bazel build \
+  //build/wasm_plugins:hello_wasm_bundle_zip \
+  //build/wasm_plugins:hello_wasm_bundle_sha256 \
+  //build/wasm_plugins:hello_wasm_bundle_metadata
 
-mkdir -p "$OUT_DIR"
+BAZEL_BIN="$(bazel info bazel-bin)"
 
-"$TINYGO_BIN" build -tags=tinygo -target=wasi -o "$OUT_DIR/plugin.wasm" "$ROOT_DIR/main.go"
-
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$OUT_DIR/plugin.wasm" | awk '{print $1}' > "$OUT_DIR/plugin.wasm.sha256"
-else
-  shasum -a 256 "$OUT_DIR/plugin.wasm" | awk '{print $1}' > "$OUT_DIR/plugin.wasm.sha256"
-fi
-
-echo "Built: $OUT_DIR/plugin.wasm"
+echo "Built Bazel-managed bundle artifacts:"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/hello_wasm_bundle.zip"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/hello_wasm_bundle.sha256"
+echo "  ${BAZEL_BIN}/build/wasm_plugins/hello_wasm_bundle.metadata.json"

@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   source-security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORGEJO_URL: https://code.carverauto.dev
       FORGEJO_REPOSITORY: carverauto/serviceradar
@@ -54,9 +54,12 @@ jobs:
           rm -rf out/security/source
           mkdir -p out/security/source
 
+          osv_exit=0
           osv-scanner scan source -r . \
             --format json \
-            --output-file out/security/source/serviceradar-source.osv.json
+            --output-file out/security/source/serviceradar-source.osv.json || osv_exit=$?
+
+          echo "OSV_EXIT=${osv_exit}" >> "${GITHUB_ENV}"
 
           syft scan dir:. \
             -c .syft.yaml \
@@ -104,6 +107,12 @@ jobs:
             echo "- \`serviceradar-source.spdx.json\`"
             echo "- \`serviceradar-source.sbom.txt\`"
             echo "- \`serviceradar-source.osv.json\`"
+            echo
+            if [[ "${OSV_EXIT:-0}" -eq 0 ]]; then
+              echo "OSV findings: none detected"
+            else
+              echo "OSV findings: vulnerabilities detected (see JSON artifact)"
+            fi
             if [[ -n "${{ steps.release.outputs.tag }}" ]]; then
               echo
               echo "Uploaded release asset:"

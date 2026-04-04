@@ -67,13 +67,13 @@ echo -e "${YELLOW}[4/5] Querying database for BGP flows...${NC}"
 if command -v docker &> /dev/null && docker ps | grep -q "$DB_CONTAINER"; then
     QUERY="SELECT
         timestamp,
-        src_addr,
-        dst_addr,
+        src_ip,
+        dst_ip,
         array_length(as_path, 1) as as_path_length,
         array_length(bgp_communities, 1) as community_count,
         as_path,
         bgp_communities
-    FROM netflow_metrics
+    FROM bgp_routing_info
     WHERE timestamp > NOW() - INTERVAL '2 minutes'
         AND (as_path IS NOT NULL OR bgp_communities IS NOT NULL)
     ORDER BY timestamp DESC
@@ -110,7 +110,7 @@ echo -e "${YELLOW}[5/5] Verifying BGP field values...${NC}"
 if command -v docker &> /dev/null && docker ps | grep -q "$DB_CONTAINER"; then
     # Check for specific AS numbers
     AS_QUERY="SELECT COUNT(*) as count
-    FROM netflow_metrics
+    FROM bgp_routing_info
     WHERE timestamp > NOW() - INTERVAL '2 minutes'
         AND as_path @> ARRAY[64512]::INTEGER[];"
 
@@ -124,7 +124,7 @@ if command -v docker &> /dev/null && docker ps | grep -q "$DB_CONTAINER"; then
 
     # Check for specific BGP community (65000:100 = 4259840100)
     COMM_QUERY="SELECT COUNT(*) as count
-    FROM netflow_metrics
+    FROM bgp_routing_info
     WHERE timestamp > NOW() - INTERVAL '2 minutes'
         AND bgp_communities @> ARRAY[4259840100]::INTEGER[];"
 
@@ -138,11 +138,11 @@ if command -v docker &> /dev/null && docker ps | grep -q "$DB_CONTAINER"; then
 
     # Show sample BGP data
     SAMPLE_QUERY="SELECT
-        src_addr,
-        dst_addr,
+        src_ip,
+        dst_ip,
         as_path,
         bgp_communities
-    FROM netflow_metrics
+    FROM bgp_routing_info
     WHERE timestamp > NOW() - INTERVAL '2 minutes'
         AND as_path IS NOT NULL
     LIMIT 3;"

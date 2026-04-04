@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "node_address": {
+      "type": "string",
+      "description": "WebSocket endpoint of the Dusk node (for example localhost:8080)"
+    },
+    "timeout": {
+      "type": "string",
+      "description": "Connection timeout duration (for example 30s, 1m)",
+      "default": "30s"
+    }
+  },
+  "required": [
+    "node_address"
+  ]
+}

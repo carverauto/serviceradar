@@ -8,7 +8,7 @@ This harness builds a minimal TinyGo Wasm plugin that submits a simple OK result
 - `plugin.yaml`: manifest for import
 - `config.schema.json`: optional config schema
 - `display_contract.json`: optional display contract (UI widgets)
-- `build.sh`: builds `dist/plugin.wasm`
+- `build.sh`: builds the Bazel-managed plugin bundle outputs
 
 ## Build
 
@@ -16,21 +16,20 @@ This harness builds a minimal TinyGo Wasm plugin that submits a simple OK result
 ./build.sh
 ```
 
-On macOS, install TinyGo with Homebrew (`brew install tinygo`) or set `TINYGO_BIN` to a custom path.
-
 Output:
 
-- `dist/plugin.wasm`
-- `dist/plugin.wasm.sha256`
+- `bazel-bin/build/wasm_plugins/hello_wasm_bundle.zip`
+- `bazel-bin/build/wasm_plugins/hello_wasm_bundle.sha256`
+- `bazel-bin/build/wasm_plugins/hello_wasm_bundle.metadata.json`
 
 ## Import (manual)
 
 1. Open the ServiceRadar UI.
 2. Navigate to Admin -> Plugins -> Upload.
-3. Upload `plugin.yaml` as the manifest.
+3. Extract `plugin.yaml` from the bundle and upload it as the manifest.
 4. Upload `config.schema.json` (optional).
 5. Upload `display_contract.json` (optional).
-6. Upload `dist/plugin.wasm` as the Wasm blob.
+6. Extract `plugin.wasm` from the bundle and upload it as the Wasm blob.
 6. Approve the package (capabilities: get_config, log, submit_result).
 7. Assign it to an agent.
 

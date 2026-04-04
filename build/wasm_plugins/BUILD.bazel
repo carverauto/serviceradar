@@ -1,0 +1,22 @@
+load("//build/wasm_plugins:defs.bzl", "declare_wasm_targets")
+load("//build/wasm_plugins:plugin_inventory.bzl", "WASM_BUILD_TARGETS", "WASM_PLUGIN_BUNDLES")
+load("@rules_python//python:py_test.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "assemble_bundle.py",
+    "build_wasm_binary.sh",
+    "publish_plugin.sh",
+])
+
+declare_wasm_targets(
+    build_targets = WASM_BUILD_TARGETS,
+    plugin_bundles = WASM_PLUGIN_BUNDLES,
+)
+
+py_test(
+    name = "assemble_bundle_test",
+    srcs = ["assemble_bundle_test.py"],
+    data = [":assemble_bundle.py"],
+)

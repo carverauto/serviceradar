@@ -463,6 +463,7 @@ agent:
   enabled: true
   agentId: "k8s-agent"
   hostNetwork: true
+  allowNetRaw: true
   gatewayAddress: ""
   partitionId: "default"
   pushInterval: "30s"
@@ -667,7 +668,6 @@ bmpCollector:
   enabled: false
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
-    tag: "latest"
     pullPolicy: IfNotPresent
   config:
     listenAddr: "0.0.0.0:11019"

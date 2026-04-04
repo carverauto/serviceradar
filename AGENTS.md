@@ -48,6 +48,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
+- First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins` (requires local `tinygo` and `oras` today). `make push_all` now includes the Wasm publish/sign/verify path after container images.
 - Bazel-managed Rust dep refresh: `scripts/update-rust-bazel-deps.sh [repin-mode] [verify-target]` or `make update-rust-deps REPIN=workspace`.
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
@@ -74,16 +75,20 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 
 ## Demo Namespace Helm Refresh
 
-- Build and push images: `make build` then `make push_all`.
-- Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic`.
+- Build and push release artifacts: `make build` then `make push_all`.
+- Deploy to demo: `helm upgrade --install serviceradar ./helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --set global.imageTag="sha-<git-sha>" --rollback-on-failure`.
   - `values-demo.yaml` carries the `external-dns` annotation for `demo-gw.serviceradar.cloud`; using only `values.yaml` will drop the DNS record.
-- `values-demo.yaml` tracks mutable `latest` tags with `imagePullPolicy: Always` and a rollout-on-upgrade annotation, so a normal `helm upgrade` will refresh demo workloads to the newest pushed images.
-- If you need a reproducible demo build instead of `latest`, override `global.imageTag` (and optional `image.digests`) explicitly for that release.
+- `values-demo.yaml` is an overlay on top of `values.yaml`, not a full copy of every chart value. Missing keys usually mean "inherit the default chart value."
+- Demo pins ServiceRadar workloads to immutable `sha-...` tags via `global.imageTag`; use `image.digests` only when you need per-service overrides.
+- Local convenience helper: `sr_demo_deploy <sha-...|git-sha>`
+  - Defined in `~/.zshrc`
+  - Example: `sr_demo_deploy ad617c5f8a067f1e3e93872704754b9f7d006697`
+  - If the function is not loaded in the current shell yet, run `source ~/.zshrc`
 - Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
 
 ## Docker Compose Refresh
 
-- Build and publish images from the current commit: `make build` then `make push_all`.
+- Build and publish release artifacts from the current commit: `make build` then `make push_all`.
 - Capture the tag for compose: `git rev-parse HEAD` and use `APP_TAG=sha-<sha>`.
 - Pull fresh images: `APP_TAG=sha-<sha> docker compose pull`.
 - Restart the stack: `APP_TAG=sha-<sha> docker compose up -d --force-recreate`.
@@ -429,14 +434,16 @@ Restart the checker using the persisted config:
    - Run `scripts/cut-release.sh --version <version> --dry-run` to confirm the changelog entry is detected before committing.
 2. Tag the release:
    - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
-3. Build and push Bazel images:
+3. Build and push Bazel release artifacts:
    - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
-   - Run `bazel run --config=remote_push //docker/images:push_all`. This reuses the build artifacts, downloads OCI publish metadata locally, publishes `latest`, `sha-<commit>`, and short-digest tags, and refreshes the embedded `build-info.json`.
+   - Run `make push_all`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
    - If a single image needs republishing, run `bazel run --config=remote_push //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
+   - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
-   - Run `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic` so the mutable-tag demo workloads roll to the newest published `latest` images.
+   - Run `helm upgrade --install serviceradar ./helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --set global.imageTag="sha-<git-sha>" --rollback-on-failure` to roll demo to the newly published immutable tag.
+   - Local shortcut: `sr_demo_deploy <sha-...|git-sha>` if the helper is installed in `~/.zshrc`.
    - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
 5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with Forgejo release packaging if required.
 

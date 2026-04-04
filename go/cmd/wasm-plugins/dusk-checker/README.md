@@ -10,13 +10,14 @@ The dusk-checker monitors:
 
 ## Building
 
-Requires TinyGo:
-
 ```bash
 ./build.sh
 ```
 
-Output: `dist/plugin.wasm`
+Output:
+- `bazel-bin/build/wasm_plugins/dusk_checker_bundle.zip`
+- `bazel-bin/build/wasm_plugins/dusk_checker_bundle.sha256`
+- `bazel-bin/build/wasm_plugins/dusk_checker_bundle.metadata.json`
 
 ## Configuration
 
@@ -70,7 +71,7 @@ Example params JSON:
 
 ## Deployment
 
-1. Upload the plugin package to ServiceRadar
+1. Extract `plugin.yaml` and `plugin.wasm` from the bundle, then upload the plugin package to ServiceRadar
 2. Create a plugin assignment targeting your agent(s)
 3. Configure the `node_address` parameter
 

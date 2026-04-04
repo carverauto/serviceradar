@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   image-security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
@@ -67,6 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out/security/images
+          findings=0
           while IFS= read -r repository; do
             image_ref="${repository}:${RELEASE_TAG}"
             image_name="$(basename "${repository}")"
@@ -76,10 +77,15 @@ jobs:
               -o "spdx-json=out/security/images/${image_name}.spdx.json" \
               -o "syft-text=out/security/images/${image_name}.sbom.txt"
 
+            image_osv_exit=0
             osv-scanner scan image "${image_ref}" \
               --format json \
-              --output-file "out/security/images/${image_name}.osv.json"
+              --output-file "out/security/images/${image_name}.osv.json" || image_osv_exit=$?
+            if [[ "${image_osv_exit}" -ne 0 ]]; then
+              findings=1
+            fi
           done < <(./scripts/list-publishable-oci-repositories.sh)
+          echo "OSV_EXIT=${findings}" >> "${GITHUB_ENV}"
 
       - name: Bundle image security artifacts
         env:
@@ -129,6 +135,12 @@ jobs:
             echo "- OSV JSON vulnerability report"
             echo
             echo "Images scanned: ${count}"
+            echo
+            if [[ "${OSV_EXIT:-0}" -eq 0 ]]; then
+              echo "OSV findings: none detected"
+            else
+              echo "OSV findings: vulnerabilities detected in one or more images (see JSON artifacts)"
+            fi
             echo
             echo "Uploaded release asset:"
             echo "- \`serviceradar-image-security-${RELEASE_TAG}.tar.gz\`"

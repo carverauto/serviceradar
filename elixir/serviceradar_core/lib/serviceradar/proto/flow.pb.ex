@@ -44,6 +44,10 @@ defmodule Flowpb.FlowMessage do
   field :sampler_address, 11, type: :bytes, json_name: "samplerAddress"
   field :time_flow_start_ns, 111, type: :uint64, json_name: "timeFlowStartNs"
   field :time_flow_end_ns, 112, type: :uint64, json_name: "timeFlowEndNs"
+  field :bytes_in, 113, type: :uint64, json_name: "bytesIn"
+  field :bytes_out, 114, type: :uint64, json_name: "bytesOut"
+  field :packets_in, 115, type: :uint64, json_name: "packetsIn"
+  field :packets_out, 116, type: :uint64, json_name: "packetsOut"
   field :bytes, 9, type: :uint64
   field :packets, 10, type: :uint64
   field :src_addr, 6, type: :bytes, json_name: "srcAddr"
