@@ -320,7 +320,6 @@ check_cosign_verify() {
 
   cosign verify \
     --experimental-oci11 \
-    --insecure-ignore-tlog=true \
     "${verify_flag}" "${verify_value}" \
     "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
 }
