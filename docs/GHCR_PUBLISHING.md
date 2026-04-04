@@ -93,6 +93,8 @@ make push_all PUSH_TAG="v$(git describe --tags --always)"
 - `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` – pushes only the core-elx image and adds an extra `1.2.3` tag.
 - `bazel run --config=remote_push --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, downloads the OCI artifacts locally, then pushes from the workflow runner.
 
+On macOS, `make push_all` uses [scripts/push_all_images.sh](/Users/mfreeman/src/serviceradar/scripts/push_all_images.sh) instead of `//:push` because the aggregate `rules_multirun` launcher can try to execute a Linux Python runtime on the host. The helper runs the same Bazel `*_push` targets sequentially and rewrites each generated launcher to use the Bazel-fetched Darwin `crane` and `jq` binaries rather than the Linux toolchain runfiles.
+
 When credentials are supplied via environment variables the push helper writes an ephemeral Docker config into `$DOCKER_CONFIG`, otherwise it reuses the config created by the bootstrap script (or an existing `docker login`) so no secrets are leaked.
 
 ## Notes

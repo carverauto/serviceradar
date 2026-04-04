@@ -8,32 +8,22 @@ ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and
 
 ## Architecture Overview
 
-ServiceRadar provides **dual pipelines** for NetFlow data to support different use cases:
+ServiceRadar uses a single canonical NetFlow ingest path:
 
-### Pipeline 1: OCSF Security Flow (Existing)
 ```
-Network Devices → NetFlow Collector → NATS → Zen Rules → db-event-writer → ocsf_network_activity
-   (v5/v9/IPFIX)    (Rust, UDP:2055)          (OCSF Transform)  (Persistence)
+Network Devices → NetFlow Collector → NATS → EventWriter → ocsf_network_activity
+   (v5/v9/IPFIX)    (Rust, UDP:2055)          (protobuf decode)   (canonical flow store)
+                                                └──────────────→ bgp_routing_info
+                                                                   (derived BGP analytics)
 ```
-
-**Purpose**: Security analysis, OCSF normalization, integration with SIEM tools
-
-### Pipeline 2: Raw Metrics Flow (BGP Support - NEW)
-```
-Network Devices → NetFlow Collector → NATS → EventWriter → netflow_metrics (hypertable)
-   (v5/v9/IPFIX)    (Rust, UDP:2055)          (Raw Storage)      (BGP-enabled)
-```
-
-**Purpose**: Network analysis, BGP routing visibility, performance optimization
 
 **Key Components:**
 - **NetFlow Collector**: Rust daemon listening on UDP port 2055 (configurable)
 - **AutoScopedParser**: RFC-compliant per-source template isolation (0.8.0+)
-- **NATS JetStream**: Reliable message transport with at-least-once delivery
-- **EventWriter**: Elixir/Broadway processor for raw metrics with BGP fields
-- **Zen Rules Engine**: Transforms raw flows to OCSF 1.7.0 schema (security pipeline)
-- **CNPG/TimescaleDB**: Time-series storage with `netflow_metrics` and `ocsf_network_activity` hypertables
-- **SRQL**: Query flows via `in:flows` with BGP field support
+- **NATS JetStream**: Reliable message transport carrying protobuf `FlowMessage` bytes on `flows.raw.netflow`
+- **EventWriter**: Elixir/Broadway processor that decodes protobuf, persists OCSF flow rows, and derives BGP observations
+- **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
+- **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`
 - **Web UI**: NetFlow dashboard with BGP topology visualization
 
 ## BGP Routing Support (NEW)
@@ -42,18 +32,18 @@ ServiceRadar now captures and visualizes BGP routing information from NetFlow/IP
 
 ### BGP Fields
 
-**AS Path** (`as_path`):
+**AS Path** (`as_path` in `bgp_routing_info`):
 - Ordered array of AS numbers in the routing path
 - Format: `[SOURCE_AS, INTERMEDIATE_AS, ..., DEST_AS]`
 - Example: `[64512, 64513, 64514]` indicates traffic traversed three autonomous systems
-- Stored as PostgreSQL `INTEGER[]` with GIN index for fast containment queries
+- Stored as PostgreSQL `INTEGER[]` in `bgp_routing_info` with GIN index for fast containment queries
 
-**BGP Communities** (`bgp_communities`):
+**BGP Communities** (`bgp_communities` in `bgp_routing_info`):
 - Array of 32-bit community values (RFC 1997 format)
 - Format: High 16 bits = AS number, low 16 bits = value
 - Example: `4259840100` = `0xFDE80064` = `65000:100`
 - Enables policy-based routing and traffic engineering visibility
-- Stored as PostgreSQL `INTEGER[]` with GIN index
+- Stored as PostgreSQL `INTEGER[]` in `bgp_routing_info` with GIN index
 
 **Well-Known Communities**:
 - `NO_EXPORT` (0xFFFFFF01): Do not advertise to EBGP peers
@@ -125,12 +115,12 @@ SELECT
   src_ip,
   dst_ip,
   as_path,
-  bytes_total,
-  packets_total
-FROM netflow_metrics
+  total_bytes,
+  total_packets
+FROM bgp_routing_info
 WHERE as_path @> ARRAY[64512]
   AND timestamp > NOW() - INTERVAL '1 hour'
-ORDER BY bytes_total DESC
+ORDER BY total_bytes DESC
 LIMIT 20;
 ```
 
@@ -138,10 +128,10 @@ LIMIT 20;
 ```sql
 SELECT
   unnest(as_path) AS asn,
-  SUM(bytes_total) AS total_bytes,
-  SUM(packets_total) AS total_packets,
-  COUNT(*) AS flow_count
-FROM netflow_metrics
+  SUM(total_bytes) AS total_bytes,
+  SUM(total_packets) AS total_packets,
+  SUM(flow_count) AS flow_count
+FROM bgp_routing_info
 WHERE timestamp > NOW() - INTERVAL '1 hour'
   AND as_path IS NOT NULL
 GROUP BY asn
@@ -157,8 +147,8 @@ SELECT
   dst_ip,
   as_path,
   bgp_communities,
-  bytes_total
-FROM netflow_metrics
+  total_bytes
+FROM bgp_routing_info
 WHERE bgp_communities @> ARRAY[4259840100]  -- 65000:100
   AND timestamp > NOW() - INTERVAL '1 hour'
 ORDER BY timestamp DESC;
@@ -170,9 +160,9 @@ WITH path_edges AS (
   SELECT
     as_path[i] as source_as,
     as_path[i+1] as dest_as,
-    bytes_total,
-    packets_total
-  FROM netflow_metrics,
+    total_bytes,
+    total_packets
+  FROM bgp_routing_info,
        generate_series(1, array_length(as_path, 1) - 1) i
   WHERE timestamp > NOW() - INTERVAL '1 hour'
     AND as_path IS NOT NULL
@@ -181,8 +171,8 @@ WITH path_edges AS (
 SELECT
   source_as,
   dest_as,
-  SUM(bytes_total) as total_bytes,
-  SUM(packets_total) as total_packets,
+  SUM(total_bytes) as total_bytes,
+  SUM(total_packets) as total_packets,
   COUNT(*) as flow_count
 FROM path_edges
 GROUP BY source_as, dest_as
@@ -192,15 +182,15 @@ LIMIT 20;
 
 ### GIN Index Performance
 
-The `netflow_metrics` table uses **GIN (Generalized Inverted Index)** indexes for fast array containment queries:
+The `bgp_routing_info` table uses **GIN (Generalized Inverted Index)** indexes for fast array containment queries:
 
 **Indexes:**
 ```sql
-CREATE INDEX idx_netflow_metrics_as_path
-  ON netflow_metrics USING GIN (as_path);
+CREATE INDEX idx_bgp_routing_as_path
+  ON bgp_routing_info USING GIN (as_path);
 
-CREATE INDEX idx_netflow_metrics_bgp_communities
-  ON netflow_metrics USING GIN (bgp_communities);
+CREATE INDEX idx_bgp_routing_communities
+  ON bgp_routing_info USING GIN (bgp_communities);
 ```
 
 **Performance Characteristics:**
@@ -212,11 +202,11 @@ CREATE INDEX idx_netflow_metrics_bgp_communities
 **Query Planner Usage:**
 ```sql
 EXPLAIN ANALYZE
-SELECT COUNT(*) FROM netflow_metrics
+SELECT COUNT(*) FROM bgp_routing_info
 WHERE as_path @> ARRAY[64512];
 
 -- Output shows:
--- Bitmap Index Scan on idx_netflow_metrics_as_path
+-- Bitmap Index Scan on idx_bgp_routing_as_path
 -- Index Cond: (as_path @> '{64512}'::integer[])
 ```
 
@@ -606,8 +596,7 @@ Monitor these in logs and system metrics:
   "stream_name": "events",
   "subject": "flows.raw.netflow",
   "stream_subjects": [
-    "flows.raw.netflow",
-    "flows.raw.netflow.processed"
+    "flows.raw.netflow"
   ],
   "partition": "default",
   "max_templates": 2000,
@@ -632,7 +621,7 @@ Monitor these in logs and system metrics:
 **Key Parameters:**
 - `listen_addr`: UDP socket binding (default: 0.0.0.0:2055)
 - `stream_name`: JetStream stream for NetFlow subjects (default: events)
-- `stream_subjects`: Stream subjects to ensure exist (raw + processed)
+- `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest
 - `max_templates`: Template cache size per source (default: 2000)
 - `max_template_fields`: Max fields per template for security (default: 10,000)
 - `channel_size`: Bounded channel depth (default: 10,000)
@@ -715,7 +704,7 @@ grep -i "error\|warn" /var/log/netflow-collector.log
 # Check stream has messages
 nats stream info events
 
-# Should show flows.raw.netflow and flows.raw.netflow.processed in the subjects list.
+# Should show flows.raw.netflow in the subjects list.
 #
 # Note: If an old `flows` stream already owns flows.raw.netflow, delete it so the
 # `events` stream can claim the subject:

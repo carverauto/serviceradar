@@ -20,7 +20,7 @@ BGP (Border Gateway Protocol) information is collected from network devices expo
 ```
 Network Devices     NetFlow Collector      NATS JetStream       EventWriter        Database
     (BGP-enabled    →  (Rust UDP:2055)  →  (flows.raw.netflow) → (Elixir)     →   (TimescaleDB)
-     IPFIX exports)                                                                  ├─ netflow_metrics
+     IPFIX exports)                                                                  ├─ ocsf_network_activity
                                                                                      └─ bgp_routing_info
 ```
 
