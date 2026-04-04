@@ -48,18 +48,6 @@ jobs:
           git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
           git checkout --detach FETCH_HEAD
 
-      - name: Cache Bazel artifacts
-        uses: actions/cache@v5
-        with:
-          path: |
-            ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bazel-
-
       - name: Install build dependencies
         run: |
           ensure_pkg_config() {
