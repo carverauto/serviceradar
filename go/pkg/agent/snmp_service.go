@@ -78,6 +78,7 @@ type SNMPAgentService struct {
 	logger    logger.Logger
 	started   bool
 	configDir string
+	cachePath string
 	baseCtx   context.Context
 
 	// Config refresh
@@ -110,6 +111,9 @@ type SNMPAgentServiceConfig struct {
 	AgentID   string
 	Partition string
 	ConfigDir string
+	// CachePath overrides the default platform cache location.
+	// Use this in tests to isolate cache state.
+	CachePath string
 	Logger    logger.Logger
 	// TestConfig overrides the default SNMP config for testing.
 	TestConfig *snmp.SNMPConfig
@@ -124,6 +128,7 @@ func NewSNMPAgentService(cfg SNMPAgentServiceConfig) (*SNMPAgentService, error) 
 		agentID:        cfg.AgentID,
 		partition:      cfg.Partition,
 		configDir:      cfg.ConfigDir,
+		cachePath:      cfg.CachePath,
 		logger:         cfg.Logger,
 		testConfig:     cfg.TestConfig,
 		serviceFactory: cfg.ServiceFactory,
@@ -565,6 +570,10 @@ func (s *SNMPAgentService) getSNMPLocalConfigPath() string {
 
 // getSNMPCachePath returns the platform-specific cache path.
 func (s *SNMPAgentService) getSNMPCachePath() string {
+	if s.cachePath != "" {
+		return s.cachePath
+	}
+
 	switch runtime.GOOS {
 	case snmpPlatformDarwin:
 		return snmpDarwinCachePath
