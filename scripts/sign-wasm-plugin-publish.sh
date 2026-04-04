@@ -52,7 +52,7 @@ else
 error: no cosign signing identity configured.
 Set one of:
   COSIGN_KEY_FILE=/path/to/cosign.key
-  COSIGN_PRIVATE_KEY='<pem-or-base64-key>'
+  COSIGN_PRIVATE_KEY=<signing-key-material>
   COSIGN_KEYLESS=true
 EOF
   exit 1
