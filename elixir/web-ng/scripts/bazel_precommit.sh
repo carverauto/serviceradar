@@ -192,7 +192,28 @@ deps_cache_key() {
   cksum "$@" | cksum | awk '{print $1}'
 }
 
-DEPS_CACHE_FINGERPRINT="$(deps_cache_key mix.exs mix.lock ../connection/mix.exs ../serviceradar_core/mix.exs ../serviceradar_srql/mix.exs ../datasvc/mix.exs ../vendor/opentelemetry_oban/mix.exs)"
+set -- \
+  mix.exs \
+  mix.lock \
+  ../connection/mix.exs \
+  ../serviceradar_core/mix.exs \
+  ../serviceradar_srql/mix.exs \
+  ../datasvc/mix.exs \
+  ../vendor/opentelemetry_oban/mix.exs
+
+for maybe_lock in \
+  ../connection/mix.lock \
+  ../serviceradar_core/mix.lock \
+  ../serviceradar_srql/mix.lock \
+  ../datasvc/mix.lock \
+  ../vendor/opentelemetry_oban/mix.lock
+do
+  if [ -f "$maybe_lock" ]; then
+    set -- "$@" "$maybe_lock"
+  fi
+done
+
+DEPS_CACHE_FINGERPRINT="$(deps_cache_key "$@")"
 DEPS_CACHE_KEY_FILE="$CACHE_DIR/deps.key"
 
 if [ -f "$DEPS_CACHE_KEY_FILE" ] && [ "$(cat "$DEPS_CACHE_KEY_FILE")" != "$DEPS_CACHE_FINGERPRINT" ]; then
@@ -204,6 +225,14 @@ fi
 if [ -d "$CACHE_DIR/deps" ]; then
   cp -a "$CACHE_DIR/deps" "$WORKDIR/elixir/web-ng/deps"
 fi
+
+clean_dependency_cache() {
+  rm -rf \
+    "$CACHE_DIR/deps" \
+    "$CACHE_DIR/_build" \
+    "$WORKDIR/elixir/web-ng/deps" \
+    "$WORKDIR/elixir/web-ng/_build"
+}
 
 # Only install hex/rebar if not already cached
 if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
@@ -217,6 +246,10 @@ for attempt in 1 2 3; do
   if mix deps.get; then
     deps_get_ok=1
     break
+  fi
+
+  if [ "$attempt" -eq 1 ]; then
+    clean_dependency_cache
   fi
 
   if [ "$attempt" -lt 3 ]; then

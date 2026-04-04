@@ -30,7 +30,9 @@ go_test(
     name = "publish_packages_test",
     srcs = ["publish_packages_test.go"],
     data = [
+        ":package_manifest",
+        ":package_artifacts",
         "//build/packaging/agent:agent_release_runtime_archive",
     ],
-    embed = [":publish_packages"],
+    embed = [":publish_packages_lib"],
 )
