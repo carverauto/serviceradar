@@ -48,7 +48,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
-- First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins` (requires local `tinygo` and `oras` today). `make push_all` now includes the Wasm publish/sign/verify path after container images.
+- First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` now includes the Wasm publish/sign/verify path after container images.
 - Bazel-managed Rust dep refresh: `scripts/update-rust-bazel-deps.sh [repin-mode] [verify-target]` or `make update-rust-deps REPIN=workspace`.
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 

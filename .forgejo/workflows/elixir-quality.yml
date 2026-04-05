@@ -37,7 +37,7 @@ on:
 jobs:
   quality:
     name: Elixir Quality (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -92,16 +92,16 @@ jobs:
             warnings_as_errors: true
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Beam
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'
 
       - name: Cache Elixir dependencies and build
-        uses: actions/cache@v5
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
             ~/.hex

@@ -8,14 +8,14 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
-      SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
-      SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
-      SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
@@ -23,19 +23,30 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
 
-      - name: Cache Bazel artifacts
-        uses: actions/cache@v5
-        with:
-          path: |
-            ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bazel-
+          mkdir -p "${GITHUB_WORKSPACE}"
+          cd "${GITHUB_WORKSPACE}"
+
+          if [ -d .git ]; then
+            git reset --hard
+            git clean -ffdx
+            if git remote get-url origin >/dev/null 2>&1; then
+              git remote set-url origin "${REPO_URL}"
+            else
+              git remote add origin "${REPO_URL}"
+            fi
+          else
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q
+            git remote add origin "${REPO_URL}"
+          fi
+
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
 
       - name: Install build dependencies
         run: |
@@ -84,15 +95,27 @@ jobs:
           protoc --version || (echo "protoc installation failed" && exit 1)
 
       - name: Setup Beam
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
         with:
           otp-version: "28.3"
           elixir-version: "1.19.4"
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
@@ -107,7 +130,7 @@ jobs:
           test "${actual}" = "${expected}"
 
       - name: Report unavailable SRQL fixture secrets
-        if: ${{ env.SRQL_TEST_DATABASE_URL == '' || env.SRQL_TEST_ADMIN_URL == '' || env.SRQL_TEST_DATABASE_CA_CERT == '' }}
+        if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}
         run: |
           {
             echo "## SRQL Fixture"
@@ -117,7 +140,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Configure SRQL fixture database for tests
-        if: ${{ env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
         env:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
@@ -139,6 +162,9 @@ jobs:
           printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
 
           {
+            echo "SRQL_TEST_DATABASE_URL=${SRQL_TEST_DATABASE_URL}"
+            echo "SRQL_TEST_ADMIN_URL=${SRQL_TEST_ADMIN_URL}"
+            echo "SRQL_TEST_DATABASE_CA_CERT=${SRQL_TEST_DATABASE_CA_CERT}"
             echo "PGSSLROOTCERT=${ca_file}"
             echo "CNPG_CA_FILE=${ca_file}"
             echo "SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
@@ -195,20 +221,102 @@ jobs:
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
       - name: Configure Docker auth for Bazel pulls
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        if: ${{ env.OCI_USERNAME != '' && env.OCI_TOKEN != '' || env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         run: ./buildbuddy_setup_docker_auth.sh
 
       - name: Test
+        id: bazel_tests
         run: |
+          mapfile -t bazel_targets < <(bazel query 'tests(//...) except attr("tags", "manual", tests(//...)) except set(//elixir/web-ng:precommit)')
+
           bazel test \
             --config=ci \
             --test_tag_filters=-manual \
+            --test_output=streamed \
             --test_env=PGSSLROOTCERT \
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
+            --test_env=CNPG_CA_FILE \
+            --test_env=SRQL_TEST_DATABASE_URL \
+            --test_env=SRQL_TEST_ADMIN_URL \
             --test_env=SRQL_TEST_DATABASE_CA_CERT \
-            //...
+            --test_env=SRQL_TEST_DATABASE_CA_CERT_FILE \
+            --test_env=SERVICERADAR_TEST_DATABASE_URL \
+            --test_env=SERVICERADAR_TEST_ADMIN_URL \
+            --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT_FILE \
+            "${bazel_targets[@]}"
+
+      - name: Dump Bazel test logs
+        if: ${{ failure() && steps.bazel_tests.conclusion == 'failure' }}
+        run: |
+          set +e
+
+          if [ ! -d bazel-testlogs ]; then
+            echo "bazel-testlogs not found"
+            exit 0
+          fi
+
+          files="$(find bazel-testlogs -type f \( -name test.log -o -name test.xml \) 2>/dev/null | sort || true)"
+          if [ -z "${files}" ]; then
+            echo "no bazel test logs found"
+            exit 0
+          fi
+
+          printf '%s\n' "${files}" | while read -r file; do
+            echo "===== ${file} ====="
+            sed -n '1,400p' "${file}" || cat "${file}" || true
+            echo
+          done
+
+          exit 0
+
+      - name: web-ng precommit
+        id: web_ng_precommit
+        run: |
+          bazel test \
+            --config=ci \
+            --test_output=streamed \
+            //elixir/web-ng:precommit
+
+      - name: Dump web-ng precommit logs
+        if: ${{ failure() && steps.web_ng_precommit.conclusion == 'failure' }}
+        run: |
+          set +e
+
+          if [ ! -d bazel-testlogs/elixir/web-ng ]; then
+            echo "web-ng bazel-testlogs not found"
+            exit 0
+          fi
+
+          files="$(find bazel-testlogs/elixir/web-ng -type f \( -name test.log -o -name test.xml \) 2>/dev/null | sort || true)"
+          if [ -z "${files}" ]; then
+            echo "no web-ng precommit logs found"
+            exit 0
+          fi
+
+          printf '%s\n' "${files}" | while read -r file; do
+            echo "===== ${file} ====="
+            sed -n '1,400p' "${file}" || cat "${file}" || true
+            echo
+          done
+
+          exit 0
 
       - name: serviceradar_core integration tests
-        if: ${{ env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
-        run: ./scripts/test-integration.sh
+        if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+        run: |
+          set -euo pipefail
+
+          ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
+          printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+
+          export PGSSLROOTCERT="${ca_file}"
+          export CNPG_CA_FILE="${ca_file}"
+          export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
+          export SRQL_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
+
+          ./scripts/test-integration.sh

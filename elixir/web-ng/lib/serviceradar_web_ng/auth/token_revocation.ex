@@ -156,23 +156,17 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
   end
 
   defp cached_entry(jti) do
-    case :ets.whereis(@table) do
-      :undefined ->
+    with table when table != :undefined <- :ets.whereis(@table),
+         [{^jti, entry}] <- :ets.lookup(table, jti),
+         false <- expired?(entry) do
+      {:ok, entry}
+    else
+      true ->
+        maybe_delete_cached_entry(jti)
         :not_found
 
       _ ->
-        case :ets.lookup(@table, jti) do
-          [{^jti, entry}] ->
-            if expired?(entry) do
-              maybe_delete_cached_entry(jti)
-              :not_found
-            else
-              {:ok, entry}
-            end
-
-          [] ->
-            :not_found
-        end
+        :not_found
     end
   end
 
@@ -243,21 +237,23 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
   end
 
   defp purge_expired_cache_entries do
-    if :ets.whereis(@table) == :undefined do
-      :ok
-    else
-      now = DateTime.utc_now()
+    case :ets.whereis(@table) do
+      :undefined ->
+        :ok
 
-      expired_keys =
-        :ets.foldl(
-          fn {jti, entry}, acc ->
-            if expired?(entry, now), do: [jti | acc], else: acc
-          end,
-          [],
-          @table
-        )
+      _ ->
+        now = DateTime.utc_now()
 
-      Enum.each(expired_keys, &maybe_delete_cached_entry/1)
+        expired_keys =
+          :ets.foldl(
+            fn {jti, entry}, acc ->
+              collect_expired_cache_key(jti, entry, now, acc)
+            end,
+            [],
+            @table
+          )
+
+        Enum.each(expired_keys, &maybe_delete_cached_entry/1)
     end
   end
 
@@ -285,6 +281,10 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocation do
     if :ets.whereis(@table) != :undefined do
       :ets.delete(@table, jti)
     end
+  end
+
+  defp collect_expired_cache_key(jti, entry, now, acc) do
+    if expired?(entry, now), do: [jti | acc], else: acc
   end
 
   defp purge_expired_db_entries do

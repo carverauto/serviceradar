@@ -1425,19 +1425,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
           {selected_agents, []}
 
         release ->
-          selected_agents
-          |> Enum.split_with(&release_supports_agent?(release, &1))
-          |> then(fn {compatible_agents, unsupported_agents} ->
-            unsupported_agents =
-              Enum.map(unsupported_agents, fn agent ->
-                %{
-                  agent_id: agent.uid,
-                  platform_label: agent_platform_label(agent) || "unknown platform"
-                }
-              end)
+          {compatible_agents, unsupported_agents} =
+            Enum.split_with(selected_agents, &release_supports_agent?(release, &1))
 
-            {compatible_agents, unsupported_agents}
-          end)
+          {compatible_agents, summarize_unsupported_agents(unsupported_agents)}
       end
 
     %{
@@ -1465,8 +1456,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         selected_agents =
           agent_ids
           |> Enum.map(&Map.get(agents_by_uid, &1))
-          |> Enum.reject(&is_nil/1)
-          |> Enum.reject(&externally_managed_agent?/1)
+          |> Enum.reject(&(is_nil(&1) or externally_managed_agent?(&1)))
 
         unknown_agent_ids =
           Enum.reject(agent_ids, fn agent_id ->
@@ -1482,6 +1472,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp list_agents_by_uid([], _scope), do: []
+
+  defp summarize_unsupported_agents(agents) do
+    Enum.map(agents, fn agent ->
+      %{
+        agent_id: agent.uid,
+        platform_label: agent_platform_label(agent) || "unknown platform"
+      }
+    end)
+  end
 
   defp list_agents_by_uid(agent_ids, scope) do
     Agent
