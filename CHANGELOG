@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.11
+
+Forgejo and Harbor release hardening, safer Docker Compose bootstrap, and post-release control-plane reliability fixes across the demo stack.
+
+## Whats New
+
+**1.2.11**
+- Hardened Docker Compose startup by pinning CNPG to a known-good immutable image, repairing bootstrap permissions for runtime secrets and certificates, and adding CNPG app database bootstrap so fresh and upgraded local stacks can come up cleanly.
+- Updated the BMP collector Compose wiring to use the current JSON config interface and tuned its local JetStream allocation for the bundled NATS limits.
+- Improved Forgejo and Harbor release publishing with stronger cosign preflight checks, immutable image/tag handling, legacy signature compatibility, and cleaner publish verification behavior.
+- Fixed flow ingestion and release publishing regressions, including managed release artifact correctness, demo CNPG/storage updates, and log collector handling for Harbor-originated syslog traffic.
+- Expanded operator and developer surface area with versioned OpenAPI publishing, in-app OpenAPI docs UIs, and related Forgejo CI hardening for runner labels, secret scanning, and fixture-only workflows.
+
 # ServiceRadar v1.2.10
 
 Container-managed agent rollout exclusions, Kubernetes-safe agent startup, and verification updates for freshly published agent images.
