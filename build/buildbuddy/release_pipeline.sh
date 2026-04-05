@@ -47,6 +47,14 @@ if ! command -v oras >/dev/null 2>&1; then
     fi
 fi
 
+require_env() {
+    local name="$1"
+    if [[ -z "${!name:-}" ]]; then
+        echo "Missing required environment variable: ${name}" >&2
+        exit 1
+    fi
+}
+
 DEFAULT_BAZEL_WRAPPER="${REPO_ROOT}/tools/bazel/bazel"
 BAZEL_BINARY="${BAZEL_BINARY:-${DEFAULT_BAZEL_WRAPPER}}"
 if [[ ! -x "${BAZEL_BINARY}" ]]; then
@@ -199,6 +207,11 @@ if [[ "${PUSH_DRY_RUN:-0}" == "1" ]]; then
     WASM_PUSH_ARGS+=("--dry-run")
 fi
 WASM_PUSH_ARGS+=("--tag" "${TAG}")
+
+if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
+    require_env "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY"
+    require_env "PLUGIN_UPLOAD_SIGNING_KEY_ID"
+fi
 
 "${REPO_ROOT}/scripts/push_all_wasm_plugins.sh" "${WASM_PUSH_ARGS[@]}"
 

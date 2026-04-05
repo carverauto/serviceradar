@@ -53,6 +53,34 @@ The bundle payload is a zip archive that contains the canonical import shape:
 - `plugin.wasm`
 - optional sidecars such as `config.schema.json` or `display_contract.json`
 
+Each first-party OCI artifact now carries two trust signals:
+
+- a Cosign signature on the OCI manifest in Harbor
+- an additional upload-signature OCI layer whose Ed25519 payload matches the `web-ng` uploaded-package verification policy
+
+That upload-signature sidecar signs the canonical JSON payload:
+
+- `content_hash`: SHA-256 of `plugin.wasm`
+- `manifest`: the canonicalized `plugin.yaml` document
+
+Release automation requires these environment variables when publishing first-party Wasm artifacts:
+
+- `PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY`: base64, base64url, or hex encoded Ed25519 seed/private key
+- `PLUGIN_UPLOAD_SIGNING_KEY_ID`: stable key identifier recorded in the sidecar
+- `PLUGIN_UPLOAD_SIGNING_SIGNER`: optional human-readable signer label; defaults to `PLUGIN_UPLOAD_SIGNING_KEY_ID`
+
+You can derive the trusted public key for `web-ng` from the same private key with:
+
+```bash
+bazel run //build/wasm_plugins:upload_signature_tool -- public-key
+```
+
+Configure that public key in `web-ng` so uploaded-package verification trusts the same release signer:
+
+```bash
+export PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS='first-party=<base64-ed25519-public-key>'
+```
+
 Inspect a published artifact with `oras`:
 
 ```bash

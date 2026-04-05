@@ -45,6 +45,8 @@ class AssembleBundleTest(unittest.TestCase):
                     "application/test",
                     "--bundle-media-type",
                     "application/zip",
+                    "--upload-signature-media-type",
+                    "application/test+json",
                     "--entry",
                     f"plugin.yaml={manifest}",
                     "--entry",
@@ -67,6 +69,7 @@ class AssembleBundleTest(unittest.TestCase):
             self.assertEqual(metadata_json["plugin_id"], "demo-plugin")
             self.assertEqual(metadata_json["repository_name"], "wasm-plugin-demo-plugin")
             self.assertEqual(metadata_json["bundle_file"], "bundle.zip")
+            self.assertEqual(metadata_json["upload_signature_media_type"], "application/test+json")
 
 
 if __name__ == "__main__":

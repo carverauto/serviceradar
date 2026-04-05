@@ -4,11 +4,12 @@ set -euo pipefail
 bundle=""
 metadata=""
 oras_bin=""
+upload_signature_tool=""
 extra_tag=""
 
 usage() {
   cat <<'EOF'
-Usage: publish_plugin.sh --bundle <bundle.zip> --metadata <bundle.metadata.json> --oras <oras-bin> [--tag <tag>]
+Usage: publish_plugin.sh --bundle <bundle.zip> --metadata <bundle.metadata.json> --oras <oras-bin> --upload-signature-tool <tool> [--tag <tag>]
 EOF
 }
 
@@ -24,6 +25,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --oras)
       oras_bin="$2"
+      shift 2
+      ;;
+    --upload-signature-tool)
+      upload_signature_tool="$2"
       shift 2
       ;;
     --tag)
@@ -45,6 +50,7 @@ done
 [[ -n "${bundle}" ]] || { echo "error: --bundle is required" >&2; exit 1; }
 [[ -n "${metadata}" ]] || { echo "error: --metadata is required" >&2; exit 1; }
 [[ -n "${oras_bin}" ]] || { echo "error: --oras is required" >&2; exit 1; }
+[[ -n "${upload_signature_tool}" ]] || { echo "error: --upload-signature-tool is required" >&2; exit 1; }
 
 resolve_from_host() {
   command -v "$1" 2>/dev/null || true
@@ -74,6 +80,11 @@ if [[ -z "${oras_bin}" || ! -x "${oras_bin}" ]]; then
   exit 1
 fi
 
+if [[ ! -x "${upload_signature_tool}" ]]; then
+  echo "error: upload signature tool is not executable: ${upload_signature_tool}" >&2
+  exit 1
+fi
+
 read_metadata() {
   python3 - "$1" <<'PY'
 import json
@@ -85,6 +96,7 @@ print(data["plugin_id"])
 print(data["repository_name"])
 print(data["artifact_type"])
 print(data["bundle_media_type"])
+print(data["upload_signature_media_type"])
 PY
 }
 
@@ -93,12 +105,18 @@ plugin_id="${meta[0]}"
 repository_name="${meta[1]}"
 artifact_type="${meta[2]}"
 bundle_media_type="${meta[3]}"
+upload_signature_media_type="${meta[4]}"
 
 registry="${OCI_REGISTRY:-registry.carverauto.dev}"
 project="${OCI_PROJECT:-serviceradar}"
 repo="${registry}/${project}/${repository_name}"
 commit_sha="$(git -C "${BUILD_WORKSPACE_DIRECTORY:-$(pwd)}" rev-parse HEAD)"
 tags=("sha-${commit_sha}")
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${tmp_dir}"' EXIT
+upload_signature_path="${tmp_dir}/upload-signature.json"
+
+"${upload_signature_tool}" sign --metadata "${metadata}" --out "${upload_signature_path}"
 
 if [[ -n "${extra_tag}" ]]; then
   tags+=("${extra_tag}")
@@ -110,6 +128,7 @@ for tag in "${tags[@]}"; do
     --artifact-type "${artifact_type}" \
     "${repo}:${tag}" \
     "${bundle}:${bundle_media_type}" \
+    "${upload_signature_path}:${upload_signature_media_type}" \
     --annotation "org.opencontainers.image.title=$(basename "${bundle}")" \
     --annotation "io.serviceradar.plugin.id=${plugin_id}"
 done

@@ -16,6 +16,7 @@ def parse_args():
     parser.add_argument("--repository-name", required=True)
     parser.add_argument("--artifact-type", required=True)
     parser.add_argument("--bundle-media-type", required=True)
+    parser.add_argument("--upload-signature-media-type", required=True)
     parser.add_argument("--entry", action="append", default=[])
     return parser.parse_args()
 
@@ -68,6 +69,7 @@ def main():
         "repository_name": args.repository_name,
         "artifact_type": args.artifact_type,
         "bundle_media_type": args.bundle_media_type,
+        "upload_signature_media_type": args.upload_signature_media_type,
         "bundle_file": bundle_path.name,
         "sha256_file": sha_path.name,
         "entries": [

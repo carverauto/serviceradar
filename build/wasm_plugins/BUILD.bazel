@@ -1,5 +1,6 @@
 load("//build/wasm_plugins:defs.bzl", "declare_wasm_targets")
 load("//build/wasm_plugins:plugin_inventory.bzl", "WASM_BUILD_TARGETS", "WASM_PLUGIN_BUNDLES")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_test")
 load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -9,6 +10,27 @@ exports_files([
     "build_wasm_binary.sh",
     "publish_plugin.sh",
 ])
+
+go_binary(
+    name = "upload_signature_tool",
+    srcs = ["upload_signature_tool.go"],
+    importpath = "github.com/carverauto/serviceradar/build/wasm_plugins/upload_signature_tool",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@in_gopkg_yaml_v3//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "upload_signature_tool_test",
+    srcs = [
+        "upload_signature_tool.go",
+        "upload_signature_tool_test.go",
+    ],
+    deps = [
+        "@in_gopkg_yaml_v3//:go_default_library",
+    ],
+)
 
 declare_wasm_targets(
     build_targets = WASM_BUILD_TARGETS,
