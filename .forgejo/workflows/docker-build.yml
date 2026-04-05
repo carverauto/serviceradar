@@ -89,6 +89,9 @@ jobs:
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
       - name: Verify Bazel version
         run: |
           set -euo pipefail

@@ -27,6 +27,16 @@ if [[ -x "${DOCKER_AUTH_SCRIPT}" ]]; then
     "${DOCKER_AUTH_SCRIPT}"
 fi
 
+COSIGN_INSTALL_SCRIPT="${REPO_ROOT}/scripts/install-cosign.sh"
+if ! command -v cosign >/dev/null 2>&1; then
+    if [[ -x "${COSIGN_INSTALL_SCRIPT}" ]]; then
+        "${COSIGN_INSTALL_SCRIPT}"
+    else
+        echo "Cosign is required and installer script is missing: ${COSIGN_INSTALL_SCRIPT}" >&2
+        exit 1
+    fi
+fi
+
 DEFAULT_BAZEL_WRAPPER="${REPO_ROOT}/tools/bazel/bazel"
 BAZEL_BINARY="${BAZEL_BINARY:-${DEFAULT_BAZEL_WRAPPER}}"
 if [[ ! -x "${BAZEL_BINARY}" ]]; then
