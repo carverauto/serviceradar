@@ -37,6 +37,16 @@ if ! command -v cosign >/dev/null 2>&1; then
     fi
 fi
 
+ORAS_INSTALL_SCRIPT="${REPO_ROOT}/scripts/install-oras.sh"
+if ! command -v oras >/dev/null 2>&1; then
+    if [[ -x "${ORAS_INSTALL_SCRIPT}" ]]; then
+        "${ORAS_INSTALL_SCRIPT}"
+    else
+        echo "ORAS is required and installer script is missing: ${ORAS_INSTALL_SCRIPT}" >&2
+        exit 1
+    fi
+fi
+
 DEFAULT_BAZEL_WRAPPER="${REPO_ROOT}/tools/bazel/bazel"
 BAZEL_BINARY="${BAZEL_BINARY:-${DEFAULT_BAZEL_WRAPPER}}"
 if [[ ! -x "${BAZEL_BINARY}" ]]; then
@@ -182,6 +192,46 @@ if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
 
     "${SIGN_SCRIPT}"
     "${VERIFY_SCRIPT}" "${deduped_verify_tags[@]}"
+fi
+
+declare -a WASM_PUSH_ARGS
+if [[ "${PUSH_DRY_RUN:-0}" == "1" ]]; then
+    WASM_PUSH_ARGS+=("--dry-run")
+fi
+WASM_PUSH_ARGS+=("--tag" "${TAG}")
+
+"${REPO_ROOT}/scripts/push_all_wasm_plugins.sh" "${WASM_PUSH_ARGS[@]}"
+
+if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
+    WASM_SIGN_SCRIPT="${REPO_ROOT}/scripts/sign-wasm-plugin-publish.sh"
+    WASM_VERIFY_SCRIPT="${REPO_ROOT}/scripts/verify-wasm-plugin-publish.sh"
+    if [[ ! -x "${WASM_SIGN_SCRIPT}" ]]; then
+        echo "Wasm signing script is missing or not executable: ${WASM_SIGN_SCRIPT}" >&2
+        exit 1
+    fi
+    if [[ ! -x "${WASM_VERIFY_SCRIPT}" ]]; then
+        echo "Wasm verification script is missing or not executable: ${WASM_VERIFY_SCRIPT}" >&2
+        exit 1
+    fi
+
+    WASM_VERIFY_TAGS=("${TAG}")
+    if git rev-parse HEAD >/dev/null 2>&1; then
+        WASM_VERIFY_TAGS=("sha-$(git rev-parse HEAD)" "${TAG}")
+    elif [[ -n "${GIT_COMMIT:-}" ]]; then
+        WASM_VERIFY_TAGS=("sha-${GIT_COMMIT}" "${TAG}")
+    fi
+
+    declare -A seen_wasm_tags=()
+    deduped_wasm_verify_tags=()
+    for verify_tag in "${WASM_VERIFY_TAGS[@]}"; do
+        if [[ -n "${verify_tag}" && -z "${seen_wasm_tags[${verify_tag}]+x}" ]]; then
+            deduped_wasm_verify_tags+=("${verify_tag}")
+            seen_wasm_tags["${verify_tag}"]=1
+        fi
+    done
+
+    "${WASM_SIGN_SCRIPT}"
+    "${WASM_VERIFY_SCRIPT}" "${deduped_wasm_verify_tags[@]}"
 fi
 
 "${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //build/release:publish_packages -- --tag "${TAG}" "${RELEASE_ARGS[@]}"
