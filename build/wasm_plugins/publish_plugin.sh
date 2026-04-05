@@ -56,23 +56,52 @@ resolve_from_host() {
   command -v "$1" 2>/dev/null || true
 }
 
-local_oras="$(resolve_from_host oras)"
-if [[ -z "${local_oras}" ]]; then
-  for candidate in /opt/homebrew/bin/oras /usr/local/bin/oras "${HOME:-}/bin/oras"; do
+export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME:-}/.local/bin:${HOME:-}/bin:/usr/bin:/bin:${PATH:-}"
+
+resolve_executable() {
+  local candidate="$1"
+
+  if [[ -z "${candidate}" ]]; then
+    return 1
+  fi
+
+  if [[ "${candidate}" = */* ]]; then
     if [[ -x "${candidate}" ]]; then
-      local_oras="${candidate}"
-      break
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+    return 1
+  fi
+
+  local resolved
+  resolved="$(resolve_from_host "${candidate}")"
+  if [[ -n "${resolved}" && -x "${resolved}" ]]; then
+    printf '%s\n' "${resolved}"
+    return 0
+  fi
+
+  for path_candidate in \
+    "${PWD}/${candidate}" \
+    "/opt/homebrew/bin/${candidate}" \
+    "/usr/local/bin/${candidate}" \
+    "${HOME:-}/.local/bin/${candidate}" \
+    "${HOME:-}/bin/${candidate}" \
+    "/usr/bin/${candidate}" \
+    "/bin/${candidate}"; do
+    if [[ -x "${path_candidate}" ]]; then
+      printf '%s\n' "${path_candidate}"
+      return 0
     fi
   done
-fi
 
-if [[ -n "${local_oras}" && -x "${local_oras}" ]]; then
+  return 1
+}
+
+local_oras="$(resolve_executable oras || true)"
+if [[ -n "${local_oras}" ]]; then
   oras_bin="${local_oras}"
-elif [[ "${oras_bin}" != /* ]]; then
-  candidate="${PWD}/${oras_bin}"
-  if [[ -x "${candidate}" ]]; then
-    oras_bin="${candidate}"
-  fi
+else
+  oras_bin="$(resolve_executable "${oras_bin}" || true)"
 fi
 
 if [[ -z "${oras_bin}" || ! -x "${oras_bin}" ]]; then
