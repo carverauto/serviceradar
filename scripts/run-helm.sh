@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker is required to provision Helm in CI." >&2
+  echo "docker is required to run Helm in CI." >&2
   exit 1
 fi
 
@@ -21,23 +21,24 @@ if [[ "${cleanup_state}" -eq 1 ]]; then
   trap 'rm -rf "${state_dir}"' EXIT
 fi
 
-mkdir -p "${state_dir}/bin" "${state_dir}/cache" "${state_dir}/config" "${state_dir}/data"
+mkdir -p "${state_dir}/cache" "${state_dir}/config" "${state_dir}/data"
 
-helm_bin="${state_dir}/bin/helm"
-if [[ ! -x "${helm_bin}" ]]; then
-  if ! docker run --rm --entrypoint cat "${image}" /usr/bin/helm >"${helm_bin}" 2>/dev/null \
-    && ! docker run --rm --entrypoint cat "${image}" /usr/local/bin/helm >"${helm_bin}" 2>/dev/null \
-    && ! docker run --rm --entrypoint cat "${image}" /bin/helm >"${helm_bin}" 2>/dev/null; then
-    echo "failed to extract helm binary from ${image}" >&2
-    exit 1
+docker_host="${DOCKER_HOST:-}"
+if [[ "${docker_host}" == unix://* ]]; then
+  docker_socket="${docker_host#unix://}"
+  if [[ ! -S "${docker_socket}" && -S /var/run/docker.sock ]]; then
+    export DOCKER_HOST="unix:///var/run/docker.sock"
   fi
-
-  chmod +x "${helm_bin}"
 fi
 
-export HOME="${state_dir}"
-export HELM_CACHE_HOME="${state_dir}/cache"
-export HELM_CONFIG_HOME="${state_dir}/config"
-export HELM_DATA_HOME="${state_dir}/data"
-
-exec "${helm_bin}" "$@"
+exec docker run --rm -i \
+  --user "$(id -u):$(id -g)" \
+  -v "${PWD}:/workspace" \
+  -v "${state_dir}:/helm-home" \
+  -w /workspace \
+  -e HOME=/helm-home \
+  -e HELM_CACHE_HOME=/helm-home/cache \
+  -e HELM_CONFIG_HOME=/helm-home/config \
+  -e HELM_DATA_HOME=/helm-home/data \
+  "${image}" \
+  "$@"
