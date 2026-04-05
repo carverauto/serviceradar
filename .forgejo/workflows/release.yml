@@ -160,6 +160,9 @@ jobs:
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
 
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
       - name: Verify Bazel version
         run: |
           set -euo pipefail
@@ -346,6 +349,22 @@ jobs:
           rm -f "serviceradar-${VERSION}.tgz"
 
           echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+
+      - name: Publish Wasm plugin OCI artifacts
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          push_args=()
+          verify_tags=("sha-${GITHUB_SHA}")
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            push_args+=(--tag "${RELEASE_TAG}")
+            verify_tags+=("${RELEASE_TAG}")
+          fi
+
+          ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
+          ./scripts/sign-wasm-plugin-publish.sh
+          ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
 
       - name: Publish release packages and agent manifest assets
         env:
