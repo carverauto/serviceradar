@@ -72,6 +72,9 @@ declare_apk_rootfs_targets([
     ("libncursesw", "@alpine_libncursesw_apk//file"),
     ("ncurses_terminfo_base", "@alpine_ncurses_terminfo_base_apk//file"),
     ("tools_bash", "@alpine_3_23_bash_apk//file"),
+    ("tools_openssl", "@alpine_3_23_openssl_apk//file"),
+    ("tools_libssl3", "@alpine_3_23_libssl3_apk//file"),
+    ("tools_libcrypto3", "@alpine_3_23_libcrypto3_apk//file"),
     ("tools_readline", "@alpine_3_23_readline_apk//file"),
     ("tools_postgresql_common", "@alpine_3_23_postgresql_common_apk//file"),
     ("tools_postgresql18_client", "@alpine_3_23_postgresql18_client_apk//file"),
@@ -477,7 +480,7 @@ declare_service_container_amd64(
 
 declare_custom_base_service_container_amd64(
     name = "cert_generator_image_amd64",
-    base = "@serviceradar_cert_generator_linux_amd64//:serviceradar_cert_generator_linux_amd64",
+    base = "@alpine_3_23_linux_amd64//:alpine_3_23_linux_amd64",
     image_title = "serviceradar-cert-generator",
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-cert-generator:local"],
     files = {
@@ -488,6 +491,11 @@ declare_custom_base_service_container_amd64(
     },
     empty_dirs = ["certs"],
     entrypoint = ["/bin/sh", "/entrypoint-certs.sh"],
+    extra_tars = [
+        ":apk_tools_openssl_rootfs_amd64.tar",
+        ":apk_tools_libssl3_rootfs_amd64.tar",
+        ":apk_tools_libcrypto3_rootfs_amd64.tar",
+    ],
 )
 
 declare_postgresql_client_symlink_layer(

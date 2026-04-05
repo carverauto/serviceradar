@@ -343,14 +343,6 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
-    name = "serviceradar_cert_generator",
-    digest = "sha256:882587dffa59b709fc11c3ed5d304ef8af1c281c943cca19fda7af263e9707ea",
-    image = "registry.carverauto.dev/serviceradar/serviceradar-cert-generator",
-    platforms = [
-        "linux/amd64",
-    ],
-)
-oci_ext.pull(
     name = "serviceradar_tools",
     digest = "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
     image = "registry.carverauto.dev/serviceradar/serviceradar-tools",
@@ -389,8 +381,6 @@ use_repo(
     "nginx_alpine_linux_amd64",
     "node_20_alpine",
     "node_20_alpine_linux_amd64",
-    "serviceradar_cert_generator",
-    "serviceradar_cert_generator_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
     "ubuntu_jammy",
@@ -1150,6 +1140,30 @@ http_file(
     sha256 = "c52a2b6997567830d573160c2c0cad665473320f08862133aaf4c1e96864fc48",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/bash-5.3.3-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_23_openssl_apk",
+    sha256 = "468d711aadfd59fcf1345f6135bd9fced55d9d3e0874ceee6b6f4647ebeabf2c",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssl-3.5.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_23_libssl3_apk",
+    sha256 = "d0c5680469e8e420a966aad0e3a267369a99db2cb394341a1a8ec4c8535e35ed",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libssl3-3.5.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_23_libcrypto3_apk",
+    sha256 = "4531f3807683659ca7d02c73cfdbc0ae9925da995bda42e2ce3db267797bc217",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libcrypto3-3.5.5-r0.apk",
     ],
 )
 
