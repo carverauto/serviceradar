@@ -78,6 +78,13 @@ cosign_resolve_trusted_root_file() {
     "${COSIGN_COMMON_REPO_ROOT}/docs/sigstore/trusted-root.json"
 }
 
+cosign_resolve_public_key_file() {
+  cosign_resolve_file \
+    "${COSIGN_PUBLIC_KEY_FILE:-}" \
+    "${COSIGN_PUBLIC_KEY:-}" \
+    "${COSIGN_COMMON_REPO_ROOT}/docs/cosign.pub"
+}
+
 cosign_export_trust_overrides() {
   local fulcio_root_file
   local ctlog_key_file
@@ -289,13 +296,19 @@ EOF
 cosign_init_verify_args() {
   declare -g -a COSIGN_VERIFY_ARGS=()
 
-  local trusted_root_file pubkey key_ref
+  local trusted_root_file public_key_file pubkey key_ref
   trusted_root_file="$(cosign_resolve_trusted_root_file)"
   if [[ -n "${trusted_root_file}" ]]; then
     COSIGN_VERIFY_ARGS+=(--trusted-root "${trusted_root_file}")
   fi
 
   cosign_export_trust_overrides
+
+  public_key_file="$(cosign_resolve_public_key_file)"
+  if [[ -n "${public_key_file}" ]]; then
+    COSIGN_VERIFY_ARGS+=(--key "${public_key_file}")
+    return 0
+  fi
 
   key_ref="$(cosign_resolve_key_ref)"
   if [[ -n "${key_ref}" ]]; then
@@ -306,25 +319,10 @@ cosign_init_verify_args() {
     return 0
   fi
 
-  if [[ -n "${COSIGN_PUBLIC_KEY_FILE:-}" ]]; then
-    if [[ ! -f "${COSIGN_PUBLIC_KEY_FILE}" ]]; then
-      echo "error: COSIGN_PUBLIC_KEY_FILE does not exist: ${COSIGN_PUBLIC_KEY_FILE}" >&2
-      exit 1
-    fi
-    COSIGN_VERIFY_ARGS+=(--key "${COSIGN_PUBLIC_KEY_FILE}")
-    return 0
-  fi
-
   if [[ -n "${COSIGN_KEY_FILE:-}" && -f "${COSIGN_KEY_FILE}" ]]; then
     pubkey="$(mktemp)"
     cosign public-key --key "${COSIGN_KEY_FILE}" >"${pubkey}"
     cosign_register_temp_file "${pubkey}"
-    COSIGN_VERIFY_ARGS+=(--key "${pubkey}")
-    return 0
-  fi
-
-  if [[ -n "${COSIGN_PUBLIC_KEY:-}" ]]; then
-    pubkey="$(cosign_write_temp_file "${COSIGN_PUBLIC_KEY}")"
     COSIGN_VERIFY_ARGS+=(--key "${pubkey}")
     return 0
   fi
