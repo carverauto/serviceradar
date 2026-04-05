@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+trap cosign_cleanup_temp_files EXIT
+
 if ! command -v cosign >/dev/null 2>&1; then
   echo "error: cosign is required" >&2
   exit 1
@@ -31,32 +34,7 @@ COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-legacy}"
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
 
-cosign_key_args=()
-if [[ -n "${COSIGN_KEY_FILE:-}" ]]; then
-  if [[ ! -f "${COSIGN_KEY_FILE}" ]]; then
-    echo "error: COSIGN_KEY_FILE does not exist: ${COSIGN_KEY_FILE}" >&2
-    exit 1
-  fi
-  if [[ -z "${COSIGN_PASSWORD:-}" && -t 0 ]]; then
-    read -r -s -p "Cosign password: " COSIGN_PASSWORD
-    printf '\n' >&2
-    export COSIGN_PASSWORD
-  fi
-  cosign_key_args+=(--key "${COSIGN_KEY_FILE}")
-elif [[ -n "${COSIGN_PRIVATE_KEY:-}" ]]; then
-  cosign_key_args+=(--key env://COSIGN_PRIVATE_KEY)
-elif [[ "${COSIGN_KEYLESS:-false}" == "true" || -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
-  :
-else
-  cat >&2 <<'EOF'
-error: no cosign signing identity configured.
-Set one of:
-  COSIGN_KEY_FILE=/path/to/cosign.key
-  COSIGN_PRIVATE_KEY=<signing-key-material>
-  COSIGN_KEYLESS=true
-EOF
-  exit 1
-fi
+cosign_init_sign_args
 
 "${BAZEL_BIN}" build //build/wasm_plugins:all_metadata >/dev/null
 
@@ -89,6 +67,6 @@ PY
     --experimental-oci11 \
     --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
     --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
-    "${cosign_key_args[@]}" \
+    "${COSIGN_SIGN_ARGS[@]}" \
     "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
 done

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+trap cosign_cleanup_temp_files EXIT
+
 if ! command -v cosign >/dev/null 2>&1; then
   echo "error: cosign is required" >&2
   exit 1
@@ -40,33 +43,7 @@ if [[ ! -d "${IMAGE_METADATA_DIR}" ]]; then
   exit 1
 fi
 
-cosign_key_args=()
-
-if [[ -n "${COSIGN_KEY_FILE:-}" ]]; then
-  if [[ ! -f "${COSIGN_KEY_FILE}" ]]; then
-    echo "error: COSIGN_KEY_FILE does not exist: ${COSIGN_KEY_FILE}" >&2
-    exit 1
-  fi
-  if [[ -z "${COSIGN_PASSWORD:-}" && -t 0 ]]; then
-    read -r -s -p "Cosign password: " COSIGN_PASSWORD
-    printf '\\n' >&2
-    export COSIGN_PASSWORD
-  fi
-  cosign_key_args+=(--key "${COSIGN_KEY_FILE}")
-elif [[ -n "${COSIGN_PRIVATE_KEY:-}" ]]; then
-  cosign_key_args+=(--key env://COSIGN_PRIVATE_KEY)
-elif [[ "${COSIGN_KEYLESS:-false}" == "true" || -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
-  :
-else
-  cat >&2 <<'MSG'
-error: no cosign signing identity configured.
-Set one of:
-  COSIGN_KEY_FILE=/path/to/cosign.key
-  COSIGN_PRIVATE_KEY='<pem-or-base64-key>'
-  COSIGN_KEYLESS=true (for ambient keyless/OIDC environments)
-MSG
-  exit 1
-fi
+cosign_init_sign_args
 
 resolve_registry_auth() {
   if [[ -n "${OCI_USERNAME:-}" && -n "${OCI_TOKEN:-}" ]]; then
@@ -243,7 +220,7 @@ attach_legacy_signature() {
   cosign sign-blob \
     --yes \
     --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
-    "${cosign_key_args[@]}" \
+    "${COSIGN_SIGN_ARGS[@]}" \
     --bundle "${bundle_file}" \
     --output-signature "${signature_file}" \
     "${payload_file}" >"${stdout_file}"
@@ -343,7 +320,7 @@ PY3
     --yes \
     --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
     --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
-    "${cosign_key_args[@]}" \
+    "${COSIGN_SIGN_ARGS[@]}" \
     "${ref}"
 
   attach_legacy_signature "${ref}"

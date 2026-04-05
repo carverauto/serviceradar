@@ -85,6 +85,17 @@ After the commands complete:
     registry.carverauto.dev/serviceradar/serviceradar-core-elx:v$(cat VERSION)
   ```
 
+- For self-hosted keyless signing, verify with the published trusted root in [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md):
+
+  ```bash
+  cosign verify \
+    --experimental-oci11 \
+    --trusted-root docs/sigstore/trusted-root.json \
+    --certificate-identity-regexp '<issuer-specific SAN regex>' \
+    --certificate-oidc-issuer https://issuer.example.com \
+    registry.carverauto.dev/serviceradar/serviceradar-core-elx:v$(cat VERSION)
+  ```
+
 - Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
 - Verify that the Forgejo release contains the expected `.deb` and `.rpm` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
