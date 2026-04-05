@@ -5,9 +5,11 @@ COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-serviceradar}"
 VOLUME_PREFIX="${SERVICERADAR_VOLUME_PREFIX:-serviceradar}"
 DATA_VOLUME="${CNPG_DATA_VOLUME:-${VOLUME_PREFIX}_cnpg-data}"
 CREDENTIALS_VOLUME="${CNPG_CREDENTIALS_VOLUME:-${VOLUME_PREFIX}_cnpg-credentials}"
+MIGRATOR_DATA_DIR="${CNPG_MIGRATOR_DATA_DIR:-}"
+MIGRATOR_CREDENTIALS_DIR="${CNPG_MIGRATOR_CREDENTIALS_DIR:-}"
 
 SOURCE_IMAGE="${CNPG_SOURCE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:16.6.0-sr5}"
-TARGET_IMAGE="${CNPG_TARGET_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2}"
+TARGET_IMAGE="${CNPG_TARGET_IMAGE:-${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd}}"
 EXPECTED_TARGET_MAJOR="${CNPG_EXPECTED_PG_MAJOR:-18}"
 SOURCE_DATA_PATH="${CNPG_SOURCE_DATA_PATH:-/var/lib/postgresql/data}"
 TARGET_DATA_PATH="${CNPG_TARGET_DATA_PATH:-/var/lib/postgresql/18/docker}"
@@ -90,6 +92,11 @@ copy_volume() {
 read_optional_file_from_volume() {
   volume="$1"
   filename="$2"
+
+  if [ "$volume" = "$CREDENTIALS_VOLUME" ] && [ -n "$MIGRATOR_CREDENTIALS_DIR" ] && [ -f "${MIGRATOR_CREDENTIALS_DIR}/${filename}" ]; then
+    tr -d '\r\n' < "${MIGRATOR_CREDENTIALS_DIR}/${filename}"
+    return
+  fi
 
   if ! docker volume inspect "$volume" >/dev/null 2>&1; then
     return
@@ -182,6 +189,11 @@ wait_for_ready() {
 }
 
 detect_source_version() {
+  if [ -n "$MIGRATOR_DATA_DIR" ] && [ -f "${MIGRATOR_DATA_DIR}/PG_VERSION" ]; then
+    tr -d '\r\n' < "${MIGRATOR_DATA_DIR}/PG_VERSION"
+    return
+  fi
+
   docker run --rm \
     -v "${DATA_VOLUME}:/data:ro" \
     alpine:3.20 \
@@ -202,17 +214,6 @@ ensure_compose_stack_stopped() {
   fi
 }
 
-SOURCE_SUPERUSER="$(detect_source_superuser)"
-SOURCE_SUPERUSER_PASSWORD="$(detect_source_superuser_password)"
-
-if [ -z "$APP_PASSWORD" ]; then
-  APP_PASSWORD="$(read_optional_file_from_volume "$CREDENTIALS_VOLUME" "serviceradar-password")"
-fi
-
-if [ -z "$APP_PASSWORD" ]; then
-  APP_PASSWORD="$LEGACY_APP_PASSWORD"
-fi
-
 ensure_volume_exists "$DATA_VOLUME"
 ensure_compose_stack_stopped
 
@@ -232,6 +233,17 @@ case "$actual_version" in
     die "Volume ${DATA_VOLUME} reports PostgreSQL ${actual_version}; this workflow only supports PG16 -> PG${EXPECTED_TARGET_MAJOR}."
     ;;
 esac
+
+SOURCE_SUPERUSER="$(detect_source_superuser)"
+SOURCE_SUPERUSER_PASSWORD="$(detect_source_superuser_password)"
+
+if [ -z "$APP_PASSWORD" ]; then
+  APP_PASSWORD="$(read_optional_file_from_volume "$CREDENTIALS_VOLUME" "serviceradar-password")"
+fi
+
+if [ -z "$APP_PASSWORD" ]; then
+  APP_PASSWORD="$LEGACY_APP_PASSWORD"
+fi
 
 confirm "This will migrate Docker volume ${DATA_VOLUME} from PG16 to PG${EXPECTED_TARGET_MAJOR}, create backup volume ${BACKUP_VOLUME}, and overwrite ${DATA_VOLUME} with migrated PG${EXPECTED_TARGET_MAJOR} data. Continue?"
 

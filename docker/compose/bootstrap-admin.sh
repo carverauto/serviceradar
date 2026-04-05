@@ -7,9 +7,12 @@ RELEASE_COOKIE_FILE="${ADMIN_DIR}/release-cookie"
 SECRET_KEY_BASE_FILE="${ADMIN_DIR}/secret-key-base"
 PLUGIN_STORAGE_SIGNING_SECRET_FILE="${ADMIN_DIR}/plugin-storage-signing-secret"
 ADMIN_EMAIL="${SERVICERADAR_ADMIN_EMAIL:-root@localhost}"
+APP_UID="${SERVICERADAR_UID:-10001}"
+APP_GID="${SERVICERADAR_GID:-10001}"
 
 mkdir -p "${ADMIN_DIR}"
-chmod 0700 "${ADMIN_DIR}"
+chown "${APP_UID}:${APP_GID}" "${ADMIN_DIR}"
+chmod 0750 "${ADMIN_DIR}"
 
 ensure_secret_file() {
   path="$1"
@@ -18,13 +21,14 @@ ensure_secret_file() {
 
   if [ -s "${path}" ]; then
     echo "${label} already present at ${path}; preserving"
-    return
+  else
+    value="$(sh -c "${generator}")"
+    printf '%s' "${value}" > "${path}"
+    echo "Generated ${label} at ${path}"
   fi
 
-  value="$(sh -c "${generator}")"
-  printf '%s' "${value}" > "${path}"
+  chown "${APP_UID}:${APP_GID}" "${path}"
   chmod 0600 "${path}"
-  echo "Generated ${label} at ${path}"
 }
 
 ensure_secret_file "${ADMIN_PASSWORD_FILE}" \
