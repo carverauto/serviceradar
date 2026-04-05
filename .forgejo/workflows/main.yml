@@ -236,7 +236,14 @@ jobs:
             --test_env=PGSSLROOTCERT \
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
+            --test_env=CNPG_CA_FILE \
+            --test_env=SRQL_TEST_DATABASE_URL \
+            --test_env=SRQL_TEST_ADMIN_URL \
             --test_env=SRQL_TEST_DATABASE_CA_CERT \
+            --test_env=SRQL_TEST_DATABASE_CA_CERT_FILE \
+            --test_env=SERVICERADAR_TEST_DATABASE_URL \
+            --test_env=SERVICERADAR_TEST_ADMIN_URL \
+            --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT_FILE \
             "${bazel_targets[@]}"
 
       - name: Dump Bazel test logs
@@ -249,11 +256,19 @@ jobs:
             exit 0
           fi
 
-          find bazel-testlogs -type f \( -name test.log -o -name test.xml \) | sort | while read -r file; do
+          files="$(find bazel-testlogs -type f \( -name test.log -o -name test.xml \) 2>/dev/null | sort || true)"
+          if [ -z "${files}" ]; then
+            echo "no bazel test logs found"
+            exit 0
+          fi
+
+          printf '%s\n' "${files}" | while read -r file; do
             echo "===== ${file} ====="
             sed -n '1,400p' "${file}" || cat "${file}" || true
             echo
           done
+
+          exit 0
 
       - name: web-ng precommit
         id: web_ng_precommit
@@ -273,11 +288,19 @@ jobs:
             exit 0
           fi
 
-          find bazel-testlogs/elixir/web-ng -type f \( -name test.log -o -name test.xml \) | sort | while read -r file; do
+          files="$(find bazel-testlogs/elixir/web-ng -type f \( -name test.log -o -name test.xml \) 2>/dev/null | sort || true)"
+          if [ -z "${files}" ]; then
+            echo "no web-ng precommit logs found"
+            exit 0
+          fi
+
+          printf '%s\n' "${files}" | while read -r file; do
             echo "===== ${file} ====="
             sed -n '1,400p' "${file}" || cat "${file}" || true
             echo
           done
+
+          exit 0
 
       - name: serviceradar_core integration tests
         if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
