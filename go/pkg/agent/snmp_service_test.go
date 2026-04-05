@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/snmp"
@@ -159,6 +160,7 @@ func TestSNMPAgentServiceLifecycleEnabled(t *testing.T) {
 
 	ctx := context.Background()
 	log := logger.NewTestLogger()
+	cachePath := filepath.Join(t.TempDir(), "cache", "snmp-config.json")
 
 	// Use an enabled config with a mock target and OID
 	// Note: The SNMP service requires at least one target with at least one OID when enabled
@@ -184,6 +186,7 @@ func TestSNMPAgentServiceLifecycleEnabled(t *testing.T) {
 
 	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
 		AgentID:        "test-agent",
+		CachePath:      cachePath,
 		Logger:         log,
 		TestConfig:     cfg,
 		ServiceFactory: &mockSNMPServiceFactory{},
@@ -287,6 +290,7 @@ func TestSNMPAgentServiceConfigSource(t *testing.T) {
 
 	ctx := context.Background()
 	log := logger.NewTestLogger()
+	cachePath := filepath.Join(t.TempDir(), "cache", "snmp-config.json")
 
 	// Use an enabled config with a target and OID so config source is set
 	cfg := testSNMPConfig()
@@ -307,6 +311,7 @@ func TestSNMPAgentServiceConfigSource(t *testing.T) {
 
 	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
 		AgentID:        "test-agent",
+		CachePath:      cachePath,
 		Logger:         log,
 		TestConfig:     cfg,
 		ServiceFactory: &mockSNMPServiceFactory{},
@@ -367,6 +372,7 @@ func TestSNMPAgentServiceConfigCaching(t *testing.T) {
 	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
 		AgentID:        "test-agent",
 		ConfigDir:      tmpDir,
+		CachePath:      filepath.Join(tmpDir, "cache", "snmp-config.json"),
 		Logger:         log,
 		ServiceFactory: &mockSNMPServiceFactory{},
 	})
@@ -421,6 +427,7 @@ func TestSNMPLocalOverrideTakesPrecedence(t *testing.T) {
 	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
 		AgentID:        "test-agent",
 		ConfigDir:      tmpDir,
+		CachePath:      filepath.Join(tmpDir, "cache", "snmp-config.json"),
 		Logger:         log,
 		ServiceFactory: &mockSNMPServiceFactory{},
 	})
@@ -453,6 +460,7 @@ func TestSNMPDefaultFallbackWhenLocalUnavailable(t *testing.T) {
 	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
 		AgentID:   "test-agent",
 		ConfigDir: tmpDir, // Empty directory, no config file
+		CachePath: filepath.Join(tmpDir, "cache", "snmp-config.json"),
 		Logger:    log,
 	})
 	require.NoError(t, err)
@@ -502,6 +510,7 @@ func TestSNMPConfigRefreshPreservesLocalOverride(t *testing.T) {
 	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
 		AgentID:        "test-agent",
 		ConfigDir:      tmpDir,
+		CachePath:      filepath.Join(tmpDir, "cache", "snmp-config.json"),
 		Logger:         log,
 		ServiceFactory: &mockSNMPServiceFactory{},
 	})

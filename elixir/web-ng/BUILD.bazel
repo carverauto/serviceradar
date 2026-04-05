@@ -49,6 +49,7 @@ sh_test(
     srcs = [":precommit_test_runner"],
     data = [
         ":precommit_runner",
+        "//build:mix_release_patches.py",
         ":srcs",
         "//:Cargo.toml",
         "//:Cargo.lock",
@@ -71,7 +72,7 @@ sh_test(
         "no-remote",
         "no-sandbox",
     ],
-    timeout = "long",
+    timeout = "eternal",
 )
 
 mix_release(

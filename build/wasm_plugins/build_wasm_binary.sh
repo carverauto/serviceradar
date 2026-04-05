@@ -2,6 +2,11 @@
 set -euo pipefail
 
 tinygo_bin=""
+go_bin=""
+tinygo_darwin_arm64_bin=""
+tinygo_darwin_amd64_bin=""
+tinygo_linux_arm64_bin=""
+tinygo_linux_amd64_bin=""
 main_go=""
 out=""
 tags_csv=""
@@ -10,6 +15,26 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tinygo)
       tinygo_bin="$2"
+      shift 2
+      ;;
+    --go-bin)
+      go_bin="$2"
+      shift 2
+      ;;
+    --tinygo-darwin-arm64)
+      tinygo_darwin_arm64_bin="$2"
+      shift 2
+      ;;
+    --tinygo-darwin-amd64)
+      tinygo_darwin_amd64_bin="$2"
+      shift 2
+      ;;
+    --tinygo-linux-arm64)
+      tinygo_linux_arm64_bin="$2"
+      shift 2
+      ;;
+    --tinygo-linux-amd64)
+      tinygo_linux_amd64_bin="$2"
       shift 2
       ;;
     --main-go)
@@ -31,41 +56,95 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "${tinygo_bin}" ]] || { echo "error: --tinygo is required" >&2; exit 1; }
 [[ -n "${main_go}" ]] || { echo "error: --main-go is required" >&2; exit 1; }
 [[ -n "${out}" ]] || { echo "error: --out is required" >&2; exit 1; }
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
-for prefix in "${PWD}" "$(dirname "${PWD}")" "$(dirname "$(dirname "${PWD}")")"; do
-  candidate="${prefix}/external/rules_go++go_sdk+go_sdk/bin/go"
-  if [[ -x "${candidate}" ]]; then
-    export GOROOT="$(cd "$(dirname "${candidate}")/.." && pwd)"
-    export PATH="$(dirname "${candidate}"):${PATH}"
-    break
-  fi
-done
-
 resolve_from_host() {
   command -v "$1" 2>/dev/null || true
 }
 
-local_tinygo="$(resolve_from_host tinygo)"
-if [[ -z "${local_tinygo}" ]]; then
-  for candidate in /opt/homebrew/bin/tinygo /usr/local/bin/tinygo "${HOME:-}/bin/tinygo"; do
+resolve_relative_candidate() {
+  local candidate="$1"
+  if [[ -z "${candidate}" ]]; then
+    return 0
+  fi
+  if [[ "${candidate}" != /* ]]; then
+    candidate="${PWD}/${candidate}"
+  fi
+  if [[ -x "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+  fi
+}
+
+preferred_tinygo_for_host() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "${os}/${arch}" in
+    Darwin/arm64)
+      printf '%s\n' "${tinygo_darwin_arm64_bin}"
+      ;;
+    Darwin/x86_64)
+      printf '%s\n' "${tinygo_darwin_amd64_bin}"
+      ;;
+    Linux/aarch64|Linux/arm64)
+      printf '%s\n' "${tinygo_linux_arm64_bin}"
+      ;;
+    Linux/x86_64|Linux/amd64)
+      printf '%s\n' "${tinygo_linux_amd64_bin}"
+      ;;
+  esac
+}
+
+resolved_tinygo="$(resolve_relative_candidate "${tinygo_bin}")"
+if [[ -n "${resolved_tinygo}" ]]; then
+  tinygo_bin="${resolved_tinygo}"
+else
+  resolved_tinygo="$(resolve_relative_candidate "$(preferred_tinygo_for_host)")"
+  if [[ -n "${resolved_tinygo}" ]]; then
+    tinygo_bin="${resolved_tinygo}"
+  fi
+fi
+
+resolved_go_bin="$(resolve_relative_candidate "${go_bin}")"
+if [[ -n "${resolved_go_bin}" ]]; then
+  go_bin="${resolved_go_bin}"
+  export GOROOT="$(cd "$(dirname "${go_bin}")/.." && pwd)"
+  export PATH="$(dirname "${go_bin}"):${PATH}"
+else
+  for prefix in "${PWD}" "$(dirname "${PWD}")" "$(dirname "$(dirname "${PWD}")")"; do
+    candidate="${prefix}/external/go_sdk/bin/go"
     if [[ -x "${candidate}" ]]; then
-      local_tinygo="${candidate}"
+      export GOROOT="$(cd "$(dirname "${candidate}")/.." && pwd)"
+      export PATH="$(dirname "${candidate}"):${PATH}"
       break
     fi
   done
 fi
 
-if [[ -n "${local_tinygo}" && -x "${local_tinygo}" ]]; then
-  tinygo_bin="${local_tinygo}"
-elif [[ "${tinygo_bin}" != /* ]]; then
+if [[ "${tinygo_bin}" != /* ]]; then
   candidate="${PWD}/${tinygo_bin}"
   if [[ -x "${candidate}" ]]; then
     tinygo_bin="${candidate}"
+  fi
+fi
+
+if [[ -z "${tinygo_bin}" || ! -x "${tinygo_bin}" ]]; then
+  local_tinygo="$(resolve_from_host tinygo)"
+  if [[ -z "${local_tinygo}" ]]; then
+    for candidate in /opt/homebrew/bin/tinygo /usr/local/bin/tinygo "${HOME:-}/bin/tinygo"; do
+      if [[ -x "${candidate}" ]]; then
+        local_tinygo="${candidate}"
+        break
+      fi
+    done
+  fi
+
+  if [[ -n "${local_tinygo}" && -x "${local_tinygo}" ]]; then
+    tinygo_bin="${local_tinygo}"
   fi
 fi
 

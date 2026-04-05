@@ -37,26 +37,92 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+openssl_dir="${OPENSSL_DIR:-}"
 openssl_lib_dir="${OPENSSL_LIB_DIR:-}"
+openssl_include_dir="${OPENSSL_INCLUDE_DIR:-}"
+uname_s="$(uname -s)"
+
+if [ -n "$openssl_dir" ] && [ ! -d "$openssl_dir" ]; then
+  openssl_dir=""
+fi
+
 if [ -n "$openssl_lib_dir" ] && [ ! -d "$openssl_lib_dir" ]; then
   openssl_lib_dir=""
 fi
 
-if [ -z "$openssl_lib_dir" ]; then
-  for dir in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
-    if [ -d "$dir" ] && ls "$dir"/libssl.so* >/dev/null 2>&1; then
-      openssl_lib_dir="$dir"
+if [ -n "$openssl_include_dir" ] && [ ! -d "$openssl_include_dir" ]; then
+  openssl_include_dir=""
+fi
+
+if [ "$uname_s" = "Darwin" ]; then
+  for candidate in \
+    /opt/homebrew/opt/openssl@3 \
+    /usr/local/opt/openssl@3 \
+    /opt/homebrew/opt/openssl \
+    /usr/local/opt/openssl
+  do
+    if [ -d "$candidate/lib" ] && [ -d "$candidate/include" ]; then
+      openssl_dir="$candidate"
+      openssl_lib_dir="$candidate/lib"
+      openssl_include_dir="$candidate/include"
       break
     fi
   done
+else
+  if [ -z "$openssl_dir" ] && [ -d /usr ]; then
+    openssl_dir=/usr
+  fi
+
+  if [ -z "$openssl_lib_dir" ]; then
+    for dir in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
+      if [ -d "$dir" ] && ls "$dir"/libssl.so* >/dev/null 2>&1; then
+        openssl_lib_dir="$dir"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$openssl_include_dir" ] && [ -d /usr/include/openssl ]; then
+    openssl_include_dir=/usr/include
+  fi
+fi
+
+if [ -n "$openssl_dir" ]; then
+  export OPENSSL_DIR="$openssl_dir"
+else
+  unset OPENSSL_DIR
 fi
 
 if [ -n "$openssl_lib_dir" ]; then
   export OPENSSL_LIB_DIR="$openssl_lib_dir"
+else
+  unset OPENSSL_LIB_DIR
 fi
 
-if [ -z "${OPENSSL_INCLUDE_DIR:-}" ] && [ -d /usr/include/openssl ]; then
-  export OPENSSL_INCLUDE_DIR=/usr/include
+if [ -n "$openssl_include_dir" ]; then
+  export OPENSSL_INCLUDE_DIR="$openssl_include_dir"
+else
+  unset OPENSSL_INCLUDE_DIR
+fi
+
+openssl_pkgconfig_dir=""
+if [ -n "${OPENSSL_DIR:-}" ] && [ -d "${OPENSSL_DIR}/lib/pkgconfig" ]; then
+  openssl_pkgconfig_dir="${OPENSSL_DIR}/lib/pkgconfig"
+elif [ -n "${OPENSSL_LIB_DIR:-}" ] && [ -d "${OPENSSL_LIB_DIR}/pkgconfig" ]; then
+  openssl_pkgconfig_dir="${OPENSSL_LIB_DIR}/pkgconfig"
+fi
+
+if [ -n "$openssl_pkgconfig_dir" ]; then
+  case ":${PKG_CONFIG_PATH:-}:" in
+    *:"$openssl_pkgconfig_dir":*) ;;
+    *)
+      if [ -n "${PKG_CONFIG_PATH:-}" ]; then
+        export PKG_CONFIG_PATH="$openssl_pkgconfig_dir:$PKG_CONFIG_PATH"
+      else
+        export PKG_CONFIG_PATH="$openssl_pkgconfig_dir"
+      fi
+      ;;
+  esac
 fi
 
 # Hex can time out in CI when a precommit run needs to fetch a large dependency
@@ -192,7 +258,28 @@ deps_cache_key() {
   cksum "$@" | cksum | awk '{print $1}'
 }
 
-DEPS_CACHE_FINGERPRINT="$(deps_cache_key mix.exs mix.lock ../connection/mix.exs ../serviceradar_core/mix.exs ../serviceradar_srql/mix.exs ../datasvc/mix.exs ../vendor/opentelemetry_oban/mix.exs)"
+set -- \
+  mix.exs \
+  mix.lock \
+  ../connection/mix.exs \
+  ../serviceradar_core/mix.exs \
+  ../serviceradar_srql/mix.exs \
+  ../datasvc/mix.exs \
+  ../vendor/opentelemetry_oban/mix.exs
+
+for maybe_lock in \
+  ../connection/mix.lock \
+  ../serviceradar_core/mix.lock \
+  ../serviceradar_srql/mix.lock \
+  ../datasvc/mix.lock \
+  ../vendor/opentelemetry_oban/mix.lock
+do
+  if [ -f "$maybe_lock" ]; then
+    set -- "$@" "$maybe_lock"
+  fi
+done
+
+DEPS_CACHE_FINGERPRINT="$(deps_cache_key "$@")"
 DEPS_CACHE_KEY_FILE="$CACHE_DIR/deps.key"
 
 if [ -f "$DEPS_CACHE_KEY_FILE" ] && [ "$(cat "$DEPS_CACHE_KEY_FILE")" != "$DEPS_CACHE_FINGERPRINT" ]; then
@@ -204,6 +291,14 @@ fi
 if [ -d "$CACHE_DIR/deps" ]; then
   cp -a "$CACHE_DIR/deps" "$WORKDIR/elixir/web-ng/deps"
 fi
+
+clean_dependency_cache() {
+  rm -rf \
+    "$CACHE_DIR/deps" \
+    "$CACHE_DIR/_build" \
+    "$WORKDIR/elixir/web-ng/deps" \
+    "$WORKDIR/elixir/web-ng/_build"
+}
 
 # Only install hex/rebar if not already cached
 if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
@@ -217,6 +312,10 @@ for attempt in 1 2 3; do
   if mix deps.get; then
     deps_get_ok=1
     break
+  fi
+
+  if [ "$attempt" -eq 1 ]; then
+    clean_dependency_cache
   fi
 
   if [ "$attempt" -lt 3 ]; then
@@ -235,6 +334,12 @@ if [ "$deps_get_ok" -ne 1 ]; then
     git -C deps/heroicons config --get remote.origin.url >&2 || true
   fi
   exit 1
+fi
+
+# Apply the same dependency warning fixes used by release builds so CI doesn't
+# fail on known Elixir 1.19 typing warnings in third-party deps.
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$ROOT/build/mix_release_patches.py" "$WORKDIR/elixir/web-ng"
 fi
 
 # Cache deps for next run (speeds up heroicons clone and hex downloads)
