@@ -1,0 +1,28 @@
+namespace:
+  create: false
+  name: sigstore-system
+
+server:
+  ingress:
+    enabled: false
+  service:
+    type: ClusterIP
+  # Rekor accepts a PEM private-key filename here. This is a bootstrap path
+  # until a real KMS-backed signer is selected for production.
+  signer: /var/run/rekor-signer/private.pem
+  signerFileSecretOptions:
+    secretName: rekor-signer
+    privateKeySecretKey: private.pem
+    secretMountPath: /var/run/rekor-signer
+    secretMountSubPath: private.pem
+  attestation_storage:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 10Gi
+
+redis:
+  enabled: true
+
+trillian:
+  enabled: true
