@@ -2,6 +2,7 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 _WASM_ARTIFACT_TYPE = "application/vnd.serviceradar.wasm-plugin.bundle.v1+zip"
 _BUNDLE_MEDIA_TYPE = "application/zip"
+_UPLOAD_SIGNATURE_MEDIA_TYPE = "application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json"
 
 
 def declare_wasm_targets(build_targets, plugin_bundles):
@@ -87,6 +88,7 @@ def declare_wasm_targets(build_targets, plugin_bundles):
                 "--repository-name", bundle["repository_name"],
                 "--artifact-type", _WASM_ARTIFACT_TYPE,
                 "--bundle-media-type", _BUNDLE_MEDIA_TYPE,
+                "--upload-signature-media-type", _UPLOAD_SIGNATURE_MEDIA_TYPE,
             ] + entry_args),
             local = True,
             tags = [
@@ -123,10 +125,13 @@ def declare_wasm_targets(build_targets, plugin_bundles):
                 "$(location :{}_metadata)".format(bundle["name"]),
                 "--oras",
                 "oras",
+                "--upload-signature-tool",
+                "$(location :upload_signature_tool)",
             ],
             data = [
                 ":{}_zip".format(bundle["name"]),
                 ":{}_metadata".format(bundle["name"]),
+                ":upload_signature_tool",
             ],
             visibility = ["//visibility:public"],
         )
