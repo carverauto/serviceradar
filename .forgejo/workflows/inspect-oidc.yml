@@ -16,6 +16,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
+    enable-openid-connect: true
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -66,7 +67,7 @@ jobs:
 
       - name: Upload OIDC diagnostics
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: oidc-claims
           path: oidc-claims.json
