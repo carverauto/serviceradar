@@ -7,20 +7,17 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  sources:
-    - repoURL: registry.carverauto.dev/serviceradar/charts
-      chart: serviceradar
-      targetRevision: "1.2.11"
-      helm:
-        releaseName: serviceradar
-        # IMPORTANT: values-demo.yaml contains environment-specific overrides
-        # including the CNPG cluster name. Never change clusterName without
-        # migrating data first!
-        valueFiles:
-          - $values/helm/serviceradar/values-demo.yaml
-    - repoURL: https://git.carverauto.dev/carverauto/serviceradar.git
-      targetRevision: v1.2.11
-      ref: values
+  source:
+    repoURL: https://git.carverauto.dev/carverauto/serviceradar.git
+    targetRevision: staging
+    path: helm/serviceradar
+    helm:
+      releaseName: serviceradar
+      # IMPORTANT: values-demo.yaml contains environment-specific overrides
+      # including the CNPG cluster name. Never change clusterName without
+      # migrating data first!
+      valueFiles:
+        - values-demo.yaml
 
   destination:
     server: https://kubernetes.default.svc
@@ -37,6 +34,10 @@ spec:
         - /spec/instances
         - /spec/storage/size
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
     syncOptions:
       - CreateNamespace=true
       - SkipDryRunOnMissingResource=true

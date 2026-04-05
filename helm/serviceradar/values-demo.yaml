@@ -12,7 +12,7 @@ topologySpread:
 global:
   # Demo uses an immutable ServiceRadar image tag so Kyverno can verify
   # signatures without requiring digest-pinned user-facing values.
-  imageTag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
+  imageTag: "sha-217d693de66908133302bffea9a1091b03e45d87"
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
 
