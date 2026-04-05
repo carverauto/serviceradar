@@ -23,6 +23,14 @@ fi
 
 mkdir -p "${state_dir}/cache" "${state_dir}/config" "${state_dir}/data"
 
+docker_host="${DOCKER_HOST:-}"
+if [[ "${docker_host}" == unix://* ]]; then
+  docker_socket="${docker_host#unix://}"
+  if [[ ! -S "${docker_socket}" && -S /var/run/docker.sock ]]; then
+    export DOCKER_HOST="unix:///var/run/docker.sock"
+  fi
+fi
+
 exec docker run --rm -i \
   --user "$(id -u):$(id -g)" \
   -v "${PWD}:/workspace" \
