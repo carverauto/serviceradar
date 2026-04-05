@@ -1,0 +1,33 @@
+# ArgoCD repository credentials for OCI Helm charts from Harbor.
+# Apply with: kubectl apply -f harbor-helm-repo.yaml
+#
+# Create the secret manually or via your secret management workflow:
+#
+#   kubectl create secret generic argocd-repo-harbor-helm \
+#     --namespace argocd \
+#     --from-literal=type=helm \
+#     --from-literal=url=registry.carverauto.dev/serviceradar/charts \
+#     --from-literal=enableOCI=true \
+#     --from-literal=username=<harbor-robot-username> \
+#     --from-literal=password=<harbor-robot-secret>
+#
+#   kubectl label secret argocd-repo-harbor-helm -n argocd \
+#     argocd.argoproj.io/secret-type=repository
+#
+# Or apply this template after filling in credentials:
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-repo-harbor-helm
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: helm
+  url: registry.carverauto.dev/serviceradar/charts
+  enableOCI: "true"
+  # Replace with actual credentials - do not commit real values
+  username: "${HARBOR_ROBOT_USERNAME}"
+  password: "${HARBOR_ROBOT_SECRET}"

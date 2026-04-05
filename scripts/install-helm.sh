@@ -21,7 +21,16 @@ case "$(uname -m)" in
 esac
 
 archive="helm-${version}-linux-${arch}.tar.gz"
-curl -fsSL "https://get.helm.sh/${archive}" -o "${tmpdir}/${archive}"
+curl \
+  --fail \
+  --show-error \
+  --silent \
+  --location \
+  --retry 5 \
+  --retry-delay 2 \
+  --retry-all-errors \
+  "https://get.helm.sh/${archive}" \
+  -o "${tmpdir}/${archive}"
 tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
 
 mkdir -p "${install_root}"

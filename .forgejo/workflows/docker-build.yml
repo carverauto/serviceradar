@@ -93,6 +93,7 @@ jobs:
           }
 
           if command -v apt-get >/dev/null 2>&1; then
+            ./scripts/cleanup-ci-apt-sources.sh
             sudo apt-get update
             sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison
           elif command -v dnf >/dev/null 2>&1; then
@@ -190,6 +191,7 @@ jobs:
           "${cmd[@]}"
 
           if ! command -v skopeo >/dev/null 2>&1; then
+            ./scripts/cleanup-ci-apt-sources.sh
             sudo apt-get update -qq && sudo apt-get install -y -qq skopeo >/dev/null 2>&1
           fi
 

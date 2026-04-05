@@ -117,6 +117,7 @@ jobs:
 
       - name: Ensure rpmbuild available for rules_pkg toolchain
         run: |
+          ./scripts/cleanup-ci-apt-sources.sh
           sudo apt-get update -y
           sudo apt-get install -y rpm rpm2cpio
           if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -300,6 +301,7 @@ jobs:
           fi
 
           if ! command -v skopeo >/dev/null 2>&1; then
+            ./scripts/cleanup-ci-apt-sources.sh
             sudo apt-get update -qq && sudo apt-get install -y -qq skopeo >/dev/null 2>&1
           fi
 
@@ -310,21 +312,21 @@ jobs:
           ./scripts/sign-oci-publish.sh
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
 
-      - name: Install Helm
-        run: ./scripts/install-helm.sh
-
       - name: Publish Helm chart to OCI registry
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
+          export HELM_STATE_DIR="$(mktemp -d)"
+          trap 'rm -rf "${HELM_STATE_DIR}"' EXIT
+
           login_registry() {
             local user="${1:-}"
             local token="${2:-}"
             if [[ -z "${user}" || -z "${token}" ]]; then
               return 1
             fi
-            echo "${token}" | helm registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+            echo "${token}" | ./scripts/run-helm.sh registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
           }
 
           if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
@@ -335,8 +337,8 @@ jobs:
           login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
 
           # Package and push chart
-          helm package helm/serviceradar
-          helm push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
+          ./scripts/run-helm.sh package helm/serviceradar
+          ./scripts/run-helm.sh push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
 
           # Cleanup
           rm -f "serviceradar-${VERSION}.tgz"
