@@ -127,7 +127,6 @@ cosign_keyless_requested() {
 
 cosign_fetch_actions_id_token() {
   cosign_require_tool curl
-  cosign_require_tool jq
   cosign_require_tool python3
 
   [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]] || return 1
@@ -151,11 +150,29 @@ cosign_fetch_actions_id_token() {
       "${request_url}"
   )"
 
-  if jq -e . >/dev/null 2>&1 <<<"${response}"; then
-    token="$(jq -r '.value // .token // empty' <<<"${response}")"
-  else
-    token="${response}"
-  fi
+  token="$(
+    RESPONSE="${response}" python3 - <<'PY'
+import json
+import os
+
+text = os.environ["RESPONSE"].strip()
+if not text:
+    print("")
+    raise SystemExit(0)
+
+try:
+    payload = json.loads(text)
+except json.JSONDecodeError:
+    print(text)
+    raise SystemExit(0)
+
+if isinstance(payload, dict):
+    value = payload.get("value") or payload.get("token") or ""
+    print(value if isinstance(value, str) else "")
+else:
+    print("")
+PY
+  )"
 
   if [[ -z "${token}" || "${token}" == "null" ]]; then
     echo "error: failed to obtain an OIDC identity token from the runner" >&2
