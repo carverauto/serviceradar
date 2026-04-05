@@ -72,6 +72,10 @@ jobs:
       OCI_CHART_REPOSITORY: serviceradar/charts
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
@@ -284,6 +288,7 @@ jobs:
           if [[ -n "${RELEASE_TAG}" ]]; then
             verify_tags+=("${RELEASE_TAG}")
           fi
+          ./scripts/sign-oci-publish.sh
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
 
       - name: Install Helm

@@ -153,7 +153,12 @@ fi
 "${BAZEL_BINARY}" run "${BAZEL_FLAGS[@]}" //docker/images:push_all -- --tag "${TAG}" "${PUSH_ARGS[@]}"
 
 if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
+    SIGN_SCRIPT="${REPO_ROOT}/scripts/sign-oci-publish.sh"
     VERIFY_SCRIPT="${REPO_ROOT}/scripts/verify-oci-publish.sh"
+    if [[ ! -x "${SIGN_SCRIPT}" ]]; then
+        echo "Publish signing script is missing or not executable: ${SIGN_SCRIPT}" >&2
+        exit 1
+    fi
     if [[ ! -x "${VERIFY_SCRIPT}" ]]; then
         echo "Publish verification script is missing or not executable: ${VERIFY_SCRIPT}" >&2
         exit 1
@@ -175,6 +180,7 @@ if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
         fi
     done
 
+    "${SIGN_SCRIPT}"
     "${VERIFY_SCRIPT}" "${deduped_verify_tags[@]}"
 fi
 
