@@ -29,6 +29,8 @@ services:
       - SERVICERADAR_VOLUME_PREFIX=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}
       - CNPG_DATA_VOLUME=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-data
       - CNPG_CREDENTIALS_VOLUME=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials
+      - CNPG_MIGRATOR_DATA_DIR=/mnt/cnpg-data
+      - CNPG_MIGRATOR_CREDENTIALS_DIR=/mnt/cnpg-credentials
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
       - CNPG_SUPERUSER_PASSWORD=${CNPG_SUPERUSER_PASSWORD:-}
@@ -36,6 +38,8 @@ services:
       - CNPG_EXPECTED_PG_MAJOR=18
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - cnpg-data:/mnt/cnpg-data:ro
+      - cnpg-credentials:/mnt/cnpg-credentials:ro
       - ./docker/compose/migrate-cnpg-pg16-to-pg18.sh:/migrate-cnpg-pg16-to-pg18.sh:ro
     command: sh /migrate-cnpg-pg16-to-pg18.sh
     restart: "no"
@@ -61,7 +65,7 @@ services:
       - serviceradar-net
 
   cnpg:
-    image: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd}
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
     entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
@@ -134,6 +138,51 @@ services:
     networks:
       - serviceradar-net
 
+  migrations-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-migrations-permissions-fixer
+    volumes:
+      - migrations-data:/var/lib/serviceradar/migrations
+    command: >
+      sh -c 'set -e;
+      APP_UID="$${SERVICERADAR_UID:-10001}";
+      APP_GID="$${SERVICERADAR_GID:-10001}";
+      mkdir -p /var/lib/serviceradar/migrations;
+      chown -R "$${APP_UID}:$${APP_GID}" /var/lib/serviceradar/migrations;
+      chmod 755 /var/lib/serviceradar/migrations'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  cnpg-app-bootstrap:
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd}
+    container_name: serviceradar-cnpg-app-bootstrap
+    user: "0:0"
+    environment:
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_ADMIN_DATABASE=${CNPG_ADMIN_DATABASE:-postgres}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_APP_USER=${CNPG_APP_USER:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CRED_DIR=/etc/serviceradar/cnpg
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - ./docker/compose/bootstrap-cnpg-app-db.sh:/bootstrap-cnpg-app-db.sh:ro
+    command: sh /bootstrap-cnpg-app-db.sh
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      db-credentials:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   # Bootstrap admin credentials (idempotent).
   config-updater:
     image: alpine:3.20
@@ -155,14 +204,19 @@ services:
       - cloak-key:/etc/serviceradar/cloak
     command: >
       sh -c 'set -e;
+      APP_UID="$${SERVICERADAR_UID:-10001}";
+      APP_GID="$${SERVICERADAR_GID:-10001}";
       mkdir -p /etc/serviceradar/cloak;
       if [ ! -f /etc/serviceradar/cloak/cloak.key ]; then
-        umask 077;
+        umask 027;
         head -c 32 /dev/urandom | base64 | tr -d "\n" > /etc/serviceradar/cloak/cloak.key;
         echo "Generated CLOAK_KEY";
       else
         echo "CLOAK_KEY already present";
-      fi'
+      fi;
+      chown "$${APP_UID}:$${APP_GID}" /etc/serviceradar/cloak /etc/serviceradar/cloak/cloak.key;
+      chmod 750 /etc/serviceradar/cloak;
+      chmod 640 /etc/serviceradar/cloak/cloak.key'
     restart: "no"
     networks:
       - serviceradar-net
@@ -170,6 +224,7 @@ services:
   core-elx-migrations:
     image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-migrations
+    user: "0:0"
     hostname: core-elx-migrations
     environment:
       - CLUSTER_ENABLED=false
@@ -203,6 +258,10 @@ services:
       cert-permissions-fixer:
         condition: service_completed_successfully
       cloak-keygen:
+        condition: service_completed_successfully
+      migrations-permissions-fixer:
+        condition: service_completed_successfully
+      cnpg-app-bootstrap:
         condition: service_completed_successfully
       db-credentials:
         condition: service_completed_successfully
@@ -310,66 +369,16 @@ services:
   nats-creds-init:
     image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-nats-creds-init
+    user: "0:0"
     volumes:
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds
       - ./docker/compose/creds:/seed/creds:ro
+      - ./docker/compose/init-nats-creds.sh:/init-nats-creds.sh:ro
     environment:
       - NATS_OPERATOR_NAME=${NATS_OPERATOR_NAME:-serviceradar-dev}
       - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
       - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
-    command:
-      - bash
-      - -c
-      - |
-          set -euo pipefail
-          creds_dir="/etc/serviceradar/creds"
-          seed_dir="/seed/creds"
-          if [ -f "$${creds_dir}/operator.jwt" ]; then
-            if [ ! -f "$${creds_dir}/operator.seed" ]; then
-              if [ -n "$${NATS_OPERATOR_SEED}" ]; then
-                echo "Persisting operator seed to creds volume."
-                echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
-                chmod 0600 "$${creds_dir}/operator.seed"
-              else
-                echo "Warning: operator.seed missing and NATS_OPERATOR_SEED not set; NATS account provisioning will fail."
-              fi
-            fi
-            if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
-              echo "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" > "$${creds_dir}/system_account.pub"
-              chmod 0644 "$${creds_dir}/system_account.pub"
-            fi
-            echo "NATS creds already present; skipping bootstrap."
-            exit 0
-          fi
-          mkdir -p "$${creds_dir}"
-          if [ -f "$${seed_dir}/operator.jwt" ]; then
-            echo "Copying seed NATS creds into volume."
-            cp -a "$${seed_dir}/." "$${creds_dir}/"
-            if [ ! -f "$${creds_dir}/operator.seed" ] && [ -n "$${NATS_OPERATOR_SEED}" ]; then
-              echo "Persisting operator seed to creds volume."
-              echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
-              chmod 0600 "$${creds_dir}/operator.seed"
-            fi
-            if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
-              echo "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" > "$${creds_dir}/system_account.pub"
-              chmod 0644 "$${creds_dir}/system_account.pub"
-            fi
-            exit 0
-          fi
-          args=(nats-bootstrap --local --output-dir "$${creds_dir}" --operator-name "$${NATS_OPERATOR_NAME}" --output json)
-          if [ -n "$${NATS_OPERATOR_SEED}" ]; then
-            args+=(--import-operator-seed "$${NATS_OPERATOR_SEED}")
-          fi
-          serviceradar-cli "$${args[@]}"
-          if [ ! -f "$${creds_dir}/operator.seed" ] && [ -n "$${NATS_OPERATOR_SEED}" ]; then
-            echo "Persisting operator seed to creds volume."
-            echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
-            chmod 0600 "$${creds_dir}/operator.seed"
-          fi
-          if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
-            echo "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" > "$${creds_dir}/system_account.pub"
-            chmod 0644 "$${creds_dir}/system_account.pub"
-          fi
+    command: bash /init-nats-creds.sh
     restart: "no"
     networks:
       - serviceradar-net
@@ -638,20 +647,14 @@ services:
     ports:
       - "11019:11019"
     volumes:
+      - ./docker/compose/bmp-collector.docker.json:/etc/serviceradar/bmp-collector.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - bmp-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     command:
-      - "--bmp-address=0.0.0.0:11019"
-      - "--kafka-disable"
-      - "--nats-enable"
-      - "--nats-server=nats://nats:4222"
-      - "--nats-subject=arancini.updates"
-      - "--nats-tls-required"
-      - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
-      - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
-      - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
-      - "--curation-state-path=/var/lib/serviceradar/state.bin"
+      - "--config"
+      - "/etc/serviceradar/bmp-collector.json"
     cap_add:
       - NET_BIND_SERVICE
     depends_on:

@@ -5,9 +5,9 @@ echo "Fixing certificate permissions..."
 
 CERT_DIR="/etc/serviceradar/certs"
 
-# Default to the ServiceRadar runtime user/group (serviceradar:serviceradar = 1001:1001).
-APP_UID="${SERVICERADAR_UID:-1001}"
-APP_GID="${SERVICERADAR_GID:-1001}"
+# Default to the ServiceRadar runtime user/group (serviceradar:serviceradar = 10001:10001).
+APP_UID="${SERVICERADAR_UID:-10001}"
+APP_GID="${SERVICERADAR_GID:-10001}"
 
 # Owner/group: ServiceRadar runtime user so non-root containers can read their cert material.
 chown -R "${APP_UID}:${APP_GID}" "${CERT_DIR}"
