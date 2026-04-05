@@ -36,6 +36,13 @@ jobs:
 
           data = json.loads(Path("oidc-claims.json").read_text(encoding="utf-8"))
           payload = data.get("payload", {})
+          print("OK:", data.get("ok", False))
+          print("Token source:", data.get("token_source", ""))
+          print("Requested audience:", data.get("requested_audience", ""))
+          for key, value in sorted(data.get("environment", {}).items()):
+              print(f"{key}: {value}")
+          if data.get("error"):
+              print("Error:", data["error"])
           print("Issuer:", payload.get("iss", ""))
           print("Subject:", payload.get("sub", ""))
           print("Audience:", payload.get("aud", ""))
@@ -43,4 +50,24 @@ jobs:
               if key in {"iss", "sub", "aud"}:
                   continue
               print(f"{key}: {payload[key]}")
+          summary = Path(__import__("os").environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as fh:
+              fh.write("## OIDC Inspection\n")
+              fh.write(f"- ok: `{data.get('ok', False)}`\n")
+              fh.write(f"- token_source: `{data.get('token_source', '')}`\n")
+              fh.write(f"- requested_audience: `{data.get('requested_audience', '')}`\n")
+              if data.get("error"):
+                  fh.write(f"- error: `{data['error']}`\n")
+              if payload:
+                  fh.write(f"- issuer: `{payload.get('iss', '')}`\n")
+                  fh.write(f"- subject: `{payload.get('sub', '')}`\n")
+                  fh.write(f"- audience: `{payload.get('aud', '')}`\n")
           PY
+
+      - name: Upload OIDC diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-claims
+          path: oidc-claims.json
+          if-no-files-found: error
