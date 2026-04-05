@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.13
+
+Wasm OCI release reliability fixes for CI-installed ORAS resolution, plus the first-party upload-signature release automation introduced in the prior cut.
+
+## Whats New
+
+**1.2.13**
+- Fixed first-party Wasm OCI publish targets so Bazel-run release jobs resolve the CI-installed `oras` binary from standard runner install paths instead of failing inside the wrapper script.
+- Keeps the new first-party Wasm upload-signature sidecar publication, verification, and `web-ng` trust wiring intact for immutable release publication.
+
 # ServiceRadar v1.2.12
 
 First-party Wasm release signing, Harbor-published upload-signature sidecars, and the final release-path hardening needed for immutable OCI and plugin publication.
