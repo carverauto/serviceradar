@@ -205,16 +205,36 @@ cosign_resolve_identity_token_file() {
   printf '\n'
 }
 
+cosign_resolve_key_ref() {
+  if [[ -n "${COSIGN_KEY_REF:-}" ]]; then
+    printf '%s\n' "${COSIGN_KEY_REF}"
+    return 0
+  fi
+
+  if [[ -n "${COSIGN_KMS_KEY:-}" ]]; then
+    printf '%s\n' "${COSIGN_KMS_KEY}"
+    return 0
+  fi
+
+  printf '\n'
+}
+
 cosign_init_sign_args() {
   declare -g -a COSIGN_SIGN_ARGS=()
 
-  local trusted_root_file identity_token_file
+  local trusted_root_file identity_token_file key_ref
   trusted_root_file="$(cosign_resolve_trusted_root_file)"
   if [[ -n "${trusted_root_file}" ]]; then
     COSIGN_SIGN_ARGS+=(--trusted-root "${trusted_root_file}")
   fi
 
   cosign_export_trust_overrides
+
+  key_ref="$(cosign_resolve_key_ref)"
+  if [[ -n "${key_ref}" ]]; then
+    COSIGN_SIGN_ARGS+=(--key "${key_ref}")
+    return 0
+  fi
 
   if [[ -n "${COSIGN_KEY_FILE:-}" ]]; then
     if [[ ! -f "${COSIGN_KEY_FILE}" ]]; then
@@ -239,6 +259,7 @@ cosign_init_sign_args() {
     cat >&2 <<'EOF'
 error: no cosign signing identity configured.
 Set one of:
+  COSIGN_KEY_REF=hashivault://key-name
   COSIGN_KEY_FILE=/path/to/cosign.key
   COSIGN_PRIVATE_KEY environment variable with signing material
   COSIGN_KEYLESS=true
@@ -268,13 +289,22 @@ EOF
 cosign_init_verify_args() {
   declare -g -a COSIGN_VERIFY_ARGS=()
 
-  local trusted_root_file pubkey
+  local trusted_root_file pubkey key_ref
   trusted_root_file="$(cosign_resolve_trusted_root_file)"
   if [[ -n "${trusted_root_file}" ]]; then
     COSIGN_VERIFY_ARGS+=(--trusted-root "${trusted_root_file}")
   fi
 
   cosign_export_trust_overrides
+
+  key_ref="$(cosign_resolve_key_ref)"
+  if [[ -n "${key_ref}" ]]; then
+    pubkey="$(mktemp)"
+    cosign public-key --key "${key_ref}" >"${pubkey}"
+    cosign_register_temp_file "${pubkey}"
+    COSIGN_VERIFY_ARGS+=(--key "${pubkey}")
+    return 0
+  fi
 
   if [[ -n "${COSIGN_PUBLIC_KEY_FILE:-}" ]]; then
     if [[ ! -f "${COSIGN_PUBLIC_KEY_FILE}" ]]; then

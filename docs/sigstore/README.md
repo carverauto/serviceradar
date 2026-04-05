@@ -3,6 +3,15 @@
 This directory is the stable repository-owned location for ServiceRadar's
 custom Sigstore trust material once keyless signing is enabled for releases.
 
+Current state:
+
+- OCI release signing uses a Cosign-compatible public key published at
+  `docs/cosign.pub`.
+- The intended long-term release signer is the OpenBao Transit-backed
+  `hashivault://cosign-release` key exposed to Forgejo runner jobs.
+- Full self-hosted keyless signing remains blocked by the deployed Forgejo
+  `14.0.3` release, which does not yet expose Forgejo Actions OIDC.
+
 Populate these files from the active Fulcio/Rekor deployment:
 
 - `trusted-root.json`: preferred Cosign trusted-root document for keyless verification
