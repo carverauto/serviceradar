@@ -336,6 +336,12 @@ if [ "$deps_get_ok" -ne 1 ]; then
   exit 1
 fi
 
+# Apply the same dependency warning fixes used by release builds so CI doesn't
+# fail on known Elixir 1.19 typing warnings in third-party deps.
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$ROOT/build/mix_release_patches.py" "$WORKDIR/elixir/web-ng"
+fi
+
 # Cache deps for next run (speeds up heroicons clone and hex downloads)
 rm -rf "$CACHE_DIR/deps"
 cp -a "$WORKDIR/elixir/web-ng/deps" "$CACHE_DIR/deps"
