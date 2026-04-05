@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.12
+
+First-party Wasm release signing, Harbor-published upload-signature sidecars, and the final release-path hardening needed for immutable OCI and plugin publication.
+
+## Whats New
+
+**1.2.12**
+- Added first-party Wasm OCI publication sidecars that carry the same Ed25519 upload-signature payload enforced by `web-ng` for trusted uploaded packages.
+- Updated Forgejo and BuildBuddy release flows to publish, cosign-sign, verify, and now upload-sign first-party Wasm plugin OCI artifacts during release publication.
+- Wired demo `web-ng` to trust the dedicated first-party Wasm upload-signing key so Harbor-published plugin bundles can be imported under the same verification policy used for manual uploads.
+
 # ServiceRadar v1.2.11
 
 Forgejo and Harbor release hardening, safer Docker Compose bootstrap, and post-release control-plane reliability fixes across the demo stack.
