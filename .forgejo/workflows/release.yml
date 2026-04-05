@@ -317,7 +317,9 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          export HELM_STATE_DIR="$(mktemp -d)"
+          export HELM_STATE_DIR="${PWD}/.helm-home"
+          rm -rf "${HELM_STATE_DIR}"
+          mkdir -p "${HELM_STATE_DIR}"
           trap 'rm -rf "${HELM_STATE_DIR}"' EXIT
 
           login_registry() {
