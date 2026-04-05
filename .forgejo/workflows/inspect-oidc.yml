@@ -1,0 +1,46 @@
+name: Inspect OIDC Claims
+
+on:
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: "OIDC audience to request from Forgejo Actions"
+        required: false
+        type: string
+        default: sigstore
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Decode workflow OIDC token claims
+        env:
+          SIGSTORE_OIDC_AUDIENCE: ${{ github.event.inputs.audience || 'sigstore' }}
+        run: |
+          set -euo pipefail
+          ./scripts/inspect-actions-oidc.sh | tee oidc-claims.json
+
+      - name: Summarize relevant claims
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("oidc-claims.json").read_text(encoding="utf-8"))
+          payload = data.get("payload", {})
+          print("Issuer:", payload.get("iss", ""))
+          print("Subject:", payload.get("sub", ""))
+          print("Audience:", payload.get("aud", ""))
+          for key in sorted(payload):
+              if key in {"iss", "sub", "aud"}:
+                  continue
+              print(f"{key}: {payload[key]}")
+          PY
