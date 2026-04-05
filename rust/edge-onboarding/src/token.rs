@@ -157,15 +157,17 @@ fn onboarding_token_private_key() -> Result<SigningKey> {
 }
 
 fn decode_onboarding_token_key(raw: &str) -> Result<Vec<u8>> {
-    for decode in [
+    if let Some(bytes) = [
         base64::engine::general_purpose::STANDARD.decode(raw.trim()),
         base64::engine::general_purpose::STANDARD_NO_PAD.decode(raw.trim()),
         base64::engine::general_purpose::URL_SAFE.decode(raw.trim()),
         base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw.trim()),
-    ] {
-        if let Ok(bytes) = decode {
-            return Ok(bytes);
-        }
+    ]
+    .into_iter()
+    .flatten()
+    .next()
+    {
+        return Ok(bytes);
     }
 
     if let Ok(bytes) = hex::decode(raw.trim()) {
