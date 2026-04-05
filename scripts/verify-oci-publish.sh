@@ -86,6 +86,13 @@ resolve_cosign_verify_args() {
     printf -- "--key|%s\n" "${pubkey}"
     return 0
   fi
+  if [[ -n "${COSIGN_PRIVATE_KEY:-}" ]]; then
+    local pubkey
+    pubkey="$(mktemp)"
+    cosign public-key --key env://COSIGN_PRIVATE_KEY >"${pubkey}"
+    printf -- "--key|%s\n" "${pubkey}"
+    return 0
+  fi
   printf '|\n'
 }
 

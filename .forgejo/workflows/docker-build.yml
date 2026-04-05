@@ -23,6 +23,10 @@ jobs:
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
       - name: Checkout
@@ -174,6 +178,7 @@ jobs:
           if [[ -n "${EXTRA_TAG}" ]]; then
             verify_tags+=("${EXTRA_TAG}")
           fi
+          ./scripts/sign-oci-publish.sh
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
 
       - name: Summarize pushed tags
