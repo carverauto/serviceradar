@@ -128,3 +128,16 @@ cosign verify \
   --key docs/cosign.pub \
   registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10
 ```
+
+For the self-hosted keyless path, publish the trusted root and identity policy
+described in [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md),
+then verify with:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --trusted-root docs/sigstore/trusted-root.json \
+  --certificate-identity-regexp '<issuer-specific SAN regex>' \
+  --certificate-oidc-issuer https://issuer.example.com \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10
+```

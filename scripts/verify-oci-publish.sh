@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+trap cosign_cleanup_temp_files EXIT
+
 if ! command -v skopeo >/dev/null 2>&1; then
   echo "error: skopeo is required" >&2
   exit 1
@@ -62,35 +65,6 @@ resolve_registry_auth() {
   fi
   if [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]]; then
     printf '%s|%s\n' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}"
-    return 0
-  fi
-  printf '|\n'
-}
-
-resolve_cosign_verify_args() {
-  if [[ -n "${COSIGN_PUBLIC_KEY_FILE:-}" ]]; then
-    printf -- "--key|%s\n" "${COSIGN_PUBLIC_KEY_FILE}"
-    return 0
-  fi
-  if [[ -n "${COSIGN_KEY_FILE:-}" && -f "${COSIGN_KEY_FILE}" ]]; then
-    local pubkey
-    pubkey="$(mktemp)"
-    cosign public-key --key "${COSIGN_KEY_FILE}" >"${pubkey}"
-    printf -- "--key|%s\n" "${pubkey}"
-    return 0
-  fi
-  if [[ -n "${COSIGN_PUBLIC_KEY:-}" ]]; then
-    local pubkey
-    pubkey="$(mktemp)"
-    printf '%s\n' "${COSIGN_PUBLIC_KEY}" >"${pubkey}"
-    printf -- "--key|%s\n" "${pubkey}"
-    return 0
-  fi
-  if [[ -n "${COSIGN_PRIVATE_KEY:-}" ]]; then
-    local pubkey
-    pubkey="$(mktemp)"
-    cosign public-key --key env://COSIGN_PRIVATE_KEY >"${pubkey}"
-    printf -- "--key|%s\n" "${pubkey}"
     return 0
   fi
   printf '|\n'
@@ -318,16 +292,13 @@ check_cosign_verify() {
   digest="$(resolve_digest "${ref}:${tag}")"
   [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
 
-  local verify_spec verify_flag verify_value
-  verify_spec="$(resolve_cosign_verify_args)"
-  IFS='|' read -r verify_flag verify_value <<<"${verify_spec}"
-  if [[ -z "${verify_flag}" || -z "${verify_value}" ]]; then
+  if ! cosign_init_verify_args; then
     return 0
   fi
 
   cosign verify \
     --experimental-oci11 \
-    "${verify_flag}" "${verify_value}" \
+    "${COSIGN_VERIFY_ARGS[@]}" \
     "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
 }
 

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+trap cosign_cleanup_temp_files EXIT
+
 if ! command -v oras >/dev/null 2>&1; then
   echo "error: oras is required" >&2
   exit 1
@@ -29,28 +32,6 @@ else
   TAGS=("$@")
 fi
 
-resolve_cosign_verify_args() {
-  if [[ -n "${COSIGN_PUBLIC_KEY_FILE:-}" ]]; then
-    printf -- "--key|%s\n" "${COSIGN_PUBLIC_KEY_FILE}"
-    return 0
-  fi
-  if [[ -n "${COSIGN_KEY_FILE:-}" && -f "${COSIGN_KEY_FILE}" ]]; then
-    local pubkey
-    pubkey="$(mktemp)"
-    cosign public-key --key "${COSIGN_KEY_FILE}" >"${pubkey}"
-    printf -- "--key|%s\n" "${pubkey}"
-    return 0
-  fi
-  if [[ -n "${COSIGN_PUBLIC_KEY:-}" ]]; then
-    local pubkey
-    pubkey="$(mktemp)"
-    printf '%s\n' "${COSIGN_PUBLIC_KEY}" >"${pubkey}"
-    printf -- "--key|%s\n" "${pubkey}"
-    return 0
-  fi
-  printf '|\n'
-}
-
 "${BAZEL_BIN}" build //build/wasm_plugins:all_metadata >/dev/null
 
 shopt -s nullglob
@@ -61,9 +42,6 @@ if [[ ${#metadata_files[@]} -eq 0 ]]; then
   echo "error: no Wasm plugin metadata files found in ${METADATA_DIR}" >&2
   exit 1
 fi
-
-verify_spec="$(resolve_cosign_verify_args)"
-IFS='|' read -r verify_flag verify_value <<<"${verify_spec}"
 
 for tag in "${TAGS[@]}"; do
   for metadata in "${metadata_files[@]}"; do
@@ -97,11 +75,11 @@ PY
       exit 1
     }
 
-    if [[ -n "${verify_flag}" && -n "${verify_value}" ]]; then
+    if cosign_init_verify_args; then
       digest="$(oras manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
       cosign verify \
         --experimental-oci11 \
-        "${verify_flag}" "${verify_value}" \
+        "${COSIGN_VERIFY_ARGS[@]}" \
         "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}" >/dev/null
     fi
   done
