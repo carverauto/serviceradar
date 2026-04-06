@@ -76,7 +76,7 @@ describe("rendering_graph_layer_node_methods", () => {
       "global",
     )
 
-    expect(labels).toHaveLength(4)
+    expect(labels).toHaveLength(8)
     expect(labels[0].id).toEqual("node-0")
   })
 

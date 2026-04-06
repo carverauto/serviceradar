@@ -1837,10 +1837,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       cluster_nodes = build_collapsed_cluster_nodes(summarized_groups_by_anchor, expanded_clusters, nodes)
 
       retained_edges =
-        Enum.reject(
-          edges,
+        edges
+        |> Enum.reject(
           &drop_cluster_projection_edge?(&1, collapsed_members, expanded_attachment_edge_keys, expanded_groups)
         )
+        |> Enum.reject(&raw_endpoint_attachment_edge?/1)
 
       cluster_edges = Enum.map(collapsed_summarized_groups, &build_endpoint_cluster_edge(&1, nodes))
 
@@ -2476,6 +2477,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp expanded_group_attachment_edge?(_edge, _expanded_groups), do: false
+
+  defp raw_endpoint_attachment_edge?(edge) when is_map(edge) do
+    endpoint_attachment_edge?(edge) and normalize_id(Map.get(edge, :protocol)) != "cluster"
+  end
+
+  defp raw_endpoint_attachment_edge?(_edge), do: false
 
   defp build_collapsed_cluster_nodes(summarized_groups_by_anchor, expanded_clusters, nodes)
        when is_map(summarized_groups_by_anchor) and is_struct(expanded_clusters, MapSet) and is_map(nodes) do

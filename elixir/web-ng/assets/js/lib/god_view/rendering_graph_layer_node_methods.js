@@ -2,14 +2,14 @@ import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 export const godViewRenderingGraphLayerNodeMethods = {
-  labelBudgetForShape(shape) {
+  labelBudgetForShape(shape, candidateCount = 0) {
     switch (shape) {
       case "local":
-        return 12
+        return Math.min(Math.max(candidateCount, 0), 24)
       case "regional":
-        return 8
+        return Math.min(Math.max(candidateCount, 0), 16)
       case "global":
-        return 4
+        return Math.min(Math.max(candidateCount, 0), 8)
       default:
         return 0
     }
@@ -73,10 +73,6 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   selectNodeLabels(nodeData, shape) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
-    const budget = this.labelBudgetForShape(shape)
-    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
-    if (budget <= 0) return []
-
     const selected = nodeData.filter((node) => node?.selected === true)
     const candidates = nodeData.filter((node) => {
       if (node?.selected === true) return true
@@ -87,6 +83,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
       if (this.opaqueIdentityLabel(node)) return false
       return true
     })
+    const budget = this.labelBudgetForShape(shape, candidates.length)
+    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
+    if (budget <= 0) return []
 
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
     const picked = []
