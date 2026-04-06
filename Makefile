@@ -197,7 +197,11 @@ push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin O
 	else \
 		./scripts/push_all_wasm_plugins.sh; \
 	fi; \
-	./scripts/sign-wasm-plugin-publish.sh; \
+	if [ -n "$(PUSH_TAG)" ]; then \
+		./scripts/sign-wasm-plugin-publish.sh "$(PUSH_TAG)"; \
+	else \
+		./scripts/sign-wasm-plugin-publish.sh; \
+	fi; \
 	if [ -n "$(PUSH_TAG)" ]; then \
 		$(MAKE) verify_wasm_plugins VERIFY_TAG="$(PUSH_TAG)"; \
 	else \

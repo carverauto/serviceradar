@@ -243,7 +243,7 @@ if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
         fi
     done
 
-    "${WASM_SIGN_SCRIPT}"
+    "${WASM_SIGN_SCRIPT}" "${deduped_wasm_verify_tags[@]}"
     "${WASM_VERIFY_SCRIPT}" "${deduped_wasm_verify_tags[@]}"
 fi
 
