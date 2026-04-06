@@ -23,7 +23,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
                TopologyGraph.classify_projection(normalized)
     end
 
-    test "SNMP ARP/FDB single-identifier evidence never becomes backbone" do
+    test "SNMP ARP/FDB single-identifier evidence stays observation-only" do
       normalized =
         MapperResultsIngestor.normalize_topology(%{
           "protocol" => "SNMP-L2",
@@ -40,7 +40,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
       assert normalized.metadata["evidence_class"] == "endpoint-attachment"
 
-      assert {:ok, %{mode: :auxiliary, relation: "ATTACHED_TO", reason: :projected_attachment}} =
+      assert {:ok, %{mode: :auxiliary, relation: "OBSERVED_TO", reason: :projected_observed}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -314,6 +314,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "UNWIND candidates AS c"
       assert query =~ "support_rank"
       assert query =~ "pair_support_rank"
+      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']"
+      refute query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
       assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
       assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
       assert query =~ "toLower(trim(ai.device_id)) <> 'nil'"
@@ -360,7 +362,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       query = TopologyGraph.mapper_evidence_edge_count_query()
 
       assert query =~ "r.ingestor = 'mapper_topology_v1'"
-      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']"
       assert query =~ "RETURN {count: count(r)}"
     end
 

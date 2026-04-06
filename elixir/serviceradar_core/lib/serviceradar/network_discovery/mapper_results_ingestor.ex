@@ -325,9 +325,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp promote_topology_sightings([], _actor), do: :ok
 
   defp promote_topology_sightings(records, actor) do
-    records
-    |> Enum.filter(&topology_sighting_candidate?/1)
-    |> Enum.each(&promote_topology_sighting(&1, actor))
+    candidates = Enum.filter(records, &topology_sighting_candidate?/1)
+
+    suppressed_count =
+      Enum.count(records, fn record ->
+        topology_sighting_candidate_base?(record) and
+          suppress_topology_sighting_candidate?(record)
+      end)
+
+    if candidates != [] or suppressed_count > 0 do
+      Logger.info(
+        "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} suppressed=#{suppressed_count}"
+      )
+    end
+
+    Enum.each(candidates, &promote_topology_sighting(&1, actor))
 
     :ok
   rescue
@@ -337,26 +349,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp topology_sighting_candidate?(record) when is_map(record) do
-    not present?(record.neighbor_device_id) and
-      valid_alias_ip?(normalize_alias_ip(record.neighbor_mgmt_addr)) and
-      present?(record.local_device_id) and
+    topology_sighting_candidate_base?(record) and
       not suppress_topology_sighting_candidate?(record)
   end
 
   defp topology_sighting_candidate?(_), do: false
+
+  defp topology_sighting_candidate_base?(record) when is_map(record) do
+    not present?(record.neighbor_device_id) and
+      valid_alias_ip?(normalize_alias_ip(record.neighbor_mgmt_addr)) and
+      present?(record.local_device_id)
+  end
+
+  defp topology_sighting_candidate_base?(_), do: false
 
   @doc false
   def suppress_topology_sighting_candidate?(record) when is_map(record) do
     protocol = normalize_topology_protocol(record.protocol)
     confidence_reason = metadata_value(record.metadata, "confidence_reason")
     source = metadata_value(record.metadata, "source")
-    candidate_ip = normalize_alias_ip(record.neighbor_mgmt_addr)
     neighbor_name_present? = present?(normalize_string(record.neighbor_system_name))
 
     protocol == "snmp-l2" and
       confidence_reason == "single_identifier_inference" and
       source == "snmp-arp-fdb" and
-      routable_public_ipv4?(candidate_ip) and
       not neighbor_name_present?
   end
 
@@ -1653,28 +1669,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> to_string()
     |> normalize_interface_ip()
   end
-
-  defp routable_public_ipv4?(ip) when is_binary(ip) do
-    case :inet.parse_address(String.to_charlist(ip)) do
-      {:ok, octets} ->
-        not private_or_invalid_ipv4?(octets)
-
-      _ ->
-        false
-    end
-  end
-
-  defp routable_public_ipv4?(_ip), do: false
-
-  defp private_or_invalid_ipv4?({10, _, _, _}), do: true
-  defp private_or_invalid_ipv4?({172, b, _, _}) when b in 16..31, do: true
-  defp private_or_invalid_ipv4?({192, 168, _, _}), do: true
-  defp private_or_invalid_ipv4?({169, 254, _, _}), do: true
-  defp private_or_invalid_ipv4?({127, _, _, _}), do: true
-  defp private_or_invalid_ipv4?({0, _, _, _}), do: true
-  defp private_or_invalid_ipv4?({a, _, _, _}) when a >= 224, do: true
-  defp private_or_invalid_ipv4?({255, 255, 255, 255}), do: true
-  defp private_or_invalid_ipv4?(_octets), do: false
 
   defp first_non_blank(values) when is_list(values) do
     values

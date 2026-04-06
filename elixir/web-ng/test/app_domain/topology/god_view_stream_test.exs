@@ -5351,6 +5351,103 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
            end)
   end
 
+  test "latest_snapshot/0 limits topology-sighting members rendered for expanded endpoint clusters" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_topology_sighting_expand_budget_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-topology-sighting-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-topology-sighting-switch-#{suffix}", %{
+      ip: "198.51.103.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..9, fn idx ->
+        uid = "sr:cluster-topology-sighting-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.103.#{20 + idx}"
+        mac = "02:00:00:60:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.103.10",
+          local_if_name: "edge3",
+          local_if_index: 13,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 4,
+          flow_bps: 400,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 4,
+          flow_pps_ba: 0,
+          flow_bps_ab: 400,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-24T03:30:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+
+    assert {:ok, %{snapshot: expanded_snapshot}} =
+             latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
+
+    visible_member_nodes =
+      Enum.filter(expanded_snapshot.nodes, fn node -> Enum.any?(endpoint_specs, &(&1.uid == node.id)) end)
+
+    assert length(visible_member_nodes) == 6
+
+    expanded_member_edges =
+      Enum.filter(expanded_snapshot.edges, fn edge ->
+        edge.source == cluster_id and Enum.any?(endpoint_specs, &(&1.uid == edge.target))
+      end)
+
+    assert length(expanded_member_edges) == 6
+
+    cluster_details =
+      expanded_snapshot.nodes
+      |> Enum.find(&(&1.id == cluster_id))
+      |> Map.fetch!(:details_json)
+      |> Jason.decode!()
+
+    assert cluster_details["cluster_kind"] == "endpoint-summary"
+    assert cluster_details["cluster_expanded"] == true
+    assert cluster_details["cluster_member_count"] == 9
+    assert cluster_details["cluster_visible_member_count"] == 6
+    assert cluster_details["cluster_hidden_member_count"] == 3
+  end
+
   test "latest_snapshot/0 keeps expanded cluster members when sibling collapsed clusters share those endpoints" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
