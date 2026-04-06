@@ -121,7 +121,7 @@ fn snmp_severity_rule_uses_supported_fallback_expression() {
     assert_eq!(service_name_expression, "'snmp'");
     assert_eq!(
         body_expression,
-        "(body == 'logs.snmp.processed' or body == '') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body) : body) : body"
+        "(((body ?? '') == '') or body == 'logs.snmp.processed') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body ?? '') : (body ?? '')) : body"
     );
     assert!(!severity_expression.contains("coalesce("));
 }
@@ -139,6 +139,39 @@ async fn snmp_severity_rule_sets_body_from_first_varbind() {
         .evaluate(
             json!({
                 "body": "logs.snmp.processed",
+                "varbinds": [
+                    {
+                        "oid": "1.3.6.1.2.1.16.9.1.1.2.4911",
+                        "value": "OCTET STRING: I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+                    }
+                ]
+            })
+            .into(),
+        )
+        .await
+        .expect("evaluate snmp rule");
+
+    let result = Value::from(response.result);
+    assert_eq!(
+        result["body"],
+        "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+    );
+    assert_eq!(result["service_name"], "snmp");
+    assert_eq!(result["source"], "snmp");
+}
+
+#[tokio::test]
+async fn snmp_severity_rule_sets_body_from_first_varbind_when_body_is_missing() {
+    let path = packaging_rules_dir().join("snmp_severity.json");
+    let data = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+    let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data)
+        .unwrap_or_else(|e| panic!("{} failed to parse: {e}", path.display()));
+
+    let decision = DecisionEngine::default().create_decision(parsed.into());
+    let response = decision
+        .evaluate(
+            json!({
                 "varbinds": [
                     {
                         "oid": "1.3.6.1.2.1.16.9.1.1.2.4911",

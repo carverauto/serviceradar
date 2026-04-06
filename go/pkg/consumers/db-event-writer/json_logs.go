@@ -119,6 +119,9 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 
 	body := firstString(entry, "message", "short_message", "msg", "body", "event", "log", "summary")
 	if body == "" {
+		body = snmpBodyFromVarbinds(entry)
+	}
+	if body == "" {
 		body = subject
 	}
 
@@ -418,6 +421,51 @@ func firstString(entry map[string]interface{}, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func snmpBodyFromVarbinds(entry map[string]interface{}) string {
+	raw, ok := entry["varbinds"]
+	if !ok {
+		return ""
+	}
+
+	varbinds, ok := raw.([]interface{})
+	if !ok {
+		return ""
+	}
+
+	for _, item := range varbinds {
+		varbind, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		value := firstString(varbind, "value")
+		if value == "" {
+			continue
+		}
+
+		if body := trimSNMPVarbindValue(value); body != "" {
+			return body
+		}
+	}
+
+	return ""
+}
+
+func trimSNMPVarbindValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if idx := strings.Index(value, ":"); idx >= 0 && idx+1 < len(value) {
+		if trimmed := strings.TrimSpace(value[idx+1:]); trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return value
 }
 
 func stringFromCharCodeArray(value interface{}) (string, bool) {

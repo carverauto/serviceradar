@@ -29,6 +29,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   require Logger
 
+  @snmp_varbind_prefix ~r/^[^:]+:\s*(.*)$/
+
   @impl true
   def table_name, do: "logs"
 
@@ -354,9 +356,34 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       json["message"] -> json["message"]
       json["msg"] -> json["msg"]
       json["short_message"] -> json["short_message"]
-      true -> nil
+      true -> snmp_body_from_varbinds(json)
     end
   end
+
+  defp snmp_body_from_varbinds(%{"varbinds" => varbinds}) when is_list(varbinds) do
+    Enum.find_value(varbinds, &snmp_varbind_text/1)
+  end
+
+  defp snmp_body_from_varbinds(_), do: nil
+
+  defp snmp_varbind_text(%{"value" => value}) when is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      nil
+    else
+      case Regex.run(@snmp_varbind_prefix, value, capture: :all_but_first) do
+        [message] ->
+          message = String.trim(message)
+          if message == "", do: value, else: message
+
+        _ ->
+          value
+      end
+    end
+  end
+
+  defp snmp_varbind_text(_), do: nil
 
   defp attach_ingest_metadata(attributes, metadata) when is_map(attributes) do
     ingest = build_ingest_metadata(metadata)
