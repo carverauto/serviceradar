@@ -65,7 +65,6 @@ PY
   echo "signing ${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
   cosign sign \
     --yes \
-    --experimental-oci11 \
     --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
     --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
     "${COSIGN_SIGN_ARGS[@]}" \
