@@ -41,13 +41,16 @@ describe("rendering_graph_layer_node_methods", () => {
 
     const labels = ctx.selectNodeLabels([
       {id: "summary", label: "20 endpoints", clusterCount: 20, pps: 10, state: 3, selected: false, details: {cluster_kind: "endpoint-summary"}},
+      {id: "summary-2", label: "16 endpoints", clusterCount: 16, pps: 9, state: 3, selected: false, details: {cluster_kind: "endpoint-summary"}},
+      {id: "summary-3", label: "8 endpoints", clusterCount: 8, pps: 8, state: 3, selected: false, details: {cluster_kind: "endpoint-summary"}},
       {id: "switch", label: "Switch", clusterCount: 1, pps: 1000, state: 2, selected: false, details: {}},
       {id: "endpoint-1", label: "192.0.2.10", clusterCount: 1, pps: 0, state: 2, selected: false, details: {cluster_kind: "endpoint-member"}},
       {id: "ghost", label: "192.0.2.11", clusterCount: 1, pps: 0, state: 3, selected: false, details: {identity_source: "mapper_topology_sighting"}},
+      {id: "sr:a0", label: "sr:a0", clusterCount: 1, pps: 100, state: 2, selected: false, details: {}},
       {id: "selected-endpoint", label: "Laptop", clusterCount: 1, pps: 0, state: 2, selected: true, details: {cluster_kind: "endpoint-member"}},
     ], "local")
 
-    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "summary", "switch"])
+    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "summary", "summary-2", "switch"])
   })
 
   it("selectNodeLabels enforces a per-shape budget", () => {
@@ -73,7 +76,26 @@ describe("rendering_graph_layer_node_methods", () => {
       "global",
     )
 
-    expect(labels).toHaveLength(10)
+    expect(labels).toHaveLength(4)
     expect(labels[0].id).toEqual("node-0")
+  })
+
+  it("selectNodeLabels still preserves explicitly selected opaque identities", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    const labels = ctx.selectNodeLabels([
+      {id: "sr:hidden", label: "sr:hidden", clusterCount: 1, pps: 0, state: 3, selected: false, details: {}},
+      {id: "sr:selected", label: "sr:selected", clusterCount: 1, pps: 0, state: 3, selected: true, details: {}},
+      {id: "router", label: "Router", clusterCount: 1, pps: 100, state: 2, selected: false, details: {}},
+    ], "local")
+
+    expect(labels.map((node) => node.id)).toEqual(["sr:selected", "router"])
   })
 })
