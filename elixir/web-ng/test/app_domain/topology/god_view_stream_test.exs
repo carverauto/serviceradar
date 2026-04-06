@@ -5252,6 +5252,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert {:ok, %{snapshot: collapsed_snapshot}} = latest_snapshot_for_test()
     assert Enum.any?(collapsed_snapshot.nodes, &(&1.id == cluster_id))
     refute Enum.any?(collapsed_snapshot.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+    assert Enum.any?(collapsed_snapshot.edges, &(&1.source == switch_uid and &1.target == cluster_id))
+
+    refute Enum.any?(collapsed_snapshot.edges, fn edge ->
+             edge.source == switch_uid and Enum.any?(endpoint_specs, &(&1.uid == edge.target))
+           end)
 
     assert {:ok, %{snapshot: expanded_snapshot}} =
              latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
