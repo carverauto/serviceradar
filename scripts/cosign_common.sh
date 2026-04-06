@@ -338,19 +338,13 @@ EOF
 cosign_init_verify_args() {
   declare -g -a COSIGN_VERIFY_ARGS=()
 
-  local trusted_root_file public_key_file pubkey key_ref
+  local trusted_root_file public_key_file pubkey key_ref key_pub_file
   trusted_root_file="$(cosign_resolve_trusted_root_file)"
   if [[ -n "${trusted_root_file}" ]]; then
     COSIGN_VERIFY_ARGS+=(--trusted-root "${trusted_root_file}")
   fi
 
   cosign_export_trust_overrides
-
-  public_key_file="$(cosign_resolve_public_key_file)"
-  if [[ -n "${public_key_file}" ]]; then
-    COSIGN_VERIFY_ARGS+=(--key "${public_key_file}")
-    return 0
-  fi
 
   key_ref="$(cosign_resolve_key_ref)"
   if [[ -n "${key_ref}" ]]; then
@@ -362,6 +356,12 @@ cosign_init_verify_args() {
   fi
 
   if [[ -n "${COSIGN_KEY_FILE:-}" && -f "${COSIGN_KEY_FILE}" ]]; then
+    key_pub_file="${COSIGN_KEY_FILE%.key}.pub"
+    if [[ "${key_pub_file}" != "${COSIGN_KEY_FILE}" && -f "${key_pub_file}" ]]; then
+      COSIGN_VERIFY_ARGS+=(--key "${key_pub_file}")
+      return 0
+    fi
+
     pubkey="$(mktemp)"
     cosign public-key --key "${COSIGN_KEY_FILE}" >"${pubkey}"
     cosign_register_temp_file "${pubkey}"
@@ -374,6 +374,12 @@ cosign_init_verify_args() {
     cosign public-key --key env://COSIGN_PRIVATE_KEY >"${pubkey}"
     cosign_register_temp_file "${pubkey}"
     COSIGN_VERIFY_ARGS+=(--key "${pubkey}")
+    return 0
+  fi
+
+  public_key_file="$(cosign_resolve_public_key_file)"
+  if [[ -n "${public_key_file}" ]]; then
+    COSIGN_VERIFY_ARGS+=(--key "${public_key_file}")
     return 0
   fi
 
