@@ -55,6 +55,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   id-token: write
