@@ -273,21 +273,33 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       end)
 
       {:ok, _agent} = create_connected_agent(actor, agent_uid)
+      plugin_id = "plugin-#{unique_id}"
+
+      {:ok, _plugin} =
+        Plugin
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: plugin_id,
+            name: "Plugin #{unique_id}"
+          },
+          actor: actor
+        )
+        |> Ash.create()
 
       {:ok, package} =
         PluginPackage
         |> Ash.Changeset.for_create(
           :create,
           %{
-            plugin_id: "plugin-#{unique_id}",
+            plugin_id: plugin_id,
             name: "Plugin #{unique_id}",
             version: "1.0.0",
             entrypoint: "run_check",
             outputs: "serviceradar.plugin_result.v1",
-            manifest: %{},
+            manifest: plugin_manifest(plugin_id, "Plugin #{unique_id}"),
             config_schema: %{},
             display_contract: %{},
-            wasm_object_key: "plugins/#{unique_id}/plugin.wasm",
             content_hash: "sha256:#{unique_id}",
             signature: %{},
             source_type: :upload
@@ -295,6 +307,15 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(
+          :update,
+          %{wasm_object_key: "plugins/#{unique_id}/plugin.wasm"},
+          actor: actor
+        )
+        |> Ash.update()
 
       {:ok, package} =
         package
@@ -333,8 +354,15 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       unique_id: unique_id
     } do
       {:ok, _agent} = create_connected_agent(actor, agent_uid)
+      plugin_id = "plugin-override-#{unique_id}"
 
       manifest = %{
+        "id" => plugin_id,
+        "name" => "Plugin Override #{unique_id}",
+        "version" => "1.0.0",
+        "entrypoint" => "run_check",
+        "capabilities" => ["submit_result"],
+        "outputs" => "serviceradar.plugin_result.v1",
         "permissions" => %{
           "allowed_domains" => ["approved.example.com"],
           "allowed_networks" => ["10.0.0.0/24"],
@@ -352,7 +380,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            plugin_id: "plugin-override-#{unique_id}",
+            plugin_id: plugin_id,
             name: "Plugin Override #{unique_id}"
           },
           actor: actor
@@ -364,7 +392,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            plugin_id: "plugin-override-#{unique_id}",
+            plugin_id: plugin_id,
             name: "Plugin Override #{unique_id}",
             version: "1.0.0",
             entrypoint: "run_check",
@@ -372,7 +400,6 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             manifest: manifest,
             config_schema: %{},
             display_contract: %{},
-            wasm_object_key: "plugins/#{unique_id}/plugin.wasm",
             content_hash: "sha256:#{unique_id}",
             signature: %{},
             source_type: :upload
@@ -380,6 +407,15 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           actor: actor
         )
         |> Ash.create()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(
+          :update,
+          %{wasm_object_key: "plugins/#{unique_id}/plugin.wasm"},
+          actor: actor
+        )
+        |> Ash.update()
 
       {:ok, package} =
         package
@@ -423,18 +459,33 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
       [plugin] = config.plugins
 
-      assert Jason.decode!(plugin.permissions_json) == %{
-               "allowed_domains" => ["approved.example.com"],
-               "allowed_networks" => ["10.0.0.0/24"],
-               "allowed_ports" => [443]
+      assert plugin.permissions == %{
+               allowed_domains: ["approved.example.com"],
+               allowed_networks: ["10.0.0.0/24"],
+               allowed_ports: [443]
              }
 
-      assert Jason.decode!(plugin.resources_json) == %{
-               "requested_memory_mb" => 32,
-               "requested_cpu_ms" => 1000,
-               "max_open_connections" => 2
+      assert plugin.resources == %{
+               requested_memory_mb: 32,
+               requested_cpu_ms: 1000,
+               max_open_connections: 2
              }
     end
+  end
+
+  defp plugin_manifest(plugin_id, name) do
+    %{
+      "id" => plugin_id,
+      "name" => name,
+      "version" => "1.0.0",
+      "entrypoint" => "run_check",
+      "capabilities" => ["submit_result"],
+      "outputs" => "serviceradar.plugin_result.v1",
+      "resources" => %{
+        "requested_memory_mb" => 64,
+        "requested_cpu_ms" => 1000
+      }
+    }
   end
 
   describe "sysmon config" do
@@ -603,6 +654,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       unique_id: unique_id
     } do
       agent_uid = "criteria-sweep-agent-#{unique_id}"
+      device_ip = unique_ip("criteria-sweep-#{unique_id}")
+      target_hostname = "target-server-#{unique_id}"
 
       # Create device that matches criteria
       {:ok, device} =
@@ -611,8 +664,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           :create,
           %{
             uid: "sweep-target-device-#{unique_id}",
-            ip: "10.100.50.25",
-            hostname: "target-server",
+            ip: device_ip,
+            hostname: target_hostname,
             tags: %{"env" => "prod", "tier" => "1"}
           },
           actor: actor
@@ -628,7 +681,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             name: "Criteria Sweep Group #{unique_id}",
             partition: "default",
             interval: "15m",
-            target_query: "in:devices ip:10.100.0.0/16 tags.env:prod",
+            target_query: "in:devices ip:#{device_ip}/32 tags.env:prod",
             enabled: true
           },
           actor: actor
@@ -764,5 +817,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       actor: actor
     )
     |> Ash.create()
+  end
+
+  defp unique_ip(seed) when is_binary(seed) do
+    <<second, third, fourth, _rest::binary>> = :crypto.hash(:sha256, seed)
+    "10.#{1 + rem(second, 254)}.#{1 + rem(third, 254)}.#{1 + rem(fourth, 254)}"
   end
 end

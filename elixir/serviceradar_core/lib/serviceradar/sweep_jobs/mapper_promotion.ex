@@ -8,6 +8,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
   require Ash.Query
   require Logger
@@ -190,15 +191,27 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
             }
 
           job ->
-            %{
-              device_uid: candidate.device_uid,
-              ip: candidate.ip,
-              job: job,
-              reason: promotion_reason(job, sweep_agent_id),
-              status: :promote,
-              command_id: nil,
-              cooldown_until: nil
-            }
+            if job_interval_active?(job, now) do
+              %{
+                device_uid: candidate.device_uid,
+                ip: candidate.ip,
+                job: job,
+                reason: "job_interval_active",
+                status: :suppressed,
+                command_id: nil,
+                cooldown_until: job_interval_cooldown_until(job, now)
+              }
+            else
+              %{
+                device_uid: candidate.device_uid,
+                ip: candidate.ip,
+                job: job,
+                reason: promotion_reason(job, sweep_agent_id),
+                status: :promote,
+                command_id: nil,
+                cooldown_until: nil
+              }
+            end
         end
     end
   end
@@ -223,6 +236,39 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
       _ -> nil
     end
   end
+
+  defp job_interval_active?(%MapperJob{} = job, now) do
+    case job_interval_cooldown_at(job) do
+      %DateTime{} = cooldown_at -> DateTime.after?(cooldown_at, now)
+      _ -> false
+    end
+  end
+
+  defp job_interval_cooldown_until(%MapperJob{} = job, now) do
+    case job_interval_cooldown_at(job) do
+      %DateTime{} = cooldown_at ->
+        if DateTime.after?(cooldown_at, now) do
+          DateTime.to_iso8601(cooldown_at)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp job_interval_cooldown_at(%MapperJob{
+         last_run_at: %DateTime{} = last_run_at,
+         interval: interval
+       })
+       when is_binary(interval) do
+    interval_seconds = SweepMonitorWorker.parse_interval_to_seconds(interval)
+
+    if interval_seconds > 0 do
+      DateTime.add(last_run_at, interval_seconds, :second)
+    end
+  end
+
+  defp job_interval_cooldown_at(_job), do: nil
 
   defp dispatch_promotions([], _dispatcher, _actor, _cooldown_seconds), do: []
 
@@ -314,17 +360,24 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   end
 
   defp summarize(decisions) do
-    Enum.reduce(decisions, %{dispatched: 0, suppressed: 0, skipped: 0, failed: 0}, fn decision,
-                                                                                      acc ->
-      case decision.status do
-        :dispatched -> Map.update!(acc, :dispatched, &(&1 + 1))
-        :suppressed -> Map.update!(acc, :suppressed, &(&1 + 1))
-        :skipped -> Map.update!(acc, :skipped, &(&1 + 1))
-        :failed -> Map.update!(acc, :failed, &(&1 + 1))
-        _ -> acc
-      end
-    end)
+    %{
+      dispatched: dispatch_status_count(decisions, :dispatched),
+      suppressed: Enum.count(decisions, &(&1.status == :suppressed)),
+      skipped: Enum.count(decisions, &(&1.status == :skipped)),
+      failed: dispatch_status_count(decisions, :failed)
+    }
   end
+
+  defp dispatch_status_count(decisions, status) do
+    decisions
+    |> Enum.filter(&(&1.status == status))
+    |> Enum.map(&dispatch_group_key/1)
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp dispatch_group_key(%{job: %MapperJob{id: job_id}}), do: job_id
+  defp dispatch_group_key(%{device_uid: device_uid, ip: ip}), do: {device_uid, ip}
 
   defp status_name(:dispatched), do: @status_dispatched
   defp status_name(:suppressed), do: @status_suppressed

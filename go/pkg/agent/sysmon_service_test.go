@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type stubSysmonCollector struct {
+	mu           sync.Mutex
+	reconfigured []*sysmon.ParsedConfig
+}
+
+func (c *stubSysmonCollector) Start(context.Context) error { return nil }
+
+func (c *stubSysmonCollector) Stop() error { return nil }
+
+func (c *stubSysmonCollector) Collect(context.Context) (*sysmon.MetricSample, error) {
+	return nil, nil
+}
+
+func (c *stubSysmonCollector) Reconfigure(config *sysmon.ParsedConfig) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reconfigured = append(c.reconfigured, config)
+	return nil
+}
+
+func (c *stubSysmonCollector) Latest() *sysmon.MetricSample { return nil }
+
+func (c *stubSysmonCollector) Drain() []*sysmon.MetricSample { return nil }
 
 // testSysmonConfig returns a fast config for testing.
 // Uses 100ms sample interval to avoid long CPU sampling delays.
@@ -661,4 +686,74 @@ func TestConfigRefreshPreservesLocalOverride(t *testing.T) {
 
 	assert.Equal(t, initialSource, afterSource, "source should remain local after refresh")
 	assert.Equal(t, initialHash, afterHash, "hash should remain the same after refresh")
+}
+
+func TestSysmonRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	log := logger.NewTestLogger()
+	cachePath := filepath.Join(t.TempDir(), "cache", "sysmon-config.json")
+	initialConfig := sysmon.Config{
+		Enabled:          true,
+		SampleInterval:   "100ms",
+		CollectCPU:       true,
+		CollectMemory:    false,
+		CollectDisk:      false,
+		CollectNetwork:   false,
+		CollectProcesses: false,
+	}
+	parsedInitialConfig, err := initialConfig.Parse()
+	require.NoError(t, err)
+	collector := &stubSysmonCollector{}
+
+	svc, err := NewSysmonService(SysmonServiceConfig{
+		AgentID:   "test-agent",
+		CachePath: cachePath,
+		Logger:    log,
+	})
+	require.NoError(t, err)
+
+	svc.collector = collector
+	svc.config = parsedInitialConfig
+	svc.rawConfig = initialConfig
+	svc.configHash = computeConfigHash(initialConfig)
+	svc.configSource = configSourceTest
+	svc.started = true
+
+	remoteConfig := sysmon.Config{
+		Enabled:          true,
+		SampleInterval:   "10s",
+		CollectCPU:       true,
+		CollectMemory:    true,
+		CollectDisk:      true,
+		CollectNetwork:   false,
+		CollectProcesses: true,
+	}
+
+	err = svc.ApplyRemoteConfig(remoteConfig)
+	require.NoError(t, err)
+
+	remoteHash := svc.GetConfigHash()
+	assert.Equal(t, configSourceRemote, svc.GetConfigSource())
+
+	conflictingCache := `{
+		"enabled": true,
+		"sample_interval": "1m",
+		"collect_cpu": false,
+		"collect_memory": false,
+		"collect_disk": false,
+		"collect_network": false,
+		"collect_processes": false
+	}`
+	err = os.MkdirAll(filepath.Dir(cachePath), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(cachePath, []byte(conflictingCache), 0644)
+	require.NoError(t, err)
+
+	svc.checkConfigUpdate(ctx)
+
+	assert.Equal(t, configSourceRemote, svc.GetConfigSource())
+	assert.Equal(t, remoteHash, svc.GetConfigHash())
+	require.Len(t, collector.reconfigured, 1)
 }

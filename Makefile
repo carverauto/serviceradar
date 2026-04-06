@@ -367,6 +367,9 @@ test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
 test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
 	@./scripts/test-integration.sh
 
+.PHONY: test-all
+test-all: test test-integration ## Run the full test suite including serviceradar_core integration tests
+
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"

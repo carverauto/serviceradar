@@ -56,6 +56,8 @@ const (
 
 	// Config source values
 	configSourceDefault = "default"
+	configSourceRemote  = "remote"
+	configSourceTest    = "test"
 )
 
 // ErrCollectorNotInitialized is returned when attempting to reconfigure before starting.
@@ -135,7 +137,7 @@ func (s *SysmonService) Start(ctx context.Context) error {
 	var source string
 	if s.testConfig != nil {
 		config = *s.testConfig
-		source = "test"
+		source = configSourceTest
 	} else {
 		// Load configuration (local file takes precedence)
 		var err error
@@ -431,6 +433,16 @@ func (s *SysmonService) configRefreshLoop(ctx context.Context) {
 
 // checkConfigUpdate checks for config changes and reconfigures if needed.
 func (s *SysmonService) checkConfigUpdate(ctx context.Context) {
+	s.mu.RLock()
+	currentHash := s.configHash
+	currentSource := s.configSource
+	s.mu.RUnlock()
+
+	if currentSource == configSourceRemote {
+		s.logger.Debug().Msg("Skipping sysmon config refresh while remote config is active")
+		return
+	}
+
 	// Load fresh config
 	newConfig, source, err := s.loadConfig(ctx)
 	if err != nil {
@@ -440,10 +452,6 @@ func (s *SysmonService) checkConfigUpdate(ctx context.Context) {
 
 	// Compute hash of new config
 	newHash := computeConfigHash(newConfig)
-
-	s.mu.RLock()
-	currentHash := s.configHash
-	s.mu.RUnlock()
 
 	// Check if config changed
 	if newHash == currentHash {
@@ -535,6 +543,45 @@ func (s *SysmonService) Reconfigure(config *sysmon.ParsedConfig) error {
 	return nil
 }
 
+// ApplyRemoteConfig updates the collector from gateway config and records remote ownership.
+func (s *SysmonService) ApplyRemoteConfig(config sysmon.Config) error {
+	parsed, err := config.Parse()
+	if err != nil {
+		return fmt.Errorf("failed to parse remote sysmon config: %w", err)
+	}
+
+	newHash := computeConfigHash(config)
+
+	s.mu.Lock()
+	if s.collector == nil {
+		s.mu.Unlock()
+		return ErrCollectorNotInitialized
+	}
+
+	if s.configSource == configSourceRemote && s.configHash == newHash {
+		s.mu.Unlock()
+		return nil
+	}
+
+	if err := s.collector.Reconfigure(parsed); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("failed to reconfigure collector: %w", err)
+	}
+
+	s.config = parsed
+	s.rawConfig = config
+	s.configHash = newHash
+	s.configSource = configSourceRemote
+	s.mu.Unlock()
+
+	if err := s.cacheConfig(config); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to cache sysmon config")
+	}
+
+	s.logger.Info().Msg("Sysmon service reconfigured")
+	return nil
+}
+
 // IsEnabled returns whether sysmon collection is enabled.
 func (s *SysmonService) IsEnabled() bool {
 	s.mu.RLock()
@@ -565,7 +612,7 @@ func (s *SysmonService) DrainMetrics() []*sysmon.MetricSample {
 }
 
 // GetConfigSource returns the source of the current configuration.
-// Returns one of: "local:<path>", "cache:<path>", "default", or "" if not started.
+// Returns one of: "local:<path>", "cache:<path>", "default", "remote", "test", or "" if not started.
 func (s *SysmonService) GetConfigSource() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

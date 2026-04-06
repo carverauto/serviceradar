@@ -423,6 +423,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert :ok =
                InventoryIngestor.ingest(payload, %{},
                  actor: actor,
+                 resolve_device_uid: fn _descriptor, _status, _actor -> camera_uid end,
                  source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
                  profile_upsert: fn attrs, _actor -> {:ok, attrs} end
                )
@@ -436,7 +437,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert camera_device.ip == ip
       assert camera_device.type == "camera"
 
-      assert {:ok, nil} = Device.get_by_uid(placeholder_uid, false, actor: actor)
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
+               Device.get_by_uid(placeholder_uid, false, actor: actor)
 
       {:ok, active_ip_devices} =
         Device

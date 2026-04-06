@@ -1473,15 +1473,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp list_agents_by_uid([], _scope), do: []
 
-  defp summarize_unsupported_agents(agents) do
-    Enum.map(agents, fn agent ->
-      %{
-        agent_id: agent.uid,
-        platform_label: agent_platform_label(agent) || "unknown platform"
-      }
-    end)
-  end
-
   defp list_agents_by_uid(agent_ids, scope) do
     Agent
     |> Ash.Query.for_read(:read, %{})
@@ -1491,6 +1482,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       {:ok, agents} -> agents
       {:error, _} -> []
     end
+  end
+
+  defp summarize_unsupported_agents(agents) do
+    Enum.map(agents, fn agent ->
+      %{
+        agent_id: agent.uid,
+        platform_label: agent_platform_label(agent) || "unknown platform"
+      }
+    end)
   end
 
   defp externally_managed_agent?(%Agent{metadata: metadata}) when is_map(metadata) do

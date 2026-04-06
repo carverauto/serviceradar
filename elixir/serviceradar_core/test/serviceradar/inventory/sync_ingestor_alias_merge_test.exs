@@ -71,7 +71,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
     ip = unique_test_ip(2)
-    mac = "AA:BB:CC:DD:EE:02"
+    mac = unique_mac(2)
     normalized_mac = IdentityReconciler.normalize_mac(mac)
 
     {:ok, canonical} = create_device(actor, "canonical-mapper")
@@ -146,5 +146,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     third = rem(seed, 250) + 1
     fourth = rem(div(seed, 250), 250) + 1
     "100.123.#{third}.#{fourth}"
+  end
+
+  defp unique_mac(seed) do
+    suffix = rem(System.unique_integer([:positive, :monotonic]) + seed, 255)
+    "AA:BB:CC:DD:EE:#{suffix |> Integer.to_string(16) |> String.pad_leading(2, "0") |> String.upcase()}"
   end
 end

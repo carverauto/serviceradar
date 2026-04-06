@@ -24,6 +24,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -556,4 +557,98 @@ func TestSNMPConfigHashComputation(t *testing.T) {
 	// Hash should be 64 hex characters (SHA256)
 	assert.Len(t, hash1, 64)
 	assert.Len(t, hash2, 64)
+}
+
+func TestSNMPRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	log := logger.NewTestLogger()
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache", "snmp-config.json")
+
+	localConfig := `{
+		"enabled": true,
+		"targets": [
+			{
+				"name": "local-target",
+				"host": "127.0.0.1",
+				"port": 161,
+				"version": "2c",
+				"community": "public",
+				"timeout": 1,
+				"oids": [
+					{"oid": ".1.3.6.1.2.1.1.1.0", "name": "sysDescr", "type": "string"}
+				]
+			}
+		]
+	}`
+	err := os.WriteFile(filepath.Join(tmpDir, "snmp.json"), []byte(localConfig), 0644)
+	require.NoError(t, err)
+
+	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
+		AgentID:        "test-agent",
+		ConfigDir:      tmpDir,
+		CachePath:      cachePath,
+		Logger:         log,
+		ServiceFactory: &mockSNMPServiceFactory{},
+	})
+	require.NoError(t, err)
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+	defer func() { _ = svc.Stop(ctx) }()
+
+	err = svc.ApplyProtoConfig(ctx, &proto.SNMPConfig{
+		Enabled: true,
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Name:                "remote-target",
+				Host:                "10.0.0.10",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      2,
+				Retries:             1,
+				Oids: []*proto.SNMPOIDConfig{
+					{
+						Oid:      ".1.3.6.1.2.1.1.1.0",
+						Name:     "sysDescr",
+						DataType: proto.SNMPDataType_SNMP_DATA_TYPE_STRING,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	remoteHash := svc.GetConfigHash()
+	assert.Equal(t, snmpConfigSourceRemote, svc.GetConfigSource())
+
+	conflictingCache := `{
+		"enabled": true,
+		"targets": [
+			{
+				"name": "cached-target",
+				"host": "10.0.0.20",
+				"port": 161,
+				"version": "2c",
+				"community": "public",
+				"timeout": 1,
+				"oids": [
+					{"oid": ".1.3.6.1.2.1.1.3.0", "name": "sysUpTime", "type": "timeticks"}
+				]
+			}
+		]
+	}`
+	err = os.MkdirAll(filepath.Dir(cachePath), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(cachePath, []byte(conflictingCache), 0644)
+	require.NoError(t, err)
+
+	svc.checkConfigUpdate(ctx)
+
+	assert.Equal(t, snmpConfigSourceRemote, svc.GetConfigSource())
+	assert.Equal(t, remoteHash, svc.GetConfigHash())
 }

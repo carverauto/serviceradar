@@ -537,7 +537,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
         %{
           "os" => "linux",
           "arch" => "amd64",
-          "url" => "https://example.test/releases/agent-#{version}-linux-amd64.tar.gz",
+          "url" => "https://example.com/releases/agent-#{version}-linux-amd64.tar.gz",
           "sha256" => String.duplicate("a", 64)
         }
       ]

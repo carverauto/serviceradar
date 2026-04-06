@@ -48,7 +48,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
         %{
           "os" => "linux",
           "arch" => "amd64",
-          "url" => "http://example.test/releases/agent.tar.gz"
+          "url" => "http://example.com/releases/agent.tar.gz"
         }
       ]
     }
@@ -58,7 +58,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
 
     messages = Enum.map(errors, & &1.message)
     assert "release artifact 1 must include sha256" in messages
-    assert "release artifact 1 url must use https" in messages
+    assert "release artifact 1 url must use a trusted public https host" in messages
   end
 
   defp valid_manifest(version) do
@@ -68,7 +68,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
         %{
           "os" => "linux",
           "arch" => "amd64",
-          "url" => "https://example.test/releases/#{version}/serviceradar-agent.tar.gz",
+          "url" => "https://example.com/releases/#{version}/serviceradar-agent.tar.gz",
           "sha256" => String.duplicate("a", 64),
           "format" => "tar.gz",
           "entrypoint" => "serviceradar-agent"

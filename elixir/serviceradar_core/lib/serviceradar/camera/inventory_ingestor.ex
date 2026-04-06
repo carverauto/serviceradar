@@ -392,7 +392,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         merged_attrs =
           device
           |> merge_camera_device_attrs(attrs)
-          |> enrich_camera_device_attrs(device_uid, actor)
+          |> then(&enrich_camera_device_attrs(device_uid, &1, actor))
 
         with :ok <- claim_camera_ip_conflict(device_uid, merged_attrs, actor) do
           update_camera_device(device, merged_attrs, actor)
@@ -541,7 +541,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp list_devices_by_ip(ip, actor) when is_binary(ip) and ip != "" do
     Device
-    |> Ash.Query.for_read(:by_ip, %{ip: ip, include_deleted: true})
+    |> Ash.Query.for_read(:by_ip, %{ip: ip, include_deleted: false})
     |> Ash.read(actor: actor)
     |> Page.unwrap()
   end
@@ -640,7 +640,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp enrich_camera_device_attrs(device_uid, attrs, actor)
        when is_binary(device_uid) and is_map(attrs) do
-    with mac when is_binary(mac) and mac != "" <- normalize_mac(attrs.mac),
+    with mac when is_binary(mac) and mac != "" <- Map.get(attrs, :mac),
          {:ok, peer} <- find_inventory_peer_by_mac(mac, device_uid, actor) do
       %{
         attrs
@@ -658,7 +658,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp find_inventory_peer_by_mac(mac, device_uid, actor)
        when is_binary(mac) and mac != "" and is_binary(device_uid) do
-    with {:ok, devices} <- read_inventory_peers_by_mac(mac, device_uid, actor) do
+    with {:ok, devices} <- read_inventory_peers_by_mac(mac_lookup_candidates(mac), device_uid, actor) do
       select_inventory_peer(devices)
     end
   rescue
@@ -672,11 +672,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp find_inventory_peer_by_mac(_mac, _device_uid, _actor), do: {:error, :invalid_mac}
 
-  defp read_inventory_peers_by_mac(mac, device_uid, actor) do
+  defp read_inventory_peers_by_mac(mac_candidates, device_uid, actor)
+       when is_list(mac_candidates) and mac_candidates != [] do
     Device
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
-      mac == ^mac and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
+      mac in ^mac_candidates and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
     )
     |> Ash.read(actor: actor)
     |> Page.unwrap()
@@ -685,6 +686,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       _ -> {:error, :not_found}
     end
   end
+
+  defp read_inventory_peers_by_mac(_mac_candidates, _device_uid, _actor), do: {:error, :invalid_mac}
 
   defp select_inventory_peer(devices) when is_list(devices) do
     case Enum.max_by(devices, &camera_inventory_peer_score/1, fn -> nil end) do
@@ -721,6 +724,29 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp normalize_mac(_value), do: nil
+
+  defp mac_lookup_candidates(mac) when is_binary(mac) do
+    trimmed = String.trim(mac)
+    normalized = normalize_mac(trimmed)
+
+    colonized =
+      case normalized do
+        value when is_binary(value) and byte_size(value) == 12 ->
+          value
+          |> String.codepoints()
+          |> Enum.chunk_every(2)
+          |> Enum.map_join(":", &Enum.join/1)
+
+        _ ->
+          nil
+      end
+
+    [trimmed, normalized, colonized]
+    |> Enum.reject(&blank?/1)
+    |> Enum.uniq()
+  end
+
+  defp mac_lookup_candidates(_mac), do: []
 
   defp register_camera_identifiers(device_uid, attrs, actor)
        when is_binary(device_uid) and is_map(attrs) do
@@ -1423,7 +1449,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp resolve_camera_identity(ids, update, descriptor, actor) when is_map(update) do
     if IdentityReconciler.has_strong_identifier?(ids) do
-      resolve_strong_camera_identity(ids)
+      resolve_strong_camera_identity(ids, actor)
     else
       resolve_weak_camera_identity(update, descriptor, actor)
     end
@@ -1453,8 +1479,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp resolve_strong_camera_identity(ids) when is_map(ids) do
-    case IdentityReconciler.lookup_by_strong_identifiers(ids, nil) do
+  defp resolve_strong_camera_identity(ids, actor) when is_map(ids) do
+    case IdentityReconciler.lookup_by_strong_identifiers(ids, actor) do
       {:ok, uid} when is_binary(uid) and uid != "" ->
         {:ok, uid}
 

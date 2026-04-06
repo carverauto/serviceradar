@@ -15,8 +15,14 @@ defmodule ServiceRadar.AgentRegistryTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.TestSupport
 
   @moduletag :database
+
+  setup_all do
+    TestSupport.start_core!()
+    :ok
+  end
 
   setup do
     unique_id = :erlang.unique_integer([:positive])
@@ -52,8 +58,7 @@ defmodule ServiceRadar.AgentRegistryTest do
           capabilities: [:http]
         })
 
-      entries = AgentRegistry.lookup(agent_id)
-      assert length(entries) == 1
+      entries = eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
 
       [{_pid, metadata}] = entries
       assert metadata[:agent_id] == agent_id
@@ -72,7 +77,9 @@ defmodule ServiceRadar.AgentRegistryTest do
           capabilities: capabilities
         })
 
-      [{_pid, metadata}] = AgentRegistry.lookup(agent_id)
+      [{_pid, metadata}] =
+        eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
+
       assert metadata[:capabilities] == capabilities
     end
   end
@@ -89,7 +96,11 @@ defmodule ServiceRadar.AgentRegistryTest do
           grpc_port: port
         })
 
-      assert {:ok, {^host, ^port}} = AgentRegistry.get_grpc_address(agent_id)
+      assert {:ok, {^host, ^port}} =
+               eventually(
+                 fn -> AgentRegistry.get_grpc_address(agent_id) end,
+                 &match?({:ok, {^host, ^port}}, &1)
+               )
     end
 
     test "returns not_found for unregistered agent", %{unique_id: unique_id} do
@@ -106,7 +117,11 @@ defmodule ServiceRadar.AgentRegistryTest do
           # No grpc_host
         })
 
-      assert {:error, :no_grpc_address} = AgentRegistry.get_grpc_address(agent_id)
+      assert {:error, :no_grpc_address} =
+               eventually(
+                 fn -> AgentRegistry.get_grpc_address(agent_id) end,
+                 &(&1 == {:error, :no_grpc_address})
+               )
     end
 
     test "returns no_grpc_address if port is missing", %{unique_id: unique_id} do
@@ -118,7 +133,11 @@ defmodule ServiceRadar.AgentRegistryTest do
           # No grpc_port
         })
 
-      assert {:error, :no_grpc_address} = AgentRegistry.get_grpc_address(agent_id)
+      assert {:error, :no_grpc_address} =
+               eventually(
+                 fn -> AgentRegistry.get_grpc_address(agent_id) end,
+                 &(&1 == {:error, :no_grpc_address})
+               )
     end
   end
 
@@ -143,7 +162,11 @@ defmodule ServiceRadar.AgentRegistryTest do
           grpc_host: "192.168.1.102"
         })
 
-      agents = AgentRegistry.find_agents_with_grpc()
+      agents =
+        eventually(
+          fn -> AgentRegistry.find_agents_with_grpc() end,
+          &Enum.any?(&1, fn agent -> agent[:agent_id] == "agent-grpc-a-#{unique_id}" end)
+        )
 
       # Should only include the agent with complete gRPC details
       refute Enum.empty?(agents)
@@ -176,9 +199,23 @@ defmodule ServiceRadar.AgentRegistryTest do
           capabilities: [:snmp]
         })
 
-      icmp_agents = AgentRegistry.find_agents_with_capability(:icmp)
-      tcp_agents = AgentRegistry.find_agents_with_capability(:tcp)
-      snmp_agents = AgentRegistry.find_agents_with_capability(:snmp)
+      icmp_agents =
+        eventually(
+          fn -> AgentRegistry.find_agents_with_capability(:icmp) end,
+          &(not Enum.empty?(&1))
+        )
+
+      tcp_agents =
+        eventually(
+          fn -> AgentRegistry.find_agents_with_capability(:tcp) end,
+          &(length(&1) >= 2)
+        )
+
+      snmp_agents =
+        eventually(
+          fn -> AgentRegistry.find_agents_with_capability(:snmp) end,
+          &(not Enum.empty?(&1))
+        )
 
       refute Enum.empty?(icmp_agents)
       assert [_first, _second | _] = tcp_agents
@@ -205,16 +242,25 @@ defmodule ServiceRadar.AgentRegistryTest do
           grpc_port: 50_051
         })
 
-      # Allow registry to sync
-      Process.sleep(50)
+      all_agents =
+        eventually(
+          fn -> AgentRegistry.find_agents() end,
+          fn agents ->
+            Enum.any?(agents, &(&1[:agent_id] == agent_p1)) and
+              Enum.any?(agents, &(&1[:agent_id] == agent_p2))
+          end
+        )
 
-      # Verify both are findable
-      all_agents = AgentRegistry.find_agents()
       assert Enum.any?(all_agents, &(&1[:agent_id] == agent_p1))
       assert Enum.any?(all_agents, &(&1[:agent_id] == agent_p2))
 
       # Now test partition filtering
-      p1_agents = AgentRegistry.find_agents_for_partition("partition-1")
+      p1_agents =
+        eventually(
+          fn -> AgentRegistry.find_agents_for_partition("partition-1") end,
+          &Enum.any?(&1, fn agent -> agent[:agent_id] == agent_p1 end)
+        )
+
       assert Enum.any?(p1_agents, &(&1[:agent_id] == agent_p1))
     end
   end
@@ -230,13 +276,13 @@ defmodule ServiceRadar.AgentRegistryTest do
         })
 
       # Verify registered
-      assert length(AgentRegistry.lookup(agent_id)) == 1
+      assert [_entry] = eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
 
       # Unregister
       :ok = AgentRegistry.unregister_agent(agent_id)
 
       # Verify removed
-      assert AgentRegistry.lookup(agent_id) == []
+      assert [] = eventually(fn -> AgentRegistry.lookup(agent_id) end, &(&1 == []))
     end
   end
 
@@ -250,7 +296,9 @@ defmodule ServiceRadar.AgentRegistryTest do
           grpc_port: 50_051
         })
 
-      [{_pid, original}] = AgentRegistry.lookup(agent_id)
+      [{_pid, original}] =
+        eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
+
       original_hb = original[:last_heartbeat]
 
       # Wait a bit
@@ -259,7 +307,9 @@ defmodule ServiceRadar.AgentRegistryTest do
       # Send heartbeat
       :ok = AgentRegistry.heartbeat(agent_id)
 
-      [{_pid, updated}] = AgentRegistry.lookup(agent_id)
+      [{_pid, updated}] =
+        eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
+
       new_hb = updated[:last_heartbeat]
 
       # Heartbeat should be updated
@@ -282,16 +332,33 @@ defmodule ServiceRadar.AgentRegistryTest do
           grpc_port: 50_051
         })
 
-      # Allow registry to sync
-      Process.sleep(50)
-
       # Verify agent can be found via lookup
-      entries = AgentRegistry.lookup(agent_id)
+      entries = eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
       assert length(entries) == 1
 
       # And via find_agents
-      agents = AgentRegistry.find_agents()
+      agents =
+        eventually(
+          fn -> AgentRegistry.find_agents() end,
+          &Enum.any?(&1, fn agent -> agent[:agent_id] == agent_id end)
+        )
+
       assert Enum.any?(agents, &(&1[:agent_id] == agent_id))
     end
   end
+
+  defp eventually(fun, predicate, attempts \\ 40)
+
+  defp eventually(fun, predicate, attempts) when attempts > 0 do
+    value = fun.()
+
+    if predicate.(value) do
+      value
+    else
+      Process.sleep(10)
+      eventually(fun, predicate, attempts - 1)
+    end
+  end
+
+  defp eventually(fun, _predicate, 0), do: fun.()
 end

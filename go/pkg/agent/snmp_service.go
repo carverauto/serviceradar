@@ -56,6 +56,7 @@ const (
 
 	// Config source values
 	snmpConfigSourceDefault = "default"
+	snmpConfigSourceRemote  = "remote"
 	snmpConfigSourceTest    = "test"
 
 	// Platform constants
@@ -473,6 +474,16 @@ func (s *SNMPAgentService) configRefreshLoop(ctx context.Context) {
 
 // checkConfigUpdate checks for config changes and reconfigures if needed.
 func (s *SNMPAgentService) checkConfigUpdate(ctx context.Context) {
+	s.mu.RLock()
+	currentHash := s.configHash
+	currentSource := s.configSource
+	s.mu.RUnlock()
+
+	if currentSource == snmpConfigSourceRemote {
+		s.logger.Debug().Msg("Skipping SNMP config refresh while remote config is active")
+		return
+	}
+
 	// Load fresh config
 	newConfig, source, err := s.loadConfig(ctx)
 	if err != nil {
@@ -482,10 +493,6 @@ func (s *SNMPAgentService) checkConfigUpdate(ctx context.Context) {
 
 	// Compute hash of new config
 	newHash := computeSNMPConfigHash(newConfig)
-
-	s.mu.RLock()
-	currentHash := s.configHash
-	s.mu.RUnlock()
 
 	// Check if config changed
 	if newHash == currentHash {
@@ -649,7 +656,7 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 		}
 		s.config = config
 		s.configHash = newHash
-		s.configSource = "remote"
+		s.configSource = snmpConfigSourceRemote
 		return nil
 	}
 
@@ -673,7 +680,7 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 	s.service = service
 	s.config = config
 	s.configHash = newHash
-	s.configSource = "remote"
+	s.configSource = snmpConfigSourceRemote
 
 	// Cache the new config for resilience
 	if err := s.cacheConfig(config); err != nil {

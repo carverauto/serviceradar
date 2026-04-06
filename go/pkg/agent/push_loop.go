@@ -2910,17 +2910,9 @@ func (p *PushLoop) applySysmonConfig(protoConfig *proto.SysmonConfig) {
 		return
 	}
 
-	// Convert proto config to sysmon.Config
 	cfg := protoToSysmonConfig(protoConfig)
 
-	// Parse and apply the configuration (including when disabled - collector checks Enabled flag)
-	parsed, err := cfg.Parse()
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to parse sysmon config from gateway")
-		return
-	}
-
-	if err := sysmonSvc.Reconfigure(parsed); err != nil {
+	if err := sysmonSvc.ApplyRemoteConfig(cfg); err != nil {
 		p.logger.Error().Err(err).Msg("Failed to apply sysmon config from gateway")
 		return
 	}
