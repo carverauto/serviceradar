@@ -19,7 +19,8 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v oras >/dev/null 2>&1; then
+ORAS_BIN="$(cosign_resolve_executable oras || true)"
+if [[ -z "${ORAS_BIN}" ]]; then
   echo "error: oras is required" >&2
   exit 1
 fi
@@ -56,7 +57,7 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
 PY
 )"
   ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}:${COMMIT_TAG}"
-  digest="$(oras manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
+  digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
   if [[ -z "${digest}" || "${digest}" == "null" ]]; then
     echo "error: failed to resolve digest for ${ref}" >&2
     exit 1

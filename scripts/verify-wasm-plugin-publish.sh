@@ -4,7 +4,8 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
 trap cosign_cleanup_temp_files EXIT
 
-if ! command -v oras >/dev/null 2>&1; then
+ORAS_BIN="$(cosign_resolve_executable oras || true)"
+if [[ -z "${ORAS_BIN}" ]]; then
   echo "error: oras is required" >&2
   exit 1
 fi
@@ -76,7 +77,7 @@ PY
     ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}:${tag}"
 
     echo "checking ${ref}"
-    manifest="$(oras manifest fetch "${ref}" --format json)"
+    manifest="$("${ORAS_BIN}" manifest fetch "${ref}" --format json)"
     actual_artifact_type="$(jq -r '.artifactType // empty' <<<"${manifest}")"
     if [[ "${actual_artifact_type}" != "${artifact_type}" ]]; then
       echo "error: ${ref} artifactType mismatch: expected ${artifact_type}, got ${actual_artifact_type}" >&2
@@ -102,12 +103,12 @@ PY
 
     bundle_path="${TMP_DIR}/${repository_name}-${tag}.zip"
     signature_path="${TMP_DIR}/${repository_name}-${tag}.upload-signature.json"
-    oras blob fetch --output "${bundle_path}" "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${bundle_digest}" >/dev/null
-    oras blob fetch --output "${signature_path}" "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${signature_digest}" >/dev/null
+    "${ORAS_BIN}" blob fetch --output "${bundle_path}" "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${bundle_digest}" >/dev/null
+    "${ORAS_BIN}" blob fetch --output "${signature_path}" "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${signature_digest}" >/dev/null
     "${UPLOAD_SIGNATURE_TOOL}" verify --bundle "${bundle_path}" --signature "${signature_path}"
 
     if cosign_init_verify_args; then
-      digest="$(oras manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
+      digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
       cosign verify \
         --experimental-oci11 \
         "${COSIGN_VERIFY_ARGS[@]}" \

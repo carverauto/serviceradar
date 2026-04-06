@@ -26,6 +26,48 @@ cosign_require_tool() {
   fi
 }
 
+cosign_resolve_executable() {
+  local candidate="${1:-}"
+  local path_candidate
+  local resolved
+
+  export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME:-}/.local/bin:${HOME:-}/bin:/usr/bin:/bin:${PATH:-}"
+
+  if [[ -z "${candidate}" ]]; then
+    return 1
+  fi
+
+  if [[ "${candidate}" = */* ]]; then
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+    return 1
+  fi
+
+  resolved="$(command -v "${candidate}" 2>/dev/null || true)"
+  if [[ -n "${resolved}" && -x "${resolved}" ]]; then
+    printf '%s\n' "${resolved}"
+    return 0
+  fi
+
+  for path_candidate in \
+    "${PWD}/${candidate}" \
+    "/opt/homebrew/bin/${candidate}" \
+    "/usr/local/bin/${candidate}" \
+    "${HOME:-}/.local/bin/${candidate}" \
+    "${HOME:-}/bin/${candidate}" \
+    "/usr/bin/${candidate}" \
+    "/bin/${candidate}"; do
+    if [[ -x "${path_candidate}" ]]; then
+      printf '%s\n' "${path_candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 cosign_urlencode() {
   python3 - <<'PY' "$1"
 import sys
