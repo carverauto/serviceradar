@@ -86,12 +86,16 @@ func TestBuildVerificationPayloadCanonicalizesManifest(t *testing.T) {
 	}
 }
 
-func writeBundleForTest(path string, manifest, wasm []byte) error {
+func writeBundleForTest(path string, manifest, wasm []byte) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 
 	zipWriter := zip.NewWriter(file)
 	if err := writeZipEntry(zipWriter, "plugin.yaml", manifest); err != nil {
