@@ -2,7 +2,87 @@ import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 export const godViewRenderingGraphLayerNodeMethods = {
+  labelBudgetForShape(shape) {
+    switch (shape) {
+      case "local":
+        return 28
+      case "regional":
+        return 18
+      case "global":
+        return 10
+      default:
+        return 0
+    }
+  },
+  nodeLabelPriority(node) {
+    const details = node?.details || {}
+    const clusterKind = String(details?.cluster_kind || "")
+    const identitySource = String(details?.identity_source || "")
+    const clusterCount = Number(node?.clusterCount || 1)
+    const pps = Number(node?.pps || 0)
+    const state = Number(node?.state ?? 3)
+
+    return [
+      node?.selected === true ? 1 : 0,
+      clusterKind === "endpoint-summary" ? 1 : 0,
+      clusterKind === "endpoint-anchor" ? 1 : 0,
+      identitySource !== "mapper_topology_sighting" ? 1 : 0,
+      clusterCount,
+      state === 0 ? 1 : 0,
+      state === 1 ? 1 : 0,
+      Math.round(pps),
+      String(node?.label || node?.id || ""),
+    ]
+  },
+  compareNodeLabelPriority(left, right) {
+    const leftPriority = this.nodeLabelPriority(left)
+    const rightPriority = this.nodeLabelPriority(right)
+
+    for (let index = 0; index < leftPriority.length; index += 1) {
+      if (index === leftPriority.length - 1) {
+        const compare = String(leftPriority[index]).localeCompare(String(rightPriority[index]))
+        if (compare !== 0) return compare
+        continue
+      }
+
+      const compare = Number(rightPriority[index] || 0) - Number(leftPriority[index] || 0)
+      if (compare !== 0) return compare
+    }
+
+    return 0
+  },
+  selectNodeLabels(nodeData, shape) {
+    if (!Array.isArray(nodeData) || nodeData.length === 0) return []
+    const budget = this.labelBudgetForShape(shape)
+    if (budget <= 0) return []
+
+    const selected = nodeData.filter((node) => node?.selected === true)
+    const candidates = nodeData.filter((node) => {
+      if (node?.selected === true) return true
+      const details = node?.details || {}
+      const clusterKind = String(details?.cluster_kind || "")
+      if (clusterKind === "endpoint-member") return false
+      if (String(details?.identity_source || "") === "mapper_topology_sighting") return false
+      return true
+    })
+
+    const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
+    const picked = []
+    const seen = new Set()
+
+    for (const node of [...selected, ...ordered]) {
+      const id = String(node?.id || "")
+      if (id === "" || seen.has(id)) continue
+      seen.add(id)
+      picked.push(node)
+      if (picked.length >= budget) break
+    }
+
+    return picked
+  },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
+    const labelData = this.selectNodeLabels(nodeData, effective.shape)
+
     return [
       new LineLayer({
         id: "god-view-node-tethers",
@@ -90,7 +170,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         ? [
             new TextLayer({
               id: "god-view-node-labels",
-              data: nodeData,
+              data: labelData,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               getPosition: (d) => d.position,
               getText: (d) => d.label,

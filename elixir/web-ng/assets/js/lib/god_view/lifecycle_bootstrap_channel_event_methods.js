@@ -22,6 +22,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
     channel.on("snapshot_error", (msg) => {
       this.state.summary.textContent = "snapshot stream error"
       this.state.pushEvent("god_view_stream_error", {reason: msg?.reason || "snapshot_error"})
+      if (!this.state.lastGraph) this.bootstrapLatestSnapshot()
     })
 
     channel.onError?.(() => this.handleChannelDown("channel_error"))
@@ -40,6 +41,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
         this.state.channelJoined = false
         this.state.summary.textContent = "topology channel failed"
         this.state.pushEvent("god_view_stream_error", {reason: reason?.reason || "join_failed"})
+        this.bootstrapLatestSnapshot()
         this.scheduleChannelReconnect()
       })
   },
@@ -47,6 +49,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
     this.state.channelJoined = false
     this.state.summary.textContent = "topology channel disconnected"
     this.state.pushEvent("god_view_stream_error", {reason})
+    this.bootstrapLatestSnapshot()
     this.scheduleChannelReconnect()
   },
   scheduleChannelReconnect() {

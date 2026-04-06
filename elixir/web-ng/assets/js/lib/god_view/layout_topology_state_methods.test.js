@@ -218,7 +218,7 @@ describe("layout_topology_state_methods", () => {
     expect(second).toBe(first)
   })
 
-  it("prepareGraphLayout fans expanded cluster members away from the anchor", async () => {
+  it("prepareGraphLayout uses a single ELK pass for endpoint-heavy expanded graphs", async () => {
     const context = makeContext({
       state: {
         layoutMode: "auto",
@@ -231,6 +231,9 @@ describe("layout_topology_state_methods", () => {
             children: [
               {id: "switch-1", x: 40, y: 120},
               {id: "cluster-anchor", x: 180, y: 120},
+              {id: "cluster-summary", x: 300, y: 120},
+              {id: "endpoint-1", x: 420, y: 96},
+              {id: "endpoint-2", x: 420, y: 144},
             ],
           })),
         },
@@ -285,20 +288,12 @@ describe("layout_topology_state_methods", () => {
     }
 
     const out = await context.prepareGraphLayout(graph, 12, "stamp")
-    const anchor = out.nodes.find((node) => node.id === "cluster-anchor")
-    const summary = out.nodes.find((node) => node.id === "cluster-summary")
-    const endpoint1 = out.nodes.find((node) => node.id === "endpoint-1")
-    const endpoint2 = out.nodes.find((node) => node.id === "endpoint-2")
-
-    expect(summary.x).toBeGreaterThan(anchor.x)
-    expect(endpoint1.x).toBeGreaterThan(summary.x)
-    expect(endpoint2.x).toBeGreaterThan(summary.x)
-    expect(endpoint1.y).not.toEqual(endpoint2.y)
-    expect(endpoint1.x).not.toEqual(endpoint2.x)
-    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(0)
+    expect(out._layoutMode).toEqual("elk-client-full")
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(out.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toEqual(true)
   })
 
-  it("prepareGraphLayout keeps expanded cluster members far enough apart for labels", async () => {
+  it("prepareGraphLayout preserves ELK-authored positions for endpoint-heavy expanded graphs", async () => {
     const context = makeContext({
       state: {
         layoutMode: "auto",
@@ -311,6 +306,12 @@ describe("layout_topology_state_methods", () => {
             children: [
               {id: "switch-1", x: 40, y: 120},
               {id: "cluster-anchor", x: 180, y: 120},
+              {id: "cluster-summary", x: 300, y: 120},
+              {id: "endpoint-1", x: 420, y: 60},
+              {id: "endpoint-2", x: 420, y: 120},
+              {id: "endpoint-3", x: 420, y: 180},
+              {id: "endpoint-4", x: 540, y: 60},
+              {id: "endpoint-5", x: 540, y: 180},
             ],
           })),
         },
@@ -359,47 +360,18 @@ describe("layout_topology_state_methods", () => {
     const out = await context.prepareGraphLayout(graph, 22, "stamp")
     const summary = out.nodes.find((node) => node.id === "cluster-summary")
     const members = out.nodes.filter((node) => /^endpoint-/.test(node.id))
-    const pairDistances = []
-
-    for (let i = 0; i < members.length; i += 1) {
-      for (let j = i + 1; j < members.length; j += 1) {
-        const dx = members[i].x - members[j].x
-        const dy = members[i].y - members[j].y
-        pairDistances.push(Math.hypot(dx, dy))
-      }
-    }
-
-    const minDistance = Math.min(...pairDistances)
-    const nearestToHub = Math.min(
-      ...members.map((member) => Math.hypot(member.x - summary.x, member.y - summary.y)),
-    )
-
-    expect(minDistance).toBeGreaterThan(42)
-    expect(nearestToHub).toBeGreaterThan(56)
+    expect(summary.x).toEqual(300)
+    expect(members.map((node) => [node.id, node.x, node.y])).toEqual([
+      ["endpoint-1", 420, 60],
+      ["endpoint-2", 420, 120],
+      ["endpoint-3", 420, 180],
+      ["endpoint-4", 540, 60],
+      ["endpoint-5", 540, 180],
+    ])
   })
 
-  it("prepareGraphLayout ignores endpoint attachment edges when choosing cluster direction", async () => {
-    const context = makeContext({
-      state: {
-        layoutMode: "auto",
-        layoutRevision: null,
-        layoutCache: new Map(),
-        lastLayoutKey: null,
-        layoutEngine: {
-          layout: vi.fn(async () => ({
-            id: "god-view-root",
-            children: [
-              {id: "switch-1", x: 40, y: 120},
-              {id: "cluster-anchor", x: 180, y: 120},
-            ],
-          })),
-        },
-        lastGraph: null,
-        lastTopologyStamp: null,
-        lastRevision: null,
-      },
-    })
-
+  it("requiresFullElkLayout detects endpoint-heavy graphs", () => {
+    const context = makeContext()
     const graph = {
       nodes: [
         {id: "switch-1", details: {}},
@@ -435,34 +407,12 @@ describe("layout_topology_state_methods", () => {
       ],
     }
 
-    const out = await context.prepareGraphLayout(graph, 14, "stamp")
-    const anchor = out.nodes.find((node) => node.id === "cluster-anchor")
-    const summary = out.nodes.find((node) => node.id === "cluster-summary")
-
-    expect(summary.x).toBeGreaterThan(anchor.x)
-    expect(Math.abs(summary.y - anchor.y)).toBeLessThan(40)
+    expect(context.requiresFullElkLayout(graph)).toEqual(true)
   })
 
-  it("prepareGraphLayout projects collapsed cluster summaries after ELK backbone layout", async () => {
+  it("buildElkLayoutGraph includes endpoint attachment edges when full ELK is requested", () => {
     const context = makeContext({
-      state: {
-        layoutMode: "auto",
-        layoutRevision: null,
-        layoutCache: new Map(),
-        lastLayoutKey: null,
-        layoutEngine: {
-          layout: vi.fn(async () => ({
-            id: "god-view-root",
-            children: [
-              {id: "switch-1", x: 40, y: 120},
-              {id: "cluster-anchor", x: 180, y: 120},
-            ],
-          })),
-        },
-        lastGraph: null,
-        lastTopologyStamp: null,
-        lastRevision: null,
-      },
+      state: makeContext().state,
     })
 
     const graph = {
@@ -486,41 +436,18 @@ describe("layout_topology_state_methods", () => {
         },
       ],
       edges: [
-        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "lldp"},
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
         {source: 1, target: 2, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
       ],
     }
 
-    const out = await context.prepareGraphLayout(graph, 13, "stamp")
-    const anchor = out.nodes.find((node) => node.id === "cluster-anchor")
-    const summary = out.nodes.find((node) => node.id === "cluster-summary")
+    const out = context.buildElkLayoutGraph(graph, new Set(), {includeAttachmentEdges: true})
 
-    expect(summary.x).toBeGreaterThan(anchor.x)
-    expect(Math.abs(summary.y - anchor.y)).toBeLessThan(40)
+    expect(out.children).toHaveLength(3)
+    expect(out.edges).toHaveLength(2)
   })
 
-  it("prepareGraphLayout keeps expanded members in front of the summary hub for larger clusters", async () => {
-    const context = makeContext({
-      state: {
-        layoutMode: "auto",
-        layoutRevision: null,
-        layoutCache: new Map(),
-        lastLayoutKey: null,
-        layoutEngine: {
-          layout: vi.fn(async () => ({
-            id: "god-view-root",
-            children: [
-              {id: "switch-1", x: 40, y: 120},
-              {id: "cluster-anchor", x: 180, y: 120},
-            ],
-          })),
-        },
-        lastGraph: null,
-        lastTopologyStamp: null,
-        lastRevision: null,
-      },
-    })
-
+  it("prepareGraphLayout caches endpoint-heavy graphs by expansion stamp", async () => {
     const memberNodes = Array.from({length: 12}, (_, index) => ({
       id: `endpoint-${index + 1}`,
       details: {
@@ -561,14 +488,41 @@ describe("layout_topology_state_methods", () => {
           evidenceClass: "endpoint-attachment",
         })),
       ],
+      children: [
+        {id: "switch-1", x: 40, y: 120},
+        {id: "cluster-anchor", x: 180, y: 120},
+        {id: "cluster-summary", x: 300, y: 120},
+        ...memberNodes.map((node, index) => ({
+          id: node.id,
+          x: 420 + (Math.floor(index / 6) * 120),
+          y: 60 + ((index % 6) * 48),
+        })),
+      ],
     }
 
-    const out = await context.prepareGraphLayout(graph, 15, "stamp")
-    const summary = out.nodes.find((node) => node.id === "cluster-summary")
-    const members = out.nodes.filter((node) => node.id.startsWith("endpoint-"))
+    const context = makeContext({
+      state: {
+        layoutMode: "auto",
+        layoutRevision: null,
+        layoutCache: new Map(),
+        lastLayoutKey: null,
+        layoutEngine: {
+          layout: vi.fn(async () => ({
+            id: "god-view-root",
+            children: graph.children,
+          })),
+        },
+        lastGraph: null,
+        lastTopologyStamp: null,
+        lastRevision: null,
+      },
+    })
 
-    expect(members.length).toEqual(12)
-    expect(members.every((node) => node.x > summary.x)).toEqual(true)
+    const first = await context.prepareGraphLayout(graph, 15, "stamp")
+    const second = await context.prepareGraphLayout(graph, 15, "stamp")
+
+    expect(first).toBe(second)
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
   })
 
   it("prepareGraphLayout normalizes overly tall ELK layouts into a horizontal aspect", async () => {

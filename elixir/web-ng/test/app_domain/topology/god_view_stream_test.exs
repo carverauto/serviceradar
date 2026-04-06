@@ -5466,6 +5466,121 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
            end)
   end
 
+  test "latest_snapshot/0 quarantines unresolved attachment identities that do not qualify for clustering" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unresolved_quarantine_test)
+    suffix = System.unique_integer([:positive])
+    router_uid = "sr:cluster-quarantine-router-#{suffix}"
+    switch_uid = "sr:cluster-quarantine-switch-#{suffix}"
+
+    create_topology_device(actor, router_uid, "cluster-quarantine-router-#{suffix}", %{
+      ip: "198.51.102.1",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, switch_uid, "cluster-quarantine-switch-#{suffix}", %{
+      ip: "198.51.102.2",
+      type_id: 10,
+      is_available: true
+    })
+
+    unresolved_endpoint_specs =
+      Enum.map(1..2, fn idx ->
+        %{
+          uid: "sr:cluster-quarantine-endpoint-#{suffix}-#{idx}",
+          ip: "198.51.102.#{20 + idx}",
+          mac: "02:00:00:50:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:ff"
+        }
+      end)
+
+    rows =
+      [
+        %{
+          local_device_id: router_uid,
+          local_device_ip: "198.51.102.1",
+          local_if_name: "xe-0/0/0",
+          local_if_index: 101,
+          neighbor_if_name: "ge-0/0/1",
+          neighbor_if_index: 1,
+          neighbor_device_id: switch_uid,
+          neighbor_mgmt_addr: "198.51.102.2",
+          protocol: "lldp",
+          evidence_class: "direct",
+          confidence_tier: "high",
+          confidence_reason: "lldp_bidirectional",
+          flow_pps: 8,
+          flow_bps: 800,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 8,
+          flow_pps_ba: 8,
+          flow_bps_ab: 800,
+          flow_bps_ba: 800,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-24T04:00:00Z",
+          metadata: %{
+            "relation_type" => "CONNECTED_TO",
+            "evidence_class" => "direct"
+          }
+        }
+      ] ++
+        Enum.map(unresolved_endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: switch_uid,
+            local_device_ip: "198.51.102.2",
+            local_if_name: "edge2",
+            local_if_index: 12,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 2,
+            flow_bps: 200,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 2,
+            flow_pps_ba: 0,
+            flow_bps_ab: 200,
+            flow_bps_ba: 0,
+            telemetry_source: "interface",
+            telemetry_observed_at: "2026-03-24T04:00:05Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    assert Enum.any?(snapshot.nodes, &(&1.id == router_uid))
+    assert Enum.any?(snapshot.nodes, &(&1.id == switch_uid))
+    assert find_edge(snapshot, router_uid, switch_uid)
+
+    refute Enum.any?(snapshot.nodes, fn node ->
+             Enum.any?(unresolved_endpoint_specs, &(&1.uid == node.id))
+           end)
+
+    refute Enum.any?(snapshot.edges, fn edge ->
+             Enum.any?(unresolved_endpoint_specs, fn spec ->
+               edge.source == spec.uid or edge.target == spec.uid
+             end)
+           end)
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))
