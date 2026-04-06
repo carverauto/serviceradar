@@ -130,6 +130,10 @@ push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI r
 .PHONY: push_all
 push_all: ## Build, sign, and verify all OCI images and first-party Wasm plugin OCI artifacts
 	@set -eu; \
+	effective_tag="$(PUSH_TAG)"; \
+	if [ -z "$${effective_tag}" ]; then \
+		effective_tag="sha-$$(git rev-parse HEAD)"; \
+	fi; \
 	if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
 		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
 		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
@@ -148,35 +152,22 @@ push_all: ## Build, sign, and verify all OCI images and first-party Wasm plugin 
 		fi; \
 	fi; \
 	if [ "$(HOST_OS)" = "Darwin" ]; then \
-		if [ -n "$(PUSH_TAG)" ]; then \
-			./scripts/push_all_images.sh --tag "$(PUSH_TAG)"; \
-		else \
-			./scripts/push_all_images.sh; \
-		fi; \
-	elif [ -n "$(PUSH_TAG)" ]; then \
-		bazel run --config=remote_push --stamp //:push -- --tag "$(PUSH_TAG)"; \
+		./scripts/push_all_images.sh --tag "$${effective_tag}"; \
 	else \
-		bazel run --config=remote_push --stamp //:push; \
+		bazel run --config=remote_push --stamp //:push -- --tag "$${effective_tag}"; \
 	fi; \
 	./scripts/sign-oci-publish.sh; \
-	if [ -n "$(PUSH_TAG)" ]; then \
-		$(MAKE) verify_publish VERIFY_TAG="$(PUSH_TAG)"; \
-	else \
-		$(MAKE) verify_publish; \
-	fi; \
-	if [ -n "$(PUSH_TAG)" ]; then \
-		$(MAKE) push_wasm_plugins PUSH_TAG="$(PUSH_TAG)"; \
-	else \
-		$(MAKE) push_wasm_plugins; \
-	fi
+	$(MAKE) verify_publish VERIFY_TAG="$${effective_tag}"; \
+	$(MAKE) push_wasm_plugins PUSH_TAG="$${effective_tag}"
 
 .PHONY: verify_publish
 verify_publish: ## Verify published OCI image shape and runtime metadata (set VERIFY_TAG=<tag> to include an extra tag)
 	@set -eu; \
-	./scripts/verify-oci-publish.sh latest "sha-$$(git rev-parse HEAD)"; \
-	if [ -n "$(VERIFY_TAG)" ]; then \
-		./scripts/verify-oci-publish.sh "$(VERIFY_TAG)"; \
-	fi
+	primary_tag="$(VERIFY_TAG)"; \
+	if [ -z "$${primary_tag}" ]; then \
+		primary_tag="sha-$$(git rev-parse HEAD)"; \
+	fi; \
+	./scripts/verify-oci-publish.sh latest "$${primary_tag}"
 
 .PHONY: build_wasm_plugins
 build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally with Bazel
@@ -185,6 +176,10 @@ build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally wi
 .PHONY: push_wasm_plugins
 push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin OCI artifacts
 	@set -eu; \
+	effective_tag="$(PUSH_TAG)"; \
+	if [ -z "$${effective_tag}" ]; then \
+		effective_tag="sha-$$(git rev-parse HEAD)"; \
+	fi; \
 	if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
 		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
 		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
@@ -196,29 +191,18 @@ push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin O
 			export COSIGN_PASSWORD; \
 		fi; \
 	fi; \
-	if [ -n "$(PUSH_TAG)" ]; then \
-		./scripts/push_all_wasm_plugins.sh --tag "$(PUSH_TAG)"; \
-	else \
-		./scripts/push_all_wasm_plugins.sh; \
-	fi; \
-	if [ -n "$(PUSH_TAG)" ]; then \
-		./scripts/sign-wasm-plugin-publish.sh "$(PUSH_TAG)"; \
-	else \
-		./scripts/sign-wasm-plugin-publish.sh; \
-	fi; \
-	if [ -n "$(PUSH_TAG)" ]; then \
-		$(MAKE) verify_wasm_plugins VERIFY_TAG="$(PUSH_TAG)"; \
-	else \
-		$(MAKE) verify_wasm_plugins; \
-	fi
+	./scripts/push_all_wasm_plugins.sh --tag "$${effective_tag}"; \
+	./scripts/sign-wasm-plugin-publish.sh "$${effective_tag}"; \
+	$(MAKE) verify_wasm_plugins VERIFY_TAG="$${effective_tag}"
 
 .PHONY: verify_wasm_plugins
 verify_wasm_plugins: ## Verify published Wasm plugin OCI artifacts and signatures (set VERIFY_TAG=<tag> to include an extra tag)
 	@set -eu; \
-	./scripts/verify-wasm-plugin-publish.sh "sha-$$(git rev-parse HEAD)"; \
-	if [ -n "$(VERIFY_TAG)" ]; then \
-		./scripts/verify-wasm-plugin-publish.sh "$(VERIFY_TAG)"; \
-	fi
+	primary_tag="$(VERIFY_TAG)"; \
+	if [ -z "$${primary_tag}" ]; then \
+		primary_tag="sha-$$(git rev-parse HEAD)"; \
+	fi; \
+	./scripts/verify-wasm-plugin-publish.sh "$${primary_tag}"
 
 .PHONY: check-dev-image-tags
 check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)
