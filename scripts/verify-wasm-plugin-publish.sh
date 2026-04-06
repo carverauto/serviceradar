@@ -86,7 +86,8 @@ PY
 
     echo "checking ${ref}"
     manifest="$("${ORAS_BIN}" manifest fetch "${ref}" --format json)"
-    actual_artifact_type="$(jq -r '.artifactType // .config.mediaType // empty' <<<"${manifest}")"
+    manifest_content="$(jq -c '.content // .' <<<"${manifest}")"
+    actual_artifact_type="$(jq -r '.artifactType // .config.mediaType // empty' <<<"${manifest_content}")"
     if [[ "${actual_artifact_type}" != "${artifact_type}" ]]; then
       echo "error: ${ref} artifactType mismatch: expected ${artifact_type}, got ${actual_artifact_type}" >&2
       exit 1
@@ -94,20 +95,20 @@ PY
 
     jq -e --arg media_type "${bundle_media_type}" '
       any(.layers[]?; .mediaType == $media_type)
-    ' <<<"${manifest}" >/dev/null || {
+    ' <<<"${manifest_content}" >/dev/null || {
       echo "error: ${ref} is missing an ${bundle_media_type} layer" >&2
       exit 1
     }
 
     jq -e --arg media_type "${upload_signature_media_type}" '
       any(.layers[]?; .mediaType == $media_type)
-    ' <<<"${manifest}" >/dev/null || {
+    ' <<<"${manifest_content}" >/dev/null || {
       echo "error: ${ref} is missing an ${upload_signature_media_type} layer" >&2
       exit 1
     }
 
-    bundle_digest="$(jq -r --arg media_type "${bundle_media_type}" '.layers[] | select(.mediaType == $media_type) | .digest' <<<"${manifest}" | head -n1)"
-    signature_digest="$(jq -r --arg media_type "${upload_signature_media_type}" '.layers[] | select(.mediaType == $media_type) | .digest' <<<"${manifest}" | head -n1)"
+    bundle_digest="$(jq -r --arg media_type "${bundle_media_type}" '.layers[] | select(.mediaType == $media_type) | .digest' <<<"${manifest_content}" | head -n1)"
+    signature_digest="$(jq -r --arg media_type "${upload_signature_media_type}" '.layers[] | select(.mediaType == $media_type) | .digest' <<<"${manifest_content}" | head -n1)"
 
     bundle_path="${TMP_DIR}/${repository_name}-${tag}.zip"
     signature_path="${TMP_DIR}/${repository_name}-${tag}.upload-signature.json"
