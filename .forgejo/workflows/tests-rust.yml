@@ -8,7 +8,7 @@ on:
       - 'rust/consumers/zen/**'
       - 'rust/log-collector/**'
       - 'rust/srql/**'
-      - '.github/workflows/tests-rust.yml'
+      - '.forgejo/workflows/tests-rust.yml'
 
 permissions:
   contents: write
