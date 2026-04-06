@@ -86,7 +86,7 @@ PY
 
     echo "checking ${ref}"
     manifest="$("${ORAS_BIN}" manifest fetch "${ref}" --format json)"
-    actual_artifact_type="$(jq -r '.artifactType // empty' <<<"${manifest}")"
+    actual_artifact_type="$(jq -r '.artifactType // .config.mediaType // empty' <<<"${manifest}")"
     if [[ "${actual_artifact_type}" != "${artifact_type}" ]]; then
       echo "error: ${ref} artifactType mismatch: expected ${artifact_type}, got ${actual_artifact_type}" >&2
       exit 1
