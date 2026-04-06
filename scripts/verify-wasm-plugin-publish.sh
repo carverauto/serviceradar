@@ -43,6 +43,14 @@ fi
 "${BAZEL_BIN}" build //build/wasm_plugins:all_metadata //build/wasm_plugins:upload_signature_tool >/dev/null
 
 UPLOAD_SIGNATURE_TOOL="$("${BAZEL_BIN}" cquery --output=files //build/wasm_plugins:upload_signature_tool 2>/dev/null | head -n1)"
+if [[ -n "${UPLOAD_SIGNATURE_TOOL}" && ! -x "${UPLOAD_SIGNATURE_TOOL}" ]]; then
+  if [[ -x "${BAZEL_BIN_DIR}/${UPLOAD_SIGNATURE_TOOL}" ]]; then
+    UPLOAD_SIGNATURE_TOOL="${BAZEL_BIN_DIR}/${UPLOAD_SIGNATURE_TOOL}"
+  fi
+fi
+if [[ -z "${UPLOAD_SIGNATURE_TOOL}" || ! -x "${UPLOAD_SIGNATURE_TOOL}" ]]; then
+  UPLOAD_SIGNATURE_TOOL="$(find "${BAZEL_BIN_DIR}/build/wasm_plugins" -type f -name upload_signature_tool -perm -111 2>/dev/null | head -n1)"
+fi
 if [[ -z "${UPLOAD_SIGNATURE_TOOL}" || ! -x "${UPLOAD_SIGNATURE_TOOL}" ]]; then
   echo "error: unable to resolve upload signature tool binary" >&2
   exit 1
