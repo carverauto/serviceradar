@@ -509,11 +509,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp evidence_relation_type(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)
+    confidence_reason = normalize_confidence_reason(payload.confidence_reason)
+    protocol = normalize_protocol(payload.protocol)
 
     cond do
-      MapSet.member?(@attachment_evidence_classes, evidence_class) -> "ATTACHED_TO"
-      MapSet.member?(@inferred_evidence_classes, evidence_class) -> "INFERRED_TO"
-      true -> "OBSERVED_TO"
+      MapSet.member?(@attachment_evidence_classes, evidence_class) and
+        confidence_reason == "single_identifier_inference" and protocol == "snmp-l2" ->
+        "OBSERVED_TO"
+
+      MapSet.member?(@attachment_evidence_classes, evidence_class) ->
+        "ATTACHED_TO"
+
+      MapSet.member?(@inferred_evidence_classes, evidence_class) ->
+        "INFERRED_TO"
+
+      true ->
+        "OBSERVED_TO"
     end
   end
 
@@ -551,6 +562,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
     SET r2.source = 'mapper'
+    WITH a, b, ai, bi
+    OPTIONAL MATCH (ai)-[legacy]->(bi)
+    WHERE legacy.ingestor = 'mapper_topology_v1'
+      AND type(legacy) IN ['ATTACHED_TO', 'OBSERVED_TO']
+      AND type(legacy) <> '#{Graph.escape(relation)}'
+    DELETE legacy
     MERGE (ai)-[r:#{relation}]->(bi)
     SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(payload.observed_at)}')
     SET r.ingestor = 'mapper_topology_v1'
@@ -1157,7 +1174,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     """
     MATCH ()-[r]->()
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
     RETURN {count: count(r)}
     """
   end
@@ -1732,7 +1749,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     """
     MATCH (ai:Interface)-[r]->(bi:Interface)
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL

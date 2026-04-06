@@ -248,8 +248,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       Enum.split_with(rows, &backbone_runtime_row?/1)
 
     Enum.take(backbone_rows, @max_backbone_link_rows) ++
-      (attachment_rows
-       |> Enum.take(@max_attachment_link_rows))
+      Enum.take(attachment_rows, @max_attachment_link_rows)
   end
 
   def prioritize_runtime_rows(_rows), do: []

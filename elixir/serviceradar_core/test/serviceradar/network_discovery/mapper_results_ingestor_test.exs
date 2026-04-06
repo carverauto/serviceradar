@@ -540,7 +540,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
     end
 
-    test "does not suppress private-address SNMP ARP/FDB sightings" do
+    test "suppresses low-confidence private SNMP ARP/FDB sightings without neighbor name" do
       record = %{
         protocol: "SNMP-L2",
         neighbor_mgmt_addr: "192.168.1.87",
@@ -551,7 +551,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
         }
       }
 
-      refute MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
+      assert MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
     end
 
     test "does not suppress when neighbor system name is present" do
