@@ -1,13 +1,3 @@
-# ServiceRadar v1.2.13
-
-Wasm OCI release reliability fixes for CI-installed ORAS resolution, plus the first-party upload-signature release automation introduced in the prior cut.
-
-## Whats New
-
-**1.2.13**
-- Fixed first-party Wasm OCI publish targets so Bazel-run release jobs resolve the CI-installed `oras` binary from standard runner install paths instead of failing inside the wrapper script.
-- Keeps the new first-party Wasm upload-signature sidecar publication, verification, and `web-ng` trust wiring intact for immutable release publication.
-
 # ServiceRadar v1.2.12
 
 First-party Wasm release signing, Harbor-published upload-signature sidecars, and the final release-path hardening needed for immutable OCI and plugin publication.
@@ -18,6 +8,8 @@ First-party Wasm release signing, Harbor-published upload-signature sidecars, an
 - Added first-party Wasm OCI publication sidecars that carry the same Ed25519 upload-signature payload enforced by `web-ng` for trusted uploaded packages.
 - Updated Forgejo and BuildBuddy release flows to publish, cosign-sign, verify, and now upload-sign first-party Wasm plugin OCI artifacts during release publication.
 - Wired demo `web-ng` to trust the dedicated first-party Wasm upload-signing key so Harbor-published plugin bundles can be imported under the same verification policy used for manual uploads.
+- Fixed first-party Wasm OCI publish targets so Bazel-run release jobs resolve the CI-installed `oras` binary from standard runner install paths instead of failing inside the wrapper script.
+- Fixed upload-signature generation in Bazel-run release jobs so metadata source paths resolve correctly for both workspace files like `plugin.yaml` and built artifacts under `bazel-out/`.
 
 # ServiceRadar v1.2.11
 
