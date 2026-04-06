@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.TestSupport
@@ -109,6 +110,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
+
+    {:ok, history} = StatefulAlertRuleHistory.list_by_rule(rule.id, actor: actor) |> Page.unwrap()
+    assert Enum.any?(history, &(&1.event_type == :fired))
+    assert Enum.any?(history, &(&1.event_type == :recovered))
   end
 
   defp reset_engine do

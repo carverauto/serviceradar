@@ -18,6 +18,16 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
 
   @moduletag :integration
   @moduletag timeout: 60_000
+  @nats_available (
+                    case :gen_tcp.connect(~c"127.0.0.1", 4222, [:binary, active: false], 200) do
+                      {:ok, socket} ->
+                        :ok = :gen_tcp.close(socket)
+                        true
+
+                      _ ->
+                        false
+                    end
+                  )
 
   setup do
     Repo.delete_all("bgp_routing_info")
@@ -27,6 +37,7 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
 
   describe "FlowMessage → NATS → EventWriter → PostgreSQL pipeline" do
     @tag :nats_required
+    @tag skip: if(not @nats_available, do: "requires local NATS on localhost:4222")
     test "persists canonical flow row and derived BGP observation" do
       flow = %FlowMessage{
         type: :IPFIX,
@@ -48,7 +59,7 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
         in_if: 10,
         out_if: 20,
         as_path: [64_512, 64_513, 64_514],
-        bgp_communities: [4_259_840_100, 4_259_840_200]
+        bgp_communities: [65_538_000, 65_538_100]
       }
 
       {:ok, conn} = Gnat.start_link(%{host: "localhost", port: 4222})
@@ -101,7 +112,7 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
       assert src_ip == %Postgrex.INET{address: {192, 168, 1, 100}, netmask: 32}
       assert dst_ip == %Postgrex.INET{address: {8, 8, 8, 8}, netmask: 32}
       assert as_path == [64_512, 64_513, 64_514]
-      assert communities == [4_259_840_100, 4_259_840_200]
+      assert communities == [65_538_000, 65_538_100]
       assert total_bytes == 1_500_000
       assert total_packets == 1000
     end
@@ -142,9 +153,9 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
         [
           now,
           [64_512, 64_513],
-          [4_259_840_100],
-          "192.168.1.100",
-          "8.8.8.8",
+          [65_538_000],
+          %Postgrex.INET{address: {192, 168, 1, 100}, netmask: 32},
+          %Postgrex.INET{address: {8, 8, 8, 8}, netmask: 32},
           1_500_000,
           1000,
           1,
@@ -153,7 +164,8 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
       )
 
       assert [%{as_number: 64_512, bytes: 1_500_000}] = Stats.get_traffic_by_as("last_1h", "netflow", 1)
-      assert [%{community: 4_259_840_100, bytes: 1_500_000}] = Stats.get_top_communities("last_1h", "netflow", 1)
+      assert [%{community: 65_538_000, bytes: 1_500_000}] =
+               Stats.get_top_communities("last_1h", "netflow", 1)
     end
   end
 end

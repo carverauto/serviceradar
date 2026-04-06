@@ -1229,9 +1229,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp merge_stats(stats1, stats2) do
     %{
-      hosts_total: stats1.hosts_total + stats2.hosts_total,
-      hosts_available: stats1.hosts_available + stats2.hosts_available,
-      hosts_failed: stats1.hosts_failed + stats2.hosts_failed,
+      hosts_total: Map.get(stats1, :hosts_total, 0) + Map.get(stats2, :hosts_total, 0),
+      hosts_available:
+        Map.get(stats1, :hosts_available, 0) + Map.get(stats2, :hosts_available, 0),
+      hosts_failed: Map.get(stats1, :hosts_failed, 0) + Map.get(stats2, :hosts_failed, 0),
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
       devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0),
       mapper_dispatched:

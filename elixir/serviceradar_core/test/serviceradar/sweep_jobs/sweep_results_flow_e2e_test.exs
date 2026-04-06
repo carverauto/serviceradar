@@ -22,7 +22,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
   setup do
     actor = SystemActor.system(:test)
-    agent_id = "agent-#{System.unique_integer([:positive])}"
+    agent_id = "agent-" <> Ash.UUID.generate()
 
     {:ok, actor: actor, agent_id: agent_id}
   end
@@ -30,13 +30,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   defp results_from(read_result) when is_list(read_result), do: read_result
   defp results_from(%{results: results}), do: results
 
+  defp unique_ip(seed) when is_binary(seed) do
+    <<second, third, fourth, _rest::binary>> = :crypto.hash(:sha256, seed)
+    "10.#{1 + rem(second, 254)}.#{1 + rem(third, 254)}.#{1 + rem(fourth, 254)}"
+  end
+
   test "ingest results updates devices and execution stats", %{
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    existing_ip = "10.1.0.#{rem(unique_id, 200) + 10}"
-    new_ip = "10.1.1.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    existing_ip = unique_ip("stats-existing-#{unique_id}")
+    new_ip = unique_ip("stats-new-#{unique_id}")
     partition = "partition-stats-#{unique_id}"
 
     {:ok, _device} =
@@ -162,8 +167,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    new_ip = "10.2.1.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    new_ip = unique_ip("create-#{unique_id}")
     partition = "partition-create-#{unique_id}"
 
     {:ok, group} =
@@ -237,8 +242,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    new_ip = "10.3.1.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    new_ip = unique_ip("promote-#{unique_id}")
     mapper_job_name = "mapper-promote-#{unique_id}"
     partition = "partition-promote-#{unique_id}"
 
@@ -326,9 +331,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    ip_one = "10.3.2.#{rem(unique_id, 200) + 10}"
-    ip_two = "10.3.3.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    ip_one = unique_ip("multibatch-one-#{unique_id}")
+    ip_two = unique_ip("multibatch-two-#{unique_id}")
     mapper_job_name = "mapper-multibatch-#{unique_id}"
     partition = "partition-multibatch-#{unique_id}"
 
@@ -419,8 +424,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    ip = "10.4.1.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("cooldown-#{unique_id}")
     mapper_job_name = "mapper-cooldown-#{unique_id}"
     partition = "partition-cooldown-#{unique_id}"
 
@@ -486,12 +491,80 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     refute_receive {:cooldown_dispatch, _}
   end
 
+  test "ingest results suppresses mapper promotion while mapper job interval is still active", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("interval-#{unique_id}")
+    mapper_job_name = "mapper-interval-#{unique_id}"
+    partition = "partition-interval-#{unique_id}"
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: agent_id}, actor: actor)
+      |> Ash.create(actor: actor)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Interval #{unique_id}", partition: partition, agent_id: agent_id},
+        actor: actor,
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, mapper_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: mapper_job_name,
+          partition: partition,
+          interval: "5m",
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, _updated_job} =
+      mapper_job
+      |> Ash.Changeset.for_update(
+        :record_run,
+        %{last_run_at: DateTime.truncate(DateTime.utc_now(), :second), last_run_status: :success}
+      )
+      |> Ash.update(actor: actor)
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "available" => true}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-interval-#{unique_id}",
+               mapper_promotion_opts: [
+                 dispatcher: fn _job, _opts ->
+                   send(self(), :unexpected_interval_dispatch)
+                   {:ok, "unexpected"}
+                 end
+               ]
+             )
+
+    assert stats.mapper_dispatched == 0
+    assert stats.mapper_suppressed == 1
+    refute_receive :unexpected_interval_dispatch
+  end
+
   test "ingest results skips mapper promotion for the sweep agent's own managed device", %{
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    ip = "10.4.2.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("self-#{unique_id}")
     partition = "partition-self-#{unique_id}"
     device_uid = "device-self-#{unique_id}"
 
@@ -578,8 +651,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     actor: actor,
     agent_id: agent_id
   } do
-    unique_id = System.unique_integer([:positive])
-    ip = "10.5.1.#{rem(unique_id, 200) + 10}"
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("skip-#{unique_id}")
     partition = "partition-skip-#{unique_id}"
 
     {:ok, group} =

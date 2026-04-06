@@ -115,15 +115,23 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
   end
 
   defp create_device(actor, hostname) do
+    uniq = System.unique_integer([:positive, :monotonic])
+
     attrs = %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: hostname,
-      ip: "10.11.0.#{:rand.uniform(200)}"
+      ip: unique_device_ip(uniq)
     }
 
     Device
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.create(actor: actor)
+  end
+
+  defp unique_device_ip(seed) do
+    third = rem(seed, 250) + 1
+    fourth = rem(div(seed, 250), 250) + 1
+    "10.11.#{third}.#{fourth}"
   end
 
   defp register_strong_identifiers(actor, device_id, ids) do

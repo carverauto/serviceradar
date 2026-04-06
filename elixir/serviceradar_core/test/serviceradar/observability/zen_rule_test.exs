@@ -22,12 +22,15 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
   end
 
   test "compiles rule and derives format from subject", %{actor: actor} do
+    syslog_name = "syslog-pass-" <> Ash.UUID.generate()
+    otel_name = "otel-pass-" <> Ash.UUID.generate()
+
     {:ok, rule} =
       ZenRule
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "syslog-pass",
+          name: syslog_name,
           subject: "logs.syslog",
           template: :passthrough
         },
@@ -44,7 +47,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "otel-pass",
+          name: otel_name,
           subject: "logs.otel",
           template: :passthrough
         },
@@ -78,7 +81,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "valid-name",
+          name: "valid-name-" <> Ash.UUID.generate(),
           subject: "logs.bad",
           template: :passthrough
         },

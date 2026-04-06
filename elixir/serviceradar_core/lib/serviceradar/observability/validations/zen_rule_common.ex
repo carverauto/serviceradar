@@ -5,7 +5,7 @@ defmodule ServiceRadar.Observability.Validations.ZenRuleCommon do
   def validate(changeset, opts \\ []) do
     name = ZenRuleSupport.attribute_or_existing(changeset, :name)
     subject = ZenRuleSupport.attribute_or_existing(changeset, :subject)
-    format = ZenRuleSupport.attribute_or_existing(changeset, :format)
+    format = format_for_validation(changeset, subject)
     validate_format? = Keyword.get(opts, :validate_format?, false)
 
     cond do
@@ -20,6 +20,15 @@ defmodule ServiceRadar.Observability.Validations.ZenRuleCommon do
 
       true ->
         :ok
+    end
+  end
+
+  defp format_for_validation(changeset, subject) do
+    if Ash.Changeset.changing_attribute?(changeset, :format) do
+      ZenRuleSupport.attribute_or_existing(changeset, :format)
+    else
+      ZenRuleSupport.expected_format(subject) ||
+        ZenRuleSupport.attribute_or_existing(changeset, :format)
     end
   end
 end
