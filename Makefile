@@ -130,20 +130,22 @@ push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI r
 .PHONY: push_all
 push_all: ## Build, sign, and verify all OCI images and first-party Wasm plugin OCI artifacts
 	@set -eu; \
-	COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
-	if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
-		printf 'Cosign password: ' >&2; \
-		stty -echo; \
-		IFS= read -r COSIGN_PASSWORD; \
-		stty echo; \
-		printf '\n' >&2; \
-		export COSIGN_PASSWORD; \
-	fi; \
-	if [ -f "$${COSIGN_KEY_FILE}" ]; then \
-		cosign public-key --key "$${COSIGN_KEY_FILE}" >/dev/null || { \
-			echo "error: unable to decrypt COSIGN_KEY_FILE with the provided password" >&2; \
-			exit 1; \
-		}; \
+	if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
+		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
+		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
+			printf 'Cosign password: ' >&2; \
+			stty -echo; \
+			IFS= read -r COSIGN_PASSWORD; \
+			stty echo; \
+			printf '\n' >&2; \
+			export COSIGN_PASSWORD; \
+		fi; \
+		if [ -f "$${COSIGN_KEY_FILE}" ]; then \
+			cosign public-key --key "$${COSIGN_KEY_FILE}" >/dev/null || { \
+				echo "error: unable to decrypt COSIGN_KEY_FILE with the provided password" >&2; \
+				exit 1; \
+			}; \
+		fi; \
 	fi; \
 	if [ "$(HOST_OS)" = "Darwin" ]; then \
 		if [ -n "$(PUSH_TAG)" ]; then \
@@ -183,14 +185,16 @@ build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally wi
 .PHONY: push_wasm_plugins
 push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin OCI artifacts
 	@set -eu; \
-	COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
-	if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
-		printf 'Cosign password: ' >&2; \
-		stty -echo; \
-		IFS= read -r COSIGN_PASSWORD; \
-		stty echo; \
-		printf '\n' >&2; \
-		export COSIGN_PASSWORD; \
+	if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
+		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
+		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
+			printf 'Cosign password: ' >&2; \
+			stty -echo; \
+			IFS= read -r COSIGN_PASSWORD; \
+			stty echo; \
+			printf '\n' >&2; \
+			export COSIGN_PASSWORD; \
+		fi; \
 	fi; \
 	if [ -n "$(PUSH_TAG)" ]; then \
 		./scripts/push_all_wasm_plugins.sh --tag "$(PUSH_TAG)"; \
