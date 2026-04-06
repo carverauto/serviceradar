@@ -38,6 +38,19 @@ var (
 	errSigningKeyIDMissing   = errors.New("upload signing key id is not configured")
 	errPluginManifestMissing = errors.New("plugin.yaml entry is missing")
 	errPluginWASMMissing     = errors.New("plugin.wasm entry is missing")
+	errUsage                 = errors.New("usage")
+	errUnknownCommand        = errors.New("unknown command")
+	errOutputPathRequired    = errors.New("--out is required")
+	errSignInputRequired     = errors.New("one of --bundle or --metadata is required")
+	errBundlePathRequired    = errors.New("--bundle is required")
+	errSignaturePathRequired = errors.New("--signature is required")
+	errUnsupportedAlgorithm  = errors.New("unsupported signature algorithm")
+	errMismatchedKeyID       = errors.New("signature key id mismatch")
+	errContentHashMismatch   = errors.New("content hash mismatch")
+	errSignatureLength       = errors.New("signature length invalid")
+	errVerifyFailed          = errors.New("upload signature verification failed")
+	errManifestShape         = errors.New("plugin manifest must decode to a map")
+	errResolveSourcePath     = errors.New("unable to resolve bundle source path")
 )
 
 type bundleMetadata struct {
@@ -67,7 +80,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: %s <sign|verify|public-key> [args]", filepath.Base(os.Args[0]))
+		return fmt.Errorf("%w: %s <sign|verify|public-key> [args]", errUsage, filepath.Base(os.Args[0]))
 	}
 
 	switch args[0] {
@@ -78,7 +91,7 @@ func run(args []string) error {
 	case "public-key":
 		return runPublicKey(args[1:])
 	default:
-		return fmt.Errorf("unknown command %q", args[0])
+		return fmt.Errorf("%w: %q", errUnknownCommand, args[0])
 	}
 }
 
@@ -92,7 +105,7 @@ func runSign(args []string) error {
 		return err
 	}
 	if strings.TrimSpace(*outputPath) == "" {
-		return errors.New("--out is required")
+		return errOutputPathRequired
 	}
 
 	var (
@@ -104,7 +117,7 @@ func runSign(args []string) error {
 		manifestBytes, wasmBytes, err = readBundleSourcesFromArchive(*bundlePath)
 	} else {
 		if strings.TrimSpace(*metadataPath) == "" {
-			return errors.New("one of --bundle or --metadata is required")
+			return errSignInputRequired
 		}
 		manifestBytes, wasmBytes, err = readBundleSourcesFromMetadata(*metadataPath)
 	}
@@ -132,10 +145,10 @@ func runVerify(args []string) error {
 		return err
 	}
 	if strings.TrimSpace(*bundlePath) == "" {
-		return errors.New("--bundle is required")
+		return errBundlePathRequired
 	}
 	if strings.TrimSpace(*signaturePath) == "" {
-		return errors.New("--signature is required")
+		return errSignaturePathRequired
 	}
 
 	manifestBytes, wasmBytes, err := readBundleSourcesFromArchive(*bundlePath)
@@ -149,17 +162,17 @@ func runVerify(args []string) error {
 	}
 
 	if strings.TrimSpace(signatureDoc.Algorithm) != signatureAlgorithm {
-		return fmt.Errorf("unsupported signature algorithm %q", signatureDoc.Algorithm)
+		return fmt.Errorf("%w: %q", errUnsupportedAlgorithm, signatureDoc.Algorithm)
 	}
 
 	if configuredKeyID := strings.TrimSpace(os.Getenv(uploadSigningKeyIDEnv)); configuredKeyID != "" &&
 		signatureDoc.KeyID != configuredKeyID {
-		return fmt.Errorf("signature key_id %q does not match configured key id %q", signatureDoc.KeyID, configuredKeyID)
+		return fmt.Errorf("%w: %q != %q", errMismatchedKeyID, signatureDoc.KeyID, configuredKeyID)
 	}
 
 	contentHash := sha256BytesHex(wasmBytes)
 	if normalizeHash(signatureDoc.ContentHash) != contentHash {
-		return fmt.Errorf("content hash mismatch: signature has %s, bundle has %s", signatureDoc.ContentHash, contentHash)
+		return fmt.Errorf("%w: signature=%s bundle=%s", errContentHashMismatch, signatureDoc.ContentHash, contentHash)
 	}
 
 	canonicalPayload, err := buildVerificationPayload(manifestBytes, contentHash)
@@ -177,11 +190,11 @@ func runVerify(args []string) error {
 		return err
 	}
 	if len(signatureValue) != ed25519.SignatureSize {
-		return fmt.Errorf("signature length invalid: expected %d bytes, got %d", ed25519.SignatureSize, len(signatureValue))
+		return fmt.Errorf("%w: expected %d bytes, got %d", errSignatureLength, ed25519.SignatureSize, len(signatureValue))
 	}
 
 	if !ed25519.Verify(publicKey, canonicalPayload, signatureValue) {
-		return errors.New("upload signature verification failed")
+		return errVerifyFailed
 	}
 
 	return nil
@@ -264,7 +277,7 @@ func parseManifest(manifestBytes []byte) (map[string]any, error) {
 	}
 	manifestMap, ok := normalized.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("plugin manifest must decode to a map, got %T", normalized)
+		return nil, fmt.Errorf("%w: got %T", errManifestShape, normalized)
 	}
 	return manifestMap, nil
 }
@@ -375,18 +388,20 @@ func resolveMetadataSourcePath(path string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("unable to resolve bundle source path %q", path)
+	return "", fmt.Errorf("%w %q", errResolveSourcePath, path)
 }
 
-func readBundleSourcesFromArchive(bundlePath string) ([]byte, []byte, error) {
+func readBundleSourcesFromArchive(bundlePath string) (manifestBytes []byte, wasmBytes []byte, err error) {
 	archive, err := zip.OpenReader(bundlePath)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer archive.Close()
+	defer func() {
+		if closeErr := archive.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 
-	var manifestBytes []byte
-	var wasmBytes []byte
 	for _, file := range archive.File {
 		switch file.Name {
 		case "plugin.yaml":
@@ -411,12 +426,16 @@ func readBundleSourcesFromArchive(bundlePath string) ([]byte, []byte, error) {
 	return manifestBytes, wasmBytes, nil
 }
 
-func readZipFile(file *zip.File) ([]byte, error) {
+func readZipFile(file *zip.File) (_ []byte, err error) {
 	reader, err := file.Open()
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() {
+		if closeErr := reader.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 	return io.ReadAll(reader)
 }
 
