@@ -483,13 +483,23 @@ which mix || true
 copy_dir() {{
   local src="$1"
   local dest="$2"
+  local -a excludes=(
+    "--exclude=.git"
+    "--exclude=.elixir_ls"
+    "--exclude=_build"
+    "--exclude=deps"
+    "--exclude=node_modules"
+    "--exclude=target"
+    "--exclude=erl_crash.dump"
+    "--exclude=tmp"
+  )
   if command -v rsync >/dev/null 2>&1; then
     # Bazel presents source files as symlinks in execroot; dereference them
     # so Mix writes (e.g. mix.lock updates) stay inside the writable WORKDIR.
-    rsync -aL "$src" "$dest"
+    rsync -aL "${{excludes[@]}}" "$src" "$dest"
   else
     mkdir -p "$dest"
-    cp -aL "${{src%/}}/." "$dest"
+    tar -C "${{src%/}}" -cf - "${{excludes[@]}}" . | tar -C "$dest" -xf -
   fi
 }}
 
