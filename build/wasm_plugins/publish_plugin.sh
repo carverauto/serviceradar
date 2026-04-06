@@ -141,9 +141,9 @@ project="${OCI_PROJECT:-serviceradar}"
 repo="${registry}/${project}/${repository_name}"
 commit_sha="$(git -C "${BUILD_WORKSPACE_DIRECTORY:-$(pwd)}" rev-parse HEAD)"
 tags=("sha-${commit_sha}")
-tmp_dir="$(mktemp -d)"
+tmp_dir="$(mktemp -d "${PWD}/.wasm-upload-signature.XXXXXX")"
 trap 'rm -rf "${tmp_dir}"' EXIT
-upload_signature_path="${tmp_dir}/upload-signature.json"
+upload_signature_path="${tmp_dir#"${PWD}/"}/upload-signature.json"
 
 "${upload_signature_tool}" sign --bundle "${bundle}" --metadata "${metadata}" --out "${upload_signature_path}"
 
