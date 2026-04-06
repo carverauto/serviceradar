@@ -57,7 +57,7 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
 PY
 )"
   ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}:${COMMIT_TAG}"
-  digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
+  digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" | jq -r '.digest')"
   if [[ -z "${digest}" || "${digest}" == "null" ]]; then
     echo "error: failed to resolve digest for ${ref}" >&2
     exit 1
