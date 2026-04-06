@@ -108,7 +108,7 @@ PY
     "${UPLOAD_SIGNATURE_TOOL}" verify --bundle "${bundle_path}" --signature "${signature_path}"
 
     if cosign_init_verify_args; then
-      digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" --format json | jq -r '.digest')"
+      digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" | jq -r '.digest')"
       cosign verify \
         --experimental-oci11 \
         "${COSIGN_VERIFY_ARGS[@]}" \
