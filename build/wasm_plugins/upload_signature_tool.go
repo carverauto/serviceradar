@@ -325,6 +325,15 @@ func readBundleSourcesFromMetadata(metadataPath string) ([]byte, []byte, error) 
 		return nil, nil, errPluginWASMMissing
 	}
 
+	manifestPath, err = resolveMetadataSourcePath(manifestPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	wasmPath, err = resolveMetadataSourcePath(wasmPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, nil, err
@@ -335,6 +344,28 @@ func readBundleSourcesFromMetadata(metadataPath string) ([]byte, []byte, error) 
 	}
 
 	return manifestBytes, wasmBytes, nil
+}
+
+func resolveMetadataSourcePath(path string) (string, error) {
+	if path == "" {
+		return "", os.ErrNotExist
+	}
+
+	candidates := []string{path}
+	if workspaceDir := strings.TrimSpace(os.Getenv("BUILD_WORKSPACE_DIRECTORY")); workspaceDir != "" {
+		candidates = append(candidates, filepath.Join(workspaceDir, path))
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("unable to resolve bundle source path %q", path)
 }
 
 func readBundleSourcesFromArchive(bundlePath string) ([]byte, []byte, error) {
