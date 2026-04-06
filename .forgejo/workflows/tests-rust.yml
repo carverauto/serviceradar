@@ -24,13 +24,20 @@ jobs:
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     strategy:
       matrix:
-        project:
-          - rust/rperf-client
-          - rust/rperf-server
-          - rust/trapd
-          - rust/consumers/zen
-          - rust/log-collector
-          - rust/srql
+        include:
+          - project: rust/rperf-client
+            runner: cargo
+          - project: rust/rperf-server
+            runner: bazel
+            bazel_target: //rust/rperf-server:rperf
+          - project: rust/trapd
+            runner: cargo
+          - project: rust/consumers/zen
+            runner: cargo
+          - project: rust/log-collector
+            runner: cargo
+          - project: rust/srql
+            runner: cargo
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -153,6 +160,7 @@ jobs:
           components: clippy
 
       - name: Cache Cargo registry
+        if: ${{ matrix.runner == 'cargo' }}
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
@@ -161,17 +169,25 @@ jobs:
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache Cargo build
+        if: ${{ matrix.runner == 'cargo' }}
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: ${{ matrix.project }}/target
           key: ${{ runner.os }}-cargo-build-${{ matrix.project }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Clippy
+        if: ${{ matrix.runner == 'cargo' }}
         run: |
           cd ${{ matrix.project }} && cargo clippy -- -D warnings
 
       - name: Run Tests
+        if: ${{ matrix.runner == 'cargo' }}
         env:
           DOCKER_BUILDKIT: 1
         run: |
           cd ${{ matrix.project }} && cargo test
+
+      - name: Build Bazel target
+        if: ${{ matrix.runner == 'bazel' }}
+        run: |
+          bazel build ${{ matrix.bazel_target }}
