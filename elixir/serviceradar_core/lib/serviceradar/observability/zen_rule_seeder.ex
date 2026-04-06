@@ -10,6 +10,8 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadar.Observability.ZenRuleSync
+  alias ServiceRadar.Observability.ZenRuleTemplates
 
   require Ash.Query
   require Logger
@@ -26,7 +28,9 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
     actor = SystemActor.system(:zen_rule_seeder)
     opts = [actor: actor, context: %{skip_zen_sync: true}]
 
-    ensure_defaults(default_zen_rules(), opts)
+    if ensure_defaults(default_zen_rules(), opts) do
+      ZenRuleSync.reconcile()
+    end
 
     :ok
   end
@@ -38,9 +42,14 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
       |> Ash.Query.select([
         :id,
         :name,
+        :description,
+        :enabled,
+        :order,
         :subject,
         :template,
         :builder_config,
+        :jdm_definition,
+        :compiled_jdm,
         :format,
         :agent_id,
         :stream_name
@@ -48,33 +57,39 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
     case Ash.read(query, opts) do
       {:ok, rules} ->
-        existing = MapSet.new(rules, &{&1.name, &1.subject})
+        existing = Map.new(rules, &{{&1.name, &1.subject}, &1})
 
-        existing = rename_legacy_rules(rules, existing, opts)
+        {existing, changed?} = rename_legacy_rules(rules, existing, opts)
 
-        Enum.each(defaults, fn attrs ->
-          seed_rule_if_missing(existing, attrs, opts)
+        Enum.reduce(defaults, changed?, fn attrs, acc ->
+          reconcile_or_create_rule(existing, attrs, opts) or acc
         end)
 
       {:error, reason} ->
         schema = Keyword.get(opts, :schema, "unknown")
         Logger.warning("Failed to check Zen rule defaults for #{schema}: #{inspect(reason)}")
+        false
     end
   end
 
   defp rename_legacy_rules(rules, existing, opts) do
-    Enum.reduce(rules, existing, fn rule, acc ->
-      rename_legacy_rule(rule, acc, opts)
+    Enum.reduce(rules, {existing, false}, fn rule, {acc, changed?} ->
+      case rename_legacy_rule(rule, acc, opts) do
+        {updated, renamed?} -> {updated, changed? or renamed?}
+        updated -> {updated, changed?}
+      end
     end)
   end
 
-  defp seed_rule_if_missing(existing, attrs, opts) do
+  defp reconcile_or_create_rule(existing, attrs, opts) do
     key = {attrs[:name], attrs[:subject]}
 
-    if MapSet.member?(existing, key) do
-      :ok
-    else
-      create_rule(attrs, opts)
+    case Map.get(existing, key) do
+      nil ->
+        create_rule(attrs, opts)
+
+      rule ->
+        reconcile_rule_if_needed(rule, attrs, opts)
     end
   end
 
@@ -84,18 +99,20 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
     case Ash.create(changeset) do
       {:ok, _} ->
-        :ok
+        true
 
       {:error, reason} ->
         Logger.warning(
           "Failed to seed Zen rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
         )
+
+        false
     end
   end
 
   defp rename_legacy_rule(rule, acc, opts) do
     case legacy_rule_name(rule.name) do
-      nil -> acc
+      nil -> {acc, false}
       new_name -> rename_rule_if_missing(rule, new_name, acc, opts)
     end
   end
@@ -103,8 +120,8 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   defp rename_rule_if_missing(rule, new_name, existing, opts) do
     key = {new_name, rule.subject}
 
-    if MapSet.member?(existing, key) do
-      existing
+    if Map.has_key?(existing, key) do
+      {existing, false}
     else
       do_rename_rule(rule, new_name, key, existing, opts)
     end
@@ -116,14 +133,90 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
     case Ash.update(changeset) do
       {:ok, _} ->
-        MapSet.put(existing, key)
+        {
+          existing
+          |> Map.delete({rule.name, rule.subject})
+          |> Map.put(key, %{rule | name: new_name}),
+          true
+        }
 
       {:error, reason} ->
         Logger.warning("Failed to rename Zen rule #{rule.name} for #{schema}: #{inspect(reason)}")
 
-        existing
+        {existing, false}
     end
   end
+
+  defp reconcile_rule_if_needed(rule, attrs, opts) do
+    if seeded_snmp_rule?(rule, attrs) and seeded_snmp_rule_changed?(rule, attrs) do
+      update_rule(rule, attrs, opts)
+    else
+      false
+    end
+  end
+
+  defp update_rule(rule, attrs, opts) do
+    schema = Keyword.get(opts, :schema, "unknown")
+
+    changeset =
+      Ash.Changeset.for_update(
+        rule,
+        :update,
+        Map.take(attrs, [
+          :description,
+          :enabled,
+          :order,
+          :subject,
+          :template,
+          :builder_config,
+          :stream_name,
+          :agent_id
+        ]),
+        opts
+      )
+
+    case Ash.update(changeset) do
+      {:ok, _updated} ->
+        true
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to reconcile Zen rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
+        )
+
+        false
+    end
+  end
+
+  defp seeded_snmp_rule?(rule, attrs) do
+    rule.name == "snmp_severity" and
+      rule.subject == "logs.snmp" and
+      attrs[:name] == "snmp_severity" and
+      attrs[:subject] == "logs.snmp" and
+      rule.template == attrs[:template] and
+      normalize_builder_config(rule.builder_config) ==
+        normalize_builder_config(attrs[:builder_config]) and
+      not user_authored_override?(rule)
+  end
+
+  defp seeded_snmp_rule_changed?(rule, attrs) do
+    {:ok, compiled} =
+      ZenRuleTemplates.compile(attrs[:template], normalize_builder_config(attrs[:builder_config]))
+
+    rule.compiled_jdm != compiled or
+      rule.description != attrs[:description] or
+      rule.enabled != attrs[:enabled] or
+      rule.order != attrs[:order] or
+      rule.stream_name != attrs[:stream_name] or
+      rule.agent_id != attrs[:agent_id]
+  end
+
+  defp user_authored_override?(rule) do
+    is_map(rule.jdm_definition) and map_size(rule.jdm_definition) > 0
+  end
+
+  defp normalize_builder_config(config) when is_map(config), do: config
+  defp normalize_builder_config(_), do: %{}
 
   defp legacy_rule_name("syslog_passthrough"), do: "passthrough"
   defp legacy_rule_name("syslog_strip_full_message"), do: "strip_full_message"

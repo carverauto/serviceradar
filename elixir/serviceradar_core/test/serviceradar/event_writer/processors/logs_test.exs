@@ -115,6 +115,24 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
         })
 
       assert result5.body == "from short_message"
+
+      result6 =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "varbinds" => [
+                %{
+                  "oid" => "1.3.6.1.2.1.16.9.1.1.2.4911",
+                  "value" =>
+                    "OCTET STRING: I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+                }
+              ]
+            }),
+          metadata: %{}
+        })
+
+      assert result6.body ==
+               "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
     end
 
     test "handles nanosecond timestamps" do

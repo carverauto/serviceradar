@@ -3,6 +3,8 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
 
   alias ServiceRadar.Observability.ZenRuleTemplates
 
+  @snmp_body_expression "(((body ?? '') == '') or body == 'logs.snmp.processed') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body ?? '') : (body ?? '')) : body"
+
   test "snmp severity template uses supported fallback expression syntax" do
     assert {:ok, compiled} = ZenRuleTemplates.compile(:snmp_severity, %{})
 
@@ -37,8 +39,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
     assert source_expression == "'snmp'"
     assert service_name_expression == "'snmp'"
 
-    assert body_expression ==
-             "(body == 'logs.snmp.processed' or body == '') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body) : body) : body"
+    assert body_expression == @snmp_body_expression
 
     refute String.contains?(severity_expression, "coalesce(")
   end

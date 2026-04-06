@@ -170,6 +170,30 @@ func TestParseJSONLogsPrefersSubjectSourceForSNMP(t *testing.T) {
 	}
 }
 
+func TestParseJSONLogsDerivesSNMPBodyFromVarbindWhenBodyMissing(t *testing.T) {
+	payload := []byte(`{
+		"source":"192.168.10.154:161",
+		"varbinds":[
+			{
+				"oid":"1.3.6.1.2.1.16.9.1.1.2.4911",
+				"value":"OCTET STRING: I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+			}
+		]
+	}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.snmp.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	if rows[0].Body != "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable." {
+		t.Fatalf("unexpected body: %q", rows[0].Body)
+	}
+}
+
 func TestParseOCSFEvent(t *testing.T) {
 	payload := []byte(`{
 		"id":"c0b2f5af-7d5d-4c1a-8c5b-7c6a9f4c94b2",
