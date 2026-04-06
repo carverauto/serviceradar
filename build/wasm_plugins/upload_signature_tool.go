@@ -85,19 +85,29 @@ func run(args []string) error {
 func runSign(args []string) error {
 	fs := flag.NewFlagSet("sign", flag.ContinueOnError)
 	metadataPath := fs.String("metadata", "", "path to bundle metadata json")
+	bundlePath := fs.String("bundle", "", "path to bundle zip")
 	outputPath := fs.String("out", "", "path to write upload signature json")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*metadataPath) == "" {
-		return errors.New("--metadata is required")
-	}
 	if strings.TrimSpace(*outputPath) == "" {
 		return errors.New("--out is required")
 	}
 
-	manifestBytes, wasmBytes, err := readBundleSourcesFromMetadata(*metadataPath)
+	var (
+		manifestBytes []byte
+		wasmBytes     []byte
+		err           error
+	)
+	if strings.TrimSpace(*bundlePath) != "" {
+		manifestBytes, wasmBytes, err = readBundleSourcesFromArchive(*bundlePath)
+	} else {
+		if strings.TrimSpace(*metadataPath) == "" {
+			return errors.New("one of --bundle or --metadata is required")
+		}
+		manifestBytes, wasmBytes, err = readBundleSourcesFromMetadata(*metadataPath)
+	}
 	if err != nil {
 		return err
 	}

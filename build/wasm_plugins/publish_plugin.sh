@@ -145,7 +145,7 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 upload_signature_path="${tmp_dir}/upload-signature.json"
 
-"${upload_signature_tool}" sign --metadata "${metadata}" --out "${upload_signature_path}"
+"${upload_signature_tool}" sign --bundle "${bundle}" --metadata "${metadata}" --out "${upload_signature_path}"
 
 if [[ -n "${extra_tag}" ]]; then
   tags+=("${extra_tag}")
