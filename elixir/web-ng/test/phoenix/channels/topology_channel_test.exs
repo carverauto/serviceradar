@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
   import Phoenix.ChannelTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNGWeb.TopologyChannel
   alias ServiceRadarWebNGWeb.UserSocket
 
   @endpoint ServiceRadarWebNGWeb.Endpoint
@@ -26,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert {:error, %{reason: "god_view_disabled"}} =
              UserSocket
              |> socket("user-id", %{current_user: user})
-             |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
+             |> subscribe_and_join(TopologyChannel, @channel, %{})
   end
 
   test "channel emits binary snapshot frame with expected envelope", %{user: user} do
@@ -35,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert {:ok, _reply, _socket} =
              UserSocket
              |> socket("user-id", %{current_user: user})
-             |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
+             |> subscribe_and_join(TopologyChannel, @channel, %{})
 
     assert_push "snapshot", {:binary, frame}, 2_000
 
@@ -65,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert {:ok, _reply, socket} =
              UserSocket
              |> socket("user-id", %{current_user: user})
-             |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
+             |> subscribe_and_join(TopologyChannel, @channel, %{})
 
     assert_push "snapshot", {:binary, _frame}, 2_000
     assert_push "snapshot_meta", _meta, 2_000
@@ -93,8 +94,19 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert {:ok, _reply, _socket} =
              UserSocket
              |> socket("user-id", %{current_user: user})
-             |> subscribe_and_join(ServiceRadarWebNGWeb.TopologyChannel, @channel, %{})
+             |> subscribe_and_join(TopologyChannel, @channel, %{})
 
     assert_push "snapshot_error", %{reason: "snapshot_unavailable"}, 2_000
+  end
+
+  test "next_expanded_clusters keeps expansion exclusive" do
+    assert TopologyChannel.next_expanded_clusters(MapSet.new(), "cluster:a", true) ==
+             MapSet.new(["cluster:a"])
+
+    assert TopologyChannel.next_expanded_clusters(MapSet.new(["cluster:a"]), "cluster:b", true) ==
+             MapSet.new(["cluster:b"])
+
+    assert TopologyChannel.next_expanded_clusters(MapSet.new(["cluster:b"]), "cluster:b", false) ==
+             MapSet.new()
   end
 end

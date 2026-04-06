@@ -5,14 +5,34 @@ export const godViewRenderingGraphLayerNodeMethods = {
   labelBudgetForShape(shape) {
     switch (shape) {
       case "local":
-        return 28
+        return 12
       case "regional":
-        return 18
+        return 8
       case "global":
-        return 10
+        return 4
       default:
         return 0
     }
+  },
+  endpointSummaryLabelBudgetForShape(shape) {
+    switch (shape) {
+      case "local":
+        return 2
+      case "regional":
+        return 1
+      case "global":
+        return 1
+      default:
+        return 0
+    }
+  },
+  opaqueIdentityLabel(node) {
+    const label = String(node?.label || "")
+    const id = String(node?.id || "")
+    return label.startsWith("sr:") || id.startsWith("sr:")
+  },
+  endpointSummaryLabel(node) {
+    return String(node?.details?.cluster_kind || "") === "endpoint-summary"
   },
   nodeLabelPriority(node) {
     const details = node?.details || {}
@@ -54,6 +74,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
   selectNodeLabels(nodeData, shape) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
     const budget = this.labelBudgetForShape(shape)
+    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
     if (budget <= 0) return []
 
     const selected = nodeData.filter((node) => node?.selected === true)
@@ -63,16 +84,22 @@ export const godViewRenderingGraphLayerNodeMethods = {
       const clusterKind = String(details?.cluster_kind || "")
       if (clusterKind === "endpoint-member") return false
       if (String(details?.identity_source || "") === "mapper_topology_sighting") return false
+      if (this.opaqueIdentityLabel(node)) return false
       return true
     })
 
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
     const picked = []
     const seen = new Set()
+    let endpointSummaryCount = 0
 
     for (const node of [...selected, ...ordered]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
+      if (this.endpointSummaryLabel(node) && node?.selected !== true) {
+        if (endpointSummaryCount >= endpointSummaryBudget) continue
+        endpointSummaryCount += 1
+      }
       seen.add(id)
       picked.push(node)
       if (picked.length >= budget) break
