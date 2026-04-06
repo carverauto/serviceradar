@@ -38,7 +38,7 @@ COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
 if [[ "$#" -eq 0 ]]; then
   TAGS=("${COMMIT_TAG}")
 else
-  TAGS=("${COMMIT_TAG}" "$@")
+  TAGS=("$@")
 fi
 
 declare -A seen_tags=()
