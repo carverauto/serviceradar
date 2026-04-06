@@ -379,7 +379,7 @@ jobs:
           fi
 
           ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
-          ./scripts/sign-wasm-plugin-publish.sh
+          ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
           ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
 
       - name: Publish release packages and agent manifest assets

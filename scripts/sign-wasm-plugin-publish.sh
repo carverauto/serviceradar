@@ -35,6 +35,21 @@ COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-legacy}"
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
 
+if [[ "$#" -eq 0 ]]; then
+  TAGS=("${COMMIT_TAG}")
+else
+  TAGS=("${COMMIT_TAG}" "$@")
+fi
+
+declare -A seen_tags=()
+deduped_tags=()
+for tag in "${TAGS[@]}"; do
+  if [[ -n "${tag}" && -z "${seen_tags[${tag}]+x}" ]]; then
+    deduped_tags+=("${tag}")
+    seen_tags["${tag}"]=1
+  fi
+done
+
 cosign_init_sign_args
 
 "${BAZEL_BIN}" build //build/wasm_plugins:all_metadata >/dev/null
@@ -48,25 +63,27 @@ if [[ ${#metadata_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
-for metadata in "${metadata_files[@]}"; do
-  repository_name="$(python3 - <<'PY' "${metadata}"
+for tag in "${deduped_tags[@]}"; do
+  for metadata in "${metadata_files[@]}"; do
+    repository_name="$(python3 - <<'PY' "${metadata}"
 import json
 import sys
 with open(sys.argv[1], "r", encoding="utf-8") as fh:
     print(json.load(fh)["repository_name"])
 PY
 )"
-  ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}:${COMMIT_TAG}"
-  digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" | jq -r '.digest')"
-  if [[ -z "${digest}" || "${digest}" == "null" ]]; then
-    echo "error: failed to resolve digest for ${ref}" >&2
-    exit 1
-  fi
-  echo "signing ${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
-  cosign sign \
-    --yes \
-    --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
-    --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
-    "${COSIGN_SIGN_ARGS[@]}" \
-    "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
+    ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}:${tag}"
+    digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" | jq -r '.digest')"
+    if [[ -z "${digest}" || "${digest}" == "null" ]]; then
+      echo "error: failed to resolve digest for ${ref}" >&2
+      exit 1
+    fi
+    echo "signing ${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
+    cosign sign \
+      --yes \
+      --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
+      --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
+      "${COSIGN_SIGN_ARGS[@]}" \
+      "${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}@${digest}"
+  done
 done
