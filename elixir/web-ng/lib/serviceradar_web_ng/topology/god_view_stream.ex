@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @default_unresolved_directional_ratio_alert 0.6
   @god_view_evidence_classes ["direct", "inferred", "endpoint-attachment"]
   @endpoint_cluster_min_members 3
+  @endpoint_cluster_expanded_visible_limit 24
   @endpoint_cluster_ambiguous_peer_threshold 12
   @endpoint_cluster_access_target_gap_threshold 2
   @endpoint_cluster_access_target_supplement_max_peer_count 1
@@ -192,6 +193,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       nodes = maybe_apply_backend_layout(nodes, layout_indexed_edges, layout_revision)
       nodes = apply_causal_states(nodes, causal_indexed_edges)
       {nodes, edges, pipeline_stats} = apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, snapshot_opts)
+      {nodes, edges, pipeline_stats} = quarantine_unresolved_endpoint_identities(nodes, edges, pipeline_stats)
       edges = retain_renderable_edges(nodes, edges)
       nodes = retain_renderable_nodes(nodes, edges)
       {:ok, indexed_edges} = index_edges(nodes, edges)
@@ -252,6 +254,79 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       _ -> false
     end)
   end
+
+  defp quarantine_unresolved_endpoint_identities(nodes, edges, pipeline_stats)
+       when is_list(nodes) and is_list(edges) and is_map(pipeline_stats) do
+    nodes_by_id = Map.new(nodes, &{&1.id, &1})
+
+    quarantined_node_ids =
+      nodes
+      |> Enum.filter(&quarantinable_unresolved_endpoint_node?/1)
+      |> Enum.reject(&cluster_member_node?(&1))
+      |> MapSet.new(& &1.id)
+
+    if MapSet.size(quarantined_node_ids) == 0 do
+      {nodes, edges, pipeline_stats}
+    else
+      filtered_edges =
+        Enum.reject(edges, &quarantined_unresolved_endpoint_edge?(&1, quarantined_node_ids, nodes_by_id))
+
+      next_pipeline_stats =
+        pipeline_stats
+        |> Map.put(:quarantined_unresolved_endpoint_nodes, MapSet.size(quarantined_node_ids))
+        |> Map.put(:quarantined_unresolved_endpoint_edges, length(edges) - length(filtered_edges))
+
+      {nodes, filtered_edges, next_pipeline_stats}
+    end
+  end
+
+  defp quarantine_unresolved_endpoint_identities(nodes, edges, pipeline_stats), do: {nodes, edges, pipeline_stats}
+
+  defp quarantinable_unresolved_endpoint_node?(%{id: id} = node) when is_binary(id) do
+    details = decode_details_json(Map.get(node, :details_json))
+    cluster_kind = normalize_id(Map.get(details, "cluster_kind"))
+
+    String.starts_with?(id, "sr:") and
+      is_nil(normalize_ipv4(Map.get(details, "ip"))) and
+      blank_node_identity?(Map.get(details, "name")) and
+      blank_node_identity?(Map.get(details, "hostname")) and
+      cluster_kind not in ["endpoint-member", "endpoint-summary", "endpoint-anchor"]
+  end
+
+  defp quarantinable_unresolved_endpoint_node?(_node), do: false
+
+  defp cluster_member_node?(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("cluster_kind") == "endpoint-member"
+  end
+
+  defp cluster_member_node?(_node), do: false
+
+  defp quarantined_unresolved_endpoint_edge?(edge, quarantined_node_ids, nodes_by_id)
+       when is_map(edge) and is_struct(quarantined_node_ids, MapSet) and is_map(nodes_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+
+    endpoint_attachment_edge?(edge) and not cluster_projection_edge?(edge, nodes_by_id) and
+      (MapSet.member?(quarantined_node_ids, source) or MapSet.member?(quarantined_node_ids, target))
+  end
+
+  defp quarantined_unresolved_endpoint_edge?(_edge, _quarantined_node_ids, _nodes_by_id), do: false
+
+  defp cluster_projection_edge?(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    metadata = Map.get(edge, :metadata) || %{}
+
+    Map.get(edge, :protocol) == "cluster" or
+      is_binary(Map.get(metadata, "cluster_id")) or
+      cluster_summary_node?(Map.get(nodes_by_id, source)) or
+      cluster_summary_node?(Map.get(nodes_by_id, target))
+  end
+
+  defp cluster_projection_edge?(_edge, _nodes_by_id), do: false
 
   defp fetch_topology_links(_actor) do
     RuntimeGraph.get_links()
@@ -1649,15 +1724,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Enum.zip(rows)
         |> Enum.map(fn {{node, idx}, row} ->
           base_state = causal_row_value(row, :state, 3)
+          base_reason = causal_row_value(row, :reason, "causal_reason_unavailable")
           override = Map.get(causal_overrides, idx)
-          state = override_state(base_state, override)
-
-          reason =
-            override_reason(causal_row_value(row, :reason, "causal_reason_unavailable"), override)
-
           root_index = causal_row_value(row, :root_index, -1)
           parent_index = causal_row_value(row, :parent_index, -1)
           hop_distance = causal_row_value(row, :hop_distance, -1)
+
+          {state, reason, root_index, parent_index, hop_distance} =
+            normalize_causal_state(base_state, base_reason, override, root_index, parent_index, hop_distance)
 
           details_json =
             merge_causal_reason_details(
@@ -1683,17 +1757,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Enum.zip(states)
         |> Enum.map(fn {{node, idx}, state} ->
           override = Map.get(causal_overrides, idx)
-          state = override_state(state, override)
-          reason = override_reason("fallback_state_only_engine_result", override)
+
+          {state, reason, root_index, parent_index, hop_distance} =
+            normalize_causal_state(state, "fallback_state_only_engine_result", override, -1, -1, -1)
 
           details_json =
             merge_causal_reason_details(
               Map.get(node, :details_json),
               state,
               reason,
-              -1,
-              -1,
-              -1
+              root_index,
+              parent_index,
+              hop_distance
             )
 
           node
@@ -1722,13 +1797,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       summarized_groups_by_anchor = Enum.group_by(summarized_groups, & &1.anchor_id)
       groups_by_anchor = Enum.group_by(summarized_groups, & &1.anchor_id)
       expanded_groups = Enum.filter(summarized_groups, &MapSet.member?(expanded_clusters, &1.cluster_id))
+      expanded_groups = Enum.map(expanded_groups, &limit_expanded_cluster_group(&1, nodes_by_id))
 
       collapsed_summarized_groups =
         Enum.reject(summarized_groups, &MapSet.member?(expanded_clusters, &1.cluster_id))
 
       expanded_member_ids =
         expanded_groups
-        |> Enum.flat_map(&Map.get(&1, :endpoint_ids, []))
+        |> Enum.flat_map(&expanded_group_visible_endpoint_ids/1)
         |> MapSet.new()
 
       expanded_cluster_nodes =
@@ -1786,6 +1862,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         pipeline_stats
         |> Map.put(:clustered_endpoint_summaries, length(cluster_nodes))
         |> Map.put(:expanded_endpoint_clusters, length(expanded_groups))
+        |> Map.put(
+          :expanded_endpoint_visible_members,
+          Enum.reduce(expanded_groups, 0, &(length(expanded_group_visible_endpoint_ids(&1)) + &2))
+        )
+        |> Map.put(
+          :expanded_endpoint_hidden_members,
+          Enum.reduce(expanded_groups, 0, &(expanded_group_hidden_member_count(&1) + &2))
+        )
 
       projected_nodes =
         maybe_apply_backend_cluster_geometry(retained_nodes ++ cluster_nodes, groups, expanded_clusters, retained_edges)
@@ -1806,7 +1890,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp ensure_expanded_cluster_group_member_nodes(nodes_by_id, group) when is_map(nodes_by_id) and is_map(group) do
     group
-    |> Map.get(:endpoint_ids, [])
+    |> expanded_group_visible_endpoint_ids()
     |> Enum.reduce(nodes_by_id, fn endpoint_id, acc ->
       cond do
         not is_binary(endpoint_id) ->
@@ -2741,7 +2825,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp expanded_cluster_layout_context(_group, _acc, _expanded_cluster_nodes_by_id), do: :error
 
   defp apply_expanded_cluster_member_layout(acc, group, context) when is_map(acc) and is_map(group) and is_map(context) do
-    group.endpoint_ids
+    group
+    |> expanded_group_visible_endpoint_ids()
     |> Enum.sort()
     |> Enum.with_index()
     |> Enum.reduce(acc, fn {endpoint_id, idx}, inner ->
@@ -3110,6 +3195,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     {x, y} = endpoint_cluster_summary_coordinates(anchor, idx, total)
     count = length(group.endpoint_ids)
+    visible_count = length(expanded_group_visible_endpoint_ids(group))
+    hidden_count = expanded_group_hidden_member_count(group)
     sample = List.first(endpoints) || %{}
     anchor_label = Map.get(anchor || %{}, :label) || Map.get(group, :anchor_id)
     cluster_camera_tiles = build_cluster_camera_tiles(group, nodes_by_id)
@@ -3132,6 +3219,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           cluster_id: group.cluster_id,
           cluster_kind: "endpoint-summary",
           cluster_member_count: count,
+          cluster_visible_member_count: visible_count,
+          cluster_hidden_member_count: hidden_count,
           cluster_expandable: true,
           cluster_expanded: false,
           cluster_anchor_id: group.anchor_id,
@@ -3204,7 +3293,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         "relation_type" => "ATTACHED_TO",
         "evidence_class" => "endpoint-attachment",
         "cluster_id" => group.cluster_id,
-        "cluster_member_count" => length(group.endpoint_ids)
+        "cluster_member_count" => length(group.endpoint_ids),
+        "cluster_visible_member_count" => length(expanded_group_visible_endpoint_ids(group)),
+        "cluster_hidden_member_count" => expanded_group_hidden_member_count(group)
       }
     }
   end
@@ -3221,7 +3312,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp build_expanded_endpoint_member_edges(group) when is_map(group) do
     group
-    |> Map.get(:endpoint_ids, [])
+    |> expanded_group_visible_endpoint_ids()
     |> Enum.map(fn endpoint_id ->
       supporting_edge = expanded_endpoint_member_supporting_edge(group, endpoint_id)
       build_expanded_endpoint_member_edge(group, endpoint_id, supporting_edge)
@@ -3269,7 +3360,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         "relation_type" => "ATTACHED_TO",
         "evidence_class" => "endpoint-attachment",
         "cluster_id" => group.cluster_id,
-        "cluster_anchor_id" => group.anchor_id
+        "cluster_anchor_id" => group.anchor_id,
+        "cluster_visible_member_count" => length(expanded_group_visible_endpoint_ids(group)),
+        "cluster_hidden_member_count" => expanded_group_hidden_member_count(group)
       }
     }
   end
@@ -3302,12 +3395,63 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         "evidence_class" => "endpoint-attachment",
         "cluster_id" => group.cluster_id,
         "cluster_anchor_id" => group.anchor_id,
+        "cluster_visible_member_count" => length(expanded_group_visible_endpoint_ids(group)),
+        "cluster_hidden_member_count" => expanded_group_hidden_member_count(group),
         "supporting_edge" => "synthesized"
       }
     }
   end
 
   defp build_expanded_endpoint_member_edge(_group, _endpoint_id, _supporting_edge), do: nil
+
+  defp limit_expanded_cluster_group(group, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
+    visible_endpoint_ids =
+      group
+      |> Map.get(:endpoint_ids, [])
+      |> Enum.uniq()
+      |> Enum.sort_by(&expanded_cluster_member_rank(&1, group, nodes_by_id), :desc)
+      |> Enum.take(@endpoint_cluster_expanded_visible_limit)
+
+    Map.put(group, :visible_endpoint_ids, visible_endpoint_ids)
+  end
+
+  defp limit_expanded_cluster_group(group, _nodes_by_id) when is_map(group), do: group
+
+  defp expanded_group_visible_endpoint_ids(group) when is_map(group) do
+    case Map.get(group, :visible_endpoint_ids) do
+      ids when is_list(ids) -> ids
+      _ -> Map.get(group, :endpoint_ids, [])
+    end
+  end
+
+  defp expanded_group_visible_endpoint_ids(_group), do: []
+
+  defp expanded_group_hidden_member_count(group) when is_map(group) do
+    total = group |> Map.get(:endpoint_ids, []) |> length()
+    visible = group |> expanded_group_visible_endpoint_ids() |> length()
+    max(total - visible, 0)
+  end
+
+  defp expanded_group_hidden_member_count(_group), do: 0
+
+  defp expanded_cluster_member_rank(endpoint_id, group, nodes_by_id)
+       when is_binary(endpoint_id) and is_map(group) and is_map(nodes_by_id) do
+    node = Map.get(nodes_by_id, endpoint_id)
+    supporting_edge = expanded_endpoint_member_supporting_edge(group, endpoint_id)
+
+    {
+      if(resolved_endpoint_identity?(endpoint_id, node), do: 1, else: 0),
+      if(is_map(node) and not topology_sighting_device?(node), do: 1, else: 0),
+      attachment_confidence_rank(Map.get(supporting_edge || %{}, :confidence_tier)),
+      normalize_u32(Map.get(supporting_edge || %{}, :flow_pps, 0)),
+      normalize_u64(Map.get(supporting_edge || %{}, :flow_bps, 0)),
+      endpoint_id
+    }
+  end
+
+  defp expanded_cluster_member_rank(endpoint_id, _group, _nodes_by_id) when is_binary(endpoint_id) do
+    {0, 0, 0, 0, 0, endpoint_id}
+  end
 
   defp expanded_endpoint_member_identity_ip(endpoint_id, supporting_edge, anchor_id)
        when is_binary(endpoint_id) and is_binary(anchor_id) do
@@ -4780,6 +4924,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp causal_row_value(_row, _key, default), do: default
 
+  defp normalize_causal_state(base_state, base_reason, override, root_index, parent_index, hop_distance) do
+    state = override_state(base_state, override)
+    reason = override_reason(base_reason, override)
+
+    if suppress_proximity_only_affected_state?(base_state, state, base_reason, override) do
+      {3, "proximity_only_engine_state_suppressed", -1, -1, -1}
+    else
+      {state, reason, root_index, parent_index, hop_distance}
+    end
+  end
+
+  defp suppress_proximity_only_affected_state?(base_state, state, base_reason, override) do
+    base_state == 1 and state == 1 and is_nil(override) and
+      proximity_only_engine_reason?(base_reason)
+  end
+
+  defp proximity_only_engine_reason?(reason) when is_binary(reason) do
+    String.starts_with?(reason, "reachable_from_root_within_") or
+      reason == "fallback_state_only_engine_result"
+  end
+
+  defp proximity_only_engine_reason?(_reason), do: false
+
   defp override_state(_base_state, %{forced_state: forced}) when forced in [0, 1, 2, 3], do: forced
 
   defp override_state(base_state, _), do: base_state
@@ -5036,7 +5203,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp legacy_backend_layout_authority_enabled? do
-    Application.get_env(:serviceradar_web_ng, :god_view_legacy_backend_layout, false) == true
+    # Backend-authored geometry is retired. The frontend is the only active
+    # layout authority for visible topology, so this legacy path stays
+    # permanently disabled while the remaining dead helpers are removed in
+    # follow-up cleanup.
+    false
   end
 
   defp layout_coordinates_cache(topology_revision) when is_integer(topology_revision) do

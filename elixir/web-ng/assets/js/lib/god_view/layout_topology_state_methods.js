@@ -246,13 +246,12 @@ export const godViewLayoutTopologyStateMethods = {
   },
   async computeClientTopologyLayout(graph, layoutKey) {
     const previousGraph = this.state.lastGraph
-    const projection = this.collectEndpointProjectionGroups(graph)
-    const layeredPositions = this.computeBackboneLayeredPositions(graph, projection.excludedNodeIds)
+    const requiresFullElk = this.requiresFullElkLayout(graph)
+    const layeredPositions = requiresFullElk ? null : this.computeBackboneLayeredPositions(graph, new Set())
 
     if (layeredPositions instanceof Map && layeredPositions.size > 0) {
       const withBackbone = this.applyPositionMap(graph, layeredPositions)
-      const withClusters = this.applyEndpointProjectionLayout(withBackbone, projection)
-      const normalized = this.normalizeHorizontalLayout(withClusters)
+      const normalized = this.normalizeHorizontalLayout(withBackbone)
       return {
         ...normalized,
         _layoutMode: "client-layered",
@@ -260,17 +259,18 @@ export const godViewLayoutTopologyStateMethods = {
       }
     }
 
-    const layoutGraph = this.buildElkLayoutGraph(graph, projection.excludedNodeIds)
+    const layoutGraph = this.buildElkLayoutGraph(graph, new Set(), {
+      includeAttachmentEdges: requiresFullElk,
+    })
 
     try {
       const engine = this.state.layoutEngine || DEFAULT_LAYOUT_ENGINE
       const elkResult = await engine.layout(layoutGraph)
       const withBackbone = this.applyElkNodePositions(graph, elkResult)
-      const withClusters = this.applyEndpointProjectionLayout(withBackbone, projection)
-      const normalized = this.normalizeHorizontalLayout(withClusters)
+      const normalized = this.normalizeHorizontalLayout(withBackbone)
       return {
         ...normalized,
-        _layoutMode: "elk-client",
+        _layoutMode: requiresFullElk ? "elk-client-full" : "elk-client",
         _layoutCacheKey: layoutKey,
       }
     } catch (_error) {
@@ -281,6 +281,13 @@ export const godViewLayoutTopologyStateMethods = {
         _layoutCacheKey: layoutKey,
       }
     }
+  },
+  requiresFullElkLayout(graph) {
+    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return false
+    return (
+      graph.nodes.some((node) => isEndpointSummaryNode(node) || isEndpointMemberNode(node)) ||
+      graph.edges.some((edge) => String(edge?.evidenceClass || "") === "endpoint-attachment")
+    )
   },
   dedupeGraphById(graph) {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
@@ -428,7 +435,8 @@ export const godViewLayoutTopologyStateMethods = {
       excludedNodeIds,
     }
   },
-  buildElkLayoutGraph(graph, excludedNodeIds) {
+  buildElkLayoutGraph(graph, excludedNodeIds = new Set(), options = {}) {
+    const includeAttachmentEdges = options?.includeAttachmentEdges === true
     const children = []
     const includedIds = new Set()
 
@@ -456,7 +464,7 @@ export const godViewLayoutTopologyStateMethods = {
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId) continue
       if (!includedIds.has(sourceId) || !includedIds.has(targetId)) continue
-      if (String(edge?.evidenceClass || "") === "endpoint-attachment") continue
+      if (!includeAttachmentEdges && String(edge?.evidenceClass || "") === "endpoint-attachment") continue
 
       edges.push({
         id: `edge-${index}`,

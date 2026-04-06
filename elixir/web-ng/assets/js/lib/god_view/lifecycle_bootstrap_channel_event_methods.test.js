@@ -74,6 +74,7 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
     }
     const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods), {
+      bootstrapLatestSnapshot: vi.fn(),
       scheduleChannelReconnect: vi.fn(),
     })
 
@@ -83,6 +84,7 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
     expect(state.channelJoined).toBe(false)
     expect(state.summary.textContent).toBe("topology channel failed")
     expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {reason: "boom"})
+    expect(ctx.bootstrapLatestSnapshot).toHaveBeenCalledTimes(1)
     expect(ctx.scheduleChannelReconnect).toHaveBeenCalledTimes(1)
   })
 

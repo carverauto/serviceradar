@@ -137,6 +137,7 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.channelReconnectAttempt = 0
     this.state.channelReconnectBaseMs = 1000
     this.state.channelReconnectMaxMs = 10000
+    this.state.snapshotBootstrapPromise = null
     this.state.lastVisibleNodeCount = 0
     this.state.lastVisibleEdgeCount = 0
     this.state.animationTimer = null
