@@ -15,7 +15,7 @@ var errNoCDP = errors.New("no cdp")
 
 const testStringTrue = "true"
 
-func TestPublishTopologyLinksPublishesCandidateOnlyAttachments(t *testing.T) {
+func TestPublishTopologyLinksSkipsPublishingCandidateOnlyAttachments(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -51,15 +51,15 @@ func TestPublishTopologyLinksPublishesCandidateOnlyAttachments(t *testing.T) {
 
 	engine.publishTopologyLinks(job, links, "192.168.10.1", "SNMP-L2")
 
-	// candidate_only link remains marked for recursive targeting and is also
-	// published downstream so topology can surface endpoint attachments.
+	// candidate_only links remain in the in-memory discovery results so they can
+	// seed recursive targets, but they are not published downstream as
+	// first-class topology evidence.
 	require.Len(t, job.Results.TopologyLinks, 2)
-	require.Len(t, publisher.topologyLinks, 2)
+	require.Len(t, publisher.topologyLinks, 1)
 	publishedNeighbors := []string{
 		publisher.topologyLinks[0].NeighborMgmtAddr,
-		publisher.topologyLinks[1].NeighborMgmtAddr,
 	}
-	assert.ElementsMatch(t, []string{"192.168.10.1", "192.168.10.154"}, publishedNeighbors)
+	assert.ElementsMatch(t, []string{"192.168.10.1"}, publishedNeighbors)
 }
 
 func TestPublishTopologyEvidencePublishesSNMPL2EvenWhenLLDPPresent(t *testing.T) {
@@ -178,6 +178,34 @@ func TestBuildSNMPL2LinksFromNeighborsKeepsARPOnlyAsCandidateOnly(t *testing.T) 
 	assert.Equal(t, "endpoint-attachment", candidateLink.Metadata["evidence_class"])
 	assert.Equal(t, "low", candidateLink.Metadata["confidence_tier"])
 	assert.Equal(t, testStringTrue, candidateLink.Metadata["candidate_only"])
+}
+
+func TestBuildSNMPL2LinksFromNeighborsSkipsKnownFdbNeighborWithoutIdentity(t *testing.T) {
+	t.Parallel()
+
+	neighbors := []arpNeighbor{
+		{
+			ifIndex:            9,
+			ip:                 "192.168.1.62",
+			mac:                "aa:bb:cc:dd:ee:62",
+			fdbPortMapped:      true,
+			neighborKnown:      true,
+			neighborIdentified: false,
+		},
+		{
+			ifIndex:            11,
+			ip:                 "192.168.1.63",
+			mac:                "aa:bb:cc:dd:ee:63",
+			fdbPortMapped:      true,
+			neighborKnown:      true,
+			neighborIdentified: true,
+		},
+	}
+
+	links := buildSNMPL2LinksFromNeighbors("sr:farm01", "192.168.1.1", "disc-4", neighbors)
+	require.Len(t, links, 1)
+	assert.Equal(t, "192.168.1.63", links[0].NeighborMgmtAddr)
+	assert.Equal(t, int32(11), links[0].LocalIfIndex)
 }
 
 func TestBuildSNMPL2LinksFromNeighborsDeduplicatesIdenticalEvidence(t *testing.T) {

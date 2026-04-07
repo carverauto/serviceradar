@@ -148,7 +148,6 @@ describe("rendering_graph_layer_node_methods", () => {
     ], "local")
 
     expect(labels.map((node) => node.id)).toEqual([
-      "router-a",
       "endpoint-1",
       "endpoint-2",
       "endpoint-3",
@@ -157,6 +156,53 @@ describe("rendering_graph_layer_node_methods", () => {
       "endpoint-6",
       "endpoint-7",
       "endpoint-8",
+      "router-a",
     ])
+  })
+
+  it("selectNodeLabels keeps all expanded endpoint members even when they exceed the normal shape budget", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    const labels = ctx.selectNodeLabels([
+      {id: "router-a", label: "Router A", clusterCount: 1, pps: 200, state: 2, selected: false, details: {}},
+      ...Array.from({length: 30}, (_, index) => ({
+        id: `endpoint-${index + 1}`,
+        label: `192.0.2.${index + 1}`,
+        clusterCount: 1,
+        pps: 20 - index,
+        state: 2,
+        selected: false,
+        details: {
+          cluster_kind: "endpoint-member",
+          cluster_expanded: true,
+        },
+      })),
+    ], "local")
+
+    expect(labels).toHaveLength(31)
+    expect(labels.at(0).id).toEqual("endpoint-1")
+    expect(labels.at(-1).id).toEqual("router-a")
+  })
+
+  it("visualClusterCount only scales endpoint summaries", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    expect(ctx.visualClusterCount({clusterCount: 18, details: {cluster_kind: "endpoint-summary"}})).toEqual(18)
+    expect(ctx.visualClusterCount({clusterCount: 18, details: {cluster_kind: "endpoint-anchor"}})).toEqual(1)
+    expect(ctx.visualClusterCount({clusterCount: 18, details: {}})).toEqual(1)
   })
 })
