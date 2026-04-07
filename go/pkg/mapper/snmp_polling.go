@@ -2031,6 +2031,7 @@ func (*DiscoveryEngine) addLLDPMetadata(link *TopologyLink, jobID string) {
 	link.Metadata["discovery_id"] = jobID
 	link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 	link.Metadata["protocol"] = "LLDP"
+	link.Metadata["source"] = "lldp"
 }
 
 // finalizeLLDPLinks validates and finalizes LLDP links
@@ -2212,6 +2213,7 @@ func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, job *
 		link.Metadata["discovery_id"] = job.ID
 		link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 		link.Metadata["protocol"] = "CDP"
+		link.Metadata["source"] = "cdp"
 
 		links = append(links, link)
 	}
