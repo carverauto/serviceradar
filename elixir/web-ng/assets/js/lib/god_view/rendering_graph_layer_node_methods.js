@@ -2,6 +2,11 @@ import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 export const godViewRenderingGraphLayerNodeMethods = {
+  visualClusterCount(node) {
+    const clusterKind = String(node?.details?.cluster_kind || "")
+    if (clusterKind === "endpoint-summary") return Math.max(1, Number(node?.clusterCount || 1))
+    return 1
+  },
   labelBudgetForShape(shape, candidateCount = 0) {
     switch (shape) {
       case "local":
@@ -91,19 +96,26 @@ export const godViewRenderingGraphLayerNodeMethods = {
       if (this.opaqueIdentityLabel(node)) return false
       return true
     })
-    const budget = this.labelBudgetForShape(shape, candidates.length)
-    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
-    if (budget <= 0) return []
-
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
+    const expandedEndpointMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
+    const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
+    const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
+    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
+    if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0) return []
     const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
-    const orderedExpandedEndpointMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
     const orderedEndpointSummaries = ordered.filter((node) => this.endpointSummaryLabel(node))
     const picked = []
     const seen = new Set()
     let endpointSummaryCount = 0
 
-    for (const node of [...selected, ...orderedBackbone, ...orderedExpandedEndpointMembers, ...orderedEndpointSummaries]) {
+    for (const node of [...selected, ...expandedEndpointMembers]) {
+      const id = String(node?.id || "")
+      if (id === "" || seen.has(id)) continue
+      seen.add(id)
+      picked.push(node)
+    }
+
+    for (const node of [...orderedBackbone, ...orderedEndpointSummaries]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
       if (this.endpointSummaryLabel(node) && node?.selected !== true) {
@@ -112,7 +124,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }
       seen.add(id)
       picked.push(node)
-      if (picked.length >= budget) break
+      if (picked.length >= budget + expandedEndpointMembers.length + selected.length) break
     }
 
     return picked
@@ -144,7 +156,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(8 + ((d.clusterCount || 1) - 1) * 0.45, 26) * 2.5,
+        getRadius: (d) => Math.min(8 + (this.visualClusterCount(d) - 1) * 0.45, 26) * 2.5,
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
@@ -166,7 +178,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
         getRadius: (d) => {
-          const baseRadius = Math.min(12 + ((d.clusterCount || 1) - 1) * 0.45, 32)
+          const baseRadius = Math.min(12 + (this.visualClusterCount(d) - 1) * 0.45, 32)
           const breathe = Math.sin((this.state.animationPhase * 2.0) + d.index) * 2.0
           return baseRadius + breathe
         },
@@ -191,7 +203,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(4 + ((d.clusterCount || 1) - 1) * 0.2, 14),
+        getRadius: (d) => Math.min(4 + (this.visualClusterCount(d) - 1) * 0.2, 14),
         radiusUnits: "pixels",
         radiusMinPixels: 3,
         stroked: false,

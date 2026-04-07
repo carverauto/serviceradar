@@ -2264,12 +2264,13 @@ func formatLLDPID(bytes []byte) string {
 }
 
 type arpNeighbor struct {
-	ifIndex       int32
-	ip            string
-	mac           string
-	fdbPortMapped bool
-	fdbMacCount   int
-	neighborKnown bool
+	ifIndex            int32
+	ip                 string
+	mac                string
+	fdbPortMapped      bool
+	fdbMacCount        int
+	neighborKnown      bool
+	neighborIdentified bool
 }
 
 type knownMACNeighbor struct {
@@ -2301,27 +2302,30 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		}
 
 		norm := NormalizeMAC(mac)
+		_, neighborIdentified := knownNeighborsByMAC[norm]
 		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
 			fdbMacCount := fdbMacCountByIf[bridgeIf]
 			neighborKnown := knownNeighborIPs[ip]
 			neighbors = append(neighbors, arpNeighbor{
-				ifIndex:       bridgeIf,
-				ip:            ip,
-				mac:           mac,
-				fdbPortMapped: true,
-				fdbMacCount:   fdbMacCount,
-				neighborKnown: neighborKnown,
+				ifIndex:            bridgeIf,
+				ip:                 ip,
+				mac:                mac,
+				fdbPortMapped:      true,
+				fdbMacCount:        fdbMacCount,
+				neighborKnown:      neighborKnown,
+				neighborIdentified: neighborIdentified,
 			})
 			return
 		}
 
 		neighbors = append(neighbors, arpNeighbor{
-			ifIndex:       0,
-			ip:            ip,
-			mac:           mac,
-			fdbPortMapped: false,
-			fdbMacCount:   0,
-			neighborKnown: knownNeighborIPs[ip],
+			ifIndex:            0,
+			ip:                 ip,
+			mac:                mac,
+			fdbPortMapped:      false,
+			fdbMacCount:        0,
+			neighborKnown:      knownNeighborIPs[ip],
+			neighborIdentified: neighborIdentified,
 		})
 	}
 
@@ -2396,12 +2400,13 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		}
 
 		neighbors = append(neighbors, arpNeighbor{
-			ifIndex:       ifIndex,
-			ip:            neighbor.ip,
-			mac:           mac,
-			fdbPortMapped: true,
-			fdbMacCount:   fdbMacCountByIf[ifIndex],
-			neighborKnown: true,
+			ifIndex:            ifIndex,
+			ip:                 neighbor.ip,
+			mac:                mac,
+			fdbPortMapped:      true,
+			fdbMacCount:        fdbMacCountByIf[ifIndex],
+			neighborKnown:      true,
+			neighborIdentified: true,
 		})
 	}
 
@@ -2478,6 +2483,14 @@ func buildSNMPL2LinksFromNeighbors(
 
 	for _, n := range neighbors {
 		if n.ip == "" {
+			continue
+		}
+
+		// Do not convert an IP-only match for an already-known device into a
+		// topology edge. Managed peers need stronger identity than "we saw this
+		// IP in ARP and a MAC on some bridge port", otherwise a single host can
+		// appear attached to multiple unrelated devices.
+		if n.fdbPortMapped && n.neighborKnown && !n.neighborIdentified {
 			continue
 		}
 
