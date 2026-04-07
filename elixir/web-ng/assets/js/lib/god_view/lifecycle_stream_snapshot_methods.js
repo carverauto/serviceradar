@@ -25,8 +25,12 @@ export const godViewLifecycleStreamSnapshotMethods = {
 
       const renderStart = performance.now()
       const previousGraph = this.state.lastGraph
+      const topologyUnchanged = this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)
+      if (!topologyUnchanged && !this.state.userCameraLocked) {
+        this.state.hasAutoFit = false
+      }
       this.state.lastGraph = graph
-      if (this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)) {
+      if (topologyUnchanged) {
         this.deps.renderGraph(graph)
       } else {
         this.deps.animateTransition(previousGraph, graph)
