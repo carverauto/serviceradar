@@ -50,7 +50,7 @@ describe("rendering_graph_layer_node_methods", () => {
       {id: "selected-endpoint", label: "Laptop", clusterCount: 1, pps: 0, state: 2, selected: true, details: {cluster_kind: "endpoint-member"}},
     ], "local")
 
-    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "switch", "summary", "summary-2"])
+    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "switch", "summary", "summary-2", "summary-3"])
   })
 
   it("selectNodeLabels enforces a per-shape budget", () => {
