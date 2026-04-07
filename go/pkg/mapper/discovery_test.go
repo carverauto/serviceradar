@@ -632,10 +632,10 @@ func TestCollectRecursiveSNMPTargets(t *testing.T) {
 	job := &DiscoveryJob{
 		Results: &DiscoveryResults{
 			TopologyLinks: []*TopologyLink{
-				{NeighborMgmtAddr: "192.168.1.87"},
-				{NeighborMgmtAddr: "192.168.10.154"},
-				{NeighborMgmtAddr: "not-an-ip"},
-				{NeighborMgmtAddr: "192.168.1.87"},
+				{Protocol: "LLDP", Metadata: map[string]string{}, NeighborMgmtAddr: "192.168.1.87"},
+				{Protocol: "LLDP", Metadata: map[string]string{}, NeighborMgmtAddr: "192.168.10.154"},
+				{Protocol: "LLDP", Metadata: map[string]string{}, NeighborMgmtAddr: "not-an-ip"},
+				{Protocol: "LLDP", Metadata: map[string]string{}, NeighborMgmtAddr: "192.168.1.87"},
 			},
 		},
 	}

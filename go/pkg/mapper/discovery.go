@@ -1986,21 +1986,23 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 			return
 		}
 
-		recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
-		if len(recursiveTargets) > 0 {
-			for target := range recursiveTargets {
-				allPotentialSNMPTargets[target] = true
-			}
+		if recursiveSNMPTargetsEnabled(job) {
+			recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
+			if len(recursiveTargets) > 0 {
+				for target := range recursiveTargets {
+					allPotentialSNMPTargets[target] = true
+				}
 
-			for _, mode := range recursivePollingModes(job.Params.Type) {
-				if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
-					failureMessage := "recursive topology polling canceled or failed"
-					if mode == snmpPollingModeEnrichment {
-						failureMessage = "recursive enrichment polling canceled or failed"
+				for _, mode := range recursivePollingModes(job.Params.Type) {
+					if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
+						failureMessage := "recursive topology polling canceled or failed"
+						if mode == snmpPollingModeEnrichment {
+							failureMessage = "recursive enrichment polling canceled or failed"
+						}
+						recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
+						e.finalizeJobStatus(job)
+						return
 					}
-					recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
-					e.finalizeJobStatus(job)
-					return
 				}
 			}
 		}
@@ -2028,6 +2030,19 @@ func shouldRunUniFiDiscovery(job *DiscoveryJob) bool {
 	default:
 		return true
 	}
+}
+
+func recursiveSNMPTargetsEnabled(job *DiscoveryJob) bool {
+	if job == nil || job.Params == nil || job.Params.Options == nil {
+		return true
+	}
+
+	value := strings.TrimSpace(strings.ToLower(job.Params.Options["recursive_snmp_targets_enabled"]))
+	if value == "" {
+		return true
+	}
+
+	return value == "true" || value == "1" || value == "yes" || value == "on"
 }
 
 func (e *DiscoveryEngine) triggerUniFiTopologyDiscovery(ctx context.Context, job *DiscoveryJob, initialSeeds []string) {
@@ -2173,6 +2188,9 @@ func (e *DiscoveryEngine) collectRecursiveSNMPTargets(
 		if link == nil {
 			continue
 		}
+		if !recursiveTopologyLinkEligible(link) {
+			continue
+		}
 
 		neighborCandidates := recursiveNeighborCandidates(link, identityToIP)
 		for _, neighborIP := range neighborCandidates {
@@ -2185,6 +2203,33 @@ func (e *DiscoveryEngine) collectRecursiveSNMPTargets(
 	}
 
 	return targets
+}
+
+func recursiveTopologyLinkEligible(link *TopologyLink) bool {
+	if link == nil {
+		return false
+	}
+
+	if link.Metadata == nil {
+		link.Metadata = make(map[string]string)
+	}
+
+	applySourceAdapterVersion(link)
+	applyTopologyEvidenceClass(link)
+
+	if strings.EqualFold(strings.TrimSpace(link.Metadata["candidate_only"]), "true") {
+		return false
+	}
+
+	if strings.EqualFold(strings.TrimSpace(link.Metadata["confidence_reason"]), "single_identifier_inference") {
+		return false
+	}
+
+	if strings.EqualFold(strings.TrimSpace(link.Metadata["evidence_class"]), "endpoint-attachment") {
+		return false
+	}
+
+	return strings.EqualFold(strings.TrimSpace(link.Metadata["evidence_class"]), evidenceClassDirect)
 }
 
 func recursiveNeighborIdentityIndex(results *DiscoveryResults) map[string]string {
