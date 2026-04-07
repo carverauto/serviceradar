@@ -26,18 +26,6 @@ export const godViewRenderingGraphLayerNodeMethods = {
         return 0
     }
   },
-  expandedEndpointMemberLabelBudgetForShape(shape) {
-    switch (shape) {
-      case "local":
-        return 6
-      case "regional":
-        return 3
-      case "global":
-        return 0
-      default:
-        return 0
-    }
-  },
   opaqueIdentityLabel(node) {
     const label = String(node?.label || "")
     const id = String(node?.id || "")
@@ -105,7 +93,6 @@ export const godViewRenderingGraphLayerNodeMethods = {
     })
     const budget = this.labelBudgetForShape(shape, candidates.length)
     const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
-    const expandedEndpointBudget = this.expandedEndpointMemberLabelBudgetForShape(shape)
     if (budget <= 0) return []
 
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
@@ -115,15 +102,10 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const picked = []
     const seen = new Set()
     let endpointSummaryCount = 0
-    let expandedEndpointCount = 0
 
     for (const node of [...selected, ...orderedBackbone, ...orderedExpandedEndpointMembers, ...orderedEndpointSummaries]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
-      if (this.expandedEndpointMemberLabel(node) && node?.selected !== true) {
-        if (expandedEndpointCount >= expandedEndpointBudget) continue
-        expandedEndpointCount += 1
-      }
       if (this.endpointSummaryLabel(node) && node?.selected !== true) {
         if (endpointSummaryCount >= endpointSummaryBudget) continue
         endpointSummaryCount += 1

@@ -35,6 +35,11 @@ export const godViewLifecycleStreamSnapshotMethods = {
       } else {
         this.deps.animateTransition(previousGraph, graph)
       }
+      const pendingClusterFocus = this.state.pendingClusterFocus
+      if (pendingClusterFocus?.expanded === true) {
+        const focused = this.deps.focusClusterNeighborhood(graph, pendingClusterFocus.clusterId)
+        if (focused) this.state.pendingClusterFocus = null
+      }
       this.state.lastRevision = revision
       this.state.lastTopologyStamp = topologyStamp
       this.state.lastSnapshotAt = Date.now()

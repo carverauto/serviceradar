@@ -2,6 +2,12 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
   setClusterExpanded(clusterId, expanded) {
     const normalized = typeof clusterId === "string" ? clusterId.trim() : ""
     if (normalized === "" || !this.state.channel) return
+    this.state.pendingClusterFocus =
+      expanded === true
+        ? {clusterId: normalized, expanded: true}
+        : null
+    this.state.userCameraLocked = false
+    this.state.hasAutoFit = false
     this.state.channel.push("cluster:set_expanded", {
       cluster_id: normalized,
       expanded: expanded === true,
@@ -9,6 +15,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
   },
   collapseAllClusters() {
     if (!this.state.channel) return
+    this.state.pendingClusterFocus = null
     this.state.channel.push("cluster:collapse_all", {})
   },
   registerSnapshotChannelEvents(channel) {

@@ -17,12 +17,15 @@ function makeJoin() {
 describe("lifecycle_bootstrap_channel_event_methods", () => {
   it("setClusterExpanded pushes the explicit cluster expansion event", () => {
     const channel = {push: vi.fn()}
-    const state = {channel}
+    const state = {channel, userCameraLocked: true, hasAutoFit: true, pendingClusterFocus: null}
     const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods))
 
     ctx.setClusterExpanded("cluster:endpoints:sr:test", true)
 
+    expect(state.pendingClusterFocus).toEqual({clusterId: "cluster:endpoints:sr:test", expanded: true})
+    expect(state.userCameraLocked).toBe(false)
+    expect(state.hasAutoFit).toBe(false)
     expect(channel.push).toHaveBeenCalledWith("cluster:set_expanded", {
       cluster_id: "cluster:endpoints:sr:test",
       expanded: true,
@@ -31,12 +34,13 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
 
   it("collapseAllClusters pushes the cluster collapse event", () => {
     const channel = {push: vi.fn()}
-    const state = {channel}
+    const state = {channel, pendingClusterFocus: {clusterId: "cluster:endpoints:sr:test", expanded: true}}
     const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods))
 
     ctx.collapseAllClusters()
 
+    expect(state.pendingClusterFocus).toBe(null)
     expect(channel.push).toHaveBeenCalledWith("cluster:collapse_all", {})
   })
 
