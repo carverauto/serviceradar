@@ -17,9 +17,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
   endpointSummaryLabelBudgetForShape(shape) {
     switch (shape) {
       case "local":
-        return 2
+        return 6
       case "regional":
-        return 1
+        return 3
       case "global":
         return 1
       default:
@@ -41,7 +41,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
   opaqueIdentityLabel(node) {
     const label = String(node?.label || "")
     const id = String(node?.id || "")
-    return label.startsWith("sr:") || id.startsWith("sr:")
+    return label.startsWith("sr:") || (label.trim() === "" && id.startsWith("sr:"))
   },
   endpointSummaryLabel(node) {
     return String(node?.details?.cluster_kind || "") === "endpoint-summary"
