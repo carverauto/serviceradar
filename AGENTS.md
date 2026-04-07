@@ -48,7 +48,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
-- First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` now includes the Wasm publish/sign/verify path after container images.
+- First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
 - Bazel-managed Rust dep refresh: `scripts/update-rust-bazel-deps.sh [repin-mode] [verify-target]` or `make update-rust-deps REPIN=workspace`.
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
@@ -89,7 +89,7 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 
 ### Fast Path: web-ng-only demo refresh
 
-Use this when the diff only touches `elixir/web-ng/**` and you want a faster `demo` rollout without rerunning the full `make push_all` graph.
+Use this when the diff only touches `elixir/web-ng/**` and you want a faster `demo` rollout without rerunning the full container publish graph.
 
 1. Confirm the scope is narrow:
    - `git diff --name-only <currently-deployed-sha>..HEAD`
@@ -472,7 +472,7 @@ Restart the checker using the persisted config:
 3. Build and push Bazel release artifacts:
    - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
-   - Run `make push_all`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
+   - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
    - If a single image needs republishing, run `bazel run --config=remote_push //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
    - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.

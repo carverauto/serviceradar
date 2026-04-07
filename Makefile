@@ -128,7 +128,7 @@ push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI r
 	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
-push_all: ## Build, sign, and verify all OCI images and first-party Wasm plugin OCI artifacts
+push_all: ## Build, sign, and verify all OCI container images
 	@set -eu; \
 	effective_tag="$(PUSH_TAG)"; \
 	if [ -z "$${effective_tag}" ]; then \
@@ -157,7 +157,16 @@ push_all: ## Build, sign, and verify all OCI images and first-party Wasm plugin 
 		bazel run --config=remote_push --stamp //:push -- --tag "$${effective_tag}"; \
 	fi; \
 	./scripts/sign-oci-publish.sh; \
-	$(MAKE) verify_publish VERIFY_TAG="$${effective_tag}"; \
+	$(MAKE) verify_publish VERIFY_TAG="$${effective_tag}"
+
+.PHONY: push_all_release
+push_all_release: ## Build, sign, and verify all OCI container images and first-party Wasm plugin OCI artifacts
+	@set -eu; \
+	effective_tag="$(PUSH_TAG)"; \
+	if [ -z "$${effective_tag}" ]; then \
+		effective_tag="sha-$$(git rev-parse HEAD)"; \
+	fi; \
+	$(MAKE) push_all PUSH_TAG="$${effective_tag}"; \
 	$(MAKE) push_wasm_plugins PUSH_TAG="$${effective_tag}"
 
 .PHONY: verify_publish
