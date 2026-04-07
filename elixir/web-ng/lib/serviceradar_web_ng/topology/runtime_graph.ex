@@ -17,7 +17,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @default_refresh_ms 5_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
-  @max_query_rows @max_backbone_link_rows + @max_attachment_link_rows
 
   @type state :: %{
           graph_ref: term(),
@@ -160,26 +159,12 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND a.id STARTS WITH 'sr:'
       AND b.id STARTS WITH 'sr:'
       AND (
-        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']
-        OR (
-          r.relation_type IS NULL
-          AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'endpoint-attachment']
-        )
+        toUpper(coalesce(r.relation_type, '')) = 'CONNECTS_TO'
+        OR (r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) = 'direct')
       )
-    WITH
-      a,
-      b,
-      r,
-      CASE
-        WHEN toUpper(coalesce(r.relation_type, '')) = 'CONNECTS_TO' THEN 'backbone'
-        WHEN r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) = 'direct' THEN 'backbone'
-        ELSE 'attachment'
-      END AS topology_plane,
-      CASE
-        WHEN toUpper(coalesce(r.relation_type, '')) = 'CONNECTS_TO' THEN 0
-        WHEN r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) = 'direct' THEN 0
-        ELSE 1
-      END AS topology_plane_priority
+    WITH a, b, r
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_backbone_link_rows}
     RETURN {
       local_device_id: a.id,
       local_device_ip: a.ip,
@@ -221,15 +206,63 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         source: coalesce(r.source, ''),
         inference: coalesce(r.confidence_reason, ''),
         evidence_class: coalesce(r.evidence_class, ''),
-        topology_plane: topology_plane,
+        topology_plane: 'backbone',
         confidence_tier: coalesce(r.confidence_tier, 'unknown'),
         confidence_score: coalesce(r.confidence_score, 0)
       }
-    }
-    ORDER BY
-      topology_plane_priority ASC,
-      coalesce(r.last_observed_at, r.observed_at) DESC
-    LIMIT #{@max_query_rows}
+    } AS row
+    UNION ALL
+    MATCH (ai:Interface)-[r]->(bi:Interface)
+    MATCH (a:Device {id: ai.device_id})
+    MATCH (b:Device {id: bi.device_id})
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']
+      AND ai.device_id IS NOT NULL
+      AND bi.device_id IS NOT NULL
+      AND ai.device_id STARTS WITH 'sr:'
+      AND bi.device_id STARTS WITH 'sr:'
+      AND ai.device_id <> bi.device_id
+    WITH a, b, ai, bi, r
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_attachment_link_rows}
+    RETURN {
+      local_device_id: ai.device_id,
+      local_device_ip: a.ip,
+      local_if_name: coalesce(ai.name, ''),
+      local_if_index: ai.ifindex,
+      local_if_name_ab: coalesce(ai.name, ''),
+      local_if_index_ab: ai.ifindex,
+      local_if_name_ba: coalesce(bi.name, ''),
+      local_if_index_ba: bi.ifindex,
+      neighbor_if_name: coalesce(bi.name, ''),
+      neighbor_if_index: bi.ifindex,
+      neighbor_device_id: bi.device_id,
+      neighbor_mgmt_addr: b.ip,
+      neighbor_system_name: b.name,
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_eligible: false,
+      telemetry_source: 'none',
+      telemetry_observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_reason: coalesce(r.confidence_reason, ''),
+      evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
+      metadata: {
+        relation_type: type(r),
+        source: coalesce(r.source, r.ingestor, 'mapper_topology_v1'),
+        inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
+        topology_plane: 'attachment',
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    } AS row
     """
   end
 
@@ -280,7 +313,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def attachment_runtime_row?(row) when is_map(row) do
     relation_type = runtime_relation_type(row)
     evidence_class = runtime_evidence_class(row)
-    relation_type == "ATTACHED_TO" or (relation_type == "" and evidence_class == "endpoint-attachment")
+
+    relation_type in ["ATTACHED_TO", "OBSERVED_TO"] or
+      (relation_type == "" and evidence_class == "endpoint-attachment")
   end
 
   def attachment_runtime_row?(_row), do: false

@@ -4,29 +4,28 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.RuntimeGraph
 
-  test "topology_links_query/0 reads canonical backend relation" do
+  test "topology_links_query/0 reads canonical backbone plus mapper attachment evidence" do
     query = RuntimeGraph.topology_links_query()
 
     assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
+    assert query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
     assert query =~ "a.id STARTS WITH 'sr:'"
     assert query =~ "b.id STARTS WITH 'sr:'"
-    assert query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']"
-    assert query =~ "r.relation_type IS NULL"
-    assert query =~ "toLower(coalesce(r.evidence_class, '')) IN ['direct', 'endpoint-attachment']"
-    assert query =~ "END AS topology_plane"
-    assert query =~ "END AS topology_plane_priority"
-    refute query =~ "toUpper(coalesce(r.relation_type, '')) = 'INFERRED_TO'"
-    assert query =~ "ORDER BY"
+    assert query =~ "toUpper(coalesce(r.relation_type, '')) = 'CONNECTS_TO'"
+    assert query =~ "type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']"
+    assert query =~ "MATCH (a:Device {id: ai.device_id})"
+    assert query =~ "MATCH (b:Device {id: bi.device_id})"
+    refute query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']"
   end
 
-  test "topology_links_query/0 stays canonical-only even if legacy flag is set false" do
+  test "topology_links_query/0 stays on the canonical-plus-mapper read model even if legacy flag is set false" do
     original = Application.get_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
 
     try do
       Application.put_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, false)
       query = RuntimeGraph.topology_links_query()
       assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
-      refute query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
+      assert query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
     after
       if is_nil(original) do
         Application.delete_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
@@ -44,7 +43,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     query = RuntimeGraph.topology_links_query()
 
     assert query =~ "relation_type: coalesce(r.relation_type, type(r))"
-    assert query =~ "topology_plane: topology_plane"
+    assert query =~ "topology_plane: 'backbone'"
+    assert query =~ "topology_plane: 'attachment'"
     assert query =~ "local_if_name: coalesce(r.local_if_name, '')"
     assert query =~ "local_if_index: r.local_if_index"
     assert query =~ "local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, '')"
@@ -58,7 +58,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "flow_bps_ab: coalesce(r.flow_bps_ab, 0)"
     assert query =~ "telemetry_eligible: coalesce("
     assert query =~ "telemetry_source: coalesce(r.telemetry_source, 'none')"
-    assert query =~ "topology_plane_priority ASC"
+    assert query =~ "telemetry_eligible: false"
+    assert query =~ "telemetry_source: 'none'"
+    assert query =~ "evidence_class: coalesce(r.evidence_class, 'endpoint-attachment')"
   end
 
   test "runtime graph ingest/get preserves neighbor interface attribution" do
@@ -158,7 +160,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
       local_device_id: "sr:a",
       neighbor_device_id: "sr:endpoint-b",
       evidence_class: "endpoint-attachment",
-      metadata: %{"relation_type" => "ATTACHED_TO"}
+      metadata: %{"relation_type" => "OBSERVED_TO"}
     }
 
     inferred_row = %{

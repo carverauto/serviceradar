@@ -2189,6 +2189,102 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert distance < 130.0
   end
 
+  test "latest_snapshot/0 disambiguates duplicate backbone labels with ip suffixes" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_duplicate_label_test)
+    suffix = System.unique_integer([:positive])
+    aggregation_uid = "sr:duplicate-aggregation-#{suffix}"
+    left_uid = "sr:duplicate-left-#{suffix}"
+    right_uid = "sr:duplicate-right-#{suffix}"
+
+    create_topology_device(actor, aggregation_uid, "agg-#{suffix}.local", %{
+      ip: "192.0.2.1",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, left_uid, "USWPro24", %{
+      ip: "192.0.2.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, right_uid, "USWPro24", %{
+      ip: "192.0.2.11",
+      type_id: 10,
+      is_available: true
+    })
+
+    rows = [
+      %{
+        local_device_id: left_uid,
+        local_device_ip: "192.0.2.10",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth48",
+        neighbor_if_index: 48,
+        neighbor_device_id: aggregation_uid,
+        neighbor_mgmt_addr: "192.0.2.1",
+        neighbor_system_name: "agg",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 100,
+        flow_bps: 10_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 60,
+        flow_pps_ba: 40,
+        flow_bps_ab: 6_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: right_uid,
+        local_device_ip: "192.0.2.11",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth47",
+        neighbor_if_index: 47,
+        neighbor_device_id: aggregation_uid,
+        neighbor_mgmt_addr: "192.0.2.1",
+        neighbor_system_name: "agg",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 90,
+        flow_bps: 9_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 50,
+        flow_pps_ba: 40,
+        flow_bps_ab: 5_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    labels =
+      snapshot.nodes
+      |> Enum.filter(&(&1.id in [left_uid, right_uid]))
+      |> Enum.map(& &1.label)
+      |> Enum.sort()
+
+    assert labels == ["USWPro24 (192.0.2.10)", "USWPro24 (192.0.2.11)"]
+  end
+
   test "latest_snapshot/0 collapses ambiguous endpoint attachments to one parent" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
