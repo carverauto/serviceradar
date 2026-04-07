@@ -20,6 +20,7 @@ function buildContext() {
     escapeHtml: (value) => String(value == null ? "" : value),
     renderGraph: () => {},
     edgeLayerId: godViewRenderingTooltipMethods.edgeLayerId,
+    displayNodeLabel: godViewRenderingTooltipMethods.displayNodeLabel,
   }
 }
 
@@ -66,6 +67,28 @@ describe("rendering_tooltip_methods", () => {
     expect(tooltip.html).toContain("IP: unknown")
     expect(tooltip.html).toContain("Type: unknown")
     expect(tooltip.html).toContain("State: Unknown")
+  })
+
+  it("uses a friendly title for unresolved placeholder nodes", () => {
+    const ctx = buildContext()
+    ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
+    ctx.displayNodeLabel = godViewRenderingTooltipMethods.displayNodeLabel.bind(ctx)
+
+    const tooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-nodes"},
+      object: {
+        label: "sr:18794bab-1a5c-4266-bc75-561b0afd7341",
+        state: 3,
+        details: {
+          ip: "unknown",
+          type: "unknown",
+          cluster_placeholder: true,
+        },
+      },
+    })
+
+    expect(tooltip.html).toContain("Unidentified endpoint")
+    expect(tooltip.html).not.toContain("sr:18794bab-1a5c-4266-bc75-561b0afd7341")
   })
 
   it("shows expand and collapse hints for cluster nodes", () => {
