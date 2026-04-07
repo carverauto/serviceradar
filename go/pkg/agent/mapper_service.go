@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -331,6 +332,9 @@ func (p *MapperResultPublisher) PublishInterface(_ context.Context, iface *mappe
 
 func (p *MapperResultPublisher) PublishTopologyLink(_ context.Context, link *mapper.TopologyLink) error {
 	if link == nil {
+		return nil
+	}
+	if mapperTopologyLinkIsCandidateOnly(link.Metadata) {
 		return nil
 	}
 
@@ -659,8 +663,13 @@ func buildMapperTopologyPayload(updates []map[string]interface{}, agentID, parti
 		partition = defaultPartition
 	}
 
+	filtered := make([]map[string]interface{}, 0, len(updates))
+
 	for _, update := range updates {
 		if update == nil {
+			continue
+		}
+		if mapperTopologyLinkIsCandidateOnly(updateStringMap(update["metadata"])) {
 			continue
 		}
 		if update["agent_id"] == nil {
@@ -672,9 +681,44 @@ func buildMapperTopologyPayload(updates []map[string]interface{}, agentID, parti
 		if update["partition"] == nil {
 			update["partition"] = partition
 		}
+
+		filtered = append(filtered, update)
 	}
 
-	return json.Marshal(updates)
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+
+	return json.Marshal(filtered)
+}
+
+func mapperTopologyLinkIsCandidateOnly(metadata map[string]string) bool {
+	if len(metadata) == 0 {
+		return false
+	}
+
+	return strings.EqualFold(strings.TrimSpace(metadata["candidate_only"]), "true")
+}
+
+func updateStringMap(value interface{}) map[string]string {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case map[string]string:
+		return typed
+	case map[string]interface{}:
+		converted := make(map[string]string, len(typed))
+		for key, raw := range typed {
+			text, ok := raw.(string)
+			if !ok {
+				continue
+			}
+			converted[key] = text
+		}
+		return converted
+	default:
+		return nil
+	}
 }
 
 func mapperResultsResponse(payload []byte, seq, serviceName, serviceType string) *proto.ResultsResponse {
