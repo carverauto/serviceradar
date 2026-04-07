@@ -1017,7 +1017,71 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         health_signal: health_signal(device)
       }
     end)
+    |> disambiguate_duplicate_node_labels()
   end
+
+  defp disambiguate_duplicate_node_labels(nodes) when is_list(nodes) do
+    duplicate_labels =
+      nodes
+      |> Enum.group_by(&duplicate_node_label_key/1)
+      |> Enum.reduce(MapSet.new(), fn
+        {label, grouped_nodes}, acc when is_binary(label) and label != "" ->
+          if length(grouped_nodes) > 1, do: MapSet.put(acc, label), else: acc
+
+        _, acc ->
+          acc
+      end)
+
+    Enum.map(nodes, fn node ->
+      label = duplicate_node_label_key(node)
+
+      if is_binary(label) and MapSet.member?(duplicate_labels, label) do
+        case duplicate_node_label_suffix(node) do
+          suffix when is_binary(suffix) and suffix != "" -> %{node | label: "#{label} (#{suffix})"}
+          _ -> node
+        end
+      else
+        node
+      end
+    end)
+  end
+
+  defp disambiguate_duplicate_node_labels(nodes), do: nodes
+
+  defp duplicate_node_label_key(%{label: label, details_json: details_json}) when is_binary(label) do
+    details = decode_details_json(details_json)
+
+    case normalize_id(Map.get(details, "cluster_kind")) do
+      kind when kind in ["endpoint-summary", "endpoint-member"] -> nil
+      _ -> normalize_id(label)
+    end
+  end
+
+  defp duplicate_node_label_key(_node), do: nil
+
+  defp duplicate_node_label_suffix(%{details_json: details_json, id: id, label: label}) do
+    details = decode_details_json(details_json)
+    ip = normalize_ipv4(Map.get(details, "ip"))
+    hostname = normalize_id(Map.get(details, "hostname"))
+
+    cond do
+      is_binary(ip) and ip != "" ->
+        ip
+
+      is_binary(hostname) and hostname != "" and hostname != label ->
+        hostname
+
+      is_binary(id) and id != "" ->
+        id
+        |> String.replace_prefix("sr:", "")
+        |> String.slice(0, 8)
+
+      true ->
+        nil
+    end
+  end
+
+  defp duplicate_node_label_suffix(_node), do: nil
 
   defp node_pps_by_id(edges) when is_list(edges) do
     Enum.reduce(edges, %{}, fn edge, acc ->
