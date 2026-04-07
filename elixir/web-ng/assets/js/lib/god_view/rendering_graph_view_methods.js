@@ -104,24 +104,24 @@ export const godViewRenderingGraphViewMethods = {
     const height = Math.max(1, this.state.el.clientHeight || 1)
     const basePadding = this.fitViewPadding(width, height)
     const padding = {
-      left: Math.max(24, basePadding.left * 0.5),
-      right: Math.max(96, basePadding.right * 0.6),
-      top: Math.max(40, basePadding.top * 0.55),
-      bottom: Math.max(56, basePadding.bottom * 0.6),
+      left: Math.max(32, basePadding.left * 0.65),
+      right: Math.max(112, basePadding.right * 0.7),
+      top: Math.max(56, basePadding.top * 0.8),
+      bottom: Math.max(104, basePadding.bottom * 1.15),
     }
     const availableWidth = Math.max(1, width - padding.left - padding.right)
     const availableHeight = Math.max(1, height - padding.top - padding.bottom)
-    const spanX = Math.max(48, maxX - minX)
-    const spanY = Math.max(48, maxY - minY)
+    const spanX = Math.max(96, (maxX - minX) * 1.18)
+    const spanY = Math.max(120, (maxY - minY) * 1.22)
     const zoomX = Math.log2(availableWidth / spanX)
     const zoomY = Math.log2(availableHeight / spanY)
     const zoom = Math.max(
       this.state.viewState.minZoom,
-      Math.min(this.state.viewState.maxZoom, Math.min(zoomX, zoomY) + 0.35),
+      Math.min(this.state.viewState.maxZoom, Math.min(zoomX, zoomY) + 0.08),
     )
     const scale = Math.pow(2, zoom)
     const targetX = ((minX + maxX) / 2) + ((padding.right - padding.left) / (2 * scale))
-    const targetY = ((minY + maxY) / 2) + ((padding.bottom - padding.top) / (2 * scale))
+    const targetY = ((minY + maxY) / 2) - ((padding.bottom - padding.top) / (2 * scale))
 
     this.state.viewState = {
       ...this.state.viewState,

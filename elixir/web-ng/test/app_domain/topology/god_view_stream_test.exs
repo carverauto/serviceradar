@@ -4745,6 +4745,82 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
   end
 
+  test "latest_snapshot/0 does not cluster provisional mapper topology sightings that only have IP identity" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_provisional_ip_only_sighting_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:cluster-provisional-ip-only-ap-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "cluster-provisional-ip-only-ap-#{suffix}", %{
+      ip: "198.51.100.240",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-provisional-ip-only-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{240 + idx}"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: false,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional"
+          }
+        })
+
+        %{uid: uid, ip: ip}
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+        %{
+          local_device_id: endpoint_uid,
+          local_device_ip: endpoint_ip,
+          local_if_name: "unknown",
+          local_if_index: nil,
+          neighbor_if_name: "unknown",
+          neighbor_if_index: nil,
+          neighbor_device_id: ap_uid,
+          neighbor_mgmt_addr: "198.51.100.240",
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 1,
+          flow_bps: 100,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 1,
+          flow_pps_ba: 0,
+          flow_bps_ab: 100,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-06T01:48:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 0
+  end
+
   test "latest_snapshot/0 prefers target-side endpoint identities when source-side rows have no leaf IP identity" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)

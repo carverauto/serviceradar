@@ -56,6 +56,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     maybe_prune_unseen_projected_links(neighbor_index)
     maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
     maybe_prune_stale_mapper_evidence_links()
+    reconcile_legacy_single_identifier_attachment_links()
+    purge_legacy_single_identifier_canonical_links()
     rebuild_canonical_device_links()
 
     Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
@@ -718,15 +720,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp prune_stale_mapper_evidence_links do
     stale_cutoff = stale_cutoff_iso8601()
-
-    cypher = """
-    MATCH ()-[r]->()
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
-      AND r.last_observed_at IS NOT NULL
-      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
-    DELETE r
-    """
+    cypher = prune_stale_mapper_evidence_links_query(stale_cutoff)
 
     case Graph.execute(cypher) do
       :ok ->
@@ -735,6 +729,81 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       {:error, reason} ->
         Logger.warning("Topology global stale edge pruning failed: #{inspect(reason)}")
     end
+  end
+
+  @doc false
+  @spec prune_stale_mapper_evidence_links_query(String.t()) :: String.t()
+  def prune_stale_mapper_evidence_links_query(stale_cutoff) when is_binary(stale_cutoff) do
+    """
+    MATCH ()-[r]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND r.last_observed_at IS NOT NULL
+      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+    DELETE r
+    """
+  end
+
+  defp reconcile_legacy_single_identifier_attachment_links do
+    cypher = reconcile_legacy_single_identifier_attachment_links_query()
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Legacy mapper ATTACHED_TO reconciliation failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec reconcile_legacy_single_identifier_attachment_links_query() :: String.t()
+  def reconcile_legacy_single_identifier_attachment_links_query do
+    """
+    MATCH (ai:Interface)-[legacy:ATTACHED_TO]->(bi:Interface)
+    WHERE legacy.ingestor = 'mapper_topology_v1'
+      AND toLower(coalesce(legacy.protocol, legacy.source, 'unknown')) = 'snmp-l2'
+      AND toLower(coalesce(legacy.evidence_class, 'unknown')) = 'endpoint-attachment'
+      AND toLower(coalesce(legacy.confidence_reason, 'unknown')) = 'single_identifier_inference'
+    MERGE (ai)-[observed:OBSERVED_TO]->(bi)
+    SET observed.first_observed_at = coalesce(observed.first_observed_at, legacy.first_observed_at, legacy.observed_at)
+    SET observed.ingestor = 'mapper_topology_v1'
+    SET observed.source = coalesce(legacy.source, 'snmp-l2')
+    SET observed.protocol = coalesce(legacy.protocol, legacy.source, 'snmp-l2')
+    SET observed.evidence_class = coalesce(legacy.evidence_class, 'endpoint-attachment')
+    SET observed.confidence_tier = coalesce(legacy.confidence_tier, 'low')
+    SET observed.confidence_score = coalesce(legacy.confidence_score, 40)
+    SET observed.confidence_reason = coalesce(legacy.confidence_reason, 'single_identifier_inference')
+    SET observed.observed_at = coalesce(legacy.observed_at, observed.observed_at)
+    SET observed.last_observed_at = coalesce(legacy.last_observed_at, legacy.observed_at, observed.last_observed_at)
+    DELETE legacy
+    """
+  end
+
+  defp purge_legacy_single_identifier_canonical_links do
+    cypher = purge_legacy_single_identifier_canonical_links_query()
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Legacy canonical ATTACHED_TO purge failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec purge_legacy_single_identifier_canonical_links_query() :: String.t()
+  def purge_legacy_single_identifier_canonical_links_query do
+    """
+    MATCH ()-[r:CANONICAL_TOPOLOGY]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND toLower(coalesce(r.relation_type, 'unknown')) = 'attached_to'
+      AND toLower(coalesce(r.protocol, 'unknown')) = 'snmp-l2'
+      AND toLower(coalesce(r.evidence_class, 'unknown')) = 'endpoint-attachment'
+      AND toLower(coalesce(r.confidence_reason, 'unknown')) = 'single_identifier_inference'
+    DELETE r
+    """
   end
 
   defp maybe_prune_stale_mapper_evidence_links do
@@ -1174,7 +1243,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     """
     MATCH ()-[r]->()
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
     RETURN {count: count(r)}
     """
   end
