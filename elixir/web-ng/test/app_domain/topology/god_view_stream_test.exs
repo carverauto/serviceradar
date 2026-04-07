@@ -5356,6 +5356,71 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
            end)
   end
 
+  test "latest_snapshot/0 gives unresolved expanded placeholders a human-safe label when identity data is missing" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unresolved_placeholder_label_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-unresolved-placeholder-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-unresolved-placeholder-switch-#{suffix}", %{
+      ip: "198.51.104.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_ids =
+      Enum.map(1..4, fn idx -> "sr:cluster-unresolved-placeholder-endpoint-#{suffix}-#{idx}" end)
+
+    rows =
+      Enum.map(endpoint_ids, fn endpoint_uid ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.104.10",
+          local_if_name: "edge7",
+          local_if_index: 17,
+          neighbor_if_name: nil,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: nil,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 1,
+          flow_bps: 100,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 1,
+          flow_pps_ba: 0,
+          flow_bps_ab: 100,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-24T04:00:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+
+    assert {:ok, %{snapshot: expanded_snapshot}} =
+             latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
+
+    assert Enum.all?(endpoint_ids, fn endpoint_id ->
+             endpoint = Enum.find(expanded_snapshot.nodes, &(&1.id == endpoint_id))
+             endpoint && endpoint.label == "Unidentified endpoint"
+           end)
+  end
+
   test "latest_snapshot/0 limits topology-sighting members rendered for expanded endpoint clusters" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)

@@ -1907,7 +1907,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     %{
       id: endpoint_id,
-      label: ip || mac || endpoint_id,
+      label: expanded_endpoint_placeholder_label(ip, mac),
       kind: "endpoint",
       x: 0,
       y: 0,
@@ -1935,9 +1935,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp build_expanded_endpoint_placeholder_node(endpoint_id, _group) when is_binary(endpoint_id) do
+    ip = ip_like_id(endpoint_id)
+
     %{
       id: endpoint_id,
-      label: ip_like_id(endpoint_id) || endpoint_id,
+      label: expanded_endpoint_placeholder_label(ip, nil),
       kind: "endpoint",
       x: 0,
       y: 0,
@@ -1947,7 +1949,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       details_json:
         normalize_details_json(%{
           id: endpoint_id,
-          ip: ip_like_id(endpoint_id),
+          ip: ip,
           type: "unknown",
           identity_source: "mapper_topology_sighting",
           cluster_placeholder: true
@@ -1959,6 +1961,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp build_expanded_endpoint_placeholder_node(_endpoint_id, _group), do: %{}
+
+  defp expanded_endpoint_placeholder_label(ip, mac) do
+    normalize_id(ip) || normalize_id(mac) || "Unidentified endpoint"
+  end
 
   defp summarized_endpoint_cluster_group?(group, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
     member_count = length(Map.get(group, :endpoint_ids, []))
