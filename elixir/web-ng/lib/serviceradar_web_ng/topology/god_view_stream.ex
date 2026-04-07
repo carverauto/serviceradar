@@ -2647,6 +2647,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       high_ambiguity_endpoint_attachment_identity?(node_id, node, peer_counts) ->
         false
 
+      weak_provisional_topology_sighting_identity?(node_id, node) ->
+        false
+
       is_map(node) and infrastructure_device?(node) ->
         false
 
@@ -2666,6 +2669,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp endpoint_cluster_edge_member_with_ip?(node_id, node, edge, role, peer_counts)
        when is_binary(node_id) and is_map(edge) and role in [:source, :target] and is_map(peer_counts) do
     is_nil(node) and not high_ambiguity_endpoint_attachment_identity?(node_id, node, peer_counts) and
+      not weak_edge_only_endpoint_identity?(edge, role) and
       edge
       |> endpoint_cluster_edge_member_ip(role)
       |> normalize_ipv4()
@@ -2673,6 +2677,46 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_cluster_edge_member_with_ip?(_node_id, _node, _edge, _role, _peer_counts), do: false
+
+  defp weak_provisional_topology_sighting_identity?(node_id, device) when is_binary(node_id) and is_map(device) do
+    topology_sighting_device?(device) and provisional_identity_state?(device) and
+      is_binary(normalize_ipv4(node_ip(device, node_id))) and
+      blank_node_identity?(Map.get(device, :name)) and
+      blank_node_identity?(Map.get(device, :hostname)) and
+      is_nil(normalize_mac(Map.get(device, :mac))) and
+      is_nil(normalize_mac(node_meta_value(device, ["primary_mac", "endpoint_mac", "mac", "mac_address"])))
+  end
+
+  defp weak_provisional_topology_sighting_identity?(_node_id, _device), do: false
+
+  defp weak_edge_only_endpoint_identity?(edge, role) when is_map(edge) and role in [:source, :target] do
+    endpoint_attachment_edge?(edge) and
+      normalize_id(Map.get(edge, :confidence_reason)) == "single_identifier_inference" and
+      member_interface_name_unknown?(edge, role) and
+      is_nil(endpoint_cluster_edge_member_mac(edge, role))
+  end
+
+  defp weak_edge_only_endpoint_identity?(_edge, _role), do: false
+
+  defp member_interface_name_unknown?(edge, :source) when is_map(edge) do
+    blank_or_unknown_identity?(Map.get(edge, :local_if_name))
+  end
+
+  defp member_interface_name_unknown?(edge, :target) when is_map(edge) do
+    blank_or_unknown_identity?(Map.get(edge, :neighbor_if_name))
+  end
+
+  defp member_interface_name_unknown?(_edge, _role), do: true
+
+  defp endpoint_cluster_edge_member_mac(edge, :source) when is_map(edge) do
+    attachment_side_mac(edge, :source)
+  end
+
+  defp endpoint_cluster_edge_member_mac(edge, :target) when is_map(edge) do
+    attachment_side_mac(edge, :target)
+  end
+
+  defp endpoint_cluster_edge_member_mac(_edge, _role), do: nil
 
   defp endpoint_like_node?(node) when is_map(node) do
     kind =
@@ -2705,6 +2749,26 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_like_node?(_node), do: false
+
+  defp provisional_identity_state?(device) when is_map(device) do
+    device
+    |> Map.get(:metadata, %{})
+    |> metadata_value("identity_state")
+    |> normalize_id() == "provisional"
+  end
+
+  defp provisional_identity_state?(_device), do: false
+
+  defp blank_or_unknown_identity?(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "" -> true
+      "unknown" -> true
+      _ -> false
+    end
+  end
+
+  defp blank_or_unknown_identity?(nil), do: true
+  defp blank_or_unknown_identity?(_value), do: false
 
   defp router_attachment_anchor?(device) when is_map(device) do
     normalized_node_type(device) in ["router"]

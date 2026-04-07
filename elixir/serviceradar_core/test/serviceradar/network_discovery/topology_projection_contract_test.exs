@@ -362,8 +362,42 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       query = TopologyGraph.mapper_evidence_edge_count_query()
 
       assert query =~ "r.ingestor = 'mapper_topology_v1'"
-      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']"
+      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
       assert query =~ "RETURN {count: count(r)}"
+    end
+
+    test "stale mapper evidence prune query includes observation-only edges" do
+      query = TopologyGraph.prune_stale_mapper_evidence_links_query("2026-02-25T00:00:00Z")
+
+      assert query =~ "r.ingestor = 'mapper_topology_v1'"
+      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+      assert query =~ "DELETE r"
+    end
+
+    test "legacy single-identifier attachment reconciliation converts ATTACHED_TO into OBSERVED_TO" do
+      query = TopologyGraph.reconcile_legacy_single_identifier_attachment_links_query()
+
+      assert query =~ "MATCH (ai:Interface)-[legacy:ATTACHED_TO]->(bi:Interface)"
+      assert query =~ "MERGE (ai)-[observed:OBSERVED_TO]->(bi)"
+      assert query =~ "toLower(coalesce(legacy.protocol, legacy.source, 'unknown')) = 'snmp-l2'"
+
+      assert query =~
+               "toLower(coalesce(legacy.confidence_reason, 'unknown')) = 'single_identifier_inference'"
+
+      assert query =~ "DELETE legacy"
+    end
+
+    test "legacy canonical single-identifier attachment purge deletes polluted canonical edges" do
+      query = TopologyGraph.purge_legacy_single_identifier_canonical_links_query()
+
+      assert query =~ "MATCH ()-[r:CANONICAL_TOPOLOGY]->()"
+      assert query =~ "toLower(coalesce(r.relation_type, 'unknown')) = 'attached_to'"
+      assert query =~ "toLower(coalesce(r.protocol, 'unknown')) = 'snmp-l2'"
+
+      assert query =~
+               "toLower(coalesce(r.confidence_reason, 'unknown')) = 'single_identifier_inference'"
+
+      assert query =~ "DELETE r"
     end
 
     test "canonical telemetry batch query updates multiple edges in one UNWIND" do
