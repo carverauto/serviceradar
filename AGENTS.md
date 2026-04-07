@@ -80,11 +80,46 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
   - `values-demo.yaml` carries the `external-dns` annotation for `demo-gw.serviceradar.cloud`; using only `values.yaml` will drop the DNS record.
 - `values-demo.yaml` is an overlay on top of `values.yaml`, not a full copy of every chart value. Missing keys usually mean "inherit the default chart value."
 - Demo pins ServiceRadar workloads to immutable `sha-...` tags via `global.imageTag`; use `image.digests` only when you need per-service overrides.
+- Demo admission is Kyverno-enforced. Images admitted to `demo` must be signed with the release key that matches `docs/cosign.pub`; local `~/.cosign/cosign.key` signatures will not pass cluster policy.
 - Local convenience helper: `sr_demo_deploy <sha-...|git-sha>`
   - Defined in `~/.zshrc`
   - Example: `sr_demo_deploy ad617c5f8a067f1e3e93872704754b9f7d006697`
   - If the function is not loaded in the current shell yet, run `source ~/.zshrc`
 - Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
+
+### Fast Path: web-ng-only demo refresh
+
+Use this when the diff only touches `elixir/web-ng/**` and you want a faster `demo` rollout without rerunning the full `make push_all` graph.
+
+1. Confirm the scope is narrow:
+   - `git diff --name-only <currently-deployed-sha>..HEAD`
+   - If only `elixir/web-ng/**` changed, rebuild just `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
+2. Copy unchanged images from the current demo tag to the new tag:
+   - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
+   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-db-event-writer`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, `serviceradar-zen`, and `arancini`.
+3. Rebuild the production `web-ng` release locally:
+   - `cd elixir/web-ng`
+   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.compile`
+   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix compile`
+   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix assets.deploy`
+   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix release --path /tmp/serviceradar_web_ng_release_<shortsha>`
+4. Package and push the new `web-ng` image directly with `crane`:
+   - `tar --owner=10001 --group=10001 --transform='s,^,app/,' -cf /tmp/serviceradar_web_ng_layer_<shortsha>.tar -C /tmp/serviceradar_web_ng_release_<shortsha> .`
+   - `/tmp/gobin/crane append --platform linux/amd64 -b index.docker.io/hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim -f /tmp/serviceradar_web_ng_layer_<shortsha>.tar -t registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
+   - `/tmp/gobin/crane mutate --platform linux/amd64 --tag registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new> --entrypoint /app/bin/serviceradar_web_ng --cmd start --env HOME=/app --env PATH=/app/bin:/usr/local/bin:/usr/bin:/bin --env PHX_SERVER=true --env MIX_ENV=prod --exposed-ports 4000/tcp --user 10001:10001 --workdir /app registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
+5. Sign the new `web-ng` tag with the release signer, not a local key:
+   - Port-forward OpenBao if needed: `kubectl port-forward -n vault svc/openbao 18200:8200`
+   - Exchange the Forgejo runner service account token for a Vault token and set `VAULT_ADDR=http://127.0.0.1:18200`
+   - `export COSIGN_KEY_REF=hashivault://cosign-release`
+   - `export COSIGN_YES=true COSIGN_DOCKER_MEDIA_TYPES=1 COSIGN_REFERRERS_MODE=legacy COSIGN_TLOG_UPLOAD=true`
+   - `cosign sign --key "$COSIGN_KEY_REF" registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
+6. Patch the Argo app override instead of editing chart values for one-off demo tests:
+   - `kubectl patch application -n argocd serviceradar-demo-prod --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'`
+7. Watch the rollout to completion:
+   - `kubectl get application -n argocd serviceradar-demo-prod -o jsonpath='{.status.sync.status}{"|"}{.status.health.status}{"|"}{.status.operationState.phase}{"\n"}'`
+   - `kubectl get deploy -n demo serviceradar-web-ng serviceradar-core serviceradar-agent serviceradar-tools -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'`
+   - Expect temporary `OutOfSync|Healthy|Running` or `Synced|Progressing|Running` while hook jobs such as runtime cert generation or NATS credential generation complete.
+   - Finish only when Argo reports `Synced|Healthy|Succeeded` and the key `demo` pods are `Running` on `sha-<new>`.
 
 ## Docker Compose Refresh
 
