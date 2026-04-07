@@ -132,4 +132,83 @@ describe("lifecycle_stream_snapshot_methods", () => {
     expect(state.lastGraph).toBe(graph)
     expect(state.summary.textContent).toContain("layout=elk-client")
   })
+
+  it("handleSnapshot re-arms autoFit on topology changes when the user has not locked the camera", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: {nodes: [{id: "old"}], edges: []},
+      lastVisibleNodeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      lastTopologyStamp: "old-stamp",
+      userCameraLocked: false,
+      hasAutoFit: true,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {nodes: [{id: "a", x: 10, y: 20}], edges: [], _layoutMode: "elk-client"}
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "new-stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.hasAutoFit).toBe(false)
+    expect(deps.animateTransition).toHaveBeenCalledWith({nodes: [{id: "old"}], edges: []}, graph)
+  })
+
+  it("handleSnapshot preserves camera lock on topology changes after user interaction", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: {nodes: [{id: "old"}], edges: []},
+      lastVisibleNodeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      lastTopologyStamp: "old-stamp",
+      userCameraLocked: true,
+      hasAutoFit: true,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {nodes: [{id: "a", x: 10, y: 20}], edges: [], _layoutMode: "elk-client"}
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "new-stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.hasAutoFit).toBe(true)
+  })
 })

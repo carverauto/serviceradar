@@ -50,7 +50,7 @@ describe("rendering_graph_layer_node_methods", () => {
       {id: "selected-endpoint", label: "Laptop", clusterCount: 1, pps: 0, state: 2, selected: true, details: {cluster_kind: "endpoint-member"}},
     ], "local")
 
-    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "summary", "summary-2", "switch"])
+    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "switch", "summary", "summary-2"])
   })
 
   it("selectNodeLabels enforces a per-shape budget", () => {
@@ -97,5 +97,64 @@ describe("rendering_graph_layer_node_methods", () => {
     ], "local")
 
     expect(labels.map((node) => node.id)).toEqual(["sr:selected", "router"])
+  })
+
+  it("selectNodeLabels reserves budget for backbone labels before endpoint summaries", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    const labels = ctx.selectNodeLabels([
+      {id: "summary", label: "20 endpoints", clusterCount: 20, pps: 10, state: 3, selected: false, details: {cluster_kind: "endpoint-summary"}},
+      {id: "summary-2", label: "10 endpoints", clusterCount: 10, pps: 9, state: 3, selected: false, details: {cluster_kind: "endpoint-summary"}},
+      {id: "router-a", label: "Router A", clusterCount: 1, pps: 200, state: 2, selected: false, details: {}},
+      {id: "switch-b", label: "Switch B", clusterCount: 1, pps: 180, state: 2, selected: false, details: {}},
+      {id: "ap-c", label: "AP C", clusterCount: 1, pps: 160, state: 2, selected: false, details: {cluster_kind: "endpoint-anchor"}},
+    ], "local")
+
+    expect(labels.map((node) => node.id).slice(0, 3).sort()).toEqual(["ap-c", "router-a", "switch-b"])
+  })
+
+  it("selectNodeLabels includes expanded endpoint-member labels with a bounded budget", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    const labels = ctx.selectNodeLabels([
+      {id: "router-a", label: "Router A", clusterCount: 1, pps: 200, state: 2, selected: false, details: {}},
+      ...Array.from({length: 8}, (_, index) => ({
+        id: `endpoint-${index + 1}`,
+        label: `192.0.2.${index + 1}`,
+        clusterCount: 1,
+        pps: 20 - index,
+        state: 2,
+        selected: false,
+        details: {
+          cluster_kind: "endpoint-member",
+          cluster_expanded: true,
+          identity_source: "mapper_topology_sighting",
+        },
+      })),
+    ], "local")
+
+    expect(labels.map((node) => node.id)).toEqual([
+      "router-a",
+      "endpoint-1",
+      "endpoint-2",
+      "endpoint-3",
+      "endpoint-4",
+      "endpoint-5",
+      "endpoint-6",
+    ])
   })
 })

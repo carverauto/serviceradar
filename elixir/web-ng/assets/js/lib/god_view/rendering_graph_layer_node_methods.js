@@ -26,6 +26,18 @@ export const godViewRenderingGraphLayerNodeMethods = {
         return 0
     }
   },
+  expandedEndpointMemberLabelBudgetForShape(shape) {
+    switch (shape) {
+      case "local":
+        return 6
+      case "regional":
+        return 3
+      case "global":
+        return 0
+      default:
+        return 0
+    }
+  },
   opaqueIdentityLabel(node) {
     const label = String(node?.label || "")
     const id = String(node?.id || "")
@@ -33,6 +45,13 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   endpointSummaryLabel(node) {
     return String(node?.details?.cluster_kind || "") === "endpoint-summary"
+  },
+  expandedEndpointMemberLabel(node) {
+    return String(node?.details?.cluster_kind || "") === "endpoint-member"
+      && node?.details?.cluster_expanded === true
+  },
+  backboneLabelCandidate(node) {
+    return !this.endpointSummaryLabel(node) && !this.expandedEndpointMemberLabel(node)
   },
   nodeLabelPriority(node) {
     const details = node?.details || {}
@@ -44,7 +63,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
 
     return [
       node?.selected === true ? 1 : 0,
-      clusterKind === "endpoint-summary" ? 1 : 0,
+      this.backboneLabelCandidate(node) ? 1 : 0,
       clusterKind === "endpoint-anchor" ? 1 : 0,
       identitySource !== "mapper_topology_sighting" ? 1 : 0,
       clusterCount,
@@ -78,23 +97,33 @@ export const godViewRenderingGraphLayerNodeMethods = {
       if (node?.selected === true) return true
       const details = node?.details || {}
       const clusterKind = String(details?.cluster_kind || "")
-      if (clusterKind === "endpoint-member") return false
-      if (String(details?.identity_source || "") === "mapper_topology_sighting") return false
+      const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
+      if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
+      if (String(details?.identity_source || "") === "mapper_topology_sighting" && !expandedEndpointMember) return false
       if (this.opaqueIdentityLabel(node)) return false
       return true
     })
     const budget = this.labelBudgetForShape(shape, candidates.length)
     const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
+    const expandedEndpointBudget = this.expandedEndpointMemberLabelBudgetForShape(shape)
     if (budget <= 0) return []
 
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
+    const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
+    const orderedExpandedEndpointMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
+    const orderedEndpointSummaries = ordered.filter((node) => this.endpointSummaryLabel(node))
     const picked = []
     const seen = new Set()
     let endpointSummaryCount = 0
+    let expandedEndpointCount = 0
 
-    for (const node of [...selected, ...ordered]) {
+    for (const node of [...selected, ...orderedBackbone, ...orderedExpandedEndpointMembers, ...orderedEndpointSummaries]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
+      if (this.expandedEndpointMemberLabel(node) && node?.selected !== true) {
+        if (expandedEndpointCount >= expandedEndpointBudget) continue
+        expandedEndpointCount += 1
+      }
       if (this.endpointSummaryLabel(node) && node?.selected !== true) {
         if (endpointSummaryCount >= endpointSummaryBudget) continue
         endpointSummaryCount += 1
