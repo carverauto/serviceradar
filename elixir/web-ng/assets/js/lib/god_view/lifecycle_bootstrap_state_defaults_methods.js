@@ -167,6 +167,7 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.layoutRequestToken = 0
     this.state.lastRevision = null
     this.state.lastTopologyStamp = null
+    this.state.pendingClusterFocus = null
     this.state.visual = visualForTheme(detectThemeMode())
     this.state.viewState = {
       target: [320, 160, 0],

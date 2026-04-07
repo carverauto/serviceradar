@@ -155,6 +155,8 @@ describe("rendering_graph_layer_node_methods", () => {
       "endpoint-4",
       "endpoint-5",
       "endpoint-6",
+      "endpoint-7",
+      "endpoint-8",
     ])
   })
 })

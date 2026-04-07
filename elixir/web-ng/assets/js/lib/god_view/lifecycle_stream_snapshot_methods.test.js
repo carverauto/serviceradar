@@ -119,6 +119,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
       sameTopology: vi.fn(() => false),
       renderGraph: vi.fn(),
       animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
       normalizePipelineStats: vi.fn(() => ({})),
     }
 
@@ -161,6 +162,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
       sameTopology: vi.fn(() => false),
       renderGraph: vi.fn(),
       animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
       normalizePipelineStats: vi.fn(() => ({})),
     }
 
@@ -201,6 +203,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
       sameTopology: vi.fn(() => false),
       renderGraph: vi.fn(),
       animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
       normalizePipelineStats: vi.fn(() => ({})),
     }
 
@@ -210,5 +213,51 @@ describe("lifecycle_stream_snapshot_methods", () => {
     await methods.handleSnapshot(buildFrame([1, 2, 3]))
 
     expect(state.hasAutoFit).toBe(true)
+  })
+
+  it("handleSnapshot focuses a pending expanded cluster after the new graph renders", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: null,
+      lastVisibleNodeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      lastTopologyStamp: null,
+      userCameraLocked: false,
+      hasAutoFit: false,
+      pendingClusterFocus: {clusterId: "cluster:endpoints:sr:test", expanded: true},
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {
+      nodes: [{id: "cluster:endpoints:sr:test", x: 10, y: 20, details: {cluster_id: "cluster:endpoints:sr:test"}}],
+      edges: [],
+      _layoutMode: "elk-client",
+    }
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => true),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(deps.focusClusterNeighborhood).toHaveBeenCalledWith(graph, "cluster:endpoints:sr:test")
+    expect(state.pendingClusterFocus).toBe(null)
   })
 })

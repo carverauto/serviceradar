@@ -59,4 +59,80 @@ export const godViewRenderingGraphViewMethods = {
       this.deps.setZoomTier(this.deps.resolveZoomTier(zoom), true)
     }
   },
+  focusClusterNeighborhood(graph, clusterId) {
+    const normalizedClusterId = typeof clusterId === "string" ? clusterId.trim() : ""
+    if (!this.state.deck || !graph || !Array.isArray(graph.nodes) || normalizedClusterId === "") return false
+
+    const clusterNodes = graph.nodes.filter((node) => {
+      const details = node?.details || {}
+      return node?.id === normalizedClusterId || details?.cluster_id === normalizedClusterId
+    })
+    if (clusterNodes.length === 0) return false
+
+    const anchorIds = new Set(
+      clusterNodes
+        .map((node) => String(node?.details?.cluster_anchor_id || "").trim())
+        .filter((id) => id !== ""),
+    )
+
+    const neighborhood = graph.nodes.filter((node) => {
+      const details = node?.details || {}
+      const nodeId = String(node?.id || "").trim()
+      const nodeClusterId = String(details?.cluster_id || "").trim()
+      return nodeId === normalizedClusterId || nodeClusterId === normalizedClusterId || anchorIds.has(nodeId)
+    })
+    if (neighborhood.length === 0) return false
+
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    for (const node of neighborhood) {
+      const x = Number(node?.x)
+      const y = Number(node?.y)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return false
+
+    const width = Math.max(1, this.state.el.clientWidth || 1)
+    const height = Math.max(1, this.state.el.clientHeight || 1)
+    const basePadding = this.fitViewPadding(width, height)
+    const padding = {
+      left: Math.max(24, basePadding.left * 0.5),
+      right: Math.max(96, basePadding.right * 0.6),
+      top: Math.max(40, basePadding.top * 0.55),
+      bottom: Math.max(56, basePadding.bottom * 0.6),
+    }
+    const availableWidth = Math.max(1, width - padding.left - padding.right)
+    const availableHeight = Math.max(1, height - padding.top - padding.bottom)
+    const spanX = Math.max(48, maxX - minX)
+    const spanY = Math.max(48, maxY - minY)
+    const zoomX = Math.log2(availableWidth / spanX)
+    const zoomY = Math.log2(availableHeight / spanY)
+    const zoom = Math.max(
+      this.state.viewState.minZoom,
+      Math.min(this.state.viewState.maxZoom, Math.min(zoomX, zoomY) + 0.35),
+    )
+    const scale = Math.pow(2, zoom)
+    const targetX = ((minX + maxX) / 2) + ((padding.right - padding.left) / (2 * scale))
+    const targetY = ((minY + maxY) / 2) + ((padding.bottom - padding.top) / (2 * scale))
+
+    this.state.viewState = {
+      ...this.state.viewState,
+      target: [targetX, targetY, 0],
+      zoom,
+    }
+    this.state.isProgrammaticViewUpdate = true
+    this.state.deck.setProps({viewState: this.state.viewState})
+    if (this.state.zoomMode === "auto") {
+      this.deps.setZoomTier(this.deps.resolveZoomTier(zoom), true)
+    }
+    return true
+  },
 }
