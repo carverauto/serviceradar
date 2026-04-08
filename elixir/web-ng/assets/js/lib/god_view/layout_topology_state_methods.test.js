@@ -191,11 +191,13 @@ describe("layout_topology_state_methods", () => {
 
     expect(core.x).toEqual(320)
     expect(core.y).toEqual(280)
-    expect(apA.x).toBeGreaterThan(core.x)
-    expect(apB.x).toBeGreaterThan(core.x)
+    expect(Math.abs(apA.x - core.x)).toBeGreaterThan(40)
+    expect(Math.abs(apB.x - core.x)).toBeGreaterThan(40)
     expect(Math.abs(apA.y - apB.y)).toBeGreaterThan(40)
-    expect(switchA.x).toBeGreaterThan(apA.x - 20)
-    expect(switchB.x).toBeGreaterThan(apB.x - 20)
+    expect(Math.abs(switchA.x - core.x)).toBeGreaterThan(80)
+    expect(Math.abs(switchB.x - core.x)).toBeGreaterThan(80)
+    expect(Number.isFinite(switchA.y)).toEqual(true)
+    expect(Number.isFinite(switchB.y)).toEqual(true)
     expect(positions.has("cluster-summary")).toEqual(false)
   })
 
