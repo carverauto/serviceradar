@@ -21,6 +21,39 @@ const TOPOLOGY_VISUAL_PROFILES = {
     particleAlphaScale: 0.8,
     particleSizeScale: 0.92,
   },
+  logical: {
+    mantleAlphaScale: 0.92,
+    mantleAlphaFloor: 22,
+    mantleWidthScale: 0.96,
+    crustAlphaScale: 0.94,
+    crustAlphaFloor: 26,
+    crustWidthScale: 0.98,
+    particleDensityScale: 0.88,
+    particleAlphaScale: 0.92,
+    particleSizeScale: 0.96,
+  },
+  hosted: {
+    mantleAlphaScale: 0.78,
+    mantleAlphaFloor: 18,
+    mantleWidthScale: 0.84,
+    crustAlphaScale: 0.8,
+    crustAlphaFloor: 22,
+    crustWidthScale: 0.88,
+    particleDensityScale: 0.5,
+    particleAlphaScale: 0.62,
+    particleSizeScale: 0.9,
+  },
+  observed: {
+    mantleAlphaScale: 0.56,
+    mantleAlphaFloor: 16,
+    mantleWidthScale: 0.72,
+    crustAlphaScale: 0.6,
+    crustAlphaFloor: 20,
+    crustWidthScale: 0.78,
+    particleDensityScale: 0.32,
+    particleAlphaScale: 0.46,
+    particleSizeScale: 0.84,
+  },
   endpoints: {
     mantleAlphaScale: 0.48,
     mantleAlphaFloor: 16,
@@ -50,6 +83,9 @@ function normalizeTopologyClass(value) {
   if (normalized === "endpoint") return "endpoints"
   if (
     normalized === "inferred" ||
+    normalized === "logical" ||
+    normalized === "hosted" ||
+    normalized === "observed" ||
     normalized === "endpoints" ||
     normalized === "backbone" ||
     normalized === "unknown"
@@ -65,7 +101,10 @@ function dominantTopologyClassFromCounts(classCounts) {
 
   const orderedCounts = [
     ["backbone", Number(classCounts.backbone || 0)],
+    ["logical", Number(classCounts.logical || 0)],
+    ["hosted", Number(classCounts.hosted || 0)],
     ["inferred", Number(classCounts.inferred || 0)],
+    ["observed", Number(classCounts.observed || 0)],
     ["endpoints", Number(classCounts.endpoints || 0)],
     ["unknown", Number(classCounts.unknown || 0)],
   ]
@@ -106,17 +145,24 @@ export const godViewRenderingStyleEdgeTopologyMethods = {
     if (classCounts && typeof classCounts === "object") {
       const showBackbone =
         Number(classCounts.backbone || 0) > 0 && this.state.topologyLayers.backbone !== false
+      const showLogical =
+        Number(classCounts.logical || 0) > 0 && this.state.topologyLayers.backbone !== false
+      const showHosted =
+        Number(classCounts.hosted || 0) > 0 && this.state.topologyLayers.backbone !== false
       const showInferred =
         Number(classCounts.inferred || 0) > 0 && this.state.topologyLayers.inferred === true
+      const showObserved =
+        Number(classCounts.observed || 0) > 0 && this.state.topologyLayers.endpoints === true
       const showEndpoints =
         Number(classCounts.endpoints || 0) > 0 && this.state.topologyLayers.endpoints === true
       const showUnknown =
         Number(classCounts.unknown || 0) > 0 && this.state.topologyLayers.backbone !== false
-      return showBackbone || showInferred || showEndpoints || showUnknown
+      return showBackbone || showLogical || showHosted || showInferred || showObserved || showEndpoints || showUnknown
     }
 
     const topologyClass = edgeTopologyClassValue(edge)
     if (topologyClass === "inferred") return this.state.topologyLayers.inferred === true
+    if (topologyClass === "observed") return this.state.topologyLayers.endpoints === true
     if (topologyClass === "endpoints") return this.state.topologyLayers.endpoints === true
     return this.state.topologyLayers.backbone !== false
   },

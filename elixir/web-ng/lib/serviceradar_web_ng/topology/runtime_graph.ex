@@ -159,8 +159,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND a.id STARTS WITH 'sr:'
       AND b.id STARTS WITH 'sr:'
       AND (
-        toUpper(coalesce(r.relation_type, '')) = 'CONNECTS_TO'
-        OR (r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) = 'direct')
+        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
+        OR (r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
       )
     WITH a, b, r
     ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
@@ -206,7 +206,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         source: coalesce(r.source, ''),
         inference: coalesce(r.confidence_reason, ''),
         evidence_class: coalesce(r.evidence_class, ''),
-        topology_plane: 'backbone',
+        topology_plane: CASE
+          WHEN toUpper(coalesce(r.relation_type, '')) = 'LOGICAL_PEER' THEN 'logical'
+          WHEN toUpper(coalesce(r.relation_type, '')) = 'HOSTED_ON' THEN 'hosted'
+          ELSE 'backbone'
+        END,
         confidence_tier: coalesce(r.confidence_tier, 'unknown'),
         confidence_score: coalesce(r.confidence_score, 0)
       }
@@ -303,7 +307,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def backbone_runtime_row?(row) when is_map(row) do
     relation_type = runtime_relation_type(row)
     evidence_class = runtime_evidence_class(row)
-    relation_type == "CONNECTS_TO" or (relation_type == "" and evidence_class == "direct")
+
+    relation_type in ["CONNECTS_TO", "LOGICAL_PEER", "HOSTED_ON"] or
+      (relation_type == "" and evidence_class in ["direct", "direct-physical", "direct-logical", "hosted-virtual"])
   end
 
   def backbone_runtime_row?(_row), do: false
@@ -315,7 +321,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     evidence_class = runtime_evidence_class(row)
 
     relation_type in ["ATTACHED_TO", "OBSERVED_TO"] or
-      (relation_type == "" and evidence_class == "endpoint-attachment")
+      (relation_type == "" and evidence_class in ["endpoint-attachment", "observed-only"])
   end
 
   def attachment_runtime_row?(_row), do: false

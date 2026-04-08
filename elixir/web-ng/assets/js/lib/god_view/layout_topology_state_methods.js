@@ -10,6 +10,8 @@ const LAYOUT_PAD = 20
 const BACKBONE_LAYER_GAP_X = 180
 const BACKBONE_LAYER_GAP_Y = 120
 const BACKBONE_COMPONENT_GAP_Y = 180
+const UNPLACED_LANE_X_OFFSET = 220
+const UNPLACED_LANE_GAP_Y = 92
 
 const ELK_ROOT_OPTIONS = {
   "elk.algorithm": "layered",
@@ -70,6 +72,11 @@ function isEndpointMemberNode(node) {
 
 function isEndpointAnchorNode(node) {
   return clusterKindForNode(node) === "endpoint-anchor"
+}
+
+function isUnplacedNode(node) {
+  const details = graphNodeDetails(node)
+  return details.topology_unplaced === true || String(details.topology_plane || "").trim() === "unplaced"
 }
 
 function nodeLayoutSize(node) {
@@ -488,11 +495,15 @@ export const godViewLayoutTopologyStateMethods = {
   },
   computeBackboneLayeredPositions(graph, excludedNodeIds) {
     const backbone = this.buildBackboneAdjacency(graph, excludedNodeIds)
-    if (!backbone || backbone.nodeIds.length === 0) return null
+    const unplacedNodes = Array.isArray(graph?.nodes)
+      ? graph.nodes
+          .map((node, index) => ({id: graphNodeId(node, index), node}))
+          .filter(({id, node}) => !excludedNodeIds.has(id) && isUnplacedNode(node))
+      : []
+
+    if ((!backbone || backbone.nodeIds.length === 0) && unplacedNodes.length === 0) return null
 
     const components = this.connectedBackboneComponents(backbone.nodeIds, backbone.adjacency)
-    if (components.length === 0) return null
-
     const positions = new Map()
     let componentOffsetY = 0
 
@@ -525,6 +536,33 @@ export const godViewLayoutTopologyStateMethods = {
       componentOffsetY += componentHeight
     }
 
+    if (unplacedNodes.length > 0) {
+      const placedPoints = Array.from(positions.values())
+      const anchorX = placedPoints.length > 0
+        ? Math.max(...placedPoints.map((point) => Number(point.x || 0))) + UNPLACED_LANE_X_OFFSET
+        : 120
+      const anchorY = placedPoints.length > 0
+        ? Math.min(...placedPoints.map((point) => Number(point.y || 0)))
+        : 220
+
+      const orderedUnplaced = [...unplacedNodes].sort((left, right) => {
+        const leftLabel = String(left.node?.label || left.id || "")
+        const rightLabel = String(right.node?.label || right.id || "")
+        const leftPps = Number(left.node?.pps || 0)
+        const rightPps = Number(right.node?.pps || 0)
+        return rightPps - leftPps || leftLabel.localeCompare(rightLabel) || left.id.localeCompare(right.id)
+      })
+
+      for (let index = 0; index < orderedUnplaced.length; index += 1) {
+        const column = Math.floor(index / 8)
+        const row = index % 8
+        positions.set(orderedUnplaced[index].id, {
+          x: anchorX + column * Math.round(BACKBONE_LAYER_GAP_X * 0.9),
+          y: anchorY + row * UNPLACED_LANE_GAP_Y,
+        })
+      }
+    }
+
     return positions
   },
   buildBackboneAdjacency(graph, excludedNodeIds) {
@@ -537,6 +575,7 @@ export const godViewLayoutTopologyStateMethods = {
       const node = graph.nodes[index]
       const nodeId = graphNodeId(node, index)
       if (excludedNodeIds.has(nodeId)) continue
+      if (isUnplacedNode(node)) continue
       nodeIds.push(nodeId)
       nodeById.set(nodeId, node)
       adjacency.set(nodeId, new Set())

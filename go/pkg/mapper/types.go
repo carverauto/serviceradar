@@ -431,6 +431,7 @@ type Config struct {
 	Seeds              []string                   `json:"seeds"`
 	Security           *models.SecurityConfig     `json:"security"`
 	MikroTikAPIs       []MikroTikAPIConfig        `json:"mikrotik_apis"`
+	ProxmoxAPIs        []ProxmoxAPIConfig         `json:"proxmox_apis"`
 	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
 	ScheduledJobs      []*ScheduledJob            `json:"scheduled_jobs"`
 	Logging            *logger.Config             `json:"logging"`
@@ -449,6 +450,18 @@ type MikroTikAPIConfig struct {
 	BaseURL            string `json:"base_url"`
 	Username           string `json:"username"`
 	Password           string `json:"password" sensitive:"true"`
+	Name               string `json:"name"`                           // Optional name for identifying the endpoint
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
+}
+
+// ProxmoxAPIConfig contains configuration for connecting to a Proxmox VE API endpoint.
+type ProxmoxAPIConfig struct {
+	BaseURL            string `json:"base_url"`
+	TokenID            string `json:"token_id"`
+	TokenSecret        string `json:"token_secret" sensitive:"true"`
+	Username           string `json:"username"`
+	Password           string `json:"password" sensitive:"true"`
+	Realm              string `json:"realm"`
 	Name               string `json:"name"`                           // Optional name for identifying the endpoint
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
 }

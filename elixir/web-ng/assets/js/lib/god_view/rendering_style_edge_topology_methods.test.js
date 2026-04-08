@@ -10,6 +10,9 @@ describe("rendering_style_edge_topology_methods", () => {
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeTopologyClass({topologyClass: "inferred", label: "BACKBONE"})).toEqual("inferred")
+    expect(methods.edgeTopologyClass({topologyClass: "logical"})).toEqual("logical")
+    expect(methods.edgeTopologyClass({topologyClass: "hosted"})).toEqual("hosted")
+    expect(methods.edgeTopologyClass({topologyClass: "observed"})).toEqual("observed")
     expect(methods.edgeTopologyClass({topologyClass: "endpoint"})).toEqual("endpoints")
     expect(methods.edgeTopologyClass({topologyClass: "", label: "LINK ENDPOINT attachment"})).toEqual("unknown")
   })
@@ -19,7 +22,7 @@ describe("rendering_style_edge_topology_methods", () => {
     const methods = createStateBackedContext(state, {})
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
-    const edge = {topologyClassCounts: {backbone: 2, inferred: 1, endpoints: 0, unknown: 1}}
+    const edge = {topologyClassCounts: {backbone: 0, logical: 1, hosted: 1, inferred: 1, observed: 0, endpoints: 0, unknown: 1}}
     expect(methods.edgeEnabledByTopologyLayer(edge)).toEqual(true)
 
     methods.state.topologyLayers = {backbone: false, inferred: false, endpoints: false}
@@ -32,7 +35,10 @@ describe("rendering_style_edge_topology_methods", () => {
     Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
 
     expect(methods.edgeEnabledByTopologyLayer({topologyClass: "inferred"})).toEqual(false)
+    expect(methods.edgeEnabledByTopologyLayer({topologyClass: "logical"})).toEqual(true)
+    expect(methods.edgeEnabledByTopologyLayer({topologyClass: "hosted"})).toEqual(true)
     expect(methods.edgeEnabledByTopologyLayer({topologyClass: "endpoints"})).toEqual(false)
+    expect(methods.edgeEnabledByTopologyLayer({topologyClass: "observed"})).toEqual(false)
     expect(methods.edgeEnabledByTopologyLayer({topologyClass: "backbone"})).toEqual(true)
     expect(methods.edgeEnabledByTopologyLayer({label: "LINK INFERRED path"})).toEqual(true)
 
@@ -64,5 +70,17 @@ describe("rendering_style_edge_topology_methods", () => {
     expect(endpoints.mantleWidthScale).toBeLessThan(backbone.mantleWidthScale)
     expect(endpoints.crustAlphaScale).toBeLessThan(backbone.crustAlphaScale)
     expect(endpoints.particleDensityScale).toBeLessThan(backbone.particleDensityScale)
+  })
+
+  it("edgeTopologyVisualStyle distinguishes hosted links from backbone links", () => {
+    const state = {}
+    const methods = createStateBackedContext(state, {})
+    Object.assign(methods, bindApi(methods, godViewRenderingStyleEdgeTopologyMethods))
+
+    const backbone = methods.edgeTopologyVisualStyle({topologyClass: "backbone"})
+    const hosted = methods.edgeTopologyVisualStyle({topologyClass: "hosted"})
+
+    expect(hosted.mantleWidthScale).toBeLessThan(backbone.mantleWidthScale)
+    expect(hosted.particleDensityScale).toBeLessThan(backbone.particleDensityScale)
   })
 })

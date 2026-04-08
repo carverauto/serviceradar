@@ -127,6 +127,28 @@ describe("rendering_tooltip_methods", () => {
     expect(expandedTooltip.html).toContain("Click to collapse endpoints")
   })
 
+  it("shows placement context for topology-unplaced nodes", () => {
+    const ctx = buildContext()
+    ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
+
+    const tooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-nodes"},
+      object: {
+        label: "vJunos",
+        state: 3,
+        details: {
+          ip: "192.0.2.197",
+          type: "router",
+          topology_unplaced: true,
+          topology_placement_reason: "No strong physical, logical, or hosted placement evidence in the current discovery window.",
+        },
+      },
+    })
+
+    expect(tooltip.html).toContain("Placement: Unplaced")
+    expect(tooltip.html).toContain("No strong physical, logical, or hosted placement evidence")
+  })
+
   it("handleHover updates cursor to pointer over nodes and grab otherwise", () => {
     const ctx = buildContext()
     ctx.handleHover = godViewRenderingTooltipMethods.handleHover.bind(ctx)

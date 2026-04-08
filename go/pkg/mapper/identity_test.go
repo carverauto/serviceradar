@@ -85,7 +85,7 @@ func TestApplyTopologyEvidenceClassAssignsConfidenceTier(t *testing.T) {
 
 	applyTopologyEvidenceClass(link)
 
-	if link.Metadata["evidence_class"] != "direct" {
+	if link.Metadata["evidence_class"] != evidenceClassDirectPhysical {
 		t.Fatalf("expected direct evidence class, got %q", link.Metadata["evidence_class"])
 	}
 

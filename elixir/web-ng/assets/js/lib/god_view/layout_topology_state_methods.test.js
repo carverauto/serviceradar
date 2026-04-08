@@ -191,6 +191,32 @@ describe("layout_topology_state_methods", () => {
     expect(positions.has("cluster-summary")).toEqual(false)
   })
 
+  it("computeBackboneLayeredPositions places topology-unplaced nodes in a dedicated side lane", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [
+        {id: "core", label: "Core", pps: 1000, details: {}},
+        {id: "switch-a", label: "Switch A", pps: 300, details: {}},
+        {
+          id: "vjunos",
+          label: "vJunos",
+          pps: 0,
+          details: {topology_unplaced: true, topology_plane: "unplaced"},
+        },
+      ],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
+      ],
+    }
+
+    const positions = context.computeBackboneLayeredPositions(graph, new Set())
+
+    expect(positions.get("core").x).toEqual(60)
+    expect(positions.get("switch-a").x).toEqual(240)
+    expect(positions.get("vjunos").x).toBeGreaterThan(positions.get("switch-a").x)
+    expect(positions.get("vjunos").y).toBeGreaterThanOrEqual(positions.get("core").y)
+  })
+
   it("prepareGraphLayout computes ELK client layout and updates state", async () => {
     const context = makeContext()
     const graph = {nodes: [{id: "a"}, {id: "b"}], edges: [{source: 0, target: 1}]}

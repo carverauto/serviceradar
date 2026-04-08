@@ -880,7 +880,8 @@ func TestAttachTopologyObservationV2(t *testing.T) {
 		Metadata: map[string]string{
 			"discovery_id":           "job-1",
 			"source":                 "snmp-lldp",
-			"evidence_class":         "direct",
+			"evidence_class":         evidenceClassDirectPhysical,
+			"relation_family":        "CONNECTS_TO",
 			"confidence_tier":        "high",
 			"source_adapter_version": sourceAdapterLLDPV1,
 		},
@@ -900,4 +901,68 @@ func TestAttachTopologyObservationV2(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(link.Metadata["observation_v2_json"]), &parsed))
 	assert.Equal(t, "mac-001122334455", parsed.SourceEndpoint.UID)
 	assert.Equal(t, "0c:ea:14:32:d2:77", parsed.TargetEndpoint.UID)
+}
+
+func TestAttachTopologyObservationV2FallsBackToNeighborDeviceID(t *testing.T) {
+	link := &TopologyLink{
+		Protocol:      "Proxmox-API",
+		LocalDeviceID: "ip-192.168.2.22",
+		Metadata: map[string]string{
+			"discovery_id":           "job-2",
+			"source":                 "proxmox-api",
+			"evidence_class":         evidenceClassHostedVirtual,
+			"relation_family":        "HOSTED_ON",
+			"confidence_tier":        "high",
+			"source_adapter_version": "proxmox.v1",
+		},
+		NeighborIdentity: &TopologyNeighborIdentity{
+			DeviceID:   "proxmox-vm-lab-101-vjunos",
+			SystemName: "vJunos-Lab-01.lab.carverauto.dev",
+		},
+		NeighborSystemName: "vJunos-Lab-01.lab.carverauto.dev",
+	}
+
+	attachTopologyObservationV2(link)
+
+	require.NotNil(t, link.Observation)
+	assert.Equal(t, "proxmox-vm-lab-101-vjunos", link.Observation.TargetEndpoint.UID)
+	assert.Equal(t, "proxmox-vm-lab-101-vjunos", link.Observation.TargetEndpoint.DeviceID)
+}
+
+func TestProcessDevicesForSNMPTargetsSkipsIneligibleDevices(t *testing.T) {
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
+	job := &DiscoveryJob{
+		ID: "job-1",
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{},
+		},
+		deviceMap: make(map[string]*DeviceInterfaceMap),
+	}
+
+	eligible := &DiscoveredDevice{
+		DeviceID: "ip-192.168.1.10",
+		IP:       "192.168.1.10",
+		Hostname: "switch-a",
+		Metadata: map[string]string{"source": "snmp"},
+	}
+	ineligible := &DiscoveredDevice{
+		DeviceID: "proxmox-vm-lab-101-vjunos",
+		Hostname: "vJunos-Lab-01.lab.carverauto.dev",
+		Metadata: map[string]string{
+			"source":               "proxmox-api",
+			"snmp_target_eligible": "false",
+		},
+	}
+
+	targets := make(map[string]bool)
+	seenMACs := make(map[string]string)
+
+	engine.processDevicesForSNMPTargets(job, []*DiscoveredDevice{eligible, ineligible}, targets, seenMACs)
+
+	assert.True(t, targets["192.168.1.10"])
+	assert.Len(t, targets, 1)
+	require.Len(t, job.Results.Devices, 2)
 }

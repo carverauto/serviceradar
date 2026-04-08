@@ -2381,6 +2381,45 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert edge.source == endpoint_uid or edge.target == endpoint_uid
   end
 
+  test "latest_snapshot/0 keeps managed infrastructure devices visible as unplaced when they have no topology edges" do
+    actor = SystemActor.system(:god_view_stream_unplaced_device_test)
+    suffix = System.unique_integer([:positive])
+    unplaced_uid = "sr:unplaced-router-#{suffix}"
+    ignored_uid = "sr:ignored-sighting-#{suffix}"
+
+    create_topology_device(actor, unplaced_uid, "vjunos-#{suffix}.lab", %{
+      ip: "192.0.2.197",
+      type_id: 12,
+      is_managed: true,
+      metadata: %{
+        "device_role" => "router",
+        "identity_source" => "proxmox_api"
+      }
+    })
+
+    create_topology_device(actor, ignored_uid, nil, %{
+      ip: "192.0.2.198",
+      type_id: 0,
+      is_managed: false,
+      metadata: %{
+        "identity_source" => "mapper_topology_sighting",
+        "identity_state" => "provisional"
+      }
+    })
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    unplaced_node = Enum.find(snapshot.nodes, &(&1.id == unplaced_uid))
+    assert unplaced_node
+
+    details = Jason.decode!(unplaced_node.details_json)
+    assert details["topology_unplaced"] == true
+    assert details["topology_plane"] == "unplaced"
+    assert details["topology_placement_reason"] =~ "No strong physical, logical, or hosted placement evidence"
+    refute Enum.any?(snapshot.nodes, &(&1.id == ignored_uid))
+    assert Map.get(snapshot.pipeline_stats, :unplaced_nodes, 0) >= 1
+  end
+
   test "latest_snapshot/0 collapses duplicate endpoint identities that split across ip and anonymous sr ids" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
