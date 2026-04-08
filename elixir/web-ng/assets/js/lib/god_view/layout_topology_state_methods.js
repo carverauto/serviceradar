@@ -16,6 +16,12 @@ const ORGANIC_DEPTH_RADIUS = 168
 const ORGANIC_DEPTH_RADIUS_STEP = 120
 const ORGANIC_FULL_SPAN = Math.PI * 1.7
 const ORGANIC_MIN_CHILD_SPAN = 0.42
+const BACKBONE_RELAXATION_ITERATIONS = 180
+const BACKBONE_REPULSION = 220_000
+const BACKBONE_SPRING_LENGTH = 210
+const BACKBONE_SPRING_STRENGTH = 0.0038
+const BACKBONE_CENTERING = 0.0016
+const BACKBONE_DAMPING = 0.82
 const UNPLACED_LANE_X_OFFSET = 220
 const UNPLACED_LANE_GAP_Y = 92
 
@@ -535,6 +541,8 @@ export const godViewLayoutTopologyStateMethods = {
         },
       )
 
+      this.relaxBackboneComponent(componentIds, backbone, componentPositions, rootId)
+
       for (const [nodeId, point] of componentPositions.entries()) positions.set(nodeId, point)
 
       const componentYs = Array.from(componentPositions.values()).map((point) => Number(point.y || 0))
@@ -630,6 +638,97 @@ export const godViewLayoutTopologyStateMethods = {
 
     visit(rootId)
     return weights
+  },
+  relaxBackboneComponent(componentIds, backbone, positions, rootId) {
+    const nodes = componentIds
+      .map((nodeId) => ({
+        id: nodeId,
+        position: positions.get(nodeId),
+        velocity: {x: 0, y: 0},
+      }))
+      .filter((entry) => entry.position)
+
+    if (nodes.length < 2) return
+
+    const nodeIndex = new Map(nodes.map((entry, index) => [entry.id, index]))
+    const edges = []
+
+    for (const nodeId of componentIds) {
+      for (const neighborId of backbone.adjacency.get(nodeId) || []) {
+        const left = nodeIndex.get(nodeId)
+        const right = nodeIndex.get(neighborId)
+        if (!Number.isInteger(left) || !Number.isInteger(right) || left >= right) continue
+        edges.push([left, right])
+      }
+    }
+
+    const rootIndex = nodeIndex.get(rootId)
+    const rootAnchor = Number.isInteger(rootIndex)
+      ? {
+          x: Number(nodes[rootIndex].position.x || ORGANIC_ROOT_X),
+          y: Number(nodes[rootIndex].position.y || ORGANIC_ROOT_Y),
+        }
+      : {x: ORGANIC_ROOT_X, y: ORGANIC_ROOT_Y}
+
+    for (let iteration = 0; iteration < BACKBONE_RELAXATION_ITERATIONS; iteration += 1) {
+      const forces = nodes.map(() => ({x: 0, y: 0}))
+
+      for (let left = 0; left < nodes.length; left += 1) {
+        const leftPosition = nodes[left].position
+        for (let right = left + 1; right < nodes.length; right += 1) {
+          const rightPosition = nodes[right].position
+          const dx = Number(rightPosition.x || 0) - Number(leftPosition.x || 0)
+          const dy = Number(rightPosition.y || 0) - Number(leftPosition.y || 0)
+          const distanceSq = Math.max(1, dx * dx + dy * dy)
+          const distance = Math.sqrt(distanceSq)
+          const force = BACKBONE_REPULSION / distanceSq
+          const fx = (dx / distance) * force
+          const fy = (dy / distance) * force
+          forces[left].x -= fx
+          forces[left].y -= fy
+          forces[right].x += fx
+          forces[right].y += fy
+        }
+      }
+
+      for (const [left, right] of edges) {
+        const leftPosition = nodes[left].position
+        const rightPosition = nodes[right].position
+        const dx = Number(rightPosition.x || 0) - Number(leftPosition.x || 0)
+        const dy = Number(rightPosition.y || 0) - Number(leftPosition.y || 0)
+        const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy))
+        const extension = distance - BACKBONE_SPRING_LENGTH
+        const force = extension * BACKBONE_SPRING_STRENGTH
+        const fx = (dx / distance) * force
+        const fy = (dy / distance) * force
+        forces[left].x += fx
+        forces[left].y += fy
+        forces[right].x -= fx
+        forces[right].y -= fy
+      }
+
+      for (let index = 0; index < nodes.length; index += 1) {
+        const node = nodes[index]
+        const isRoot = index === rootIndex
+        const toCenterX = rootAnchor.x - Number(node.position.x || 0)
+        const toCenterY = rootAnchor.y - Number(node.position.y || 0)
+        forces[index].x += toCenterX * BACKBONE_CENTERING * (isRoot ? 4.5 : 1)
+        forces[index].y += toCenterY * BACKBONE_CENTERING * (isRoot ? 4.5 : 1)
+
+        if (isRoot) {
+          node.velocity.x = 0
+          node.velocity.y = 0
+          node.position.x = rootAnchor.x
+          node.position.y = rootAnchor.y
+          continue
+        }
+
+        node.velocity.x = (node.velocity.x + forces[index].x) * BACKBONE_DAMPING
+        node.velocity.y = (node.velocity.y + forces[index].y) * BACKBONE_DAMPING
+        node.position.x += node.velocity.x
+        node.position.y += node.velocity.y
+      }
+    }
   },
   assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, positions, frame) {
     positions.set(nodeId, {x: frame.x, y: frame.y})
