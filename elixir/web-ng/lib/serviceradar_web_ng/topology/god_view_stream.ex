@@ -1088,6 +1088,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid, unplaced_node_ids) do
     total = max(length(node_ids), 1)
+    unplaced_node_id_set = MapSet.new(unplaced_node_ids || [])
 
     node_ids
     |> Enum.with_index()
@@ -1095,7 +1096,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       {x, y} = layout_xy(idx, total)
       device = Map.get(device_by_id, id)
       pps = Map.get(node_pps_by_id, id, 0)
-      unplaced? = MapSet.member?(unplaced_node_ids, id)
+      unplaced? = MapSet.member?(unplaced_node_id_set, id)
 
       %{
         id: id,
