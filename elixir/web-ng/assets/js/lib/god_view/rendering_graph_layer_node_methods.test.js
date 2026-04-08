@@ -99,6 +99,40 @@ describe("rendering_graph_layer_node_methods", () => {
     expect(labels.map((node) => node.id)).toEqual(["sr:selected", "router"])
   })
 
+  it("selectNodeLabels always keeps topology-unplaced nodes visible", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    const labels = ctx.selectNodeLabels([
+      ...Array.from({length: 24}, (_, index) => ({
+        id: `node-${index}`,
+        label: `Node ${index}`,
+        clusterCount: 1,
+        pps: 50 - index,
+        state: 2,
+        selected: false,
+        details: {},
+      })),
+      {
+        id: "vjunos",
+        label: "vJunos",
+        clusterCount: 1,
+        pps: 0,
+        state: 3,
+        selected: false,
+        details: {topology_unplaced: true},
+      },
+    ], "global")
+
+    expect(labels.map((node) => node.id)).toContain("vjunos")
+  })
+
   it("selectNodeLabels reserves budget for backbone labels before endpoint summaries", () => {
     const state = {
       animationPhase: 0,

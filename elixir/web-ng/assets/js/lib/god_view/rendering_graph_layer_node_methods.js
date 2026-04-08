@@ -43,6 +43,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
     return String(node?.details?.cluster_kind || "") === "endpoint-member"
       && node?.details?.cluster_expanded === true
   },
+  unplacedNodeLabel(node) {
+    return node?.details?.topology_unplaced === true
+  },
   backboneLabelCandidate(node) {
     return !this.endpointSummaryLabel(node) && !this.expandedEndpointMemberLabel(node)
   },
@@ -56,6 +59,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
 
     return [
       node?.selected === true ? 1 : 0,
+      this.unplacedNodeLabel(node) ? 1 : 0,
       this.backboneLabelCandidate(node) ? 1 : 0,
       clusterKind === "endpoint-anchor" ? 1 : 0,
       identitySource !== "mapper_topology_sighting" ? 1 : 0,
@@ -98,17 +102,18 @@ export const godViewRenderingGraphLayerNodeMethods = {
     })
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
     const expandedEndpointMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
+    const unplacedNodes = ordered.filter((node) => this.unplacedNodeLabel(node))
     const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
     const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
     const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
-    if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0) return []
+    if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
     const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
     const orderedEndpointSummaries = ordered.filter((node) => this.endpointSummaryLabel(node))
     const picked = []
     const seen = new Set()
     let endpointSummaryCount = 0
 
-    for (const node of [...selected, ...expandedEndpointMembers]) {
+    for (const node of [...selected, ...expandedEndpointMembers, ...unplacedNodes]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
       seen.add(id)
@@ -124,7 +129,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }
       seen.add(id)
       picked.push(node)
-      if (picked.length >= budget + expandedEndpointMembers.length + selected.length) break
+      if (picked.length >= budget + expandedEndpointMembers.length + selected.length + unplacedNodes.length) break
     }
 
     return picked

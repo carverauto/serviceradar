@@ -22,6 +22,8 @@ const BACKBONE_SPRING_LENGTH = 210
 const BACKBONE_SPRING_STRENGTH = 0.0038
 const BACKBONE_CENTERING = 0.0016
 const BACKBONE_DAMPING = 0.82
+const BACKBONE_NODE_MIN_DISTANCE = 120
+const BACKBONE_NODE_COLLISION_ITERATIONS = 8
 const UNPLACED_LANE_X_OFFSET = 220
 const UNPLACED_LANE_GAP_Y = 92
 
@@ -542,6 +544,7 @@ export const godViewLayoutTopologyStateMethods = {
       )
 
       this.relaxBackboneComponent(componentIds, backbone, componentPositions, rootId)
+      this.separateBackboneNodes(componentIds, componentPositions, rootId)
 
       for (const [nodeId, point] of componentPositions.entries()) positions.set(nodeId, point)
 
@@ -728,6 +731,49 @@ export const godViewLayoutTopologyStateMethods = {
         node.position.x += node.velocity.x
         node.position.y += node.velocity.y
       }
+    }
+  },
+  separateBackboneNodes(componentIds, positions, rootId) {
+    const nodes = componentIds
+      .map((nodeId) => ({id: nodeId, point: positions.get(nodeId)}))
+      .filter((entry) => entry.point)
+
+    if (nodes.length < 2) return
+
+    const rootPoint = positions.get(rootId)
+
+    for (let iteration = 0; iteration < BACKBONE_NODE_COLLISION_ITERATIONS; iteration += 1) {
+      for (let left = 0; left < nodes.length; left += 1) {
+        for (let right = left + 1; right < nodes.length; right += 1) {
+          const leftNode = nodes[left]
+          const rightNode = nodes[right]
+          const dx = Number(rightNode.point.x || 0) - Number(leftNode.point.x || 0)
+          const dy = Number(rightNode.point.y || 0) - Number(leftNode.point.y || 0)
+          const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy))
+          if (distance >= BACKBONE_NODE_MIN_DISTANCE) continue
+
+          const overlap = (BACKBONE_NODE_MIN_DISTANCE - distance) / 2
+          const nx = dx / distance
+          const ny = dy / distance
+
+          if (leftNode.id !== rootId) {
+            leftNode.point.x -= nx * overlap
+            leftNode.point.y -= ny * overlap
+          }
+
+          if (rightNode.id !== rootId) {
+            rightNode.point.x += nx * overlap
+            rightNode.point.y += ny * overlap
+          }
+        }
+      }
+    }
+
+    if (rootPoint) {
+      positions.set(rootId, {
+        x: Number(rootPoint.x || ORGANIC_ROOT_X),
+        y: Number(rootPoint.y || ORGANIC_ROOT_Y),
+      })
     }
   },
   assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, positions, frame) {
