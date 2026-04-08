@@ -70,7 +70,6 @@ data:
     [grpc_tls]
     cert_file = "/etc/serviceradar/certs/log-collector.pem"
     key_file = "/etc/serviceradar/certs/log-collector-key.pem"
-    ca_file = "/etc/serviceradar/certs/root.pem"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
