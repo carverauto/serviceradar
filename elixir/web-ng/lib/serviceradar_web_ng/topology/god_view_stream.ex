@@ -32,7 +32,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @default_snapshot_coalesce_ms 0
   @default_parity_alert_delta 0
   @default_unresolved_directional_ratio_alert 0.6
-  @god_view_evidence_classes ["direct", "inferred", "endpoint-attachment"]
+  @god_view_evidence_classes [
+    "direct",
+    "logical",
+    "hosted",
+    "inferred",
+    "observed",
+    "endpoint-attachment",
+    "direct-physical",
+    "direct-logical",
+    "hosted-virtual",
+    "inferred-segment",
+    "observed-only"
+  ]
   @endpoint_cluster_min_members 3
   @endpoint_cluster_expanded_visible_limit 24
   @endpoint_cluster_expanded_topology_sighting_limit 6
@@ -43,6 +55,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @endpoint_cluster_summary_gap_x 132.0
   @endpoint_cluster_summary_gap_y 54.0
   @max_cluster_camera_tile_candidates 12
+  @unplaced_device_query_limit 96
+  @unplaced_device_visible_limit 16
+  @unplaced_device_type_ids [1, 6, 9, 10, 12, 15, 99]
   @proximity_collision_iterations 8
   @proximity_collision_min_distance 34.0
   @drop_counter_key {__MODULE__, :dropped_updates}
@@ -388,27 +403,46 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     raw_edge_node_ids = raw_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
 
-    with {:ok, devices} <- fetch_devices(actor, raw_edge_node_ids),
-         {:ok, camera_sources_by_device_uid} <- fetch_camera_sources(actor, Enum.map(devices, & &1.uid)) do
-      device_by_id = Map.new(devices, &{&1.uid, &1})
-      edges = collapse_endpoint_attachments(raw_edges, device_by_id)
+    with {:ok, devices} <- fetch_devices(actor, raw_edge_node_ids) do
+      initial_device_by_id = Map.new(devices, &{&1.uid, &1})
+      edges = collapse_endpoint_attachments(raw_edges, initial_device_by_id)
       edge_node_ids = edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
       node_pps_by_id = node_pps_by_id(edges)
-      node_ids = node_ids(edge_node_ids, devices)
-      nodes = build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid)
 
-      edge_contract_stats = edge_contract_stats(edges)
+      with {:ok, unplaced_devices} <- fetch_unplaced_devices(actor, edge_node_ids),
+           {:ok, camera_sources_by_device_uid} <-
+             fetch_camera_sources(actor, Enum.map(devices ++ unplaced_devices, & &1.uid)) do
+        all_devices =
+          (devices ++ unplaced_devices)
+          |> Enum.uniq_by(& &1.uid)
+          |> Enum.sort_by(& &1.uid)
 
-      unresolved_endpoints =
-        Enum.count(edge_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
+        device_by_id = Map.new(all_devices, &{&1.uid, &1})
+        node_ids = node_ids(edge_node_ids, unplaced_devices)
+        unplaced_node_ids = unplaced_node_ids(edge_node_ids, unplaced_devices)
 
-      pipeline_stats =
-        raw_edges
-        |> pipeline_stats(edges, edges, nodes, unresolved_endpoints)
-        |> Map.merge(edge_contract_stats)
-        |> Map.merge(component_stats(nodes, edges))
+        nodes =
+          build_nodes(
+            node_ids,
+            device_by_id,
+            node_pps_by_id,
+            camera_sources_by_device_uid,
+            unplaced_node_ids
+          )
 
-      {:ok, nodes, edges, pipeline_stats}
+        edge_contract_stats = edge_contract_stats(edges)
+
+        unresolved_endpoints =
+          Enum.count(edge_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
+
+        pipeline_stats =
+          raw_edges
+          |> pipeline_stats(edges, edges, nodes, unresolved_endpoints)
+          |> Map.merge(edge_contract_stats)
+          |> Map.merge(component_stats(nodes, edges))
+
+        {:ok, nodes, edges, pipeline_stats}
+      end
     end
   end
 
@@ -416,12 +450,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
        when is_list(raw_links) and is_list(pair_links) and is_list(final_edges) and is_list(final_nodes) and
               is_integer(unresolved_endpoints) do
     edge_parity_delta = abs(length(raw_links) - length(final_edges))
+    unplaced_nodes = Enum.count(final_nodes, &unplaced_topology_node?/1)
 
     %{
       raw_links: length(raw_links),
       unique_pairs: length(pair_links),
       final_edges: length(final_edges),
       final_nodes: length(final_nodes),
+      unplaced_nodes: unplaced_nodes,
       edge_parity_delta: edge_parity_delta,
       raw_direct: count_by_evidence(raw_links, "direct"),
       raw_inferred: count_by_evidence(raw_links, "inferred"),
@@ -932,6 +968,45 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
+  defp fetch_unplaced_devices(actor, connected_node_ids) when is_list(connected_node_ids) do
+    connected_node_id_set =
+      connected_node_ids
+      |> Enum.map(&normalize_id/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+      |> Ash.Query.filter(is_managed == true and not is_nil(last_seen_time) and type_id in ^@unplaced_device_type_ids)
+      |> Ash.Query.sort(last_seen_time: :desc, modified_time: :desc)
+      |> Ash.Query.limit(@unplaced_device_query_limit)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, devices} when is_list(devices) ->
+        {:ok, prune_unplaced_devices(devices, connected_node_id_set)}
+
+      {:ok, page} ->
+        {:ok, prune_unplaced_devices(page_results(page), connected_node_id_set)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_unplaced_devices(_actor, _connected_node_ids), do: {:ok, []}
+
+  defp prune_unplaced_devices(devices, connected_node_id_set)
+       when is_list(devices) and is_struct(connected_node_id_set, MapSet) do
+    devices
+    |> Enum.reject(fn device -> MapSet.member?(connected_node_id_set, normalize_id(Map.get(device, :uid))) end)
+    |> Enum.filter(&unplaced_topology_candidate?/1)
+    |> Enum.uniq_by(& &1.uid)
+    |> Enum.take(@unplaced_device_visible_limit)
+  end
+
+  defp prune_unplaced_devices(_devices, _connected_node_id_set), do: []
+
   defp fetch_camera_sources(_actor, []), do: {:ok, %{}}
 
   defp fetch_camera_sources(actor, device_uids) when is_list(device_uids) do
@@ -976,9 +1051,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp valid_ifindex?(value) when is_integer(value), do: value > 0
   defp valid_ifindex?(_value), do: false
 
-  defp node_ids(edge_node_ids, _devices) do
-    edge_connected_node_ids(edge_node_ids)
+  defp node_ids(edge_node_ids, devices) when is_list(devices) do
+    edge_connected_node_ids(edge_node_ids) ++ unplaced_node_ids(edge_node_ids, devices)
   end
+
+  defp node_ids(edge_node_ids, _devices), do: edge_connected_node_ids(edge_node_ids)
+
+  defp unplaced_node_ids(edge_node_ids, devices) when is_list(edge_node_ids) and is_list(devices) do
+    connected =
+      edge_node_ids
+      |> Enum.map(&normalize_id/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    devices
+    |> Enum.map(&normalize_id(Map.get(&1, :uid)))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&MapSet.member?(connected, &1))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp unplaced_node_ids(_edge_node_ids, _devices), do: []
 
   @doc false
   @spec edge_connected_node_ids([term()]) :: [String.t()]
@@ -992,7 +1086,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   def edge_connected_node_ids(_), do: []
 
-  defp build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid) do
+  defp build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid, unplaced_node_ids) do
     total = max(length(node_ids), 1)
 
     node_ids
@@ -1001,6 +1095,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       {x, y} = layout_xy(idx, total)
       device = Map.get(device_by_id, id)
       pps = Map.get(node_pps_by_id, id, 0)
+      unplaced? = MapSet.member?(unplaced_node_ids, id)
 
       %{
         id: id,
@@ -1011,7 +1106,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         state: 3,
         pps: pps,
         oper_up: nil,
-        details_json: node_details_json(device, id, Map.get(camera_sources_by_device_uid, id, [])),
+        details_json: node_details_json(device, id, Map.get(camera_sources_by_device_uid, id, []), unplaced?),
         geo_lat: node_geo_lat(device),
         geo_lon: node_geo_lon(device),
         health_signal: health_signal(device)
@@ -1225,7 +1320,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_kind(nil), do: "endpoint"
   defp node_kind(device), do: node_type(device) || "device"
 
-  defp node_details_json(device, id, camera_sources) do
+  defp node_details_json(device, id, camera_sources, unplaced?) do
     device = device || %{}
     device_uid = normalize_id(Map.get(device, :uid)) || id
     camera_state = summarize_camera_state(camera_sources)
@@ -1247,6 +1342,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       geo_lat: node_geo_lat(device),
       geo_lon: node_geo_lon(device),
       identity_source: node_meta_value(device, ["identity_source"]),
+      identity_state: node_meta_value(device, ["identity_state"]),
+      device_role: node_meta_value(device, ["device_role", "_device_role"]),
+      topology_plane: if(unplaced?, do: "unplaced", else: "backbone"),
+      topology_unplaced: unplaced?,
+      topology_placement_reason:
+        if(
+          unplaced?,
+          do: "No strong physical, logical, or hosted placement evidence in the current discovery window."
+        ),
       camera_capable: camera_sources != [],
       camera_streams: camera_sources,
       camera_availability_status: camera_state.availability_status,
@@ -1719,6 +1823,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> case do
         "endpoint-attachment" -> "ENDPOINT"
         "inferred" -> "INFERRED"
+        "logical" -> "LOGICAL"
+        "hosted" -> "HOSTED"
+        "observed" -> "OBSERVED"
         _ -> "BACKBONE"
       end
 
@@ -1729,6 +1836,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
       "inferred" -> "inferred"
+      "logical" -> "logical"
+      "hosted" -> "hosted"
+      "observed" -> "observed"
       _ -> "backbone"
     end
   end
@@ -2833,6 +2943,54 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp blank_or_unknown_identity?(nil), do: true
   defp blank_or_unknown_identity?(_value), do: false
+
+  defp unplaced_topology_candidate?(device) when is_map(device) do
+    uid = normalize_id(Map.get(device, :uid))
+    type = normalized_node_type(device)
+    type_id = Map.get(device, :type_id)
+    role = normalize_id(node_meta_value(device, ["device_role", "_device_role"]))
+    identity_source = normalize_id(node_meta_value(device, ["identity_source"]))
+    display_name = normalize_id(node_label(device, uid))
+
+    managed_role? =
+      role in [
+        "router",
+        "switch",
+        "firewall",
+        "load_balancer",
+        "access point",
+        "wireless controller",
+        "hypervisor",
+        "virtual-guest"
+      ]
+
+    managed_type? =
+      type in [
+        "router",
+        "switch",
+        "firewall",
+        "load balancer",
+        "access point",
+        "wireless controller",
+        "virtual",
+        "server"
+      ] or type_id in @unplaced_device_type_ids
+
+    managed_role? or
+      (managed_type? and is_binary(display_name) and display_name != "" and
+         identity_source != "mapper_topology_sighting")
+  end
+
+  defp unplaced_topology_candidate?(_device), do: false
+
+  defp unplaced_topology_node?(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("topology_unplaced") == true
+  end
+
+  defp unplaced_topology_node?(_node), do: false
 
   defp router_attachment_anchor?(device) when is_map(device) do
     normalized_node_type(device) in ["router"]
@@ -3951,6 +4109,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> String.trim()
     |> String.downcase()
     |> case do
+      "direct-physical" -> "direct"
+      "direct-logical" -> "logical"
+      "hosted-virtual" -> "hosted"
+      "inferred-segment" -> "inferred"
+      "observed-only" -> "observed"
       normalized when normalized in @god_view_evidence_classes -> normalized
       _ -> nil
     end
@@ -3959,8 +4122,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp evidence_class_from_relation_type(value) when is_binary(value) do
     case String.upcase(String.trim(value)) do
       "ATTACHED_TO" -> "endpoint-attachment"
+      "OBSERVED_TO" -> "observed"
       "INFERRED_TO" -> "inferred"
       "CONNECTS_TO" -> "direct"
+      "LOGICAL_PEER" -> "logical"
+      "HOSTED_ON" -> "hosted"
       _ -> nil
     end
   end

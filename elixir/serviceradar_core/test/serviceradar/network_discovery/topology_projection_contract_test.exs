@@ -38,9 +38,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
         })
 
       assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
-      assert normalized.metadata["evidence_class"] == "endpoint-attachment"
+      assert normalized.metadata["evidence_class"] == "observed-only"
+      assert normalized.metadata["relation_family"] == "OBSERVED_TO"
 
       assert {:ok, %{mode: :auxiliary, relation: "OBSERVED_TO", reason: :projected_observed}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+
+    test "SNMP ARP/FDB mapper confidence is preserved when provided" do
+      normalized =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "SNMP-L2",
+          "local_device_id" => "dev-switch",
+          "local_device_ip" => "192.168.1.87",
+          "local_if_name" => "1/0/24",
+          "local_if_index" => 24,
+          "neighbor_mgmt_addr" => "192.168.1.195",
+          "metadata" => %{
+            "source" => "snmp-arp-fdb",
+            "evidence" => "ipNetToMedia+dot1dTpFdb",
+            "confidence_tier" => "medium",
+            "confidence_score" => 72,
+            "confidence_reason" => "arp_fdb_port_mapping",
+            "evidence_class" => "inferred"
+          }
+        })
+
+      assert normalized.metadata["confidence_tier"] == "medium"
+      assert normalized.metadata["confidence_score"] == 72
+      assert normalized.metadata["confidence_reason"] == "arp_fdb_port_mapping"
+      assert normalized.metadata["evidence_class"] == "inferred-segment"
+      assert normalized.metadata["relation_family"] == "INFERRED_TO"
+
+      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -59,7 +89,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
             "confidence_reason" => "port_neighbor_inference",
             "confidence_tier" => "medium",
             "confidence_score" => 66,
-            "evidence_class" => "inferred"
+            "evidence_class" => "inferred-segment"
           }
         })
 
@@ -67,7 +97,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
                TopologyGraph.classify_projection(normalized)
     end
 
-    test "SNMP-L2 medium single-identifier inferred evidence projects to INFERRED_TO" do
+    test "SNMP-L2 medium single-identifier inferred evidence projects to OBSERVED_TO" do
       normalized = %{
         "protocol" => "snmp-l2",
         "local_device_id" => "dev-switch",
@@ -80,15 +110,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "confidence_reason" => "single_identifier_inference",
           "confidence_tier" => "medium",
           "confidence_score" => 66,
-          "evidence_class" => "inferred"
+          "evidence_class" => "inferred-segment"
         }
       }
 
-      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
+      assert {:ok, %{mode: :auxiliary, relation: "OBSERVED_TO", reason: :projected_observed}} =
                TopologyGraph.classify_projection(normalized)
     end
 
-    test "wireguard-derived direct evidence projects to backbone CONNECTS_TO" do
+    test "wireguard-derived direct evidence projects to logical peer relation" do
       normalized =
         MapperResultsIngestor.normalize_topology(%{
           "protocol" => "wireguard-derived",
@@ -102,11 +132,36 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
             "source" => "wireguard-derived",
             "confidence_tier" => "high",
             "confidence_score" => 95,
-            "evidence_class" => "direct"
+            "evidence_class" => "direct-logical"
           }
         })
 
-      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO", reason: :projected_backbone}} =
+      assert normalized.metadata["relation_family"] == "LOGICAL_PEER"
+
+      assert {:ok, %{mode: :auxiliary, relation: "LOGICAL_PEER", reason: :projected_logical}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+
+    test "hosted virtual evidence projects to HOSTED_ON" do
+      normalized =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "proxmox-api",
+          "local_device_id" => "host-a",
+          "local_device_ip" => "192.168.2.10",
+          "local_if_name" => "vmbr0",
+          "neighbor_device_id" => "guest-a",
+          "neighbor_mgmt_addr" => "192.168.2.197",
+          "metadata" => %{
+            "source" => "proxmox-api",
+            "confidence_tier" => "high",
+            "confidence_score" => 90,
+            "evidence_class" => "hosted-virtual"
+          }
+        })
+
+      assert normalized.metadata["relation_family"] == "HOSTED_ON"
+
+      assert {:ok, %{mode: :auxiliary, relation: "HOSTED_ON", reason: :projected_hosted}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -124,7 +179,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
                TopologyGraph.classify_projection(normalized)
     end
 
-    test "single-identifier inference skip reason is explicit" do
+    test "single-identifier inference normalizes to observation-only relation" do
       normalized =
         MapperResultsIngestor.normalize_topology(%{
           "protocol" => "SNMP-L2",
@@ -137,11 +192,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
             "confidence_tier" => "low",
             "confidence_score" => 40,
             "confidence_reason" => "single_identifier_inference",
-            "evidence_class" => "inferred"
+            "evidence_class" => "inferred-segment"
           }
         })
 
-      assert {:ok, %{mode: :skip, reason: :skip_single_identifier_inference}} =
+      assert normalized.metadata["relation_family"] == "OBSERVED_TO"
+
+      assert {:ok, %{mode: :auxiliary, relation: "OBSERVED_TO", reason: :projected_observed}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -188,7 +245,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
             "confidence_tier" => "medium",
             "confidence_score" => 70,
             "confidence_reason" => "port_neighbor_inference",
-            "evidence_class" => "inferred"
+            "evidence_class" => "inferred-segment"
           }
         })
 
@@ -228,6 +285,152 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert diagnostics.total == 4
       assert diagnostics.accepted["projected_backbone"] == 3
       assert diagnostics.accepted["projected_inferred"] == 1
+    end
+  end
+
+  describe "resolved SNMP FDB enrichment" do
+    test "neighbors with strong direct topology evidence stay inferred" do
+      [enriched] =
+        [
+          %{
+            protocol: "SNMP-L2",
+            local_device_id: "sr:switch-a",
+            local_device_ip: "192.168.1.87",
+            local_if_name: "1/0/24",
+            local_if_index: 24,
+            neighbor_device_id: "sr:neighbor-a",
+            neighbor_mgmt_addr: "192.168.1.195",
+            metadata: %{
+              "source" => "snmp-arp-fdb",
+              "confidence_tier" => "medium",
+              "confidence_score" => 72,
+              "confidence_reason" => "arp_fdb_port_mapping",
+              "evidence_class" => "inferred-segment"
+            }
+          },
+          %{
+            protocol: "LLDP",
+            local_device_id: "sr:neighbor-a",
+            local_device_ip: "192.168.1.195",
+            local_if_name: "eth1",
+            local_if_index: 1,
+            neighbor_device_id: "sr:core-a",
+            neighbor_mgmt_addr: "192.168.1.1",
+            neighbor_port_id: "eth2",
+            metadata: %{
+              "source" => "lldp",
+              "confidence_tier" => "high",
+              "confidence_score" => 95,
+              "confidence_reason" => "direct_lldp_neighbor",
+              "evidence_class" => "direct-physical"
+            }
+          }
+        ]
+        |> MapperResultsIngestor.enrich_resolved_topology_records(%{
+          "sr:neighbor-a" => %{
+            uid: "sr:neighbor-a",
+            type: nil,
+            type_id: 0,
+            name: nil,
+            hostname: nil,
+            metadata: %{
+              "identity_source" => "mapper_topology_sighting",
+              "identity_state" => "provisional"
+            }
+          }
+        })
+        |> List.wrap()
+        |> Enum.take(1)
+
+      assert enriched.metadata["evidence_class"] == "inferred-segment"
+      assert enriched.metadata["relation_family"] == "INFERRED_TO"
+
+      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
+               TopologyGraph.classify_projection(enriched)
+    end
+
+    test "provisional topology-sighting neighbors become attachment evidence" do
+      [enriched] =
+        MapperResultsIngestor.enrich_resolved_topology_records(
+          [
+            %{
+              protocol: "SNMP-L2",
+              local_device_id: "sr:switch-a",
+              local_device_ip: "192.168.1.87",
+              local_if_name: "1/0/24",
+              local_if_index: 24,
+              neighbor_device_id: "sr:endpoint-a",
+              neighbor_mgmt_addr: "192.168.1.62",
+              metadata: %{
+                "source" => "snmp-arp-fdb",
+                "confidence_tier" => "medium",
+                "confidence_score" => 72,
+                "confidence_reason" => "arp_fdb_port_mapping",
+                "evidence_class" => "inferred-segment"
+              }
+            }
+          ],
+          %{
+            "sr:endpoint-a" => %{
+              uid: "sr:endpoint-a",
+              type: nil,
+              type_id: 0,
+              name: nil,
+              hostname: nil,
+              metadata: %{
+                "identity_source" => "mapper_topology_sighting",
+                "identity_state" => "provisional"
+              }
+            }
+          }
+        )
+
+      assert enriched.metadata["evidence_class"] == "inferred-segment"
+      assert enriched.metadata["relation_family"] == "ATTACHED_TO"
+      assert enriched.metadata["confidence_reason"] == "arp_fdb_port_mapping"
+
+      assert {:ok, %{mode: :auxiliary, relation: "ATTACHED_TO", reason: :projected_attachment}} =
+               TopologyGraph.classify_projection(enriched)
+    end
+
+    test "managed infrastructure neighbors stay inferred" do
+      [enriched] =
+        MapperResultsIngestor.enrich_resolved_topology_records(
+          [
+            %{
+              protocol: "SNMP-L2",
+              local_device_id: "sr:switch-a",
+              local_device_ip: "192.168.1.87",
+              local_if_name: "1/0/24",
+              local_if_index: 24,
+              neighbor_device_id: "sr:switch-b",
+              neighbor_mgmt_addr: "192.168.1.195",
+              metadata: %{
+                "source" => "snmp-arp-fdb",
+                "confidence_tier" => "medium",
+                "confidence_score" => 72,
+                "confidence_reason" => "arp_fdb_port_mapping",
+                "evidence_class" => "inferred-segment"
+              }
+            }
+          ],
+          %{
+            "sr:switch-b" => %{
+              uid: "sr:switch-b",
+              type: "Switch",
+              type_id: 10,
+              name: "USWPro24",
+              hostname: "USWPro24",
+              metadata: %{}
+            }
+          }
+        )
+
+      assert enriched.metadata["evidence_class"] == "inferred-segment"
+      assert enriched.metadata["relation_family"] == "INFERRED_TO"
+
+      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
+               TopologyGraph.classify_projection(enriched)
     end
   end
 
@@ -288,7 +491,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
         neighbor_port_name: "unknown",
         neighbor_name: nil,
         neighbor_ip: "192.168.1.62",
-        evidence_class: "endpoint-attachment",
+        evidence_class: "inferred-segment",
+        relation_family: "ATTACHED_TO",
         confidence_tier: "low",
         confidence_score: 40,
         confidence_reason: "single_identifier_inference",
@@ -314,7 +518,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "UNWIND candidates AS c"
       assert query =~ "support_rank"
       assert query =~ "pair_support_rank"
-      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']"
+
+      assert query =~
+               "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO']"
+
       refute query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
       assert query =~ "AND ai.device_id STARTS WITH 'sr:'"
       assert query =~ "AND bi.device_id STARTS WITH 'sr:'"
@@ -362,7 +569,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       query = TopologyGraph.mapper_evidence_edge_count_query()
 
       assert query =~ "r.ingestor = 'mapper_topology_v1'"
-      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+
+      assert query =~
+               "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+
       assert query =~ "RETURN {count: count(r)}"
     end
 
@@ -370,7 +580,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       query = TopologyGraph.prune_stale_mapper_evidence_links_query("2026-02-25T00:00:00Z")
 
       assert query =~ "r.ingestor = 'mapper_topology_v1'"
-      assert query =~ "type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+
+      assert query =~
+               "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']"
+
       assert query =~ "DELETE r"
     end
 

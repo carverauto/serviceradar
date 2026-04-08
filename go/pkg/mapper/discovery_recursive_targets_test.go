@@ -72,7 +72,8 @@ func TestRecursiveTopologyLinkEligibleRejectsEndpointAttachment(t *testing.T) {
 	link := &TopologyLink{
 		Protocol: "UniFi-API",
 		Metadata: map[string]string{
-			"evidence_class": "endpoint-attachment",
+			"evidence_class":  "inferred-segment",
+			"relation_family": "ATTACHED_TO",
 		},
 	}
 
@@ -87,7 +88,8 @@ func TestRecursiveTopologyLinkEligibleRejectsWeakInference(t *testing.T) {
 		Metadata: map[string]string{
 			"source":            "snmp-arp-fdb",
 			"confidence_reason": "single_identifier_inference",
-			"evidence_class":    "inferred",
+			"evidence_class":    "inferred-segment",
+			"relation_family":   "OBSERVED_TO",
 		},
 	}
 
@@ -182,7 +184,8 @@ func TestCollectRecursiveSNMPTargetsSkipsWeakInferredLinks(t *testing.T) {
 					Metadata: map[string]string{
 						"source":            "snmp-arp-fdb",
 						"confidence_reason": "single_identifier_inference",
-						"evidence_class":    "inferred",
+						"evidence_class":    "inferred-segment",
+						"relation_family":   "OBSERVED_TO",
 					},
 				},
 			},

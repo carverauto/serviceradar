@@ -159,11 +159,16 @@ export const godViewLayoutClusterMethods = {
         flowBpsAb: 0,
         flowBpsBa: 0,
         capacityBps: 0,
-        topologyClassCounts: {backbone: 0, inferred: 0, endpoints: 0, unknown: 0},
+        topologyClassCounts: {backbone: 0, logical: 0, hosted: 0, inferred: 0, observed: 0, endpoints: 0, unknown: 0},
       }
       const topologyClass = deps.edgeTopologyClass(edge)
       const classBucket =
-        topologyClass === "backbone" || topologyClass === "inferred" || topologyClass === "endpoints"
+        topologyClass === "backbone" ||
+        topologyClass === "logical" ||
+        topologyClass === "hosted" ||
+        topologyClass === "inferred" ||
+        topologyClass === "observed" ||
+        topologyClass === "endpoints"
           ? topologyClass
           : "unknown"
       const canonicalForward = a < b

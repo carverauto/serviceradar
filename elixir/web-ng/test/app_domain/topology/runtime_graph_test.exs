@@ -4,18 +4,20 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.RuntimeGraph
 
-  test "topology_links_query/0 reads canonical backbone plus mapper attachment evidence" do
+  test "topology_links_query/0 reads canonical layered backbone plus mapper attachment evidence" do
     query = RuntimeGraph.topology_links_query()
 
     assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
     assert query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
     assert query =~ "a.id STARTS WITH 'sr:'"
     assert query =~ "b.id STARTS WITH 'sr:'"
-    assert query =~ "toUpper(coalesce(r.relation_type, '')) = 'CONNECTS_TO'"
+    assert query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']"
     assert query =~ "type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']"
     assert query =~ "MATCH (a:Device {id: ai.device_id})"
     assert query =~ "MATCH (b:Device {id: bi.device_id})"
-    refute query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']"
+
+    assert query =~
+             "toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual']"
   end
 
   test "topology_links_query/0 stays on the canonical-plus-mapper read model even if legacy flag is set false" do
@@ -43,7 +45,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     query = RuntimeGraph.topology_links_query()
 
     assert query =~ "relation_type: coalesce(r.relation_type, type(r))"
-    assert query =~ "topology_plane: 'backbone'"
+    assert query =~ "WHEN toUpper(coalesce(r.relation_type, '')) = 'LOGICAL_PEER' THEN 'logical'"
+    assert query =~ "WHEN toUpper(coalesce(r.relation_type, '')) = 'HOSTED_ON' THEN 'hosted'"
     assert query =~ "topology_plane: 'attachment'"
     assert query =~ "local_if_name: coalesce(r.local_if_name, '')"
     assert query =~ "local_if_index: r.local_if_index"
@@ -125,12 +128,26 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert link.telemetry_source == "interface"
   end
 
-  test "canonical_runtime_row?/1 accepts canonical direct rows and rejects inferred/non-canonical rows" do
+  test "canonical_runtime_row?/1 accepts canonical layered backbone rows and rejects inferred/non-canonical rows" do
     assert RuntimeGraph.canonical_runtime_row?(%{
              local_device_id: "sr:a",
              neighbor_device_id: "sr:b",
              evidence_class: "direct",
              metadata: %{"relation_type" => "CONNECTS_TO"}
+           })
+
+    assert RuntimeGraph.canonical_runtime_row?(%{
+             local_device_id: "sr:a",
+             neighbor_device_id: "sr:b",
+             evidence_class: "direct-logical",
+             metadata: %{"relation_type" => "LOGICAL_PEER"}
+           })
+
+    assert RuntimeGraph.canonical_runtime_row?(%{
+             local_device_id: "sr:host",
+             neighbor_device_id: "sr:guest",
+             evidence_class: "hosted-virtual",
+             metadata: %{"relation_type" => "HOSTED_ON"}
            })
 
     refute RuntimeGraph.canonical_runtime_row?(%{
@@ -170,11 +187,41 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
       metadata: %{"relation_type" => "INFERRED_TO"}
     }
 
+    logical_row = %{
+      local_device_id: "sr:a",
+      neighbor_device_id: "sr:b",
+      evidence_class: "direct-logical",
+      metadata: %{"relation_type" => "LOGICAL_PEER"}
+    }
+
+    hosted_row = %{
+      local_device_id: "sr:host",
+      neighbor_device_id: "sr:guest",
+      evidence_class: "hosted-virtual",
+      metadata: %{"relation_type" => "HOSTED_ON"}
+    }
+
+    observed_row = %{
+      local_device_id: "sr:a",
+      neighbor_device_id: "sr:endpoint-b",
+      evidence_class: "observed-only",
+      metadata: %{"relation_type" => "OBSERVED_TO"}
+    }
+
     assert RuntimeGraph.backbone_runtime_row?(backbone_row)
     refute RuntimeGraph.attachment_runtime_row?(backbone_row)
 
+    assert RuntimeGraph.backbone_runtime_row?(logical_row)
+    refute RuntimeGraph.attachment_runtime_row?(logical_row)
+
+    assert RuntimeGraph.backbone_runtime_row?(hosted_row)
+    refute RuntimeGraph.attachment_runtime_row?(hosted_row)
+
     assert RuntimeGraph.attachment_runtime_row?(attachment_row)
     refute RuntimeGraph.backbone_runtime_row?(attachment_row)
+
+    assert RuntimeGraph.attachment_runtime_row?(observed_row)
+    refute RuntimeGraph.backbone_runtime_row?(observed_row)
 
     refute RuntimeGraph.backbone_runtime_row?(inferred_row)
     refute RuntimeGraph.attachment_runtime_row?(inferred_row)
