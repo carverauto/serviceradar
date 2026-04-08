@@ -157,7 +157,7 @@ describe("layout_topology_state_methods", () => {
     expect(out.layoutOptions["elk.spacing.nodeNode"]).toEqual("64")
   })
 
-  it("computeBackboneLayeredPositions lays out the backbone horizontally with ordered layers", () => {
+  it("computeBackboneLayeredPositions fans the backbone around the selected hub", () => {
     const context = makeContext()
     const graph = {
       nodes: [
@@ -183,11 +183,19 @@ describe("layout_topology_state_methods", () => {
 
     const positions = context.computeBackboneLayeredPositions(graph, new Set(["cluster-summary"]))
 
-    expect(positions.get("core").x).toEqual(60)
-    expect(positions.get("ap-a").x).toEqual(240)
-    expect(positions.get("ap-b").x).toEqual(240)
-    expect(positions.get("switch-a").x).toEqual(420)
-    expect(positions.get("switch-b").x).toEqual(420)
+    const core = positions.get("core")
+    const apA = positions.get("ap-a")
+    const apB = positions.get("ap-b")
+    const switchA = positions.get("switch-a")
+    const switchB = positions.get("switch-b")
+
+    expect(core.x).toEqual(320)
+    expect(core.y).toEqual(280)
+    expect(apA.x).toBeGreaterThan(core.x)
+    expect(apB.x).toBeGreaterThan(core.x)
+    expect(Math.abs(apA.y - apB.y)).toBeGreaterThan(40)
+    expect(switchA.x).toBeGreaterThan(apA.x - 20)
+    expect(switchB.x).toBeGreaterThan(apB.x - 20)
     expect(positions.has("cluster-summary")).toEqual(false)
   })
 
@@ -211,8 +219,8 @@ describe("layout_topology_state_methods", () => {
 
     const positions = context.computeBackboneLayeredPositions(graph, new Set())
 
-    expect(positions.get("core").x).toEqual(60)
-    expect(positions.get("switch-a").x).toEqual(240)
+    expect(positions.get("core").x).toEqual(320)
+    expect(positions.get("switch-a").x).toBeGreaterThan(positions.get("core").x)
     expect(positions.get("vjunos").x).toBeGreaterThan(positions.get("switch-a").x)
     expect(positions.get("vjunos").y).toBeGreaterThanOrEqual(positions.get("core").y)
   })
@@ -229,8 +237,9 @@ describe("layout_topology_state_methods", () => {
     expect(context.state.layoutMode).toEqual("client-layered")
     expect(context.state.layoutRevision).toEqual(5)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(0)
-    expect(out.nodes[0].x).toEqual(60)
-    expect(out.nodes[1].x).toEqual(240)
+    expect(Number.isFinite(out.nodes[0].x)).toEqual(true)
+    expect(Number.isFinite(out.nodes[1].x)).toEqual(true)
+    expect(out.nodes[0].x).not.toEqual(out.nodes[1].x)
   })
 
   it("prepareGraphLayout reuses cached results for the same revision and expansion state", async () => {
@@ -551,38 +560,18 @@ describe("layout_topology_state_methods", () => {
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
   })
 
-  it("prepareGraphLayout normalizes overly tall ELK layouts into a horizontal aspect", async () => {
-    const context = makeContext({
-      state: {
-        layoutMode: "auto",
-        layoutRevision: null,
-        layoutCache: new Map(),
-        lastLayoutKey: null,
-        layoutEngine: {
-          layout: vi.fn(async () => ({
-            id: "god-view-root",
-            children: [
-              {id: "a", x: 40, y: 40},
-              {id: "b", x: 180, y: 320},
-              {id: "c", x: 320, y: 620},
-            ],
-          })),
-        },
-        lastGraph: null,
-        lastTopologyStamp: null,
-        lastRevision: null,
-      },
-    })
-
+  it("normalizeHorizontalLayout compresses overly tall layouts into a horizontal aspect", async () => {
+    const context = makeContext()
     const graph = {
-      nodes: [{id: "a", details: {}}, {id: "b", details: {}}, {id: "c", details: {}}],
-      edges: [
-        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
-        {source: 1, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+      nodes: [
+        {id: "a", x: 40, y: 40, details: {}},
+        {id: "b", x: 180, y: 320, details: {}},
+        {id: "c", x: 320, y: 620, details: {}},
       ],
+      edges: [],
     }
 
-    const out = await context.prepareGraphLayout(graph, 16, "stamp")
+    const out = context.normalizeHorizontalLayout(graph)
     const xs = out.nodes.map((node) => node.x)
     const ys = out.nodes.map((node) => node.y)
     const xSpan = Math.max(...xs) - Math.min(...xs)

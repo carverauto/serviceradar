@@ -10,6 +10,12 @@ const LAYOUT_PAD = 20
 const BACKBONE_LAYER_GAP_X = 180
 const BACKBONE_LAYER_GAP_Y = 120
 const BACKBONE_COMPONENT_GAP_Y = 180
+const ORGANIC_ROOT_X = 320
+const ORGANIC_ROOT_Y = 280
+const ORGANIC_DEPTH_RADIUS = 168
+const ORGANIC_DEPTH_RADIUS_STEP = 120
+const ORGANIC_FULL_SPAN = Math.PI * 1.7
+const ORGANIC_MIN_CHILD_SPAN = 0.42
 const UNPLACED_LANE_X_OFFSET = 220
 const UNPLACED_LANE_GAP_Y = 92
 
@@ -511,27 +517,31 @@ export const godViewLayoutTopologyStateMethods = {
       const rootId = this.selectBackboneRoot(componentIds, backbone)
       if (!rootId) continue
 
-      const layers = this.backboneLayersFromRoot(rootId, componentIds, backbone)
-      if (layers.length === 0) continue
+      const tree = this.buildBackboneTree(rootId, componentIds, backbone)
+      const subtreeWeights = this.backboneSubtreeWeights(rootId, tree.childrenById)
+      const componentPositions = new Map()
 
+      this.assignOrganicBackbonePositions(
+        rootId,
+        tree.childrenById,
+        subtreeWeights,
+        componentPositions,
+        {
+          x: ORGANIC_ROOT_X,
+          y: ORGANIC_ROOT_Y + componentOffsetY,
+          angle: 0,
+          span: ORGANIC_FULL_SPAN,
+          depth: 0,
+        },
+      )
+
+      for (const [nodeId, point] of componentPositions.entries()) positions.set(nodeId, point)
+
+      const componentYs = Array.from(componentPositions.values()).map((point) => Number(point.y || 0))
       const componentHeight =
-        Math.max(
-          0,
-          ...layers.map((layer) => Math.max(0, (layer.length - 1) * BACKBONE_LAYER_GAP_Y)),
-        ) + BACKBONE_COMPONENT_GAP_Y
-
-      for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
-        const orderedLayer = this.orderBackboneLayerNodes(layers[layerIndex], layerIndex, positions, backbone)
-        const startY = componentOffsetY - ((orderedLayer.length - 1) * BACKBONE_LAYER_GAP_Y) / 2
-
-        for (let nodeIndex = 0; nodeIndex < orderedLayer.length; nodeIndex += 1) {
-          const nodeId = orderedLayer[nodeIndex]
-          positions.set(nodeId, {
-            x: 60 + layerIndex * BACKBONE_LAYER_GAP_X,
-            y: 300 + startY + nodeIndex * BACKBONE_LAYER_GAP_Y,
-          })
-        }
-      }
+        componentYs.length > 0
+          ? Math.max(...componentYs) - Math.min(...componentYs) + BACKBONE_COMPONENT_GAP_Y
+          : BACKBONE_COMPONENT_GAP_Y
 
       componentOffsetY += componentHeight
     }
@@ -564,6 +574,97 @@ export const godViewLayoutTopologyStateMethods = {
     }
 
     return positions
+  },
+  buildBackboneTree(rootId, componentIds, backbone) {
+    const componentSet = new Set(componentIds)
+    const visited = new Set([rootId])
+    const queue = [rootId]
+    const childrenById = new Map()
+
+    for (const nodeId of componentIds) childrenById.set(nodeId, [])
+
+    while (queue.length > 0) {
+      const current = queue.shift()
+      const neighbors = [...(backbone.adjacency.get(current) || [])]
+        .filter((neighbor) => componentSet.has(neighbor))
+        .sort((leftId, rightId) => {
+          const leftNode = backbone.nodeById.get(leftId) || {}
+          const rightNode = backbone.nodeById.get(rightId) || {}
+          const leftDegree = (backbone.adjacency.get(leftId) || new Set()).size
+          const rightDegree = (backbone.adjacency.get(rightId) || new Set()).size
+          const leftPps = Number(leftNode?.pps || 0)
+          const rightPps = Number(rightNode?.pps || 0)
+          return (
+            rightDegree - leftDegree ||
+            rightPps - leftPps ||
+            String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
+            leftId.localeCompare(rightId)
+          )
+        })
+
+      for (const neighbor of neighbors) {
+        if (visited.has(neighbor)) continue
+        visited.add(neighbor)
+        childrenById.get(current).push(neighbor)
+        queue.push(neighbor)
+      }
+    }
+
+    return {rootId, childrenById}
+  },
+  backboneSubtreeWeights(rootId, childrenById) {
+    const weights = new Map()
+    const visit = (nodeId) => {
+      const children = childrenById.get(nodeId) || []
+      if (children.length === 0) {
+        weights.set(nodeId, 1)
+        return 1
+      }
+
+      let total = 0
+      for (const childId of children) total += visit(childId)
+      const weight = Math.max(1, total)
+      weights.set(nodeId, weight)
+      return weight
+    }
+
+    visit(rootId)
+    return weights
+  },
+  assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, positions, frame) {
+    positions.set(nodeId, {x: frame.x, y: frame.y})
+
+    const children = childrenById.get(nodeId) || []
+    if (children.length === 0) return
+
+    const totalWeight = children.reduce((sum, childId) => sum + Number(subtreeWeights.get(childId) || 1), 0)
+    let cursor = frame.angle - frame.span / 2
+
+    for (let index = 0; index < children.length; index += 1) {
+      const childId = children[index]
+      const childWeight = Number(subtreeWeights.get(childId) || 1)
+      const proportionalSpan = frame.span * (childWeight / Math.max(totalWeight, 1))
+      const childSpan =
+        children.length === 1 ? Math.min(frame.span * 0.74, Math.PI * 0.55) : Math.max(ORGANIC_MIN_CHILD_SPAN, proportionalSpan)
+      const childAngle = cursor + proportionalSpan / 2
+      const radius = ORGANIC_DEPTH_RADIUS + Math.max(0, frame.depth - 1) * ORGANIC_DEPTH_RADIUS_STEP
+
+      this.assignOrganicBackbonePositions(
+        childId,
+        childrenById,
+        subtreeWeights,
+        positions,
+        {
+          x: frame.x + Math.cos(childAngle) * radius,
+          y: frame.y + Math.sin(childAngle) * radius,
+          angle: childAngle,
+          span: Math.min(frame.span * 0.74, childSpan),
+          depth: frame.depth + 1,
+        },
+      )
+
+      cursor += proportionalSpan
+    }
   },
   buildBackboneAdjacency(graph, excludedNodeIds) {
     const nodeIds = []
