@@ -270,7 +270,7 @@ export const godViewRenderingGraphDataMethods = {
         .filter(([, count]) => Number(count || 0) > 0)
         .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
       const dominantClass = classBuckets.length === 1 ? classBuckets[0][0] : ""
-      const {signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, ...plainEdge} = edge
+      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, ...plainEdge} = edge
 
       return {
         ...plainEdge,

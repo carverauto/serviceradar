@@ -1,3 +1,36 @@
+function nodeDetails(node) {
+  return node?.details && typeof node.details === "object" ? node.details : {}
+}
+
+function clusterKindForNode(node) {
+  const clusterKind = nodeDetails(node).cluster_kind
+  return typeof clusterKind === "string" && clusterKind.trim() !== "" ? clusterKind.trim() : ""
+}
+
+function isEndpointMemberNode(node) {
+  return clusterKindForNode(node) === "endpoint-member"
+}
+
+function isEndpointSummaryNode(node) {
+  return clusterKindForNode(node) === "endpoint-summary"
+}
+
+function isEndpointAnchorNode(node) {
+  return clusterKindForNode(node) === "endpoint-anchor"
+}
+
+function isUnplacedNode(node) {
+  const details = nodeDetails(node)
+  return details.topology_unplaced === true || String(details.topology_plane || "").trim() === "unplaced"
+}
+
+function frameNodeRadius(node) {
+  if (isEndpointSummaryNode(node)) return 44
+  if (isEndpointAnchorNode(node)) return 32
+  if (isEndpointMemberNode(node)) return 16
+  return 28
+}
+
 export const godViewRenderingGraphViewMethods = {
   fitViewPadding(width, height) {
     const safeWidth = Math.max(1, Number(width) || 1)
@@ -10,27 +43,49 @@ export const godViewRenderingGraphViewMethods = {
       bottom: Math.min(144, Math.max(72, safeHeight * 0.12)),
     }
   },
-  autoFitViewState(graph) {
-    if (!this.state.deck || !graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return
-    if (this.state.hasAutoFit || this.state.userCameraLocked) return
-
+  boundsForNodes(nodes) {
     let minX = Number.POSITIVE_INFINITY
     let maxX = Number.NEGATIVE_INFINITY
     let minY = Number.POSITIVE_INFINITY
     let maxY = Number.NEGATIVE_INFINITY
 
-    for (let i = 0; i < graph.nodes.length; i += 1) {
-      const node = graph.nodes[i]
+    for (const node of nodes) {
       const x = Number(node?.x)
       const y = Number(node?.y)
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue
-      minX = Math.min(minX, x)
-      maxX = Math.max(maxX, x)
-      minY = Math.min(minY, y)
-      maxY = Math.max(maxY, y)
+      const radius = frameNodeRadius(node)
+      minX = Math.min(minX, x - radius)
+      maxX = Math.max(maxX, x + radius)
+      minY = Math.min(minY, y - radius)
+      maxY = Math.max(maxY, y + radius)
     }
 
-    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+    return {minX, maxX, minY, maxY}
+  },
+  autoFitBounds(graph) {
+    if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return null
+
+    const finiteNodes = graph.nodes.filter((node) => {
+      const x = Number(node?.x)
+      const y = Number(node?.y)
+      return Number.isFinite(x) && Number.isFinite(y)
+    })
+    if (finiteNodes.length === 0) return null
+
+    if (graph._layoutMode !== "client-radial") return this.boundsForNodes(finiteNodes)
+
+    const overviewNodes = finiteNodes.filter((node) => !isEndpointMemberNode(node) && !isUnplacedNode(node))
+    const framedNodes = overviewNodes.length > 0 ? overviewNodes : finiteNodes
+    return this.boundsForNodes(framedNodes)
+  },
+  autoFitViewState(graph) {
+    if (!this.state.deck || !graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return
+    if (this.state.hasAutoFit || this.state.userCameraLocked) return
+
+    const bounds = this.autoFitBounds(graph)
+    if (!bounds) return
+    const {minX, maxX, minY, maxY} = bounds
 
     const width = Math.max(1, this.state.el.clientWidth || 1)
     const height = Math.max(1, this.state.el.clientHeight || 1)
@@ -83,22 +138,9 @@ export const godViewRenderingGraphViewMethods = {
     })
     if (neighborhood.length === 0) return false
 
-    let minX = Number.POSITIVE_INFINITY
-    let maxX = Number.NEGATIVE_INFINITY
-    let minY = Number.POSITIVE_INFINITY
-    let maxY = Number.NEGATIVE_INFINITY
-
-    for (const node of neighborhood) {
-      const x = Number(node?.x)
-      const y = Number(node?.y)
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
-      minX = Math.min(minX, x)
-      maxX = Math.max(maxX, x)
-      minY = Math.min(minY, y)
-      maxY = Math.max(maxY, y)
-    }
-
-    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return false
+    const bounds = this.boundsForNodes(neighborhood)
+    if (!bounds) return false
+    const {minX, maxX, minY, maxY} = bounds
 
     const width = Math.max(1, this.state.el.clientWidth || 1)
     const height = Math.max(1, this.state.el.clientHeight || 1)

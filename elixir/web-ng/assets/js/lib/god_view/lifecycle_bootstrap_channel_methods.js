@@ -34,7 +34,7 @@ function pipelineStatsFromHeaders(headers) {
 
 const godViewLifecycleBootstrapChannelCoreMethods = {
   async bootstrapLatestSnapshot() {
-    const url = this.el?.dataset?.url
+    const url = this.state.el?.dataset?.url
     if (typeof url !== "string" || url.trim() === "" || typeof fetch !== "function") return false
     if (this.state.snapshotBootstrapPromise) return this.state.snapshotBootstrapPromise
 

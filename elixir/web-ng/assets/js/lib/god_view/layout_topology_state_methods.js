@@ -1,6 +1,6 @@
 import ELK from "elkjs/lib/elk.bundled.js"
 
-const DEFAULT_LAYOUT_ENGINE = new ELK()
+let defaultLayoutEngine = null
 const MAX_LAYOUT_CACHE_ENTRIES = 12
 const DEFAULT_NODE_WIDTH = 54
 const DEFAULT_NODE_HEIGHT = 54
@@ -8,22 +8,13 @@ const LAYOUT_WIDTH = 640
 const LAYOUT_HEIGHT = 320
 const LAYOUT_PAD = 20
 const BACKBONE_LAYER_GAP_X = 180
-const BACKBONE_LAYER_GAP_Y = 120
 const BACKBONE_COMPONENT_GAP_Y = 180
 const ORGANIC_ROOT_X = 320
 const ORGANIC_ROOT_Y = 280
 const ORGANIC_DEPTH_RADIUS = 168
 const ORGANIC_DEPTH_RADIUS_STEP = 120
 const ORGANIC_FULL_SPAN = Math.PI * 1.7
-const ORGANIC_MIN_CHILD_SPAN = 0.42
-const BACKBONE_RELAXATION_ITERATIONS = 180
-const BACKBONE_REPULSION = 220_000
-const BACKBONE_SPRING_LENGTH = 210
-const BACKBONE_SPRING_STRENGTH = 0.0038
-const BACKBONE_CENTERING = 0.0016
-const BACKBONE_DAMPING = 0.82
 const BACKBONE_NODE_MIN_DISTANCE = 120
-const BACKBONE_NODE_COLLISION_ITERATIONS = 8
 const UNPLACED_LANE_X_OFFSET = 220
 const UNPLACED_LANE_GAP_Y = 92
 
@@ -42,6 +33,11 @@ const ELK_ROOT_OPTIONS = {
   "elk.spacing.nodeNode": "64",
   "elk.spacing.edgeNode": "48",
   "elk.padding": "[top=48,left=48,bottom=48,right=48]",
+}
+
+function getDefaultLayoutEngine() {
+  if (!defaultLayoutEngine) defaultLayoutEngine = new ELK()
+  return defaultLayoutEngine
 }
 
 function projectMercator(lat, lon) {
@@ -267,31 +263,33 @@ export const godViewLayoutTopologyStateMethods = {
   },
   async computeClientTopologyLayout(graph, layoutKey) {
     const previousGraph = this.state.lastGraph
-    const requiresFullElk = this.requiresFullElkLayout(graph)
-    const layeredPositions = requiresFullElk ? null : this.computeBackboneLayeredPositions(graph, new Set())
+    const clusterLayout = this.collectEndpointProjectionGroups(graph)
+    const excludedNodeIds =
+      clusterLayout?.excludedNodeIds instanceof Set ? clusterLayout.excludedNodeIds : new Set()
+    const layeredPositions = this.computeBackboneLayeredPositions(graph, excludedNodeIds)
 
     if (layeredPositions instanceof Map && layeredPositions.size > 0) {
       const withBackbone = this.applyPositionMap(graph, layeredPositions)
-      const normalized = this.normalizeHorizontalLayout(withBackbone)
+      const projected = this.applyEndpointProjectionLayout(withBackbone, clusterLayout)
+      const normalized = this.normalizeHorizontalLayout(projected)
       return {
         ...normalized,
-        _layoutMode: "client-layered",
+        _layoutMode: "client-radial",
         _layoutCacheKey: layoutKey,
       }
     }
 
-    const layoutGraph = this.buildElkLayoutGraph(graph, new Set(), {
-      includeAttachmentEdges: requiresFullElk,
-    })
+    const layoutGraph = this.buildElkLayoutGraph(graph, excludedNodeIds)
 
     try {
-      const engine = this.state.layoutEngine || DEFAULT_LAYOUT_ENGINE
+      const engine = this.state.layoutEngine || getDefaultLayoutEngine()
       const elkResult = await engine.layout(layoutGraph)
       const withBackbone = this.applyElkNodePositions(graph, elkResult)
-      const normalized = this.normalizeHorizontalLayout(withBackbone)
+      const projected = this.applyEndpointProjectionLayout(withBackbone, clusterLayout)
+      const normalized = this.normalizeHorizontalLayout(projected)
       return {
         ...normalized,
-        _layoutMode: requiresFullElk ? "elk-client-full" : "elk-client",
+        _layoutMode: "elk-client-fallback",
         _layoutCacheKey: layoutKey,
       }
     } catch (_error) {
@@ -303,12 +301,8 @@ export const godViewLayoutTopologyStateMethods = {
       }
     }
   },
-  requiresFullElkLayout(graph) {
-    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return false
-    return (
-      graph.nodes.some((node) => isEndpointSummaryNode(node) || isEndpointMemberNode(node)) ||
-      graph.edges.some((edge) => String(edge?.evidenceClass || "") === "endpoint-attachment")
-    )
+  requiresFullElkLayout(_graph) {
+    return false
   },
   dedupeGraphById(graph) {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
@@ -514,8 +508,18 @@ export const godViewLayoutTopologyStateMethods = {
           .map((node, index) => ({id: graphNodeId(node, index), node}))
           .filter(({id, node}) => !excludedNodeIds.has(id) && isUnplacedNode(node))
       : []
+    const residualNodes = Array.isArray(graph?.nodes)
+      ? graph.nodes
+          .map((node, index) => ({id: graphNodeId(node, index), node}))
+          .filter(({id, node}) => {
+            if (excludedNodeIds.has(id) || isUnplacedNode(node)) return false
+            return !backbone.nodeIds.includes(id)
+          })
+      : []
 
-    if ((!backbone || backbone.nodeIds.length === 0) && unplacedNodes.length === 0) return null
+    if ((!backbone || backbone.nodeIds.length === 0) && unplacedNodes.length === 0 && residualNodes.length === 0) {
+      return null
+    }
 
     const components = this.connectedBackboneComponents(backbone.nodeIds, backbone.adjacency)
     const positions = new Map()
@@ -527,24 +531,25 @@ export const godViewLayoutTopologyStateMethods = {
 
       const tree = this.buildBackboneTree(rootId, componentIds, backbone)
       const subtreeWeights = this.backboneSubtreeWeights(rootId, tree.childrenById)
+      const depthById = this.backboneDepthsFromRoot(rootId, tree.childrenById)
+      const radiiByDepth = this.backboneRadiiByDepth(depthById)
       const componentPositions = new Map()
 
       this.assignOrganicBackbonePositions(
         rootId,
         tree.childrenById,
         subtreeWeights,
+        depthById,
+        radiiByDepth,
         componentPositions,
         {
           x: ORGANIC_ROOT_X,
           y: ORGANIC_ROOT_Y + componentOffsetY,
-          angle: 0,
-          span: ORGANIC_FULL_SPAN,
+          startAngle: -(ORGANIC_FULL_SPAN / 2),
+          endAngle: ORGANIC_FULL_SPAN / 2,
           depth: 0,
         },
       )
-
-      this.relaxBackboneComponent(componentIds, backbone, componentPositions, rootId)
-      this.separateBackboneNodes(componentIds, componentPositions, rootId)
 
       for (const [nodeId, point] of componentPositions.entries()) positions.set(nodeId, point)
 
@@ -557,15 +562,15 @@ export const godViewLayoutTopologyStateMethods = {
       componentOffsetY += componentHeight
     }
 
-    if (unplacedNodes.length > 0) {
-      const placedPoints = Array.from(positions.values())
-      const anchorX = placedPoints.length > 0
-        ? Math.max(...placedPoints.map((point) => Number(point.x || 0))) + UNPLACED_LANE_X_OFFSET
-        : 120
-      const anchorY = placedPoints.length > 0
-        ? Math.min(...placedPoints.map((point) => Number(point.y || 0)))
-        : 220
+    const placedPoints = Array.from(positions.values())
+    const laneAnchorX = placedPoints.length > 0
+      ? Math.max(...placedPoints.map((point) => Number(point.x || 0))) + UNPLACED_LANE_X_OFFSET
+      : 120
+    let laneCursorY = placedPoints.length > 0
+      ? Math.min(...placedPoints.map((point) => Number(point.y || 0)))
+      : 220
 
+    if (unplacedNodes.length > 0) {
       const orderedUnplaced = [...unplacedNodes].sort((left, right) => {
         const leftLabel = String(left.node?.label || left.id || "")
         const rightLabel = String(right.node?.label || right.id || "")
@@ -578,13 +583,73 @@ export const godViewLayoutTopologyStateMethods = {
         const column = Math.floor(index / 8)
         const row = index % 8
         positions.set(orderedUnplaced[index].id, {
-          x: anchorX + column * Math.round(BACKBONE_LAYER_GAP_X * 0.9),
-          y: anchorY + row * UNPLACED_LANE_GAP_Y,
+          x: laneAnchorX + column * Math.round(BACKBONE_LAYER_GAP_X * 0.9),
+          y: laneCursorY + row * UNPLACED_LANE_GAP_Y,
+        })
+      }
+
+      laneCursorY += Math.ceil(orderedUnplaced.length / 8) * UNPLACED_LANE_GAP_Y + 44
+    }
+
+    if (residualNodes.length > 0) {
+      const orderedResidual = [...residualNodes].sort((left, right) => {
+        const leftLabel = String(left.node?.label || left.id || "")
+        const rightLabel = String(right.node?.label || right.id || "")
+        const leftPps = Number(left.node?.pps || 0)
+        const rightPps = Number(right.node?.pps || 0)
+        return rightPps - leftPps || leftLabel.localeCompare(rightLabel) || left.id.localeCompare(right.id)
+      })
+
+      for (let index = 0; index < orderedResidual.length; index += 1) {
+        const column = Math.floor(index / 8)
+        const row = index % 8
+        positions.set(orderedResidual[index].id, {
+          x: laneAnchorX + column * Math.round(BACKBONE_LAYER_GAP_X * 0.9),
+          y: laneCursorY + row * UNPLACED_LANE_GAP_Y,
         })
       }
     }
 
     return positions
+  },
+  backboneDepthsFromRoot(rootId, childrenById) {
+    const depthById = new Map([[rootId, 0]])
+    const queue = [rootId]
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift()
+      const depth = Number(depthById.get(nodeId) || 0)
+
+      for (const childId of childrenById.get(nodeId) || []) {
+        depthById.set(childId, depth + 1)
+        queue.push(childId)
+      }
+    }
+
+    return depthById
+  },
+  backboneRadiiByDepth(depthById) {
+    const counts = new Map()
+
+    for (const depth of depthById.values()) {
+      if (!Number.isInteger(depth) || depth <= 0) continue
+      counts.set(depth, Number(counts.get(depth) || 0) + 1)
+    }
+
+    const radiiByDepth = new Map([[0, 0]])
+
+    for (const [depth, count] of Array.from(counts.entries()).sort((left, right) => left[0] - right[0])) {
+      const minimumRadius = (Math.max(1, count) * BACKBONE_NODE_MIN_DISTANCE) / Math.max(ORGANIC_FULL_SPAN, Math.PI)
+      radiiByDepth.set(
+        depth,
+        Math.max(
+          ORGANIC_DEPTH_RADIUS + ((depth - 1) * ORGANIC_DEPTH_RADIUS_STEP),
+          minimumRadius,
+        ),
+      )
+    }
+
+    return radiiByDepth
   },
   buildBackboneTree(rootId, componentIds, backbone) {
     const componentSet = new Set(componentIds)
@@ -642,169 +707,39 @@ export const godViewLayoutTopologyStateMethods = {
     visit(rootId)
     return weights
   },
-  relaxBackboneComponent(componentIds, backbone, positions, rootId) {
-    const nodes = componentIds
-      .map((nodeId) => ({
-        id: nodeId,
-        position: positions.get(nodeId),
-        velocity: {x: 0, y: 0},
-      }))
-      .filter((entry) => entry.position)
-
-    if (nodes.length < 2) return
-
-    const nodeIndex = new Map(nodes.map((entry, index) => [entry.id, index]))
-    const edges = []
-
-    for (const nodeId of componentIds) {
-      for (const neighborId of backbone.adjacency.get(nodeId) || []) {
-        const left = nodeIndex.get(nodeId)
-        const right = nodeIndex.get(neighborId)
-        if (!Number.isInteger(left) || !Number.isInteger(right) || left >= right) continue
-        edges.push([left, right])
-      }
-    }
-
-    const rootIndex = nodeIndex.get(rootId)
-    const rootAnchor = Number.isInteger(rootIndex)
-      ? {
-          x: Number(nodes[rootIndex].position.x || ORGANIC_ROOT_X),
-          y: Number(nodes[rootIndex].position.y || ORGANIC_ROOT_Y),
-        }
-      : {x: ORGANIC_ROOT_X, y: ORGANIC_ROOT_Y}
-
-    for (let iteration = 0; iteration < BACKBONE_RELAXATION_ITERATIONS; iteration += 1) {
-      const forces = nodes.map(() => ({x: 0, y: 0}))
-
-      for (let left = 0; left < nodes.length; left += 1) {
-        const leftPosition = nodes[left].position
-        for (let right = left + 1; right < nodes.length; right += 1) {
-          const rightPosition = nodes[right].position
-          const dx = Number(rightPosition.x || 0) - Number(leftPosition.x || 0)
-          const dy = Number(rightPosition.y || 0) - Number(leftPosition.y || 0)
-          const distanceSq = Math.max(1, dx * dx + dy * dy)
-          const distance = Math.sqrt(distanceSq)
-          const force = BACKBONE_REPULSION / distanceSq
-          const fx = (dx / distance) * force
-          const fy = (dy / distance) * force
-          forces[left].x -= fx
-          forces[left].y -= fy
-          forces[right].x += fx
-          forces[right].y += fy
-        }
-      }
-
-      for (const [left, right] of edges) {
-        const leftPosition = nodes[left].position
-        const rightPosition = nodes[right].position
-        const dx = Number(rightPosition.x || 0) - Number(leftPosition.x || 0)
-        const dy = Number(rightPosition.y || 0) - Number(leftPosition.y || 0)
-        const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy))
-        const extension = distance - BACKBONE_SPRING_LENGTH
-        const force = extension * BACKBONE_SPRING_STRENGTH
-        const fx = (dx / distance) * force
-        const fy = (dy / distance) * force
-        forces[left].x += fx
-        forces[left].y += fy
-        forces[right].x -= fx
-        forces[right].y -= fy
-      }
-
-      for (let index = 0; index < nodes.length; index += 1) {
-        const node = nodes[index]
-        const isRoot = index === rootIndex
-        const toCenterX = rootAnchor.x - Number(node.position.x || 0)
-        const toCenterY = rootAnchor.y - Number(node.position.y || 0)
-        forces[index].x += toCenterX * BACKBONE_CENTERING * (isRoot ? 4.5 : 1)
-        forces[index].y += toCenterY * BACKBONE_CENTERING * (isRoot ? 4.5 : 1)
-
-        if (isRoot) {
-          node.velocity.x = 0
-          node.velocity.y = 0
-          node.position.x = rootAnchor.x
-          node.position.y = rootAnchor.y
-          continue
-        }
-
-        node.velocity.x = (node.velocity.x + forces[index].x) * BACKBONE_DAMPING
-        node.velocity.y = (node.velocity.y + forces[index].y) * BACKBONE_DAMPING
-        node.position.x += node.velocity.x
-        node.position.y += node.velocity.y
-      }
-    }
-  },
-  separateBackboneNodes(componentIds, positions, rootId) {
-    const nodes = componentIds
-      .map((nodeId) => ({id: nodeId, point: positions.get(nodeId)}))
-      .filter((entry) => entry.point)
-
-    if (nodes.length < 2) return
-
-    const rootPoint = positions.get(rootId)
-
-    for (let iteration = 0; iteration < BACKBONE_NODE_COLLISION_ITERATIONS; iteration += 1) {
-      for (let left = 0; left < nodes.length; left += 1) {
-        for (let right = left + 1; right < nodes.length; right += 1) {
-          const leftNode = nodes[left]
-          const rightNode = nodes[right]
-          const dx = Number(rightNode.point.x || 0) - Number(leftNode.point.x || 0)
-          const dy = Number(rightNode.point.y || 0) - Number(leftNode.point.y || 0)
-          const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy))
-          if (distance >= BACKBONE_NODE_MIN_DISTANCE) continue
-
-          const overlap = (BACKBONE_NODE_MIN_DISTANCE - distance) / 2
-          const nx = dx / distance
-          const ny = dy / distance
-
-          if (leftNode.id !== rootId) {
-            leftNode.point.x -= nx * overlap
-            leftNode.point.y -= ny * overlap
-          }
-
-          if (rightNode.id !== rootId) {
-            rightNode.point.x += nx * overlap
-            rightNode.point.y += ny * overlap
-          }
-        }
-      }
-    }
-
-    if (rootPoint) {
-      positions.set(rootId, {
-        x: Number(rootPoint.x || ORGANIC_ROOT_X),
-        y: Number(rootPoint.y || ORGANIC_ROOT_Y),
-      })
-    }
-  },
-  assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, positions, frame) {
+  assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, depthById, radiiByDepth, positions, frame) {
     positions.set(nodeId, {x: frame.x, y: frame.y})
 
     const children = childrenById.get(nodeId) || []
     if (children.length === 0) return
 
     const totalWeight = children.reduce((sum, childId) => sum + Number(subtreeWeights.get(childId) || 1), 0)
-    let cursor = frame.angle - frame.span / 2
+    const span = frame.endAngle - frame.startAngle
+    let cursor = frame.startAngle
 
     for (let index = 0; index < children.length; index += 1) {
       const childId = children[index]
       const childWeight = Number(subtreeWeights.get(childId) || 1)
-      const proportionalSpan = frame.span * (childWeight / Math.max(totalWeight, 1))
-      const childSpan =
-        children.length === 1 ? Math.min(frame.span * 0.74, Math.PI * 0.55) : Math.max(ORGANIC_MIN_CHILD_SPAN, proportionalSpan)
-      const childAngle = cursor + proportionalSpan / 2
-      const radius = ORGANIC_DEPTH_RADIUS + Math.max(0, frame.depth - 1) * ORGANIC_DEPTH_RADIUS_STEP
+      const proportionalSpan = span * (childWeight / Math.max(totalWeight, 1))
+      const childStart = cursor
+      const childEnd = childStart + proportionalSpan
+      const childAngle = childStart + (proportionalSpan / 2)
+      const childDepth = Number(depthById.get(childId) || (frame.depth + 1))
+      const radius = Number(radiiByDepth.get(childDepth) || ORGANIC_DEPTH_RADIUS)
 
       this.assignOrganicBackbonePositions(
         childId,
         childrenById,
         subtreeWeights,
+        depthById,
+        radiiByDepth,
         positions,
         {
           x: frame.x + Math.cos(childAngle) * radius,
           y: frame.y + Math.sin(childAngle) * radius,
-          angle: childAngle,
-          span: Math.min(frame.span * 0.74, childSpan),
-          depth: frame.depth + 1,
+          startAngle: childStart,
+          endAngle: childEnd,
+          depth: childDepth,
         },
       )
 
@@ -816,29 +751,74 @@ export const godViewLayoutTopologyStateMethods = {
     const nodeById = new Map()
     const adjacency = new Map()
     const depthById = new Map()
+    const allNodes = new Map()
 
     for (let index = 0; index < graph.nodes.length; index += 1) {
       const node = graph.nodes[index]
       const nodeId = graphNodeId(node, index)
-      if (excludedNodeIds.has(nodeId)) continue
-      if (isUnplacedNode(node)) continue
-      nodeIds.push(nodeId)
-      nodeById.set(nodeId, node)
-      adjacency.set(nodeId, new Set())
-      depthById.set(nodeId, Number(node?.y || 0))
+      allNodes.set(nodeId, node)
     }
 
     for (const edge of graph.edges) {
       const sourceId = edgeNodeId(graph, edge, "source")
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId) continue
-      if (!adjacency.has(sourceId) || !adjacency.has(targetId)) continue
-      if (String(edge?.evidenceClass || "") === "endpoint-attachment") continue
+      if (!this.edgeDrivesBackboneLayout(edge)) continue
+      if (excludedNodeIds.has(sourceId) || excludedNodeIds.has(targetId)) continue
+      if (isUnplacedNode(allNodes.get(sourceId)) || isUnplacedNode(allNodes.get(targetId))) continue
+
+      if (!adjacency.has(sourceId)) {
+        adjacency.set(sourceId, new Set())
+        nodeIds.push(sourceId)
+        nodeById.set(sourceId, allNodes.get(sourceId))
+        depthById.set(sourceId, Number(allNodes.get(sourceId)?.y || 0))
+      }
+
+      if (!adjacency.has(targetId)) {
+        adjacency.set(targetId, new Set())
+        nodeIds.push(targetId)
+        nodeById.set(targetId, allNodes.get(targetId))
+        depthById.set(targetId, Number(allNodes.get(targetId)?.y || 0))
+      }
+
       adjacency.get(sourceId).add(targetId)
       adjacency.get(targetId).add(sourceId)
     }
 
+    if (nodeIds.length === 0) {
+      for (const [nodeId, node] of allNodes.entries()) {
+        if (excludedNodeIds.has(nodeId) || isUnplacedNode(node)) continue
+        nodeIds.push(nodeId)
+        nodeById.set(nodeId, node)
+        adjacency.set(nodeId, new Set())
+        depthById.set(nodeId, Number(node?.y || 0))
+      }
+    }
+
     return {nodeIds, nodeById, adjacency, depthById}
+  },
+  edgeDrivesBackboneLayout(edge) {
+    const topologyClass = String(edge?.topologyClass || "").trim().toLowerCase()
+    const evidenceClass = String(edge?.evidenceClass || "").trim().toLowerCase()
+
+    if (topologyClass === "endpoints" || topologyClass === "endpoint") return false
+    if (topologyClass === "inferred" || topologyClass === "observed") return false
+    if (topologyClass === "backbone" || topologyClass === "logical" || topologyClass === "hosted") return true
+
+    if (evidenceClass === "endpoint-attachment") return false
+    if (evidenceClass === "inferred" || evidenceClass === "inferred-segment") return false
+    if (evidenceClass === "observed" || evidenceClass === "observed-only") return false
+
+    return (
+      evidenceClass === "direct" ||
+      evidenceClass === "direct-physical" ||
+      evidenceClass === "logical" ||
+      evidenceClass === "direct-logical" ||
+      evidenceClass === "hosted" ||
+      evidenceClass === "hosted-virtual" ||
+      topologyClass === "" ||
+      topologyClass === "unknown"
+    )
   },
   connectedBackboneComponents(nodeIds, adjacency) {
     const visited = new Set()
@@ -1035,47 +1015,7 @@ export const godViewLayoutTopologyStateMethods = {
     }
   },
   normalizeHorizontalLayout(graph) {
-    if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return graph
-
-    const coords = graph.nodes
-      .map((node) => ({
-        node,
-        x: Number(node?.x),
-        y: Number(node?.y),
-      }))
-      .filter((entry) => Number.isFinite(entry.x) && Number.isFinite(entry.y))
-
-    if (coords.length < 2) return graph
-
-    const xs = coords.map((entry) => entry.x)
-    const ys = coords.map((entry) => entry.y)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-    const xSpan = maxX - minX
-    const ySpan = maxY - minY
-
-    if (!Number.isFinite(xSpan) || !Number.isFinite(ySpan) || xSpan <= 0 || ySpan <= 0) return graph
-
-    const targetYSpan = Math.max(220, xSpan * 0.72)
-    if (ySpan <= targetYSpan) return graph
-
-    const centerY = (minY + maxY) / 2
-    const scaleY = targetYSpan / ySpan
-
-    return {
-      ...graph,
-      nodes: graph.nodes.map((node) => {
-        const y = Number(node?.y)
-        if (!Number.isFinite(y)) return node
-
-        return {
-          ...node,
-          y: centerY + ((y - centerY) * scaleY),
-        }
-      }),
-    }
+    return graph
   },
   resolveEndpointProjectionAngle(nodes, nodeIndexById, cluster, anchorNode) {
     const parentIndex = cluster.parentNodeId ? nodeIndexById.get(cluster.parentNodeId) : null
