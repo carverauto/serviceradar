@@ -100,7 +100,8 @@ describe("lifecycle_stream_snapshot_methods", () => {
       lastSnapshotAt: 0,
       layoutRequestToken: 0,
       lastGraph: null,
-      lastVisibleNodeCount: 0,
+      lastVisibleNodeCount: 1,
+      lastVisibleEdgeCount: 3,
       selectedNodeIndex: null,
       rendererMode: "deck",
       zoomTier: "local",
@@ -132,6 +133,15 @@ describe("lifecycle_stream_snapshot_methods", () => {
     expect(deps.animateTransition).toHaveBeenCalledWith(null, graph)
     expect(state.lastGraph).toBe(graph)
     expect(state.summary.textContent).toContain("layout=elk-client")
+    expect(state.summary.textContent).toContain("rendered_edges=3")
+    expect(state.pushEvent).toHaveBeenCalledWith(
+      "god_view_stream_stats",
+      expect.objectContaining({
+        edge_count: 0,
+        rendered_node_count: 1,
+        rendered_edge_count: 3,
+      }),
+    )
   })
 
   it("handleSnapshot re-arms autoFit on topology changes when the user has not locked the camera", async () => {
