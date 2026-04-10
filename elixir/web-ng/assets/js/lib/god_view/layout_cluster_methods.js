@@ -125,7 +125,7 @@ export const godViewLayoutClusterMethods = {
     const sampleIp = sample.ip || null
     const sampleType = sample.type || null
     const bucketType = scope === "global" ? "State Cluster" : "Regional Cluster"
-    return {
+    const details = {
       id: cluster.id,
       ip: sampleIp || "cluster",
       type: sampleType || bucketType,
@@ -139,6 +139,22 @@ export const godViewLayoutClusterMethods = {
       cluster_count: cluster.count,
       sample_label: sampleLabel,
     }
+
+    delete details.cluster_id
+    delete details.cluster_kind
+    delete details.cluster_anchor_id
+    delete details.cluster_anchor_label
+    delete details.cluster_expandable
+    delete details.cluster_expanded
+    delete details.cluster_member_count
+    delete details.cluster_visible_member_count
+    delete details.cluster_hidden_member_count
+    delete details.cluster_camera_tile_count
+    delete details.cluster_camera_tiles
+
+    if (details.identity_source === "backend_endpoint_cluster") delete details.identity_source
+
+    return details
   },
   clusterEdges(edges, clusterByNode) {
     const {deps} = this

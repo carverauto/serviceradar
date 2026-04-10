@@ -200,6 +200,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       layout_revision = topology_revision(nodes, layout_indexed_edges)
       nodes = maybe_apply_backend_layout(nodes, layout_indexed_edges, layout_revision)
       nodes = apply_causal_states(nodes, causal_indexed_edges)
+      edges = promote_projection_attachment_candidates(edges, nodes)
       {nodes, edges, pipeline_stats} = apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, snapshot_opts)
       {nodes, edges, pipeline_stats} = quarantine_unresolved_endpoint_identities(nodes, edges, pipeline_stats)
       edges = retain_renderable_edges(nodes, edges)
@@ -475,7 +476,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints), do: %{}
 
   defp collapse_endpoint_attachments(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
-    {attachment_edges, other_edges} = Enum.split_with(edges, &endpoint_attachment_edge?/1)
+    {attachment_edges, other_edges} = Enum.split_with(edges, &attachment_candidate_edge?(&1, device_by_id))
     incident_profiles = attachment_incident_profiles(edges, device_by_id)
 
     collapsed =
@@ -489,9 +490,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           if ambiguous_low_confidence_attachment_group?(group_key, grouped_edges, device_by_id) do
             []
           else
-            [Enum.max_by(grouped_edges, &attachment_edge_rank(&1, device_by_id, incident_profiles))]
+            selected =
+              grouped_edges
+              |> Enum.max_by(&attachment_edge_rank(&1, device_by_id, incident_profiles))
+              |> annotate_attachment_group_observation_count(length(grouped_edges))
+
+            [selected]
           end
       end)
+      |> Enum.map(&promote_attachment_candidate_edge(&1, device_by_id))
       |> drop_endpoint_identity_bridges(device_by_id)
 
     other_edges ++ collapsed
@@ -511,6 +518,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp attachment_group_key(_edge, _device_by_id), do: nil
+
+  defp annotate_attachment_group_observation_count(edge, observation_count)
+       when is_map(edge) and is_integer(observation_count) and observation_count > 0 do
+    metadata =
+      edge
+      |> Map.get(:metadata, %{})
+      |> Map.put("attachment_observation_count", observation_count)
+
+    edge
+    |> Map.put(:metadata, metadata)
+    |> Map.put(:attachment_observation_count, observation_count)
+  end
+
+  defp annotate_attachment_group_observation_count(edge, _observation_count) when is_map(edge), do: edge
 
   defp attachment_identity_group_key(identity_key, anchor_id, anchor_device)
        when is_binary(identity_key) and is_binary(anchor_id) do
@@ -617,7 +638,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp attachment_incident_profiles(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
     Enum.reduce(edges, %{}, fn edge, acc ->
-      attachment_edge? = endpoint_attachment_edge?(edge)
+      attachment_edge? = attachment_candidate_edge?(edge, device_by_id)
       update_attachment_incident_profile(acc, edge, attachment_edge?)
     end)
   end
@@ -2417,7 +2438,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
        when is_binary(endpoint_id) and is_binary(anchor_id) and direction in [:source, :target] and is_map(edge) and
               is_map(acc) do
     candidate = %{endpoint_id: endpoint_id, anchor_id: anchor_id, direction: direction, edge: edge}
-    membership_key = {endpoint_id, anchor_id}
+    membership_key = endpoint_id
     Map.update(acc, membership_key, candidate, &choose_endpoint_cluster_membership_candidate(candidate, &1))
   end
 
@@ -2445,6 +2466,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp endpoint_cluster_membership_candidate_rank(%{edge: edge}) when is_map(edge) do
     {
+      attachment_observation_count(edge),
       if(Map.get(edge, :telemetry_eligible, false), do: 1, else: 0),
       endpoint_cluster_confidence_rank(Map.get(edge, :confidence_tier)),
       normalize_u64(Map.get(edge, :flow_bps, 0)),
@@ -2453,7 +2475,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     }
   end
 
-  defp endpoint_cluster_membership_candidate_rank(_candidate), do: {0, 0, 0, 0, 0}
+  defp endpoint_cluster_membership_candidate_rank(_candidate), do: {0, 0, 0, 0, 0, 0}
+
+  defp attachment_observation_count(edge) when is_map(edge) do
+    metadata = Map.get(edge, :metadata, %{})
+    value = Map.get(edge, :attachment_observation_count) || Map.get(metadata, "attachment_observation_count")
+
+    case value do
+      count when is_integer(count) and count > 0 ->
+        count
+
+      count when is_binary(count) ->
+        case Integer.parse(count) do
+          {parsed, _} when parsed > 0 -> parsed
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp attachment_observation_count(_edge), do: 0
 
   defp endpoint_cluster_confidence_rank(value) when is_binary(value) do
     case String.downcase(String.trim(value)) do
@@ -4103,6 +4146,277 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_attachment_edge?(_edge), do: false
+
+  defp attachment_candidate_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    endpoint_attachment_edge?(edge) or
+      inferred_segment_attachment_candidate?(edge, device_by_id) or
+      single_identifier_attachment_candidate?(edge, device_by_id)
+  end
+
+  defp attachment_candidate_edge?(_edge, _device_by_id), do: false
+
+  defp inferred_segment_attachment_candidate?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    evidence_class(edge) == "inferred" and
+      edge_protocol(edge) == "snmp-l2" and
+      normalize_id(Map.get(edge, :confidence_reason)) == "arp_fdb_port_mapping" and
+      Map.get(edge, :telemetry_source) != "interface" and
+      attachment_endpoint_side_count(edge, device_by_id) == 1 and
+      attachment_anchor?(edge, device_by_id) and
+      attachment_identity_hint?(edge, device_by_id)
+  end
+
+  defp inferred_segment_attachment_candidate?(_edge, _device_by_id), do: false
+
+  defp single_identifier_attachment_candidate?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    evidence_class(edge) in ["direct", "direct-physical"] and
+      edge_protocol(edge) == "unifi-api" and
+      normalize_id(Map.get(edge, :confidence_reason)) == "single_identifier_inference" and
+      attachment_endpoint_side_count(edge, device_by_id) == 1 and
+      attachment_anchor?(edge, device_by_id) and
+      attachment_identity_hint?(edge, device_by_id)
+  end
+
+  defp single_identifier_attachment_candidate?(_edge, _device_by_id), do: false
+
+  defp attachment_endpoint_side_count(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    edge
+    |> attachment_endpoint_sides(device_by_id)
+    |> length()
+  end
+
+  defp attachment_endpoint_side_count(_edge, _device_by_id), do: 0
+
+  defp attachment_anchor?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    anchor_id = attachment_anchor_id(edge, device_by_id)
+    anchor_device = Map.get(device_by_id, anchor_id)
+    access_attachment_anchor?(anchor_device) or infrastructure_device?(anchor_device)
+  end
+
+  defp attachment_anchor?(_edge, _device_by_id), do: false
+
+  defp attachment_identity_hint?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    is_binary(attachment_identity_ip(edge, device_by_id)) or is_binary(attachment_identity_mac(edge, device_by_id))
+  end
+
+  defp attachment_identity_hint?(_edge, _device_by_id), do: false
+
+  defp promote_attachment_candidate_edge(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    if inferred_segment_attachment_candidate?(edge, device_by_id) or
+         single_identifier_attachment_candidate?(edge, device_by_id) do
+      metadata =
+        edge
+        |> Map.get(:metadata, %{})
+        |> Map.put("relation_type", "ATTACHED_TO")
+        |> Map.put("evidence_class", "endpoint-attachment")
+
+      promoted =
+        edge
+        |> Map.put(:evidence_class, "endpoint-attachment")
+        |> Map.put(:metadata, metadata)
+
+      Map.put(
+        promoted,
+        :label,
+        edge_label(promoted, Map.get(promoted, :flow_pps, 0), Map.get(promoted, :capacity_bps, 0))
+      )
+    else
+      edge
+    end
+  end
+
+  defp promote_attachment_candidate_edge(edge, _device_by_id) when is_map(edge), do: edge
+
+  defp promote_projection_attachment_candidates(edges, nodes) when is_list(edges) and is_list(nodes) do
+    nodes_by_id = Map.new(nodes, &{normalize_id(Map.get(&1, :id)), &1})
+    Enum.map(edges, &promote_projection_attachment_candidate_edge(&1, nodes_by_id))
+  end
+
+  defp promote_projection_attachment_candidates(edges, _nodes) when is_list(edges), do: edges
+  defp promote_projection_attachment_candidates(_edges, _nodes), do: []
+
+  defp promote_projection_attachment_candidate_edge(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    if inferred_segment_projection_attachment_candidate?(edge, nodes_by_id) or
+         single_identifier_projection_attachment_candidate?(edge, nodes_by_id) do
+      metadata =
+        edge
+        |> Map.get(:metadata, %{})
+        |> Map.put("relation_type", "ATTACHED_TO")
+        |> Map.put("evidence_class", "endpoint-attachment")
+
+      promoted =
+        edge
+        |> Map.put(:evidence_class, "endpoint-attachment")
+        |> Map.put(:metadata, metadata)
+
+      Map.put(
+        promoted,
+        :label,
+        edge_label(promoted, Map.get(promoted, :flow_pps, 0), Map.get(promoted, :capacity_bps, 0))
+      )
+    else
+      edge
+    end
+  end
+
+  defp promote_projection_attachment_candidate_edge(edge, _nodes_by_id) when is_map(edge), do: edge
+
+  defp inferred_segment_projection_attachment_candidate?(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    evidence_class(edge) == "inferred" and
+      edge_protocol(edge) == "snmp-l2" and
+      normalize_id(Map.get(edge, :confidence_reason)) == "arp_fdb_port_mapping" and
+      Map.get(edge, :telemetry_source) != "interface" and
+      projection_attachment_endpoint_side_count(edge, nodes_by_id) == 1 and
+      projection_attachment_anchor?(edge, nodes_by_id) and
+      projection_attachment_identity_hint?(edge, nodes_by_id)
+  end
+
+  defp inferred_segment_projection_attachment_candidate?(_edge, _nodes_by_id), do: false
+
+  defp single_identifier_projection_attachment_candidate?(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    evidence_class(edge) in ["direct", "direct-physical"] and
+      edge_protocol(edge) == "unifi-api" and
+      normalize_id(Map.get(edge, :confidence_reason)) == "single_identifier_inference" and
+      projection_attachment_endpoint_side_count(edge, nodes_by_id) == 1 and
+      projection_attachment_anchor?(edge, nodes_by_id) and
+      projection_attachment_identity_hint?(edge, nodes_by_id)
+  end
+
+  defp single_identifier_projection_attachment_candidate?(_edge, _nodes_by_id), do: false
+
+  defp projection_attachment_endpoint_side_count(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    edge
+    |> projection_attachment_endpoint_sides(nodes_by_id)
+    |> length()
+  end
+
+  defp projection_attachment_endpoint_side_count(_edge, _nodes_by_id), do: 0
+
+  defp projection_attachment_endpoint_sides(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    source_node = Map.get(nodes_by_id, source)
+    target_node = Map.get(nodes_by_id, target)
+
+    []
+    |> maybe_add_projection_attachment_side(
+      projection_attachment_endpoint_node?(source, source_node),
+      {:source, source, source_node}
+    )
+    |> maybe_add_projection_attachment_side(
+      projection_attachment_endpoint_node?(target, target_node),
+      {:target, target, target_node}
+    )
+  end
+
+  defp projection_attachment_endpoint_sides(_edge, _nodes_by_id), do: []
+
+  defp maybe_add_projection_attachment_side(sides, true, {_side, endpoint_id, _node} = endpoint_side)
+       when is_list(sides) and is_binary(endpoint_id) do
+    [endpoint_side | sides]
+  end
+
+  defp maybe_add_projection_attachment_side(sides, _include?, _endpoint_side) when is_list(sides), do: sides
+
+  defp projection_attachment_endpoint_node?(node_id, node) when is_binary(node_id) and is_map(node) do
+    endpoint_like_node?(node) and not endpoint_cluster_anchor_node?(node_id, node)
+  end
+
+  defp projection_attachment_endpoint_node?(_node_id, _node), do: false
+
+  defp projection_attachment_anchor?(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    anchor_id = projection_attachment_anchor_id(edge, nodes_by_id)
+    anchor_node = Map.get(nodes_by_id, anchor_id)
+    endpoint_cluster_anchor_node?(anchor_id, anchor_node)
+  end
+
+  defp projection_attachment_anchor?(_edge, _nodes_by_id), do: false
+
+  defp projection_attachment_anchor_id(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+    endpoint_id = projection_attachment_endpoint_id(edge, nodes_by_id)
+
+    cond do
+      endpoint_id == source -> target
+      endpoint_id == target -> source
+      true -> nil
+    end
+  end
+
+  defp projection_attachment_anchor_id(_edge, _nodes_by_id), do: nil
+
+  defp projection_attachment_endpoint_id(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    case projection_attachment_endpoint_sides(edge, nodes_by_id) do
+      [{_side, endpoint_id, _node}] -> endpoint_id
+      _ -> nil
+    end
+  end
+
+  defp projection_attachment_endpoint_id(_edge, _nodes_by_id), do: nil
+
+  defp projection_attachment_identity_hint?(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    is_binary(projection_attachment_identity_ip(edge, nodes_by_id)) or
+      is_binary(projection_attachment_identity_mac(edge, nodes_by_id))
+  end
+
+  defp projection_attachment_identity_hint?(_edge, _nodes_by_id), do: false
+
+  defp projection_attachment_identity_ip(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    edge
+    |> projection_attachment_endpoint_sides(nodes_by_id)
+    |> Enum.flat_map(fn {side, endpoint_id, node} ->
+      [projection_attachment_node_ip(node, endpoint_id), endpoint_cluster_edge_member_ip(edge, side)]
+    end)
+    |> Enum.map(&normalize_ipv4/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp projection_attachment_identity_ip(_edge, _nodes_by_id), do: nil
+
+  defp projection_attachment_identity_mac(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
+    edge
+    |> projection_attachment_endpoint_sides(nodes_by_id)
+    |> Enum.flat_map(fn {side, endpoint_id, node} ->
+      [
+        endpoint_id,
+        projection_attachment_node_mac(node),
+        attachment_side_mac(edge, side)
+      ]
+    end)
+    |> Enum.map(&normalize_mac/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp projection_attachment_identity_mac(_edge, _nodes_by_id), do: nil
+
+  defp projection_attachment_node_ip(node, endpoint_id) when is_map(node) and is_binary(endpoint_id) do
+    details =
+      node
+      |> Map.get(:details_json)
+      |> decode_details_json()
+
+    normalize_ipv4(Map.get(details, "ip")) || node_ip(node, endpoint_id)
+  end
+
+  defp projection_attachment_node_ip(_node, endpoint_id) when is_binary(endpoint_id), do: node_ip(nil, endpoint_id)
+  defp projection_attachment_node_ip(_node, _endpoint_id), do: nil
+
+  defp projection_attachment_node_mac(node) when is_map(node) do
+    details =
+      node
+      |> Map.get(:details_json)
+      |> decode_details_json()
+
+    normalize_mac(Map.get(details, "mac")) ||
+      normalize_mac(Map.get(details, "primary_mac")) ||
+      normalize_mac(Map.get(details, "endpoint_mac"))
+  end
+
+  defp projection_attachment_node_mac(_node), do: nil
 
   defp normalized_evidence_class(value) do
     value

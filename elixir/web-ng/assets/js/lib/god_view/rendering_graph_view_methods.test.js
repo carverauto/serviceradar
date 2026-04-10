@@ -91,6 +91,37 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.target[1]).toBeLessThan(360)
   })
 
+  it("autoFitViewState keeps client-radial overviews in local zoom tier without forcing a high zoom", () => {
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "auto",
+      viewState: {minZoom: -2, maxZoom: 8, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 1200, clientHeight: 800},
+    }
+
+    const deps = {
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "regional"),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
+
+    ctx.autoFitViewState({
+      _layoutMode: "client-radial",
+      nodes: [
+        {id: "core", x: 320, y: 280, details: {}},
+        {id: "left", x: -640, y: 280, details: {}},
+        {id: "right", x: 1640, y: 280, details: {}},
+      ],
+    })
+
+    expect(state.viewState.zoom).toBeLessThan(1.1)
+    expect(deps.setZoomTier).toHaveBeenCalledWith("local", true)
+  })
+
   it("fitViewPadding reserves extra space for controls and summary chrome", () => {
     const ctx = createStateBackedContext({}, {})
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
@@ -101,6 +132,38 @@ describe("rendering_graph_view_methods", () => {
       top: 72,
       bottom: 96,
     })
+  })
+
+  it("autoFitViewState includes endpoint summaries in radial overview framing", () => {
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "local",
+      viewState: {minZoom: -2, maxZoom: 8, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 1200, clientHeight: 800},
+    }
+
+    const ctx = createStateBackedContext(state, {
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "local"),
+    })
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
+
+    ctx.autoFitViewState({
+      _layoutMode: "client-radial",
+      nodes: [
+        {id: "core", x: 220, y: 280, details: {}},
+        {id: "agg", x: 420, y: 280, details: {}},
+        {id: "cluster-a", x: 980, y: 180, details: {cluster_kind: "endpoint-summary"}},
+        {id: "cluster-b", x: 1040, y: 360, details: {cluster_kind: "endpoint-summary"}},
+      ],
+    })
+
+    expect(state.viewState.target[0]).toBeGreaterThan(560)
+    expect(state.viewState.target[0]).toBeLessThan(760)
+    expect(state.viewState.zoom).toBeLessThan(1)
   })
 
   it("focusClusterNeighborhood recenters and zooms toward an expanded cluster neighborhood", () => {

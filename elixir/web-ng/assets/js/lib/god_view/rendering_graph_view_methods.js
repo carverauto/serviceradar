@@ -31,6 +31,14 @@ function frameNodeRadius(node) {
   return 28
 }
 
+function isInfrastructureOverviewNode(node) {
+  return !isEndpointMemberNode(node) && !isEndpointSummaryNode(node) && !isUnplacedNode(node)
+}
+
+function preferredAutoFitZoomTier(graph) {
+  return graph?._layoutMode === "client-radial" ? "local" : null
+}
+
 export const godViewRenderingGraphViewMethods = {
   fitViewPadding(width, height) {
     const safeWidth = Math.max(1, Number(width) || 1)
@@ -76,7 +84,10 @@ export const godViewRenderingGraphViewMethods = {
     if (graph._layoutMode !== "client-radial") return this.boundsForNodes(finiteNodes)
 
     const overviewNodes = finiteNodes.filter((node) => !isEndpointMemberNode(node) && !isUnplacedNode(node))
-    const framedNodes = overviewNodes.length > 0 ? overviewNodes : finiteNodes
+    const radialOverviewNodes = overviewNodes.filter(
+      (node) => isInfrastructureOverviewNode(node) || isEndpointSummaryNode(node) || isEndpointAnchorNode(node),
+    )
+    const framedNodes = radialOverviewNodes.length > 0 ? radialOverviewNodes : overviewNodes.length > 0 ? overviewNodes : finiteNodes
     return this.boundsForNodes(framedNodes)
   },
   autoFitViewState(graph) {
@@ -111,7 +122,7 @@ export const godViewRenderingGraphViewMethods = {
     this.state.isProgrammaticViewUpdate = true
     this.state.deck.setProps({viewState: this.state.viewState})
     if (this.state.zoomMode === "auto") {
-      this.deps.setZoomTier(this.deps.resolveZoomTier(zoom), true)
+      this.deps.setZoomTier(preferredAutoFitZoomTier(graph) || this.deps.resolveZoomTier(zoom), true)
     }
   },
   focusClusterNeighborhood(graph, clusterId) {
