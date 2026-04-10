@@ -68,6 +68,9 @@ spec:
           type: StrategicMerge
           value:
             spec:
+              {{- if $envoyService.loadBalancerIP }}
+              loadBalancerIP: {{ $envoyService.loadBalancerIP }}
+              {{- end }}
               {{- with $envoyService.ipFamilies }}
               ipFamilies:
                 {{- toYaml . | nindent 16 }}
