@@ -30,13 +30,25 @@ agent:
     storageClassName: ""
 
 ingress:
+  enabled: false
+gatewayApi:
   enabled: true
   host: staging.serviceradar.cloud
-  className: nginx
+  http:
+    enabled: true
+    redirectToHttps: true
   tls:
     enabled: true
     secretName: serviceradar-staging-tls
     clusterIssuer: carverauto-issuer
+  envoyProxy:
+    service:
+      annotations:
+        metallb.universe.tf/address-pool: k3s-pool
+  backendTrafficPolicy:
+    enabled: true
+    requestTimeout: 86400s
+    requestBufferLimit: 100Mi
 
 webNg:
   devRoutes: "true"

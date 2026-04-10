@@ -82,6 +82,10 @@ ingress:
     # when namespaces are frequently recreated.
     secretName: ""
     clusterIssuer: ""
+# Keep demo prod on ingress-nginx until its wildcard/default-cert dependency is
+# replaced with an explicit same-namespace secret for Gateway API.
+gatewayApi:
+  enabled: false
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
