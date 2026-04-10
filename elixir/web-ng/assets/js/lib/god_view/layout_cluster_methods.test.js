@@ -97,6 +97,46 @@ describe("layout_cluster_methods", () => {
     expect(out.edges[0].topologyClassCounts.endpoints).toEqual(1)
   })
 
+  it("clusterDetails strips endpoint projection metadata from regional and global aggregate nodes", () => {
+    const ctx = makeContext()
+
+    const details = ctx.clusterDetails(
+      {
+        id: "grid:1:1",
+        count: 4,
+        sampleNode: {
+          label: "12 endpoints",
+          details: {
+            ip: "cluster",
+            type: "endpoint cluster",
+            cluster_id: "cluster:endpoints:sr:switch-01",
+            cluster_kind: "endpoint-summary",
+            cluster_anchor_id: "sr:switch-01",
+            cluster_anchor_label: "Switch 01",
+            cluster_expandable: true,
+            cluster_expanded: false,
+            cluster_member_count: 12,
+            cluster_visible_member_count: 12,
+            cluster_hidden_member_count: 0,
+            cluster_camera_tile_count: 2,
+            cluster_camera_tiles: [{label: "Cam A"}],
+            identity_source: "backend_endpoint_cluster",
+          },
+        },
+      },
+      "regional",
+    )
+
+    expect(details.cluster_scope).toEqual("regional")
+    expect(details.cluster_count).toEqual(4)
+    expect(details.sample_label).toEqual("12 endpoints")
+    expect(details.cluster_id).toBeUndefined()
+    expect(details.cluster_kind).toBeUndefined()
+    expect(details.cluster_expandable).toBeUndefined()
+    expect(details.cluster_anchor_id).toBeUndefined()
+    expect(details.identity_source).toBeUndefined()
+  })
+
   it("clusterEdges preserves directional telemetry with canonical cluster orientation", () => {
     const ctx = makeContext()
     const clusterByNode = {0: "a", 1: "b", 2: "a"}

@@ -445,6 +445,44 @@ describe("layout_topology_state_methods", () => {
     expect(new Set(members.map((node) => node.y)).size).toBeGreaterThan(1)
   })
 
+
+  it("applyEndpointProjectionLayout pushes expanded clusters beyond occupied forward nodes", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [
+        {id: "parent", x: 100, y: 220, details: {}},
+        {id: "anchor", x: 220, y: 220, details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-anchor", cluster_expanded: true}},
+        {id: "summary", x: 0, y: 0, details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-summary", cluster_expanded: true}},
+        {id: "blocker", x: 380, y: 220, details: {}},
+        {id: "endpoint-1", x: 0, y: 0, details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "endpoint-2", x: 0, y: 0, details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true}},
+      ],
+      edges: [],
+    }
+    const clusterLayout = {
+      groups: [
+        {
+          clusterId: "cluster:endpoints:test",
+          anchorNodeId: "anchor",
+          parentNodeId: "parent",
+          summaryNodeId: "summary",
+          memberNodeIds: ["endpoint-1", "endpoint-2"],
+          slotIndex: 0,
+          slotCount: 1,
+          expanded: true,
+        },
+      ],
+    }
+
+    const out = context.applyEndpointProjectionLayout(graph, clusterLayout)
+    const summary = out.nodes.find((node) => node.id === "summary")
+    const members = out.nodes.filter((node) => /^endpoint-/.test(node.id))
+    const blockerDistance = Math.hypot(summary.x - 380, summary.y - 220)
+
+    expect(blockerDistance).toBeGreaterThan(120)
+    expect(members.every((node) => Math.hypot(node.x - 380, node.y - 220) > 150)).toEqual(true)
+  })
+
   it("requiresFullElkLayout detects endpoint-heavy graphs", () => {
     const context = makeContext()
     const graph = {

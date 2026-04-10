@@ -974,9 +974,18 @@ export const godViewLayoutTopologyStateMethods = {
       const anchorY = Number(anchorNode?.y)
       if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) continue
 
+      const occupiedNodes = this.endpointProjectionOccupiedNodes(nodes, cluster)
       const baseAngle = this.resolveEndpointProjectionAngle(nodes, nodeIndexById, cluster, anchorNode)
-      const clusterAngle = this.endpointProjectionSlotAngle(baseAngle, cluster.slotIndex, cluster.slotCount)
-      const hubDistance = this.endpointProjectionHubDistance(cluster.memberNodeIds.length, cluster.expanded)
+      const clusterAngle = this.endpointProjectionSlotAngle(
+        this.resolveEndpointProjectionBearing(baseAngle, anchorNode, occupiedNodes, cluster.expanded),
+        cluster.slotIndex,
+        cluster.slotCount,
+      )
+      const hubDistance = this.endpointProjectionHubDistance(
+        cluster.memberNodeIds.length,
+        cluster.expanded,
+        this.endpointProjectionClearanceDistance(anchorNode, clusterAngle, occupiedNodes, cluster.expanded),
+      )
       const hubOffset = rotatePoint(hubDistance, 0, clusterAngle)
       const hubX = anchorX + hubOffset.x
       const hubY = anchorY + hubOffset.y
@@ -1013,6 +1022,21 @@ export const godViewLayoutTopologyStateMethods = {
       ...graph,
       nodes,
     }
+  },
+  endpointProjectionOccupiedNodes(nodes, cluster) {
+    const memberIds = new Set(cluster.memberNodeIds || [])
+
+    return nodes.filter((node, index) => {
+      const nodeId = graphNodeId(node, index)
+      if (nodeId === cluster.anchorNodeId) return false
+      if (nodeId === cluster.summaryNodeId) return false
+      if (memberIds.has(nodeId)) return false
+      if (isEndpointSummaryNode(node)) return false
+
+      const x = Number(node?.x)
+      const y = Number(node?.y)
+      return Number.isFinite(x) && Number.isFinite(y)
+    })
   },
   normalizeHorizontalLayout(graph) {
     return graph
@@ -1056,15 +1080,73 @@ export const godViewLayoutTopologyStateMethods = {
 
     return 0
   },
+  resolveEndpointProjectionBearing(baseAngle, anchorNode, occupiedNodes, expanded) {
+    const offsets = [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57, Math.PI]
+    let bestAngle = baseAngle
+    let bestScore = -Infinity
+
+    for (const offset of offsets) {
+      const angle = baseAngle + offset
+      const score = this.endpointProjectionBearingScore(anchorNode, angle, occupiedNodes, expanded)
+      if (score > bestScore) {
+        bestScore = score
+        bestAngle = angle
+      }
+    }
+
+    return bestAngle
+  },
+  endpointProjectionBearingScore(anchorNode, angle, occupiedNodes, expanded) {
+    const directionX = Math.cos(angle)
+    const directionY = Math.sin(angle)
+    const corridorHalfWidth = expanded ? 260 : 180
+    const rearGuard = expanded ? 40 : 24
+    let nearestForward = Infinity
+    let lateralPenalty = 0
+
+    for (const node of occupiedNodes) {
+      const dx = Number(node?.x || 0) - Number(anchorNode?.x || 0)
+      const dy = Number(node?.y || 0) - Number(anchorNode?.y || 0)
+      const forward = (dx * directionX) + (dy * directionY)
+      const lateral = Math.abs((-directionY * dx) + (directionX * dy))
+      if (forward <= -rearGuard || lateral > corridorHalfWidth) continue
+
+      nearestForward = Math.min(nearestForward, forward)
+      lateralPenalty += Math.max(0, corridorHalfWidth - lateral)
+    }
+
+    const forwardScore = nearestForward === Infinity ? 960 : nearestForward
+    return forwardScore - (lateralPenalty * 0.45)
+  },
   endpointProjectionSlotAngle(baseAngle, slotIndex, slotCount) {
     const count = Math.max(1, Number(slotCount || 1))
     const index = Math.max(0, Number(slotIndex || 0))
     return baseAngle + (index - ((count - 1) / 2)) * 0.42
   },
-  endpointProjectionHubDistance(memberCount, expanded) {
+  endpointProjectionClearanceDistance(anchorNode, angle, occupiedNodes, expanded) {
+    const directionX = Math.cos(angle)
+    const directionY = Math.sin(angle)
+    const corridorHalfWidth = expanded ? 240 : 160
+    const nodeRadius = expanded ? 172 : 108
+    let clearance = 0
+
+    for (const node of occupiedNodes) {
+      const dx = Number(node?.x || 0) - Number(anchorNode?.x || 0)
+      const dy = Number(node?.y || 0) - Number(anchorNode?.y || 0)
+      const forward = (dx * directionX) + (dy * directionY)
+      const lateral = Math.abs((-directionY * dx) + (directionX * dy))
+      if (forward <= 0 || lateral > corridorHalfWidth) continue
+
+      clearance = Math.max(clearance, forward + nodeRadius)
+    }
+
+    return clearance
+  },
+  endpointProjectionHubDistance(memberCount, expanded, clearanceDistance = 0) {
     const count = Math.max(1, Number(memberCount || 1))
     const base = expanded ? 156 : 82
-    return base + Math.min(72, Math.sqrt(count) * (expanded ? 18 : 9))
+    const intrinsic = base + Math.min(72, Math.sqrt(count) * (expanded ? 18 : 9))
+    return Math.max(intrinsic, Number(clearanceDistance || 0))
   },
   expandedClusterSpiralMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))

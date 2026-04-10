@@ -256,7 +256,9 @@ export const godViewLifecycleDomSetupMethods = {
         if (!this.state.isProgrammaticViewUpdate) this.state.userCameraLocked = true
         this.state.isProgrammaticViewUpdate = false
         if (this.state.zoomMode === "auto") {
-          this.deps.setZoomTier(this.deps.resolveZoomTier(viewState.zoom || 0), false)
+          const radialOverviewAutoFit = this.state.lastGraph?._layoutMode === "client-radial" && !this.state.userCameraLocked
+          const nextTier = radialOverviewAutoFit ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
+          this.deps.setZoomTier(nextTier, false)
         }
       },
       onError: (error, layer) => {
