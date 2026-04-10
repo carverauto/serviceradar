@@ -1,0 +1,218 @@
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- if $gatewayApi.enabled }}
+{{- $host := required "gatewayApi.host is required when gatewayApi.enabled=true" $gatewayApi.host -}}
+{{- $service := default (dict) $gatewayApi.service -}}
+{{- $serviceName := default "serviceradar-web-ng" $service.name -}}
+{{- $servicePort := default 4000 $service.port -}}
+{{- $dns := default (dict) $gatewayApi.dns -}}
+{{- $dnsHostname := default $host $dns.hostname -}}
+{{- $envoyProxy := default (dict) $gatewayApi.envoyProxy -}}
+{{- $envoyService := default (dict) $envoyProxy.service -}}
+{{- $http := default (dict) $gatewayApi.http -}}
+{{- $httpEnabled := default true $http.enabled -}}
+{{- $httpRedirectToHttps := default false $http.redirectToHttps -}}
+{{- $tls := default (dict) $gatewayApi.tls -}}
+{{- $tlsEnabled := default false $tls.enabled -}}
+{{- $tlsSecretName := $tls.secretName -}}
+{{- $certificateName := default (include "serviceradar.gatewayApiCertificateName" .) $tls.certificateName -}}
+{{- $route := default (dict) $gatewayApi.route -}}
+{{- $pathPrefixes := default (list "/api/query" "/api" "/") $route.pathPrefixes -}}
+{{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
+{{- if and $tlsEnabled (not $tlsSecretName) }}
+{{- fail "gatewayApi.tls.secretName is required when gatewayApi.tls.enabled=true" }}
+{{- end }}
+{{- if and $httpRedirectToHttps (not $tlsEnabled) }}
+{{- fail "gatewayApi.http.redirectToHttps requires gatewayApi.tls.enabled=true" }}
+{{- end }}
+{{- if and (not $httpEnabled) (not $tlsEnabled) }}
+{{- fail "gatewayApi must expose at least one listener" }}
+{{- end }}
+{{- if and $tlsEnabled $tls.clusterIssuer }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $certificateName }}
+spec:
+  secretName: {{ $tlsSecretName | quote }}
+  issuerRef:
+    kind: ClusterIssuer
+    name: {{ $tls.clusterIssuer | quote }}
+  commonName: {{ $host | quote }}
+  dnsNames:
+    - {{ $host | quote }}
+{{- end }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ include "serviceradar.gatewayApiEnvoyProxyName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  logging:
+    level:
+      default: {{ default "warn" $envoyProxy.loggingLevel | quote }}
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: {{ default "LoadBalancer" $envoyService.type }}
+        externalTrafficPolicy: {{ default "Local" $envoyService.externalTrafficPolicy }}
+        {{- with $envoyService.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              {{- with $envoyService.ipFamilies }}
+              ipFamilies:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- if $envoyService.ipFamilyPolicy }}
+              ipFamilyPolicy: {{ $envoyService.ipFamilyPolicy }}
+              {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ include "serviceradar.gatewayApiGatewayClassName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: {{ include "serviceradar.gatewayApiEnvoyProxyName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  gatewayClassName: {{ include "serviceradar.gatewayApiGatewayClassName" . }}
+  listeners:
+    {{- if $httpEnabled }}
+    - name: http
+      hostname: {{ $host | quote }}
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $tlsEnabled }}
+    - name: https
+      hostname: {{ $host | quote }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: {{ $tlsSecretName | quote }}
+        mode: Terminate
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "serviceradar.gatewayApiRouteName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+  {{- if default true $dns.enabled }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $dnsHostname | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- if $tlsEnabled }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: https
+    {{- if and $httpEnabled (not $httpRedirectToHttps) }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- end }}
+    {{- else }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        {{- range $pathPrefixes }}
+        - path:
+            type: PathPrefix
+            value: {{ . | quote }}
+        {{- end }}
+      backendRefs:
+        - name: {{ $serviceName | quote }}
+          port: {{ $servicePort }}
+{{- if and $httpEnabled $httpRedirectToHttps }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "serviceradar.gatewayApiRedirectRouteName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+{{- end }}
+{{- if $btp.enabled }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "serviceradar.gatewayApiBackendTrafficPolicyName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "serviceradar.gatewayApiRouteName" . }}
+  {{- if $btp.requestTimeout }}
+  timeout:
+    http:
+      requestTimeout: {{ $btp.requestTimeout }}
+  {{- end }}
+  {{- if $btp.requestBufferLimit }}
+  requestBuffer:
+    limit: {{ $btp.requestBufferLimit }}
+  {{- end }}
+{{- end }}
+{{- end }}
