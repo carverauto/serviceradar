@@ -278,3 +278,31 @@ Uses lookup to get current secret value, falls back to random if not found.
 {{- randAlphaNum 32 | sha256sum -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "serviceradar.gatewayApiEnvoyProxyName" -}}
+{{- printf "%s-%s-edge" (include "serviceradar.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.gatewayApiGatewayClassName" -}}
+{{- printf "%s-%s-envoy" (include "serviceradar.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.gatewayApiGatewayName" -}}
+{{- printf "%s-edge-gateway" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.gatewayApiRouteName" -}}
+{{- printf "%s-edge-route" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.gatewayApiRedirectRouteName" -}}
+{{- printf "%s-edge-http-redirect" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.gatewayApiCertificateName" -}}
+{{- printf "%s-edge-tls" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.gatewayApiBackendTrafficPolicyName" -}}
+{{- printf "%s-edge-policy" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
