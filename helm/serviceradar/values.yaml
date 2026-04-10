@@ -866,6 +866,7 @@ gatewayApi:
     service:
       type: LoadBalancer
       externalTrafficPolicy: Local
+      loadBalancerIP: ""
       annotations: {}
       ipFamilies:
         - IPv4
