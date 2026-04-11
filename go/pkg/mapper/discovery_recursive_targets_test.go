@@ -55,16 +55,34 @@ func TestRecursiveTopologyLinkEligibleAcceptsDirectLLDP(t *testing.T) {
 	}
 }
 
-func TestRecursiveTopologyLinkEligibleRejectsCandidateOnly(t *testing.T) {
+func TestRecursiveTopologyLinkEligibleAcceptsSNMPARPCandidateOnlyWithNeighborIP(t *testing.T) {
+	link := &TopologyLink{
+		Protocol:         "SNMP-L2",
+		NeighborMgmtAddr: "192.168.10.154",
+		Metadata: map[string]string{
+			"candidate_only":    "true",
+			"source":            "snmp-arp-only",
+			"confidence_reason": "single_identifier_inference",
+		},
+	}
+
+	if !recursiveTopologyLinkEligible(link) {
+		t.Fatal("expected SNMP ARP candidate_only link with neighbor IP to seed recursion")
+	}
+}
+
+func TestRecursiveTopologyLinkEligibleRejectsCandidateOnlyWithoutNeighborIP(t *testing.T) {
 	link := &TopologyLink{
 		Protocol: "SNMP-L2",
 		Metadata: map[string]string{
-			"candidate_only": "true",
+			"candidate_only":    "true",
+			"source":            "snmp-arp-only",
+			"confidence_reason": "single_identifier_inference",
 		},
 	}
 
 	if recursiveTopologyLinkEligible(link) {
-		t.Fatal("expected candidate_only link to be ineligible for recursion")
+		t.Fatal("expected candidate_only link without neighbor IP to stay ineligible for recursion")
 	}
 }
 
