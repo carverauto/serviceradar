@@ -1,6 +1,9 @@
 {{- $gatewayApi := default (dict) .Values.gatewayApi -}}
 {{- if $gatewayApi.enabled }}
 {{- $host := required "gatewayApi.host is required when gatewayApi.enabled=true" $gatewayApi.host -}}
+{{- $mode := default "managed" $gatewayApi.mode -}}
+{{- $managedMode := eq $mode "managed" -}}
+{{- $attachMode := eq $mode "attach" -}}
 {{- $service := default (dict) $gatewayApi.service -}}
 {{- $serviceName := default "serviceradar-web-ng" $service.name -}}
 {{- $servicePort := default 4000 $service.port -}}
@@ -17,17 +20,28 @@
 {{- $certificateName := default (include "serviceradar.gatewayApiCertificateName" .) $tls.certificateName -}}
 {{- $route := default (dict) $gatewayApi.route -}}
 {{- $pathPrefixes := default (list "/api/query" "/api" "/") $route.pathPrefixes -}}
+{{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
+{{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
-{{- if and $tlsEnabled (not $tlsSecretName) }}
+{{- if and (not $managedMode) (not $attachMode) }}
+{{- fail "gatewayApi.mode must be either managed or attach" }}
+{{- end }}
+{{- if and $managedMode $tlsEnabled (not $tlsSecretName) }}
 {{- fail "gatewayApi.tls.secretName is required when gatewayApi.tls.enabled=true" }}
 {{- end }}
-{{- if and $httpRedirectToHttps (not $tlsEnabled) }}
+{{- if and $managedMode $httpRedirectToHttps (not $tlsEnabled) }}
 {{- fail "gatewayApi.http.redirectToHttps requires gatewayApi.tls.enabled=true" }}
 {{- end }}
-{{- if and (not $httpEnabled) (not $tlsEnabled) }}
+{{- if and $managedMode (not $httpEnabled) (not $tlsEnabled) }}
 {{- fail "gatewayApi must expose at least one listener" }}
 {{- end }}
-{{- if and $tlsEnabled $tls.clusterIssuer }}
+{{- if and $attachMode (eq (len $parentRefs) 0) }}
+{{- fail "gatewayApi.parentRefs is required when gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $httpRedirectToHttps (eq (len $redirectParentRefs) 0) }}
+{{- fail "gatewayApi.redirectParentRefs is required when gatewayApi.http.redirectToHttps=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $managedMode $tlsEnabled $tls.clusterIssuer }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -42,6 +56,7 @@ spec:
   dnsNames:
     - {{ $host | quote }}
 {{- end }}
+{{- if $managedMode }}
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
@@ -68,6 +83,9 @@ spec:
           type: StrategicMerge
           value:
             spec:
+              {{- if $envoyService.loadBalancerIP }}
+              loadBalancerIP: {{ $envoyService.loadBalancerIP }}
+              {{- end }}
               {{- with $envoyService.ipFamilies }}
               ipFamilies:
                 {{- toYaml . | nindent 16 }}
@@ -124,6 +142,7 @@ spec:
         namespaces:
           from: Same
     {{- end }}
+{{- end }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -138,6 +157,7 @@ metadata:
   {{- end }}
 spec:
   parentRefs:
+    {{- if $managedMode }}
     {{- if $tlsEnabled }}
     - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
       namespace: {{ .Release.Namespace }}
@@ -151,6 +171,9 @@ spec:
     - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
       namespace: {{ .Release.Namespace }}
       sectionName: http
+    {{- end }}
+    {{- else }}
+{{ toYaml $parentRefs | nindent 4 }}
     {{- end }}
   hostnames:
     - {{ $host | quote }}
@@ -175,9 +198,13 @@ metadata:
     app.kubernetes.io/component: edge-gateway
 spec:
   parentRefs:
+    {{- if $managedMode }}
     - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
       namespace: {{ .Release.Namespace }}
       sectionName: http
+    {{- else }}
+{{ toYaml $redirectParentRefs | nindent 4 }}
+    {{- end }}
   hostnames:
     - {{ $host | quote }}
   rules:
