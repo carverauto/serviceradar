@@ -2228,12 +2228,26 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp endpoint_cluster_groups(edges, nodes_by_id, incident_flags)
        when is_list(edges) and is_map(nodes_by_id) and is_map(incident_flags) do
-    peer_counts = endpoint_attachment_peer_counts(edges)
-    anchor_direction_counts = endpoint_cluster_anchor_direction_counts(edges, nodes_by_id, peer_counts)
+    cluster_membership_edges = Enum.filter(edges, &endpoint_cluster_membership_edge?/1)
+    peer_counts = endpoint_attachment_peer_counts(cluster_membership_edges)
+    known_infrastructure_ips = known_infrastructure_ip_set(nodes_by_id)
 
-    edges
-    |> Enum.filter(&endpoint_attachment_edge?/1)
-    |> select_endpoint_cluster_memberships(nodes_by_id, incident_flags, anchor_direction_counts, peer_counts)
+    anchor_direction_counts =
+      endpoint_cluster_anchor_direction_counts(
+        cluster_membership_edges,
+        nodes_by_id,
+        peer_counts,
+        known_infrastructure_ips
+      )
+
+    cluster_membership_edges
+    |> select_endpoint_cluster_memberships(
+      nodes_by_id,
+      incident_flags,
+      anchor_direction_counts,
+      peer_counts,
+      known_infrastructure_ips
+    )
     |> Enum.reduce(%{}, &accumulate_selected_endpoint_cluster_group/2)
     |> Map.values()
     |> Enum.map(fn group ->
@@ -2389,9 +2403,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp endpoint_cluster_access_target_supplement_limit(_anchor_node, _source_identity_count, _target_identity_count),
     do: 0
 
-  defp select_endpoint_cluster_memberships(edges, nodes_by_id, incident_flags, anchor_direction_counts, peer_counts)
+  defp select_endpoint_cluster_memberships(
+         edges,
+         nodes_by_id,
+         incident_flags,
+         anchor_direction_counts,
+         peer_counts,
+         known_infrastructure_ips
+       )
        when is_list(edges) and is_map(nodes_by_id) and is_map(incident_flags) and is_map(anchor_direction_counts) and
-              is_map(peer_counts) do
+              is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
     edges
     |> Enum.reduce(%{}, fn edge, acc ->
       select_endpoint_cluster_membership_candidate(
@@ -2400,14 +2421,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         nodes_by_id,
         incident_flags,
         anchor_direction_counts,
-        peer_counts
+        peer_counts,
+        known_infrastructure_ips
       )
     end)
     |> Map.values()
   end
 
-  defp select_endpoint_cluster_memberships(_edges, _nodes_by_id, _incident_flags, _anchor_direction_counts, _peer_counts),
-    do: []
+  defp select_endpoint_cluster_memberships(
+         _edges,
+         _nodes_by_id,
+         _incident_flags,
+         _anchor_direction_counts,
+         _peer_counts,
+         _known_infrastructure_ips
+       ), do: []
 
   defp select_endpoint_cluster_membership_candidate(
          edge,
@@ -2415,12 +2443,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          nodes_by_id,
          incident_flags,
          anchor_direction_counts,
-         peer_counts
+         peer_counts,
+         known_infrastructure_ips
        )
        when is_map(acc) and is_map(nodes_by_id) and is_map(incident_flags) and is_map(anchor_direction_counts) and
-              is_map(peer_counts) do
+              is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
     edge
-    |> endpoint_cluster_member_anchor_pair(nodes_by_id, incident_flags, anchor_direction_counts, peer_counts)
+    |> endpoint_cluster_member_anchor_pair(
+      nodes_by_id,
+      incident_flags,
+      anchor_direction_counts,
+      peer_counts,
+      known_infrastructure_ips
+    )
     |> update_endpoint_cluster_membership_candidate(edge, acc)
   end
 
@@ -2430,7 +2465,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          _nodes_by_id,
          _incident_flags,
          _anchor_direction_counts,
-         _peer_counts
+         _peer_counts,
+         _known_infrastructure_ips
        )
        when is_map(acc), do: acc
 
@@ -2744,18 +2780,46 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp build_expanded_cluster_nodes(_groups_by_anchor, _expanded_clusters, _nodes_by_id), do: []
 
-  defp endpoint_cluster_member_anchor_pair(edge, nodes_by_id, incident_flags, anchor_direction_counts, peer_counts)
+  defp endpoint_cluster_member_anchor_pair(
+         edge,
+         nodes_by_id,
+         incident_flags,
+         anchor_direction_counts,
+         peer_counts,
+         known_infrastructure_ips
+       )
        when is_map(edge) and is_map(nodes_by_id) and is_map(incident_flags) and is_map(anchor_direction_counts) and
-              is_map(peer_counts) do
+              is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
     source = normalize_id(Map.get(edge, :source))
     target = normalize_id(Map.get(edge, :target))
     source_node = Map.get(nodes_by_id, source)
     target_node = Map.get(nodes_by_id, target)
 
     source_anchor? = endpoint_cluster_anchor_node?(source, source_node)
-    target_leaf? = endpoint_cluster_leaf_for_edge?(target, target_node, incident_flags, edge, :target, peer_counts)
+
+    target_leaf? =
+      endpoint_cluster_leaf_for_edge?(
+        target,
+        target_node,
+        incident_flags,
+        edge,
+        :target,
+        peer_counts,
+        known_infrastructure_ips
+      )
+
     target_anchor? = endpoint_cluster_anchor_node?(target, target_node)
-    source_leaf? = endpoint_cluster_leaf_for_edge?(source, source_node, incident_flags, edge, :source, peer_counts)
+
+    source_leaf? =
+      endpoint_cluster_leaf_for_edge?(
+        source,
+        source_node,
+        incident_flags,
+        edge,
+        :source,
+        peer_counts,
+        known_infrastructure_ips
+      )
 
     cond do
       source_anchor? and target_leaf? and is_binary(source) ->
@@ -2772,20 +2836,40 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp endpoint_cluster_member_anchor_pair(_edge, _nodes_by_id, _incident_flags, _anchor_direction_counts, _peer_counts),
-    do: nil
+  defp endpoint_cluster_member_anchor_pair(
+         _edge,
+         _nodes_by_id,
+         _incident_flags,
+         _anchor_direction_counts,
+         _peer_counts,
+         _known_infrastructure_ips
+       ), do: nil
 
-  defp endpoint_cluster_leaf_for_edge?(node_id, node, incident_flags, edge, role, peer_counts)
+  defp endpoint_cluster_leaf_for_edge?(node_id, node, incident_flags, edge, role, peer_counts, known_infrastructure_ips)
        when is_binary(node_id) and is_map(incident_flags) and is_map(edge) and role in [:source, :target] and
-              is_map(peer_counts) do
-    endpoint_cluster_member_node?(node_id, node, Map.get(incident_flags, node_id, %{}), peer_counts) or
-      endpoint_cluster_edge_member_with_ip?(node_id, node, edge, role, peer_counts)
+              is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
+    endpoint_cluster_member_node?(
+      node_id,
+      node,
+      Map.get(incident_flags, node_id, %{}),
+      peer_counts,
+      known_infrastructure_ips
+    ) or
+      endpoint_cluster_edge_member_with_ip?(node_id, node, edge, role, peer_counts, known_infrastructure_ips)
   end
 
-  defp endpoint_cluster_leaf_for_edge?(_node_id, _node, _incident_flags, _edge, _role, _peer_counts), do: false
+  defp endpoint_cluster_leaf_for_edge?(
+         _node_id,
+         _node,
+         _incident_flags,
+         _edge,
+         _role,
+         _peer_counts,
+         _known_infrastructure_ips
+       ), do: false
 
-  defp endpoint_cluster_anchor_direction_counts(edges, nodes_by_id, peer_counts)
-       when is_list(edges) and is_map(nodes_by_id) and is_map(peer_counts) do
+  defp endpoint_cluster_anchor_direction_counts(edges, nodes_by_id, peer_counts, known_infrastructure_ips)
+       when is_list(edges) and is_map(nodes_by_id) and is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
     Enum.reduce(edges, %{}, fn edge, acc ->
       source = normalize_id(Map.get(edge, :source))
       target = normalize_id(Map.get(edge, :target))
@@ -2793,8 +2877,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       target_node = Map.get(nodes_by_id, target)
       source_anchor? = endpoint_cluster_anchor_node?(source, source_node)
       target_anchor? = endpoint_cluster_anchor_node?(target, target_node)
-      source_endpoint? = endpoint_cluster_endpoint_candidate?(source, source_node, peer_counts)
-      target_endpoint? = endpoint_cluster_endpoint_candidate?(target, target_node, peer_counts)
+      source_endpoint? = endpoint_cluster_endpoint_candidate?(source, source_node, peer_counts, known_infrastructure_ips)
+      target_endpoint? = endpoint_cluster_endpoint_candidate?(target, target_node, peer_counts, known_infrastructure_ips)
 
       cond do
         source_anchor? and target_endpoint? and is_binary(source) ->
@@ -2809,7 +2893,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end)
   end
 
-  defp endpoint_cluster_anchor_direction_counts(_edges, _nodes_by_id, _peer_counts), do: %{}
+  defp endpoint_cluster_anchor_direction_counts(_edges, _nodes_by_id, _peer_counts, _known_infrastructure_ips), do: %{}
 
   defp increment_endpoint_cluster_anchor_direction(acc, anchor_id, direction)
        when is_map(acc) and is_binary(anchor_id) and direction in [:source, :target] do
@@ -2837,30 +2921,45 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp endpoint_cluster_anchor_node?(_node_id, _node), do: false
 
-  defp endpoint_cluster_member_node?(node_id, node, %{endpoint: true, non_endpoint: false}, peer_counts)
-       when is_binary(node_id) and is_map(node) and is_map(peer_counts) do
-    endpoint_cluster_leaf_candidate?(node_id, node, peer_counts) and not cluster_summary_node?(node)
+  defp endpoint_cluster_member_node?(
+         node_id,
+         node,
+         %{endpoint: true, non_endpoint: false},
+         peer_counts,
+         known_infrastructure_ips
+       )
+       when is_binary(node_id) and is_map(node) and is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
+    endpoint_cluster_leaf_candidate?(node_id, node, peer_counts, known_infrastructure_ips) and
+      not cluster_summary_node?(node)
   end
 
-  defp endpoint_cluster_member_node?(node_id, nil, %{endpoint: true, non_endpoint: false}, peer_counts)
-       when is_binary(node_id) and is_map(peer_counts) do
-    endpoint_cluster_leaf_candidate?(node_id, nil, peer_counts)
+  defp endpoint_cluster_member_node?(
+         node_id,
+         nil,
+         %{endpoint: true, non_endpoint: false},
+         peer_counts,
+         known_infrastructure_ips
+       )
+       when is_binary(node_id) and is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
+    endpoint_cluster_leaf_candidate?(node_id, nil, peer_counts, known_infrastructure_ips)
   end
 
-  defp endpoint_cluster_member_node?(_node_id, _node, _flags, _peer_counts), do: false
+  defp endpoint_cluster_member_node?(_node_id, _node, _flags, _peer_counts, _known_infrastructure_ips), do: false
 
-  defp endpoint_cluster_endpoint_candidate?(node_id, node, peer_counts)
-       when is_binary(node_id) and is_map(node) and is_map(peer_counts) do
-    endpoint_cluster_leaf_candidate?(node_id, node, peer_counts)
+  defp endpoint_cluster_endpoint_candidate?(node_id, node, peer_counts, known_infrastructure_ips)
+       when is_binary(node_id) and is_map(node) and is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
+    endpoint_cluster_leaf_candidate?(node_id, node, peer_counts, known_infrastructure_ips)
   end
 
-  defp endpoint_cluster_endpoint_candidate?(node_id, nil, peer_counts) when is_binary(node_id) and is_map(peer_counts) do
-    endpoint_cluster_leaf_candidate?(node_id, nil, peer_counts)
+  defp endpoint_cluster_endpoint_candidate?(node_id, nil, peer_counts, known_infrastructure_ips)
+       when is_binary(node_id) and is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
+    endpoint_cluster_leaf_candidate?(node_id, nil, peer_counts, known_infrastructure_ips)
   end
 
-  defp endpoint_cluster_endpoint_candidate?(_node_id, _node, _peer_counts), do: false
+  defp endpoint_cluster_endpoint_candidate?(_node_id, _node, _peer_counts, _known_infrastructure_ips), do: false
 
-  defp endpoint_cluster_leaf_candidate?(node_id, node, peer_counts) when is_binary(node_id) and is_map(peer_counts) do
+  defp endpoint_cluster_leaf_candidate?(node_id, node, peer_counts, known_infrastructure_ips)
+       when is_binary(node_id) and is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
     cond do
       high_ambiguity_endpoint_attachment_identity?(node_id, node, peer_counts) ->
         false
@@ -2869,6 +2968,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         false
 
       is_map(node) and infrastructure_device?(node) ->
+        false
+
+      known_infrastructure_identity?(node_id, node, known_infrastructure_ips) ->
         false
 
       anonymous_unresolved_node?(node_id, node) ->
@@ -2882,19 +2984,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp endpoint_cluster_leaf_candidate?(_node_id, _node, _peer_counts), do: false
+  defp endpoint_cluster_leaf_candidate?(_node_id, _node, _peer_counts, _known_infrastructure_ips), do: false
 
-  defp endpoint_cluster_edge_member_with_ip?(node_id, node, edge, role, peer_counts)
-       when is_binary(node_id) and is_map(edge) and role in [:source, :target] and is_map(peer_counts) do
-    is_nil(node) and not high_ambiguity_endpoint_attachment_identity?(node_id, node, peer_counts) and
-      not weak_edge_only_endpoint_identity?(edge, role) and
+  defp endpoint_cluster_edge_member_with_ip?(node_id, node, edge, role, peer_counts, known_infrastructure_ips)
+       when is_binary(node_id) and is_map(edge) and role in [:source, :target] and is_map(peer_counts) and
+              is_struct(known_infrastructure_ips, MapSet) do
+    edge_member_ip =
       edge
       |> endpoint_cluster_edge_member_ip(role)
       |> normalize_ipv4()
-      |> is_binary()
+
+    is_nil(node) and not high_ambiguity_endpoint_attachment_identity?(node_id, node, peer_counts) and
+      not weak_edge_only_endpoint_identity?(edge, role) and is_binary(edge_member_ip) and
+      not known_infrastructure_ip?(edge_member_ip, known_infrastructure_ips)
   end
 
-  defp endpoint_cluster_edge_member_with_ip?(_node_id, _node, _edge, _role, _peer_counts), do: false
+  defp endpoint_cluster_edge_member_with_ip?(_node_id, _node, _edge, _role, _peer_counts, _known_infrastructure_ips),
+    do: false
 
   defp weak_provisional_topology_sighting_identity?(node_id, device) when is_binary(node_id) and is_map(device) do
     topology_sighting_device?(device) and provisional_identity_state?(device) and
@@ -2906,6 +3012,38 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp weak_provisional_topology_sighting_identity?(_node_id, _device), do: false
+
+  defp known_infrastructure_ip_set(nodes_by_id) when is_map(nodes_by_id) do
+    Enum.reduce(nodes_by_id, MapSet.new(), fn {node_id, node}, acc ->
+      if is_binary(node_id) and is_map(node) and infrastructure_device?(node) and not cluster_summary_node?(node) do
+        case node |> node_ip(node_id) |> normalize_ipv4() do
+          ip when is_binary(ip) -> MapSet.put(acc, ip)
+          _ -> acc
+        end
+      else
+        acc
+      end
+    end)
+  end
+
+  defp known_infrastructure_ip_set(_nodes_by_id), do: MapSet.new()
+
+  defp known_infrastructure_identity?(node_id, node, known_infrastructure_ips)
+       when is_binary(node_id) and is_struct(known_infrastructure_ips, MapSet) do
+    node
+    |> node_ip(node_id)
+    |> normalize_ipv4()
+    |> known_infrastructure_ip?(known_infrastructure_ips)
+  end
+
+  defp known_infrastructure_identity?(_node_id, _node, _known_infrastructure_ips), do: false
+
+  defp known_infrastructure_ip?(ip, known_infrastructure_ips)
+       when is_binary(ip) and is_struct(known_infrastructure_ips, MapSet) do
+    MapSet.member?(known_infrastructure_ips, ip)
+  end
+
+  defp known_infrastructure_ip?(_ip, _known_infrastructure_ips), do: false
 
   defp weak_edge_only_endpoint_identity?(edge, role) when is_map(edge) and role in [:source, :target] do
     endpoint_attachment_edge?(edge) and
@@ -4146,6 +4284,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_attachment_edge?(_edge), do: false
+
+  defp endpoint_cluster_membership_edge?(edge) when is_map(edge) do
+    endpoint_attachment_edge?(edge) and not weak_endpoint_cluster_membership_edge?(edge)
+  end
+
+  defp endpoint_cluster_membership_edge?(_edge), do: false
+
+  defp weak_endpoint_cluster_membership_edge?(edge) when is_map(edge) do
+    edge_protocol(edge) == "snmp-l2" and
+      normalize_id(Map.get(edge, :confidence_reason)) == "single_identifier_inference" and
+      Map.get(edge, :telemetry_source) != "interface"
+  end
+
+  defp weak_endpoint_cluster_membership_edge?(_edge), do: false
 
   defp attachment_candidate_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
     endpoint_attachment_edge?(edge) or

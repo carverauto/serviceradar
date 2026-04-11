@@ -2016,19 +2016,23 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 		}
 	}
 
-	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeIdentity) {
-		recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusFailed, "identity polling canceled or failed")
-		e.finalizeJobStatus(job)
-		return
+	if shouldRunSNMPDiscovery(job) {
+		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeIdentity) {
+			recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusFailed, "identity polling canceled or failed")
+			e.finalizeJobStatus(job)
+			return
+		}
 	}
 	recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusCompleted, "identity collection complete")
 
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusStarted, "enrichment started")
-	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeEnrichment) {
-			recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusFailed, "enrichment polling canceled or failed")
-			e.finalizeJobStatus(job)
-			return
+	if shouldRunSNMPDiscovery(job) {
+		if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
+			if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeEnrichment) {
+				recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusFailed, "enrichment polling canceled or failed")
+				e.finalizeJobStatus(job)
+				return
+			}
 		}
 	}
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusCompleted, "enrichment complete")
@@ -2050,28 +2054,30 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 			e.triggerUniFiTopologyDiscovery(ctx, job, initialSeeds)
 		}
 
-		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeTopology) {
-			recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "topology polling canceled or failed")
-			e.finalizeJobStatus(job)
-			return
-		}
+		if shouldRunSNMPDiscovery(job) {
+			if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeTopology) {
+				recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "topology polling canceled or failed")
+				e.finalizeJobStatus(job)
+				return
+			}
 
-		if recursiveSNMPTargetsEnabled(job) {
-			recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
-			if len(recursiveTargets) > 0 {
-				for target := range recursiveTargets {
-					allPotentialSNMPTargets[target] = true
-				}
+			if recursiveSNMPTargetsEnabled(job) {
+				recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
+				if len(recursiveTargets) > 0 {
+					for target := range recursiveTargets {
+						allPotentialSNMPTargets[target] = true
+					}
 
-				for _, mode := range recursivePollingModes(job.Params.Type) {
-					if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
-						failureMessage := "recursive topology polling canceled or failed"
-						if mode == snmpPollingModeEnrichment {
-							failureMessage = "recursive enrichment polling canceled or failed"
+					for _, mode := range recursivePollingModes(job.Params.Type) {
+						if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
+							failureMessage := "recursive topology polling canceled or failed"
+							if mode == snmpPollingModeEnrichment {
+								failureMessage = "recursive enrichment polling canceled or failed"
+							}
+							recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
+							e.finalizeJobStatus(job)
+							return
 						}
-						recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
-						e.finalizeJobStatus(job)
-						return
 					}
 				}
 			}
@@ -2096,6 +2102,24 @@ func shouldRunUniFiDiscovery(job *DiscoveryJob) bool {
 
 	switch mode {
 	case "snmp", "snmp_only", "snmp-only":
+		return false
+	default:
+		return true
+	}
+}
+
+func shouldRunSNMPDiscovery(job *DiscoveryJob) bool {
+	if job == nil || job.Params == nil {
+		return true
+	}
+
+	mode := strings.TrimSpace(strings.ToLower(job.Params.Mode))
+	if mode == "" {
+		return true
+	}
+
+	switch mode {
+	case "api", "api_only", "api-only":
 		return false
 	default:
 		return true

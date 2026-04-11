@@ -60,6 +60,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
       # Testing
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ash_credo, "~> 0.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},
       {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},

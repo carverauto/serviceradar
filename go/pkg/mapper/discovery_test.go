@@ -294,6 +294,32 @@ func TestRunScheduledJobWithSeedsOverridesSeeds(t *testing.T) {
 	assert.Equal(t, []string{"192.168.6.98", "192.168.6.167"}, job.Params.Seeds)
 }
 
+func TestDiscoveryModeHelpers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		mode      string
+		wantUniFi bool
+		wantSNMP  bool
+	}{
+		{name: "empty mode", mode: "", wantUniFi: true, wantSNMP: true},
+		{name: "snmp only", mode: "snmp", wantUniFi: false, wantSNMP: true},
+		{name: "snmp hyphen", mode: "snmp-only", wantUniFi: false, wantSNMP: true},
+		{name: "api only", mode: "api", wantUniFi: true, wantSNMP: false},
+		{name: "api underscore", mode: "api_only", wantUniFi: true, wantSNMP: false},
+		{name: "hybrid", mode: "snmp_api", wantUniFi: true, wantSNMP: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			job := &DiscoveryJob{Params: &DiscoveryParams{Mode: tt.mode}}
+			assert.Equal(t, tt.wantUniFi, shouldRunUniFiDiscovery(job))
+			assert.Equal(t, tt.wantSNMP, shouldRunSNMPDiscovery(job))
+		})
+	}
+}
+
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
 		name        string

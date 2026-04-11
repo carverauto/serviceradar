@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "mapper_baseline_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/mapper-baseline",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/mapper",
+    ],
+)
+
+go_binary(
+    name = "mapper-baseline",
+    embed = [":mapper_baseline_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "mapper_baseline_test",
+    srcs = ["main_test.go"],
+    embed = [":mapper_baseline_lib"],
+)
