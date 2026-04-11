@@ -846,10 +846,13 @@ ingress:
     clusterIssuer: ""
 gatewayApi:
   enabled: false
+  mode: managed
   host: ""
   dns:
     enabled: true
     hostname: ""
+  parentRefs: []
+  redirectParentRefs: []
   service:
     name: serviceradar-web-ng
     port: 4000
@@ -866,6 +869,7 @@ gatewayApi:
     service:
       type: LoadBalancer
       externalTrafficPolicy: Local
+      loadBalancerIP: ""
       annotations: {}
       ipFamilies:
         - IPv4
