@@ -81,18 +81,33 @@ ingress:
     clusterIssuer: ""
 gatewayApi:
   enabled: true
+  mode: attach
   host: demo.serviceradar.cloud
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: serviceradar-shared-gateway
+      namespace: serviceradar-system
+      sectionName: https-web
+  redirectParentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: serviceradar-shared-gateway
+      namespace: serviceradar-system
+      sectionName: http-web
   http:
     enabled: true
     redirectToHttps: true
   tls:
     enabled: true
-    secretName: serviceradar-demo-tls
+    # Shared serviceradar edge terminates TLS with the wildcard cert in
+    # serviceradar-system; demo only attaches routes.
+    secretName: ""
     clusterIssuer: ""
-  envoyProxy:
-    service:
-      annotations:
-        metallb.universe.tf/address-pool: k3s-pool
+  backendTrafficPolicy:
+    enabled: true
+    requestTimeout: 86400s
+    requestBufferLimit: 100Mi
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
