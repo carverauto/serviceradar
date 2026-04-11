@@ -2307,7 +2307,7 @@ func recursiveTopologyLinkEligible(link *TopologyLink) bool {
 	applyTopologyEvidenceClass(link)
 
 	if strings.EqualFold(strings.TrimSpace(link.Metadata["candidate_only"]), "true") {
-		return false
+		return recursiveCandidateOnlyTopologyLinkEligible(link)
 	}
 
 	evidenceClass := normalizeTopologyEvidenceClass(link.Metadata["evidence_class"])
@@ -2318,6 +2318,26 @@ func recursiveTopologyLinkEligible(link *TopologyLink) bool {
 	default:
 		return false
 	}
+}
+
+func recursiveCandidateOnlyTopologyLinkEligible(link *TopologyLink) bool {
+	if link == nil {
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(link.Protocol), "SNMP-L2") {
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(link.Metadata["source"]), "snmp-arp-only") {
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(link.Metadata["confidence_reason"]), "single_identifier_inference") {
+		return false
+	}
+
+	return isIPv4(strings.TrimSpace(link.NeighborMgmtAddr))
 }
 
 func recursiveNeighborIdentityIndex(results *DiscoveryResults) map[string]string {

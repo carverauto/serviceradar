@@ -135,20 +135,21 @@ type DiscoveryStatus struct {
 
 // DiscoveryJob represents a running discovery operation.
 type DiscoveryJob struct {
-	ID                  string
-	Params              *DiscoveryParams
-	Status              *DiscoveryStatus
-	Results             *DiscoveryResults
-	ctx                 context.Context
-	cancelFunc          context.CancelFunc
-	scanQueue           []string
-	mu                  sync.RWMutex
-	uniFiSiteCache      map[string][]UniFiSite         // Key: baseURL, Value: list of sites
-	uniFiTopologyPolled bool                           // Guard UniFi topology collection to once per job
-	deviceMap           map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
-	interfaceMap        map[string]*DiscoveredInterface
-	identityReconciled  bool
-	interfacesPublished bool
+	ID                       string
+	Params                   *DiscoveryParams
+	Status                   *DiscoveryStatus
+	Results                  *DiscoveryResults
+	ctx                      context.Context
+	cancelFunc               context.CancelFunc
+	scanQueue                []string
+	mu                       sync.RWMutex
+	uniFiSiteCache           map[string][]UniFiSite         // Key: baseURL, Value: list of sites
+	uniFiTopologyPolled      bool                           // Guard UniFi topology collection to once per job
+	deviceMap                map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
+	interfaceMap             map[string]*DiscoveredInterface
+	observedNeighborIPsByMAC map[string]map[string]struct{}
+	identityReconciled       bool
+	interfacesPublished      bool
 }
 
 // DiscoveryResults contains the results of a discovery operation.
