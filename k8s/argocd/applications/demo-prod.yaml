@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://git.carverauto.dev/carverauto/serviceradar.git
-    targetRevision: staging
+    targetRevision: codex/topology-bootstrap-and-layout-simplification
     path: helm/serviceradar
     helm:
       releaseName: serviceradar
@@ -18,6 +18,9 @@ spec:
       # migrating data first!
       valueFiles:
         - values-demo.yaml
+      parameters:
+        - name: global.imageTag
+          value: sha-2bc15899038739c32584ecba82b2abc91370f849
 
   destination:
     server: https://kubernetes.default.svc
