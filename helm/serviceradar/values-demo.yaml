@@ -72,20 +72,27 @@ agent:
     storageClassName: ""
 
 ingress:
-  enabled: true
+  enabled: false
   host: demo.serviceradar.cloud
   className: nginx
   tls:
     enabled: true
-    # Use the wildcard cert from ingress-nginx namespace via default SSL cert.
-    # Do NOT set clusterIssuer - it triggers cert-manager which hits rate limits
-    # when namespaces are frequently recreated.
     secretName: ""
     clusterIssuer: ""
-# Keep demo prod on ingress-nginx until its wildcard/default-cert dependency is
-# replaced with an explicit same-namespace secret for Gateway API.
 gatewayApi:
-  enabled: false
+  enabled: true
+  host: demo.serviceradar.cloud
+  http:
+    enabled: true
+    redirectToHttps: true
+  tls:
+    enabled: true
+    secretName: serviceradar-demo-tls
+    clusterIssuer: ""
+  envoyProxy:
+    service:
+      annotations:
+        metallb.universe.tf/address-pool: k3s-pool
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
