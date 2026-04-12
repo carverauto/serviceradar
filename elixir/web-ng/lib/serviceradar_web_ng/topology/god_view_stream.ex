@@ -208,6 +208,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       nodes = maybe_apply_backend_layout(nodes, layout_indexed_edges, layout_revision)
       nodes = apply_causal_states(nodes, causal_indexed_edges)
       edges = promote_projection_attachment_candidates(edges, nodes)
+      nodes = materialize_projection_attachment_nodes(nodes, edges)
 
       {nodes, edges, pipeline_stats} =
         apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, snapshot_opts)
@@ -274,6 +275,135 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       %{id: id} when is_binary(id) -> MapSet.member?(connected_ids, id)
       _ -> false
     end)
+  end
+
+  defp materialize_projection_attachment_nodes(nodes, edges) when is_list(nodes) and is_list(edges) do
+    nodes_by_id = Map.new(nodes, &{normalize_id(Map.get(&1, :id)), &1})
+
+    materialized_by_id =
+      Enum.reduce(edges, %{}, fn edge, acc ->
+        materialize_projection_attachment_edge_nodes(edge, nodes_by_id, acc)
+      end)
+
+    Enum.map(nodes, fn node ->
+      Map.get(materialized_by_id, normalize_id(Map.get(node, :id)), node)
+    end)
+  end
+
+  defp materialize_projection_attachment_nodes(nodes, _edges) when is_list(nodes), do: nodes
+  defp materialize_projection_attachment_nodes(_nodes, _edges), do: []
+
+  defp materialize_projection_attachment_edge_nodes(edge, nodes_by_id, acc)
+       when is_map(edge) and is_map(nodes_by_id) and is_map(acc) do
+    if materializable_projection_attachment_edge?(edge) do
+      Enum.reduce(projection_attachment_endpoint_sides(edge, nodes_by_id), acc, fn
+        {_side, endpoint_id, endpoint_node}, inner when is_binary(endpoint_id) ->
+          if unresolved_materializable_projection_endpoint?(endpoint_id, endpoint_node) do
+            identity =
+              projection_attachment_node_identity(edge, endpoint_id, endpoint_node, nodes_by_id)
+
+            case materialize_projection_attachment_node(endpoint_id, endpoint_node, identity) do
+              %{} = node -> Map.put(inner, endpoint_id, node)
+              _ -> inner
+            end
+          else
+            inner
+          end
+
+        _, inner ->
+          inner
+      end)
+    else
+      acc
+    end
+  end
+
+  defp materialize_projection_attachment_edge_nodes(_edge, _nodes_by_id, acc) when is_map(acc), do: acc
+
+  defp materializable_projection_attachment_edge?(edge) when is_map(edge) do
+    endpoint_attachment_edge?(edge) and not weak_endpoint_cluster_membership_edge?(edge)
+  end
+
+  defp materializable_projection_attachment_edge?(_edge), do: false
+
+  defp unresolved_materializable_projection_endpoint?(endpoint_id, endpoint_node) when is_binary(endpoint_id) do
+    anonymous_unresolved_node?(endpoint_id, endpoint_node)
+  end
+
+  defp unresolved_materializable_projection_endpoint?(_endpoint_id, _endpoint_node), do: false
+
+  defp projection_attachment_node_identity(edge, endpoint_id, endpoint_node, nodes_by_id)
+       when is_map(edge) and is_binary(endpoint_id) and is_map(nodes_by_id) do
+    %{
+      ip: projection_attachment_identity_ip(edge, nodes_by_id),
+      mac: projection_attachment_identity_mac(edge, nodes_by_id),
+      anchor_id: projection_attachment_anchor_id(edge, nodes_by_id),
+      endpoint_id: endpoint_id,
+      existing_label: if(is_map(endpoint_node), do: Map.get(endpoint_node, :label))
+    }
+  end
+
+  defp projection_attachment_node_identity(_edge, endpoint_id, endpoint_node, _nodes_by_id) when is_binary(endpoint_id) do
+    %{
+      ip: nil,
+      mac: nil,
+      anchor_id: nil,
+      endpoint_id: endpoint_id,
+      existing_label: if(is_map(endpoint_node), do: Map.get(endpoint_node, :label))
+    }
+  end
+
+  defp materialize_projection_attachment_node(endpoint_id, endpoint_node, identity)
+       when is_binary(endpoint_id) and is_map(identity) do
+    ip = normalize_ipv4(Map.get(identity, :ip))
+    mac = normalize_mac(Map.get(identity, :mac))
+
+    if is_nil(ip) and is_nil(mac) do
+      nil
+    else
+      node = endpoint_node || %{}
+      details = node |> Map.get(:details_json) |> decode_details_json()
+
+      label =
+        projection_attachment_materialized_label(
+          ip,
+          mac,
+          Map.get(identity, :existing_label),
+          endpoint_id
+        )
+
+      details_json =
+        details
+        |> Map.put("ip", ip || Map.get(details, "ip"))
+        |> Map.put("mac", mac || Map.get(details, "mac"))
+        |> Map.put("type", Map.get(details, "type") || "unknown")
+        |> Map.put("identity_source", "endpoint_attachment_projection")
+        |> maybe_put_projection_anchor_id(Map.get(identity, :anchor_id))
+        |> normalize_details_json()
+
+      node
+      |> Map.put(:id, endpoint_id)
+      |> Map.put(:label, label)
+      |> Map.put(:kind, "endpoint")
+      |> Map.put(:details_json, details_json)
+    end
+  end
+
+  defp materialize_projection_attachment_node(_endpoint_id, _endpoint_node, _identity), do: nil
+
+  defp maybe_put_projection_anchor_id(details, anchor_id) when is_map(details) and is_binary(anchor_id) do
+    Map.put(details, "projection_anchor_id", anchor_id)
+  end
+
+  defp maybe_put_projection_anchor_id(details, _anchor_id) when is_map(details), do: details
+
+  defp projection_attachment_materialized_label(ip, mac, existing_label, endpoint_id) do
+    cond do
+      is_binary(ip) -> ip
+      is_binary(mac) -> mac
+      is_binary(existing_label) and not String.starts_with?(existing_label, "sr:") -> existing_label
+      true -> endpoint_id
+    end
   end
 
   defp quarantine_unresolved_endpoint_identities(nodes, edges, pipeline_stats)

@@ -4496,6 +4496,86 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
   end
 
+  test "latest_snapshot/0 preserves below-threshold UniFi wireless attachment endpoints as visible raw nodes" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unifi_wireless_threshold_preservation_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:cluster-threshold-wireless-ap-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "cluster-threshold-wireless-ap-#{suffix}", %{
+      ip: "198.51.100.190",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    wireless_specs =
+      Enum.map(1..2, fn idx ->
+        %{
+          uid: "sr:cluster-threshold-wireless-endpoint-#{suffix}-#{idx}",
+          ip: "198.51.100.#{190 + idx}",
+          mac: "02:00:00:71:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:dd"
+        }
+      end)
+
+    rows =
+      Enum.map(wireless_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.100.190",
+          local_if_name: "wifi0",
+          local_if_index: 20,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 2,
+          flow_bps: 200,
+          capacity_bps: 0,
+          flow_pps_ab: 2,
+          flow_pps_ba: 0,
+          flow_bps_ab: 200,
+          flow_bps_ba: 0,
+          telemetry_source: "controller",
+          telemetry_observed_at: "2026-04-12T21:17:20Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    Enum.each(wireless_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+    end)
+
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 0
+    assert Map.get(snapshot.pipeline_stats, :quarantined_unresolved_endpoint_nodes, 0) == 0
+    assert Map.get(snapshot.pipeline_stats, :quarantined_unresolved_endpoint_edges, 0) == 0
+  end
+
   test "latest_snapshot/0 preserves per-anchor endpoint summaries when the same endpoints are seen off multiple anchors" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
