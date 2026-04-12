@@ -155,6 +155,45 @@ type UniFiDeviceDetails struct {
 	AdapterShape   string `json:"-"`
 }
 
+type UniFiClient struct {
+	ID             string            `json:"id"`
+	Type           string            `json:"type"`
+	Name           string            `json:"name"`
+	MACAddress     string            `json:"macAddress"`
+	IPAddress      string            `json:"ipAddress"`
+	UplinkDeviceID string            `json:"uplinkDeviceId"`
+	ConnectedAt    string            `json:"connectedAt"`
+	Access         UniFiClientAccess `json:"access"`
+}
+
+type UniFiClientAccess struct {
+	Type string `json:"type"`
+}
+
+func (c UniFiClient) normalizedType() string {
+	return strings.ToUpper(strings.TrimSpace(c.Type))
+}
+
+func (c UniFiClient) normalizedMAC() string {
+	return strings.TrimSpace(c.MACAddress)
+}
+
+func (c UniFiClient) normalizedIP() string {
+	return strings.TrimSpace(c.IPAddress)
+}
+
+func (c UniFiClient) normalizedName() string {
+	return strings.TrimSpace(c.Name)
+}
+
+func (c UniFiClient) normalizedUplinkDeviceID() string {
+	return strings.TrimSpace(c.UplinkDeviceID)
+}
+
+func (a UniFiClientAccess) normalizedType() string {
+	return strings.ToUpper(strings.TrimSpace(a.Type))
+}
+
 type UniFiLLDPEntry struct {
 	LocalPortIdx        int32  `json:"local_port_idx"`
 	LocalPortIdxCamel   int32  `json:"localPortIdx"`
@@ -538,6 +577,59 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	return deviceResp.Data, deviceCache, nil
 }
 
+func (*DiscoveryEngine) fetchUniFiClientsForSite(
+	ctx context.Context,
+	job *DiscoveryJob,
+	client *http.Client,
+	headers map[string]string,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) ([]UniFiClient, error) {
+	clientsURL := fmt.Sprintf("%s/sites/%s/clients", apiConfig.BaseURL, site.ID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientsURL, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client request for site %s: %w", site.Name, err)
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch clients for site %s: %w", site.Name, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch clients for controller %s, site %s with status: %d", apiConfig.Name, site.Name, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read clients for site %s: %w", site.Name, err)
+	}
+
+	var clientResp struct {
+		Data []UniFiClient `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &clientResp); err != nil {
+		return nil, fmt.Errorf("failed to parse clients for site %s: %w", site.Name, err)
+	}
+
+	wirelessClients := make([]UniFiClient, 0, len(clientResp.Data))
+	for i := range clientResp.Data {
+		client := clientResp.Data[i]
+		if client.normalizedType() != "WIRELESS" {
+			continue
+		}
+		wirelessClients = append(wirelessClients, client)
+	}
+
+	return wirelessClients, nil
+}
+
 // fetchDeviceDetails fetches detailed information for a specific device
 func (e *DiscoveryEngine) fetchDeviceDetails(
 	ctx context.Context,
@@ -914,6 +1006,75 @@ func (*DiscoveryEngine) processPortTable(
 	return links
 }
 
+func (*DiscoveryEngine) processWirelessClientAssociations(
+	job *DiscoveryJob,
+	clients []UniFiClient,
+	deviceCache map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) []*TopologyLink {
+	links := make([]*TopologyLink, 0, len(clients))
+
+	for i := range clients {
+		client := clients[i]
+		uplinkID := client.normalizedUplinkDeviceID()
+		if uplinkID == "" {
+			continue
+		}
+
+		ap, exists := deviceCache[uplinkID]
+		if !exists || strings.TrimSpace(ap.IP) == "" || strings.TrimSpace(ap.DeviceID) == "" {
+			continue
+		}
+
+		clientMAC := client.normalizedMAC()
+		if clientMAC == "" {
+			continue
+		}
+
+		metadata := map[string]string{
+			"discovery_id":      job.ID,
+			"discovery_time":    time.Now().Format(time.RFC3339),
+			"source":            "unifi-api-wireless-client",
+			"evidence_class":    "endpoint-attachment",
+			"relation_type":     "ATTACHED_TO",
+			"relation_family":   "ATTACHED_TO",
+			"confidence_tier":   "high",
+			"confidence_reason": "controller_client_association",
+			"controller_url":    apiConfig.BaseURL,
+			"site_id":           site.ID,
+			"site_name":         site.Name,
+			"controller_name":   apiConfig.Name,
+			"unifi_client_id":   strings.TrimSpace(client.ID),
+			"client_type":       client.normalizedType(),
+			"uplink_device_id":  uplinkID,
+		}
+		if accessType := client.Access.normalizedType(); accessType != "" {
+			metadata["access_type"] = accessType
+		}
+		if connectedAt := strings.TrimSpace(client.ConnectedAt); connectedAt != "" {
+			metadata["connected_at"] = connectedAt
+		}
+
+		links = append(links, &TopologyLink{
+			Protocol:           "UniFi-API",
+			LocalDeviceIP:      strings.TrimSpace(ap.IP),
+			LocalDeviceID:      strings.TrimSpace(ap.DeviceID),
+			LocalIfName:        "wireless",
+			NeighborChassisID:  clientMAC,
+			NeighborSystemName: client.normalizedName(),
+			NeighborMgmtAddr:   client.normalizedIP(),
+			Metadata:           metadata,
+		})
+	}
+
+	return links
+}
+
 // processUplinkInfo processes uplink information and creates topology links
 func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
@@ -992,10 +1153,22 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		return nil, err
 	}
 
+	wirelessClients, err := e.fetchUniFiClientsForSite(ctx, job, client, headers, apiConfig, site)
+	if err != nil {
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("api_name", apiConfig.Name).
+			Str("site_name", site.Name).
+			Err(err).
+			Msg("Failed to fetch UniFi wireless client associations; continuing without AP client topology")
+		wirelessClients = nil
+	}
+
 	var links []*TopologyLink
 	lldpCount := 0
 	portCount := 0
 	uplinkCount := 0
+	wirelessClientCount := 0
 	var legacyDetails []legacyUniFiDeviceDetailsRecord
 	legacyDetailsLoaded := false
 	if targetIP != "" {
@@ -1081,6 +1254,10 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		uplinkCount += len(uplinkLinks)
 	}
 
+	wirelessLinks := e.processWirelessClientAssociations(job, wirelessClients, deviceCache, apiConfig, site)
+	links = append(links, wirelessLinks...)
+	wirelessClientCount = len(wirelessLinks)
+
 	e.logger.Info().
 		Str("job_id", job.ID).
 		Str("api_name", apiConfig.Name).
@@ -1089,6 +1266,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		Int("lldp_links", lldpCount).
 		Int("port_links", portCount).
 		Int("uplink_links", uplinkCount).
+		Int("wireless_client_links", wirelessClientCount).
 		Int("total_links", len(links)).
 		Msg("UniFi topology extraction summary")
 
