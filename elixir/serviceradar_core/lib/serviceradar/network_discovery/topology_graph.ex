@@ -2045,7 +2045,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     case value |> to_string() |> String.trim() |> String.downcase() do
       "direct" -> "direct-physical"
       "inferred" -> "inferred-segment"
-      "endpoint-attachment" -> "inferred-segment"
+      "endpoint-attachment" -> "endpoint-attachment"
       normalized -> normalized
     end
   end
@@ -2108,6 +2108,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
       normalized_evidence == "observed-only" ->
         "OBSERVED_TO"
+
+      normalized_evidence == "endpoint-attachment" ->
+        "ATTACHED_TO"
 
       normalized_evidence == "inferred-segment" and
         normalized_confidence_reason == "single_identifier_inference" and

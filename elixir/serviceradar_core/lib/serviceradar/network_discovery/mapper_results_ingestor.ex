@@ -2825,7 +2825,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp protocol_topology_evidence_class("unifi-api", source, _reason) do
-    if String.contains?(source, "port-table"), do: "inferred-segment", else: "direct-physical"
+    cond do
+      String.contains?(source, "wireless-client") -> "endpoint-attachment"
+      String.contains?(source, "port-table") -> "inferred-segment"
+      true -> "direct-physical"
+    end
   end
 
   defp protocol_topology_evidence_class(protocol, source, "single_identifier_inference")
@@ -2939,7 +2943,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     case normalize_string(value) do
       "direct" -> "direct-physical"
       "inferred" -> "inferred-segment"
-      "endpoint-attachment" -> "inferred-segment"
+      "endpoint-attachment" -> "endpoint-attachment"
       other -> other
     end
   end
