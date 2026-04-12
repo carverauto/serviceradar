@@ -7,10 +7,6 @@ export const godViewLifecycleStreamSnapshotMethods = {
     try {
       const snapshot = this.parseSnapshotMessage(msg)
       const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : this.state.lastRevision
-      if (Number.isFinite(revision) && Number.isFinite(this.state.lastRevision) && revision === this.state.lastRevision) {
-        this.state.lastSnapshotAt = Date.now()
-        return
-      }
 
       const bytes = snapshot?.payload
       if (!bytes || bytes.byteLength === 0) throw new Error("missing payload")

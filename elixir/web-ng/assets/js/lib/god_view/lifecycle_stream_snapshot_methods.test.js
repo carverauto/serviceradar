@@ -60,30 +60,31 @@ describe("lifecycle_stream_snapshot_methods", () => {
     )
   })
 
-  it("handleSnapshot skips decode and render when revision is unchanged", async () => {
+  it("handleSnapshot still decodes and renders when revision is unchanged but the snapshot graph changes", async () => {
     const state = {
       lastRevision: 42,
       lastSnapshotAt: 0,
       layoutRequestToken: 0,
+      lastGraph: {nodes: [{id: "before"}], edges: [], _layoutMode: "client-radial"},
+      lastVisibleNodeCount: 0,
+      lastVisibleEdgeCount: 0,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
       pushEvent: () => {},
       summary: {textContent: ""},
     }
+    const previousGraph = state.lastGraph
+    const graph = {nodes: [{id: "after", x: 10, y: 20}], edges: [], _layoutMode: "client-radial"}
     const deps = {
-      decodeArrowGraph: () => {
-        throw new Error("decode should not run")
-      },
-      graphTopologyStamp: () => "stamp",
-      prepareGraphLayout: () => {
-        throw new Error("layout should not run")
-      },
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "after"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "next-stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
       ensureBitmapMetadata: () => ({}),
-      sameTopology: () => false,
-      renderGraph: () => {
-        throw new Error("render should not run")
-      },
-      animateTransition: () => {
-        throw new Error("animate should not run")
-      },
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
       normalizePipelineStats: () => ({}),
     }
     const methods = createStateBackedContext(state, deps)
@@ -92,6 +93,9 @@ describe("lifecycle_stream_snapshot_methods", () => {
     await methods.handleSnapshot(buildFrame([1, 2, 3]))
 
     expect(state.lastSnapshotAt).toBeGreaterThan(0)
+    expect(deps.decodeArrowGraph).toHaveBeenCalledTimes(1)
+    expect(deps.prepareGraphLayout).toHaveBeenCalledTimes(1)
+    expect(deps.animateTransition).toHaveBeenCalledWith(previousGraph, graph)
   })
 
   it("handleSnapshot awaits async layout preparation before rendering", async () => {
