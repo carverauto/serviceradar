@@ -1080,6 +1080,18 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	if cls := strings.TrimSpace(link.Metadata["evidence_class"]); cls != "" {
 		link.Metadata["evidence_class"] = normalizeTopologyEvidenceClass(cls)
 		applyTopologyRelationFamily(link)
+		if strings.TrimSpace(link.Metadata["confidence_tier"]) != "" {
+			return
+		}
+
+		switch link.Metadata["evidence_class"] {
+		case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, "endpoint-attachment":
+			link.Metadata["confidence_tier"] = "high"
+		case evidenceClassInferredSegment:
+			link.Metadata["confidence_tier"] = "medium"
+		default:
+			link.Metadata["confidence_tier"] = "low"
+		}
 		return
 	}
 
@@ -1110,7 +1122,7 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	}
 
 	switch link.Metadata["evidence_class"] {
-	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual:
+	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, "endpoint-attachment":
 		link.Metadata["confidence_tier"] = "high"
 	case evidenceClassInferredSegment:
 		link.Metadata["confidence_tier"] = "medium"
@@ -1126,7 +1138,7 @@ func normalizeTopologyEvidenceClass(value string) string {
 	case "inferred":
 		return evidenceClassInferredSegment
 	case "endpoint-attachment":
-		return evidenceClassInferredSegment
+		return "endpoint-attachment"
 	default:
 		return strings.ToLower(strings.TrimSpace(value))
 	}
@@ -1156,6 +1168,8 @@ func applyTopologyRelationFamily(link *TopologyLink) {
 		link.Metadata["relation_family"] = "LOGICAL_PEER"
 	case evidenceClass == evidenceClassHostedVirtual:
 		link.Metadata["relation_family"] = "HOSTED_ON"
+	case evidenceClass == "endpoint-attachment":
+		link.Metadata["relation_family"] = "ATTACHED_TO"
 	case evidenceClass == evidenceClassObservedOnly:
 		link.Metadata["relation_family"] = "OBSERVED_TO"
 	case evidenceClass == evidenceClassInferredSegment &&

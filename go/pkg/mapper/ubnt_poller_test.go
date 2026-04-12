@@ -337,6 +337,76 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 	}
 }
 
+func TestFetchUniFiClientsForSite(t *testing.T) {
+	tests := []struct {
+		name           string
+		serverResponse []UniFiClient
+		statusCode     int
+		expectError    bool
+		expectedCount  int
+	}{
+		{
+			name: "filters wireless clients",
+			serverResponse: []UniFiClient{
+				{ID: "wired-1", Type: "WIRED", MACAddress: "00:11:22:33:44:55", UplinkDeviceID: "switch-1"},
+				{ID: "wireless-1", Type: "WIRELESS", MACAddress: "aa:bb:cc:dd:ee:ff", UplinkDeviceID: "ap-1"},
+				{ID: "wireless-2", Type: "wireless", MACAddress: "11:22:33:44:55:66", UplinkDeviceID: "ap-2"},
+			},
+			statusCode:    http.StatusOK,
+			expectError:   false,
+			expectedCount: 2,
+		},
+		{
+			name:           "server error",
+			serverResponse: nil,
+			statusCode:     http.StatusInternalServerError,
+			expectError:    true,
+			expectedCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/sites/site1/clients", r.URL.Path)
+				assert.Equal(t, "test-api-key", r.Header.Get("X-API-Key"))
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				w.WriteHeader(tt.statusCode)
+				if tt.statusCode == http.StatusOK {
+					response := struct {
+						Data []UniFiClient `json:"data"`
+					}{Data: tt.serverResponse}
+					if err := json.NewEncoder(w).Encode(response); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+					}
+				}
+			}))
+			defer server.Close()
+
+			engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+			job := &DiscoveryJob{ID: "test-job"}
+			client := &http.Client{Timeout: 30 * time.Second}
+			headers := map[string]string{"X-API-Key": "test-api-key", "Content-Type": "application/json"}
+			apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: server.URL, APIKey: "test-api-key"}
+			site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+			clients, err := engine.fetchUniFiClientsForSite(context.Background(), job, client, headers, apiConfig, site)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Nil(t, clients)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, clients, tt.expectedCount)
+			for _, client := range clients {
+				assert.Equal(t, "WIRELESS", client.normalizedType())
+			}
+		})
+	}
+}
+
 func newUniFiInventoryUplinkServer(t *testing.T, deviceDetailPayload []byte) *httptest.Server {
 	t.Helper()
 
@@ -791,6 +861,148 @@ func TestProcessPortTable(t *testing.T) {
 	assert.Equal(t, site.ID, link.Metadata["site_id"])
 	assert.Equal(t, site.Name, link.Metadata["site_name"])
 	assert.Equal(t, apiConfig.Name, link.Metadata["controller_name"])
+}
+
+func TestProcessWirelessClientAssociations(t *testing.T) {
+	job := &DiscoveryJob{ID: "test-job"}
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	clients := []UniFiClient{
+		{
+			ID:             "wireless-1",
+			Type:           "WIRELESS",
+			Name:           "phone",
+			MACAddress:     "aa:bb:cc:dd:ee:ff",
+			IPAddress:      "192.168.1.50",
+			UplinkDeviceID: "ap-1",
+			ConnectedAt:    "2026-04-12T00:00:00Z",
+			Access:         UniFiClientAccess{Type: "DEFAULT"},
+		},
+		{
+			ID:             "wireless-missing-mac",
+			Type:           "WIRELESS",
+			UplinkDeviceID: "ap-1",
+		},
+		{
+			ID:             "wireless-missing-ap",
+			Type:           "WIRELESS",
+			MACAddress:     "11:22:33:44:55:66",
+			UplinkDeviceID: "missing-ap",
+		},
+	}
+	deviceCache := map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	}{
+		"ap-1": {IP: "192.168.1.233", Name: "UAP-nanoHD", MAC: "ff:ee:dd:cc:bb:aa", DeviceID: GenerateDeviceID("ff:ee:dd:cc:bb:aa")},
+	}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: "https://example.com/api"}
+	site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+	links := engine.processWirelessClientAssociations(job, clients, deviceCache, apiConfig, site)
+	require.Len(t, links, 1)
+
+	link := links[0]
+	assert.Equal(t, "UniFi-API", link.Protocol)
+	assert.Equal(t, "192.168.1.233", link.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("ff:ee:dd:cc:bb:aa"), link.LocalDeviceID)
+	assert.Equal(t, "wireless", link.LocalIfName)
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", link.NeighborChassisID)
+	assert.Equal(t, "phone", link.NeighborSystemName)
+	assert.Equal(t, "192.168.1.50", link.NeighborMgmtAddr)
+	assert.Equal(t, "unifi-api-wireless-client", link.Metadata["source"])
+	assert.Equal(t, "endpoint-attachment", link.Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", link.Metadata["relation_type"])
+	assert.Equal(t, "ATTACHED_TO", link.Metadata["relation_family"])
+	assert.Equal(t, "controller_client_association", link.Metadata["confidence_reason"])
+	assert.Equal(t, "high", link.Metadata["confidence_tier"])
+	assert.Equal(t, "DEFAULT", link.Metadata["access_type"])
+}
+
+func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
+	job := &DiscoveryJob{
+		ID: "test-job",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{
+				ParseDiagnostics: DiscoveryParseDiagnostics{
+					ParseFailures:     make(map[string]int),
+					UnknownTopLevel:   make(map[string]int),
+					ParserMismatches:  make(map[string]int),
+					LastFailureByType: make(map[string]string),
+				},
+			},
+		},
+	}
+
+	deviceDetailPayload := []byte(`{"interfaces":{"ports":[{"idx":1,"state":"UP","connector":"RJ45","maxSpeedMbps":1000,"speedMbps":1000}]}}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sites/site1/devices":
+			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			w.WriteHeader(http.StatusOK)
+			err := json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{
+				Data: []UniFiDevice{
+					{ID: "uplink-device", IPAddress: "192.168.1.254", Name: "USW16PoE", MAC: "ff:ee:dd:cc:bb:aa"},
+					{ID: "ap-1", IPAddress: "192.168.1.233", Name: "UAP-nanoHD", MAC: "00:11:22:33:44:55", Uplink: UniFiUplink{DeviceID: "uplink-device", LocalPortIdx: 26, LocalPortName: "Port 26"}},
+				},
+			})
+			if err != nil {
+				t.Fatalf("encode devices response: %v", err)
+			}
+		case "/sites/site1/clients":
+			w.WriteHeader(http.StatusOK)
+			err := json.NewEncoder(w).Encode(struct {
+				Data []UniFiClient `json:"data"`
+			}{
+				Data: []UniFiClient{
+					{ID: "wireless-1", Type: "WIRELESS", Name: "tablet", MACAddress: "aa:bb:cc:dd:ee:ff", IPAddress: "192.168.1.50", UplinkDeviceID: "ap-1", Access: UniFiClientAccess{Type: "DEFAULT"}},
+					{ID: "wired-1", Type: "WIRED", Name: "wired-host", MACAddress: "11:22:33:44:55:66", IPAddress: "192.168.1.60", UplinkDeviceID: "uplink-device"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("encode clients response: %v", err)
+			}
+		case "/sites/site1/devices/ap-1", "/sites/site1/devices/uplink-device":
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write(deviceDetailPayload)
+			if err != nil {
+				t.Fatalf("write details response: %v", err)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{config: &Config{Timeout: 30 * time.Second}, logger: logger.NewTestLogger()}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: server.URL, APIKey: "test-api-key"}
+	site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+	links, err := engine.querySingleUniFiAPI(context.Background(), job, "", apiConfig, site)
+	require.NoError(t, err)
+	require.Len(t, links, 2)
+
+	var uplinkLink *TopologyLink
+	var wirelessLink *TopologyLink
+	for _, link := range links {
+		switch link.Metadata["source"] {
+		case "unifi-api-uplink":
+			uplinkLink = link
+		case "unifi-api-wireless-client":
+			wirelessLink = link
+		}
+	}
+	require.NotNil(t, uplinkLink)
+	require.NotNil(t, wirelessLink)
+	assert.Equal(t, "192.168.1.233", wirelessLink.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("00:11:22:33:44:55"), wirelessLink.LocalDeviceID)
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", wirelessLink.NeighborChassisID)
+	assert.Equal(t, "192.168.1.50", wirelessLink.NeighborMgmtAddr)
+	assert.Equal(t, "endpoint-attachment", wirelessLink.Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", wirelessLink.Metadata["relation_family"])
 }
 
 func TestProcessUplinkInfo(t *testing.T) {

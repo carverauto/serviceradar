@@ -93,3 +93,27 @@ func TestApplyTopologyEvidenceClassAssignsConfidenceTier(t *testing.T) {
 		t.Fatalf("expected high confidence tier, got %q", link.Metadata["confidence_tier"])
 	}
 }
+
+func TestApplyTopologyEvidenceClassPreservesEndpointAttachment(t *testing.T) {
+	link := &TopologyLink{
+		Protocol: "UniFi-API",
+		Metadata: map[string]string{
+			"evidence_class": "endpoint-attachment",
+			"source":         "unifi-api-wireless-client",
+		},
+	}
+
+	applyTopologyEvidenceClass(link)
+
+	if link.Metadata["evidence_class"] != "endpoint-attachment" {
+		t.Fatalf("expected endpoint-attachment evidence class, got %q", link.Metadata["evidence_class"])
+	}
+
+	if link.Metadata["relation_family"] != "ATTACHED_TO" {
+		t.Fatalf("expected ATTACHED_TO relation family, got %q", link.Metadata["relation_family"])
+	}
+
+	if link.Metadata["confidence_tier"] != "high" {
+		t.Fatalf("expected high confidence tier, got %q", link.Metadata["confidence_tier"])
+	}
+}

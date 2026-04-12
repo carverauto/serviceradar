@@ -42,6 +42,7 @@ go_test(
     srcs = [
         "discovery_test.go",
         "grpc_test.go",
+        "identity_test.go",
         "interface_dedup_test.go",
         "mapper_agent_service_test.go",
         "mikrotik_poller_test.go",
