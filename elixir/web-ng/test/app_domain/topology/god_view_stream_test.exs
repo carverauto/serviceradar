@@ -4576,6 +4576,141 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :quarantined_unresolved_endpoint_edges, 0) == 0
   end
 
+  test "latest_snapshot/0 prefers explicit UniFi AP client attachments over inferred switch sightings" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unifi_wireless_anchor_preference_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:wireless-anchor-ap-#{suffix}"
+    switch_uid = "sr:wireless-anchor-switch-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "wireless-anchor-ap-#{suffix}", %{
+      ip: "198.51.101.10",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    create_topology_device(actor, switch_uid, "wireless-anchor-switch-#{suffix}", %{
+      ip: "198.51.101.1",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    shared_specs = [
+      %{
+        uid: "sr:wireless-anchor-shared-#{suffix}-1",
+        ip: "198.51.101.21",
+        mac: "02:00:00:81:01:aa"
+      },
+      %{
+        uid: "sr:wireless-anchor-shared-#{suffix}-2",
+        ip: "198.51.101.22",
+        mac: "02:00:00:81:02:aa"
+      }
+    ]
+
+    switch_only_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:wireless-anchor-switch-only-#{suffix}-#{idx}",
+          ip: "198.51.101.#{30 + idx}",
+          mac: "02:00:00:82:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+        }
+      end)
+
+    ap_rows =
+      Enum.map(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.101.10",
+          local_if_name: "wireless",
+          local_if_index: 0,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T21:57:24Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    switch_rows =
+      Enum.map(shared_specs ++ switch_only_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.101.1",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T21:57:32Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, ap_rows ++ switch_rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    switch_cluster_id = "cluster:endpoints:" <> switch_uid <> ":ifindex:7"
+    switch_cluster = Enum.find(snapshot.nodes, &(&1.id == switch_cluster_id))
+    assert switch_cluster
+    assert switch_cluster.label == "3 endpoints"
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+    end)
+  end
+
   test "latest_snapshot/0 preserves per-anchor endpoint summaries when the same endpoints are seen off multiple anchors" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)

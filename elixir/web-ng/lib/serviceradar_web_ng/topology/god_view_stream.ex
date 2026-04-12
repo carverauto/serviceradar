@@ -2872,6 +2872,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp endpoint_cluster_membership_candidate_rank(%{edge: edge} = candidate, port_candidate_counts)
        when is_map(edge) and is_map(port_candidate_counts) do
     {
+      endpoint_cluster_membership_source_rank(edge),
       -endpoint_cluster_candidate_port_fanout(candidate, port_candidate_counts),
       attachment_observation_count(edge),
       if(Map.get(edge, :telemetry_eligible, false), do: 1, else: 0),
@@ -2882,7 +2883,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     }
   end
 
-  defp endpoint_cluster_membership_candidate_rank(_candidate, _port_candidate_counts), do: {0, 0, 0, 0, 0, 0, 0}
+  defp endpoint_cluster_membership_candidate_rank(_candidate, _port_candidate_counts), do: {0, 0, 0, 0, 0, 0, 0, 0}
+
+  defp endpoint_cluster_membership_source_rank(edge) when is_map(edge) do
+    cond do
+      endpoint_attachment_edge?(edge) and
+          normalize_id(Map.get(edge, :confidence_reason)) == "controller_client_association" ->
+        3
+
+      endpoint_attachment_edge?(edge) ->
+        2
+
+      evidence_class(edge) == "inferred" and
+        edge_protocol(edge) == "snmp-l2" and
+          normalize_id(Map.get(edge, :confidence_reason)) == "arp_fdb_port_mapping" ->
+        1
+
+      true ->
+        0
+    end
+  end
+
+  defp endpoint_cluster_membership_source_rank(_edge), do: 0
 
   defp endpoint_cluster_candidate_port_fanout(candidate, port_candidate_counts)
        when is_map(candidate) and is_map(port_candidate_counts) do
