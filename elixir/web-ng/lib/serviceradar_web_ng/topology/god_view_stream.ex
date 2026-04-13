@@ -1753,7 +1753,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> String.downcase()
       |> String.replace("-", ":")
 
-    if String.match?(normalized, ~r/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/), do: normalized
+    cond do
+      String.match?(normalized, ~r/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) ->
+        normalized
+
+      String.match?(normalized, ~r/^[0-9a-f]{12}$/) ->
+        normalized
+        |> String.codepoints()
+        |> Enum.chunk_every(2)
+        |> Enum.map_join(":", &Enum.join/1)
+
+      true ->
+        nil
+    end
   end
 
   defp normalize_mac(_), do: nil
