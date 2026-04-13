@@ -3254,7 +3254,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       expanded_attachment_edge_keys,
       expanded_groups
     ) and
-      endpoint_attachment_edge?(edge) and expanded_group_attachment_edge?(edge, expanded_groups)
+      endpoint_attachment_edge?(edge) and
+      (expanded_group_attachment_edge?(edge, expanded_groups) or
+         (collapsed_endpoint_member_edge?(edge, collapsed_members) and
+            not explicit_controller_client_association_edge?(edge)))
   end
 
   defp drop_cluster_projection_edge?(_edge, _collapsed_members, _expanded_attachment_edge_keys, _expanded_groups),
@@ -3275,6 +3278,22 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp expanded_group_attachment_edge?(_edge, _expanded_groups), do: false
+
+  defp collapsed_endpoint_member_edge?(edge, collapsed_members)
+       when is_map(edge) and is_struct(collapsed_members, MapSet) do
+    endpoint_attachment_edge?(edge) and
+      (MapSet.member?(collapsed_members, Map.get(edge, :source)) or
+         MapSet.member?(collapsed_members, Map.get(edge, :target)))
+  end
+
+  defp collapsed_endpoint_member_edge?(_edge, _collapsed_members), do: false
+
+  defp explicit_controller_client_association_edge?(edge) when is_map(edge) do
+    endpoint_attachment_edge?(edge) and
+      normalize_id(Map.get(edge, :confidence_reason)) == "controller_client_association"
+  end
+
+  defp explicit_controller_client_association_edge?(_edge), do: false
 
   defp raw_endpoint_attachment_edge?(edge) when is_map(edge) do
     endpoint_attachment_edge?(edge) and normalize_id(Map.get(edge, :protocol)) != "cluster"
