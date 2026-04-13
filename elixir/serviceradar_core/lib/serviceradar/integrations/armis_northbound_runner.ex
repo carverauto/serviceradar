@@ -13,7 +13,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   import Ecto.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Repo
@@ -87,6 +89,43 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   def load_candidates(source) do
     with :ok <- northbound_ready?(source) do
       {:ok, Repo.all(candidates_query(source))}
+    end
+  end
+
+  @spec run_for_source(IntegrationSource.t() | map(), keyword()) ::
+          {:ok, map()} | {:error, map() | term()}
+  def run_for_source(source, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:armis_northbound_runner))
+    start_run = Keyword.get(opts, :start_run, &default_start_run/3)
+    update_source = Keyword.get(opts, :update_source, &default_update_source/4)
+    finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
+    load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/1)
+    execute_batches_fun = Keyword.get(opts, :execute_batches, &execute_batches/3)
+
+    with {:ok, run} <- start_run.(source, actor, opts),
+         {:ok, candidates} <- load_candidates_fun.(source),
+         collapsed = collapse_candidates(candidates),
+         {:ok, _source} <-
+           update_source.(source, :northbound_start, %{device_count: length(collapsed)}, actor) do
+      case execute_batches_fun.(source, collapsed, opts) do
+        {:ok, result} ->
+          finalize_success(source, run, result, actor, finish_run, update_source)
+
+        {:error, result} when is_map(result) ->
+          finalize_error(source, run, result, actor, finish_run, update_source)
+
+        {:error, reason} ->
+          result = %{
+            device_count: length(collapsed),
+            updated_count: 0,
+            skipped_count: 0,
+            error_count: length(collapsed),
+            batch_count: 0,
+            errors: [%{reason: reason}]
+          }
+
+          finalize_error(source, run, result, actor, finish_run, update_source)
+      end
     end
   end
 
@@ -253,6 +292,146 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     values
     |> Enum.reject(&blank?/1)
     |> Enum.uniq()
+  end
+
+  defp finalize_success(source, run, result, actor, finish_run, update_source) do
+    metadata = %{batch_count: result.batch_count, errors: result.errors}
+
+    with {:ok, finished_run} <-
+           finish_run.(
+             run,
+             :finish_success,
+             build_run_attrs(result, metadata),
+             actor,
+             %{status: :success}
+           ),
+         {:ok, updated_source} <-
+           update_source.(
+             source,
+             :northbound_success,
+             build_source_success_attrs(result, :success),
+             actor
+           ) do
+      {:ok, %{run: finished_run, source: updated_source, result: result}}
+    end
+  end
+
+  defp finalize_error(source, run, result, actor, finish_run, update_source) do
+    metadata = %{batch_count: result.batch_count, errors: result.errors}
+    error_message = summarize_errors(result.errors)
+
+    if result.updated_count > 0 do
+      with {:ok, finished_run} <-
+             finish_run.(
+               run,
+               :finish_partial,
+               build_run_attrs(result, Map.put(metadata, :error_message, error_message)),
+               actor,
+               %{status: :partial}
+             ),
+           {:ok, updated_source} <-
+             update_source.(
+               source,
+               :northbound_success,
+               build_source_success_attrs(result, :partial),
+               actor
+             ) do
+        {:error,
+         %{
+           run: finished_run,
+           source: updated_source,
+           result: Map.put(result, :error_message, error_message)
+         }}
+      end
+    else
+      with {:ok, finished_run} <-
+             finish_run.(
+               run,
+               :finish_failed,
+               build_run_attrs(result, Map.put(metadata, :error_message, error_message)),
+               actor,
+               %{status: :failed}
+             ),
+           {:ok, updated_source} <-
+             update_source.(
+               source,
+               :northbound_failed,
+               build_source_failed_attrs(result, error_message),
+               actor
+             ) do
+        {:error,
+         %{
+           run: finished_run,
+           source: updated_source,
+           result: Map.put(result, :error_message, error_message)
+         }}
+      end
+    end
+  end
+
+  defp build_run_attrs(result, metadata) do
+    %{
+      device_count: result.device_count,
+      updated_count: result.updated_count,
+      skipped_count: result.skipped_count,
+      error_count: result.error_count,
+      error_message: Map.get(metadata, :error_message),
+      metadata: metadata
+    }
+  end
+
+  defp build_source_success_attrs(result, status) do
+    %{
+      result: status,
+      device_count: result.device_count,
+      updated_count: result.updated_count,
+      skipped_count: result.skipped_count + result.error_count
+    }
+  end
+
+  defp build_source_failed_attrs(result, error_message) do
+    %{
+      result: :failed,
+      device_count: result.device_count,
+      updated_count: result.updated_count,
+      skipped_count: result.skipped_count + result.error_count,
+      error_message: error_message
+    }
+  end
+
+  defp summarize_errors([]), do: nil
+
+  defp summarize_errors(errors) do
+    Enum.map_join(errors, "; ", fn error -> inspect(error.reason) end)
+  end
+
+  defp default_start_run(source, actor, opts) do
+    oban_job_id = Keyword.get(opts, :oban_job_id)
+
+    IntegrationUpdateRun
+    |> Ash.Changeset.for_create(
+      :start_run,
+      %{
+        integration_source_id: Map.fetch!(source, :id),
+        run_type: :armis_northbound,
+        oban_job_id: oban_job_id,
+        metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create(actor: actor)
+  end
+
+  defp default_update_source(source, action, attrs, actor) do
+    source
+    |> Ash.Changeset.for_update(action, attrs, actor: actor)
+    |> Ash.update(actor: actor)
+  end
+
+  defp default_finish_run(run, action, attrs, actor, _opts) do
+    run
+    |> Ash.Changeset.for_update(action, attrs, actor: actor)
+    |> Ash.update(actor: actor)
   end
 
   defp fetch_access_token(source, opts) do

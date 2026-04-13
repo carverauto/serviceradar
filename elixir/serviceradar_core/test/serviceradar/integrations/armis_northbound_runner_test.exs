@@ -194,7 +194,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert result.batch_count == 2
 
     assert_received {:token_source, ^source}
-
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, headers1, body1}
 
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
@@ -261,5 +260,167 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert result.error_count == 1
     assert result.batch_count == 2
     assert result.errors == [%{batch_size: 1, reason: :upstream_timeout}]
+  end
+
+  test "run_for_source persists success lifecycle with normalized counts" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    candidates = [
+      %{
+        armis_device_id: "armis-2",
+        is_available: true,
+        device_id: "d2",
+        sync_service_id: "source-1",
+        metadata: %{}
+      },
+      %{
+        armis_device_id: "armis-1",
+        is_available: false,
+        device_id: "d1",
+        sync_service_id: "source-1",
+        metadata: %{}
+      }
+    ]
+
+    start_run = fn start_source, start_actor, _opts ->
+      send(parent, {:start_run, start_source.id, start_actor})
+      {:ok, %{id: "run-1"}}
+    end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, _opts ->
+      send(parent, {:finish_run, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    load_candidates = fn _src -> {:ok, candidates} end
+
+    execute_batches = fn _src, collapsed, _opts ->
+      send(parent, {:collapsed_candidates, collapsed})
+
+      {:ok,
+       %{
+         device_count: 2,
+         updated_count: 2,
+         skipped_count: 0,
+         error_count: 0,
+         batch_count: 1,
+         errors: []
+       }}
+    end
+
+    assert {:ok, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               load_candidates: load_candidates,
+               execute_batches: execute_batches
+             )
+
+    assert result.updated_count == 2
+    assert_received {:start_run, "source-1", ^actor}
+
+    assert_received {:collapsed_candidates,
+                     [%{armis_device_id: "armis-1"}, %{armis_device_id: "armis-2"}]}
+
+    assert_received {:update_source, :northbound_start, %{device_count: 2}}
+
+    assert_received {:finish_run, :finish_success,
+                     %{
+                       device_count: 2,
+                       updated_count: 2,
+                       skipped_count: 0,
+                       error_count: 0,
+                       error_message: nil,
+                       metadata: %{batch_count: 1, errors: []}
+                     }}
+
+    assert_received {:update_source, :northbound_success,
+                     %{result: :success, device_count: 2, updated_count: 2, skipped_count: 0}}
+  end
+
+  test "run_for_source records partial failures when some batches already succeeded" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    start_run = fn _source, _actor, _opts -> {:ok, %{id: "run-2"}} end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, _opts ->
+      send(parent, {:finish_run, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    load_candidates = fn _src ->
+      {:ok,
+       [
+         %{
+           armis_device_id: "armis-1",
+           is_available: true,
+           device_id: "d1",
+           sync_service_id: "source-1",
+           metadata: %{}
+         }
+       ]}
+    end
+
+    execute_batches = fn _src, _collapsed, _opts ->
+      {:error,
+       %{
+         device_count: 1,
+         updated_count: 1,
+         skipped_count: 0,
+         error_count: 1,
+         batch_count: 2,
+         errors: [%{batch_size: 1, reason: :upstream_timeout}]
+       }}
+    end
+
+    assert {:error, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               load_candidates: load_candidates,
+               execute_batches: execute_batches
+             )
+
+    assert result.error_message =~ ":upstream_timeout"
+
+    assert_received {:finish_run, :finish_partial,
+                     %{error_count: 1, error_message: error_message}}
+
+    assert error_message =~ ":upstream_timeout"
+
+    assert_received {:update_source, :northbound_success,
+                     %{result: :partial, device_count: 1, updated_count: 1, skipped_count: 1}}
   end
 end
