@@ -465,6 +465,15 @@ func TestConvertResultsToProto(t *testing.T) {
 				LocalIfIndex:      1,
 				NeighborChassisID: "00:11:22:33:44:55",
 			},
+			{
+				LocalDeviceIP:     "192.168.1.10",
+				LocalIfIndex:      10,
+				NeighborChassisID: "00:aa:bb:cc:dd:ee",
+				Metadata: map[string]string{
+					"candidate_only": "true",
+					"source":         "snmp-arp-only",
+				},
+			},
 		},
 		Contract: DiscoveryContract{
 			AgentID:          "agent-1",
@@ -527,6 +536,35 @@ func TestConvertResultsToProto(t *testing.T) {
 	assert.Equal(t, "1", resp.Metadata["parser_mismatch_count"])
 	assert.Equal(t, "/tmp/serviceradar/mapper-debug/job-1-debug-bundle.json", resp.Metadata["debug_bundle_path"])
 	assert.Equal(t, "1739760000", resp.Metadata["debug_bundle_exported_at_unix"])
+}
+
+func TestConvertResultsToProtoSkipsCandidateOnlyTopologyLinks(t *testing.T) {
+	results := &DiscoveryResults{
+		Status: &DiscoveryStatus{
+			Status:   DiscoveryStatusCompleted,
+			Progress: 100,
+		},
+		TopologyLinks: []*TopologyLink{
+			{
+				LocalDeviceIP: "192.168.1.1",
+				LocalIfIndex:  1,
+			},
+			{
+				LocalDeviceIP: "192.168.1.16",
+				LocalIfIndex:  16,
+				Metadata: map[string]string{
+					"candidate_only": "true",
+					"source":         "snmp-arp-only",
+				},
+			},
+		},
+	}
+
+	resp, err := convertResultsToProto(results, testDiscoveryID, true)
+
+	require.NoError(t, err)
+	require.Len(t, resp.Topology, 1)
+	assert.Equal(t, "192.168.1.1", resp.Topology[0].LocalDeviceIp)
 }
 
 func TestProtoToDiscoveryType(t *testing.T) {

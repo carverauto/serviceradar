@@ -32,7 +32,7 @@ extra_checks = ex_slop_checks ++ ex_dna_checks
           ~r"/elixir/protobuf/"
         ]
       },
-      plugins: [],
+      plugins: [{AshCredo, []}],
       requires: [
         "deps/ex_dna/lib/ex_dna/integrations/credo.ex",
         "credo/check/warning/authorize_false_usage.ex"

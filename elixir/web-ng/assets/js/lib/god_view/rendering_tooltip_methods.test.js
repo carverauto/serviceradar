@@ -20,6 +20,7 @@ function buildContext() {
     escapeHtml: (value) => String(value == null ? "" : value),
     renderGraph: () => {},
     edgeLayerId: godViewRenderingTooltipMethods.edgeLayerId,
+    displayNodeLabel: godViewRenderingTooltipMethods.displayNodeLabel,
   }
 }
 
@@ -68,6 +69,28 @@ describe("rendering_tooltip_methods", () => {
     expect(tooltip.html).toContain("State: Unknown")
   })
 
+  it("uses a friendly title for unresolved placeholder nodes", () => {
+    const ctx = buildContext()
+    ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
+    ctx.displayNodeLabel = godViewRenderingTooltipMethods.displayNodeLabel.bind(ctx)
+
+    const tooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-nodes"},
+      object: {
+        label: "sr:18794bab-1a5c-4266-bc75-561b0afd7341",
+        state: 3,
+        details: {
+          ip: "unknown",
+          type: "unknown",
+          cluster_placeholder: true,
+        },
+      },
+    })
+
+    expect(tooltip.html).toContain("Unidentified endpoint")
+    expect(tooltip.html).not.toContain("sr:18794bab-1a5c-4266-bc75-561b0afd7341")
+  })
+
   it("shows expand and collapse hints for cluster nodes", () => {
     const ctx = buildContext()
     ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
@@ -102,6 +125,28 @@ describe("rendering_tooltip_methods", () => {
 
     expect(collapsedTooltip.html).toContain("Click to expand endpoints")
     expect(expandedTooltip.html).toContain("Click to collapse endpoints")
+  })
+
+  it("shows placement context for topology-unplaced nodes", () => {
+    const ctx = buildContext()
+    ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
+
+    const tooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-nodes"},
+      object: {
+        label: "vJunos",
+        state: 3,
+        details: {
+          ip: "192.0.2.197",
+          type: "router",
+          topology_unplaced: true,
+          topology_placement_reason: "No strong physical, logical, or hosted placement evidence in the current discovery window.",
+        },
+      },
+    })
+
+    expect(tooltip.html).toContain("Placement: Unplaced")
+    expect(tooltip.html).toContain("No strong physical, logical, or hosted placement evidence")
   })
 
   it("handleHover updates cursor to pointer over nodes and grab otherwise", () => {

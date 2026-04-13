@@ -82,6 +82,11 @@ export const godViewRenderingSelectionMethods = {
     const cameraStreams = Array.isArray(d.camera_streams) ? d.camera_streams : []
     const clusterCameraTiles = Array.isArray(d.cluster_camera_tiles) ? d.cluster_camera_tiles : []
     const clusterCameraTileCount = Number(d.cluster_camera_tile_count || clusterCameraTiles.length || 0)
+    const placementState = d.topology_unplaced === true ? "Unplaced" : ""
+    const placementReason =
+      typeof d.topology_placement_reason === "string" && d.topology_placement_reason.trim() !== ""
+        ? d.topology_placement_reason.trim()
+        : ""
     const cameraActions =
       cameraStreams.length > 0
         ? `<div class="pt-2 space-y-2"><div class="text-[10px] uppercase tracking-wide text-base-content/60">Camera Streams</div>${cameraStreams
@@ -153,6 +158,8 @@ export const godViewRenderingSelectionMethods = {
       `<div>ID: ${this.escapeHtml(d.id || node.id || "unknown")}</div>`,
       ipLine,
       `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
+      placementState ? `<div>Placement: ${this.escapeHtml(placementState)}</div>` : "",
+      placementReason ? `<div>${this.escapeHtml(placementReason)}</div>` : "",
       clusterCount > 0 ? `<div>Cluster Size: ${this.escapeHtml(clusterCount)}</div>` : "",
       clusterId !== "" && clusterKind !== "endpoint-anchor"
         ? `<div>Cluster Anchor: ${this.escapeHtml(d.cluster_anchor_label || d.cluster_anchor_id || "unknown")}</div>`

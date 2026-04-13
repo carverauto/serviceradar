@@ -86,7 +86,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          canonical_seed_records = sanitize_topology_records(records),
          resolved_records = resolve_topology_device_ids(canonical_seed_records),
          :ok <- promote_topology_sightings(resolved_records, actor) do
-      final_records = resolve_topology_device_ids(resolved_records)
+      final_records =
+        resolved_records
+        |> resolve_topology_device_ids()
+        |> enrich_resolved_topology_records()
+
       records_with_wireguard = add_deterministic_wireguard_links(final_records)
       record_job_runs(updates, status: :success)
 
@@ -115,7 +119,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @required_topology_metrics_hc ~w(ifHCInOctets ifHCInUcastPkts ifHCOutOctets ifHCOutUcastPkts)
   @truthy_string_values MapSet.new(~w(true 1 yes on))
   @falsey_string_values MapSet.new(~w(false 0 no off))
-  @topology_evidence_classes ["direct", "inferred", "endpoint-attachment"]
+  @topology_evidence_classes [
+    "direct-physical",
+    "direct-logical",
+    "hosted-virtual",
+    "inferred-segment",
+    "observed-only"
+  ]
+  @topology_relation_families [
+    "CONNECTS_TO",
+    "LOGICAL_PEER",
+    "HOSTED_ON",
+    "ATTACHED_TO",
+    "INFERRED_TO",
+    "OBSERVED_TO"
+  ]
 
   @doc false
   def topology_metric_bootstrap_targets(records) when is_list(records) do
@@ -325,9 +343,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp promote_topology_sightings([], _actor), do: :ok
 
   defp promote_topology_sightings(records, actor) do
-    records
-    |> Enum.filter(&topology_sighting_candidate?/1)
-    |> Enum.each(&promote_topology_sighting(&1, actor))
+    candidates = Enum.filter(records, &topology_sighting_candidate?/1)
+
+    suppressed_count =
+      Enum.count(records, fn record ->
+        topology_sighting_candidate_base?(record) and
+          suppress_topology_sighting_candidate?(record)
+      end)
+
+    if candidates != [] or suppressed_count > 0 do
+      Logger.info(
+        "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} suppressed=#{suppressed_count}"
+      )
+    end
+
+    Enum.each(candidates, &promote_topology_sighting(&1, actor))
 
     :ok
   rescue
@@ -337,26 +367,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp topology_sighting_candidate?(record) when is_map(record) do
-    not present?(record.neighbor_device_id) and
-      valid_alias_ip?(normalize_alias_ip(record.neighbor_mgmt_addr)) and
-      present?(record.local_device_id) and
+    topology_sighting_candidate_base?(record) and
       not suppress_topology_sighting_candidate?(record)
   end
 
   defp topology_sighting_candidate?(_), do: false
+
+  defp topology_sighting_candidate_base?(record) when is_map(record) do
+    not present?(record.neighbor_device_id) and
+      valid_alias_ip?(normalize_alias_ip(record.neighbor_mgmt_addr)) and
+      present?(record.local_device_id)
+  end
+
+  defp topology_sighting_candidate_base?(_), do: false
 
   @doc false
   def suppress_topology_sighting_candidate?(record) when is_map(record) do
     protocol = normalize_topology_protocol(record.protocol)
     confidence_reason = metadata_value(record.metadata, "confidence_reason")
     source = metadata_value(record.metadata, "source")
-    candidate_ip = normalize_alias_ip(record.neighbor_mgmt_addr)
     neighbor_name_present? = present?(normalize_string(record.neighbor_system_name))
 
     protocol == "snmp-l2" and
       confidence_reason == "single_identifier_inference" and
       source == "snmp-arp-fdb" and
-      routable_public_ipv4?(candidate_ip) and
       not neighbor_name_present?
   end
 
@@ -662,7 +696,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          _stable_interface_ips,
          _mismatched_device_ips,
          _alias_ips
-       ), do: []
+       ),
+       do: []
 
   defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
     (stable_interface_ips ++ mismatched_device_ips)
@@ -1289,6 +1324,160 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     resolve_topology_records(records, device_index)
   end
 
+  @doc false
+  def enrich_resolved_topology_records(records, devices_by_uid \\ nil)
+
+  def enrich_resolved_topology_records([], _devices_by_uid), do: []
+
+  def enrich_resolved_topology_records(records, nil) when is_list(records) do
+    devices_by_uid =
+      records
+      |> Enum.flat_map(fn record ->
+        [
+          normalize_string(Map.get(record, :local_device_id)),
+          normalize_string(Map.get(record, :neighbor_device_id))
+        ]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> lookup_topology_devices_by_uid()
+      |> Map.new(fn device -> {normalize_string(device.uid), device} end)
+
+    strong_device_ids = strong_topology_device_ids(records)
+
+    enrich_resolved_topology_records(records, %{
+      devices_by_uid: devices_by_uid,
+      strong_device_ids: strong_device_ids
+    })
+  end
+
+  def enrich_resolved_topology_records(records, %{
+        devices_by_uid: devices_by_uid,
+        strong_device_ids: strong_device_ids
+      })
+      when is_list(records) do
+    Enum.map(records, &enrich_resolved_topology_record(&1, devices_by_uid, strong_device_ids))
+  end
+
+  def enrich_resolved_topology_records(records, devices_by_uid)
+      when is_list(records) and is_map(devices_by_uid) do
+    strong_device_ids = strong_topology_device_ids(records)
+    Enum.map(records, &enrich_resolved_topology_record(&1, devices_by_uid, strong_device_ids))
+  end
+
+  defp enrich_resolved_topology_record(record, devices_by_uid, strong_device_ids)
+       when is_map(record) do
+    if snmp_arp_fdb_record?(record) do
+      maybe_promote_snmp_fdb_attachment(record, devices_by_uid, strong_device_ids)
+    else
+      record
+    end
+  end
+
+  defp enrich_resolved_topology_record(record, _devices_by_uid, _strong_device_ids), do: record
+
+  defp maybe_promote_snmp_fdb_attachment(record, devices_by_uid, strong_device_ids) do
+    neighbor_uid = normalize_string(Map.get(record, :neighbor_device_id))
+    neighbor_device = Map.get(devices_by_uid, neighbor_uid)
+
+    cond do
+      MapSet.member?(strong_device_ids, neighbor_uid) ->
+        ensure_relation_family(record, "INFERRED_TO")
+
+      endpoint_attachment_candidate_device?(neighbor_device) ->
+        metadata =
+          record
+          |> Map.get(:metadata)
+          |> ensure_map()
+          |> Map.put("evidence_class", "inferred-segment")
+          |> Map.put("relation_family", "ATTACHED_TO")
+          |> maybe_put_metadata_value("confidence_tier", "medium")
+          |> maybe_put_metadata_value("confidence_score", 72)
+          |> maybe_put_metadata_value("confidence_reason", "arp_fdb_port_mapping")
+
+        Map.put(record, :metadata, metadata)
+
+      true ->
+        ensure_relation_family(record, "INFERRED_TO")
+    end
+  end
+
+  defp snmp_arp_fdb_record?(record) when is_map(record) do
+    normalize_topology_protocol(Map.get(record, :protocol)) == "snmp-l2" and
+      metadata_value(Map.get(record, :metadata), "source") == "snmp-arp-fdb"
+  end
+
+  defp snmp_arp_fdb_record?(_record), do: false
+
+  defp endpoint_attachment_candidate_device?(device) when is_map(device) do
+    metadata = ensure_map(Map.get(device, :metadata))
+    type = normalize_string(Map.get(device, :type))
+    type_id = Map.get(device, :type_id)
+    identity_source = normalize_string(Map.get(metadata, "identity_source"))
+    identity_state = normalize_string(Map.get(metadata, "identity_state"))
+    device_role = normalize_string(Map.get(metadata, "device_role"))
+    name = normalize_string(Map.get(device, :name))
+    hostname = normalize_string(Map.get(device, :hostname))
+
+    provisional_topology_sighting? =
+      identity_source == "mapper_topology_sighting" or identity_state == "provisional"
+
+    endpoint_like_role? = device_role in [nil, "", "host", "unknown"]
+
+    provisional_topology_sighting? and endpoint_like_role? and
+      not infrastructure_topology_device?(type, type_id) and
+      not present?(name) and not present?(hostname)
+  end
+
+  defp endpoint_attachment_candidate_device?(_device), do: false
+
+  defp ensure_relation_family(record, relation_family)
+       when is_map(record) and is_binary(relation_family) do
+    metadata =
+      record
+      |> Map.get(:metadata)
+      |> ensure_map()
+      |> Map.put_new("relation_family", relation_family)
+      |> Map.update("evidence_class", "inferred-segment", &normalize_topology_evidence_class/1)
+
+    Map.put(record, :metadata, metadata)
+  end
+
+  defp infrastructure_topology_device?(type, type_id) do
+    normalized_type = normalize_string(type)
+
+    normalized_type in ["router", "switch", "access point", "firewall", "wireless controller"] or
+      type_id in [10, 12, 99]
+  end
+
+  defp strong_topology_device_ids(records) when is_list(records) do
+    Enum.reduce(records, MapSet.new(), fn record, acc ->
+      if strong_topology_evidence_record?(record) do
+        [Map.get(record, :local_device_id), Map.get(record, :neighbor_device_id)]
+        |> Enum.map(&normalize_string/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.reduce(acc, &MapSet.put(&2, &1))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp strong_topology_evidence_record?(record) when is_map(record) do
+    metadata = ensure_map(Map.get(record, :metadata))
+    protocol = normalize_topology_protocol(Map.get(record, :protocol))
+    source = metadata_value(metadata, "source")
+
+    evidence_class =
+      metadata_value(metadata, "evidence_class") || default_topology_evidence_class(protocol)
+
+    evidence_class in ["direct-physical", "direct-logical", "hosted-virtual"] and
+      (protocol in ["lldp", "cdp", "wireguard-derived", "unifi-api"] or
+         source in ["unifi-api-uplink", "wireguard-derived", "lldp", "cdp"])
+  end
+
+  defp strong_topology_evidence_record?(_record), do: false
+
   defp maybe_put_neighbor_id(record, uid) when is_binary(uid),
     do: Map.put(record, :neighbor_device_id, uid)
 
@@ -1527,7 +1716,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp wireguard_link_metadata(tunnel_name) do
     %{
       "source" => "wireguard-derived",
-      "evidence_class" => "direct",
+      "evidence_class" => "direct-logical",
+      "relation_family" => "LOGICAL_PEER",
       "rule" => "exact_wg_interface_name_two_router_endpoints",
       "tunnel_name" => tunnel_name,
       "confidence_tier" => "high",
@@ -1653,28 +1843,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> to_string()
     |> normalize_interface_ip()
   end
-
-  defp routable_public_ipv4?(ip) when is_binary(ip) do
-    case :inet.parse_address(String.to_charlist(ip)) do
-      {:ok, octets} ->
-        not private_or_invalid_ipv4?(octets)
-
-      _ ->
-        false
-    end
-  end
-
-  defp routable_public_ipv4?(_ip), do: false
-
-  defp private_or_invalid_ipv4?({10, _, _, _}), do: true
-  defp private_or_invalid_ipv4?({172, b, _, _}) when b in 16..31, do: true
-  defp private_or_invalid_ipv4?({192, 168, _, _}), do: true
-  defp private_or_invalid_ipv4?({169, 254, _, _}), do: true
-  defp private_or_invalid_ipv4?({127, _, _, _}), do: true
-  defp private_or_invalid_ipv4?({0, _, _, _}), do: true
-  defp private_or_invalid_ipv4?({a, _, _, _}) when a >= 224, do: true
-  defp private_or_invalid_ipv4?({255, 255, 255, 255}), do: true
-  defp private_or_invalid_ipv4?(_octets), do: false
 
   defp first_non_blank(values) when is_list(values) do
     values
@@ -2347,11 +2515,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     source_endpoint = get_map(observation, ["source_endpoint", :source_endpoint])
     target_endpoint = get_map(observation, ["target_endpoint", :target_endpoint])
     neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
-    {tier, score, reason} = score_topology_confidence(update, metadata)
+    {fallback_tier, fallback_score, fallback_reason} = score_topology_confidence(update, metadata)
     protocol_value = topology_protocol_value(update, observation)
     protocol = normalize_topology_protocol(protocol_value)
     source = normalize_topology_source(Map.get(metadata, "source"))
     observation_evidence_class = topology_observation_evidence_class(observation, metadata)
+
+    {explicit_tier, explicit_score, explicit_reason} =
+      explicit_topology_confidence(update, observation, metadata)
+
+    tier = explicit_tier || fallback_tier
+    score = explicit_score || fallback_score
+    reason = explicit_reason || fallback_reason
 
     evidence_class =
       classify_topology_evidence_class(
@@ -2360,6 +2535,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         reason,
         metadata,
         observation_evidence_class
+      )
+
+    relation_family =
+      classify_topology_relation_family(
+        protocol,
+        source,
+        reason,
+        evidence_class,
+        metadata,
+        observation
       )
 
     %{
@@ -2376,8 +2561,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       score: score,
       reason: reason,
       protocol_value: protocol_value,
-      evidence_class: evidence_class
+      evidence_class: evidence_class,
+      relation_family: relation_family
     }
+  end
+
+  defp explicit_topology_confidence(update, observation, metadata) do
+    explicit_tier =
+      get_string(update, ["confidence_tier", :confidence_tier]) ||
+        get_string(observation, ["confidence_tier", :confidence_tier]) ||
+        metadata_value(metadata, "observation_confidence_tier") ||
+        metadata_value(metadata, "confidence_tier")
+
+    explicit_score =
+      get_integer(update, ["confidence_score", :confidence_score]) ||
+        get_integer(observation, ["confidence_score", :confidence_score]) ||
+        get_integer(metadata, ["observation_confidence_score", :observation_confidence_score]) ||
+        get_integer(metadata, ["confidence_score", :confidence_score])
+
+    explicit_reason =
+      get_string(update, ["confidence_reason", :confidence_reason]) ||
+        get_string(observation, ["confidence_reason", :confidence_reason]) ||
+        metadata_value(metadata, "observation_confidence_reason") ||
+        metadata_value(metadata, "confidence_reason")
+
+    {explicit_tier, explicit_score, explicit_reason}
   end
 
   defp topology_protocol_value(update, observation) do
@@ -2455,6 +2663,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Map.put("confidence_score", context.score)
     |> Map.put("confidence_reason", context.reason)
     |> Map.put("evidence_class", context.evidence_class)
+    |> Map.put("relation_family", context.relation_family)
     |> maybe_put_topology_observation_metadata(
       context.observation,
       context.source_endpoint,
@@ -2606,32 +2815,147 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     preferred_topology_evidence_class(observation_class, metadata) ||
       protocol_topology_evidence_class(protocol, source, reason) ||
       default_topology_evidence_class(protocol) ||
-      "inferred"
+      "inferred-segment"
   end
 
   defp preferred_topology_evidence_class(observation_class, metadata) do
     [observation_class, metadata_value(metadata, "evidence_class")]
-    |> Enum.map(&normalize_string/1)
+    |> Enum.map(&normalize_topology_evidence_class/1)
     |> Enum.find(&(&1 in @topology_evidence_classes))
   end
 
   defp protocol_topology_evidence_class("unifi-api", source, _reason) do
-    if String.contains?(source, "port-table"), do: "endpoint-attachment", else: "direct"
+    cond do
+      String.contains?(source, "wireless-client") -> "endpoint-attachment"
+      String.contains?(source, "port-table") -> "inferred-segment"
+      true -> "direct-physical"
+    end
   end
 
   defp protocol_topology_evidence_class(protocol, source, "single_identifier_inference")
-       when protocol == "snmp-l2" or source == "snmp-arp-fdb", do: "endpoint-attachment"
+       when protocol == "snmp-l2" or source == "snmp-arp-fdb", do: "observed-only"
 
   defp protocol_topology_evidence_class(protocol, source, _reason)
        when protocol == "snmp-l2" or source == "snmp-arp-fdb",
-       do: "inferred"
+       do: "inferred-segment"
+
+  defp protocol_topology_evidence_class("wireguard-derived", _source, _reason),
+    do: "direct-logical"
+
+  defp protocol_topology_evidence_class(protocol, source, _reason)
+       when protocol in ["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"] or
+              source in ["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"],
+       do: "hosted-virtual"
 
   defp protocol_topology_evidence_class(_protocol, _source, _reason), do: nil
 
   defp default_topology_evidence_class(protocol)
-       when protocol in ["lldp", "cdp", "wireguard-derived"], do: "direct"
+       when protocol in ["lldp", "cdp", "unifi-api"], do: "direct-physical"
+
+  defp default_topology_evidence_class("wireguard-derived"), do: "direct-logical"
 
   defp default_topology_evidence_class(_protocol), do: nil
+
+  defp classify_topology_relation_family(
+         protocol,
+         source,
+         reason,
+         evidence_class,
+         metadata,
+         observation
+       ) do
+    preferred_topology_relation_family(observation, metadata) ||
+      protocol_topology_relation_family(protocol, source, reason, evidence_class) ||
+      default_topology_relation_family(protocol, source, reason, evidence_class)
+  end
+
+  defp preferred_topology_relation_family(observation, metadata) do
+    [
+      get_string(observation, ["relation_family", :relation_family]),
+      metadata_value(metadata, "relation_family")
+    ]
+    |> Enum.map(&normalize_topology_relation_family/1)
+    |> Enum.find(&(&1 in @topology_relation_families))
+  end
+
+  defp protocol_topology_relation_family("unifi-api", source, _reason, _evidence_class) do
+    if String.contains?(source, "port-table"), do: "ATTACHED_TO", else: nil
+  end
+
+  defp protocol_topology_relation_family(_protocol, _source, _reason, "direct-physical"),
+    do: "CONNECTS_TO"
+
+  defp protocol_topology_relation_family(_protocol, _source, _reason, "direct-logical"),
+    do: "LOGICAL_PEER"
+
+  defp protocol_topology_relation_family(_protocol, _source, _reason, "hosted-virtual"),
+    do: "HOSTED_ON"
+
+  defp protocol_topology_relation_family(
+         protocol,
+         source,
+         "single_identifier_inference",
+         evidence_class
+       )
+       when evidence_class in ["observed-only", "inferred-segment"] and
+              (protocol == "snmp-l2" or source == "snmp-arp-fdb"),
+       do: "OBSERVED_TO"
+
+  defp protocol_topology_relation_family(_protocol, _source, _reason, _evidence_class), do: nil
+
+  defp default_topology_relation_family(_protocol, _source, _reason, "direct-physical"),
+    do: "CONNECTS_TO"
+
+  defp default_topology_relation_family(_protocol, _source, _reason, "direct-logical"),
+    do: "LOGICAL_PEER"
+
+  defp default_topology_relation_family(_protocol, _source, _reason, "hosted-virtual"),
+    do: "HOSTED_ON"
+
+  defp default_topology_relation_family(_protocol, _source, _reason, "observed-only"),
+    do: "OBSERVED_TO"
+
+  defp default_topology_relation_family(
+         protocol,
+         source,
+         "single_identifier_inference",
+         "inferred-segment"
+       )
+       when protocol == "snmp-l2" or source == "snmp-arp-fdb",
+       do: "OBSERVED_TO"
+
+  defp default_topology_relation_family(
+         _protocol,
+         _source,
+         "single_identifier_inference",
+         "inferred-segment"
+       ),
+       do: nil
+
+  defp default_topology_relation_family(_protocol, _source, _reason, "inferred-segment"),
+    do: "INFERRED_TO"
+
+  defp default_topology_relation_family(_protocol, _source, _reason, _), do: "OBSERVED_TO"
+
+  defp normalize_topology_evidence_class(nil), do: nil
+
+  defp normalize_topology_evidence_class(value) do
+    case normalize_string(value) do
+      "direct" -> "direct-physical"
+      "inferred" -> "inferred-segment"
+      "endpoint-attachment" -> "endpoint-attachment"
+      other -> other
+    end
+  end
+
+  defp normalize_topology_relation_family(nil), do: nil
+
+  defp normalize_topology_relation_family(value) do
+    case value |> to_string() |> String.trim() do
+      "" -> nil
+      family -> String.upcase(family)
+    end
+  end
 
   defp maybe_put_topology_observation_metadata(
          metadata,
@@ -2661,6 +2985,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp maybe_put_metadata_value(metadata, _key, value) when value in [nil, ""], do: metadata
   defp maybe_put_metadata_value(metadata, key, value), do: Map.put(metadata, key, value)
+
+  defp ensure_map(map) when is_map(map), do: map
+  defp ensure_map(_), do: %{}
 
   defp maybe_put_neighbor_identity(metadata, map) when is_map(map) and map_size(map) > 0 do
     Map.put(metadata, "neighbor_identity", map)

@@ -7,10 +7,6 @@ export const godViewLifecycleStreamSnapshotMethods = {
     try {
       const snapshot = this.parseSnapshotMessage(msg)
       const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : this.state.lastRevision
-      if (Number.isFinite(revision) && Number.isFinite(this.state.lastRevision) && revision === this.state.lastRevision) {
-        this.state.lastSnapshotAt = Date.now()
-        return
-      }
 
       const bytes = snapshot?.payload
       if (!bytes || bytes.byteLength === 0) throw new Error("missing payload")
@@ -25,20 +21,31 @@ export const godViewLifecycleStreamSnapshotMethods = {
 
       const renderStart = performance.now()
       const previousGraph = this.state.lastGraph
+      const topologyUnchanged = this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)
+      if (!topologyUnchanged && !this.state.userCameraLocked) {
+        this.state.hasAutoFit = false
+      }
       this.state.lastGraph = graph
-      if (this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)) {
+      if (topologyUnchanged) {
         this.deps.renderGraph(graph)
       } else {
         this.deps.animateTransition(previousGraph, graph)
       }
+      const pendingClusterFocus = this.state.pendingClusterFocus
+      if (pendingClusterFocus?.expanded === true) {
+        const focused = this.deps.focusClusterNeighborhood(graph, pendingClusterFocus.clusterId)
+        if (focused) this.state.pendingClusterFocus = null
+      }
       this.state.lastRevision = revision
       this.state.lastTopologyStamp = topologyStamp
       this.state.lastSnapshotAt = Date.now()
+      const visibleNodeCount = Number(this.state.lastVisibleNodeCount || 0)
+      const visibleEdgeCount = Number(this.state.lastVisibleEdgeCount || 0)
       this.state.summary.textContent =
         `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
         `edges=${graph.edges.length} payload=${bytes.byteLength}B selected=` +
         `${this.state.selectedNodeIndex === null ? "none" : this.state.selectedNodeIndex} visible=` +
-        `${this.state.lastVisibleNodeCount}/${graph.nodes.length} layout=${graph._layoutMode || "unknown"}`
+        `${visibleNodeCount}/${graph.nodes.length} rendered_edges=${visibleEdgeCount} layout=${graph._layoutMode || "unknown"}`
       const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
       const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
@@ -47,6 +54,8 @@ export const godViewLifecycleStreamSnapshotMethods = {
         revision: snapshot.revision,
         node_count: graph.nodes.length,
         edge_count: graph.edges.length,
+        rendered_node_count: visibleNodeCount,
+        rendered_edge_count: visibleEdgeCount,
         generated_at: snapshot.generatedAt,
         bitmap_metadata: bitmapMetadata,
         bytes: bytes.byteLength,

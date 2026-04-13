@@ -86,8 +86,9 @@ make push_all PUSH_TAG="v$(git describe --tags --always)"
 
 ## Command usage
 
-- `make push_all` – pushes all images with the default `latest` and `sha-<commit>` tags, then verifies the published Harbor state.
-- `make push_all PUSH_TAG=v1.2.3` – pushes all images with an extra tag and verifies `latest`, `sha-<commit>`, and `v1.2.3`.
+- `make push_all` – pushes all container images with the default `latest` and `sha-<commit>` tags, then verifies the published Harbor state.
+- `make push_all PUSH_TAG=v1.2.3` – pushes all container images with an extra tag and verifies `latest`, `sha-<commit>`, and `v1.2.3`.
+- `make push_all_release` – runs `make push_all`, then publishes, signs, and verifies the first-party Wasm plugin OCI artifacts for the same tag.
 - `bazel build --config=remote //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
 - `bazel run --stamp //:push` – pushes all images with the default `latest` and `sha-<commit>` tags.
 - `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` – pushes only the core-elx image and adds an extra `1.2.3` tag.

@@ -18,7 +18,7 @@ extra_checks = ex_slop_checks ++ ex_dna_checks
         ],
         excluded: [~r"/_build/", ~r"/deps/", ~r"/node_modules/"]
       },
-      plugins: [],
+      plugins: [{AshCredo, []}],
       requires: ["deps/ex_dna/lib/ex_dna/integrations/credo.ex"],
       strict: false,
       parse_timeout: 5000,

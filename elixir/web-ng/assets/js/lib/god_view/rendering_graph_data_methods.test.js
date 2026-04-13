@@ -147,7 +147,7 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData[0].flowBpsBa).toEqual(30)
   })
 
-  it("buildVisibleGraphData preserves backend edge multiplicity for identical endpoints", () => {
+  it("buildVisibleGraphData collapses duplicate visual edges for identical endpoints", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
@@ -186,13 +186,68 @@ describe("rendering_graph_data_methods", () => {
     }
 
     const out = ctx.buildVisibleGraphData(effective)
-    expect(out.edgeData).toHaveLength(2)
-    expect(out.edgeData.map((edge) => edge.interactionKey)).toEqual([
-      "local:edge-canonical-a",
-      "local:edge-canonical-b",
-    ])
-    expect(out.edgeData.map((edge) => edge.flowPpsAb)).toEqual([70, 50])
-    expect(out.edgeData.map((edge) => edge.flowPpsBa)).toEqual([30, 5])
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].interactionKey).toEqual("local:pair:n1:n2")
+    expect(out.edgeData[0].flowPpsAb).toEqual(120)
+    expect(out.edgeData[0].flowPpsBa).toEqual(35)
+    expect(out.edgeData[0].flowBpsAb).toEqual(1200)
+    expect(out.edgeData[0].flowBpsBa).toEqual(350)
+    expect(out.edgeData[0].edgeCount).toEqual(2)
+    expect(out.edgeData[0].topologyClassCounts.backbone).toEqual(2)
+  })
+
+  it("buildVisibleGraphData collapses reverse-direction duplicates into one canonical pair", () => {
+    const ctx = baseContext()
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "a", x: 1, y: 2, state: 0, label: "A", pps: 10, operUp: 1, details: {}},
+        {id: "b", x: 3, y: 4, state: 1, label: "B", pps: 20, operUp: 2, details: {}},
+      ],
+      edges: [
+        {
+          id: "forward",
+          source: 0,
+          target: 1,
+          flowPps: 80,
+          flowPpsAb: 60,
+          flowPpsBa: 20,
+          flowBps: 800,
+          flowBpsAb: 600,
+          flowBpsBa: 200,
+          capacityBps: 10_000,
+          telemetryEligible: true,
+          topologyClass: "backbone",
+        },
+        {
+          id: "reverse",
+          source: 1,
+          target: 0,
+          flowPps: 50,
+          flowPpsAb: 35,
+          flowPpsBa: 15,
+          flowBps: 500,
+          flowBpsAb: 350,
+          flowBpsBa: 150,
+          capacityBps: 10_000,
+          telemetryEligible: true,
+          topologyClass: "inferred",
+        },
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].sourceId).toEqual("a")
+    expect(out.edgeData[0].targetId).toEqual("b")
+    expect(out.edgeData[0].flowPpsAb).toEqual(75)
+    expect(out.edgeData[0].flowPpsBa).toEqual(55)
+    expect(out.edgeData[0].flowBpsAb).toEqual(750)
+    expect(out.edgeData[0].flowBpsBa).toEqual(550)
+    expect(out.edgeData[0].topologyClassCounts.backbone).toEqual(1)
+    expect(out.edgeData[0].topologyClassCounts.inferred).toEqual(1)
+    expect(out.edgeData[0].topologyClass).toEqual("")
   })
 
   it("buildVisibleGraphData hides endpoint-only nodes when the endpoint layer is disabled", () => {
@@ -250,6 +305,7 @@ describe("rendering_graph_data_methods", () => {
 
     expect(out.nodeData.map((node) => node.id)).toEqual(["router", "switch", "client"])
     expect(out.edgeData).toHaveLength(2)
-    expect(out.edgeData[1].topologyClass).toEqual("endpoints")
+    const endpointEdge = out.edgeData.find((edge) => edge.sourceId === "client" || edge.targetId === "client")
+    expect(endpointEdge?.topologyClass).toEqual("endpoints")
   })
 })

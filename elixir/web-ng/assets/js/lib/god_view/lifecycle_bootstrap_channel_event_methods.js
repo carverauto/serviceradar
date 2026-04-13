@@ -2,6 +2,12 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
   setClusterExpanded(clusterId, expanded) {
     const normalized = typeof clusterId === "string" ? clusterId.trim() : ""
     if (normalized === "" || !this.state.channel) return
+    this.state.pendingClusterFocus =
+      expanded === true
+        ? {clusterId: normalized, expanded: true}
+        : null
+    this.state.userCameraLocked = false
+    this.state.hasAutoFit = false
     this.state.channel.push("cluster:set_expanded", {
       cluster_id: normalized,
       expanded: expanded === true,
@@ -9,6 +15,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
   },
   collapseAllClusters() {
     if (!this.state.channel) return
+    this.state.pendingClusterFocus = null
     this.state.channel.push("cluster:collapse_all", {})
   },
   registerSnapshotChannelEvents(channel) {
@@ -22,6 +29,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
     channel.on("snapshot_error", (msg) => {
       this.state.summary.textContent = "snapshot stream error"
       this.state.pushEvent("god_view_stream_error", {reason: msg?.reason || "snapshot_error"})
+      if (!this.state.lastGraph) this.bootstrapLatestSnapshot()
     })
 
     channel.onError?.(() => this.handleChannelDown("channel_error"))
@@ -40,6 +48,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
         this.state.channelJoined = false
         this.state.summary.textContent = "topology channel failed"
         this.state.pushEvent("god_view_stream_error", {reason: reason?.reason || "join_failed"})
+        this.bootstrapLatestSnapshot()
         this.scheduleChannelReconnect()
       })
   },
@@ -47,6 +56,7 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
     this.state.channelJoined = false
     this.state.summary.textContent = "topology channel disconnected"
     this.state.pushEvent("god_view_stream_error", {reason})
+    this.bootstrapLatestSnapshot()
     this.scheduleChannelReconnect()
   },
   scheduleChannelReconnect() {

@@ -162,3 +162,63 @@ func TestBuildMapperTopologyPayloadDoesNotSynthesizeEndpointIDs(t *testing.T) {
 		)
 	}
 }
+
+func TestPublishTopologyLinkSkipsCandidateOnlyLinks(t *testing.T) {
+	publisher := NewMapperResultPublisher()
+
+	err := publisher.PublishTopologyLink(context.Background(), &mapper.TopologyLink{
+		LocalDeviceIP: "192.168.1.16",
+		LocalIfIndex:  5,
+		Metadata: map[string]string{
+			"candidate_only": "true",
+			"source":         "snmp-arp-only",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected PublishTopologyLink to succeed, got error: %v", err)
+	}
+
+	updates, ok := publisher.DrainTopology(10)
+	if ok || len(updates) != 0 {
+		t.Fatalf("expected candidate-only topology link to be dropped, got %+v", updates)
+	}
+}
+
+func TestBuildMapperTopologyPayloadSkipsCandidateOnlyLinks(t *testing.T) {
+	updates := []map[string]interface{}{
+		{
+			"protocol":           "lldp",
+			"local_device_ip":    "192.168.10.1",
+			"neighbor_mgmt_addr": "192.168.10.154",
+			"local_if_index":     11,
+		},
+		{
+			"protocol":           "snmp-l2",
+			"local_device_ip":    "192.168.1.16",
+			"neighbor_mgmt_addr": "192.168.1.1",
+			"local_if_index":     5,
+			"metadata": map[string]string{
+				"candidate_only": "true",
+				"source":         "snmp-arp-only",
+			},
+		},
+	}
+
+	payload, err := buildMapperTopologyPayload(updates, "agent-1", "default")
+	if err != nil {
+		t.Fatalf("expected payload build to succeed, got error: %v", err)
+	}
+
+	var got []map[string]interface{}
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("expected valid JSON payload, got error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("expected one non-candidate record, got %d", len(got))
+	}
+
+	if got[0]["local_device_ip"] != "192.168.10.1" {
+		t.Fatalf("expected non-candidate topology link to remain, got %v", got[0]["local_device_ip"])
+	}
+}

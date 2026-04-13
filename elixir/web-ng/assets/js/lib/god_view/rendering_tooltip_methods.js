@@ -22,6 +22,18 @@ function tooltipStyle() {
 }
 
 export const godViewRenderingTooltipMethods = {
+  displayNodeLabel(object, details = {}) {
+    const label = typeof object?.label === "string" ? object.label.trim() : ""
+    const ip = typeof details?.ip === "string" ? details.ip.trim() : ""
+    const mac = typeof details?.mac === "string" ? details.mac.trim() : ""
+    const placeholder = details?.cluster_placeholder === true
+
+    if (label !== "" && !label.startsWith("sr:")) return label
+    if (ip !== "" && !["unknown", "n/a", "na", "null", "undefined", "-"].includes(ip.toLowerCase())) return ip
+    if (mac !== "") return mac
+    if (placeholder) return "Unidentified endpoint"
+    return label || "node"
+  },
   getNodeTooltip({object, layer}) {
     if (!object) return null
     if (layer?.id === "god-view-edges-mantle" || layer?.id === "god-view-edges-crust") {
@@ -57,12 +69,20 @@ export const godViewRenderingTooltipMethods = {
       clusterId !== "" && clusterExpandable && (clusterKind === "endpoint-summary" || clusterKind === "endpoint-anchor")
         ? `<div class="opacity-80">${clusterExpanded ? "Click to collapse endpoints" : "Click to expand endpoints"}</div>`
         : ""
+    const placementState = d.topology_unplaced === true ? "Unplaced" : ""
+    const placementReason =
+      typeof d.topology_placement_reason === "string" && d.topology_placement_reason.trim() !== ""
+        ? d.topology_placement_reason.trim()
+        : ""
     const geo = [d.geo_city, d.geo_country].filter(Boolean).join(", ")
+    const displayLabel = this.displayNodeLabel(object, d)
     return {
       html: [
-        `<div class="font-semibold">${this.escapeHtml(object.label || "node")}</div>`,
+        `<div class="font-semibold">${this.escapeHtml(displayLabel)}</div>`,
         `<div>IP: ${ipText}</div>`,
         `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
+        placementState ? `<div>Placement: ${this.escapeHtml(placementState)}</div>` : "",
+        placementReason ? `<div>${this.escapeHtml(placementReason)}</div>` : "",
         `<div>State: ${this.escapeHtml(this.stateDisplayName(object.state))}</div>`,
         `<div>Why: ${reason}</div>`,
         rootRef,

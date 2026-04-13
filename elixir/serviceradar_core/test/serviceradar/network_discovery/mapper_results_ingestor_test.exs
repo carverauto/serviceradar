@@ -412,7 +412,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.metadata["source_local_uid"] == "mac-f492bf75c721"
       assert result.metadata["source_target_uid"] == "chassis-0cea1432d277"
       assert result.metadata["confidence_tier"] == "medium"
-      assert result.metadata["evidence_class"] == "inferred"
+      assert result.metadata["evidence_class"] == "inferred-segment"
+    end
+
+    test "preserves endpoint-attachment evidence for UniFi wireless client topology" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "UniFi-API",
+          "local_device_ip" => "192.168.1.233",
+          "local_if_index" => 0,
+          "local_if_name" => "wireless",
+          "neighbor_mgmt_addr" => "192.168.1.215",
+          "metadata" => %{
+            "source" => "unifi-api-wireless-client",
+            "evidence_class" => "endpoint-attachment",
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "confidence_reason" => "controller_client_association"
+          }
+        })
+
+      assert result.metadata["source"] == "unifi-api-wireless-client"
+      assert result.metadata["evidence_class"] == "endpoint-attachment"
+      assert result.metadata["relation_type"] == "ATTACHED_TO"
+      assert result.metadata["relation_family"] == "ATTACHED_TO"
+      assert result.metadata["confidence_reason"] == "controller_client_association"
     end
   end
 
@@ -540,7 +564,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
     end
 
-    test "does not suppress private-address SNMP ARP/FDB sightings" do
+    test "suppresses low-confidence private SNMP ARP/FDB sightings without neighbor name" do
       record = %{
         protocol: "SNMP-L2",
         neighbor_mgmt_addr: "192.168.1.87",
@@ -551,7 +575,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
         }
       }
 
-      refute MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
+      assert MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
     end
 
     test "does not suppress when neighbor system name is present" do
@@ -983,7 +1007,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert inferred.neighbor_device_id == "sr:tonka01"
       assert inferred.local_if_name == "wgsts1000"
       assert inferred.metadata["source"] == "wireguard-derived"
-      assert inferred.metadata["evidence_class"] == "direct"
+      assert inferred.metadata["evidence_class"] == "direct-logical"
       assert inferred.metadata["tunnel_name"] == "wgsts1000"
     end
 

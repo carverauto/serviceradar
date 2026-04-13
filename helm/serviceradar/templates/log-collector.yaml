@@ -1,3 +1,6 @@
+{{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
+{{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
+{{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -82,9 +85,6 @@ spec:
     requests:
       storage: 1Gi
 ---
-{{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
-{{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
-{{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

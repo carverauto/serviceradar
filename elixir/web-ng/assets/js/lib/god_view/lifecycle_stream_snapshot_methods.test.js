@@ -60,30 +60,31 @@ describe("lifecycle_stream_snapshot_methods", () => {
     )
   })
 
-  it("handleSnapshot skips decode and render when revision is unchanged", async () => {
+  it("handleSnapshot still decodes and renders when revision is unchanged but the snapshot graph changes", async () => {
     const state = {
       lastRevision: 42,
       lastSnapshotAt: 0,
       layoutRequestToken: 0,
+      lastGraph: {nodes: [{id: "before"}], edges: [], _layoutMode: "client-radial"},
+      lastVisibleNodeCount: 0,
+      lastVisibleEdgeCount: 0,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
       pushEvent: () => {},
       summary: {textContent: ""},
     }
+    const previousGraph = state.lastGraph
+    const graph = {nodes: [{id: "after", x: 10, y: 20}], edges: [], _layoutMode: "client-radial"}
     const deps = {
-      decodeArrowGraph: () => {
-        throw new Error("decode should not run")
-      },
-      graphTopologyStamp: () => "stamp",
-      prepareGraphLayout: () => {
-        throw new Error("layout should not run")
-      },
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "after"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "next-stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
       ensureBitmapMetadata: () => ({}),
-      sameTopology: () => false,
-      renderGraph: () => {
-        throw new Error("render should not run")
-      },
-      animateTransition: () => {
-        throw new Error("animate should not run")
-      },
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
       normalizePipelineStats: () => ({}),
     }
     const methods = createStateBackedContext(state, deps)
@@ -92,6 +93,9 @@ describe("lifecycle_stream_snapshot_methods", () => {
     await methods.handleSnapshot(buildFrame([1, 2, 3]))
 
     expect(state.lastSnapshotAt).toBeGreaterThan(0)
+    expect(deps.decodeArrowGraph).toHaveBeenCalledTimes(1)
+    expect(deps.prepareGraphLayout).toHaveBeenCalledTimes(1)
+    expect(deps.animateTransition).toHaveBeenCalledWith(previousGraph, graph)
   })
 
   it("handleSnapshot awaits async layout preparation before rendering", async () => {
@@ -100,7 +104,8 @@ describe("lifecycle_stream_snapshot_methods", () => {
       lastSnapshotAt: 0,
       layoutRequestToken: 0,
       lastGraph: null,
-      lastVisibleNodeCount: 0,
+      lastVisibleNodeCount: 1,
+      lastVisibleEdgeCount: 3,
       selectedNodeIndex: null,
       rendererMode: "deck",
       zoomTier: "local",
@@ -119,6 +124,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
       sameTopology: vi.fn(() => false),
       renderGraph: vi.fn(),
       animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
       normalizePipelineStats: vi.fn(() => ({})),
     }
 
@@ -131,5 +137,141 @@ describe("lifecycle_stream_snapshot_methods", () => {
     expect(deps.animateTransition).toHaveBeenCalledWith(null, graph)
     expect(state.lastGraph).toBe(graph)
     expect(state.summary.textContent).toContain("layout=elk-client")
+    expect(state.summary.textContent).toContain("rendered_edges=3")
+    expect(state.pushEvent).toHaveBeenCalledWith(
+      "god_view_stream_stats",
+      expect.objectContaining({
+        edge_count: 0,
+        rendered_node_count: 1,
+        rendered_edge_count: 3,
+      }),
+    )
+  })
+
+  it("handleSnapshot re-arms autoFit on topology changes when the user has not locked the camera", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: {nodes: [{id: "old"}], edges: []},
+      lastVisibleNodeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      lastTopologyStamp: "old-stamp",
+      userCameraLocked: false,
+      hasAutoFit: true,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {nodes: [{id: "a", x: 10, y: 20}], edges: [], _layoutMode: "elk-client"}
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "new-stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.hasAutoFit).toBe(false)
+    expect(deps.animateTransition).toHaveBeenCalledWith({nodes: [{id: "old"}], edges: []}, graph)
+  })
+
+  it("handleSnapshot preserves camera lock on topology changes after user interaction", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: {nodes: [{id: "old"}], edges: []},
+      lastVisibleNodeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      lastTopologyStamp: "old-stamp",
+      userCameraLocked: true,
+      hasAutoFit: true,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {nodes: [{id: "a", x: 10, y: 20}], edges: [], _layoutMode: "elk-client"}
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "new-stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.hasAutoFit).toBe(true)
+  })
+
+  it("handleSnapshot focuses a pending expanded cluster after the new graph renders", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: null,
+      lastVisibleNodeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      lastTopologyStamp: null,
+      userCameraLocked: false,
+      hasAutoFit: false,
+      pendingClusterFocus: {clusterId: "cluster:endpoints:sr:test", expanded: true},
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {
+      nodes: [{id: "cluster:endpoints:sr:test", x: 10, y: 20, details: {cluster_id: "cluster:endpoints:sr:test"}}],
+      edges: [],
+      _layoutMode: "elk-client",
+    }
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => true),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(deps.focusClusterNeighborhood).toHaveBeenCalledWith(graph, "cluster:endpoints:sr:test")
+    expect(state.pendingClusterFocus).toBe(null)
   })
 })

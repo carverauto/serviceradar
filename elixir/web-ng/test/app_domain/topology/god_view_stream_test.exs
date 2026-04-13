@@ -2189,6 +2189,102 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert distance < 130.0
   end
 
+  test "latest_snapshot/0 disambiguates duplicate backbone labels with ip suffixes" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_duplicate_label_test)
+    suffix = System.unique_integer([:positive])
+    aggregation_uid = "sr:duplicate-aggregation-#{suffix}"
+    left_uid = "sr:duplicate-left-#{suffix}"
+    right_uid = "sr:duplicate-right-#{suffix}"
+
+    create_topology_device(actor, aggregation_uid, "agg-#{suffix}.local", %{
+      ip: "192.0.2.1",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, left_uid, "USWPro24", %{
+      ip: "192.0.2.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, right_uid, "USWPro24", %{
+      ip: "192.0.2.11",
+      type_id: 10,
+      is_available: true
+    })
+
+    rows = [
+      %{
+        local_device_id: left_uid,
+        local_device_ip: "192.0.2.10",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth48",
+        neighbor_if_index: 48,
+        neighbor_device_id: aggregation_uid,
+        neighbor_mgmt_addr: "192.0.2.1",
+        neighbor_system_name: "agg",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 100,
+        flow_bps: 10_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 60,
+        flow_pps_ba: 40,
+        flow_bps_ab: 6_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: right_uid,
+        local_device_ip: "192.0.2.11",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth47",
+        neighbor_if_index: 47,
+        neighbor_device_id: aggregation_uid,
+        neighbor_mgmt_addr: "192.0.2.1",
+        neighbor_system_name: "agg",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 90,
+        flow_bps: 9_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 50,
+        flow_pps_ba: 40,
+        flow_bps_ab: 5_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    labels =
+      snapshot.nodes
+      |> Enum.filter(&(&1.id in [left_uid, right_uid]))
+      |> Enum.map(& &1.label)
+      |> Enum.sort()
+
+    assert labels == ["USWPro24 (192.0.2.10)", "USWPro24 (192.0.2.11)"]
+  end
+
   test "latest_snapshot/0 collapses ambiguous endpoint attachments to one parent" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
@@ -2283,6 +2379,48 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert [edge] = snapshot.edges
     assert edge.source == router_uid or edge.target == router_uid
     assert edge.source == endpoint_uid or edge.target == endpoint_uid
+  end
+
+  test "latest_snapshot/0 keeps managed infrastructure devices visible as unplaced when they have no topology edges" do
+    actor = SystemActor.system(:god_view_stream_unplaced_device_test)
+    suffix = System.unique_integer([:positive])
+    unplaced_uid = "sr:unplaced-router-#{suffix}"
+    ignored_uid = "sr:ignored-sighting-#{suffix}"
+
+    create_topology_device(actor, unplaced_uid, "vjunos-#{suffix}.lab", %{
+      ip: "192.0.2.197",
+      type_id: 12,
+      is_managed: true,
+      metadata: %{
+        "device_role" => "router",
+        "identity_source" => "proxmox_api"
+      }
+    })
+
+    create_topology_device(actor, ignored_uid, nil, %{
+      ip: "192.0.2.198",
+      type_id: 0,
+      is_managed: false,
+      metadata: %{
+        "identity_source" => "mapper_topology_sighting",
+        "identity_state" => "provisional"
+      }
+    })
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    unplaced_node = Enum.find(snapshot.nodes, &(&1.id == unplaced_uid))
+    assert unplaced_node
+
+    details = Jason.decode!(unplaced_node.details_json)
+    assert details["topology_unplaced"] == true
+    assert details["topology_plane"] == "unplaced"
+
+    assert details["topology_placement_reason"] =~
+             "No strong physical, logical, or hosted placement evidence"
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == ignored_uid))
+    assert Map.get(snapshot.pipeline_stats, :unplaced_nodes, 0) >= 1
   end
 
   test "latest_snapshot/0 collapses duplicate endpoint identities that split across ip and anonymous sr ids" do
@@ -2973,6 +3111,810 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Enum.all?(endpoint_coords, fn {_x, y} -> abs(y - anchor_y) <= 90 end)
   end
 
+  test "latest_snapshot/0 promotes inferred segment attachment candidates into endpoint clusters" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-inferred-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-inferred-switch-#{suffix}", %{
+      ip: "192.0.2.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..5, fn idx ->
+        uid = "sr:cluster-inferred-endpoint-#{suffix}-#{idx}"
+        ip = "192.0.2.#{40 + idx}"
+        mac = "02:00:00:10:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: true,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional"
+          }
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      endpoint_specs
+      |> Enum.with_index(1)
+      |> Enum.map(fn {%{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac}, idx} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "192.0.2.10",
+          local_if_name: nil,
+          local_if_index: idx,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-03-19T12:00:00Z",
+          metadata: %{
+            "source" => "SNMP-L2",
+            "inference" => "arp_fdb_port_mapping",
+            "confidence_tier" => "medium",
+            "confidence_score" => 72.0,
+            "evidence_class" => "inferred-segment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    nodes_by_id = Map.new(snapshot.nodes, &{&1.id, &1})
+    cluster = Map.fetch!(nodes_by_id, cluster_id)
+    cluster_details = Jason.decode!(cluster.details_json)
+    edge = find_edge(snapshot, switch_uid, cluster_id)
+
+    refute Enum.any?(snapshot.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+
+    refute Enum.any?(
+             snapshot.nodes,
+             &Enum.any?(endpoint_specs, fn spec -> spec.ip == &1.label end)
+           )
+
+    assert cluster.label == "5 endpoints"
+    assert cluster_details["cluster_kind"] == "endpoint-summary"
+    assert cluster_details["cluster_member_count"] == 5
+    assert cluster_details["cluster_anchor_id"] == switch_uid
+    assert edge
+    assert edge.evidence_class == "endpoint-attachment"
+    assert Map.get(snapshot.pipeline_stats, :final_attachment, 0) >= 1
+  end
+
+  test "latest_snapshot/0 assigns inferred segment endpoints to a single summary cluster" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    primary_switch_uid = "sr:cluster-dedup-switch-primary-#{suffix}"
+    secondary_switch_uid = "sr:cluster-dedup-switch-secondary-#{suffix}"
+
+    create_topology_device(actor, primary_switch_uid, "cluster-dedup-primary-#{suffix}", %{
+      ip: "192.0.3.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, secondary_switch_uid, "cluster-dedup-secondary-#{suffix}", %{
+      ip: "192.0.3.11",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-dedup-endpoint-#{suffix}-#{idx}"
+        ip = "192.0.3.#{40 + idx}"
+        mac = "02:00:00:20:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: true,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional"
+          }
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.flat_map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        [
+          %{
+            local_device_id: primary_switch_uid,
+            local_device_ip: "192.0.3.10",
+            local_if_name: nil,
+            local_if_index: 1,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "SNMP-L2",
+            evidence_class: "inferred-segment",
+            confidence_tier: "medium",
+            confidence_reason: "arp_fdb_port_mapping",
+            flow_pps: 0,
+            flow_bps: 0,
+            capacity_bps: 0,
+            flow_pps_ab: 0,
+            flow_pps_ba: 0,
+            flow_bps_ab: 0,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-03-19T12:00:00Z",
+            metadata: %{
+              "source" => "SNMP-L2",
+              "inference" => "arp_fdb_port_mapping",
+              "confidence_tier" => "medium",
+              "confidence_score" => 72.0,
+              "evidence_class" => "inferred-segment"
+            }
+          },
+          %{
+            local_device_id: secondary_switch_uid,
+            local_device_ip: "192.0.3.11",
+            local_if_name: nil,
+            local_if_index: 1,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "SNMP-L2",
+            evidence_class: "inferred-segment",
+            confidence_tier: "medium",
+            confidence_reason: "arp_fdb_port_mapping",
+            flow_pps: 0,
+            flow_bps: 0,
+            capacity_bps: 0,
+            flow_pps_ab: 0,
+            flow_pps_ba: 0,
+            flow_bps_ab: 0,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-03-19T12:00:00Z",
+            metadata: %{
+              "source" => "SNMP-L2",
+              "inference" => "arp_fdb_port_mapping",
+              "confidence_tier" => "medium",
+              "confidence_score" => 72.0,
+              "evidence_class" => "inferred-segment"
+            }
+          }
+        ]
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    endpoint_summary_nodes =
+      Enum.filter(snapshot.nodes, fn node ->
+        details = Jason.decode!(node.details_json)
+        details["cluster_kind"] == "endpoint-summary"
+      end)
+
+    assert length(endpoint_summary_nodes) == 1
+    [cluster] = endpoint_summary_nodes
+    cluster_details = Jason.decode!(cluster.details_json)
+
+    refute Enum.any?(snapshot.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+    assert cluster.label == "4 endpoints"
+    assert cluster_details["cluster_member_count"] == 4
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
+  end
+
+  test "latest_snapshot/0 promotes direct single-identifier leaves into endpoint clusters" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-direct-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-direct-switch-#{suffix}", %{
+      ip: "192.0.4.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        %{
+          uid: "sr:cluster-direct-endpoint-#{suffix}-#{idx}",
+          ip: "100.64.#{suffix |> rem(200) |> Kernel.+(10)}.#{20 + idx}"
+        }
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+        %{
+          local_device_id: endpoint_uid,
+          local_device_ip: endpoint_ip,
+          local_if_name: nil,
+          local_if_index: 0,
+          neighbor_if_name: nil,
+          neighbor_if_index: nil,
+          neighbor_device_id: switch_uid,
+          neighbor_mgmt_addr: "192.0.4.10",
+          protocol: "UniFi-API",
+          evidence_class: "direct",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-10T18:00:00Z",
+          metadata: %{
+            "source" => "unifi-api-uplink",
+            "evidence_class" => "direct",
+            "confidence_reason" => "single_identifier_inference"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    nodes_by_id = Map.new(snapshot.nodes, &{&1.id, &1})
+    cluster = Map.fetch!(nodes_by_id, cluster_id)
+    cluster_details = Jason.decode!(cluster.details_json)
+
+    refute Enum.any?(snapshot.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+    assert cluster.label == "4 endpoints"
+    assert cluster_details["cluster_kind"] == "endpoint-summary"
+    assert cluster_details["cluster_member_count"] == 4
+    assert cluster_details["cluster_anchor_id"] == switch_uid
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
+  end
+
+  test "latest_snapshot/0 prefers the strongest attachment anchor for shared endpoint sightings" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    weak_anchor_uid = "sr:a-cluster-weak-anchor-#{suffix}"
+    medium_anchor_uid = "sr:m-cluster-medium-anchor-#{suffix}"
+    strong_anchor_uid = "sr:z-cluster-strong-anchor-#{suffix}"
+
+    for {uid, ip} <- [
+          {weak_anchor_uid, "192.0.5.10"},
+          {medium_anchor_uid, "192.0.5.11"},
+          {strong_anchor_uid, "192.0.5.12"}
+        ] do
+      create_topology_device(actor, uid, uid, %{
+        ip: ip,
+        type_id: 10,
+        is_available: true
+      })
+    end
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-strong-endpoint-#{suffix}-#{idx}"
+        ip = "192.0.5.#{40 + idx}"
+        mac = "02:00:00:50:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: true,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional"
+          }
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.flat_map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        Enum.flat_map(
+          [
+            {weak_anchor_uid, "192.0.5.10", 1},
+            {medium_anchor_uid, "192.0.5.11", 2},
+            {strong_anchor_uid, "192.0.5.12", 5}
+          ],
+          fn {anchor_uid, anchor_ip, copies} ->
+            Enum.map(1..copies, fn idx ->
+              %{
+                local_device_id: anchor_uid,
+                local_device_ip: anchor_ip,
+                local_if_name: nil,
+                local_if_index: idx,
+                neighbor_if_name: endpoint_mac,
+                neighbor_if_index: nil,
+                neighbor_device_id: endpoint_uid,
+                neighbor_mgmt_addr: endpoint_ip,
+                protocol: "SNMP-L2",
+                evidence_class: "inferred-segment",
+                confidence_tier: "medium",
+                confidence_reason: "arp_fdb_port_mapping",
+                flow_pps: 0,
+                flow_bps: 0,
+                capacity_bps: 0,
+                flow_pps_ab: 0,
+                flow_pps_ba: 0,
+                flow_bps_ab: 0,
+                flow_bps_ba: 0,
+                telemetry_source: "none",
+                telemetry_observed_at: "2026-04-10T18:05:00Z",
+                metadata: %{
+                  "source" => "SNMP-L2",
+                  "inference" => "arp_fdb_port_mapping",
+                  "confidence_tier" => "medium",
+                  "confidence_score" => 72.0,
+                  "evidence_class" => "inferred-segment"
+                }
+              }
+            end)
+          end
+        )
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    endpoint_summary_nodes =
+      Enum.filter(snapshot.nodes, fn node ->
+        details = Jason.decode!(node.details_json)
+        details["cluster_kind"] == "endpoint-summary"
+      end)
+
+    assert length(endpoint_summary_nodes) == 1
+    [cluster] = endpoint_summary_nodes
+    cluster_details = Jason.decode!(cluster.details_json)
+
+    assert cluster_details["cluster_anchor_id"] == strong_anchor_uid
+    assert cluster_details["cluster_member_count"] == 4
+  end
+
+  test "latest_snapshot/0 suppresses ambiguous provisional endpoint memberships shared across near-tied anchors" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+
+    anchor_uids = [
+      "sr:a-cluster-ambiguous-anchor-#{suffix}",
+      "sr:m-cluster-ambiguous-anchor-#{suffix}",
+      "sr:z-cluster-ambiguous-anchor-#{suffix}"
+    ]
+
+    anchor_uids
+    |> Enum.zip(["192.0.6.10", "192.0.6.11", "192.0.6.12"])
+    |> Enum.each(fn {uid, ip} ->
+      create_topology_device(actor, uid, uid, %{ip: ip, type_id: 10, is_available: true})
+    end)
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-ambiguous-endpoint-#{suffix}-#{idx}"
+        ip = "192.0.6.#{40 + idx}"
+        mac = "02:00:00:60:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: true,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional"
+          }
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    copies_by_anchor = %{
+      Enum.at(anchor_uids, 0) => 12,
+      Enum.at(anchor_uids, 1) => 10,
+      Enum.at(anchor_uids, 2) => 9
+    }
+
+    anchor_ips = %{
+      Enum.at(anchor_uids, 0) => "192.0.6.10",
+      Enum.at(anchor_uids, 1) => "192.0.6.11",
+      Enum.at(anchor_uids, 2) => "192.0.6.12"
+    }
+
+    rows =
+      Enum.flat_map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        Enum.flat_map(anchor_uids, fn anchor_uid ->
+          Enum.map(1..Map.fetch!(copies_by_anchor, anchor_uid), fn idx ->
+            %{
+              local_device_id: anchor_uid,
+              local_device_ip: Map.fetch!(anchor_ips, anchor_uid),
+              local_if_name: nil,
+              local_if_index: idx,
+              neighbor_if_name: endpoint_mac,
+              neighbor_if_index: nil,
+              neighbor_device_id: endpoint_uid,
+              neighbor_mgmt_addr: endpoint_ip,
+              protocol: "SNMP-L2",
+              evidence_class: "inferred-segment",
+              confidence_tier: "medium",
+              confidence_reason: "arp_fdb_port_mapping",
+              attachment_observation_count: Map.fetch!(copies_by_anchor, anchor_uid),
+              flow_pps: 0,
+              flow_bps: 0,
+              capacity_bps: 0,
+              flow_pps_ab: 0,
+              flow_pps_ba: 0,
+              flow_bps_ab: 0,
+              flow_bps_ba: 0,
+              telemetry_source: "none",
+              telemetry_observed_at: "2026-04-11T00:00:00Z",
+              metadata: %{
+                "source" => "SNMP-L2",
+                "inference" => "arp_fdb_port_mapping",
+                "confidence_tier" => "medium",
+                "confidence_score" => 72.0,
+                "evidence_class" => "inferred-segment",
+                "attachment_observation_count" => Map.fetch!(copies_by_anchor, anchor_uid)
+              }
+            }
+          end)
+        end)
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    endpoint_summary_nodes =
+      Enum.filter(snapshot.nodes, fn node ->
+        details = Jason.decode!(node.details_json)
+        details["cluster_kind"] == "endpoint-summary"
+      end)
+
+    assert endpoint_summary_nodes == []
+  end
+
+  test "latest_snapshot/0 suppresses ambiguous synthesized endpoint memberships keyed by shared edge identity" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_synthesized_identity_ambiguity_test)
+    suffix = System.unique_integer([:positive])
+
+    anchor_uids = [
+      "sr:a-cluster-synthesized-anchor-#{suffix}",
+      "sr:m-cluster-synthesized-anchor-#{suffix}",
+      "sr:z-cluster-synthesized-anchor-#{suffix}"
+    ]
+
+    anchor_uids
+    |> Enum.zip(["192.0.7.10", "192.0.7.11", "192.0.7.12"])
+    |> Enum.each(fn {uid, ip} ->
+      create_topology_device(actor, uid, uid, %{ip: ip, type_id: 10, is_available: true})
+    end)
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        ip = "192.0.7.#{40 + idx}"
+        mac = "02:00:00:70:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:cc"
+        %{ip: ip, mac: mac}
+      end)
+
+    copies_by_anchor = %{
+      Enum.at(anchor_uids, 0) => 12,
+      Enum.at(anchor_uids, 1) => 10,
+      Enum.at(anchor_uids, 2) => 9
+    }
+
+    anchor_ips = %{
+      Enum.at(anchor_uids, 0) => "192.0.7.10",
+      Enum.at(anchor_uids, 1) => "192.0.7.11",
+      Enum.at(anchor_uids, 2) => "192.0.7.12"
+    }
+
+    rows =
+      Enum.flat_map(endpoint_specs, fn %{ip: endpoint_ip, mac: endpoint_mac} ->
+        Enum.flat_map(anchor_uids, fn anchor_uid ->
+          Enum.map(1..Map.fetch!(copies_by_anchor, anchor_uid), fn idx ->
+            %{
+              local_device_id: anchor_uid,
+              local_device_ip: Map.fetch!(anchor_ips, anchor_uid),
+              local_if_name: nil,
+              local_if_index: idx,
+              neighbor_if_name: endpoint_mac,
+              neighbor_if_index: nil,
+              neighbor_device_id:
+                "sr:synthesized-endpoint-#{suffix}-#{anchor_uid}-#{idx}-#{String.replace(endpoint_ip, ".", "-")}",
+              neighbor_mgmt_addr: endpoint_ip,
+              protocol: "SNMP-L2",
+              evidence_class: "inferred-segment",
+              confidence_tier: "medium",
+              confidence_reason: "arp_fdb_port_mapping",
+              attachment_observation_count: Map.fetch!(copies_by_anchor, anchor_uid),
+              flow_pps: 0,
+              flow_bps: 0,
+              capacity_bps: 0,
+              flow_pps_ab: 0,
+              flow_pps_ba: 0,
+              flow_bps_ab: 0,
+              flow_bps_ba: 0,
+              telemetry_source: "none",
+              telemetry_observed_at: "2026-04-11T00:00:00Z",
+              metadata: %{
+                "source" => "SNMP-L2",
+                "inference" => "arp_fdb_port_mapping",
+                "confidence_tier" => "medium",
+                "confidence_score" => 72.0,
+                "evidence_class" => "inferred-segment",
+                "attachment_observation_count" => Map.fetch!(copies_by_anchor, anchor_uid)
+              }
+            }
+          end)
+        end)
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    endpoint_summary_nodes =
+      Enum.filter(snapshot.nodes, fn node ->
+        details = Jason.decode!(node.details_json)
+        details["cluster_kind"] == "endpoint-summary"
+      end)
+
+    assert endpoint_summary_nodes == []
+  end
+
+  test "latest_snapshot/0 prefers the less-dense attachment port when duplicated endpoint clouds appear upstream" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_port_density_preference_test)
+    suffix = System.unique_integer([:positive])
+    upstream_uid = "sr:cluster-port-density-upstream-#{suffix}"
+    edge_uid = "sr:cluster-port-density-edge-#{suffix}"
+
+    create_topology_device(actor, upstream_uid, "cluster-port-density-upstream-#{suffix}", %{
+      ip: "192.0.8.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, edge_uid, "cluster-port-density-edge-#{suffix}", %{
+      ip: "192.0.8.11",
+      type_id: 10,
+      is_available: true
+    })
+
+    shared_endpoints =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-port-density-shared-#{suffix}-#{idx}"
+        ip = "192.0.8.#{40 + idx}"
+        mac = "02:00:00:80:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: true,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional",
+            "primary_mac" => mac
+          }
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    upstream_only_endpoints =
+      Enum.map(1..2, fn idx ->
+        uid = "sr:cluster-port-density-upstream-only-#{suffix}-#{idx}"
+        ip = "192.0.8.#{80 + idx}"
+        mac = "02:00:00:81:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: true,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional",
+            "primary_mac" => mac
+          }
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.concat([
+        Enum.flat_map(shared_endpoints, fn %{
+                                             uid: endpoint_uid,
+                                             ip: endpoint_ip,
+                                             mac: endpoint_mac
+                                           } ->
+          [
+            %{
+              local_device_id: upstream_uid,
+              local_device_ip: "192.0.8.10",
+              local_if_name: "upstream-port-mac",
+              local_if_index: 1,
+              neighbor_if_name: endpoint_mac,
+              neighbor_if_index: nil,
+              neighbor_device_id: endpoint_uid,
+              neighbor_mgmt_addr: endpoint_ip,
+              protocol: "SNMP-L2",
+              evidence_class: "inferred-segment",
+              confidence_tier: "medium",
+              confidence_reason: "arp_fdb_port_mapping",
+              attachment_observation_count: 10,
+              flow_pps: 0,
+              flow_bps: 0,
+              capacity_bps: 0,
+              flow_pps_ab: 0,
+              flow_pps_ba: 0,
+              flow_bps_ab: 0,
+              flow_bps_ba: 0,
+              telemetry_source: "none",
+              telemetry_observed_at: "2026-04-11T00:00:00Z",
+              metadata: %{
+                "source" => "SNMP-L2",
+                "inference" => "arp_fdb_port_mapping",
+                "confidence_tier" => "medium",
+                "confidence_score" => 72.0,
+                "evidence_class" => "inferred-segment",
+                "attachment_observation_count" => 10
+              }
+            },
+            %{
+              local_device_id: edge_uid,
+              local_device_ip: "192.0.8.11",
+              local_if_name: "edge-port-mac",
+              local_if_index: 7,
+              neighbor_if_name: endpoint_mac,
+              neighbor_if_index: nil,
+              neighbor_device_id: endpoint_uid,
+              neighbor_mgmt_addr: endpoint_ip,
+              protocol: "SNMP-L2",
+              evidence_class: "inferred-segment",
+              confidence_tier: "medium",
+              confidence_reason: "arp_fdb_port_mapping",
+              attachment_observation_count: 9,
+              flow_pps: 0,
+              flow_bps: 0,
+              capacity_bps: 0,
+              flow_pps_ab: 0,
+              flow_pps_ba: 0,
+              flow_bps_ab: 0,
+              flow_bps_ba: 0,
+              telemetry_source: "none",
+              telemetry_observed_at: "2026-04-11T00:00:00Z",
+              metadata: %{
+                "source" => "SNMP-L2",
+                "inference" => "arp_fdb_port_mapping",
+                "confidence_tier" => "medium",
+                "confidence_score" => 72.0,
+                "evidence_class" => "inferred-segment",
+                "attachment_observation_count" => 9
+              }
+            }
+          ]
+        end),
+        Enum.map(upstream_only_endpoints, fn %{
+                                               uid: endpoint_uid,
+                                               ip: endpoint_ip,
+                                               mac: endpoint_mac
+                                             } ->
+          %{
+            local_device_id: upstream_uid,
+            local_device_ip: "192.0.8.10",
+            local_if_name: "upstream-port-mac",
+            local_if_index: 1,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "SNMP-L2",
+            evidence_class: "inferred-segment",
+            confidence_tier: "medium",
+            confidence_reason: "arp_fdb_port_mapping",
+            attachment_observation_count: 10,
+            flow_pps: 0,
+            flow_bps: 0,
+            capacity_bps: 0,
+            flow_pps_ab: 0,
+            flow_pps_ba: 0,
+            flow_bps_ab: 0,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-04-11T00:00:00Z",
+            metadata: %{
+              "source" => "SNMP-L2",
+              "inference" => "arp_fdb_port_mapping",
+              "confidence_tier" => "medium",
+              "confidence_score" => 72.0,
+              "evidence_class" => "inferred-segment",
+              "attachment_observation_count" => 10
+            }
+          }
+        end)
+      ])
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    edge_cluster = Enum.find(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> edge_uid))
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> upstream_uid))
+    assert edge_cluster.label == "4 endpoints"
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
+  end
+
   test "latest_snapshot/0 clusters dense endpoint attachments by default" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
@@ -3357,7 +4299,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             }
           }
         end) ++
-        Enum.map(reverse_endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        Enum.map(reverse_endpoint_specs, fn %{
+                                              uid: endpoint_uid,
+                                              ip: endpoint_ip,
+                                              mac: endpoint_mac
+                                            } ->
           %{
             local_device_id: endpoint_uid,
             local_device_ip: endpoint_ip,
@@ -3403,7 +4349,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert find_edge(snapshot, switch_uid, ap_uid)
     assert find_edge(snapshot, ap_uid, ap_cluster_id)
     refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
-    refute Enum.any?(snapshot.nodes, &Enum.any?(reverse_endpoint_specs, fn spec -> spec.uid == &1.id end))
+
+    refute Enum.any?(
+             snapshot.nodes,
+             &Enum.any?(reverse_endpoint_specs, fn spec -> spec.uid == &1.id end)
+           )
   end
 
   test "latest_snapshot/0 preserves below-threshold endpoint attachments as raw nodes and edges" do
@@ -3546,6 +4496,929 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
   end
 
+  test "latest_snapshot/0 preserves below-threshold UniFi wireless attachment endpoints as visible raw nodes" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unifi_wireless_threshold_preservation_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:cluster-threshold-wireless-ap-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "cluster-threshold-wireless-ap-#{suffix}", %{
+      ip: "198.51.100.190",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    wireless_specs =
+      Enum.map(1..2, fn idx ->
+        %{
+          uid: "sr:cluster-threshold-wireless-endpoint-#{suffix}-#{idx}",
+          ip: "198.51.100.#{190 + idx}",
+          mac: "02:00:00:71:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:dd"
+        }
+      end)
+
+    rows =
+      Enum.map(wireless_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.100.190",
+          local_if_name: "wifi0",
+          local_if_index: 20,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 2,
+          flow_bps: 200,
+          capacity_bps: 0,
+          flow_pps_ab: 2,
+          flow_pps_ba: 0,
+          flow_bps_ab: 200,
+          flow_bps_ba: 0,
+          telemetry_source: "controller",
+          telemetry_observed_at: "2026-04-12T21:17:20Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    Enum.each(wireless_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+    end)
+
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 0
+    assert Map.get(snapshot.pipeline_stats, :quarantined_unresolved_endpoint_nodes, 0) == 0
+    assert Map.get(snapshot.pipeline_stats, :quarantined_unresolved_endpoint_edges, 0) == 0
+  end
+
+  test "latest_snapshot/0 prefers explicit UniFi AP client attachments over inferred switch sightings" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unifi_wireless_anchor_preference_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:wireless-anchor-ap-#{suffix}"
+    switch_uid = "sr:wireless-anchor-switch-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "wireless-anchor-ap-#{suffix}", %{
+      ip: "198.51.101.10",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    create_topology_device(actor, switch_uid, "wireless-anchor-switch-#{suffix}", %{
+      ip: "198.51.101.1",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    shared_specs = [
+      %{
+        uid: "sr:wireless-anchor-shared-#{suffix}-1",
+        ip: "198.51.101.21",
+        mac: "02:00:00:81:01:aa"
+      },
+      %{
+        uid: "sr:wireless-anchor-shared-#{suffix}-2",
+        ip: "198.51.101.22",
+        mac: "02:00:00:81:02:aa"
+      }
+    ]
+
+    switch_only_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:wireless-anchor-switch-only-#{suffix}-#{idx}",
+          ip: "198.51.101.#{30 + idx}",
+          mac: "02:00:00:82:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+        }
+      end)
+
+    ap_rows =
+      Enum.map(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.101.10",
+          local_if_name: "wireless",
+          local_if_index: 0,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T21:57:24Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    switch_rows =
+      Enum.map(shared_specs ++ switch_only_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.101.1",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T21:57:32Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, ap_rows ++ switch_rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    switch_cluster_id = "cluster:endpoints:" <> switch_uid <> ":ifindex:7"
+    switch_cluster = Enum.find(snapshot.nodes, &(&1.id == switch_cluster_id))
+    assert switch_cluster
+    assert switch_cluster.label == "3 endpoints"
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+      refute find_edge(snapshot, switch_uid, endpoint_uid)
+    end)
+  end
+
+  test "latest_snapshot/0 suppresses raw switch edges for endpoints summarized under another switch" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_shadowed_switch_cluster_edge_test)
+    suffix = System.unique_integer([:positive])
+    preferred_switch_uid = "sr:shadowed-cluster-preferred-switch-#{suffix}"
+    secondary_switch_uid = "sr:shadowed-cluster-secondary-switch-#{suffix}"
+    ap_uid = "sr:shadowed-cluster-ap-#{suffix}"
+
+    create_topology_device(actor, preferred_switch_uid, "shadowed-cluster-preferred-switch-#{suffix}", %{
+      ip: "198.51.104.1",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    create_topology_device(actor, secondary_switch_uid, "shadowed-cluster-secondary-switch-#{suffix}", %{
+      ip: "198.51.104.2",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    create_topology_device(actor, ap_uid, "shadowed-cluster-ap-#{suffix}", %{
+      ip: "198.51.104.10",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    shared_specs =
+      Enum.map(1..4, fn idx ->
+        %{
+          uid: "sr:shadowed-cluster-shared-#{suffix}-#{idx}",
+          ip: "198.51.104.#{20 + idx}",
+          mac: "02:00:00:b1:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+        }
+      end)
+
+    preferred_only_spec = %{
+      uid: "sr:shadowed-cluster-preferred-only-#{suffix}",
+      ip: "198.51.104.30",
+      mac: "02:00:00:b2:01:bb"
+    }
+
+    secondary_only_spec = %{
+      uid: "sr:shadowed-cluster-secondary-only-#{suffix}",
+      ip: "198.51.104.31",
+      mac: "02:00:00:b3:01:cc"
+    }
+
+    preferred_rows =
+      Enum.map(shared_specs ++ [preferred_only_spec], fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: preferred_switch_uid,
+          local_device_ip: "198.51.104.1",
+          local_if_name: nil,
+          local_if_index: 2,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-13T04:00:00Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    secondary_rows =
+      Enum.map(shared_specs ++ [secondary_only_spec], fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: secondary_switch_uid,
+          local_device_ip: "198.51.104.2",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-13T04:00:05Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    ap_row = %{
+      local_device_id: secondary_switch_uid,
+      local_device_ip: "198.51.104.2",
+      local_if_name: nil,
+      local_if_index: 7,
+      neighbor_if_name: "4c:5e:0c:11:22:33",
+      neighbor_if_index: nil,
+      neighbor_device_id: ap_uid,
+      neighbor_mgmt_addr: "198.51.104.10",
+      protocol: "snmp-l2",
+      evidence_class: "inferred-segment",
+      confidence_tier: "medium",
+      confidence_reason: "arp_fdb_port_mapping",
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_source: "none",
+      telemetry_observed_at: "2026-04-13T04:00:10Z",
+      metadata: %{
+        "relation_type" => "INFERRED_TO",
+        "relation_family" => "INFERRED_TO",
+        "evidence_class" => "inferred-segment",
+        "source" => "SNMP-L2"
+      }
+    }
+
+    replace_runtime_graph_links!(graph_ref, preferred_rows ++ secondary_rows ++ [ap_row])
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    preferred_cluster_id = "cluster:endpoints:" <> preferred_switch_uid <> ":ifindex:2"
+    preferred_cluster = Enum.find(snapshot.nodes, &(&1.id == preferred_cluster_id))
+    assert preferred_cluster
+    assert preferred_cluster.label == "5 endpoints"
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid} ->
+      refute find_edge(snapshot, secondary_switch_uid, endpoint_uid)
+    end)
+
+    refute find_edge(snapshot, secondary_switch_uid, ap_uid)
+    assert find_edge(snapshot, secondary_switch_uid, secondary_only_spec.uid)
+  end
+
+  test "latest_snapshot/0 prefers explicit UniFi AP client attachments over switch sightings with compact MAC identifiers" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unifi_wireless_compact_mac_anchor_preference_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:wireless-compact-mac-ap-#{suffix}"
+    switch_uid = "sr:wireless-compact-mac-switch-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "wireless-compact-mac-ap-#{suffix}", %{
+      ip: "198.51.103.10",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    create_topology_device(actor, switch_uid, "wireless-compact-mac-switch-#{suffix}", %{
+      ip: "198.51.103.1",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    shared_specs = [
+      %{
+        uid: "sr:wireless-compact-mac-shared-#{suffix}-1",
+        ip: "198.51.103.21",
+        mac: "02:00:00:a1:01:aa"
+      },
+      %{
+        uid: "sr:wireless-compact-mac-shared-#{suffix}-2",
+        ip: "198.51.103.22",
+        mac: "02:00:00:a1:02:aa"
+      }
+    ]
+
+    switch_only_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:wireless-compact-mac-switch-only-#{suffix}-#{idx}",
+          ip: "198.51.103.#{30 + idx}",
+          mac: "02:00:00:a2:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+        }
+      end)
+
+    ap_rows =
+      Enum.map(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.103.10",
+          local_if_name: "wireless",
+          local_if_index: 0,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-13T04:07:24Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    switch_rows =
+      Enum.map(shared_specs ++ switch_only_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.103.1",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: String.replace(endpoint_mac, ":", ""),
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-13T04:07:32Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, ap_rows ++ switch_rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    switch_cluster_id = "cluster:endpoints:" <> switch_uid <> ":ifindex:7"
+    switch_cluster = Enum.find(snapshot.nodes, &(&1.id == switch_cluster_id))
+    assert switch_cluster
+    assert switch_cluster.label == "3 endpoints"
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+    end)
+  end
+
+  test "latest_snapshot/0 preserves below-threshold AP attachments when the same unresolved clients are clustered upstream" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unifi_wireless_below_threshold_with_upstream_cluster_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:wireless-below-threshold-ap-#{suffix}"
+    switch_uid = "sr:wireless-below-threshold-switch-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "wireless-below-threshold-ap-#{suffix}", %{
+      ip: "198.51.102.10",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    create_topology_device(actor, switch_uid, "wireless-below-threshold-switch-#{suffix}", %{
+      ip: "198.51.102.1",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    shared_specs = [
+      %{
+        uid: "sr:wireless-below-threshold-shared-#{suffix}-1",
+        ip: "198.51.102.21",
+        mac: "02:00:00:91:01:aa"
+      },
+      %{
+        uid: "sr:wireless-below-threshold-shared-#{suffix}-2",
+        ip: "198.51.102.22",
+        mac: "02:00:00:91:02:aa"
+      }
+    ]
+
+    switch_only_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:wireless-below-threshold-switch-only-#{suffix}-#{idx}",
+          ip: "198.51.102.#{30 + idx}",
+          mac: "02:00:00:92:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+        }
+      end)
+
+    ap_rows =
+      Enum.map(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.102.10",
+          local_if_name: "wireless",
+          local_if_index: 0,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T22:17:24Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    switch_rows =
+      Enum.map(shared_specs ++ switch_only_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.102.1",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T22:17:32Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, ap_rows ++ switch_rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    switch_cluster_id = "cluster:endpoints:" <> switch_uid <> ":ifindex:7"
+    switch_cluster = Enum.find(snapshot.nodes, &(&1.id == switch_cluster_id))
+    assert switch_cluster
+    assert switch_cluster.label == "5 endpoints"
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+      refute find_edge(snapshot, switch_uid, endpoint_uid)
+    end)
+  end
+
+  test "latest_snapshot/0 drops collapsed raw switch attachment edges while preserving explicit AP attachments" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_collapsed_switch_attachment_suppression_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:collapsed-switch-ap-#{suffix}"
+    switch_uid = "sr:collapsed-switch-switch-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "collapsed-switch-ap-#{suffix}", %{
+      ip: "198.51.102.210",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    create_topology_device(actor, switch_uid, "collapsed-switch-switch-#{suffix}", %{
+      ip: "198.51.102.201",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    shared_specs = [
+      %{uid: "sr:collapsed-switch-shared-#{suffix}-1", ip: "198.51.102.221", mac: "44:61:32:f3:d3:4c"},
+      %{uid: "sr:collapsed-switch-shared-#{suffix}-2", ip: "198.51.102.222", mac: "10:96:93:58:9a:0e"}
+    ]
+
+    switch_only_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:collapsed-switch-only-#{suffix}-#{idx}",
+          ip: "198.51.102.#{230 + idx}",
+          mac: "02:00:00:95:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:ee"
+        }
+      end)
+
+    ap_rows =
+      Enum.map(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.102.210",
+          local_if_name: "wireless",
+          local_if_index: 0,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T23:17:24Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    switch_rows =
+      Enum.map(shared_specs ++ switch_only_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.102.201",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T23:17:32Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, ap_rows ++ switch_rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    switch_cluster_id = "cluster:endpoints:" <> switch_uid <> ":ifindex:7"
+    switch_cluster = Enum.find(snapshot.nodes, &(&1.id == switch_cluster_id))
+    assert switch_cluster
+    assert switch_cluster.label == "5 endpoints"
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+      refute find_edge(snapshot, switch_uid, endpoint_uid)
+    end)
+
+    Enum.each(switch_only_specs, fn %{uid: endpoint_uid} ->
+      refute Enum.any?(snapshot.nodes, &(&1.id == endpoint_uid))
+      refute find_edge(snapshot, switch_uid, endpoint_uid)
+    end)
+  end
+
+  test "latest_snapshot/0 materializes labeled unresolved AP attachments before switch clustering" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_labeled_unresolved_ap_attachment_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:labeled-unresolved-ap-#{suffix}"
+    switch_uid = "sr:labeled-unresolved-switch-#{suffix}"
+    labeled_uid = "sr:labeled-unresolved-client-#{suffix}"
+    anonymous_uid = "sr:anonymous-unresolved-client-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "labeled-unresolved-ap-#{suffix}", %{
+      ip: "198.51.102.110",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    create_topology_device(actor, switch_uid, "labeled-unresolved-switch-#{suffix}", %{
+      ip: "198.51.102.101",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    create_topology_device(actor, labeled_uid, "apartment-3 d3:4c", %{
+      ip: nil,
+      type_id: 0,
+      is_available: true,
+      metadata: %{"identity_source" => "mapper_topology_sighting"}
+    })
+
+    shared_specs = [
+      %{uid: labeled_uid, ip: "198.51.102.121", mac: "44:61:32:f3:d3:4c"},
+      %{uid: anonymous_uid, ip: "198.51.102.122", mac: "02:00:00:93:02:cc"}
+    ]
+
+    switch_only_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:labeled-unresolved-switch-only-#{suffix}-#{idx}",
+          ip: "198.51.102.#{130 + idx}",
+          mac: "02:00:00:94:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:dd"
+        }
+      end)
+
+    ap_rows =
+      Enum.map(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: ap_uid,
+          local_device_ip: "198.51.102.110",
+          local_if_name: "wireless",
+          local_if_index: 0,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "unifi-api",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "high",
+          confidence_reason: "controller_client_association",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T22:27:24Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "relation_family" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment",
+            "source" => "unifi-api-wireless-client"
+          }
+        }
+      end)
+
+    switch_rows =
+      Enum.map(shared_specs ++ switch_only_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.102.101",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T22:27:32Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, ap_rows ++ switch_rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    switch_cluster_id = "cluster:endpoints:" <> switch_uid <> ":ifindex:7"
+    switch_cluster = Enum.find(snapshot.nodes, &(&1.id == switch_cluster_id))
+    assert switch_cluster
+    assert switch_cluster.label == "5 endpoints"
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+      node = Enum.find(snapshot.nodes, &(&1.id == endpoint_uid))
+      assert node
+      assert node.label == endpoint_ip
+      assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
+      assert find_edge(snapshot, ap_uid, endpoint_uid)
+      refute find_edge(snapshot, switch_uid, endpoint_uid)
+    end)
+  end
+
   test "latest_snapshot/0 preserves per-anchor endpoint summaries when the same endpoints are seen off multiple anchors" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
@@ -3590,7 +5463,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       end)
 
     rows =
-      Enum.flat_map(shared_endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+      Enum.flat_map(shared_endpoint_specs, fn %{
+                                                uid: endpoint_uid,
+                                                ip: endpoint_ip,
+                                                mac: endpoint_mac
+                                              } ->
         [
           %{
             local_device_id: ap_a_uid,
@@ -3656,6 +5533,212 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_a_uid))
     assert Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_b_uid))
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 2
+  end
+
+  test "latest_snapshot/0 splits endpoint summaries by anchor port on the same switch" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_same_anchor_port_cluster_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-same-anchor-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-same-anchor-switch-#{suffix}", %{
+      ip: "198.51.100.30",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    port_10_specs =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-same-anchor-port10-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{30 + idx}"
+        mac = "02:00:00:91:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    port_11_specs =
+      Enum.map(1..3, fn idx ->
+        uid = "sr:cluster-same-anchor-port11-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{40 + idx}"
+        mac = "02:00:00:92:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.map(port_10_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.100.30",
+          local_if_name: "port10",
+          local_if_index: 10,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 1,
+          flow_bps: 100,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 1,
+          flow_pps_ba: 0,
+          flow_bps_ab: 100,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-03-23T17:15:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end) ++
+        Enum.map(port_11_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: switch_uid,
+            local_device_ip: "198.51.100.30",
+            local_if_name: "port11",
+            local_if_index: 11,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "low",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 1,
+            flow_bps: 100,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 1,
+            flow_pps_ba: 0,
+            flow_bps_ab: 100,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-03-23T17:15:00Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    port_10_cluster =
+      Enum.find(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid <> ":ifindex:10"))
+
+    port_11_cluster =
+      Enum.find(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid <> ":ifindex:11"))
+
+    assert port_10_cluster.label == "4 endpoints"
+    assert port_11_cluster.label == "3 endpoints"
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 2
+  end
+
+  test "latest_snapshot/0 suppresses MAC-like anchor interface labels on endpoint summaries" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_anchor_if_name_sanitization_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-anchor-ifname-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-anchor-ifname-switch-#{suffix}", %{
+      ip: "198.51.100.70",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    endpoint_specs =
+      Enum.map(1..3, fn idx ->
+        uid = "sr:cluster-anchor-ifname-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{70 + idx}"
+        mac = "02:00:00:93:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.100.70",
+          local_if_name: "10:96:93:58:9a:0e",
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 1,
+          flow_bps: 100,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 1,
+          flow_pps_ba: 0,
+          flow_bps_ab: 100,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-12T12:00:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster =
+      Enum.find(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid <> ":ifindex:7"))
+
+    cluster_details = Jason.decode!(cluster.details_json)
+
+    assert cluster.label == "3 endpoints"
+    assert cluster_details["cluster_anchor_if_index"] == 7
+    assert cluster_details["cluster_anchor_if_name"] == nil
   end
 
   test "latest_snapshot/0 supplements a small source-side anchor cluster with bounded target-side members" do
@@ -3742,7 +5825,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             flow_bps_ba: 0,
             telemetry_source: "none",
             telemetry_observed_at: "2026-03-23T19:00:00Z",
-            metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
           },
           %{
             local_device_id: ap_b_uid,
@@ -3766,7 +5852,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             flow_bps_ba: 0,
             telemetry_source: "none",
             telemetry_observed_at: "2026-03-23T19:00:00Z",
-            metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
           }
         ]
       end) ++
@@ -3794,7 +5883,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
               flow_bps_ba: 0,
               telemetry_source: "none",
               telemetry_observed_at: "2026-03-23T19:00:00Z",
-              metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+              metadata: %{
+                "relation_type" => "ATTACHED_TO",
+                "evidence_class" => "endpoint-attachment"
+              }
             },
             %{
               local_device_id: endpoint_uid,
@@ -3818,7 +5910,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
               flow_bps_ba: 0,
               telemetry_source: "none",
               telemetry_observed_at: "2026-03-23T19:00:00Z",
-              metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+              metadata: %{
+                "relation_type" => "ATTACHED_TO",
+                "evidence_class" => "endpoint-attachment"
+              }
             }
           ]
         end)
@@ -3936,7 +6031,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             flow_bps_ba: 0,
             telemetry_source: "none",
             telemetry_observed_at: "2026-03-24T04:10:00Z",
-            metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
           }
         end)
 
@@ -3969,12 +6067,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       metadata: %{"type" => "access point"}
     })
 
-    create_topology_device(actor, sibling_uid, "cluster-ap-shared-supplement-sibling-#{suffix}", %{
-      ip: "198.51.100.191",
-      type_id: 99,
-      is_available: true,
-      metadata: %{"type" => "access point"}
-    })
+    create_topology_device(
+      actor,
+      sibling_uid,
+      "cluster-ap-shared-supplement-sibling-#{suffix}",
+      %{
+        ip: "198.51.100.191",
+        type_id: 99,
+        is_available: true,
+        metadata: %{"type" => "access point"}
+      }
+    )
 
     source_specs =
       Enum.map(1..9, fn idx ->
@@ -4035,7 +6138,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
         }
       end) ++
-        Enum.flat_map(shared_target_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        Enum.flat_map(shared_target_specs, fn %{
+                                                uid: endpoint_uid,
+                                                ip: endpoint_ip,
+                                                mac: endpoint_mac
+                                              } ->
           [
             %{
               local_device_id: endpoint_uid,
@@ -4059,7 +6166,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
               flow_bps_ba: 0,
               telemetry_source: "none",
               telemetry_observed_at: "2026-03-24T05:30:00Z",
-              metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+              metadata: %{
+                "relation_type" => "ATTACHED_TO",
+                "evidence_class" => "endpoint-attachment"
+              }
             },
             %{
               local_device_id: endpoint_uid,
@@ -4083,7 +6193,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
               flow_bps_ba: 0,
               telemetry_source: "none",
               telemetry_observed_at: "2026-03-24T05:30:00Z",
-              metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+              metadata: %{
+                "relation_type" => "ATTACHED_TO",
+                "evidence_class" => "endpoint-attachment"
+              }
             }
           ]
         end)
@@ -4335,7 +6448,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(1..4, fn idx ->
         endpoint_uid = "sr:cluster-router-target-only-endpoint-#{suffix}-#{idx}"
         endpoint_ip = "198.51.100.#{190 + idx}"
-        endpoint_mac = "02:00:00:74:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:dd"
+
+        endpoint_mac =
+          "02:00:00:74:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:dd"
 
         %{
           local_device_id: endpoint_uid,
@@ -4473,12 +6588,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(1..12, fn idx ->
         uid = "sr:cluster-ambiguous-source-extra-anchor-#{suffix}-#{idx}"
 
-        create_topology_device(actor, uid, "cluster-ambiguous-source-extra-anchor-#{suffix}-#{idx}", %{
-          ip: "198.51.101.#{idx}",
-          type_id: 99,
-          is_available: true,
-          metadata: %{"type" => "access point"}
-        })
+        create_topology_device(
+          actor,
+          uid,
+          "cluster-ambiguous-source-extra-anchor-#{suffix}-#{idx}",
+          %{
+            ip: "198.51.101.#{idx}",
+            type_id: 99,
+            is_available: true,
+            metadata: %{"type" => "access point"}
+          }
+        )
 
         uid
       end)
@@ -4538,7 +6658,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             flow_bps_ba: 0,
             telemetry_source: "none",
             telemetry_observed_at: "2026-03-23T22:10:00Z",
-            metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
           }
         end)
       end)
@@ -4547,13 +6670,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(1..5, fn idx ->
         endpoint_uid = "sr:cluster-ambiguous-source-target-endpoint-#{suffix}-#{idx}"
         endpoint_ip = "198.51.100.#{220 + idx}"
-        endpoint_mac = "02:00:00:75:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:ee"
+
+        endpoint_mac =
+          "02:00:00:75:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:ee"
 
         create_topology_device(actor, endpoint_uid, nil, %{
           ip: endpoint_ip,
           type_id: 2,
           is_available: true,
-          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => endpoint_mac}
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "primary_mac" => endpoint_mac
+          }
         })
 
         %{
@@ -4743,6 +6871,202 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     assert ap_cluster.label == "4 endpoints"
     assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
+  end
+
+  test "latest_snapshot/0 does not cluster provisional mapper topology sightings that only have IP identity" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_provisional_ip_only_sighting_test)
+    suffix = System.unique_integer([:positive])
+    ap_uid = "sr:cluster-provisional-ip-only-ap-#{suffix}"
+
+    create_topology_device(actor, ap_uid, "cluster-provisional-ip-only-ap-#{suffix}", %{
+      ip: "198.51.100.240",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        uid = "sr:cluster-provisional-ip-only-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.100.#{240 + idx}"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 0,
+          is_available: false,
+          metadata: %{
+            "identity_source" => "mapper_topology_sighting",
+            "identity_state" => "provisional"
+          }
+        })
+
+        %{uid: uid, ip: ip}
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip} ->
+        %{
+          local_device_id: endpoint_uid,
+          local_device_ip: endpoint_ip,
+          local_if_name: "unknown",
+          local_if_index: nil,
+          neighbor_if_name: "unknown",
+          neighbor_if_index: nil,
+          neighbor_device_id: ap_uid,
+          neighbor_mgmt_addr: "198.51.100.240",
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 1,
+          flow_bps: 100,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 1,
+          flow_pps_ba: 0,
+          flow_bps_ab: 100,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-06T01:48:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> ap_uid))
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 0
+  end
+
+  test "latest_snapshot/0 clusters unresolved endpoint attachments when edge-side MAC identity is present" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unresolved_edge_mac_identity_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-unresolved-mac-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-unresolved-mac-switch-#{suffix}", %{
+      ip: "198.51.100.250",
+      type_id: 10,
+      is_available: true
+    })
+
+    rows =
+      Enum.map(1..4, fn idx ->
+        endpoint_uid = "sr:cluster-unresolved-mac-endpoint-#{suffix}-#{idx}"
+        endpoint_ip = "198.51.100.#{250 + idx}"
+
+        endpoint_mac =
+          "02:00:00:91:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.100.250",
+          local_if_name: "eth1",
+          local_if_index: 1,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 5,
+          flow_bps: 500,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 5,
+          flow_pps_ba: 0,
+          flow_bps_ab: 500,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-04-11T12:00:00Z",
+          metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    cluster = Enum.find(snapshot.nodes, &(&1.id == cluster_id))
+
+    assert cluster.label == "4 endpoints"
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
+  end
+
+  test "latest_snapshot/0 does not cluster unresolved endpoint attachments that only provide IP identity" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unresolved_edge_ip_only_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-unresolved-ip-only-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-unresolved-ip-only-switch-#{suffix}", %{
+      ip: "198.51.100.245",
+      type_id: 10,
+      is_available: true
+    })
+
+    rows =
+      Enum.map(1..4, fn idx ->
+        endpoint_uid = "sr:cluster-unresolved-ip-only-endpoint-#{suffix}-#{idx}"
+        endpoint_ip = "198.51.100.#{200 + idx}"
+
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.100.245",
+          local_if_name: "eth1",
+          local_if_index: 1,
+          neighbor_if_name: "port-#{idx}",
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 5,
+          flow_bps: 500,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 5,
+          flow_pps_ba: 0,
+          flow_bps_ab: 500,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-04-11T12:00:00Z",
+          metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "endpoint-attachment"}
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 0
   end
 
   test "latest_snapshot/0 prefers target-side endpoint identities when source-side rows have no leaf IP identity" do
@@ -5071,7 +7395,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     assert snapshot.revision != collapsed_snapshot.revision
     assert Enum.any?(snapshot.nodes, &(&1.id == cluster_id))
-    assert Enum.all?(endpoint_specs, fn spec -> Enum.any?(snapshot.nodes, &(&1.id == spec.uid)) end)
+
+    assert Enum.all?(endpoint_specs, fn spec ->
+             Enum.any?(snapshot.nodes, &(&1.id == spec.uid))
+           end)
 
     cluster = Enum.find(snapshot.nodes, &(&1.id == cluster_id))
     cluster_details = Jason.decode!(cluster.details_json)
@@ -5110,7 +7437,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         assert find_edge(snapshot, cluster_id, spec.uid)
         refute find_edge(snapshot, switch_uid, spec.uid)
         assert distance({hub_x, hub_y}, point) >= 70.0
-        assert distance({anchor_x, anchor_y}, point) >= distance({anchor_x, anchor_y}, {hub_x, hub_y}) + 18.0
+
+        assert distance({anchor_x, anchor_y}, point) >=
+                 distance({anchor_x, anchor_y}, {hub_x, hub_y}) + 18.0
+
         point
       end)
 
@@ -5251,19 +7581,39 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     assert {:ok, %{snapshot: collapsed_snapshot}} = latest_snapshot_for_test()
     assert Enum.any?(collapsed_snapshot.nodes, &(&1.id == cluster_id))
-    refute Enum.any?(collapsed_snapshot.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+
+    refute Enum.any?(
+             collapsed_snapshot.nodes,
+             &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end)
+           )
+
+    assert Enum.any?(
+             collapsed_snapshot.edges,
+             &(&1.source == switch_uid and &1.target == cluster_id)
+           )
+
+    refute Enum.any?(collapsed_snapshot.edges, fn edge ->
+             edge.source == switch_uid and Enum.any?(endpoint_specs, &(&1.uid == edge.target))
+           end)
 
     assert {:ok, %{snapshot: expanded_snapshot}} =
              latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
 
     assert expanded_snapshot.revision != collapsed_snapshot.revision
-    assert Enum.all?(endpoint_specs, fn spec -> Enum.any?(expanded_snapshot.nodes, &(&1.id == spec.uid)) end)
+
+    assert Enum.all?(endpoint_specs, fn spec ->
+             Enum.any?(expanded_snapshot.nodes, &(&1.id == spec.uid))
+           end)
 
     assert {:ok, %{snapshot: collapsed_again}} = latest_snapshot_for_test()
 
     assert collapsed_again.revision == collapsed_snapshot.revision
     assert Enum.any?(collapsed_again.nodes, &(&1.id == cluster_id))
-    refute Enum.any?(collapsed_again.nodes, &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end))
+
+    refute Enum.any?(
+             collapsed_again.nodes,
+             &Enum.any?(endpoint_specs, fn spec -> spec.uid == &1.id end)
+           )
   end
 
   test "latest_snapshot/0 expands clustered endpoints when members only exist as unresolved attachment identities" do
@@ -5349,6 +7699,175 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
              details["ip"] == spec.ip
            end)
+  end
+
+  test "latest_snapshot/0 gives unresolved expanded placeholders a human-safe label when identity data is missing" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unresolved_placeholder_label_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-unresolved-placeholder-switch-#{suffix}"
+
+    create_topology_device(
+      actor,
+      switch_uid,
+      "cluster-unresolved-placeholder-switch-#{suffix}",
+      %{
+        ip: "198.51.104.10",
+        type_id: 10,
+        is_available: true
+      }
+    )
+
+    endpoint_ids =
+      Enum.map(1..4, fn idx -> "sr:cluster-unresolved-placeholder-endpoint-#{suffix}-#{idx}" end)
+
+    rows =
+      Enum.map(endpoint_ids, fn endpoint_uid ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.104.10",
+          local_if_name: "edge7",
+          local_if_index: 17,
+          neighbor_if_name: nil,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: nil,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 1,
+          flow_bps: 100,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 1,
+          flow_pps_ba: 0,
+          flow_bps_ab: 100,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-24T04:00:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+
+    assert {:ok, %{snapshot: expanded_snapshot}} =
+             latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
+
+    assert Enum.all?(endpoint_ids, fn endpoint_id ->
+             endpoint = Enum.find(expanded_snapshot.nodes, &(&1.id == endpoint_id))
+             endpoint && endpoint.label == "Unidentified endpoint"
+           end)
+  end
+
+  test "latest_snapshot/0 limits topology-sighting members rendered for expanded endpoint clusters" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_topology_sighting_expand_budget_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-topology-sighting-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-topology-sighting-switch-#{suffix}", %{
+      ip: "198.51.103.10",
+      type_id: 10,
+      is_available: true
+    })
+
+    endpoint_specs =
+      Enum.map(1..9, fn idx ->
+        uid = "sr:cluster-topology-sighting-endpoint-#{suffix}-#{idx}"
+        ip = "198.51.103.#{20 + idx}"
+        mac = "02:00:00:60:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+
+        create_topology_device(actor, uid, nil, %{
+          ip: ip,
+          type_id: 2,
+          is_available: true,
+          metadata: %{"identity_source" => "mapper_topology_sighting", "primary_mac" => mac}
+        })
+
+        %{uid: uid, ip: ip, mac: mac}
+      end)
+
+    rows =
+      Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.103.10",
+          local_if_name: "edge3",
+          local_if_index: 13,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "medium",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 4,
+          flow_bps: 400,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 4,
+          flow_pps_ba: 0,
+          flow_bps_ab: 400,
+          flow_bps_ba: 0,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-24T03:30:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+
+    assert {:ok, %{snapshot: expanded_snapshot}} =
+             latest_snapshot_for_test(%{expanded_clusters: [cluster_id]})
+
+    visible_member_nodes =
+      Enum.filter(expanded_snapshot.nodes, fn node ->
+        Enum.any?(endpoint_specs, &(&1.uid == node.id))
+      end)
+
+    assert length(visible_member_nodes) == 6
+
+    expanded_member_edges =
+      Enum.filter(expanded_snapshot.edges, fn edge ->
+        edge.source == cluster_id and Enum.any?(endpoint_specs, &(&1.uid == edge.target))
+      end)
+
+    assert length(expanded_member_edges) == 6
+
+    cluster_details =
+      expanded_snapshot.nodes
+      |> Enum.find(&(&1.id == cluster_id))
+      |> Map.fetch!(:details_json)
+      |> Jason.decode!()
+
+    assert cluster_details["cluster_kind"] == "endpoint-summary"
+    assert cluster_details["cluster_expanded"] == true
+    assert cluster_details["cluster_member_count"] == 9
+    assert cluster_details["cluster_visible_member_count"] == 6
+    assert cluster_details["cluster_hidden_member_count"] == 3
   end
 
   test "latest_snapshot/0 keeps expanded cluster members when sibling collapsed clusters share those endpoints" do
@@ -5464,6 +7983,345 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
              Enum.any?(expanded_snapshot.nodes, &(&1.id == spec.uid)) and
                find_edge(expanded_snapshot, expanded_cluster_id, spec.uid)
            end)
+  end
+
+  test "latest_snapshot/0 quarantines unresolved attachment identities that do not qualify for clustering" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_unresolved_quarantine_test)
+    suffix = System.unique_integer([:positive])
+    router_uid = "sr:cluster-quarantine-router-#{suffix}"
+    switch_uid = "sr:cluster-quarantine-switch-#{suffix}"
+
+    create_topology_device(actor, router_uid, "cluster-quarantine-router-#{suffix}", %{
+      ip: "198.51.102.1",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, switch_uid, "cluster-quarantine-switch-#{suffix}", %{
+      ip: "198.51.102.2",
+      type_id: 10,
+      is_available: true
+    })
+
+    unresolved_endpoint_specs =
+      Enum.map(1..2, fn idx ->
+        %{
+          uid: "sr:cluster-quarantine-endpoint-#{suffix}-#{idx}",
+          ip: "198.51.102.#{20 + idx}",
+          mac: "02:00:00:50:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:ff"
+        }
+      end)
+
+    rows =
+      [
+        %{
+          local_device_id: router_uid,
+          local_device_ip: "198.51.102.1",
+          local_if_name: "xe-0/0/0",
+          local_if_index: 101,
+          neighbor_if_name: "ge-0/0/1",
+          neighbor_if_index: 1,
+          neighbor_device_id: switch_uid,
+          neighbor_mgmt_addr: "198.51.102.2",
+          protocol: "lldp",
+          evidence_class: "direct",
+          confidence_tier: "high",
+          confidence_reason: "lldp_bidirectional",
+          flow_pps: 8,
+          flow_bps: 800,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 8,
+          flow_pps_ba: 8,
+          flow_bps_ab: 800,
+          flow_bps_ba: 800,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-03-24T04:00:00Z",
+          metadata: %{
+            "relation_type" => "CONNECTED_TO",
+            "evidence_class" => "direct"
+          }
+        }
+      ] ++
+        Enum.map(unresolved_endpoint_specs, fn %{
+                                                 uid: endpoint_uid,
+                                                 ip: endpoint_ip,
+                                                 mac: endpoint_mac
+                                               } ->
+          %{
+            local_device_id: switch_uid,
+            local_device_ip: "198.51.102.2",
+            local_if_name: "edge2",
+            local_if_index: 12,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 2,
+            flow_bps: 200,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 2,
+            flow_pps_ba: 0,
+            flow_bps_ab: 200,
+            flow_bps_ba: 0,
+            telemetry_source: "interface",
+            telemetry_observed_at: "2026-03-24T04:00:05Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    assert Enum.any?(snapshot.nodes, &(&1.id == router_uid))
+    assert Enum.any?(snapshot.nodes, &(&1.id == switch_uid))
+    assert find_edge(snapshot, router_uid, switch_uid)
+
+    refute Enum.any?(snapshot.nodes, fn node ->
+             Enum.any?(unresolved_endpoint_specs, &(&1.uid == node.id))
+           end)
+
+    refute Enum.any?(snapshot.edges, fn edge ->
+             Enum.any?(unresolved_endpoint_specs, fn spec ->
+               edge.source == spec.uid or edge.target == spec.uid
+             end)
+           end)
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
+  end
+
+  test "latest_snapshot/0 excludes weak non-interface SNMP-L2 attachments from endpoint summaries" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_weak_attachment_filter_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-weak-switch-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "cluster-weak-switch-#{suffix}", %{
+      ip: "198.51.103.2",
+      type_id: 10,
+      is_available: true
+    })
+
+    unresolved_endpoint_specs =
+      Enum.map(1..4, fn idx ->
+        %{
+          uid: "sr:cluster-weak-endpoint-#{suffix}-#{idx}",
+          ip: "198.51.103.#{20 + idx}",
+          mac: "02:00:00:60:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+        }
+      end)
+
+    rows =
+      Enum.map(unresolved_endpoint_specs, fn %{
+                                               uid: endpoint_uid,
+                                               ip: endpoint_ip,
+                                               mac: endpoint_mac
+                                             } ->
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: "198.51.103.2",
+          local_if_name: nil,
+          local_if_index: nil,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "endpoint-attachment",
+          confidence_tier: "low",
+          confidence_reason: "single_identifier_inference",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-11T12:00:00Z",
+          metadata: %{
+            "relation_type" => "ATTACHED_TO",
+            "evidence_class" => "endpoint-attachment"
+          }
+        }
+      end)
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 0
+
+    refute Enum.any?(snapshot.nodes, fn node ->
+             Enum.any?(unresolved_endpoint_specs, &(&1.uid == node.id))
+           end)
+  end
+
+  test "latest_snapshot/0 excludes known infrastructure IPs from endpoint summary fallback membership" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_known_infrastructure_endpoint_filter_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:cluster-known-infra-switch-#{suffix}"
+    ap_uid = "sr:cluster-known-infra-ap-#{suffix}"
+    switch_ip = "198.51.104.2"
+    ap_ip = "198.51.104.151"
+
+    create_topology_device(actor, switch_uid, "cluster-known-infra-switch-#{suffix}", %{
+      ip: switch_ip,
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, ap_uid, "cluster-known-infra-ap-#{suffix}", %{
+      ip: ap_ip,
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    endpoint_specs =
+      Enum.map(1..3, fn idx ->
+        %{
+          uid: "sr:cluster-known-infra-endpoint-#{suffix}-#{idx}",
+          ip: "198.51.104.#{20 + idx}",
+          mac: "02:00:00:61:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
+        }
+      end)
+
+    infrastructure_shadow_uid = "sr:cluster-known-infra-shadow-#{suffix}"
+
+    rows =
+      [
+        %{
+          local_device_id: switch_uid,
+          local_device_ip: switch_ip,
+          local_if_name: "eth0",
+          local_if_index: 1,
+          neighbor_if_name: "wifi0",
+          neighbor_if_index: 10,
+          neighbor_device_id: ap_uid,
+          neighbor_mgmt_addr: ap_ip,
+          protocol: "lldp",
+          evidence_class: "direct",
+          confidence_tier: "high",
+          confidence_reason: "lldp_bidirectional",
+          flow_pps: 10,
+          flow_bps: 1000,
+          capacity_bps: 1_000_000_000,
+          flow_pps_ab: 10,
+          flow_pps_ba: 10,
+          flow_bps_ab: 1000,
+          flow_bps_ba: 1000,
+          telemetry_source: "interface",
+          telemetry_observed_at: "2026-04-11T13:00:00Z",
+          metadata: %{
+            "relation_type" => "CONNECTED_TO",
+            "evidence_class" => "direct"
+          }
+        }
+      ] ++
+        Enum.map(endpoint_specs, fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+          %{
+            local_device_id: endpoint_uid,
+            local_device_ip: endpoint_ip,
+            local_if_name: endpoint_mac,
+            local_if_index: nil,
+            neighbor_if_name: "edge7",
+            neighbor_if_index: 7,
+            neighbor_device_id: switch_uid,
+            neighbor_mgmt_addr: switch_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 2,
+            flow_bps: 200,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 2,
+            flow_pps_ba: 0,
+            flow_bps_ab: 200,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-04-11T13:00:05Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        end) ++
+        [
+          %{
+            local_device_id: infrastructure_shadow_uid,
+            local_device_ip: ap_ip,
+            local_if_name: "shadow-if",
+            local_if_index: nil,
+            neighbor_if_name: "edge7",
+            neighbor_if_index: 7,
+            neighbor_device_id: switch_uid,
+            neighbor_mgmt_addr: switch_ip,
+            protocol: "snmp-l2",
+            evidence_class: "endpoint-attachment",
+            confidence_tier: "medium",
+            confidence_reason: "single_identifier_inference",
+            flow_pps: 1,
+            flow_bps: 100,
+            capacity_bps: 1_000_000_000,
+            flow_pps_ab: 1,
+            flow_pps_ba: 0,
+            flow_bps_ab: 100,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-04-11T13:00:10Z",
+            metadata: %{
+              "relation_type" => "ATTACHED_TO",
+              "evidence_class" => "endpoint-attachment"
+            }
+          }
+        ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    cluster = Enum.find(snapshot.nodes, &(&1.id == cluster_id))
+    cluster_details = Jason.decode!(cluster.details_json)
+
+    assert cluster.label == "3 endpoints"
+    assert cluster_details["cluster_member_count"] == 3
+    assert cluster_details["cluster_anchor_id"] == switch_uid
+    assert Map.get(snapshot.pipeline_stats, :clustered_endpoint_summaries, 0) == 1
+    assert Enum.any?(snapshot.nodes, &(&1.id == ap_uid))
+    assert find_edge(snapshot, switch_uid, ap_uid)
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == infrastructure_shadow_uid))
   end
 
   defp coords_for(snapshot, node_ids) do

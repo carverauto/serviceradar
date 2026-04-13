@@ -72,16 +72,42 @@ agent:
     storageClassName: ""
 
 ingress:
-  enabled: true
+  enabled: false
   host: demo.serviceradar.cloud
   className: nginx
   tls:
     enabled: true
-    # Use the wildcard cert from ingress-nginx namespace via default SSL cert.
-    # Do NOT set clusterIssuer - it triggers cert-manager which hits rate limits
-    # when namespaces are frequently recreated.
     secretName: ""
     clusterIssuer: ""
+gatewayApi:
+  enabled: true
+  mode: attach
+  host: demo.serviceradar.cloud
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: serviceradar-shared-gateway
+      namespace: serviceradar-system
+      sectionName: https-web
+  redirectParentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: serviceradar-shared-gateway
+      namespace: serviceradar-system
+      sectionName: http-web
+  http:
+    enabled: true
+    redirectToHttps: true
+  tls:
+    enabled: true
+    # Shared serviceradar edge terminates TLS with the wildcard cert in
+    # serviceradar-system; demo only attaches routes.
+    secretName: ""
+    clusterIssuer: ""
+  backendTrafficPolicy:
+    enabled: true
+    requestTimeout: 86400s
+    requestBufferLimit: 100Mi
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
