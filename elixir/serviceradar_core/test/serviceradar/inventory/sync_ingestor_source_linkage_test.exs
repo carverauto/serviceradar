@@ -67,6 +67,59 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
     assert identifier.metadata["integration_type"] == "armis"
   end
 
+  test "sync ingestor backfills metadata on existing armis identifiers", %{actor: actor} do
+    armis_id = "armis-#{System.unique_integer([:positive])}"
+    sync_service_id = Ash.UUID.generate()
+    ip = "10.12.0.#{unique_octet()}"
+    mac = unique_mac()
+
+    initial_update = %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "armis-existing-identifier",
+      "source" => "armis",
+      "metadata" => %{
+        "armis_device_id" => armis_id,
+        "integration_type" => "armis"
+      }
+    }
+
+    linked_update = %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "armis-existing-identifier",
+      "source" => "armis",
+      "metadata" => %{
+        "armis_device_id" => armis_id,
+        "integration_type" => "armis"
+      },
+      "sync_meta" => %{
+        "sync_service_id" => sync_service_id
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([initial_update], actor: actor)
+    assert :ok = SyncIngestor.ingest_updates([linked_update], actor: actor)
+
+    {:ok, [device]} =
+      Device
+      |> Ash.Query.filter(ip == ^ip)
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    {:ok, identifiers} =
+      DeviceIdentifier
+      |> Ash.Query.filter(
+        device_id == ^device.uid and identifier_type == :armis_device_id and
+          identifier_value == ^armis_id
+      )
+      |> Ash.read(actor: actor)
+
+    assert [%DeviceIdentifier{} = identifier] = identifiers
+    assert identifier.metadata["sync_service_id"] == sync_service_id
+    assert identifier.metadata["integration_type"] == "armis"
+  end
+
   defp unique_mac do
     suffix =
       [:positive]

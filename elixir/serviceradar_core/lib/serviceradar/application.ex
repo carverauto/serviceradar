@@ -160,6 +160,7 @@ defmodule ServiceRadar.Application do
         netflow_enrichment_dataset_scheduler_child(),
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
+        armis_northbound_scheduler_child(),
         mtr_baseline_scheduler_child(),
         mtr_state_trigger_worker_child(),
         mtr_consensus_worker_child(),
@@ -278,6 +279,12 @@ defmodule ServiceRadar.Application do
   defp netflow_cache_scheduler_child do
     if repo_enabled?() and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowCacheScheduler
+    end
+  end
+
+  defp armis_northbound_scheduler_child do
+    if repo_enabled?() and job_scheduler_node?() do
+      ServiceRadar.Integrations.ArmisNorthboundScheduler
     end
   end
 
