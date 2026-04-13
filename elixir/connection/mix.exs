@@ -31,7 +31,7 @@ defmodule Connection.Mixfile do
       {:ex_doc, "~> 0.22", only: :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},
-      {:ex_dna, "~> 1.2", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.3", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
       {:styler, "~> 1.11", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
