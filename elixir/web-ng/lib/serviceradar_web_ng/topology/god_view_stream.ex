@@ -2250,6 +2250,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       cluster_nodes =
         build_collapsed_cluster_nodes(summarized_groups_by_anchor, expanded_clusters, nodes)
 
+      projected_nodes = retained_nodes ++ cluster_nodes
+
       retained_edges =
         edges
         |> Enum.reject(
@@ -2261,6 +2263,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           )
         )
         |> Enum.reject(&projected_cluster_attachment_edge?(&1, summarized_groups))
+        |> suppress_shadowed_raw_attachment_edges(projected_nodes, summarized_groups)
 
       cluster_edges =
         Enum.map(collapsed_summarized_groups, &build_endpoint_cluster_edge(&1, nodes))
@@ -2286,8 +2289,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           Enum.reduce(expanded_groups, 0, &(expanded_group_hidden_member_count(&1) + &2))
         )
 
-      projected_nodes = retained_nodes ++ cluster_nodes
-
       {projected_nodes, retained_edges ++ cluster_edges ++ expanded_cluster_edges ++ expanded_member_edges,
        next_pipeline_stats}
     end
@@ -2296,6 +2297,72 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp apply_endpoint_cluster_projection(nodes, edges, pipeline_stats, _snapshot_opts) do
     {nodes, edges, pipeline_stats}
   end
+
+  defp suppress_shadowed_raw_attachment_edges(edges, nodes, summarized_groups)
+       when is_list(edges) and is_list(nodes) and is_list(summarized_groups) do
+    nodes_by_id = Map.new(nodes, &{normalize_id(Map.get(&1, :id)), &1})
+
+    summarized_endpoint_ids =
+      summarized_groups
+      |> Enum.flat_map(&Map.get(&1, :endpoint_ids, []))
+      |> MapSet.new()
+
+    explicit_controller_endpoint_ids =
+      edges
+      |> Enum.filter(&explicit_controller_client_association_edge?/1)
+      |> Enum.flat_map(fn edge ->
+        case projection_attachment_endpoint_id(edge, nodes_by_id) do
+          endpoint_id when is_binary(endpoint_id) -> [endpoint_id]
+          _ -> []
+        end
+      end)
+      |> MapSet.new()
+
+    Enum.reject(
+      edges,
+      &shadowed_raw_attachment_edge?(
+        &1,
+        nodes_by_id,
+        summarized_endpoint_ids,
+        explicit_controller_endpoint_ids
+      )
+    )
+  end
+
+  defp suppress_shadowed_raw_attachment_edges(edges, _nodes, _summarized_groups) when is_list(edges), do: edges
+  defp suppress_shadowed_raw_attachment_edges(_edges, _nodes, _summarized_groups), do: []
+
+  defp shadowed_raw_attachment_edge?(edge, nodes_by_id, summarized_endpoint_ids, explicit_controller_endpoint_ids)
+       when is_map(edge) and is_map(nodes_by_id) and is_struct(summarized_endpoint_ids, MapSet) and
+              is_struct(explicit_controller_endpoint_ids, MapSet) do
+    if raw_endpoint_attachment_edge?(edge) and not explicit_controller_client_association_edge?(edge) do
+      endpoint_id = projection_attachment_endpoint_id(edge, nodes_by_id)
+      anchor_id = projection_attachment_anchor_id(edge, nodes_by_id)
+      endpoint_node = Map.get(nodes_by_id, endpoint_id)
+      projection_anchor_id = projection_anchor_id(endpoint_node)
+
+      is_binary(endpoint_id) and
+        ((is_map(endpoint_node) and infrastructure_device?(endpoint_node)) or
+           MapSet.member?(explicit_controller_endpoint_ids, endpoint_id) or
+           MapSet.member?(summarized_endpoint_ids, endpoint_id) or
+           (is_binary(projection_anchor_id) and projection_anchor_id != anchor_id))
+    else
+      false
+    end
+  end
+
+  defp shadowed_raw_attachment_edge?(_edge, _nodes_by_id, _summarized_endpoint_ids, _explicit_controller_endpoint_ids),
+    do: false
+
+  defp projection_anchor_id(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("projection_anchor_id")
+    |> normalize_id()
+  end
+
+  defp projection_anchor_id(_node), do: nil
 
   defp ensure_expanded_cluster_member_nodes(nodes_by_id, expanded_groups)
        when is_map(nodes_by_id) and is_list(expanded_groups) do
