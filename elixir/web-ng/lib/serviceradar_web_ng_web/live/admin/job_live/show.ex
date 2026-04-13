@@ -564,7 +564,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     recent_runs =
       if job.worker do
-        JobCatalog.get_recent_runs(job.worker, limit: 20, source: job.source)
+        JobCatalog.get_recent_runs(job, limit: 20)
       else
         []
       end
@@ -591,7 +591,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     chart_data =
       if job.worker do
-        JobCatalog.get_execution_stats(job.worker, hours: hours, source: job.source)
+        JobCatalog.get_execution_stats(job, hours: hours)
       else
         []
       end
@@ -686,11 +686,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   defp source_label(:cron_plugin), do: "Cron"
   defp source_label(:ash_oban), do: "AshOban"
   defp source_label(:self_scheduling), do: "Self"
+  defp source_label(:manual), do: "Manual"
   defp source_label(_), do: "Unknown"
 
   defp source_variant(:cron_plugin), do: "info"
   defp source_variant(:ash_oban), do: "accent"
   defp source_variant(:self_scheduling), do: "neutral"
+  defp source_variant(:manual), do: "secondary"
   defp source_variant(_), do: "ghost"
 
   defp format_datetime(nil), do: "—"

@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
         "cron_plugin" -> :cron_plugin
         "ash_oban" -> :ash_oban
         "self_scheduling" -> :self_scheduling
+        "manual" -> :manual
         _ -> nil
       end
 
@@ -267,6 +268,14 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                   {@self_scheduling_count}
                 </div>
               </div>
+              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+                  Manual Jobs
+                </div>
+                <div class="mt-1 text-sm font-semibold text-base-content">
+                  {@manual_count}
+                </div>
+              </div>
             </div>
           </.ui_panel>
 
@@ -316,6 +325,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                   </option>
                   <option value="self_scheduling" selected={@filter_source == :self_scheduling}>
                     Self-scheduling
+                  </option>
+                  <option value="manual" selected={@filter_source == :manual}>
+                    Manual Jobs
                   </option>
                 </select>
               </form>
@@ -575,6 +587,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     cron_count = Enum.count(all_jobs, &(&1.source == :cron_plugin))
     ash_oban_count = Enum.count(all_jobs, &(&1.source == :ash_oban))
     self_scheduling_count = Enum.count(all_jobs, &(&1.source == :self_scheduling))
+    manual_count = Enum.count(all_jobs, &(&1.source == :manual))
 
     total_pages = ceil(filtered_count / socket.assigns.per_page)
 
@@ -592,6 +605,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:cron_job_count, cron_count)
     |> assign(:ash_oban_count, ash_oban_count)
     |> assign(:self_scheduling_count, self_scheduling_count)
+    |> assign(:manual_count, manual_count)
     |> assign(:leader_node, leader)
     |> assign(:show_oban_web, show_oban_web)
     |> assign(:show_leader_info, show_leader_info)
@@ -651,11 +665,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   defp source_label(:cron_plugin), do: "Cron"
   defp source_label(:ash_oban), do: "AshOban"
   defp source_label(:self_scheduling), do: "Self"
+  defp source_label(:manual), do: "Manual"
   defp source_label(_), do: "Unknown"
 
   defp source_variant(:cron_plugin), do: "info"
   defp source_variant(:ash_oban), do: "accent"
   defp source_variant(:self_scheduling), do: "neutral"
+  defp source_variant(:manual), do: "secondary"
   defp source_variant(_), do: "ghost"
 
   defp format_datetime_short(nil), do: "—"

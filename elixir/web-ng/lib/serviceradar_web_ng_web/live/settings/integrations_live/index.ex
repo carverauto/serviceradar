@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
+  alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.RBAC
@@ -408,7 +409,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           {:ok, _} ->
             {:noreply,
              socket
-             |> assign(:sources, list_sources(actor))
+             |> assign(:sources, list_sources(actor, active_filters(socket)))
+             |> assign(:selected_source, refresh_selected_source(socket.assigns.selected_source, actor))
              |> put_flash(:info, "Integration source #{action}d")}
 
           {:error, _} ->
@@ -429,14 +431,43 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           :ok ->
             {:noreply,
              socket
+             |> put_flash(:info, "Integration source deleted")
+             |> assign(:sources, list_sources(actor, active_filters(socket)))
              |> assign(:show_details_modal, false)
+             |> assign(:show_edit_modal, false)
              |> assign(:selected_source, nil)
-             |> assign(:sources, list_sources(actor))
-             |> put_flash(:info, "Integration source deleted")}
+             |> push_navigate(to: ~p"/settings/networks/integrations")}
 
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete integration source")}
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
         end
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Integration source not found")}
+    end
+  end
+
+  def handle_event("run_northbound_now", %{"id" => id}, socket) do
+    actor = get_actor(socket)
+
+    case get_source(id, actor) do
+      {:ok, %{source_type: :armis} = source} ->
+        case ArmisNorthboundRunWorker.enqueue_now(source.id) do
+          {:ok, _job} ->
+            refreshed = refresh_selected_source(socket.assigns.selected_source, actor)
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "Queued Armis northbound run for #{source.name}")
+             |> assign(:selected_source, refreshed)
+             |> assign(:sources, list_sources(actor, active_filters(socket)))}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
+        end
+
+      {:ok, _source} ->
+        {:noreply, put_flash(socket, :error, "Northbound run is only available for Armis sources")}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Integration source not found")}
@@ -1380,6 +1411,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
         <div class="modal-action">
           <button
+            :if={armis_source?(@source)}
+            type="button"
+            class="btn btn-secondary btn-outline"
+            phx-click="run_northbound_now"
+            phx-value-id={@source.id}
+          >
+            Run Northbound Now
+          </button>
+          <button
             type="button"
             class="btn btn-error btn-outline"
             phx-click="delete_source"
@@ -1440,6 +1480,28 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
   end
+
+  defp armis_source?(%{source_type: :armis}), do: true
+  defp armis_source?(_), do: false
+
+  defp refresh_selected_source(nil, _actor), do: nil
+
+  defp refresh_selected_source(%{id: id}, actor) do
+    case get_source(id, actor) do
+      {:ok, source} -> source
+      _ -> nil
+    end
+  end
+
+  defp active_filters(socket) do
+    %{}
+    |> maybe_put_filter(:source_type, socket.assigns.filter_type)
+    |> maybe_put_filter(:enabled, socket.assigns.filter_enabled)
+  end
+
+  defp maybe_put_filter(filters, _key, nil), do: filters
+  defp maybe_put_filter(filters, _key, ""), do: filters
+  defp maybe_put_filter(filters, key, value), do: Map.put(filters, key, value)
 
   defp format_datetime(nil), do: "-"
 
