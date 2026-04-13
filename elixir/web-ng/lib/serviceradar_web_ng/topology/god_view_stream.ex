@@ -5161,7 +5161,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp maybe_add_projection_attachment_side(sides, _include?, _endpoint_side) when is_list(sides), do: sides
 
   defp projection_attachment_endpoint_node?(node_id, node) when is_binary(node_id) and is_map(node) do
-    endpoint_like_node?(node) and not endpoint_cluster_anchor_node?(node_id, node)
+    endpoint_like_node?(node) and not infrastructure_device?(node) and
+      not endpoint_cluster_anchor_node?(node_id, node)
   end
 
   defp projection_attachment_endpoint_node?(_node_id, _node), do: false
