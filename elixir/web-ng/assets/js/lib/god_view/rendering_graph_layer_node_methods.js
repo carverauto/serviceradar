@@ -2,7 +2,141 @@ import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 export const godViewRenderingGraphLayerNodeMethods = {
+  visualClusterCount(node) {
+    const clusterKind = String(node?.details?.cluster_kind || "")
+    if (clusterKind === "endpoint-summary") return Math.max(1, Number(node?.clusterCount || 1))
+    return 1
+  },
+  labelBudgetForShape(shape, candidateCount = 0) {
+    switch (shape) {
+      case "local":
+        return Math.min(Math.max(candidateCount, 0), 24)
+      case "regional":
+        return Math.min(Math.max(candidateCount, 0), 16)
+      case "global":
+        return Math.min(Math.max(candidateCount, 0), 8)
+      default:
+        return 0
+    }
+  },
+  endpointSummaryLabelBudgetForShape(shape) {
+    switch (shape) {
+      case "local":
+        return 6
+      case "regional":
+        return 3
+      case "global":
+        return 1
+      default:
+        return 0
+    }
+  },
+  opaqueIdentityLabel(node) {
+    const label = String(node?.label || "")
+    const id = String(node?.id || "")
+    return label.startsWith("sr:") || (label.trim() === "" && id.startsWith("sr:"))
+  },
+  endpointSummaryLabel(node) {
+    return String(node?.details?.cluster_kind || "") === "endpoint-summary"
+  },
+  expandedEndpointMemberLabel(node) {
+    return String(node?.details?.cluster_kind || "") === "endpoint-member"
+      && node?.details?.cluster_expanded === true
+  },
+  unplacedNodeLabel(node) {
+    return node?.details?.topology_unplaced === true
+  },
+  backboneLabelCandidate(node) {
+    return !this.endpointSummaryLabel(node) && !this.expandedEndpointMemberLabel(node)
+  },
+  nodeLabelPriority(node) {
+    const details = node?.details || {}
+    const clusterKind = String(details?.cluster_kind || "")
+    const identitySource = String(details?.identity_source || "")
+    const clusterCount = Number(node?.clusterCount || 1)
+    const pps = Number(node?.pps || 0)
+    const state = Number(node?.state ?? 3)
+
+    return [
+      node?.selected === true ? 1 : 0,
+      this.unplacedNodeLabel(node) ? 1 : 0,
+      this.backboneLabelCandidate(node) ? 1 : 0,
+      clusterKind === "endpoint-anchor" ? 1 : 0,
+      identitySource !== "mapper_topology_sighting" ? 1 : 0,
+      clusterCount,
+      state === 0 ? 1 : 0,
+      state === 1 ? 1 : 0,
+      Math.round(pps),
+      String(node?.label || node?.id || ""),
+    ]
+  },
+  compareNodeLabelPriority(left, right) {
+    const leftPriority = this.nodeLabelPriority(left)
+    const rightPriority = this.nodeLabelPriority(right)
+
+    for (let index = 0; index < leftPriority.length; index += 1) {
+      if (index === leftPriority.length - 1) {
+        const compare = String(leftPriority[index]).localeCompare(String(rightPriority[index]))
+        if (compare !== 0) return compare
+        continue
+      }
+
+      const compare = Number(rightPriority[index] || 0) - Number(leftPriority[index] || 0)
+      if (compare !== 0) return compare
+    }
+
+    return 0
+  },
+  selectNodeLabels(nodeData, shape) {
+    if (!Array.isArray(nodeData) || nodeData.length === 0) return []
+    const selected = nodeData.filter((node) => node?.selected === true)
+    const candidates = nodeData.filter((node) => {
+      if (node?.selected === true) return true
+      const details = node?.details || {}
+      const clusterKind = String(details?.cluster_kind || "")
+      const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
+      if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
+      if (String(details?.identity_source || "") === "mapper_topology_sighting" && !expandedEndpointMember) return false
+      if (this.opaqueIdentityLabel(node)) return false
+      return true
+    })
+    const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
+    const expandedEndpointMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
+    const unplacedNodes = ordered.filter((node) => this.unplacedNodeLabel(node))
+    const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
+    const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
+    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
+    if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
+    const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
+    const orderedEndpointSummaries = ordered.filter((node) => this.endpointSummaryLabel(node))
+    const picked = []
+    const seen = new Set()
+    let endpointSummaryCount = 0
+
+    for (const node of [...selected, ...expandedEndpointMembers, ...unplacedNodes]) {
+      const id = String(node?.id || "")
+      if (id === "" || seen.has(id)) continue
+      seen.add(id)
+      picked.push(node)
+    }
+
+    for (const node of [...orderedBackbone, ...orderedEndpointSummaries]) {
+      const id = String(node?.id || "")
+      if (id === "" || seen.has(id)) continue
+      if (this.endpointSummaryLabel(node) && node?.selected !== true) {
+        if (endpointSummaryCount >= endpointSummaryBudget) continue
+        endpointSummaryCount += 1
+      }
+      seen.add(id)
+      picked.push(node)
+      if (picked.length >= budget + expandedEndpointMembers.length + selected.length + unplacedNodes.length) break
+    }
+
+    return picked
+  },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
+    const labelData = this.selectNodeLabels(nodeData, effective.shape)
+
     return [
       new LineLayer({
         id: "god-view-node-tethers",
@@ -27,7 +161,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(8 + ((d.clusterCount || 1) - 1) * 0.45, 26) * 2.5,
+        getRadius: (d) => Math.min(8 + (this.visualClusterCount(d) - 1) * 0.45, 26) * 2.5,
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
@@ -49,7 +183,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
         getRadius: (d) => {
-          const baseRadius = Math.min(12 + ((d.clusterCount || 1) - 1) * 0.45, 32)
+          const baseRadius = Math.min(12 + (this.visualClusterCount(d) - 1) * 0.45, 32)
           const breathe = Math.sin((this.state.animationPhase * 2.0) + d.index) * 2.0
           return baseRadius + breathe
         },
@@ -74,7 +208,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(4 + ((d.clusterCount || 1) - 1) * 0.2, 14),
+        getRadius: (d) => Math.min(4 + (this.visualClusterCount(d) - 1) * 0.2, 14),
         radiusUnits: "pixels",
         radiusMinPixels: 3,
         stroked: false,
@@ -90,7 +224,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         ? [
             new TextLayer({
               id: "god-view-node-labels",
-              data: nodeData,
+              data: labelData,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               getPosition: (d) => d.position,
               getText: (d) => d.label,

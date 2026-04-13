@@ -32,10 +32,10 @@ Publish, sign, and verify the first-party plugin artifacts only:
 make push_wasm_plugins
 ```
 
-Or run the repo-wide release publish path, which now includes both container images and first-party Wasm plugin OCI artifacts:
+Or run the repo-wide release publish path, which includes both container images and first-party Wasm plugin OCI artifacts:
 
 ```bash
-make push_all
+make push_all_release
 ```
 
 Each published artifact uses an immutable `sha-<git-commit>` tag under a deterministic Harbor repository:

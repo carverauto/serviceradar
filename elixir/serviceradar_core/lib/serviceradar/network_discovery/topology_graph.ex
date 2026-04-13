@@ -17,11 +17,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @default_canonical_edge_telemetry_batch_size 100
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
   @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
-  @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api", "wireguard-derived"])
+  @physical_direct_protocols MapSet.new(["lldp", "cdp", "unifi-api"])
+  @logical_direct_protocols MapSet.new(["wireguard-derived", "bgp", "ospf", "ipsec"])
+  @hosted_protocols MapSet.new(["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"])
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
-  @direct_evidence_classes MapSet.new(["direct"])
-  @attachment_evidence_classes MapSet.new(["endpoint-attachment"])
-  @inferred_evidence_classes MapSet.new(["inferred"])
+  @segment_evidence_classes MapSet.new(["inferred-segment"])
+  @auxiliary_relations MapSet.new([
+                         "LOGICAL_PEER",
+                         "HOSTED_ON",
+                         "ATTACHED_TO",
+                         "INFERRED_TO",
+                         "OBSERVED_TO"
+                       ])
 
   @type projection_payload :: %{
           local_device_id: String.t(),
@@ -36,6 +43,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           neighbor_name: term(),
           neighbor_ip: term(),
           evidence_class: String.t(),
+          relation_family: String.t(),
           confidence_tier: String.t(),
           confidence_score: number(),
           confidence_reason: String.t(),
@@ -56,6 +64,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     maybe_prune_unseen_projected_links(neighbor_index)
     maybe_prune_stale_projected_links(MapSet.to_list(local_device_ids))
     maybe_prune_stale_mapper_evidence_links()
+    reconcile_legacy_single_identifier_attachment_links()
+    purge_legacy_single_identifier_canonical_links()
     rebuild_canonical_device_links()
 
     Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
@@ -270,10 +280,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
       metadata = link_value(link, :metadata) || %{}
       protocol = link_value(link, :protocol) || "unknown"
+      source = map_value(metadata, :source) || protocol
 
       evidence_class =
         map_value(metadata, :evidence_class) ||
           default_evidence_class_for_protocol(protocol)
+
+      relation_family =
+        map_value(metadata, :relation_family) ||
+          default_relation_family_for_payload(
+            protocol,
+            source,
+            evidence_class,
+            confidence_reason(link, metadata)
+          )
 
       %{
         local_device_id: local_device_id,
@@ -288,6 +308,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         neighbor_name: link_value(link, :neighbor_system_name),
         neighbor_ip: link_value(link, :neighbor_mgmt_addr),
         evidence_class: evidence_class,
+        relation_family: relation_family,
         confidence_tier: confidence_tier(link, metadata),
         confidence_score: confidence_score(link, metadata),
         confidence_reason: confidence_reason(link, metadata),
@@ -407,20 +428,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp backbone_projectable_link?(payload) when is_map(payload) do
-    evidence_class = normalize_evidence_class(payload.evidence_class)
     protocol = normalize_protocol(payload.protocol)
+    relation = evidence_relation_type(payload)
 
-    MapSet.member?(@direct_evidence_classes, evidence_class) and
-      MapSet.member?(@direct_protocols, protocol) and
+    relation == "CONNECTS_TO" and
+      MapSet.member?(@physical_direct_protocols, protocol) and
       interface_contract_valid?(protocol, payload)
   end
 
   defp auxiliary_evidence_link?(payload) when is_map(payload) do
-    evidence_class = normalize_evidence_class(payload.evidence_class)
-    inferred_allowed = inferred_evidence_projectable?(payload)
-    attachment_allowed = MapSet.member?(@attachment_evidence_classes, evidence_class)
+    relation = evidence_relation_type(payload)
+    inferred_allowed = relation == "INFERRED_TO" and inferred_evidence_projectable?(payload)
+    auxiliary_relation_allowed = MapSet.member?(@auxiliary_relations, relation)
 
-    inferred_allowed or attachment_allowed
+    inferred_allowed or auxiliary_relation_allowed
   end
 
   defp projection_mode(payload) when is_map(payload) do
@@ -433,6 +454,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp auxiliary_reason(payload) do
     case evidence_relation_type(payload) do
+      "LOGICAL_PEER" -> :projected_logical
+      "HOSTED_ON" -> :projected_hosted
       "ATTACHED_TO" -> :projected_attachment
       "INFERRED_TO" -> :projected_inferred
       _ -> :projected_observed
@@ -453,7 +476,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       strict_ifindex? and not strict_protocol_interface_identity?(payload) ->
         :skip_missing_ifindex
 
-      MapSet.member?(@inferred_evidence_classes, evidence_class) ->
+      MapSet.member?(@segment_evidence_classes, evidence_class) ->
         :skip_inferred_low_confidence
 
       true ->
@@ -494,7 +517,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     confidence_tier = normalize_confidence_tier(payload.confidence_tier)
     confidence_reason = normalize_confidence_reason(payload.confidence_reason)
 
-    MapSet.member?(@inferred_evidence_classes, evidence_class) and
+    MapSet.member?(@segment_evidence_classes, evidence_class) and
       (confidence_reason != "single_identifier_inference" or
          allow_single_identifier_inference_projection?(payload)) and
       (confidence_tier in ["high", "medium"] or payload.confidence_score >= 60)
@@ -508,13 +531,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp evidence_relation_type(payload) do
-    evidence_class = normalize_evidence_class(payload.evidence_class)
-
-    cond do
-      MapSet.member?(@attachment_evidence_classes, evidence_class) -> "ATTACHED_TO"
-      MapSet.member?(@inferred_evidence_classes, evidence_class) -> "INFERRED_TO"
-      true -> "OBSERVED_TO"
-    end
+    normalize_relation_family(payload.relation_family) ||
+      default_relation_family_for_payload(
+        payload.protocol,
+        payload.protocol,
+        payload.evidence_class,
+        payload.confidence_reason
+      )
   end
 
   defp upsert_auxiliary_link_payload(payload) do
@@ -551,6 +574,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
     SET r2.source = 'mapper'
+    WITH a, b, ai, bi
+    OPTIONAL MATCH (ai)-[legacy]->(bi)
+    WHERE legacy.ingestor = 'mapper_topology_v1'
+      AND type(legacy) IN ['LOGICAL_PEER', 'HOSTED_ON', 'ATTACHED_TO', 'INFERRED_TO', 'OBSERVED_TO']
+      AND type(legacy) <> '#{Graph.escape(relation)}'
+    DELETE legacy
     MERGE (ai)-[r:#{relation}]->(bi)
     SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(payload.observed_at)}')
     SET r.ingestor = 'mapper_topology_v1'
@@ -701,15 +730,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp prune_stale_mapper_evidence_links do
     stale_cutoff = stale_cutoff_iso8601()
-
-    cypher = """
-    MATCH ()-[r]->()
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
-      AND r.last_observed_at IS NOT NULL
-      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
-    DELETE r
-    """
+    cypher = prune_stale_mapper_evidence_links_query(stale_cutoff)
 
     case Graph.execute(cypher) do
       :ok ->
@@ -718,6 +739,81 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       {:error, reason} ->
         Logger.warning("Topology global stale edge pruning failed: #{inspect(reason)}")
     end
+  end
+
+  @doc false
+  @spec prune_stale_mapper_evidence_links_query(String.t()) :: String.t()
+  def prune_stale_mapper_evidence_links_query(stale_cutoff) when is_binary(stale_cutoff) do
+    """
+    MATCH ()-[r]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND r.last_observed_at IS NOT NULL
+      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+    DELETE r
+    """
+  end
+
+  defp reconcile_legacy_single_identifier_attachment_links do
+    cypher = reconcile_legacy_single_identifier_attachment_links_query()
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Legacy mapper ATTACHED_TO reconciliation failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec reconcile_legacy_single_identifier_attachment_links_query() :: String.t()
+  def reconcile_legacy_single_identifier_attachment_links_query do
+    """
+    MATCH (ai:Interface)-[legacy:ATTACHED_TO]->(bi:Interface)
+    WHERE legacy.ingestor = 'mapper_topology_v1'
+      AND toLower(coalesce(legacy.protocol, legacy.source, 'unknown')) = 'snmp-l2'
+      AND toLower(coalesce(legacy.evidence_class, 'unknown')) = 'endpoint-attachment'
+      AND toLower(coalesce(legacy.confidence_reason, 'unknown')) = 'single_identifier_inference'
+    MERGE (ai)-[observed:OBSERVED_TO]->(bi)
+    SET observed.first_observed_at = coalesce(observed.first_observed_at, legacy.first_observed_at, legacy.observed_at)
+    SET observed.ingestor = 'mapper_topology_v1'
+    SET observed.source = coalesce(legacy.source, 'snmp-l2')
+    SET observed.protocol = coalesce(legacy.protocol, legacy.source, 'snmp-l2')
+    SET observed.evidence_class = coalesce(legacy.evidence_class, 'endpoint-attachment')
+    SET observed.confidence_tier = coalesce(legacy.confidence_tier, 'low')
+    SET observed.confidence_score = coalesce(legacy.confidence_score, 40)
+    SET observed.confidence_reason = coalesce(legacy.confidence_reason, 'single_identifier_inference')
+    SET observed.observed_at = coalesce(legacy.observed_at, observed.observed_at)
+    SET observed.last_observed_at = coalesce(legacy.last_observed_at, legacy.observed_at, observed.last_observed_at)
+    DELETE legacy
+    """
+  end
+
+  defp purge_legacy_single_identifier_canonical_links do
+    cypher = purge_legacy_single_identifier_canonical_links_query()
+
+    case Graph.execute(cypher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Legacy canonical ATTACHED_TO purge failed: #{inspect(reason)}")
+    end
+  end
+
+  @doc false
+  @spec purge_legacy_single_identifier_canonical_links_query() :: String.t()
+  def purge_legacy_single_identifier_canonical_links_query do
+    """
+    MATCH ()-[r:CANONICAL_TOPOLOGY]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND toLower(coalesce(r.relation_type, 'unknown')) = 'attached_to'
+      AND toLower(coalesce(r.protocol, 'unknown')) = 'snmp-l2'
+      AND toLower(coalesce(r.evidence_class, 'unknown')) = 'endpoint-attachment'
+      AND toLower(coalesce(r.confidence_reason, 'unknown')) = 'single_identifier_inference'
+    DELETE r
+    """
   end
 
   defp maybe_prune_stale_mapper_evidence_links do
@@ -935,7 +1031,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
     WHERE r.ingestor = 'mapper_topology_v1'
       AND coalesce(r.relation_type, '') = 'CONNECTS_TO'
-      AND coalesce(r.evidence_class, '') = 'direct'
+      AND coalesce(r.evidence_class, '') = 'direct-physical'
     RETURN {
       src_id: a.id,
       dst_id: b.id,
@@ -993,7 +1089,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     cypher = """
     MATCH (a:Device {id: '#{Graph.escape(src_id)}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{Graph.escape(dst_id)}'})
     SET r.relation_type = 'ATTACHED_TO'
-    SET r.evidence_class = 'endpoint-attachment'
+    SET r.evidence_class = 'inferred-segment'
     SET r.confidence_tier = 'medium'
     SET r.confidence_score = CASE WHEN coalesce(r.confidence_score, 0) > 78 THEN r.confidence_score ELSE 78 END
     SET r.confidence_reason = 'shared_segment_via_uplink'
@@ -1157,7 +1253,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     """
     MATCH ()-[r]->()
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
     RETURN {count: count(r)}
     """
   end
@@ -1732,7 +1828,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     """
     MATCH (ai:Interface)-[r]->(bi:Interface)
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO']
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL
@@ -1766,7 +1862,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       coalesce(r.confidence_reason, 'unspecified') AS confidence_reason,
       coalesce(r.last_observed_at, r.observed_at) AS last_observed_at,
       CASE type(r)
-        WHEN 'CONNECTS_TO' THEN 4
+        WHEN 'CONNECTS_TO' THEN 5
+        WHEN 'LOGICAL_PEER' THEN 4
+        WHEN 'HOSTED_ON' THEN 4
         WHEN 'INFERRED_TO' THEN 3
         WHEN 'ATTACHED_TO' THEN 2
         ELSE 1
@@ -1778,6 +1876,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         ELSE 0
       END AS conf_rank,
       CASE type(r)
+        WHEN 'LOGICAL_PEER' THEN 1
+        WHEN 'HOSTED_ON' THEN 1
         WHEN 'INFERRED_TO' THEN 1
         WHEN 'ATTACHED_TO' THEN 1
         ELSE 0
@@ -1939,13 +2039,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     |> String.downcase()
   end
 
-  defp normalize_evidence_class(nil), do: "inferred"
+  defp normalize_evidence_class(nil), do: "inferred-segment"
 
   defp normalize_evidence_class(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> String.downcase()
+    case value |> to_string() |> String.trim() |> String.downcase() do
+      "direct" -> "direct-physical"
+      "inferred" -> "inferred-segment"
+      "endpoint-attachment" -> "endpoint-attachment"
+      normalized -> normalized
+    end
   end
 
   defp normalize_confidence_tier(value) do
@@ -1969,10 +2071,62 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp map_value(_map, _key), do: nil
 
   defp default_evidence_class_for_protocol(protocol) do
-    if MapSet.member?(@direct_protocols, normalize_protocol(protocol)) do
-      "direct"
-    else
-      "inferred"
+    normalized = normalize_protocol(protocol)
+
+    cond do
+      MapSet.member?(@physical_direct_protocols, normalized) -> "direct-physical"
+      MapSet.member?(@logical_direct_protocols, normalized) -> "direct-logical"
+      MapSet.member?(@hosted_protocols, normalized) -> "hosted-virtual"
+      true -> "inferred-segment"
+    end
+  end
+
+  defp normalize_relation_family(nil), do: nil
+
+  defp normalize_relation_family(value) do
+    case value |> to_string() |> String.trim() do
+      "" -> nil
+      family -> String.upcase(family)
+    end
+  end
+
+  defp default_relation_family_for_payload(protocol, source, evidence_class, confidence_reason) do
+    normalized_protocol = normalize_protocol(protocol)
+    normalized_source = normalize_protocol(source)
+    normalized_evidence = normalize_evidence_class(evidence_class)
+    normalized_confidence_reason = normalize_confidence_reason(confidence_reason)
+
+    cond do
+      normalized_evidence == "direct-physical" ->
+        "CONNECTS_TO"
+
+      normalized_evidence == "direct-logical" ->
+        "LOGICAL_PEER"
+
+      normalized_evidence == "hosted-virtual" ->
+        "HOSTED_ON"
+
+      normalized_evidence == "observed-only" ->
+        "OBSERVED_TO"
+
+      normalized_evidence == "endpoint-attachment" ->
+        "ATTACHED_TO"
+
+      normalized_evidence == "inferred-segment" and
+        normalized_confidence_reason == "single_identifier_inference" and
+          (normalized_protocol == "snmp-l2" or normalized_source == "snmp-arp-fdb") ->
+        "OBSERVED_TO"
+
+      normalized_evidence == "inferred-segment" and
+          normalized_confidence_reason == "single_identifier_inference" ->
+        nil
+
+      normalized_evidence == "inferred-segment" and
+          (normalized_protocol == "snmp-l2" or normalized_source == "snmp-arp-fdb") ->
+        "INFERRED_TO"
+
+      true ->
+        "OBSERVED_TO"
     end
   end
 

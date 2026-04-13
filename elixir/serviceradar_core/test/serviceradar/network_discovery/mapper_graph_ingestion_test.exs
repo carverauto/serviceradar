@@ -254,7 +254,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["count"] == 0
   end
 
-  test "mapper SNMP ARP/FDB single-identifier payload becomes attachment and never backbone edge" do
+  test "mapper SNMP ARP/FDB single-identifier payload becomes observation-only and never visible attachment" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     normalized =
@@ -302,10 +302,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
           "RETURN {count: count(r), source: head(collect(r.source))} AS result"
       )
 
+    [observed] =
+      cypher_rows(
+        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:OBSERVED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+          "RETURN {count: count(r), source: head(collect(r.source))} AS result"
+      )
+
     assert connects["count"] == 0
     assert inferred["count"] == 0
-    assert attached["count"] == 1
-    assert attached["source"] == "SNMP-L2"
+    assert attached["count"] == 0
+    assert observed["count"] == 1
+    assert observed["source"] == "SNMP-L2"
   end
 
   test "upsert_links keeps multiple resolved SNMP-L2 neighbors for one local device" do

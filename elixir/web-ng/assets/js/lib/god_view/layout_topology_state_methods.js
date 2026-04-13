@@ -1,6 +1,6 @@
 import ELK from "elkjs/lib/elk.bundled.js"
 
-const DEFAULT_LAYOUT_ENGINE = new ELK()
+let defaultLayoutEngine = null
 const MAX_LAYOUT_CACHE_ENTRIES = 12
 const DEFAULT_NODE_WIDTH = 54
 const DEFAULT_NODE_HEIGHT = 54
@@ -8,8 +8,15 @@ const LAYOUT_WIDTH = 640
 const LAYOUT_HEIGHT = 320
 const LAYOUT_PAD = 20
 const BACKBONE_LAYER_GAP_X = 180
-const BACKBONE_LAYER_GAP_Y = 120
 const BACKBONE_COMPONENT_GAP_Y = 180
+const ORGANIC_ROOT_X = 320
+const ORGANIC_ROOT_Y = 280
+const ORGANIC_DEPTH_RADIUS = 168
+const ORGANIC_DEPTH_RADIUS_STEP = 120
+const ORGANIC_FULL_SPAN = Math.PI * 1.7
+const BACKBONE_NODE_MIN_DISTANCE = 120
+const UNPLACED_LANE_X_OFFSET = 220
+const UNPLACED_LANE_GAP_Y = 92
 
 const ELK_ROOT_OPTIONS = {
   "elk.algorithm": "layered",
@@ -26,6 +33,11 @@ const ELK_ROOT_OPTIONS = {
   "elk.spacing.nodeNode": "64",
   "elk.spacing.edgeNode": "48",
   "elk.padding": "[top=48,left=48,bottom=48,right=48]",
+}
+
+function getDefaultLayoutEngine() {
+  if (!defaultLayoutEngine) defaultLayoutEngine = new ELK()
+  return defaultLayoutEngine
 }
 
 function projectMercator(lat, lon) {
@@ -70,6 +82,11 @@ function isEndpointMemberNode(node) {
 
 function isEndpointAnchorNode(node) {
   return clusterKindForNode(node) === "endpoint-anchor"
+}
+
+function isUnplacedNode(node) {
+  const details = graphNodeDetails(node)
+  return details.topology_unplaced === true || String(details.topology_plane || "").trim() === "unplaced"
 }
 
 function nodeLayoutSize(node) {
@@ -246,31 +263,33 @@ export const godViewLayoutTopologyStateMethods = {
   },
   async computeClientTopologyLayout(graph, layoutKey) {
     const previousGraph = this.state.lastGraph
-    const projection = this.collectEndpointProjectionGroups(graph)
-    const layeredPositions = this.computeBackboneLayeredPositions(graph, projection.excludedNodeIds)
+    const clusterLayout = this.collectEndpointProjectionGroups(graph)
+    const excludedNodeIds =
+      clusterLayout?.excludedNodeIds instanceof Set ? clusterLayout.excludedNodeIds : new Set()
+    const layeredPositions = this.computeBackboneLayeredPositions(graph, excludedNodeIds)
 
     if (layeredPositions instanceof Map && layeredPositions.size > 0) {
       const withBackbone = this.applyPositionMap(graph, layeredPositions)
-      const withClusters = this.applyEndpointProjectionLayout(withBackbone, projection)
-      const normalized = this.normalizeHorizontalLayout(withClusters)
+      const projected = this.applyEndpointProjectionLayout(withBackbone, clusterLayout)
+      const normalized = this.normalizeHorizontalLayout(projected)
       return {
         ...normalized,
-        _layoutMode: "client-layered",
+        _layoutMode: "client-radial",
         _layoutCacheKey: layoutKey,
       }
     }
 
-    const layoutGraph = this.buildElkLayoutGraph(graph, projection.excludedNodeIds)
+    const layoutGraph = this.buildElkLayoutGraph(graph, excludedNodeIds)
 
     try {
-      const engine = this.state.layoutEngine || DEFAULT_LAYOUT_ENGINE
+      const engine = this.state.layoutEngine || getDefaultLayoutEngine()
       const elkResult = await engine.layout(layoutGraph)
       const withBackbone = this.applyElkNodePositions(graph, elkResult)
-      const withClusters = this.applyEndpointProjectionLayout(withBackbone, projection)
-      const normalized = this.normalizeHorizontalLayout(withClusters)
+      const projected = this.applyEndpointProjectionLayout(withBackbone, clusterLayout)
+      const normalized = this.normalizeHorizontalLayout(projected)
       return {
         ...normalized,
-        _layoutMode: "elk-client",
+        _layoutMode: "elk-client-fallback",
         _layoutCacheKey: layoutKey,
       }
     } catch (_error) {
@@ -281,6 +300,9 @@ export const godViewLayoutTopologyStateMethods = {
         _layoutCacheKey: layoutKey,
       }
     }
+  },
+  requiresFullElkLayout(_graph) {
+    return false
   },
   dedupeGraphById(graph) {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
@@ -428,7 +450,8 @@ export const godViewLayoutTopologyStateMethods = {
       excludedNodeIds,
     }
   },
-  buildElkLayoutGraph(graph, excludedNodeIds) {
+  buildElkLayoutGraph(graph, excludedNodeIds = new Set(), options = {}) {
+    const includeAttachmentEdges = options?.includeAttachmentEdges === true
     const children = []
     const includedIds = new Set()
 
@@ -456,7 +479,7 @@ export const godViewLayoutTopologyStateMethods = {
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId) continue
       if (!includedIds.has(sourceId) || !includedIds.has(targetId)) continue
-      if (String(edge?.evidenceClass || "") === "endpoint-attachment") continue
+      if (!includeAttachmentEdges && String(edge?.evidenceClass || "") === "endpoint-attachment") continue
 
       edges.push({
         id: `edge-${index}`,
@@ -480,11 +503,25 @@ export const godViewLayoutTopologyStateMethods = {
   },
   computeBackboneLayeredPositions(graph, excludedNodeIds) {
     const backbone = this.buildBackboneAdjacency(graph, excludedNodeIds)
-    if (!backbone || backbone.nodeIds.length === 0) return null
+    const unplacedNodes = Array.isArray(graph?.nodes)
+      ? graph.nodes
+          .map((node, index) => ({id: graphNodeId(node, index), node}))
+          .filter(({id, node}) => !excludedNodeIds.has(id) && isUnplacedNode(node))
+      : []
+    const residualNodes = Array.isArray(graph?.nodes)
+      ? graph.nodes
+          .map((node, index) => ({id: graphNodeId(node, index), node}))
+          .filter(({id, node}) => {
+            if (excludedNodeIds.has(id) || isUnplacedNode(node)) return false
+            return !backbone.nodeIds.includes(id)
+          })
+      : []
+
+    if ((!backbone || backbone.nodeIds.length === 0) && unplacedNodes.length === 0 && residualNodes.length === 0) {
+      return null
+    }
 
     const components = this.connectedBackboneComponents(backbone.nodeIds, backbone.adjacency)
-    if (components.length === 0) return null
-
     const positions = new Map()
     let componentOffsetY = 0
 
@@ -492,60 +529,296 @@ export const godViewLayoutTopologyStateMethods = {
       const rootId = this.selectBackboneRoot(componentIds, backbone)
       if (!rootId) continue
 
-      const layers = this.backboneLayersFromRoot(rootId, componentIds, backbone)
-      if (layers.length === 0) continue
+      const tree = this.buildBackboneTree(rootId, componentIds, backbone)
+      const subtreeWeights = this.backboneSubtreeWeights(rootId, tree.childrenById)
+      const depthById = this.backboneDepthsFromRoot(rootId, tree.childrenById)
+      const radiiByDepth = this.backboneRadiiByDepth(depthById)
+      const componentPositions = new Map()
 
+      this.assignOrganicBackbonePositions(
+        rootId,
+        tree.childrenById,
+        subtreeWeights,
+        depthById,
+        radiiByDepth,
+        componentPositions,
+        {
+          x: ORGANIC_ROOT_X,
+          y: ORGANIC_ROOT_Y + componentOffsetY,
+          startAngle: -(ORGANIC_FULL_SPAN / 2),
+          endAngle: ORGANIC_FULL_SPAN / 2,
+          depth: 0,
+        },
+      )
+
+      for (const [nodeId, point] of componentPositions.entries()) positions.set(nodeId, point)
+
+      const componentYs = Array.from(componentPositions.values()).map((point) => Number(point.y || 0))
       const componentHeight =
-        Math.max(
-          0,
-          ...layers.map((layer) => Math.max(0, (layer.length - 1) * BACKBONE_LAYER_GAP_Y)),
-        ) + BACKBONE_COMPONENT_GAP_Y
-
-      for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
-        const orderedLayer = this.orderBackboneLayerNodes(layers[layerIndex], layerIndex, positions, backbone)
-        const startY = componentOffsetY - ((orderedLayer.length - 1) * BACKBONE_LAYER_GAP_Y) / 2
-
-        for (let nodeIndex = 0; nodeIndex < orderedLayer.length; nodeIndex += 1) {
-          const nodeId = orderedLayer[nodeIndex]
-          positions.set(nodeId, {
-            x: 60 + layerIndex * BACKBONE_LAYER_GAP_X,
-            y: 300 + startY + nodeIndex * BACKBONE_LAYER_GAP_Y,
-          })
-        }
-      }
+        componentYs.length > 0
+          ? Math.max(...componentYs) - Math.min(...componentYs) + BACKBONE_COMPONENT_GAP_Y
+          : BACKBONE_COMPONENT_GAP_Y
 
       componentOffsetY += componentHeight
     }
 
+    const placedPoints = Array.from(positions.values())
+    const laneAnchorX = placedPoints.length > 0
+      ? Math.max(...placedPoints.map((point) => Number(point.x || 0))) + UNPLACED_LANE_X_OFFSET
+      : 120
+    let laneCursorY = placedPoints.length > 0
+      ? Math.min(...placedPoints.map((point) => Number(point.y || 0)))
+      : 220
+
+    if (unplacedNodes.length > 0) {
+      const orderedUnplaced = [...unplacedNodes].sort((left, right) => {
+        const leftLabel = String(left.node?.label || left.id || "")
+        const rightLabel = String(right.node?.label || right.id || "")
+        const leftPps = Number(left.node?.pps || 0)
+        const rightPps = Number(right.node?.pps || 0)
+        return rightPps - leftPps || leftLabel.localeCompare(rightLabel) || left.id.localeCompare(right.id)
+      })
+
+      for (let index = 0; index < orderedUnplaced.length; index += 1) {
+        const column = Math.floor(index / 8)
+        const row = index % 8
+        positions.set(orderedUnplaced[index].id, {
+          x: laneAnchorX + column * Math.round(BACKBONE_LAYER_GAP_X * 0.9),
+          y: laneCursorY + row * UNPLACED_LANE_GAP_Y,
+        })
+      }
+
+      laneCursorY += Math.ceil(orderedUnplaced.length / 8) * UNPLACED_LANE_GAP_Y + 44
+    }
+
+    if (residualNodes.length > 0) {
+      const orderedResidual = [...residualNodes].sort((left, right) => {
+        const leftLabel = String(left.node?.label || left.id || "")
+        const rightLabel = String(right.node?.label || right.id || "")
+        const leftPps = Number(left.node?.pps || 0)
+        const rightPps = Number(right.node?.pps || 0)
+        return rightPps - leftPps || leftLabel.localeCompare(rightLabel) || left.id.localeCompare(right.id)
+      })
+
+      for (let index = 0; index < orderedResidual.length; index += 1) {
+        const column = Math.floor(index / 8)
+        const row = index % 8
+        positions.set(orderedResidual[index].id, {
+          x: laneAnchorX + column * Math.round(BACKBONE_LAYER_GAP_X * 0.9),
+          y: laneCursorY + row * UNPLACED_LANE_GAP_Y,
+        })
+      }
+    }
+
     return positions
+  },
+  backboneDepthsFromRoot(rootId, childrenById) {
+    const depthById = new Map([[rootId, 0]])
+    const queue = [rootId]
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift()
+      const depth = Number(depthById.get(nodeId) || 0)
+
+      for (const childId of childrenById.get(nodeId) || []) {
+        depthById.set(childId, depth + 1)
+        queue.push(childId)
+      }
+    }
+
+    return depthById
+  },
+  backboneRadiiByDepth(depthById) {
+    const counts = new Map()
+
+    for (const depth of depthById.values()) {
+      if (!Number.isInteger(depth) || depth <= 0) continue
+      counts.set(depth, Number(counts.get(depth) || 0) + 1)
+    }
+
+    const radiiByDepth = new Map([[0, 0]])
+
+    for (const [depth, count] of Array.from(counts.entries()).sort((left, right) => left[0] - right[0])) {
+      const minimumRadius = (Math.max(1, count) * BACKBONE_NODE_MIN_DISTANCE) / Math.max(ORGANIC_FULL_SPAN, Math.PI)
+      radiiByDepth.set(
+        depth,
+        Math.max(
+          ORGANIC_DEPTH_RADIUS + ((depth - 1) * ORGANIC_DEPTH_RADIUS_STEP),
+          minimumRadius,
+        ),
+      )
+    }
+
+    return radiiByDepth
+  },
+  buildBackboneTree(rootId, componentIds, backbone) {
+    const componentSet = new Set(componentIds)
+    const visited = new Set([rootId])
+    const queue = [rootId]
+    const childrenById = new Map()
+
+    for (const nodeId of componentIds) childrenById.set(nodeId, [])
+
+    while (queue.length > 0) {
+      const current = queue.shift()
+      const neighbors = [...(backbone.adjacency.get(current) || [])]
+        .filter((neighbor) => componentSet.has(neighbor))
+        .sort((leftId, rightId) => {
+          const leftNode = backbone.nodeById.get(leftId) || {}
+          const rightNode = backbone.nodeById.get(rightId) || {}
+          const leftDegree = (backbone.adjacency.get(leftId) || new Set()).size
+          const rightDegree = (backbone.adjacency.get(rightId) || new Set()).size
+          const leftPps = Number(leftNode?.pps || 0)
+          const rightPps = Number(rightNode?.pps || 0)
+          return (
+            rightDegree - leftDegree ||
+            rightPps - leftPps ||
+            String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
+            leftId.localeCompare(rightId)
+          )
+        })
+
+      for (const neighbor of neighbors) {
+        if (visited.has(neighbor)) continue
+        visited.add(neighbor)
+        childrenById.get(current).push(neighbor)
+        queue.push(neighbor)
+      }
+    }
+
+    return {rootId, childrenById}
+  },
+  backboneSubtreeWeights(rootId, childrenById) {
+    const weights = new Map()
+    const visit = (nodeId) => {
+      const children = childrenById.get(nodeId) || []
+      if (children.length === 0) {
+        weights.set(nodeId, 1)
+        return 1
+      }
+
+      let total = 0
+      for (const childId of children) total += visit(childId)
+      const weight = Math.max(1, total)
+      weights.set(nodeId, weight)
+      return weight
+    }
+
+    visit(rootId)
+    return weights
+  },
+  assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, depthById, radiiByDepth, positions, frame) {
+    positions.set(nodeId, {x: frame.x, y: frame.y})
+
+    const children = childrenById.get(nodeId) || []
+    if (children.length === 0) return
+
+    const totalWeight = children.reduce((sum, childId) => sum + Number(subtreeWeights.get(childId) || 1), 0)
+    const span = frame.endAngle - frame.startAngle
+    let cursor = frame.startAngle
+
+    for (let index = 0; index < children.length; index += 1) {
+      const childId = children[index]
+      const childWeight = Number(subtreeWeights.get(childId) || 1)
+      const proportionalSpan = span * (childWeight / Math.max(totalWeight, 1))
+      const childStart = cursor
+      const childEnd = childStart + proportionalSpan
+      const childAngle = childStart + (proportionalSpan / 2)
+      const childDepth = Number(depthById.get(childId) || (frame.depth + 1))
+      const radius = Number(radiiByDepth.get(childDepth) || ORGANIC_DEPTH_RADIUS)
+
+      this.assignOrganicBackbonePositions(
+        childId,
+        childrenById,
+        subtreeWeights,
+        depthById,
+        radiiByDepth,
+        positions,
+        {
+          x: frame.x + Math.cos(childAngle) * radius,
+          y: frame.y + Math.sin(childAngle) * radius,
+          startAngle: childStart,
+          endAngle: childEnd,
+          depth: childDepth,
+        },
+      )
+
+      cursor += proportionalSpan
+    }
   },
   buildBackboneAdjacency(graph, excludedNodeIds) {
     const nodeIds = []
     const nodeById = new Map()
     const adjacency = new Map()
     const depthById = new Map()
+    const allNodes = new Map()
 
     for (let index = 0; index < graph.nodes.length; index += 1) {
       const node = graph.nodes[index]
       const nodeId = graphNodeId(node, index)
-      if (excludedNodeIds.has(nodeId)) continue
-      nodeIds.push(nodeId)
-      nodeById.set(nodeId, node)
-      adjacency.set(nodeId, new Set())
-      depthById.set(nodeId, Number(node?.y || 0))
+      allNodes.set(nodeId, node)
     }
 
     for (const edge of graph.edges) {
       const sourceId = edgeNodeId(graph, edge, "source")
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId) continue
-      if (!adjacency.has(sourceId) || !adjacency.has(targetId)) continue
-      if (String(edge?.evidenceClass || "") === "endpoint-attachment") continue
+      if (!this.edgeDrivesBackboneLayout(edge)) continue
+      if (excludedNodeIds.has(sourceId) || excludedNodeIds.has(targetId)) continue
+      if (isUnplacedNode(allNodes.get(sourceId)) || isUnplacedNode(allNodes.get(targetId))) continue
+
+      if (!adjacency.has(sourceId)) {
+        adjacency.set(sourceId, new Set())
+        nodeIds.push(sourceId)
+        nodeById.set(sourceId, allNodes.get(sourceId))
+        depthById.set(sourceId, Number(allNodes.get(sourceId)?.y || 0))
+      }
+
+      if (!adjacency.has(targetId)) {
+        adjacency.set(targetId, new Set())
+        nodeIds.push(targetId)
+        nodeById.set(targetId, allNodes.get(targetId))
+        depthById.set(targetId, Number(allNodes.get(targetId)?.y || 0))
+      }
+
       adjacency.get(sourceId).add(targetId)
       adjacency.get(targetId).add(sourceId)
     }
 
+    if (nodeIds.length === 0) {
+      for (const [nodeId, node] of allNodes.entries()) {
+        if (excludedNodeIds.has(nodeId) || isUnplacedNode(node)) continue
+        nodeIds.push(nodeId)
+        nodeById.set(nodeId, node)
+        adjacency.set(nodeId, new Set())
+        depthById.set(nodeId, Number(node?.y || 0))
+      }
+    }
+
     return {nodeIds, nodeById, adjacency, depthById}
+  },
+  edgeDrivesBackboneLayout(edge) {
+    const topologyClass = String(edge?.topologyClass || "").trim().toLowerCase()
+    const evidenceClass = String(edge?.evidenceClass || "").trim().toLowerCase()
+
+    if (topologyClass === "endpoints" || topologyClass === "endpoint") return false
+    if (topologyClass === "inferred" || topologyClass === "observed") return false
+    if (topologyClass === "backbone" || topologyClass === "logical" || topologyClass === "hosted") return true
+
+    if (evidenceClass === "endpoint-attachment") return false
+    if (evidenceClass === "inferred" || evidenceClass === "inferred-segment") return false
+    if (evidenceClass === "observed" || evidenceClass === "observed-only") return false
+
+    return (
+      evidenceClass === "direct" ||
+      evidenceClass === "direct-physical" ||
+      evidenceClass === "logical" ||
+      evidenceClass === "direct-logical" ||
+      evidenceClass === "hosted" ||
+      evidenceClass === "hosted-virtual" ||
+      topologyClass === "" ||
+      topologyClass === "unknown"
+    )
   },
   connectedBackboneComponents(nodeIds, adjacency) {
     const visited = new Set()
@@ -701,9 +974,18 @@ export const godViewLayoutTopologyStateMethods = {
       const anchorY = Number(anchorNode?.y)
       if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) continue
 
+      const occupiedNodes = this.endpointProjectionOccupiedNodes(nodes, cluster)
       const baseAngle = this.resolveEndpointProjectionAngle(nodes, nodeIndexById, cluster, anchorNode)
-      const clusterAngle = this.endpointProjectionSlotAngle(baseAngle, cluster.slotIndex, cluster.slotCount)
-      const hubDistance = this.endpointProjectionHubDistance(cluster.memberNodeIds.length, cluster.expanded)
+      const clusterAngle = this.endpointProjectionSlotAngle(
+        this.resolveEndpointProjectionBearing(baseAngle, anchorNode, occupiedNodes, cluster.expanded),
+        cluster.slotIndex,
+        cluster.slotCount,
+      )
+      const hubDistance = this.endpointProjectionHubDistance(
+        cluster.memberNodeIds.length,
+        cluster.expanded,
+        this.endpointProjectionClearanceDistance(anchorNode, clusterAngle, occupiedNodes, cluster.expanded),
+      )
       const hubOffset = rotatePoint(hubDistance, 0, clusterAngle)
       const hubX = anchorX + hubOffset.x
       const hubY = anchorY + hubOffset.y
@@ -741,48 +1023,23 @@ export const godViewLayoutTopologyStateMethods = {
       nodes,
     }
   },
+  endpointProjectionOccupiedNodes(nodes, cluster) {
+    const memberIds = new Set(cluster.memberNodeIds || [])
+
+    return nodes.filter((node, index) => {
+      const nodeId = graphNodeId(node, index)
+      if (nodeId === cluster.anchorNodeId) return false
+      if (nodeId === cluster.summaryNodeId) return false
+      if (memberIds.has(nodeId)) return false
+      if (isEndpointSummaryNode(node)) return false
+
+      const x = Number(node?.x)
+      const y = Number(node?.y)
+      return Number.isFinite(x) && Number.isFinite(y)
+    })
+  },
   normalizeHorizontalLayout(graph) {
-    if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return graph
-
-    const coords = graph.nodes
-      .map((node) => ({
-        node,
-        x: Number(node?.x),
-        y: Number(node?.y),
-      }))
-      .filter((entry) => Number.isFinite(entry.x) && Number.isFinite(entry.y))
-
-    if (coords.length < 2) return graph
-
-    const xs = coords.map((entry) => entry.x)
-    const ys = coords.map((entry) => entry.y)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-    const xSpan = maxX - minX
-    const ySpan = maxY - minY
-
-    if (!Number.isFinite(xSpan) || !Number.isFinite(ySpan) || xSpan <= 0 || ySpan <= 0) return graph
-
-    const targetYSpan = Math.max(220, xSpan * 0.72)
-    if (ySpan <= targetYSpan) return graph
-
-    const centerY = (minY + maxY) / 2
-    const scaleY = targetYSpan / ySpan
-
-    return {
-      ...graph,
-      nodes: graph.nodes.map((node) => {
-        const y = Number(node?.y)
-        if (!Number.isFinite(y)) return node
-
-        return {
-          ...node,
-          y: centerY + ((y - centerY) * scaleY),
-        }
-      }),
-    }
+    return graph
   },
   resolveEndpointProjectionAngle(nodes, nodeIndexById, cluster, anchorNode) {
     const parentIndex = cluster.parentNodeId ? nodeIndexById.get(cluster.parentNodeId) : null
@@ -823,15 +1080,73 @@ export const godViewLayoutTopologyStateMethods = {
 
     return 0
   },
+  resolveEndpointProjectionBearing(baseAngle, anchorNode, occupiedNodes, expanded) {
+    const offsets = [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57, Math.PI]
+    let bestAngle = baseAngle
+    let bestScore = -Infinity
+
+    for (const offset of offsets) {
+      const angle = baseAngle + offset
+      const score = this.endpointProjectionBearingScore(anchorNode, angle, occupiedNodes, expanded)
+      if (score > bestScore) {
+        bestScore = score
+        bestAngle = angle
+      }
+    }
+
+    return bestAngle
+  },
+  endpointProjectionBearingScore(anchorNode, angle, occupiedNodes, expanded) {
+    const directionX = Math.cos(angle)
+    const directionY = Math.sin(angle)
+    const corridorHalfWidth = expanded ? 260 : 180
+    const rearGuard = expanded ? 40 : 24
+    let nearestForward = Infinity
+    let lateralPenalty = 0
+
+    for (const node of occupiedNodes) {
+      const dx = Number(node?.x || 0) - Number(anchorNode?.x || 0)
+      const dy = Number(node?.y || 0) - Number(anchorNode?.y || 0)
+      const forward = (dx * directionX) + (dy * directionY)
+      const lateral = Math.abs((-directionY * dx) + (directionX * dy))
+      if (forward <= -rearGuard || lateral > corridorHalfWidth) continue
+
+      nearestForward = Math.min(nearestForward, forward)
+      lateralPenalty += Math.max(0, corridorHalfWidth - lateral)
+    }
+
+    const forwardScore = nearestForward === Infinity ? 960 : nearestForward
+    return forwardScore - (lateralPenalty * 0.45)
+  },
   endpointProjectionSlotAngle(baseAngle, slotIndex, slotCount) {
     const count = Math.max(1, Number(slotCount || 1))
     const index = Math.max(0, Number(slotIndex || 0))
     return baseAngle + (index - ((count - 1) / 2)) * 0.42
   },
-  endpointProjectionHubDistance(memberCount, expanded) {
+  endpointProjectionClearanceDistance(anchorNode, angle, occupiedNodes, expanded) {
+    const directionX = Math.cos(angle)
+    const directionY = Math.sin(angle)
+    const corridorHalfWidth = expanded ? 240 : 160
+    const nodeRadius = expanded ? 172 : 108
+    let clearance = 0
+
+    for (const node of occupiedNodes) {
+      const dx = Number(node?.x || 0) - Number(anchorNode?.x || 0)
+      const dy = Number(node?.y || 0) - Number(anchorNode?.y || 0)
+      const forward = (dx * directionX) + (dy * directionY)
+      const lateral = Math.abs((-directionY * dx) + (directionX * dy))
+      if (forward <= 0 || lateral > corridorHalfWidth) continue
+
+      clearance = Math.max(clearance, forward + nodeRadius)
+    }
+
+    return clearance
+  },
+  endpointProjectionHubDistance(memberCount, expanded, clearanceDistance = 0) {
     const count = Math.max(1, Number(memberCount || 1))
     const base = expanded ? 156 : 82
-    return base + Math.min(72, Math.sqrt(count) * (expanded ? 18 : 9))
+    const intrinsic = base + Math.min(72, Math.sqrt(count) * (expanded ? 18 : 9))
+    return Math.max(intrinsic, Number(clearanceDistance || 0))
   },
   expandedClusterSpiralMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))

@@ -13,6 +13,18 @@ Object.assign(
 )
 
 describe("rendering_style_node_reason_methods", () => {
+  it("nodeMetricText shows UNPLACED for topology-unplaced nodes", () => {
+    expect(
+      methods.nodeMetricText(
+        {
+          pps: 99,
+          details: {topology_unplaced: true},
+        },
+        "local",
+      ),
+    ).toEqual("UNPLACED")
+  })
+
   it("stateReasonForNode returns root-cause down-device reason", () => {
     const reason = methods.stateReasonForNode({state: 0, operUp: 2}, [])
     expect(reason).toEqual("Device is operationally down and identified as a root cause.")

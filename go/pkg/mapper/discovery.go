@@ -32,7 +32,13 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
-const evidenceClassDirect = "direct"
+const (
+	evidenceClassDirectPhysical  = "direct-physical"
+	evidenceClassDirectLogical   = "direct-logical"
+	evidenceClassHostedVirtual   = "hosted-virtual"
+	evidenceClassInferredSegment = "inferred-segment"
+	evidenceClassObservedOnly    = "observed-only"
+)
 
 const (
 	mapperDebugBundleOption     = "mapper_debug_bundle"
@@ -926,6 +932,9 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			link.Metadata["discovery_id"] = job.ID
 			link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 			applyJobOptionsMetadata(job, link.Metadata)
+			if strings.EqualFold(strings.TrimSpace(link.Metadata["candidate_only"]), "true") {
+				continue
+			}
 			if err := e.publisher.PublishTopologyLink(job.ctx, link); err != nil {
 				e.logger.Error().Str("job_id", job.ID).Str("protocol", protocol).
 					Str("target", target).Int32("if_index", link.LocalIfIndex).
@@ -1023,6 +1032,9 @@ func buildTopologyObservationV2(link *TopologyLink) *TopologyObservationV2 {
 	if link.NeighborIdentity != nil {
 		neighborDeviceID = strings.TrimSpace(link.NeighborIdentity.DeviceID)
 	}
+	if targetUID == "" && neighborDeviceID != "" {
+		targetUID = neighborDeviceID
+	}
 
 	return &TopologyObservationV2{
 		ContractVersion: topologyContractV2,
@@ -1066,6 +1078,20 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	}
 
 	if cls := strings.TrimSpace(link.Metadata["evidence_class"]); cls != "" {
+		link.Metadata["evidence_class"] = normalizeTopologyEvidenceClass(cls)
+		applyTopologyRelationFamily(link)
+		if strings.TrimSpace(link.Metadata["confidence_tier"]) != "" {
+			return
+		}
+
+		switch link.Metadata["evidence_class"] {
+		case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, "endpoint-attachment":
+			link.Metadata["confidence_tier"] = "high"
+		case evidenceClassInferredSegment:
+			link.Metadata["confidence_tier"] = "medium"
+		default:
+			link.Metadata["confidence_tier"] = "low"
+		}
 		return
 	}
 
@@ -1073,29 +1099,90 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	source := strings.ToLower(strings.TrimSpace(link.Metadata["source"]))
 
 	switch {
-	case protocol == "lldp" || protocol == "cdp" || protocol == "wireguard-derived":
-		link.Metadata["evidence_class"] = evidenceClassDirect
+	case protocol == "lldp" || protocol == "cdp":
+		link.Metadata["evidence_class"] = evidenceClassDirectPhysical
+	case protocol == "wireguard-derived":
+		link.Metadata["evidence_class"] = evidenceClassDirectLogical
 	case protocol == "unifi-api" && strings.Contains(source, "port-table"):
-		link.Metadata["evidence_class"] = "endpoint-attachment"
-	case protocol == "unifi-api":
-		link.Metadata["evidence_class"] = evidenceClassDirect
+		link.Metadata["evidence_class"] = evidenceClassInferredSegment
+	case protocol == "unifi-api" || protocol == "mikrotik-api":
+		link.Metadata["evidence_class"] = evidenceClassDirectPhysical
+	case protocol == "proxmox-api" || protocol == "proxmox" || protocol == "vmware" || protocol == "esxi":
+		link.Metadata["evidence_class"] = evidenceClassHostedVirtual
 	case protocol == "snmp-l2" || source == "snmp-arp-fdb":
-		link.Metadata["evidence_class"] = "inferred"
+		link.Metadata["evidence_class"] = evidenceClassInferredSegment
 	default:
-		link.Metadata["evidence_class"] = "inferred"
+		link.Metadata["evidence_class"] = evidenceClassInferredSegment
 	}
+
+	applyTopologyRelationFamily(link)
 
 	if strings.TrimSpace(link.Metadata["confidence_tier"]) != "" {
 		return
 	}
 
 	switch link.Metadata["evidence_class"] {
-	case evidenceClassDirect:
+	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, "endpoint-attachment":
 		link.Metadata["confidence_tier"] = "high"
-	case "endpoint-attachment":
+	case evidenceClassInferredSegment:
 		link.Metadata["confidence_tier"] = "medium"
 	default:
 		link.Metadata["confidence_tier"] = "low"
+	}
+}
+
+func normalizeTopologyEvidenceClass(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "direct":
+		return evidenceClassDirectPhysical
+	case "inferred":
+		return evidenceClassInferredSegment
+	case "endpoint-attachment":
+		return "endpoint-attachment"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func applyTopologyRelationFamily(link *TopologyLink) {
+	if link == nil {
+		return
+	}
+	if link.Metadata == nil {
+		link.Metadata = make(map[string]string)
+	}
+	if family := strings.TrimSpace(link.Metadata["relation_family"]); family != "" {
+		link.Metadata["relation_family"] = strings.ToUpper(family)
+		return
+	}
+
+	protocol := strings.ToLower(strings.TrimSpace(link.Protocol))
+	source := strings.ToLower(strings.TrimSpace(link.Metadata["source"]))
+	evidenceClass := normalizeTopologyEvidenceClass(link.Metadata["evidence_class"])
+	confidenceReason := strings.ToLower(strings.TrimSpace(link.Metadata["confidence_reason"]))
+
+	switch {
+	case evidenceClass == evidenceClassDirectPhysical:
+		link.Metadata["relation_family"] = "CONNECTS_TO"
+	case evidenceClass == evidenceClassDirectLogical:
+		link.Metadata["relation_family"] = "LOGICAL_PEER"
+	case evidenceClass == evidenceClassHostedVirtual:
+		link.Metadata["relation_family"] = "HOSTED_ON"
+	case evidenceClass == "endpoint-attachment":
+		link.Metadata["relation_family"] = "ATTACHED_TO"
+	case evidenceClass == evidenceClassObservedOnly:
+		link.Metadata["relation_family"] = "OBSERVED_TO"
+	case evidenceClass == evidenceClassInferredSegment &&
+		confidenceReason == "single_identifier_inference" &&
+		(protocol == "snmp-l2" || source == "snmp-arp-fdb"):
+		link.Metadata["relation_family"] = "OBSERVED_TO"
+	case evidenceClass == evidenceClassInferredSegment &&
+		(protocol == "snmp-l2" || source == "snmp-arp-fdb" || strings.Contains(source, "port-table")):
+		link.Metadata["relation_family"] = "ATTACHED_TO"
+	case evidenceClass == evidenceClassInferredSegment:
+		link.Metadata["relation_family"] = "INFERRED_TO"
+	default:
+		link.Metadata["relation_family"] = "OBSERVED_TO"
 	}
 }
 
@@ -1943,19 +2030,23 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 		}
 	}
 
-	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeIdentity) {
-		recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusFailed, "identity polling canceled or failed")
-		e.finalizeJobStatus(job)
-		return
+	if shouldRunSNMPDiscovery(job) {
+		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeIdentity) {
+			recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusFailed, "identity polling canceled or failed")
+			e.finalizeJobStatus(job)
+			return
+		}
 	}
 	recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusCompleted, "identity collection complete")
 
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusStarted, "enrichment started")
-	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeEnrichment) {
-			recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusFailed, "enrichment polling canceled or failed")
-			e.finalizeJobStatus(job)
-			return
+	if shouldRunSNMPDiscovery(job) {
+		if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
+			if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeEnrichment) {
+				recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusFailed, "enrichment polling canceled or failed")
+				e.finalizeJobStatus(job)
+				return
+			}
 		}
 	}
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusCompleted, "enrichment complete")
@@ -1977,27 +2068,31 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 			e.triggerUniFiTopologyDiscovery(ctx, job, initialSeeds)
 		}
 
-		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeTopology) {
-			recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "topology polling canceled or failed")
-			e.finalizeJobStatus(job)
-			return
-		}
-
-		recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
-		if len(recursiveTargets) > 0 {
-			for target := range recursiveTargets {
-				allPotentialSNMPTargets[target] = true
+		if shouldRunSNMPDiscovery(job) {
+			if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeTopology) {
+				recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "topology polling canceled or failed")
+				e.finalizeJobStatus(job)
+				return
 			}
 
-			for _, mode := range recursivePollingModes(job.Params.Type) {
-				if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
-					failureMessage := "recursive topology polling canceled or failed"
-					if mode == snmpPollingModeEnrichment {
-						failureMessage = "recursive enrichment polling canceled or failed"
+			if recursiveSNMPTargetsEnabled(job) {
+				recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
+				if len(recursiveTargets) > 0 {
+					for target := range recursiveTargets {
+						allPotentialSNMPTargets[target] = true
 					}
-					recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
-					e.finalizeJobStatus(job)
-					return
+
+					for _, mode := range recursivePollingModes(job.Params.Type) {
+						if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
+							failureMessage := "recursive topology polling canceled or failed"
+							if mode == snmpPollingModeEnrichment {
+								failureMessage = "recursive enrichment polling canceled or failed"
+							}
+							recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
+							e.finalizeJobStatus(job)
+							return
+						}
+					}
 				}
 			}
 		}
@@ -2025,6 +2120,37 @@ func shouldRunUniFiDiscovery(job *DiscoveryJob) bool {
 	default:
 		return true
 	}
+}
+
+func shouldRunSNMPDiscovery(job *DiscoveryJob) bool {
+	if job == nil || job.Params == nil {
+		return true
+	}
+
+	mode := strings.TrimSpace(strings.ToLower(job.Params.Mode))
+	if mode == "" {
+		return true
+	}
+
+	switch mode {
+	case "api", "api_only", "api-only":
+		return false
+	default:
+		return true
+	}
+}
+
+func recursiveSNMPTargetsEnabled(job *DiscoveryJob) bool {
+	if job == nil || job.Params == nil || job.Params.Options == nil {
+		return true
+	}
+
+	value := strings.TrimSpace(strings.ToLower(job.Params.Options["recursive_snmp_targets_enabled"]))
+	if value == "" {
+		return true
+	}
+
+	return value == "true" || value == "1" || value == "yes" || value == "on"
 }
 
 func (e *DiscoveryEngine) triggerUniFiTopologyDiscovery(ctx context.Context, job *DiscoveryJob, initialSeeds []string) {
@@ -2147,6 +2273,25 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		}
 	}
 
+	if len(e.config.ProxmoxAPIs) > 0 {
+		apiCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
+		devices, links, err := e.queryProxmoxDevices(apiCtx, job)
+		cancel()
+		if err != nil {
+			e.logger.Error().Str("job_id", job.ID).Err(err).Msg("Proxmox discovery failed")
+		} else {
+			devicesFound += len(devices)
+
+			job.mu.Lock()
+			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
+			job.mu.Unlock()
+
+			if len(links) > 0 {
+				e.publishTopologyLinks(job, links, "", "Proxmox-API")
+			}
+		}
+	}
+
 	e.logger.Info().Str("job_id", job.ID).Int("devices_found", devicesFound).
 		Int("interfaces_found", interfacesFound).Int("snmp_targets", len(allPotentialSNMPTargets)).
 		Msg("Phase 1 - API discovery completed")
@@ -2170,6 +2315,9 @@ func (e *DiscoveryEngine) collectRecursiveSNMPTargets(
 		if link == nil {
 			continue
 		}
+		if !recursiveTopologyLinkEligible(link) {
+			continue
+		}
 
 		neighborCandidates := recursiveNeighborCandidates(link, identityToIP)
 		for _, neighborIP := range neighborCandidates {
@@ -2182,6 +2330,52 @@ func (e *DiscoveryEngine) collectRecursiveSNMPTargets(
 	}
 
 	return targets
+}
+
+func recursiveTopologyLinkEligible(link *TopologyLink) bool {
+	if link == nil {
+		return false
+	}
+
+	if link.Metadata == nil {
+		link.Metadata = make(map[string]string)
+	}
+
+	applySourceAdapterVersion(link)
+	applyTopologyEvidenceClass(link)
+
+	if strings.EqualFold(strings.TrimSpace(link.Metadata["candidate_only"]), "true") {
+		return recursiveCandidateOnlyTopologyLinkEligible(link)
+	}
+
+	evidenceClass := normalizeTopologyEvidenceClass(link.Metadata["evidence_class"])
+
+	switch evidenceClass {
+	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual:
+		return true
+	default:
+		return false
+	}
+}
+
+func recursiveCandidateOnlyTopologyLinkEligible(link *TopologyLink) bool {
+	if link == nil {
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(link.Protocol), "SNMP-L2") {
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(link.Metadata["source"]), "snmp-arp-only") {
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(link.Metadata["confidence_reason"]), "single_identifier_inference") {
+		return false
+	}
+
+	return isIPv4(strings.TrimSpace(link.NeighborMgmtAddr))
 }
 
 func recursiveNeighborIdentityIndex(results *DiscoveryResults) map[string]string {
@@ -2282,9 +2476,17 @@ func (e *DiscoveryEngine) processDevicesForSNMPTargets(
 	job *DiscoveryJob, devices []*DiscoveredDevice,
 	allPotentialSNMPTargets map[string]bool, seenMACs map[string]string) {
 	for _, device := range devices {
-		if device.IP != "" {
-			e.addOrUpdateDeviceToResults(job, device)
+		if device == nil {
+			continue
+		}
 
+		e.addOrUpdateDeviceToResults(job, device)
+
+		if strings.EqualFold(strings.TrimSpace(device.Metadata["snmp_target_eligible"]), "false") {
+			continue
+		}
+
+		if device.IP != "" {
 			if device.MAC != "" {
 				normalizedMAC := NormalizeMAC(device.MAC)
 				if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
@@ -2331,6 +2533,7 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 		e.logger.Info().Str("job_id", job.ID).Strs("seeds", initialSeeds).
 			Int("unifi_apis_count", len(e.config.UniFiAPIs)).
 			Int("mikrotik_apis_count", len(e.config.MikroTikAPIs)).
+			Int("proxmox_apis_count", len(e.config.ProxmoxAPIs)).
 			Msg("No SNMP targets to poll")
 
 		return true

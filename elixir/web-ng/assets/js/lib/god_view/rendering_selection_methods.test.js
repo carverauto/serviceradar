@@ -98,6 +98,27 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.details.innerHTML).toContain("Geo: unknown")
   })
 
+  it("renders placement context for topology-unplaced nodes", () => {
+    const ctx = buildContext()
+    ctx.renderSelectionDetails = godViewRenderingSelectionMethods.renderSelectionDetails.bind(ctx)
+
+    ctx.renderSelectionDetails({
+      id: "sr:vjunos-01",
+      label: "vJunos",
+      state: 3,
+      details: {
+        id: "sr:vjunos-01",
+        ip: "192.0.2.197",
+        type: "router",
+        topology_unplaced: true,
+        topology_placement_reason: "No strong physical, logical, or hosted placement evidence in the current discovery window.",
+      },
+    })
+
+    expect(ctx.state.details.innerHTML).toContain("Placement: Unplaced")
+    expect(ctx.state.details.innerHTML).toContain("No strong physical, logical, or hosted placement evidence")
+  })
+
   it("renders camera relay actions for camera-capable nodes", () => {
     const ctx = buildContext()
     ctx.renderSelectionDetails = godViewRenderingSelectionMethods.renderSelectionDetails.bind(ctx)

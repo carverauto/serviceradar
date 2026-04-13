@@ -1,5 +1,6 @@
 export const godViewRenderingStyleNodeVisualMethods = {
   nodeMetricText(node, shape) {
+    if (node?.details?.topology_unplaced === true) return "UNPLACED"
     const clusterCount = Number(node?.clusterCount || node?.details?.cluster_member_count || 1)
     const clusterKind = String(node?.details?.cluster_kind || "").trim()
     if (clusterKind === "endpoint-summary" || clusterKind === "endpoint-member") {

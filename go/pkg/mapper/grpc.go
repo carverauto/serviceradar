@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -315,10 +316,12 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 		}
 	}
 
-	// Convert topology links
-	protoLinks := make([]*proto.TopologyLink, len(results.TopologyLinks))
+	// Candidate-only topology links are kept in-memory for recursive discovery
+	// seeding, but they must not be exported to downstream ingestion.
+	exportableLinks := exportableTopologyLinks(results.TopologyLinks)
+	protoLinks := make([]*proto.TopologyLink, len(exportableLinks))
 
-	for i, link := range results.TopologyLinks {
+	for i, link := range exportableLinks {
 		protoLinks[i] = convertTopologyLinkToProto(link)
 	}
 
@@ -334,6 +337,32 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 		Progress:    float32(results.Status.Progress),
 		Metadata:    metadata,
 	}, nil
+}
+
+func exportableTopologyLinks(links []*TopologyLink) []*TopologyLink {
+	if len(links) == 0 {
+		return nil
+	}
+
+	filtered := make([]*TopologyLink, 0, len(links))
+
+	for _, link := range links {
+		if topologyLinkIsCandidateOnly(link) {
+			continue
+		}
+
+		filtered = append(filtered, link)
+	}
+
+	return filtered
+}
+
+func topologyLinkIsCandidateOnly(link *TopologyLink) bool {
+	if link == nil || link.Metadata == nil {
+		return false
+	}
+
+	return strings.EqualFold(strings.TrimSpace(link.Metadata["candidate_only"]), "true")
 }
 
 func discoveryContractToMetadata(contract DiscoveryContract, includeRawData bool) map[string]string {

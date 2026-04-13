@@ -2031,6 +2031,7 @@ func (*DiscoveryEngine) addLLDPMetadata(link *TopologyLink, jobID string) {
 	link.Metadata["discovery_id"] = jobID
 	link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 	link.Metadata["protocol"] = "LLDP"
+	link.Metadata["source"] = "lldp"
 }
 
 // finalizeLLDPLinks validates and finalizes LLDP links
@@ -2212,6 +2213,7 @@ func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, job *
 		link.Metadata["discovery_id"] = job.ID
 		link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 		link.Metadata["protocol"] = "CDP"
+		link.Metadata["source"] = "cdp"
 
 		links = append(links, link)
 	}
@@ -2264,18 +2266,122 @@ func formatLLDPID(bytes []byte) string {
 }
 
 type arpNeighbor struct {
-	ifIndex       int32
-	ip            string
-	mac           string
-	fdbPortMapped bool
-	fdbMacCount   int
-	neighborKnown bool
+	ifIndex            int32
+	ip                 string
+	mac                string
+	fdbPortMapped      bool
+	fdbMacCount        int
+	neighborKnown      bool
+	neighborIdentified bool
 }
 
 type knownMACNeighbor struct {
 	deviceID string
 	ip       string
 	mac      string
+}
+
+func (e *DiscoveryEngine) recordObservedNeighborIPByMAC(job *DiscoveryJob, mac, ip string) {
+	if job == nil {
+		return
+	}
+
+	normalizedMAC := NormalizeMAC(mac)
+	ip = strings.TrimSpace(ip)
+	if normalizedMAC == "" || !isIPv4(ip) {
+		return
+	}
+
+	job.mu.Lock()
+	defer job.mu.Unlock()
+
+	if job.observedNeighborIPsByMAC == nil {
+		job.observedNeighborIPsByMAC = make(map[string]map[string]struct{})
+	}
+
+	observedIPs := job.observedNeighborIPsByMAC[normalizedMAC]
+	if observedIPs == nil {
+		observedIPs = make(map[string]struct{})
+		job.observedNeighborIPsByMAC[normalizedMAC] = observedIPs
+	}
+
+	observedIPs[ip] = struct{}{}
+}
+
+func (e *DiscoveryEngine) observedNeighborIPsByMAC(job *DiscoveryJob) map[string][]string {
+	if job == nil {
+		return map[string][]string{}
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	if len(job.observedNeighborIPsByMAC) == 0 {
+		return map[string][]string{}
+	}
+
+	copied := make(map[string][]string, len(job.observedNeighborIPsByMAC))
+	for mac, observedIPs := range job.observedNeighborIPsByMAC {
+		ips := make([]string, 0, len(observedIPs))
+		for ip := range observedIPs {
+			ips = append(ips, ip)
+		}
+		sort.Strings(ips)
+		copied[mac] = ips
+	}
+
+	return copied
+}
+
+func (e *DiscoveryEngine) observedFDBMappedNeighbors(
+	job *DiscoveryJob,
+	targetIP string,
+	localSubnets map[string]struct{},
+	bridgeIfByMAC map[string]int32,
+	fdbMacCountByIf map[int32]int,
+	knownNeighborsByMAC map[string]knownMACNeighbor,
+	knownNeighborIPs map[string]bool,
+) []arpNeighbor {
+	observedIPsByMAC := e.observedNeighborIPsByMAC(job)
+	if len(observedIPsByMAC) == 0 || len(bridgeIfByMAC) == 0 {
+		return nil
+	}
+
+	macs := make([]string, 0, len(bridgeIfByMAC))
+	for normalizedMAC := range bridgeIfByMAC {
+		macs = append(macs, normalizedMAC)
+	}
+	sort.Strings(macs)
+
+	neighbors := make([]arpNeighbor, 0, len(macs))
+	for _, normalizedMAC := range macs {
+		if _, exists := knownNeighborsByMAC[normalizedMAC]; exists {
+			continue
+		}
+
+		ifIndex := bridgeIfByMAC[normalizedMAC]
+		if ifIndex <= 0 {
+			continue
+		}
+
+		for _, observedIP := range observedIPsByMAC[normalizedMAC] {
+			if observedIP == targetIP || !isIPv4(observedIP) || !inSubnetSet(localSubnets, observedIP) {
+				continue
+			}
+
+			neighbors = append(neighbors, arpNeighbor{
+				ifIndex:            ifIndex,
+				ip:                 observedIP,
+				mac:                normalizedMAC,
+				fdbPortMapped:      true,
+				fdbMacCount:        fdbMacCountByIf[ifIndex],
+				neighborKnown:      knownNeighborIPs[observedIP],
+				neighborIdentified: false,
+			})
+		}
+	}
+
+	return neighbors
 }
 
 func (e *DiscoveryEngine) querySNMPL2Neighbors(
@@ -2301,27 +2407,35 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		}
 
 		norm := NormalizeMAC(mac)
+		if norm == "" {
+			return
+		}
+
+		e.recordObservedNeighborIPByMAC(job, norm, ip)
+		_, neighborIdentified := knownNeighborsByMAC[norm]
 		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
 			fdbMacCount := fdbMacCountByIf[bridgeIf]
 			neighborKnown := knownNeighborIPs[ip]
 			neighbors = append(neighbors, arpNeighbor{
-				ifIndex:       bridgeIf,
-				ip:            ip,
-				mac:           mac,
-				fdbPortMapped: true,
-				fdbMacCount:   fdbMacCount,
-				neighborKnown: neighborKnown,
+				ifIndex:            bridgeIf,
+				ip:                 ip,
+				mac:                mac,
+				fdbPortMapped:      true,
+				fdbMacCount:        fdbMacCount,
+				neighborKnown:      neighborKnown,
+				neighborIdentified: neighborIdentified,
 			})
 			return
 		}
 
 		neighbors = append(neighbors, arpNeighbor{
-			ifIndex:       0,
-			ip:            ip,
-			mac:           mac,
-			fdbPortMapped: false,
-			fdbMacCount:   0,
-			neighborKnown: knownNeighborIPs[ip],
+			ifIndex:            0,
+			ip:                 ip,
+			mac:                mac,
+			fdbPortMapped:      false,
+			fdbMacCount:        0,
+			neighborKnown:      knownNeighborIPs[ip],
+			neighborIdentified: neighborIdentified,
 		})
 	}
 
@@ -2396,14 +2510,28 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		}
 
 		neighbors = append(neighbors, arpNeighbor{
-			ifIndex:       ifIndex,
-			ip:            neighbor.ip,
-			mac:           mac,
-			fdbPortMapped: true,
-			fdbMacCount:   fdbMacCountByIf[ifIndex],
-			neighborKnown: true,
+			ifIndex:            ifIndex,
+			ip:                 neighbor.ip,
+			mac:                mac,
+			fdbPortMapped:      true,
+			fdbMacCount:        fdbMacCountByIf[ifIndex],
+			neighborKnown:      true,
+			neighborIdentified: true,
 		})
 	}
+
+	neighbors = append(
+		neighbors,
+		e.observedFDBMappedNeighbors(
+			job,
+			targetIP,
+			localSubnets,
+			bridgeIfByMAC,
+			fdbMacCountByIf,
+			knownNeighborsByMAC,
+			knownNeighborIPs,
+		)...,
+	)
 
 	links := buildSNMPL2LinksFromNeighbors(localDeviceID, targetIP, job.ID, neighbors)
 
@@ -2414,60 +2542,14 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	return links, nil
 }
 
-const maxSNMPFDBMacsPerPort = 8
-const maxDensePortUnknownNeighborsPerIf = 2
 const maxSNMPARPCandidateNeighbors = 64
 
-// selectDensePortNeighbors bounds noisy neighbors on dense ports while preserving
-// known infrastructure and enough unknown candidates for single-seed discovery.
+// selectDensePortNeighbors preserves FDB-backed neighbors for publication.
+//
+// The renderer now clusters endpoint attachments downstream, so clipping dense
+// ports here destroys real endpoint evidence before it reaches storage.
 func (e *DiscoveryEngine) selectDensePortNeighbors(neighbors []arpNeighbor) []arpNeighbor {
-	if len(neighbors) == 0 {
-		return neighbors
-	}
-
-	selected := make([]arpNeighbor, 0, len(neighbors))
-	unknownDenseByIf := make(map[int32][]arpNeighbor)
-
-	for _, n := range neighbors {
-		if n.fdbMacCount <= maxSNMPFDBMacsPerPort || n.neighborKnown {
-			selected = append(selected, n)
-			continue
-		}
-
-		unknownDenseByIf[n.ifIndex] = append(unknownDenseByIf[n.ifIndex], n)
-	}
-
-	for _, candidates := range unknownDenseByIf {
-		sort.Slice(candidates, func(i, j int) bool {
-			left := net.ParseIP(candidates[i].ip).To4()
-			right := net.ParseIP(candidates[j].ip).To4()
-			switch {
-			case left == nil && right == nil:
-				// fall through to MAC tie-breaker
-			case left == nil:
-				return false
-			case right == nil:
-				return true
-			default:
-				for idx := 0; idx < 4; idx++ {
-					if left[idx] == right[idx] {
-						continue
-					}
-					return left[idx] < right[idx]
-				}
-			}
-
-			return candidates[i].mac < candidates[j].mac
-		})
-
-		limit := maxDensePortUnknownNeighborsPerIf
-		if len(candidates) < limit {
-			limit = len(candidates)
-		}
-		selected = append(selected, candidates[:limit]...)
-	}
-
-	return selected
+	return neighbors
 }
 
 func buildSNMPL2LinksFromNeighbors(
@@ -2478,6 +2560,14 @@ func buildSNMPL2LinksFromNeighbors(
 
 	for _, n := range neighbors {
 		if n.ip == "" {
+			continue
+		}
+
+		// Do not convert an IP-only match for an already-known device into a
+		// topology edge. Managed peers need stronger identity than "we saw this
+		// IP in ARP and a MAC on some bridge port", otherwise a single host can
+		// appear attached to multiple unrelated devices.
+		if n.fdbPortMapped && n.neighborKnown && !n.neighborIdentified {
 			continue
 		}
 
@@ -2506,7 +2596,8 @@ func buildSNMPL2LinksFromNeighbors(
 					"source":            "snmp-arp-only",
 					"evidence":          "ipNetToMedia",
 					"fdb_port_mapped":   "false",
-					"evidence_class":    "endpoint-attachment",
+					"evidence_class":    evidenceClassObservedOnly,
+					"relation_family":   "OBSERVED_TO",
 					"confidence_tier":   "low",
 					"confidence_reason": "single_identifier_inference",
 					// Keep ARP-only observations marked for recursive target expansion.
@@ -2535,7 +2626,8 @@ func buildSNMPL2LinksFromNeighbors(
 				"source":            "snmp-arp-fdb",
 				"evidence":          "ipNetToMedia+dot1dTpFdb",
 				"fdb_port_mapped":   "true",
-				"evidence_class":    "inferred",
+				"evidence_class":    evidenceClassInferredSegment,
+				"relation_family":   "ATTACHED_TO",
 				"confidence_tier":   "medium",
 				"confidence_reason": "arp_fdb_port_mapping",
 			},

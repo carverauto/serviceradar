@@ -844,6 +844,45 @@ ingress:
     enabled: false
     secretName: ""
     clusterIssuer: ""
+gatewayApi:
+  enabled: false
+  mode: managed
+  host: ""
+  dns:
+    enabled: true
+    hostname: ""
+  parentRefs: []
+  redirectParentRefs: []
+  service:
+    name: serviceradar-web-ng
+    port: 4000
+  http:
+    enabled: true
+    redirectToHttps: false
+  tls:
+    enabled: false
+    secretName: ""
+    clusterIssuer: ""
+    certificateName: ""
+  envoyProxy:
+    loggingLevel: warn
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      loadBalancerIP: ""
+      annotations: {}
+      ipFamilies:
+        - IPv4
+      ipFamilyPolicy: SingleStack
+  route:
+    pathPrefixes:
+      - /api/query
+      - /api
+      - /
+  backendTrafficPolicy:
+    enabled: false
+    requestTimeout: ""
+    requestBufferLimit: ""
 networkPolicy:
   enabled: false
   podSelectorMatchAll: false

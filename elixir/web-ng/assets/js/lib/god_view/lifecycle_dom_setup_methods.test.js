@@ -59,6 +59,39 @@ describe("lifecycle_dom_setup_methods", () => {
     }
   })
 
+  it("createDeckInstance keeps radial auto-fit in local tier until the user moves the camera", () => {
+    const state = {
+      canvas: {},
+      deck: null,
+      visual: {bg: [10, 10, 10, 255]},
+      viewState: {zoom: 1.4},
+      isProgrammaticViewUpdate: true,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      lastGraph: {_layoutMode: "client-radial"},
+    }
+    const deps = {
+      getNodeTooltip: vi.fn(),
+      handleHover: vi.fn(),
+      handlePick: vi.fn(),
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "regional"),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    const instance = ctx.createDeckInstance(800, 600)
+    instance.props.onViewStateChange({viewState: {zoom: -0.4, target: [0, 0, 0]}})
+    expect(deps.setZoomTier).toHaveBeenCalledWith("local", false)
+    expect(state.userCameraLocked).toBe(false)
+
+    deps.setZoomTier.mockClear()
+    state.isProgrammaticViewUpdate = false
+    instance.props.onViewStateChange({viewState: {zoom: -0.4, target: [0, 0, 0]}})
+    expect(deps.setZoomTier).toHaveBeenCalledWith("regional", false)
+    expect(state.userCameraLocked).toBe(true)
+  })
+
   it("handleDetailsPanelClick navigates device links", () => {
     const state = {}
     const deps = {focusNodeByIndex: vi.fn()}

@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
 
   @tick_ms 5_000
   @binary_magic "GVB1"
+  @expanded_cluster_limit 1
 
   @impl true
   def join("topology:god_view", _payload, socket) do
@@ -37,13 +38,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   def handle_in("cluster:set_expanded", %{"cluster_id" => cluster_id, "expanded" => expanded}, socket)
       when is_binary(cluster_id) do
     expanded_clusters = socket.assigns[:expanded_clusters] || MapSet.new()
-
-    expanded_clusters =
-      if expanded == true do
-        MapSet.put(expanded_clusters, cluster_id)
-      else
-        MapSet.delete(expanded_clusters, cluster_id)
-      end
+    expanded_clusters = next_expanded_clusters(expanded_clusters, cluster_id, expanded)
 
     socket =
       socket
@@ -139,5 +134,18 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
       :final_attachment,
       :unresolved_endpoints
     ])
+  end
+
+  @doc false
+  def next_expanded_clusters(expanded_clusters, cluster_id, expanded)
+      when is_struct(expanded_clusters, MapSet) and is_binary(cluster_id) do
+    if expanded == true do
+      cluster_id
+      |> List.wrap()
+      |> Enum.take(@expanded_cluster_limit)
+      |> MapSet.new()
+    else
+      MapSet.delete(expanded_clusters, cluster_id)
+    end
   end
 end

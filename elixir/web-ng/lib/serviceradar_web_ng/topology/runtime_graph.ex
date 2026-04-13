@@ -15,7 +15,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   require Logger
 
   @default_refresh_ms 5_000
-  @max_link_rows 5_000
+  @max_backbone_link_rows 5_000
+  @max_attachment_link_rows 2_000
 
   @type state :: %{
           graph_ref: term(),
@@ -115,9 +116,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       {:ok, rows} when is_list(rows) ->
         normalized_rows = normalize_runtime_rows(rows)
         ingested = Native.runtime_graph_ingest_rows(state.graph_ref, normalized_rows)
+        backbone_rows = Enum.count(normalized_rows, &backbone_runtime_row?/1)
+        attachment_rows = Enum.count(normalized_rows, &attachment_runtime_row?/1)
 
         Logger.info(
-          "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested}"
+          "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested} backbone=#{backbone_rows} attachment=#{attachment_rows}"
         )
 
         %{state | last_refresh_at: DateTime.utc_now()}
@@ -156,12 +159,12 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND a.id STARTS WITH 'sr:'
       AND b.id STARTS WITH 'sr:'
       AND (
-        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'ATTACHED_TO']
-        OR (
-          r.relation_type IS NULL
-          AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'endpoint-attachment']
-        )
+        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
+        OR (r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
       )
+    WITH a, b, r
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_backbone_link_rows}
     RETURN {
       local_device_id: a.id,
       local_device_ip: a.ip,
@@ -203,13 +206,67 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         source: coalesce(r.source, ''),
         inference: coalesce(r.confidence_reason, ''),
         evidence_class: coalesce(r.evidence_class, ''),
+        topology_plane: CASE
+          WHEN toUpper(coalesce(r.relation_type, '')) = 'LOGICAL_PEER' THEN 'logical'
+          WHEN toUpper(coalesce(r.relation_type, '')) = 'HOSTED_ON' THEN 'hosted'
+          ELSE 'backbone'
+        END,
         confidence_tier: coalesce(r.confidence_tier, 'unknown'),
         confidence_score: coalesce(r.confidence_score, 0)
       }
-    }
-    ORDER BY
-      coalesce(r.last_observed_at, r.observed_at) DESC
-    LIMIT #{@max_link_rows}
+    } AS row
+    UNION ALL
+    MATCH (ai:Interface)-[r]->(bi:Interface)
+    MATCH (a:Device {id: ai.device_id})
+    MATCH (b:Device {id: bi.device_id})
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']
+      AND ai.device_id IS NOT NULL
+      AND bi.device_id IS NOT NULL
+      AND ai.device_id STARTS WITH 'sr:'
+      AND bi.device_id STARTS WITH 'sr:'
+      AND ai.device_id <> bi.device_id
+    WITH a, b, ai, bi, r
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_attachment_link_rows}
+    RETURN {
+      local_device_id: ai.device_id,
+      local_device_ip: a.ip,
+      local_if_name: coalesce(ai.name, ''),
+      local_if_index: ai.ifindex,
+      local_if_name_ab: coalesce(ai.name, ''),
+      local_if_index_ab: ai.ifindex,
+      local_if_name_ba: coalesce(bi.name, ''),
+      local_if_index_ba: bi.ifindex,
+      neighbor_if_name: coalesce(bi.name, ''),
+      neighbor_if_index: bi.ifindex,
+      neighbor_device_id: bi.device_id,
+      neighbor_mgmt_addr: b.ip,
+      neighbor_system_name: b.name,
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_eligible: false,
+      telemetry_source: 'none',
+      telemetry_observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_reason: coalesce(r.confidence_reason, ''),
+      evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
+      metadata: {
+        relation_type: type(r),
+        source: coalesce(r.source, r.ingestor, 'mapper_topology_v1'),
+        inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
+        topology_plane: 'attachment',
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    } AS row
     """
   end
 
@@ -218,7 +275,20 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     |> Enum.map(&normalize_runtime_row/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(&canonical_runtime_row?/1)
+    |> prioritize_runtime_rows()
   end
+
+  @doc false
+  @spec prioritize_runtime_rows([map()]) :: [map()]
+  def prioritize_runtime_rows(rows) when is_list(rows) do
+    {backbone_rows, attachment_rows} =
+      Enum.split_with(rows, &backbone_runtime_row?/1)
+
+    Enum.take(backbone_rows, @max_backbone_link_rows) ++
+      Enum.take(attachment_rows, @max_attachment_link_rows)
+  end
+
+  def prioritize_runtime_rows(_rows), do: []
 
   @doc false
   @spec canonical_runtime_row?(map()) :: boolean()
@@ -226,29 +296,35 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     source = canonical_runtime_id(map_fetch(row, :local_device_id))
     target = canonical_runtime_id(map_fetch(row, :neighbor_device_id))
 
-    relation_type =
-      row
-      |> map_fetch(:metadata)
-      |> metadata_value("relation_type")
-      |> to_string()
-      |> String.trim()
-      |> String.upcase()
-
-    evidence_class =
-      row
-      |> map_fetch(:evidence_class)
-      |> to_string()
-      |> String.trim()
-      |> String.downcase()
-
-    valid_relation? = relation_type in ["CONNECTS_TO", "ATTACHED_TO"]
-    valid_evidence? = evidence_class in ["direct", "endpoint-attachment"]
-
     is_binary(source) and is_binary(target) and source != target and
-      (valid_relation? or valid_evidence?)
+      (backbone_runtime_row?(row) or attachment_runtime_row?(row))
   end
 
   def canonical_runtime_row?(_row), do: false
+
+  @doc false
+  @spec backbone_runtime_row?(map()) :: boolean()
+  def backbone_runtime_row?(row) when is_map(row) do
+    relation_type = runtime_relation_type(row)
+    evidence_class = runtime_evidence_class(row)
+
+    relation_type in ["CONNECTS_TO", "LOGICAL_PEER", "HOSTED_ON"] or
+      (relation_type == "" and evidence_class in ["direct", "direct-physical", "direct-logical", "hosted-virtual"])
+  end
+
+  def backbone_runtime_row?(_row), do: false
+
+  @doc false
+  @spec attachment_runtime_row?(map()) :: boolean()
+  def attachment_runtime_row?(row) when is_map(row) do
+    relation_type = runtime_relation_type(row)
+    evidence_class = runtime_evidence_class(row)
+
+    relation_type in ["ATTACHED_TO", "OBSERVED_TO"] or
+      (relation_type == "" and evidence_class in ["endpoint-attachment", "observed-only"])
+  end
+
+  def attachment_runtime_row?(_row), do: false
 
   defp normalize_runtime_row(%{} = row) do
     row
@@ -386,6 +462,27 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp metadata_value(_metadata, _key), do: nil
+
+  defp runtime_relation_type(row) when is_map(row) do
+    row
+    |> map_fetch(:metadata)
+    |> metadata_value("relation_type")
+    |> to_string()
+    |> String.trim()
+    |> String.upcase()
+  end
+
+  defp runtime_relation_type(_row), do: ""
+
+  defp runtime_evidence_class(row) when is_map(row) do
+    row
+    |> map_fetch(:evidence_class)
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp runtime_evidence_class(_row), do: ""
 
   defp canonical_runtime_id(value) when is_binary(value) do
     trimmed = String.trim(value)

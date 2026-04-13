@@ -391,7 +391,9 @@ func buildMikroTikTopologyLinks(
 			NeighborSystemName: firstNonEmpty(stringValue(raw, "identity"), stringValue(raw, "system-name")),
 			NeighborMgmtAddr:   stringValue(raw, "address"),
 			Metadata: map[string]string{
-				"source": "mikrotik-api-neighbor",
+				"source":          "mikrotik-api-neighbor",
+				"evidence_class":  evidenceClassDirectPhysical,
+				"relation_family": "CONNECTS_TO",
 				//nolint:misspell // RouterOS is the vendor product name.
 				"evidence": "routeros-ip-neighbor",
 			},

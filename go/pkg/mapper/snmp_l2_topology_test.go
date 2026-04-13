@@ -15,7 +15,7 @@ var errNoCDP = errors.New("no cdp")
 
 const testStringTrue = "true"
 
-func TestPublishTopologyLinksPublishesCandidateOnlyAttachments(t *testing.T) {
+func TestPublishTopologyLinksSkipsPublishingCandidateOnlyAttachments(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -51,15 +51,15 @@ func TestPublishTopologyLinksPublishesCandidateOnlyAttachments(t *testing.T) {
 
 	engine.publishTopologyLinks(job, links, "192.168.10.1", "SNMP-L2")
 
-	// candidate_only link remains marked for recursive targeting and is also
-	// published downstream so topology can surface endpoint attachments.
+	// candidate_only links remain in the in-memory discovery results so they can
+	// seed recursive targets, but they are not published downstream as
+	// first-class topology evidence.
 	require.Len(t, job.Results.TopologyLinks, 2)
-	require.Len(t, publisher.topologyLinks, 2)
+	require.Len(t, publisher.topologyLinks, 1)
 	publishedNeighbors := []string{
 		publisher.topologyLinks[0].NeighborMgmtAddr,
-		publisher.topologyLinks[1].NeighborMgmtAddr,
 	}
-	assert.ElementsMatch(t, []string{"192.168.10.1", "192.168.10.154"}, publishedNeighbors)
+	assert.ElementsMatch(t, []string{"192.168.10.1"}, publishedNeighbors)
 }
 
 func TestPublishTopologyEvidencePublishesSNMPL2EvenWhenLLDPPresent(t *testing.T) {
@@ -168,16 +168,46 @@ func TestBuildSNMPL2LinksFromNeighborsKeepsARPOnlyAsCandidateOnly(t *testing.T) 
 	assert.Equal(t, "aa:bb:cc:dd:ee:02", fdbLink.NeighborChassisID)
 	assert.Equal(t, "snmp-arp-fdb", fdbLink.Metadata["source"])
 	assert.Equal(t, testStringTrue, fdbLink.Metadata["fdb_port_mapped"])
-	assert.Equal(t, "inferred", fdbLink.Metadata["evidence_class"])
+	assert.Equal(t, evidenceClassInferredSegment, fdbLink.Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", fdbLink.Metadata["relation_family"])
 	assert.Equal(t, "medium", fdbLink.Metadata["confidence_tier"])
 
 	assert.Equal(t, int32(0), candidateLink.LocalIfIndex)
 	assert.Equal(t, "192.168.1.50", candidateLink.NeighborMgmtAddr)
 	assert.Equal(t, "snmp-arp-only", candidateLink.Metadata["source"])
 	assert.Equal(t, "false", candidateLink.Metadata["fdb_port_mapped"])
-	assert.Equal(t, "endpoint-attachment", candidateLink.Metadata["evidence_class"])
+	assert.Equal(t, evidenceClassObservedOnly, candidateLink.Metadata["evidence_class"])
+	assert.Equal(t, "OBSERVED_TO", candidateLink.Metadata["relation_family"])
 	assert.Equal(t, "low", candidateLink.Metadata["confidence_tier"])
 	assert.Equal(t, testStringTrue, candidateLink.Metadata["candidate_only"])
+}
+
+func TestBuildSNMPL2LinksFromNeighborsSkipsKnownFdbNeighborWithoutIdentity(t *testing.T) {
+	t.Parallel()
+
+	neighbors := []arpNeighbor{
+		{
+			ifIndex:            9,
+			ip:                 "192.168.1.62",
+			mac:                "aa:bb:cc:dd:ee:62",
+			fdbPortMapped:      true,
+			neighborKnown:      true,
+			neighborIdentified: false,
+		},
+		{
+			ifIndex:            11,
+			ip:                 "192.168.1.63",
+			mac:                "aa:bb:cc:dd:ee:63",
+			fdbPortMapped:      true,
+			neighborKnown:      true,
+			neighborIdentified: true,
+		},
+	}
+
+	links := buildSNMPL2LinksFromNeighbors("sr:farm01", "192.168.1.1", "disc-4", neighbors)
+	require.Len(t, links, 1)
+	assert.Equal(t, "192.168.1.63", links[0].NeighborMgmtAddr)
+	assert.Equal(t, int32(11), links[0].LocalIfIndex)
 }
 
 func TestBuildSNMPL2LinksFromNeighborsDeduplicatesIdenticalEvidence(t *testing.T) {
@@ -219,7 +249,7 @@ func TestBuildSNMPL2LinksFromNeighborsRejectsInvalidIfIndex(t *testing.T) {
 	assert.Empty(t, links)
 }
 
-func TestSelectDensePortNeighborsKeepsKnownAndBoundsUnknown(t *testing.T) {
+func TestSelectDensePortNeighborsRetainsFDBBackedCandidates(t *testing.T) {
 	t.Parallel()
 
 	engine := &DiscoveryEngine{}
@@ -232,17 +262,58 @@ func TestSelectDensePortNeighborsKeepsKnownAndBoundsUnknown(t *testing.T) {
 	}
 
 	selected := engine.selectDensePortNeighbors(neighbors)
+	require.Len(t, selected, len(neighbors))
 
 	seen := make(map[string]bool, len(selected))
 	for _, n := range selected {
 		seen[n.ip] = true
 	}
 
-	assert.True(t, seen["192.168.10.40"], "known dense-port neighbor should be retained")
-	assert.True(t, seen["192.168.10.10"], "lowest unknown candidate should be retained")
-	assert.True(t, seen["192.168.10.20"], "second unknown candidate should be retained")
-	assert.False(t, seen["192.168.10.30"], "unknown dense-port neighbors should be bounded")
-	assert.True(t, seen["192.168.1.2"], "low-density neighbors should be retained")
+	assert.True(t, seen["192.168.10.40"])
+	assert.True(t, seen["192.168.10.30"])
+	assert.True(t, seen["192.168.10.10"])
+	assert.True(t, seen["192.168.10.20"])
+	assert.True(t, seen["192.168.1.2"])
+}
+
+func TestObservedFDBMappedNeighborsReusesObservedIPsAcrossDevices(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:62", "192.168.1.62")
+	engine.recordObservedNeighborIPByMAC(job, "AA:BB:CC:DD:EE:62", "192.168.1.62")
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:88", "192.168.1.88")
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:99", "192.168.2.99")
+
+	neighbors := engine.observedFDBMappedNeighbors(
+		job,
+		"192.168.1.138",
+		map[string]struct{}{"192.168.1": {}},
+		map[string]int32{
+			"aabbccddee62": 7,
+			"aabbccddee88": 7,
+			"aabbccddee99": 7,
+		},
+		map[int32]int{7: 12},
+		map[string]knownMACNeighbor{
+			"aabbccddee88": {deviceID: "sr:known-switch", ip: "192.168.1.88", mac: "aa:bb:cc:dd:ee:88"},
+		},
+		map[string]bool{
+			"192.168.1.62": false,
+			"192.168.1.88": true,
+		},
+	)
+
+	require.Len(t, neighbors, 1)
+	assert.Equal(t, int32(7), neighbors[0].ifIndex)
+	assert.Equal(t, "192.168.1.62", neighbors[0].ip)
+	assert.Equal(t, "aabbccddee62", neighbors[0].mac)
+	assert.True(t, neighbors[0].fdbPortMapped)
+	assert.Equal(t, 12, neighbors[0].fdbMacCount)
+	assert.False(t, neighbors[0].neighborKnown)
+	assert.False(t, neighbors[0].neighborIdentified)
 }
 
 func TestKnownDeviceIPv4SetIncludesScanQueueTargets(t *testing.T) {

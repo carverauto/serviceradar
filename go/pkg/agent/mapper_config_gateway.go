@@ -41,6 +41,7 @@ type gatewayMapperConfig struct {
 	Seeds           []string             `json:"seeds"`
 	Credentials     []mapperCredSpec     `json:"credentials"`
 	MikroTikAPIs    []mapperMikroTikSpec `json:"mikrotik_apis"`
+	ProxmoxAPIs     []mapperProxmoxSpec  `json:"proxmox_apis"`
 	UniFiAPIs       []mapperUnifiSpec    `json:"unifi_apis"`
 	ScheduledJobs   []mapperJobSpec      `json:"scheduled_jobs"`
 	ConfigHash      string               `json:"config_hash"`
@@ -68,6 +69,17 @@ type mapperMikroTikSpec struct {
 	BaseURL            string `json:"base_url"`
 	Username           string `json:"username"`
 	Password           string `json:"password"`
+	Name               string `json:"name"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+}
+
+type mapperProxmoxSpec struct {
+	BaseURL            string `json:"base_url"`
+	TokenID            string `json:"token_id"`
+	TokenSecret        string `json:"token_secret"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	Realm              string `json:"realm"`
 	Name               string `json:"name"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 }
@@ -139,6 +151,7 @@ func buildMapperEngineConfig(cfg *gatewayMapperConfig, serverCfg *ServerConfig, 
 		Seeds:           cfg.Seeds,
 		Credentials:     convertMapperCreds(cfg.Credentials),
 		MikroTikAPIs:    convertMapperMikroTik(cfg.MikroTikAPIs),
+		ProxmoxAPIs:     convertMapperProxmox(cfg.ProxmoxAPIs),
 		UniFiAPIs:       convertMapperUnifi(cfg.UniFiAPIs),
 		ScheduledJobs:   convertMapperJobs(cfg.ScheduledJobs, log),
 		ResultRetention: parseMapperDuration(cfg.ResultRetention, 24*time.Hour, log),
@@ -225,6 +238,28 @@ func convertMapperMikroTik(endpoints []mapperMikroTikSpec) []mapper.MikroTikAPIC
 			BaseURL:            endpoint.BaseURL,
 			Username:           endpoint.Username,
 			Password:           endpoint.Password,
+			Name:               endpoint.Name,
+			InsecureSkipVerify: endpoint.InsecureSkipVerify,
+		})
+	}
+
+	return out
+}
+
+func convertMapperProxmox(endpoints []mapperProxmoxSpec) []mapper.ProxmoxAPIConfig {
+	if len(endpoints) == 0 {
+		return nil
+	}
+
+	out := make([]mapper.ProxmoxAPIConfig, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		out = append(out, mapper.ProxmoxAPIConfig{
+			BaseURL:            endpoint.BaseURL,
+			TokenID:            endpoint.TokenID,
+			TokenSecret:        endpoint.TokenSecret,
+			Username:           endpoint.Username,
+			Password:           endpoint.Password,
+			Realm:              endpoint.Realm,
 			Name:               endpoint.Name,
 			InsecureSkipVerify: endpoint.InsecureSkipVerify,
 		})
