@@ -337,7 +337,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp materializable_projection_attachment_edge?(_edge), do: false
 
   defp unresolved_materializable_projection_endpoint?(endpoint_id, endpoint_node) when is_binary(endpoint_id) do
-    anonymous_unresolved_node?(endpoint_id, endpoint_node)
+    not resolved_endpoint_identity?(endpoint_id, endpoint_node)
   end
 
   defp unresolved_materializable_projection_endpoint?(_endpoint_id, _endpoint_node), do: false
