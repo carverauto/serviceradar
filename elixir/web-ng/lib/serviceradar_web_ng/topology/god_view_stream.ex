@@ -285,9 +285,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         materialize_projection_attachment_edge_nodes(edge, nodes_by_id, acc)
       end)
 
-    Enum.map(nodes, fn node ->
-      Map.get(materialized_by_id, normalize_id(Map.get(node, :id)), node)
-    end)
+    materialized_nodes =
+      Enum.map(nodes, fn node ->
+        Map.get(materialized_by_id, normalize_id(Map.get(node, :id)), node)
+      end)
+
+    existing_ids = MapSet.new(Enum.map(materialized_nodes, &normalize_id(Map.get(&1, :id))))
+
+    appended_nodes =
+      materialized_by_id
+      |> Enum.reject(fn {endpoint_id, _node} -> MapSet.member?(existing_ids, endpoint_id) end)
+      |> Enum.map(fn {_endpoint_id, node} -> node end)
+
+    materialized_nodes ++ appended_nodes
   end
 
   defp materialize_projection_attachment_nodes(nodes, _edges) when is_list(nodes), do: nodes
