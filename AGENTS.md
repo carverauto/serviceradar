@@ -1,21 +1,3 @@
-<!-- OPENSPEC:START -->
-# OpenSpec Instructions
-
-These instructions are for AI assistants working in this project.
-
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
-<!-- OPENSPEC:END -->
 
 # Codex Agent Guide for ServiceRadar
 
@@ -93,33 +75,47 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
 
 1. Confirm the scope is narrow:
    - `git diff --name-only <currently-deployed-sha>..HEAD`
-   - If only `elixir/web-ng/**` changed, rebuild just `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
-2. Copy unchanged images from the current demo tag to the new tag:
-   - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
-   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-db-event-writer`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, `serviceradar-zen`, and `arancini`.
-3. Rebuild the production `web-ng` release locally:
-   - `cd elixir/web-ng`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.compile`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix compile`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix assets.deploy`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix release --path /tmp/serviceradar_web_ng_release_<shortsha>`
-4. Package and push the new `web-ng` image directly with `crane`:
-   - `tar --owner=10001 --group=10001 --transform='s,^,app/,' -cf /tmp/serviceradar_web_ng_layer_<shortsha>.tar -C /tmp/serviceradar_web_ng_release_<shortsha> .`
-   - `/tmp/gobin/crane append --platform linux/amd64 -b index.docker.io/hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim -f /tmp/serviceradar_web_ng_layer_<shortsha>.tar -t registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-   - `/tmp/gobin/crane mutate --platform linux/amd64 --tag registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new> --entrypoint /app/bin/serviceradar_web_ng --cmd start --env HOME=/app --env PATH=/app/bin:/usr/local/bin:/usr/bin:/bin --env PHX_SERVER=true --env MIX_ENV=prod --exposed-ports 4000/tcp --user 10001:10001 --workdir /app registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-5. Sign the new `web-ng` tag with the release signer, not a local key:
+   - If only `elixir/web-ng/**` changed, rebuild only `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
+2. Build the production image with Bazel:
+   - `bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push`
+   - BuildBuddy is the source of truth for whether the release build actually finished; the common failure after a successful build is only the final Harbor push step.
+3. If the generated push script fails with Harbor auth, push the OCI layout manually with the Harbor robot account instead of rebuilding:
+   - Get the robot credentials from `registry-carverauto-dev-cred` in namespace `demo`.
+   - Use the Bazel-provided registry crane binary, not the unrelated `crane` on `$PATH`:
+     - `.../push_web_ng_image_amd64_push.sh.runfiles/rules_oci++oci+oci_crane_linux_amd64/crane`
+   - Extract the digest and tags from the Bazel runfiles:
+     - `.../push_web_ng_image_amd64_push.sh.runfiles/_main/docker/images/web_ng_image_amd64/index.json`
+     - `.../push_web_ng_image_amd64_push.sh.runfiles/_main/docker/images/web_ng_image_amd64_push_tags.txt`
+   - Push and tag manually:
+     - `crane auth login registry.carverauto.dev -u 'robot$serviceradar-ci' -p '<password>'`
+     - `crane push <oci-layout-dir> registry.carverauto.dev/serviceradar/serviceradar-web-ng@sha256:<digest> --image-refs <tmpfile>`
+     - `crane tag "$(cat <tmpfile>)" sha-<gitsha>`
+     - `crane tag "$(cat <tmpfile>)" sha-<digest12>`
+4. Sign the digest with OpenBao, not a local key:
    - Port-forward OpenBao if needed: `kubectl port-forward -n vault svc/openbao 18200:8200`
-   - Exchange the Forgejo runner service account token for a Vault token and set `VAULT_ADDR=http://127.0.0.1:18200`
-   - `export COSIGN_KEY_REF=hashivault://cosign-release`
-   - `export COSIGN_YES=true COSIGN_DOCKER_MEDIA_TYPES=1 COSIGN_REFERRERS_MODE=legacy COSIGN_TLOG_UPLOAD=true`
-   - `cosign sign --key "$COSIGN_KEY_REF" registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-6. Patch the Argo app override instead of editing chart values for one-off demo tests:
-   - `kubectl patch application -n argocd serviceradar-demo-prod --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'`
+   - Set `VAULT_ADDR=http://127.0.0.1:18200`
+   - Export a valid Vault token for the `cosign-release` transit key.
+   - Use the image digest reference, not the tag reference:
+     - `COSIGN_YES=true cosign sign --key hashivault://cosign-release registry.carverauto.dev/serviceradar/serviceradar-web-ng@sha256:<digest>`
+   - Verify the published tag against the cluster-trusted public key:
+     - `cosign verify --key docs/cosign.pub registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<gitsha>`
+5. Copy the unchanged demo images from the currently deployed tag to the new unified tag:
+   - Current demo tag:
+     - `kubectl get application serviceradar-demo-prod -n argocd -o jsonpath='{.spec.source.helm.parameters[0].value}'`
+   - Copy forward with the same Bazel-provided crane binary:
+     - `crane copy registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
+   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-db-event-writer`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, `serviceradar-zen`, and `arancini`.
+6. Patch Argo instead of editing chart values for one-off demo tests:
+   - `kubectl patch application serviceradar-demo-prod -n argocd --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}},"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'`
 7. Watch the rollout to completion:
-   - `kubectl get application -n argocd serviceradar-demo-prod -o jsonpath='{.status.sync.status}{"|"}{.status.health.status}{"|"}{.status.operationState.phase}{"\n"}'`
-   - `kubectl get deploy -n demo serviceradar-web-ng serviceradar-core serviceradar-agent serviceradar-tools -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'`
-   - Expect temporary `OutOfSync|Healthy|Running` or `Synced|Progressing|Running` while hook jobs such as runtime cert generation or NATS credential generation complete.
-   - Finish only when Argo reports `Synced|Healthy|Succeeded` and the key `demo` pods are `Running` on `sha-<new>`.
+   - `kubectl get application serviceradar-demo-prod -n argocd -o jsonpath='{.status.sync.status}{"|"}{.status.health.status}{"|"}{.status.operationState.phase}{"
+"}'`
+   - `kubectl rollout status deployment/serviceradar-web-ng -n demo --timeout=180s`
+   - `kubectl get pods -n demo | rg 'web-ng'`
+   - It is normal to see `Synced|Progressing|Running` while hook jobs and old replicas drain. Finish only when the new `web-ng` pod is `Running` on `sha-<new>` and Argo settles back to `Synced|Healthy|Succeeded`.
+8. If you need to prove the live behavior after rollout, query the release container directly:
+   - `kubectl exec -n demo <web-ng-pod> -- /app/bin/serviceradar_web_ng rpc '...Elixir check...'`
+   - Use `rpc`, not `eval`, when the code needs the already-running application processes like `RuntimeGraph`.
 
 ## Docker Compose Refresh
 
