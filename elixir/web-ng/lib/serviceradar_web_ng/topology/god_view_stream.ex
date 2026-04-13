@@ -3242,10 +3242,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       expanded_attachment_edge_keys,
       expanded_groups
     ) and
-      endpoint_attachment_edge?(edge) and
-      (not MapSet.member?(expanded_attachment_edge_keys, edge_identity_key(edge)) or
-         collapsed_endpoint_member_edge?(edge, collapsed_members) or
-         expanded_group_attachment_edge?(edge, expanded_groups))
+      endpoint_attachment_edge?(edge) and expanded_group_attachment_edge?(edge, expanded_groups)
   end
 
   defp drop_cluster_projection_edge?(_edge, _collapsed_members, _expanded_attachment_edge_keys, _expanded_groups),
@@ -4267,15 +4264,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       {key, value} -> {key, value}
     end)
   end
-
-  defp collapsed_endpoint_member_edge?(edge, collapsed_members)
-       when is_map(edge) and is_struct(collapsed_members, MapSet) do
-    endpoint_attachment_edge?(edge) and
-      (MapSet.member?(collapsed_members, Map.get(edge, :source)) or
-         MapSet.member?(collapsed_members, Map.get(edge, :target)))
-  end
-
-  defp collapsed_endpoint_member_edge?(_edge, _collapsed_members), do: false
 
   defp edge_endpoint_member?(edge, endpoint_ids) when is_map(edge) and is_list(endpoint_ids) do
     source = Map.get(edge, :source)
