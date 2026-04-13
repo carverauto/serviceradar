@@ -4708,7 +4708,177 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       assert node.label == endpoint_ip
       assert Jason.decode!(node.details_json)["ip"] == endpoint_ip
       assert find_edge(snapshot, ap_uid, endpoint_uid)
+      refute find_edge(snapshot, switch_uid, endpoint_uid)
     end)
+  end
+
+  test "latest_snapshot/0 suppresses raw switch edges for endpoints summarized under another switch" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_shadowed_switch_cluster_edge_test)
+    suffix = System.unique_integer([:positive])
+    preferred_switch_uid = "sr:shadowed-cluster-preferred-switch-#{suffix}"
+    secondary_switch_uid = "sr:shadowed-cluster-secondary-switch-#{suffix}"
+    ap_uid = "sr:shadowed-cluster-ap-#{suffix}"
+
+    create_topology_device(actor, preferred_switch_uid, "shadowed-cluster-preferred-switch-#{suffix}", %{
+      ip: "198.51.104.1",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    create_topology_device(actor, secondary_switch_uid, "shadowed-cluster-secondary-switch-#{suffix}", %{
+      ip: "198.51.104.2",
+      type_id: 10,
+      is_available: true,
+      metadata: %{"type" => "switch"}
+    })
+
+    create_topology_device(actor, ap_uid, "shadowed-cluster-ap-#{suffix}", %{
+      ip: "198.51.104.10",
+      type_id: 99,
+      is_available: true,
+      metadata: %{"type" => "access point"}
+    })
+
+    shared_specs =
+      Enum.map(1..4, fn idx ->
+        %{
+          uid: "sr:shadowed-cluster-shared-#{suffix}-#{idx}",
+          ip: "198.51.104.#{20 + idx}",
+          mac: "02:00:00:b1:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
+        }
+      end)
+
+    preferred_only_spec = %{
+      uid: "sr:shadowed-cluster-preferred-only-#{suffix}",
+      ip: "198.51.104.30",
+      mac: "02:00:00:b2:01:bb"
+    }
+
+    secondary_only_spec = %{
+      uid: "sr:shadowed-cluster-secondary-only-#{suffix}",
+      ip: "198.51.104.31",
+      mac: "02:00:00:b3:01:cc"
+    }
+
+    preferred_rows =
+      Enum.map(shared_specs ++ [preferred_only_spec], fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: preferred_switch_uid,
+          local_device_ip: "198.51.104.1",
+          local_if_name: nil,
+          local_if_index: 2,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-13T04:00:00Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    secondary_rows =
+      Enum.map(shared_specs ++ [secondary_only_spec], fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
+        %{
+          local_device_id: secondary_switch_uid,
+          local_device_ip: "198.51.104.2",
+          local_if_name: nil,
+          local_if_index: 7,
+          neighbor_if_name: endpoint_mac,
+          neighbor_if_index: nil,
+          neighbor_device_id: endpoint_uid,
+          neighbor_mgmt_addr: endpoint_ip,
+          protocol: "snmp-l2",
+          evidence_class: "inferred-segment",
+          confidence_tier: "medium",
+          confidence_reason: "arp_fdb_port_mapping",
+          flow_pps: 0,
+          flow_bps: 0,
+          capacity_bps: 0,
+          flow_pps_ab: 0,
+          flow_pps_ba: 0,
+          flow_bps_ab: 0,
+          flow_bps_ba: 0,
+          telemetry_source: "none",
+          telemetry_observed_at: "2026-04-13T04:00:05Z",
+          metadata: %{
+            "relation_type" => "INFERRED_TO",
+            "relation_family" => "INFERRED_TO",
+            "evidence_class" => "inferred-segment",
+            "source" => "SNMP-L2"
+          }
+        }
+      end)
+
+    ap_row = %{
+      local_device_id: secondary_switch_uid,
+      local_device_ip: "198.51.104.2",
+      local_if_name: nil,
+      local_if_index: 7,
+      neighbor_if_name: "4c:5e:0c:11:22:33",
+      neighbor_if_index: nil,
+      neighbor_device_id: ap_uid,
+      neighbor_mgmt_addr: "198.51.104.10",
+      protocol: "snmp-l2",
+      evidence_class: "inferred-segment",
+      confidence_tier: "medium",
+      confidence_reason: "arp_fdb_port_mapping",
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_source: "none",
+      telemetry_observed_at: "2026-04-13T04:00:10Z",
+      metadata: %{
+        "relation_type" => "INFERRED_TO",
+        "relation_family" => "INFERRED_TO",
+        "evidence_class" => "inferred-segment",
+        "source" => "SNMP-L2"
+      }
+    }
+
+    replace_runtime_graph_links!(graph_ref, preferred_rows ++ secondary_rows ++ [ap_row])
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    preferred_cluster_id = "cluster:endpoints:" <> preferred_switch_uid <> ":ifindex:2"
+    preferred_cluster = Enum.find(snapshot.nodes, &(&1.id == preferred_cluster_id))
+    assert preferred_cluster
+    assert preferred_cluster.label == "5 endpoints"
+
+    Enum.each(shared_specs, fn %{uid: endpoint_uid} ->
+      refute find_edge(snapshot, secondary_switch_uid, endpoint_uid)
+    end)
+
+    refute find_edge(snapshot, secondary_switch_uid, ap_uid)
+    assert find_edge(snapshot, secondary_switch_uid, secondary_only_spec.uid)
   end
 
   test "latest_snapshot/0 prefers explicit UniFi AP client attachments over switch sightings with compact MAC identifiers" do
