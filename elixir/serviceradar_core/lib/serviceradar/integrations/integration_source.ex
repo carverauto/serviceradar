@@ -41,6 +41,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     :poll_interval_seconds,
     :discovery_interval_seconds,
     :sweep_interval_seconds,
+    :northbound_enabled,
+    :northbound_interval_seconds,
     :page_size,
     :network_blacklist,
     :queries,
@@ -210,6 +212,82 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change {PublishSyncLog, stage: :finished}
     end
 
+    update :northbound_start do
+      description "Mark northbound Armis update execution as running"
+
+      argument :device_count, :integer, default: 0
+
+      change set_attribute(:northbound_status, :running)
+      change set_attribute(:northbound_last_device_count, arg(:device_count))
+      change set_attribute(:northbound_last_error_message, nil)
+    end
+
+    update :northbound_success do
+      description "Record a successful northbound Armis update run"
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:success, :partial]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :updated_count, :integer, default: 0
+      argument :skipped_count, :integer, default: 0
+
+      change set_attribute(:northbound_status, :success)
+      change set_attribute(:northbound_last_run_at, &DateTime.utc_now/0)
+      change set_attribute(:northbound_last_result, arg(:result))
+      change set_attribute(:northbound_last_device_count, arg(:device_count))
+      change set_attribute(:northbound_last_updated_count, arg(:updated_count))
+      change set_attribute(:northbound_last_skipped_count, arg(:skipped_count))
+      change set_attribute(:northbound_last_error_message, nil)
+      change set_attribute(:northbound_consecutive_failures, 0)
+    end
+
+    update :northbound_failed do
+      description "Record a failed northbound Armis update run"
+      require_atomic? false
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:failed, :timeout]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :updated_count, :integer, default: 0
+      argument :skipped_count, :integer, default: 0
+      argument :error_message, :string
+
+      change fn changeset, _context ->
+        current_failures = changeset.data.northbound_consecutive_failures || 0
+
+        changeset
+        |> Ash.Changeset.change_attribute(:northbound_status, :failed)
+        |> Ash.Changeset.change_attribute(:northbound_last_run_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_result,
+          Ash.Changeset.get_argument(changeset, :result)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_device_count,
+          Ash.Changeset.get_argument(changeset, :device_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_updated_count,
+          Ash.Changeset.get_argument(changeset, :updated_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_skipped_count,
+          Ash.Changeset.get_argument(changeset, :skipped_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_error_message,
+          Ash.Changeset.get_argument(changeset, :error_message)
+        )
+        |> Ash.Changeset.change_attribute(:northbound_consecutive_failures, current_failures + 1)
+      end
+    end
+
     update :record_sync do
       description "Record sync execution results"
       # Non-atomic: computes new values based on current record state
@@ -332,6 +410,18 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "How often to run network sweeps (seconds)"
     end
 
+    attribute :northbound_enabled, :boolean do
+      default false
+      public? true
+      description "Whether northbound Armis availability updates are enabled"
+    end
+
+    attribute :northbound_interval_seconds, :integer do
+      default 3600
+      public? true
+      description "How often to run northbound Armis updates (seconds)"
+    end
+
     # Source-specific settings
     attribute :page_size, :integer do
       default 100
@@ -413,8 +503,63 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "Total sync attempts"
     end
 
+    attribute :northbound_last_run_at, :utc_datetime do
+      public? true
+      description "Last northbound update run time"
+    end
+
+    attribute :northbound_last_result, :atom do
+      public? true
+      constraints one_of: [:success, :partial, :failed, :timeout]
+      description "Result of last northbound update run"
+    end
+
+    attribute :northbound_last_device_count, :integer do
+      default 0
+      public? true
+      description "Devices considered in last northbound run"
+    end
+
+    attribute :northbound_last_updated_count, :integer do
+      default 0
+      public? true
+      description "Devices updated in last northbound run"
+    end
+
+    attribute :northbound_last_skipped_count, :integer do
+      default 0
+      public? true
+      description "Devices skipped in last northbound run"
+    end
+
+    attribute :northbound_last_error_message, :string do
+      public? true
+      description "Error from last failed northbound run"
+    end
+
+    attribute :northbound_status, :atom do
+      default :idle
+      allow_nil? false
+      public? true
+      constraints one_of: [:idle, :running, :success, :failed]
+      description "Current northbound update state"
+    end
+
+    attribute :northbound_consecutive_failures, :integer do
+      default 0
+      public? true
+      description "Consecutive failed northbound runs"
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    has_many :update_runs, ServiceRadar.Integrations.IntegrationUpdateRun do
+      destination_attribute :integration_source_id
+      public? true
+    end
   end
 
   calculations do
