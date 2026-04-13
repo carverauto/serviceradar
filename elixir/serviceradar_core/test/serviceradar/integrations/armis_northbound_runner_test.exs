@@ -32,6 +32,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
              })
   end
 
+  test "northbound_ready? allows manual runs even when recurring northbound is disabled" do
+    source = %{
+      northbound_enabled: false,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key-1", api_secret: "secret-1"}
+    }
+
+    assert :ok = ArmisNorthboundRunner.northbound_ready?(source, manual?: true)
+    assert {:error, :northbound_disabled} = ArmisNorthboundRunner.northbound_ready?(source)
+  end
+
   test "collapse_candidates emits one row per armis_device_id and prefers unavailable on conflicts" do
     collapsed =
       ArmisNorthboundRunner.collapse_candidates([
@@ -306,7 +318,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       {:ok, %{action: action, attrs: attrs}}
     end
 
-    load_candidates = fn _src -> {:ok, candidates} end
+    load_candidates = fn _src, _opts -> {:ok, candidates} end
 
     execute_batches = fn _src, collapsed, _opts ->
       send(parent, {:collapsed_candidates, collapsed})
@@ -378,7 +390,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       {:ok, %{action: action, attrs: attrs}}
     end
 
-    load_candidates = fn _src ->
+    load_candidates = fn _src, _opts ->
       {:ok,
        [
          %{

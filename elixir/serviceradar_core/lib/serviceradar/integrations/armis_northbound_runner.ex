@@ -38,10 +38,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           metadata: map()
         }
 
-  @spec northbound_ready?(struct() | map()) :: :ok | {:error, atom()}
-  def northbound_ready?(source) do
+  @spec northbound_ready?(struct() | map(), keyword()) :: :ok | {:error, atom()}
+  def northbound_ready?(source, opts \\ []) do
     cond do
-      not Map.get(source, :northbound_enabled, false) ->
+      not Keyword.get(opts, :manual?, false) and not Map.get(source, :northbound_enabled, false) ->
         {:error, :northbound_disabled}
 
       is_nil(custom_field(source)) ->
@@ -85,9 +85,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> extract_batch_size(default)
   end
 
-  @spec load_candidates(IntegrationSource.t() | map()) :: {:ok, [candidate()]} | {:error, atom()}
-  def load_candidates(source) do
-    with :ok <- northbound_ready?(source) do
+  @spec load_candidates(IntegrationSource.t() | map(), keyword()) :: {:ok, [candidate()]} | {:error, atom()}
+  def load_candidates(source, opts \\ []) do
+    with :ok <- northbound_ready?(source, opts) do
       {:ok, Repo.all(candidates_query(source))}
     end
   end
@@ -99,11 +99,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     start_run = Keyword.get(opts, :start_run, &default_start_run/3)
     update_source = Keyword.get(opts, :update_source, &default_update_source/4)
     finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
-    load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/1)
+    load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/2)
     execute_batches_fun = Keyword.get(opts, :execute_batches, &execute_batches/3)
 
     with {:ok, run} <- start_run.(source, actor, opts),
-         {:ok, candidates} <- load_candidates_fun.(source),
+         {:ok, candidates} <- load_candidates_fun.(source, opts),
          collapsed = collapse_candidates(candidates),
          {:ok, _source} <-
            update_source.(source, :northbound_start, %{device_count: length(collapsed)}, actor) do
@@ -132,7 +132,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   @spec execute_batches(IntegrationSource.t() | map(), [collapsed_candidate()], keyword()) ::
           {:ok, map()} | {:error, map()}
   def execute_batches(source, candidates, opts \\ []) do
-    with :ok <- northbound_ready?(source),
+    with :ok <- northbound_ready?(source, opts),
          {:ok, token} <- fetch_access_token(source, opts) do
       request = Keyword.get(opts, :request, &default_request/5)
       custom_field = custom_field(source)
