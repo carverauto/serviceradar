@@ -277,7 +277,7 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "arc_runner",
-    digest = "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
+    digest = "sha256:1eef923c851faf8888bb2437eda7de01a92e405bf523b334541d6d9b708111d4",
     image = "ghcr.io/carverauto/arc-runner",
     platforms = [
         "linux/amd64",

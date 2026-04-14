@@ -1109,7 +1109,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "/jl276vDpQWxB1/3CAGO5clOvCe40KXmJB6wp2bxWj4=",
-        "usagesDigest": "fIcCmhX9776NKfhYmf/ObG3NXBOulj+5uHvugXxjxmU=",
+        "usagesDigest": "HYpKSw4Rk1674Ri/Nt8ltoT4PBuvrNWCWm9ZL9ZxDYQ=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_tools bazel_tools",
           "REPO_MAPPING:bazel_features+,bazel_tools bazel_tools",
@@ -1183,7 +1183,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "carverauto/arc-runner",
-              "identifier": "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
+              "identifier": "sha256:1eef923c851faf8888bb2437eda7de01a92e405bf523b334541d6d9b708111d4",
               "platform": "linux/amd64",
               "target_name": "arc_runner_linux_amd64",
               "bazel_tags": []
@@ -1197,7 +1197,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "carverauto/arc-runner",
-              "identifier": "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
+              "identifier": "sha256:1eef923c851faf8888bb2437eda7de01a92e405bf523b334541d6d9b708111d4",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@arc_runner_linux_amd64"
               },
