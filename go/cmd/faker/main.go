@@ -171,6 +171,29 @@ type AccessTokenResponse struct {
 	Success bool `json:"success"`
 }
 
+type bulkCustomPropertyOperation struct {
+	Upsert *struct {
+		DeviceID int         `json:"deviceId"`
+		Key      string      `json:"key"`
+		Value    interface{} `json:"value"`
+	} `json:"upsert,omitempty"`
+	ID               string                 `json:"id,omitempty"`
+	CustomProperties map[string]interface{} `json:"customProperties,omitempty"`
+}
+
+type bulkCustomPropertyResult struct {
+	DeviceID string `json:"device_id"`
+	Updated  bool   `json:"updated"`
+}
+
+type bulkCustomPropertyResponse struct {
+	Data struct {
+		Updated int                        `json:"updated"`
+		Results []bulkCustomPropertyResult `json:"results"`
+	} `json:"data"`
+	Success bool `json:"success"`
+}
+
 type BGPSimulationPeer struct {
 	Name        string `json:"name"`
 	IP          string `json:"ip"`
@@ -837,6 +860,7 @@ func main() {
 	// Armis API endpoints
 	mux.HandleFunc("/api/v1/access_token/", tokenHandler)
 	mux.HandleFunc("/api/v1/search/", searchHandler)
+	mux.HandleFunc("/api/v1/devices/custom-properties/_bulk/", bulkCustomPropertiesHandler)
 	// Legacy endpoint if needed
 	mux.HandleFunc("/v1/devices", devicesHandler)
 
@@ -963,6 +987,103 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error encoding token response: %v", err)
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
+}
+
+// bulkCustomPropertiesHandler handles POST requests for /api/v1/devices/custom-properties/_bulk/
+func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		http.Error(w, "missing bearer token", http.StatusUnauthorized)
+		return
+	}
+
+	var operations []bulkCustomPropertyOperation
+	if err := json.NewDecoder(r.Body).Decode(&operations); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	deviceGen.mu.Lock()
+	defer deviceGen.mu.Unlock()
+
+	response := bulkCustomPropertyResponse{Success: true}
+	response.Data.Results = make([]bulkCustomPropertyResult, 0, len(operations))
+
+	for _, op := range operations {
+		deviceID, props, ok := normalizeBulkCustomPropertyOperation(op)
+		if !ok {
+			continue
+		}
+
+		updated := applyCustomPropertiesToDevice(deviceID, props)
+		if updated {
+			response.Data.Updated++
+		}
+
+		response.Data.Results = append(response.Data.Results, bulkCustomPropertyResult{
+			DeviceID: deviceID,
+			Updated:  updated,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding bulk custom property response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func normalizeBulkCustomPropertyOperation(op bulkCustomPropertyOperation) (string, map[string]interface{}, bool) {
+	if op.Upsert != nil {
+		deviceID := strconv.Itoa(op.Upsert.DeviceID)
+		if deviceID == "0" || strings.TrimSpace(op.Upsert.Key) == "" {
+			return "", nil, false
+		}
+
+		return deviceID, map[string]interface{}{op.Upsert.Key: op.Upsert.Value}, true
+	}
+
+	if strings.TrimSpace(op.ID) == "" || len(op.CustomProperties) == 0 {
+		return "", nil, false
+	}
+
+	return strings.TrimSpace(op.ID), op.CustomProperties, true
+}
+
+func applyCustomPropertiesToDevice(deviceID string, props map[string]interface{}) bool {
+	for i := range deviceGen.allDevices {
+		device := &deviceGen.allDevices[i]
+		if strconv.Itoa(device.ID) != deviceID {
+			continue
+		}
+
+		current := map[string]interface{}{}
+		switch typed := device.CustomProperties.(type) {
+		case map[string]interface{}:
+			for k, v := range typed {
+				current[k] = v
+			}
+		case nil:
+			// keep empty map
+		default:
+			current["value"] = typed
+		}
+
+		for key, value := range props {
+			current[key] = value
+		}
+
+		device.CustomProperties = current
+		device.LastSeen = time.Now().UTC()
+		return true
+	}
+
+	return false
 }
 
 // searchHandler handles GET requests for /api/v1/search/
