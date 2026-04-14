@@ -18,6 +18,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SourceLookup do
   def get_by_id(id, actor: _actor), do: {:ok, %{id: id}}
 end
 
+defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SupportStub do
+  @moduledoc false
+
+  def available?, do: Process.get(:support_available, false)
+
+  def safe_insert(job) do
+    send(Process.get(:test_pid), {:safe_insert, job})
+    {:ok, job}
+  end
+end
+
 defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
   @moduledoc false
 
@@ -29,6 +40,24 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
   test "enqueue_now returns oban_unavailable when Oban is not running" do
     assert {:error, :oban_unavailable} =
              ArmisNorthboundRunWorker.enqueue_now(Ecto.UUID.generate())
+  end
+
+  test "enqueue_recurring inserts a non-manual scheduled job when Oban is available" do
+    Process.put(:test_pid, self())
+
+    with_support(fn ->
+      Process.put(:support_available, true)
+
+      assert {:ok, %Ecto.Changeset{} = job} =
+               ArmisNorthboundRunWorker.enqueue_recurring("source-123", schedule_in: 90)
+
+      assert job.changes.args == %{"integration_source_id" => "source-123", "manual" => false}
+      assert_received {:safe_insert, ^job}
+      assert DateTime.diff(job.changes.scheduled_at, DateTime.utc_now(), :second) in 89..91
+    end)
+  after
+    Process.delete(:support_available)
+    Process.delete(:test_pid)
   end
 
   test "perform delegates to configured source module and runner" do
@@ -77,6 +106,23 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
     after
       restore_env(:armis_northbound_runner, original_runner)
       restore_env(:armis_northbound_source_module, original_source)
+    end
+  end
+
+  defp with_support(fun) do
+    original_support =
+      Application.get_env(:serviceradar_core, :armis_northbound_oban_support_module)
+
+    Application.put_env(
+      :serviceradar_core,
+      :armis_northbound_oban_support_module,
+      ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SupportStub
+    )
+
+    try do
+      fun.()
+    after
+      restore_env(:armis_northbound_oban_support_module, original_support)
     end
   end
 

@@ -435,4 +435,149 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:update_source, :northbound_success,
                      %{result: :partial, device_count: 1, updated_count: 1, skipped_count: 1}}
   end
+
+  test "run_for_source serializes tuple-valued errors before finish_failed" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    start_run = fn _source, _actor, _opts -> {:ok, %{id: "run-3"}} end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, _opts ->
+      send(parent, {:finish_run, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    load_candidates = fn _src, _opts ->
+      {:ok,
+       [
+         %{
+           armis_device_id: "armis-1",
+           is_available: true,
+           device_id: "d1",
+           sync_service_id: "source-1",
+           metadata: %{}
+         }
+       ]}
+    end
+
+    execute_batches = fn _src, _collapsed, _opts ->
+      {:error,
+       %{
+         device_count: 1,
+         updated_count: 0,
+         skipped_count: 0,
+         error_count: 1,
+         batch_count: 1,
+         errors: [%{batch_size: 1, reason: {:unexpected_status, 404, "404 page not found\n"}}]
+       }}
+    end
+
+    assert {:error, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               load_candidates: load_candidates,
+               execute_batches: execute_batches
+             )
+
+    assert result.error_message =~ ":unexpected_status"
+    assert result.error_message =~ "404"
+
+    assert_received {:finish_run, :finish_failed,
+                     %{
+                       error_count: 1,
+                       error_message: error_message,
+                       metadata: %{
+                         batch_count: 1,
+                         errors: [%{batch_size: 1, reason: serialized_reason}]
+                       }
+                     }}
+
+    assert error_message =~ ":unexpected_status"
+    assert serialized_reason =~ ":unexpected_status"
+    assert serialized_reason =~ "404 page not found"
+
+    assert_received {:update_source, :northbound_failed,
+                     %{
+                       result: :failed,
+                       device_count: 1,
+                       updated_count: 0,
+                       skipped_count: 1,
+                       error_message: source_error
+                     }}
+
+    assert source_error =~ ":unexpected_status"
+  end
+
+  test "reconcile_stale_runs marks only orphaned stale running rows as timeout" do
+    parent = self()
+    actor = %{role: :system}
+    now = ~U[2026-04-14 03:30:00Z]
+    source = %{id: "source-1"}
+
+    stale_orphan = %{
+      id: "run-stale-orphan",
+      status: :running,
+      started_at: ~U[2026-04-14 03:20:00Z],
+      oban_job_id: 101,
+      device_count: 0,
+      updated_count: 0,
+      skipped_count: 0,
+      error_count: 0,
+      metadata: %{}
+    }
+
+    fresh_orphan =
+      %{stale_orphan | id: "run-fresh", started_at: ~U[2026-04-14 03:29:30Z], oban_job_id: 102}
+
+    stale_active = %{stale_orphan | id: "run-active", oban_job_id: 103}
+    already_success = %{stale_orphan | id: "run-success", status: :success, oban_job_id: 104}
+
+    list_runs = fn _src, _actor -> [stale_orphan, fresh_orphan, stale_active, already_success] end
+
+    finish_run = fn run, action, attrs, _actor, opts ->
+      send(parent, {:finish_run, run.id, action, attrs, opts})
+      {:ok, %{id: run.id, action: action, attrs: attrs}}
+    end
+
+    oban_state = fn
+      101 -> nil
+      102 -> nil
+      103 -> "executing"
+      104 -> "completed"
+    end
+
+    assert :ok =
+             ArmisNorthboundRunner.reconcile_stale_runs(source, actor,
+               list_runs: list_runs,
+               finish_run: finish_run,
+               oban_state: oban_state,
+               now: now,
+               stale_run_cutoff_seconds: 120
+             )
+
+    assert_received {:finish_run, "run-stale-orphan", :finish_timeout, attrs, %{status: :timeout}}
+    assert attrs.error_message == "Marked timed out after orphaned Oban job"
+    assert attrs.metadata["reconciled"] == true
+    assert attrs.metadata["reason"] == "orphaned_oban_job"
+
+    refute_received {:finish_run, "run-fresh", _, _, _}
+    refute_received {:finish_run, "run-active", _, _, _}
+    refute_received {:finish_run, "run-success", _, _, _}
+  end
 end
