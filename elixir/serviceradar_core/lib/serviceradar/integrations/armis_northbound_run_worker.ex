@@ -10,7 +10,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     unique: [
       period: 60,
       fields: [:worker, :args],
-      keys: [:integration_source_id],
+      keys: [:integration_source_id, :manual],
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
@@ -21,13 +21,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
   @spec enqueue_now(String.t() | Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(integration_source_id) do
-    if ObanSupport.available?() do
-      %{"integration_source_id" => to_string(integration_source_id), "manual" => true}
-      |> new()
-      |> ObanSupport.safe_insert()
-    else
-      {:error, :oban_unavailable}
-    end
+    enqueue(integration_source_id, manual?: true)
+  end
+
+  @spec enqueue_recurring(String.t() | Ecto.UUID.t(), keyword()) ::
+          {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue_recurring(integration_source_id, opts \\ []) do
+    schedule_in = Keyword.get(opts, :schedule_in, 0)
+    enqueue(integration_source_id, manual?: false, schedule_in: schedule_in)
   end
 
   @impl Oban.Worker
@@ -55,6 +56,31 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     end
   end
 
+  defp enqueue(integration_source_id, opts) do
+    if support_module().available?() do
+      integration_source_id
+      |> args_for(Keyword.get(opts, :manual?, false))
+      |> new(schedule_opts(opts))
+      |> support_module().safe_insert()
+    else
+      {:error, :oban_unavailable}
+    end
+  end
+
+  defp args_for(integration_source_id, manual?) do
+    %{
+      "integration_source_id" => to_string(integration_source_id),
+      "manual" => manual?
+    }
+  end
+
+  defp schedule_opts(opts) do
+    case Keyword.get(opts, :schedule_in, 0) do
+      seconds when is_integer(seconds) and seconds > 0 -> [schedule_in: seconds]
+      _ -> []
+    end
+  end
+
   defp runner do
     Application.get_env(
       :serviceradar_core,
@@ -69,5 +95,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       :armis_northbound_source_module,
       IntegrationSource
     )
+  end
+
+  defp support_module do
+    Application.get_env(:serviceradar_core, :armis_northbound_oban_support_module, ObanSupport)
   end
 end

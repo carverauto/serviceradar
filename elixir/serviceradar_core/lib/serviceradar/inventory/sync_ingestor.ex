@@ -717,9 +717,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
   end
 
-  defp maybe_add_identifier_record(_update, acc, _device_id, _type, nil, _partition), do: acc
+  defp maybe_add_identifier_record(acc, _update, _device_id, _type, nil, _partition), do: acc
 
-  defp maybe_add_identifier_record(update, acc, device_id, type, value, partition) do
+  defp maybe_add_identifier_record(acc, update, device_id, type, value, partition) do
     [
       %{
         device_id: device_id,
@@ -738,7 +738,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     do: acc
 
   defp maybe_add_identifier_record_if(acc, true, update, device_id, type, value, partition) do
-    maybe_add_identifier_record(update, acc, device_id, type, value, partition)
+    maybe_add_identifier_record(acc, update, device_id, type, value, partition)
   end
 
   defp include_agent_identifier?(update, ids) do
@@ -800,7 +800,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       Repo.insert_all(
         DeviceIdentifier,
         insert_records,
-        on_conflict: {:replace, [:device_id, :last_seen]},
+        on_conflict: {:replace, [:device_id, :last_seen, :metadata]},
         conflict_target: [:identifier_type, :identifier_value, :partition]
       )
     end

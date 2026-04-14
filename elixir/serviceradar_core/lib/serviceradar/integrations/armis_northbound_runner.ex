@@ -21,6 +21,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   alias ServiceRadar.Repo
 
   @default_batch_size 500
+  @stale_run_cutoff_seconds 120
 
   @type candidate :: %{
           required(:armis_device_id) => String.t(),
@@ -85,7 +86,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> extract_batch_size(default)
   end
 
-  @spec load_candidates(IntegrationSource.t() | map(), keyword()) :: {:ok, [candidate()]} | {:error, atom()}
+  @spec load_candidates(IntegrationSource.t() | map(), keyword()) ::
+          {:ok, [candidate()]} | {:error, atom()}
   def load_candidates(source, opts \\ []) do
     with :ok <- northbound_ready?(source, opts) do
       {:ok, Repo.all(candidates_query(source))}
@@ -295,7 +297,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp finalize_success(source, run, result, actor, finish_run, update_source) do
-    metadata = %{batch_count: result.batch_count, errors: result.errors}
+    metadata = %{batch_count: result.batch_count, errors: serialize_errors(result.errors)}
 
     with {:ok, finished_run} <-
            finish_run.(
@@ -317,7 +319,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp finalize_error(source, run, result, actor, finish_run, update_source) do
-    metadata = %{batch_count: result.batch_count, errors: result.errors}
+    metadata = %{batch_count: result.batch_count, errors: serialize_errors(result.errors)}
     error_message = summarize_errors(result.errors)
 
     if result.updated_count > 0 do
@@ -405,8 +407,22 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     Enum.map_join(errors, "; ", fn error -> inspect(error.reason) end)
   end
 
+  defp serialize_errors(errors) when is_list(errors) do
+    Enum.map(errors, &serialize_error/1)
+  end
+
+  defp serialize_errors(_), do: []
+
+  defp serialize_error(%{reason: reason} = error) do
+    base = if Map.has_key?(error, :__struct__), do: Map.from_struct(error), else: error
+    Map.put(base, :reason, inspect(reason))
+  end
+
+  defp serialize_error(error), do: %{reason: inspect(error)}
+
   defp default_start_run(source, actor, opts) do
     oban_job_id = Keyword.get(opts, :oban_job_id)
+    :ok = reconcile_stale_runs(source, actor, opts)
 
     IntegrationUpdateRun
     |> Ash.Changeset.for_create(
@@ -420,6 +436,70 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       actor: actor
     )
     |> Ash.create(actor: actor)
+  end
+
+  def reconcile_stale_runs(source, actor, opts) do
+    list_runs = Keyword.get(opts, :list_runs, &list_recent_runs/2)
+    finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
+    oban_state = Keyword.get(opts, :oban_state, &fetch_oban_job_state/1)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    cutoff_seconds = Keyword.get(opts, :stale_run_cutoff_seconds, @stale_run_cutoff_seconds)
+
+    source
+    |> list_runs.(actor)
+    |> Enum.filter(&stale_running_run?(&1, now, cutoff_seconds))
+    |> Enum.each(fn run ->
+      if orphaned_oban_state?(oban_state.(run.oban_job_id)) do
+        attrs = %{
+          device_count: run.device_count || 0,
+          updated_count: run.updated_count || 0,
+          skipped_count: run.skipped_count || 0,
+          error_count: run.error_count || 0,
+          error_message: "Marked timed out after orphaned Oban job",
+          metadata:
+            Map.merge(run.metadata || %{}, %{
+              "reconciled" => true,
+              "reason" => "orphaned_oban_job"
+            })
+        }
+
+        case finish_run.(run, :finish_timeout, attrs, actor, %{status: :timeout}) do
+          {:ok, _finished_run} -> :ok
+          {:error, _reason} -> :ok
+        end
+      end
+    end)
+
+    :ok
+  end
+
+  defp list_recent_runs(source, actor) do
+    IntegrationUpdateRun
+    |> Ash.Query.for_read(:recent_by_source, %{integration_source_id: Map.fetch!(source, :id)},
+      actor: actor
+    )
+    |> Ash.read!(actor: actor)
+  end
+
+  defp stale_running_run?(run, now, cutoff_seconds) do
+    run.status == :running and
+      is_struct(run.started_at, DateTime) and
+      DateTime.diff(now, run.started_at, :second) >= cutoff_seconds
+  end
+
+  defp orphaned_oban_state?(nil), do: true
+  defp orphaned_oban_state?(state) when state in ["completed", "discarded", "cancelled"], do: true
+  defp orphaned_oban_state?(_state), do: false
+
+  defp fetch_oban_job_state(nil), do: nil
+
+  defp fetch_oban_job_state(oban_job_id) do
+    case Repo.query("select state::text from platform.oban_jobs where id = $1 limit 1", [
+           oban_job_id
+         ]) do
+      {:ok, %{rows: [[state]]}} -> state
+      _ -> nil
+    end
   end
 
   defp default_update_source(source, action, attrs, actor) do
