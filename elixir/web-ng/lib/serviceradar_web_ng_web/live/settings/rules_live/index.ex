@@ -28,6 +28,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         |> assign(:zen_rules, list_zen_rules(scope))
         |> assign(:event_rules, list_event_rules(scope))
         |> assign(:stateful_rules, list_stateful_rules(scope))
+        |> assign(:show_stateful_rule_editor, false)
+        |> assign(:editing_stateful_rule, nil)
+        |> assign(:stateful_rule_error, nil)
+        |> assign(:stateful_rule_form, default_stateful_rule_form())
         |> assign(:show_rule_builder, false)
         |> assign(:editing_rule, nil)
 
@@ -176,6 +180,70 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to delete rule")}
         end
+    end
+  end
+
+  def handle_event("edit_stateful_rule", %{"id" => id}, socket) do
+    id = to_string(id)
+
+    case Enum.find(socket.assigns.stateful_rules, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Rule not found")}
+
+      rule ->
+        {:noreply,
+         socket
+         |> assign(:show_stateful_rule_editor, true)
+         |> assign(:editing_stateful_rule, rule)
+         |> assign(:stateful_rule_error, nil)
+         |> assign(:stateful_rule_form, stateful_rule_form(rule))}
+    end
+  end
+
+  def handle_event("cancel_stateful_rule", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_stateful_rule_editor, false)
+     |> assign(:editing_stateful_rule, nil)
+     |> assign(:stateful_rule_error, nil)
+     |> assign(:stateful_rule_form, default_stateful_rule_form())}
+  end
+
+  def handle_event("change_stateful_rule", %{"stateful_rule" => params}, socket) do
+    {:noreply, assign(socket, :stateful_rule_form, merge_stateful_rule_form(socket, params))}
+  end
+
+  def handle_event("save_stateful_rule", %{"stateful_rule" => params}, socket) do
+    scope = socket.assigns.current_scope
+    rule = socket.assigns.editing_stateful_rule
+
+    case build_stateful_rule_attrs(params) do
+      {:ok, attrs} ->
+        changeset = Ash.Changeset.for_update(rule, :update, attrs, scope: scope)
+
+        case Ash.update(changeset) do
+          {:ok, updated_rule} ->
+            {:noreply,
+             socket
+             |> assign(:stateful_rules, list_stateful_rules(scope))
+             |> assign(:show_stateful_rule_editor, false)
+             |> assign(:editing_stateful_rule, nil)
+             |> assign(:stateful_rule_error, nil)
+             |> assign(:stateful_rule_form, default_stateful_rule_form())
+             |> put_flash(:info, "Rule \"#{updated_rule.name}\" updated successfully")}
+
+          {:error, error} ->
+            {:noreply,
+             socket
+             |> assign(:stateful_rule_form, merge_stateful_rule_form(socket, params))
+             |> assign(:stateful_rule_error, format_error(error))}
+        end
+
+      {:error, message, merged_form} ->
+        {:noreply,
+         socket
+         |> assign(:stateful_rule_form, merged_form)
+         |> assign(:stateful_rule_error, message)}
     end
   end
 
@@ -551,7 +619,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 <tbody>
                   <%= for rule <- @stateful_rules do %>
                     <tr class="hover">
-                      <td class="font-mono text-sm">{rule.name}</td>
+                      <td>
+                        <div class="flex flex-col gap-1">
+                          <span class="font-mono text-sm">{rule.name}</span>
+                          <span class="text-xs text-base-content/60">{rule.description}</span>
+                        </div>
+                      </td>
                       <td class="text-sm">{to_string(rule.signal)}</td>
                       <td class="text-sm">
                         {rule.threshold} / {rule.window_seconds}s
@@ -562,15 +635,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                         </.ui_badge>
                       </td>
                       <td class="text-right">
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs text-error"
-                          phx-click="delete_stateful"
-                          phx-value-id={rule.id}
-                          data-confirm="Are you sure?"
-                        >
-                          <.icon name="hero-trash" class="w-4 h-4" />
-                        </button>
+                        <div class="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="edit_stateful_rule"
+                            phx-value-id={rule.id}
+                          >
+                            <.icon name="hero-pencil-square" class="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs text-error"
+                            phx-click="delete_stateful"
+                            phx-value-id={rule.id}
+                            data-confirm="Are you sure?"
+                          >
+                            <.icon name="hero-trash" class="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   <% end %>
@@ -588,6 +671,112 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           </.ui_panel>
         </div>
       </.settings_shell>
+
+      <div
+        :if={@show_stateful_rule_editor}
+        id="stateful_rule_modal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-base-content/35 p-4"
+      >
+        <div class="w-full max-w-2xl rounded-xl border border-base-300 bg-base-100 shadow-xl">
+          <div class="flex items-center justify-between border-b border-base-200 px-6 py-4">
+            <div>
+              <h3 class="text-lg font-semibold">Edit Alert Rule</h3>
+              <p class="text-sm text-base-content/60">
+                Tune incident grouping, cooldown, and renotify behavior.
+              </p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_stateful_rule">
+              <.icon name="hero-x-mark" class="w-5 h-5" />
+            </button>
+          </div>
+
+          <.form
+            for={to_form(@stateful_rule_form, as: :stateful_rule)}
+            id="stateful-rule-form"
+            phx-change="change_stateful_rule"
+            phx-submit="save_stateful_rule"
+            class="space-y-6 px-6 py-5"
+          >
+            <div :if={@stateful_rule_error} class="alert alert-error text-sm">
+              {@stateful_rule_error}
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label class="form-control">
+                <span class="label-text text-xs font-medium">Rule</span>
+                <input
+                  type="text"
+                  value={@editing_stateful_rule && @editing_stateful_rule.name}
+                  class="input input-bordered input-sm w-full"
+                  disabled
+                />
+              </label>
+
+              <label class="form-control">
+                <span class="label-text text-xs font-medium">Enabled</span>
+                <select
+                  name="stateful_rule[enabled]"
+                  class="select select-bordered select-sm w-full"
+                >
+                  <option value="true" selected={@stateful_rule_form["enabled"] == "true"}>
+                    Enabled
+                  </option>
+                  <option value="false" selected={@stateful_rule_form["enabled"] == "false"}>
+                    Disabled
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <label class="form-control">
+              <span class="label-text text-xs font-medium">Group By</span>
+              <input
+                type="text"
+                name="stateful_rule[group_by]"
+                value={@stateful_rule_form["group_by"]}
+                class="input input-bordered input-sm w-full"
+                placeholder="rule, hostname"
+              />
+              <span class="label-text-alt text-base-content/60">
+                Comma-separated event fields used to decide whether a new event updates the current incident.
+              </span>
+            </label>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label class="form-control">
+                <span class="label-text text-xs font-medium">Cooldown (seconds)</span>
+                <input
+                  type="number"
+                  min="1"
+                  name="stateful_rule[cooldown_seconds]"
+                  value={@stateful_rule_form["cooldown_seconds"]}
+                  class="input input-bordered input-sm w-full"
+                />
+              </label>
+
+              <label class="form-control">
+                <span class="label-text text-xs font-medium">Renotify (seconds)</span>
+                <input
+                  type="number"
+                  min="0"
+                  name="stateful_rule[renotify_seconds]"
+                  value={@stateful_rule_form["renotify_seconds"]}
+                  class="input input-bordered input-sm w-full"
+                />
+              </label>
+            </div>
+
+            <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn btn-ghost" phx-click="cancel_stateful_rule">
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary">
+                Save Alert Rule
+              </button>
+            </div>
+          </.form>
+        </div>
+      </div>
       
     <!-- Rule Builder Modal -->
       <.live_component
@@ -628,6 +817,85 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   defp unwrap_page({:ok, %Ash.Page.Offset{results: results}}), do: results
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
+
+  defp default_stateful_rule_form do
+    %{
+      "enabled" => "true",
+      "group_by" => "",
+      "cooldown_seconds" => "300",
+      "renotify_seconds" => "21600"
+    }
+  end
+
+  defp stateful_rule_form(rule) do
+    %{
+      "enabled" => if(rule.enabled, do: "true", else: "false"),
+      "group_by" => Enum.join(rule.group_by || [], ", "),
+      "cooldown_seconds" => to_string(rule.cooldown_seconds || 300),
+      "renotify_seconds" => to_string(rule.renotify_seconds || 21_600)
+    }
+  end
+
+  defp merge_stateful_rule_form(socket, params) do
+    Map.merge(socket.assigns.stateful_rule_form, params)
+  end
+
+  defp build_stateful_rule_attrs(params) do
+    merged_form = Map.merge(default_stateful_rule_form(), params)
+
+    with {:ok, group_by} <- parse_group_by(merged_form["group_by"]),
+         {:ok, cooldown_seconds} <- parse_positive_int(merged_form["cooldown_seconds"], "Cooldown"),
+         {:ok, renotify_seconds} <- parse_non_negative_int(merged_form["renotify_seconds"], "Renotify") do
+      {:ok,
+       %{
+         enabled: merged_form["enabled"] != "false",
+         group_by: group_by,
+         cooldown_seconds: cooldown_seconds,
+         renotify_seconds: renotify_seconds
+       }}
+    else
+      {:error, message} -> {:error, message, merged_form}
+    end
+  end
+
+  defp parse_group_by(value) when is_binary(value) do
+    keys =
+      value
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if keys == [] do
+      {:error, "Group By must include at least one field"}
+    else
+      {:ok, keys}
+    end
+  end
+
+  defp parse_group_by(_value), do: {:error, "Group By must include at least one field"}
+
+  defp parse_positive_int(value, label) do
+    case Integer.parse(to_string(value || "")) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _ -> {:error, "#{label} must be a positive integer"}
+    end
+  end
+
+  defp parse_non_negative_int(value, label) do
+    case Integer.parse(to_string(value || "")) do
+      {parsed, ""} when parsed >= 0 -> {:ok, parsed}
+      _ -> {:error, "#{label} must be zero or greater"}
+    end
+  end
+
+  defp format_error(%{errors: errors}) when is_list(errors) do
+    Enum.map_join(errors, "; ", &format_error/1)
+  end
+
+  defp format_error(%{message: message}) when is_binary(message), do: message
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_error(reason), do: inspect(reason)
 
   # Component to display match conditions summary
   attr :match, :map, default: nil

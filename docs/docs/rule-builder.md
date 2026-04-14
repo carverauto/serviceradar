@@ -47,6 +47,17 @@ Response rules run after normalization and are split into two layers:
 Use the same UI section to define simple match criteria (subject prefix, service
 name, severity, message substring) and threshold windows.
 
+In **Settings → Events → Alerts**, operators can also edit incident controls on
+stateful alert rules:
+
+- `group_by` decides which fields keep events inside one incident.
+- `cooldown_seconds` prevents repeated immediate notifications for duplicate bursts.
+- `renotify_seconds` controls reminder cadence for long-lived incidents.
+
+The default Falco rule ships with `group_by = ["rule", "hostname"]`, so repeated
+critical detections from the same rule on the same host stay within one active
+incident unless the cooldown gap is exceeded.
+
 ### Templates
 
 Promotion and stateful alert templates work the same way as Zen templates.

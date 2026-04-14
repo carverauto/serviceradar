@@ -29,7 +29,20 @@ Falcosidekick should use the dedicated shared cert files:
 - **ServiceRadar** EventWriter uses dual-path ingestion:
   - Writes all Falco payloads to `platform.logs` as raw records.
   - Auto-promotes `Warning` and higher priorities to `platform.ocsf_events`.
-  - Auto-creates alerts for `Critical` and `Emergency`/`Alert` promoted events.
+  - Evaluates `Critical` and higher promoted events with a seeded stateful alert rule.
+
+## Incident-Based Alerting
+
+Falco alerting is incident-based rather than one-alert-per-event:
+
+- Repeated critical detections for the same Falco rule and host update one active alert incident.
+- The active alert records duplicate metadata such as occurrence count, first seen, last seen, and grouping values.
+- Immediate notification attempts happen on incident creation and then follow the rule's cooldown and renotify settings.
+- Raw Falco logs and promoted OCSF events are still stored individually for audit and investigation.
+
+The default seeded Falco incident rule groups by `rule` and `hostname`, uses a 5-minute cooldown, and renotifies long-lived incidents every 6 hours.
+
+Operators can review and tune these settings in **Settings → Events → Alerts** by editing the Falco stateful alert rule.
 
 ## Prerequisites
 
@@ -200,11 +213,11 @@ kubectl -n demo exec cnpg-1 -- psql -U serviceradar -d serviceradar \
   -c "SELECT timestamp, severity_text, body, source FROM logs WHERE source = 'falco' ORDER BY timestamp DESC LIMIT 20;"
 ```
 
-### Verify Alert Escalation (Critical/Fatal)
+### Verify Alert Incidents (Critical/Fatal)
 
 ```bash
 kubectl -n demo exec cnpg-1 -- psql -U serviceradar -d serviceradar \
-  -c "SELECT source_event_id, source, severity, title, state FROM alerts ORDER BY created_at DESC LIMIT 20;"
+  -c "SELECT id, severity, title, status, metadata->>'incident_occurrence_count' AS occurrences, metadata->>'incident_last_seen_at' AS last_seen FROM alerts ORDER BY created_at DESC LIMIT 20;"
 ```
 
 ### Trigger a Real Falco Event

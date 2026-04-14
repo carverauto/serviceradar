@@ -11,8 +11,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.StatefulAlertEngine
-  alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.TestSupport
 
@@ -111,9 +111,131 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
 
-    {:ok, history} = StatefulAlertRuleHistory.list_by_rule(rule.id, actor: actor) |> Page.unwrap()
+    {:ok, history} =
+      rule.id |> StatefulAlertRuleHistory.list_by_rule(actor: actor) |> Page.unwrap()
+
     assert Enum.any?(history, &(&1.event_type == :fired))
     assert Enum.any?(history, &(&1.event_type == :recovered))
+  end
+
+  test "deduplicates repeated event bursts into one active incident and rolls over after cooldown gap",
+       %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    subject = "falco.test.#{unique}"
+    title = "Falco Security Incident #{unique}"
+    rule_name = "Drop and execute new binary in container #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "falco-incident-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => subject,
+            "severity_number_min" => OCSF.severity_critical()
+          },
+          group_by: ["rule", "hostname"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.security.falco.incident",
+            "message" => "Falco security incident detected"
+          },
+          alert: %{
+            "title" => title,
+            "severity" => "critical"
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event = fn timestamp ->
+      %{
+        id: Ash.UUID.generate(),
+        time: timestamp,
+        severity_id: OCSF.severity_critical(),
+        severity: OCSF.severity_name(OCSF.severity_critical()),
+        message: "Drop and execute new binary in container",
+        log_name: subject,
+        log_provider: "falco",
+        metadata: %{
+          "subject" => subject,
+          "rule" => rule_name,
+          "hostname" => "core-elx"
+        },
+        unmapped: %{
+          "rule" => rule_name,
+          "hostname" => "core-elx"
+        }
+      }
+    end
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(base_time)])
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([event.(DateTime.add(base_time, 30, :second))])
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([event.(DateTime.add(base_time, 90, :second))])
+
+    alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(fn alert -> alert.title == title end)
+
+    assert [active_alert] = alerts
+    assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
+
+    assert active_alert.metadata["incident_group_values"] == %{
+             "hostname" => "core-elx",
+             "rule" => rule_name
+           }
+
+    assert active_alert.metadata["incident_occurrence_count"] == 3
+
+    history =
+      rule.id
+      |> StatefulAlertRuleHistory.list_by_rule(actor: actor)
+      |> Page.unwrap!()
+
+    assert Enum.count(Enum.filter(history, &(&1.event_type == :fired))) == 1
+    refute Enum.any?(history, &(&1.event_type == :cooldown))
+
+    rollover_time = DateTime.add(base_time, 420, :second)
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(rollover_time)])
+
+    active_alerts_after_rollover =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(fn alert -> alert.title == title end)
+
+    assert [replacement_alert] = active_alerts_after_rollover
+    refute replacement_alert.id == active_alert.id
+    assert replacement_alert.metadata["incident_occurrence_count"] == 1
+
+    {:ok, resolved_original_alert} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert resolved_original_alert.status == :resolved
+
+    rollover_history =
+      rule.id
+      |> StatefulAlertRuleHistory.list_by_rule(actor: actor)
+      |> Page.unwrap!()
+
+    assert Enum.count(Enum.filter(rollover_history, &(&1.event_type == :fired))) == 2
+    assert Enum.any?(rollover_history, &(&1.event_type == :recovered))
   end
 
   defp reset_engine do

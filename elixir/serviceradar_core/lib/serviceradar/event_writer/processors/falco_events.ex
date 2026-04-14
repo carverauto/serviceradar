@@ -5,7 +5,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   Dual-path behavior:
   - Persist all Falco payloads into `logs` as raw observability records.
   - Auto-promote higher-priority Falco payloads into `ocsf_events`.
-  - Auto-create alerts for emergency/critical promoted events.
+  - Evaluate promoted events against stateful alert rules for incident handling.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -15,7 +15,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.StatefulAlertEngine
 
@@ -78,15 +77,13 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
 
       {event_count, inserted_events} = insert_event_rows(promoted_rows)
-      alert_count = maybe_create_priority_alerts(inserted_events)
-
       maybe_broadcast_logs(log_count)
       maybe_broadcast_events(event_count)
       maybe_evaluate_stateful_rules(inserted_events)
 
       :telemetry.execute(
         [:serviceradar, :event_writer, :falco, :processed],
-        %{logs_count: log_count, events_count: event_count, alerts_count: alert_count},
+        %{logs_count: log_count, events_count: event_count, alerts_count: 0},
         %{}
       )
 
@@ -353,52 +350,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     ordered_keys
     |> Enum.reverse()
     |> Enum.map(&Map.fetch!(latest_by_key, &1))
-  end
-
-  defp maybe_create_priority_alerts(events) do
-    {created, attempted} =
-      Enum.reduce(events, {0, 0}, fn event, {created, attempted} ->
-        maybe_create_priority_alert(event, created, attempted)
-      end)
-
-    if attempted > 0 do
-      :telemetry.execute(
-        [:serviceradar, :event_writer, :falco, :alerts_created],
-        %{count: created, attempted: attempted},
-        %{}
-      )
-    end
-
-    created
-  end
-
-  defp maybe_create_priority_alert(event, created, attempted) do
-    if promote_to_alert?(event.severity_id) do
-      case AlertGenerator.from_event(event, alert: alert_override(event)) do
-        {:ok, %{} = _alert} ->
-          {created + 1, attempted + 1}
-
-        {:ok, :skipped} ->
-          {created, attempted + 1}
-
-        {:error, reason} ->
-          Logger.warning("Failed to auto-create Falco priority alert: #{inspect(reason)}")
-          {created, attempted + 1}
-      end
-    else
-      {created, attempted}
-    end
-  end
-
-  defp alert_override(event) do
-    rule = get_in(event, [:metadata, "rule"])
-    severity = normalize_string(event.severity) || "High"
-    base_title = if is_binary(rule) and rule != "", do: rule, else: "Runtime Detection"
-
-    %{
-      "title" => "Falco #{severity}: #{base_title}",
-      "description" => event.message
-    }
   end
 
   defp maybe_broadcast_logs(0), do: :ok

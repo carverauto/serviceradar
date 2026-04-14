@@ -98,7 +98,32 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   defp default_stateful_rules do
     [
-      # Reserved for future default stateful alert rules.
+      %{
+        name: "falco_critical_incident",
+        description:
+          "Collapse repeated Falco critical detections into one active incident per rule and host.",
+        priority: 40,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "falco.",
+          "severity_number_min" => 5
+        },
+        group_by: ["rule", "hostname"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.security.falco.incident",
+          "message" => "Falco security incident detected"
+        },
+        alert: %{
+          "title" => "Falco Security Incident",
+          "severity" => "critical"
+        }
+      }
     ]
   end
 end
