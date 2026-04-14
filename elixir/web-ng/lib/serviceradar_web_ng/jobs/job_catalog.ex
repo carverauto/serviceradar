@@ -14,7 +14,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
 
   alias Oban.Cron.Expression
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
@@ -26,7 +29,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
           id: String.t(),
           name: String.t(),
           description: String.t(),
-          source: :cron_plugin | :ash_oban | :self_scheduling,
+          source: :cron_plugin | :ash_oban | :self_scheduling | :manual,
           cron: String.t() | nil,
           queue: atom(),
           enabled: boolean(),
@@ -34,7 +37,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
           resource: module() | nil,
           action: atom() | nil,
           last_run_at: DateTime.t() | nil,
-          next_run_at: DateTime.t() | nil
+          next_run_at: DateTime.t() | nil,
+          args_filter: map() | nil,
+          integration_source_id: String.t() | nil
         }
 
   @doc """
@@ -42,7 +47,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec list_all_jobs() :: [job_entry()]
   def list_all_jobs do
-    cron_jobs() ++ ash_oban_jobs() ++ self_scheduling_jobs()
+    cron_jobs() ++ ash_oban_jobs() ++ self_scheduling_jobs() ++ manual_jobs()
   end
 
   @doc """
@@ -157,7 +162,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
             resource: nil,
             action: nil,
             last_run_at: get_last_run(worker),
-            next_run_at: next_run_at(cron_expr)
+            next_run_at: next_run_at(cron_expr),
+            args_filter: nil,
+            integration_source_id: nil
           }
         end)
     end
@@ -169,6 +176,14 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   @spec ash_oban_jobs() :: [job_entry()]
   def ash_oban_jobs do
     Enum.flat_map(ash_oban_resources(), &resource_triggers/1)
+  end
+
+  @doc """
+  List manually triggerable jobs that are scoped to specific resources.
+  """
+  @spec manual_jobs() :: [job_entry()]
+  def manual_jobs do
+    armis_northbound_jobs()
   end
 
   @doc """
@@ -192,7 +207,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         resource: nil,
         action: nil,
         last_run_at: get_last_run(worker),
-        next_run_at: next_scheduled_at(worker)
+        next_run_at: next_scheduled_at(worker),
+        args_filter: nil,
+        integration_source_id: nil
       }
     end)
   end
@@ -227,7 +244,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       resource: resource,
       action: trigger.action,
       last_run_at: nil,
-      next_run_at: next_run_at(trigger.scheduler_cron)
+      next_run_at: next_run_at(trigger.scheduler_cron),
+      args_filter: nil,
+      integration_source_id: nil
     }
   end
 
@@ -237,16 +256,24 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   ## Options
   - `:limit` - maximum number of runs to return (default: 5)
   """
-  @spec get_recent_runs(module(), keyword()) :: [map()]
-  def get_recent_runs(worker, opts \\ []) do
+  @spec get_recent_runs(job_entry() | module(), keyword()) :: [map()]
+  def get_recent_runs(worker_or_job, opts \\ [])
+
+  def get_recent_runs(%{} = job, opts) do
+    get_recent_runs(job.worker, Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter)))
+  end
+
+  def get_recent_runs(worker, opts) do
     import Ecto.Query
 
     limit = Keyword.get(opts, :limit, 5)
     worker_str = inspect(worker)
+    args_filter = Keyword.get(opts, :args_filter)
 
     try do
       Oban.Job
       |> where([j], j.worker == ^worker_str)
+      |> maybe_filter_args(args_filter)
       |> order_by([j], desc: j.inserted_at)
       |> limit(^limit)
       |> ServiceRadar.Repo.all()
@@ -284,6 +311,13 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
+  def trigger_job(%{source: :manual, worker: ArmisNorthboundRunWorker, integration_source_id: integration_source_id})
+      when is_binary(integration_source_id) do
+    ArmisNorthboundRunWorker.enqueue_now(integration_source_id)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
   def trigger_job(_job), do: {:error, :no_worker}
 
   @doc """
@@ -294,12 +328,19 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   ## Options
   - `:hours` - number of hours to look back (default: 24)
   """
-  @spec get_execution_stats(module(), keyword()) :: [map()]
-  def get_execution_stats(worker, opts \\ []) do
+  @spec get_execution_stats(job_entry() | module(), keyword()) :: [map()]
+  def get_execution_stats(worker_or_job, opts \\ [])
+
+  def get_execution_stats(%{} = job, opts) do
+    get_execution_stats(job.worker, Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter)))
+  end
+
+  def get_execution_stats(worker, opts) do
     import Ecto.Query
 
     hours = Keyword.get(opts, :hours, 24)
     worker_str = inspect(worker)
+    args_filter = Keyword.get(opts, :args_filter)
 
     try do
       since = DateTime.add(DateTime.utc_now(), -hours, :hour)
@@ -309,6 +350,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         Oban.Job
         |> where([j], j.worker == ^worker_str)
         |> where([j], j.inserted_at >= ^since)
+        |> maybe_filter_args(args_filter)
         |> select([j], %{
           state: j.state,
           inserted_at: j.inserted_at,
@@ -345,12 +387,19 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   ## Options
   - `:hours` - number of hours to look back (default: 24)
   """
-  @spec get_aggregated_stats(module(), keyword()) :: map()
-  def get_aggregated_stats(worker, opts \\ []) do
+  @spec get_aggregated_stats(job_entry() | module(), keyword()) :: map()
+  def get_aggregated_stats(worker_or_job, opts \\ [])
+
+  def get_aggregated_stats(%{} = job, opts) do
+    get_aggregated_stats(worker_from_job(job), Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter)))
+  end
+
+  def get_aggregated_stats(worker, opts) do
     import Ecto.Query
 
     hours = Keyword.get(opts, :hours, 24)
     worker_str = inspect(worker)
+    args_filter = Keyword.get(opts, :args_filter)
 
     try do
       since = DateTime.add(DateTime.utc_now(), -hours, :hour)
@@ -359,6 +408,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         Oban.Job
         |> where([j], j.worker == ^worker_str)
         |> where([j], j.inserted_at >= ^since)
+        |> maybe_filter_args(args_filter)
         |> select([j], %{
           state: j.state,
           attempted_at: j.attempted_at,
@@ -515,6 +565,38 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 
+  defp armis_northbound_jobs do
+    actor = SystemActor.system(:job_catalog)
+
+    integration_source_module()
+    |> apply(:list_by_type, [:armis, [actor: actor]])
+    |> case do
+      {:ok, sources} when is_list(sources) -> Enum.map(sources, &armis_northbound_job/1)
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp armis_northbound_job(source) do
+    %{
+      id: "manual:armis_northbound:#{source.id}",
+      name: "Armis northbound: #{source.name}",
+      description: "Manually queue a northbound availability sync for the #{source.name} Armis source.",
+      source: :manual,
+      cron: "manual",
+      queue: :integrations,
+      enabled: true,
+      worker: ArmisNorthboundRunWorker,
+      resource: nil,
+      action: nil,
+      last_run_at: Map.get(source, :northbound_last_run_at),
+      next_run_at: nil,
+      args_filter: %{"integration_source_id" => source.id},
+      integration_source_id: source.id
+    }
+  end
+
   # Get last run time for a worker
   defp get_last_run(worker) when is_atom(worker) do
     import Ecto.Query
@@ -571,6 +653,20 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     _ -> "platform"
   end
 
+  defp maybe_filter_args(query, nil), do: query
+  defp maybe_filter_args(query, args_filter) when args_filter == %{}, do: query
+
+  defp maybe_filter_args(query, args_filter) when is_map(args_filter) do
+    import Ecto.Query
+
+    Enum.reduce(args_filter, query, fn {key, value}, scoped_query ->
+      key = to_string(key)
+      value = to_string(value)
+
+      where(scoped_query, [j], fragment("? ->> ? = ?", j.args, ^key, ^value))
+    end)
+  end
+
   defp worker_queue(worker) when is_atom(worker) do
     case worker.__info__(:attributes) do
       attrs when is_list(attrs) ->
@@ -603,6 +699,12 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       rem(seconds, 60) == 0 -> "#{div(seconds, 60)}m"
       true -> "#{seconds}s"
     end
+  end
+
+  defp worker_from_job(%{worker: worker}), do: worker
+
+  defp integration_source_module do
+    Application.get_env(:serviceradar_web_ng, :job_catalog_integration_source_module, IntegrationSource)
   end
 
   defp self_scheduling_workers do

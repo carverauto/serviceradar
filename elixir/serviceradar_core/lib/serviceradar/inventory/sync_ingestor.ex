@@ -691,22 +691,35 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       []
       |> maybe_add_identifier_record_if(
         include_agent?,
+        update,
         device_id,
         :agent_id,
         ids.agent_id,
         partition
       )
-      |> maybe_add_identifier_record(device_id, :armis_device_id, ids.armis_id, partition)
-      |> maybe_add_identifier_record(device_id, :integration_id, ids.integration_id, partition)
-      |> maybe_add_identifier_record(device_id, :netbox_device_id, ids.netbox_id, partition)
-      |> maybe_add_identifier_record_if(include_mac?, device_id, :mac, ids.mac, partition)
+      |> maybe_add_identifier_record(update, device_id, :armis_device_id, ids.armis_id, partition)
+      |> maybe_add_identifier_record(
+        update,
+        device_id,
+        :integration_id,
+        ids.integration_id,
+        partition
+      )
+      |> maybe_add_identifier_record(
+        update,
+        device_id,
+        :netbox_device_id,
+        ids.netbox_id,
+        partition
+      )
+      |> maybe_add_identifier_record_if(include_mac?, update, device_id, :mac, ids.mac, partition)
     end)
     |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
   end
 
-  defp maybe_add_identifier_record(acc, _device_id, _type, nil, _partition), do: acc
+  defp maybe_add_identifier_record(acc, _update, _device_id, _type, nil, _partition), do: acc
 
-  defp maybe_add_identifier_record(acc, device_id, type, value, partition) do
+  defp maybe_add_identifier_record(acc, update, device_id, type, value, partition) do
     [
       %{
         device_id: device_id,
@@ -714,16 +727,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         identifier_value: value,
         partition: partition,
         confidence: :strong,
-        source: "sync_ingestor"
+        source: "sync_ingestor",
+        metadata: build_identifier_metadata(update)
       }
       | acc
     ]
   end
 
-  defp maybe_add_identifier_record_if(acc, false, _device_id, _type, _value, _partition), do: acc
+  defp maybe_add_identifier_record_if(acc, false, _update, _device_id, _type, _value, _partition),
+    do: acc
 
-  defp maybe_add_identifier_record_if(acc, true, device_id, type, value, partition) do
-    maybe_add_identifier_record(acc, device_id, type, value, partition)
+  defp maybe_add_identifier_record_if(acc, true, update, device_id, type, value, partition) do
+    maybe_add_identifier_record(acc, update, device_id, type, value, partition)
   end
 
   defp include_agent_identifier?(update, ids) do
@@ -785,7 +800,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       Repo.insert_all(
         DeviceIdentifier,
         insert_records,
-        on_conflict: {:replace, [:device_id, :last_seen]},
+        on_conflict: {:replace, [:device_id, :last_seen, :metadata]},
         conflict_target: [:identifier_type, :identifier_value, :partition]
       )
     end
@@ -798,9 +813,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp normalize_update(update) when is_map(update) do
+    sync_meta = get_map(update, ["sync_meta", :sync_meta])
+
     metadata =
       update
       |> get_map(["metadata", :metadata])
+      |> merge_sync_meta_metadata(sync_meta)
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
 
     %{
@@ -882,6 +900,24 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       _ -> %{}
     end
   end
+
+  defp merge_sync_meta_metadata(metadata, sync_meta)
+       when is_map(metadata) and is_map(sync_meta) and map_size(sync_meta) > 0 do
+    maybe_put_sync_meta(
+      metadata,
+      "sync_service_id",
+      sync_meta["sync_service_id"] || sync_meta[:sync_service_id]
+    )
+  end
+
+  defp merge_sync_meta_metadata(metadata, _sync_meta) when is_map(metadata), do: metadata
+
+  defp build_identifier_metadata(update) do
+    Map.take(update.metadata, ["sync_service_id", "integration_type"])
+  end
+
+  defp maybe_put_sync_meta(metadata, _key, nil), do: metadata
+  defp maybe_put_sync_meta(metadata, key, value), do: Map.put_new(metadata, key, value)
 
   defp merge_snmp_fingerprint_metadata(metadata, snmp_fingerprint)
        when is_map(metadata) and map_size(snmp_fingerprint) == 0, do: metadata
