@@ -275,6 +275,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp update_snapshot(snapshot, rule, record) do
     now = record_timestamp(record)
     bucket_start = record_bucket_start(record, rule.bucket_seconds)
+    previous_last_seen_at = snapshot.last_seen_at
 
     {bucket_counts, current_bucket_start, bucket_changed} =
       advance_bucket(snapshot.bucket_counts, snapshot.current_bucket_start, bucket_start, rule)
@@ -291,6 +292,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       |> Map.put(:bucket_counts, bucket_counts)
       |> Map.put(:current_bucket_start, current_bucket_start)
       |> Map.put(:last_seen_at, now)
+      |> Map.put(:previous_last_seen_at, previous_last_seen_at)
       |> Map.put(:bucket_changed, bucket_changed)
       |> Map.put(:window_count, window_count)
       |> Map.put_new(:flush_required, false)
@@ -318,8 +320,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     cooldown_until = snapshot.cooldown_until
 
     cond do
+      is_binary(snapshot.alert_id) and incident_rollover?(snapshot, rule, now) ->
+        rollover_incident(snapshot, rule, record, now)
+
       is_binary(snapshot.alert_id) ->
-        maybe_renotify(snapshot, rule, now)
+        snapshot
+        |> sync_active_incident(rule, now)
+        |> maybe_renotify(rule, now)
 
       cooldown_until && DateTime.before?(now, cooldown_until) ->
         record_history(rule, snapshot, :cooldown, now, nil, %{
@@ -336,6 +343,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
             |> Map.put(:last_fired_at, now)
             |> Map.put(:last_notification_at, now)
             |> Map.put(:cooldown_until, add_seconds(now, rule.cooldown_seconds))
+            |> sync_active_incident(rule, now, reset?: true)
             |> Map.put(:flush_required, true)
 
           {:error, reason} ->
@@ -343,6 +351,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
             snapshot
         end
     end
+  end
+
+  defp incident_rollover?(snapshot, rule, now) do
+    gap_seconds = rule.cooldown_seconds || 0
+    previous_last_seen_at = snapshot.previous_last_seen_at
+
+    is_integer(gap_seconds) and gap_seconds > 0 and
+      match?(%DateTime{}, previous_last_seen_at) and
+      DateTime.diff(now, previous_last_seen_at, :second) > gap_seconds
+  end
+
+  defp rollover_incident(snapshot, rule, record, now) do
+    _ = resolve_alert(snapshot.alert_id, rule, snapshot, now)
+
+    refreshed_snapshot =
+      snapshot
+      |> Map.put(:alert_id, nil)
+      |> Map.put(:last_notification_at, nil)
+      |> Map.put(:cooldown_until, nil)
+      |> Map.put(:flush_required, true)
+
+    handle_firing(refreshed_snapshot, rule, record, now)
   end
 
   defp handle_recovery(snapshot, rule, _record, now) do
@@ -501,6 +531,81 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp send_renotify(_alert_id, _rule, _snapshot, _now), do: {:error, :missing_alert_id}
+
+  defp sync_active_incident(snapshot, rule, now, opts \\ []) do
+    if is_binary(snapshot.alert_id) do
+      reset? = Keyword.get(opts, :reset?, false)
+      actor = SystemActor.system(:alert_engine)
+
+      case Alert.get_by_id(snapshot.alert_id, actor: actor) do
+        {:ok, alert} ->
+          metadata = merge_incident_metadata(alert.metadata || %{}, snapshot, rule, now, reset?)
+
+          case alert
+               |> Ash.Changeset.for_update(:update_metadata, %{metadata: metadata}, actor: actor)
+               |> Ash.update() do
+            {:ok, _updated} ->
+              snapshot
+
+            {:error, reason} ->
+              Logger.warning(
+                "Failed to update incident metadata for alert #{snapshot.alert_id}: #{inspect(reason)}"
+              )
+
+              snapshot
+          end
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to load alert #{snapshot.alert_id} for incident metadata sync: #{inspect(reason)}"
+          )
+
+          snapshot
+      end
+    else
+      snapshot
+    end
+  end
+
+  defp merge_incident_metadata(metadata, snapshot, rule, now, reset?) do
+    occurrence_count =
+      if reset? do
+        1
+      else
+        metadata
+        |> Map.get("incident_occurrence_count", 1)
+        |> normalize_incident_count()
+        |> Kernel.+(1)
+      end
+
+    first_seen_at =
+      if reset? do
+        DateTime.to_iso8601(now)
+      else
+        Map.get(metadata, "incident_first_seen_at") || DateTime.to_iso8601(now)
+      end
+
+    metadata
+    |> Map.put("incident_rule_id", to_string(rule.id))
+    |> Map.put("incident_rule_name", rule.name)
+    |> Map.put("incident_group_key", snapshot.group_key)
+    |> Map.put("incident_group_values", snapshot.group_values || %{})
+    |> Map.put("incident_occurrence_count", occurrence_count)
+    |> Map.put("incident_first_seen_at", first_seen_at)
+    |> Map.put("incident_last_seen_at", DateTime.to_iso8601(now))
+    |> Map.put("incident_window_count", snapshot.window_count || 0)
+  end
+
+  defp normalize_incident_count(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_incident_count(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, _} when parsed > 0 -> parsed
+      _ -> 1
+    end
+  end
+
+  defp normalize_incident_count(_value), do: 1
 
   defp severity_to_level(:emergency), do: :error
   defp severity_to_level(:critical), do: :error

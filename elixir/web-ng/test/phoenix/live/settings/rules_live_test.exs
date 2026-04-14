@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.Observability.EventRule
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.AshTestHelpers
 
@@ -63,6 +64,69 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       {:ok, _lv, html} = live(conn, ~p"/settings/rules?tab=alerts")
       assert html =~ "Alert Rules"
+    end
+
+    test "edits stateful alert rule grouping and notification settings", %{conn: conn, scope: scope} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, rule} =
+        Ash.create(
+          StatefulAlertRule,
+          %{
+            name: "falco-incident-#{unique}",
+            enabled: true,
+            priority: 100,
+            signal: :event,
+            match: %{"subject_prefix" => "falco."},
+            group_by: ["rule", "hostname"],
+            threshold: 1,
+            window_seconds: 300,
+            bucket_seconds: 60,
+            cooldown_seconds: 300,
+            renotify_seconds: 21_600
+          },
+          action: :create,
+          scope: scope
+        )
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=alerts")
+
+      lv
+      |> element("button[phx-click='edit_stateful_rule'][phx-value-id='#{rule.id}']")
+      |> render_click()
+
+      assert has_element?(lv, "#stateful_rule_modal")
+      assert render(lv) =~ "Edit Alert Rule"
+
+      lv
+      |> form("#stateful-rule-form", %{
+        "stateful_rule" => %{
+          "enabled" => "false",
+          "group_by" => "rule, hostname, container.name",
+          "cooldown_seconds" => "900",
+          "renotify_seconds" => "1800"
+        }
+      })
+      |> render_submit()
+
+      refute has_element?(lv, "#stateful_rule_modal")
+      assert render(lv) =~ "updated successfully"
+
+      updated_rule =
+        StatefulAlertRule
+        |> Ash.read!(scope: scope)
+        |> case do
+          %Keyset{results: results} -> results
+          results when is_list(results) -> results
+          _ -> []
+        end
+        |> Enum.find(&(&1.id == rule.id))
+
+      assert updated_rule
+      refute updated_rule.enabled
+      assert updated_rule.group_by == ["rule", "hostname", "container.name"]
+      assert updated_rule.cooldown_seconds == 900
+      assert updated_rule.renotify_seconds == 1800
     end
   end
 
