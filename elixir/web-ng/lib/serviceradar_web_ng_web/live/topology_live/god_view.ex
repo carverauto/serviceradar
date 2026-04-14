@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         |> assign(:topology_layers, %{
           backbone: true,
           inferred: false,
-          endpoints: true,
+          endpoints: false,
           mtr_paths: true
         })
         |> assign(:selected_camera_context, nil)
