@@ -14,14 +14,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Monitoring
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Repo
+
+  require Logger
 
   @default_batch_size 500
   @stale_run_cutoff_seconds 120
+  @northbound_log_name "integrations.armis.northbound"
 
   @type candidate :: %{
           required(:armis_device_id) => String.t(),
@@ -101,6 +107,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     start_run = Keyword.get(opts, :start_run, &default_start_run/3)
     update_source = Keyword.get(opts, :update_source, &default_update_source/4)
     finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
+    record_event = Keyword.get(opts, :record_event, &default_record_event/2)
     load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/2)
     execute_batches_fun = Keyword.get(opts, :execute_batches, &execute_batches/3)
 
@@ -111,10 +118,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
            update_source.(source, :northbound_start, %{device_count: length(collapsed)}, actor) do
       case execute_batches_fun.(source, collapsed, opts) do
         {:ok, result} ->
-          finalize_success(source, run, result, actor, finish_run, update_source)
+          finalize_success(source, run, result, actor, finish_run, update_source, record_event)
 
         {:error, result} when is_map(result) ->
-          finalize_error(source, run, result, actor, finish_run, update_source)
+          finalize_error(source, run, result, actor, finish_run, update_source, record_event)
 
         {:error, reason} ->
           result = %{
@@ -126,7 +133,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
             errors: [%{reason: reason}]
           }
 
-          finalize_error(source, run, result, actor, finish_run, update_source)
+          finalize_error(source, run, result, actor, finish_run, update_source, record_event)
       end
     end
   end
@@ -296,7 +303,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> Enum.uniq()
   end
 
-  defp finalize_success(source, run, result, actor, finish_run, update_source) do
+  defp finalize_success(source, run, result, actor, finish_run, update_source, record_event) do
     metadata = %{batch_count: result.batch_count, errors: serialize_errors(result.errors)}
 
     with {:ok, finished_run} <-
@@ -314,11 +321,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
              build_source_success_attrs(result, :success),
              actor
            ) do
+      maybe_record_run_event(updated_source, finished_run, result, actor, :success, record_event)
       {:ok, %{run: finished_run, source: updated_source, result: result}}
     end
   end
 
-  defp finalize_error(source, run, result, actor, finish_run, update_source) do
+  defp finalize_error(source, run, result, actor, finish_run, update_source, record_event) do
     metadata = %{batch_count: result.batch_count, errors: serialize_errors(result.errors)}
     error_message = summarize_errors(result.errors)
 
@@ -338,6 +346,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
                build_source_success_attrs(result, :partial),
                actor
              ) do
+        maybe_record_run_event(
+          updated_source,
+          finished_run,
+          Map.put(result, :error_message, error_message),
+          actor,
+          :partial,
+          record_event
+        )
+
         {:error,
          %{
            run: finished_run,
@@ -361,6 +378,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
                build_source_failed_attrs(result, error_message),
                actor
              ) do
+        maybe_record_run_event(
+          updated_source,
+          finished_run,
+          Map.put(result, :error_message, error_message),
+          actor,
+          :failed,
+          record_event
+        )
+
         {:error,
          %{
            run: finished_run,
@@ -419,6 +445,135 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp serialize_error(error), do: %{reason: inspect(error)}
+
+  defp maybe_record_run_event(source, run, result, actor, status, record_event) do
+    attrs = build_run_event_attrs(source, run, result, status)
+
+    case record_event.(attrs, actor) do
+      {:ok, _event} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to record Armis northbound run event",
+          integration_source_id: inspect(Map.get(source, :id)),
+          run_id: inspect(Map.get(run, :id)),
+          status: status,
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp build_run_event_attrs(source, run, result, status) do
+    severity_id = event_severity_id(status)
+    status_id = event_status_id(status)
+    activity_id = OCSF.activity_log_update()
+
+    metadata =
+      maybe_put_string(
+        %{
+          "integration_source_id" => Map.get(source, :id),
+          "integration_source_name" => Map.get(source, :name),
+          "integration_type" => "armis",
+          "run_id" => Map.get(run, :id),
+          "run_type" => "armis_northbound",
+          "device_count" => result.device_count,
+          "updated_count" => result.updated_count,
+          "skipped_count" => result.skipped_count,
+          "error_count" => result.error_count,
+          "batch_count" => result.batch_count,
+          "custom_field" => custom_field(source)
+        },
+        "error_message",
+        Map.get(result, :error_message)
+      )
+
+    %{
+      class_uid: OCSF.class_event_log_activity(),
+      category_uid: OCSF.category_system_activity(),
+      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), activity_id),
+      activity_id: activity_id,
+      activity_name: OCSF.log_activity_name(activity_id),
+      severity_id: severity_id,
+      severity: OCSF.severity_name(severity_id),
+      status_id: status_id,
+      status: OCSF.status_name(status_id),
+      status_code: event_status_code(status),
+      status_detail: event_status_detail(status),
+      message: build_run_event_message(source, result, status),
+      metadata: OCSF.build_metadata(product_name: "Armis Northbound Runner"),
+      observables: build_run_event_observables(source, run),
+      log_name: @northbound_log_name,
+      log_provider: "serviceradar_core",
+      log_level: event_log_level(status),
+      raw_data: Jason.encode!(metadata)
+    }
+  end
+
+  defp build_run_event_message(source, result, status) do
+    source_name = Map.get(source, :name, "armis")
+
+    base =
+      "Armis northbound run for #{source_name} finished with #{status}: " <>
+        "#{result.updated_count}/#{result.device_count} devices updated"
+
+    if blank?(Map.get(result, :error_message)) do
+      base
+    else
+      base <> " (#{result.error_message})"
+    end
+  end
+
+  defp build_run_event_observables(source, run) do
+    Enum.reject(
+      [
+        observable(Map.get(source, :id), "Integration Source ID"),
+        observable(Map.get(source, :name), "Integration Source"),
+        observable(Map.get(run, :id), "Northbound Run ID"),
+        observable(custom_field(source), "Armis Custom Field")
+      ],
+      &is_nil/1
+    )
+  end
+
+  defp default_record_event(attrs, actor) do
+    Ash.create(OcsfEvent, attrs,
+      action: :record,
+      actor: actor,
+      domain: Monitoring
+    )
+  end
+
+  defp event_severity_id(:success), do: OCSF.severity_informational()
+  defp event_severity_id(:partial), do: OCSF.severity_medium()
+  defp event_severity_id(:failed), do: OCSF.severity_high()
+
+  defp event_status_id(:success), do: OCSF.status_success()
+  defp event_status_id(:partial), do: OCSF.status_other()
+  defp event_status_id(:failed), do: OCSF.status_failure()
+
+  defp event_status_code(:success), do: "armis_northbound_bulk_update_succeeded"
+  defp event_status_code(:partial), do: "armis_northbound_bulk_update_partial"
+  defp event_status_code(:failed), do: "armis_northbound_bulk_update_failed"
+
+  defp event_status_detail(:success), do: "All Armis northbound bulk updates succeeded"
+  defp event_status_detail(:partial), do: "Some Armis northbound bulk updates failed"
+  defp event_status_detail(:failed), do: "Armis northbound bulk update run failed"
+
+  defp event_log_level(:success), do: "info"
+  defp event_log_level(:partial), do: "warning"
+  defp event_log_level(:failed), do: "error"
+
+  defp observable(nil, _name), do: nil
+  defp observable("", _name), do: nil
+
+  defp observable(value, name) do
+    %{"name" => name, "type" => "string", "value" => to_string(value)}
+  end
+
+  defp maybe_put_string(map, _key, value) when value in [nil, ""], do: map
+  defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
 
   defp default_start_run(source, actor, opts) do
     oban_job_id = Keyword.get(opts, :oban_job_id)

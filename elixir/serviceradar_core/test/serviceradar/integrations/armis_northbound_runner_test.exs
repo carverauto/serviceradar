@@ -318,6 +318,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       {:ok, %{action: action, attrs: attrs}}
     end
 
+    record_event = fn attrs, _actor ->
+      send(parent, {:record_event, attrs})
+      {:ok, %{id: "event-1", attrs: attrs}}
+    end
+
     load_candidates = fn _src, _opts -> {:ok, candidates} end
 
     execute_batches = fn _src, collapsed, _opts ->
@@ -340,6 +345,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                start_run: start_run,
                update_source: update_source,
                finish_run: finish_run,
+               record_event: record_event,
                load_candidates: load_candidates,
                execute_batches: execute_batches
              )
@@ -364,6 +370,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     assert_received {:update_source, :northbound_success,
                      %{result: :success, device_count: 2, updated_count: 2, skipped_count: 0}}
+
+    assert_received {:record_event,
+                     %{
+                       status_code: "armis_northbound_bulk_update_succeeded",
+                       status_detail: "All Armis northbound bulk updates succeeded",
+                       message: message,
+                       log_name: "integrations.armis.northbound",
+                       raw_data: raw_data
+                     }}
+
+    assert message =~ "finished with success"
+    assert message =~ "2/2 devices updated"
+    assert raw_data =~ ~s("integration_type":"armis")
+    assert raw_data =~ "\"updated_count\":2"
   end
 
   test "run_for_source records partial failures when some batches already succeeded" do
@@ -388,6 +408,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     finish_run = fn _run, action, attrs, _actor, _opts ->
       send(parent, {:finish_run, action, attrs})
       {:ok, %{action: action, attrs: attrs}}
+    end
+
+    record_event = fn attrs, _actor ->
+      send(parent, {:record_event, attrs})
+      {:ok, %{id: "event-2", attrs: attrs}}
     end
 
     load_candidates = fn _src, _opts ->
@@ -421,6 +446,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                start_run: start_run,
                update_source: update_source,
                finish_run: finish_run,
+               record_event: record_event,
                load_candidates: load_candidates,
                execute_batches: execute_batches
              )
@@ -434,6 +460,19 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     assert_received {:update_source, :northbound_success,
                      %{result: :partial, device_count: 1, updated_count: 1, skipped_count: 1}}
+
+    assert_received {:record_event,
+                     %{
+                       status_code: "armis_northbound_bulk_update_partial",
+                       status_detail: "Some Armis northbound bulk updates failed",
+                       message: message,
+                       raw_data: raw_data
+                     }}
+
+    assert message =~ "finished with partial"
+    assert message =~ ":upstream_timeout"
+    assert raw_data =~ "\"error_count\":1"
+    assert raw_data =~ ~s("error_message":":upstream_timeout")
   end
 
   test "run_for_source serializes tuple-valued errors before finish_failed" do
@@ -458,6 +497,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     finish_run = fn _run, action, attrs, _actor, _opts ->
       send(parent, {:finish_run, action, attrs})
       {:ok, %{action: action, attrs: attrs}}
+    end
+
+    record_event = fn attrs, _actor ->
+      send(parent, {:record_event, attrs})
+      {:ok, %{id: "event-3", attrs: attrs}}
     end
 
     load_candidates = fn _src, _opts ->
@@ -491,6 +535,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                start_run: start_run,
                update_source: update_source,
                finish_run: finish_run,
+               record_event: record_event,
                load_candidates: load_candidates,
                execute_batches: execute_batches
              )
@@ -522,6 +567,19 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                      }}
 
     assert source_error =~ ":unexpected_status"
+
+    assert_received {:record_event,
+                     %{
+                       status_code: "armis_northbound_bulk_update_failed",
+                       status_detail: "Armis northbound bulk update run failed",
+                       message: message,
+                       raw_data: raw_data
+                     }}
+
+    assert message =~ "finished with failed"
+    assert message =~ "404"
+    assert raw_data =~ "\"error_count\":1"
+    assert raw_data =~ ~s("integration_type":"armis")
   end
 
   test "reconcile_stale_runs marks only orphaned stale running rows as timeout" do
