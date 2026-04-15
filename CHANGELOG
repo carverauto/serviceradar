@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.13
+
+Demo CNPG credential-drift recovery, release-signing fixes, and chart rollout hardening for secret-driven restarts.
+
+## Whats New
+
+**1.2.13**
+- Hardened `serviceradar_core` startup migrations so admin-database connection setup can recover more safely when CNPG superuser credentials drift from the expected secret values.
+- Updated the Helm chart checksum wiring so `core` rollouts are triggered when either the app credentials or CNPG superuser secret changes.
+- Fixed `push_all_release` to force local OCI and first-party Wasm cosign signing, aligning release behavior with the signed-image requirements enforced in `demo`.
+- Corrected the release publishing documentation so the signing expectations and release path match the actual Make targets used in production.
+
 # ServiceRadar v1.2.12
 
 First-party Wasm release signing, Harbor-published upload-signature sidecars, and the final release-path hardening needed for immutable OCI and plugin publication.
