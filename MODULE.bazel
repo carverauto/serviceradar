@@ -1146,25 +1146,25 @@ http_file(
 
 http_file(
     name = "alpine_3_23_openssl_apk",
-    sha256 = "468d711aadfd59fcf1345f6135bd9fced55d9d3e0874ceee6b6f4647ebeabf2c",
+    sha256 = "d89963409d6e268ba0b84c8b13a5f2cf93a3fc0a893d4ed6af4280fef50e9736",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssl-3.5.5-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssl-3.5.6-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_23_libssl3_apk",
-    sha256 = "d0c5680469e8e420a966aad0e3a267369a99db2cb394341a1a8ec4c8535e35ed",
+    sha256 = "88f8491b5fe8d7cdd724f02ca5f98db2ed07839bdb96ca4c1c8799eb7ccb84c8",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libssl3-3.5.5-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libssl3-3.5.6-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_23_libcrypto3_apk",
-    sha256 = "4531f3807683659ca7d02c73cfdbc0ae9925da995bda42e2ce3db267797bc217",
+    sha256 = "9bf1548a563134be46e44048db645117b820b2dbc150ac406fbb627072f35046",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libcrypto3-3.5.5-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libcrypto3-3.5.6-r0.apk",
     ],
 )
 
