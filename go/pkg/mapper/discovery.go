@@ -49,6 +49,11 @@ const (
 	protocolLLDP      = "lldp"
 	protocolCDP       = "cdp"
 	protocolSNMPL2    = "snmp-l2"
+	sourceSNMPARPFDB  = "snmp-arp-fdb"
+	relationObservedTo = "OBSERVED_TO"
+	evidenceClassEndpointAttachment = "endpoint-attachment"
+	stringTrueValue   = "true"
+	stringYesValue    = "yes"
 	fallbackUnknown   = string(DiscoveryStatusUnknown)
 
 	sourceAdapterUniFiV1    = "unifi.v1"
@@ -729,10 +734,8 @@ func (e *DiscoveryEngine) maybeExportDebugBundle(job *DiscoveryJob) {
 }
 
 func isTruthyOption(value string) bool {
-	const trueValue = "true"
-
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", trueValue, "yes", "y", "on":
+	case "1", stringTrueValue, stringYesValue, "y", "on":
 		return true
 	default:
 		return false
@@ -1085,7 +1088,7 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 		}
 
 		switch link.Metadata["evidence_class"] {
-		case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, "endpoint-attachment":
+		case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, evidenceClassEndpointAttachment:
 			link.Metadata["confidence_tier"] = "high"
 		case evidenceClassInferredSegment:
 			link.Metadata["confidence_tier"] = "medium"
@@ -1109,7 +1112,7 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 		link.Metadata["evidence_class"] = evidenceClassDirectPhysical
 	case protocol == "proxmox-api" || protocol == "proxmox" || protocol == "vmware" || protocol == "esxi":
 		link.Metadata["evidence_class"] = evidenceClassHostedVirtual
-	case protocol == "snmp-l2" || source == "snmp-arp-fdb":
+	case protocol == protocolSNMPL2 || source == sourceSNMPARPFDB:
 		link.Metadata["evidence_class"] = evidenceClassInferredSegment
 	default:
 		link.Metadata["evidence_class"] = evidenceClassInferredSegment
@@ -1122,7 +1125,7 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	}
 
 	switch link.Metadata["evidence_class"] {
-	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, "endpoint-attachment":
+	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, evidenceClassEndpointAttachment:
 		link.Metadata["confidence_tier"] = "high"
 	case evidenceClassInferredSegment:
 		link.Metadata["confidence_tier"] = "medium"
@@ -1137,8 +1140,8 @@ func normalizeTopologyEvidenceClass(value string) string {
 		return evidenceClassDirectPhysical
 	case "inferred":
 		return evidenceClassInferredSegment
-	case "endpoint-attachment":
-		return "endpoint-attachment"
+	case evidenceClassEndpointAttachment:
+		return evidenceClassEndpointAttachment
 	default:
 		return strings.ToLower(strings.TrimSpace(value))
 	}
@@ -1168,21 +1171,21 @@ func applyTopologyRelationFamily(link *TopologyLink) {
 		link.Metadata["relation_family"] = "LOGICAL_PEER"
 	case evidenceClass == evidenceClassHostedVirtual:
 		link.Metadata["relation_family"] = "HOSTED_ON"
-	case evidenceClass == "endpoint-attachment":
+	case evidenceClass == evidenceClassEndpointAttachment:
 		link.Metadata["relation_family"] = "ATTACHED_TO"
 	case evidenceClass == evidenceClassObservedOnly:
-		link.Metadata["relation_family"] = "OBSERVED_TO"
+		link.Metadata["relation_family"] = relationObservedTo
 	case evidenceClass == evidenceClassInferredSegment &&
 		confidenceReason == "single_identifier_inference" &&
-		(protocol == "snmp-l2" || source == "snmp-arp-fdb"):
-		link.Metadata["relation_family"] = "OBSERVED_TO"
+		(protocol == protocolSNMPL2 || source == sourceSNMPARPFDB):
+		link.Metadata["relation_family"] = relationObservedTo
 	case evidenceClass == evidenceClassInferredSegment &&
-		(protocol == "snmp-l2" || source == "snmp-arp-fdb" || strings.Contains(source, "port-table")):
+		(protocol == protocolSNMPL2 || source == sourceSNMPARPFDB || strings.Contains(source, "port-table")):
 		link.Metadata["relation_family"] = "ATTACHED_TO"
 	case evidenceClass == evidenceClassInferredSegment:
 		link.Metadata["relation_family"] = "INFERRED_TO"
 	default:
-		link.Metadata["relation_family"] = "OBSERVED_TO"
+		link.Metadata["relation_family"] = relationObservedTo
 	}
 }
 

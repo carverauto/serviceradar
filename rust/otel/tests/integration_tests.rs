@@ -146,13 +146,12 @@ async fn test_trace_service_export_multiple_batches() {
         let mut request_data = create_test_trace_request();
 
         // Modify the trace ID to make each batch unique
-        if let Some(resource_span) = request_data.resource_spans.first_mut() {
-            if let Some(scope_span) = resource_span.scope_spans.first_mut() {
-                if let Some(span) = scope_span.spans.first_mut() {
-                    span.trace_id[0] = i as u8;
-                    span.name = format!("batch-{}-span", i);
-                }
-            }
+        if let Some(resource_span) = request_data.resource_spans.first_mut()
+            && let Some(scope_span) = resource_span.scope_spans.first_mut()
+            && let Some(span) = scope_span.spans.first_mut()
+        {
+            span.trace_id[0] = i as u8;
+            span.name = format!("batch-{}-span", i);
         }
 
         let request = Request::new(request_data);
@@ -175,13 +174,12 @@ async fn test_trace_service_concurrent_requests() {
             let mut request_data = create_test_trace_request();
 
             // Make each request unique
-            if let Some(resource_span) = request_data.resource_spans.first_mut() {
-                if let Some(scope_span) = resource_span.scope_spans.first_mut() {
-                    if let Some(span) = scope_span.spans.first_mut() {
-                        span.trace_id[0] = i as u8;
-                        span.name = format!("concurrent-{}-span", i);
-                    }
-                }
+            if let Some(resource_span) = request_data.resource_spans.first_mut()
+                && let Some(scope_span) = resource_span.scope_spans.first_mut()
+                && let Some(span) = scope_span.spans.first_mut()
+            {
+                span.trace_id[0] = i as u8;
+                span.name = format!("concurrent-{}-span", i);
             }
 
             let request = Request::new(request_data);
