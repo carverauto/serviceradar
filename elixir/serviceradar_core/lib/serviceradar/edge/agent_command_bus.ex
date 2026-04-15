@@ -25,6 +25,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     created_at = System.system_time(:second)
     required_partition = Keyword.get(opts, :required_partition)
     required_capability = Keyword.get(opts, :required_capability)
+    source = normalize_source(Keyword.get(opts, :source, :on_demand))
     partition_id = resolve_partition(opts, required_partition)
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
     payload_json = encode_payload(payload)
@@ -42,7 +43,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-    with :ok <- ensure_dispatch_capacity(agent_id, command_type, ash_opts),
+    with :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
          {:ok, command} <- AgentCommand.create_command(command_attrs, ash_opts) do
       _ = AgentCommandCleanupWorker.ensure_scheduled()
 
@@ -241,13 +242,17 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
 
-  defp ensure_dispatch_capacity(agent_id, "mtr.run", ash_opts) do
+  defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
+
+  defp ensure_dispatch_capacity(agent_id, "mtr.run", _source, ash_opts) do
     query =
       AgentCommand
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(
         expr(
-          agent_id == ^agent_id and command_type == "mtr.run" and status in ^@active_mtr_statuses
+          agent_id == ^agent_id and command_type == "mtr.run" and
+            status in ^@active_mtr_statuses and
+            fragment("(? ->> 'trigger_mode') IS NULL", context)
         )
       )
       |> Ash.Query.limit(@max_concurrent_on_demand_mtr)
@@ -270,7 +275,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp ensure_dispatch_capacity(_agent_id, _command_type, _ash_opts), do: :ok
+  defp ensure_dispatch_capacity(_agent_id, _command_type, _source, _ash_opts), do: :ok
+
+  defp normalize_source(:automation), do: :automation
+  defp normalize_source("automation"), do: :automation
+  defp normalize_source(_), do: :on_demand
 
   def push_config_for_type(config_type) do
     capability = capability_for_config_type(config_type)
