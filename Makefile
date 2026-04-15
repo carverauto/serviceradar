@@ -128,27 +128,29 @@ push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI r
 	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
-push_all: ## Build, sign, and verify all OCI container images
+push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
 	@set -eu; \
 	effective_tag="$(PUSH_TAG)"; \
 	if [ -z "$${effective_tag}" ]; then \
 		effective_tag="sha-$$(git rev-parse HEAD)"; \
 	fi; \
-	if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
-		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
-		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
-			printf 'Cosign password: ' >&2; \
-			stty -echo; \
-			IFS= read -r COSIGN_PASSWORD; \
-			stty echo; \
-			printf '\n' >&2; \
-			export COSIGN_PASSWORD; \
-		fi; \
-		if [ -f "$${COSIGN_KEY_FILE}" ]; then \
-			cosign public-key --key "$${COSIGN_KEY_FILE}" >/dev/null || { \
-				echo "error: unable to decrypt COSIGN_KEY_FILE with the provided password" >&2; \
-				exit 1; \
-			}; \
+	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
+		if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
+			COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
+			if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
+				printf 'Cosign password: ' >&2; \
+				stty -echo; \
+				IFS= read -r COSIGN_PASSWORD; \
+				stty echo; \
+				printf '\n' >&2; \
+				export COSIGN_PASSWORD; \
+			fi; \
+			if [ -f "$${COSIGN_KEY_FILE}" ]; then \
+				cosign public-key --key "$${COSIGN_KEY_FILE}" >/dev/null || { \
+					echo "error: unable to decrypt COSIGN_KEY_FILE with the provided password" >&2; \
+					exit 1; \
+				}; \
+			fi; \
 		fi; \
 	fi; \
 	if [ "$(HOST_OS)" = "Darwin" ]; then \
@@ -156,8 +158,12 @@ push_all: ## Build, sign, and verify all OCI container images
 	else \
 		bazel run --config=remote_push --stamp //:push -- --tag "$${effective_tag}"; \
 	fi; \
-	./scripts/sign-oci-publish.sh; \
-	$(MAKE) verify_publish VERIFY_TAG="$${effective_tag}"
+	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
+		./scripts/sign-oci-publish.sh; \
+		$(MAKE) verify_publish VERIFY_TAG="$${effective_tag}"; \
+	else \
+		echo "skipping local cosign sign+verify; in-cluster signer (openbao) will sign after push"; \
+	fi
 
 .PHONY: push_all_release
 push_all_release: ## Build, sign, and verify all OCI container images and first-party Wasm plugin OCI artifacts
@@ -183,13 +189,13 @@ build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally wi
 	@bazel build //build/wasm_plugins:all_bundles
 
 .PHONY: push_wasm_plugins
-push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin OCI artifacts
+push_wasm_plugins: ## Build and publish first-party Wasm plugin OCI artifacts (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
 	@set -eu; \
 	effective_tag="$(PUSH_TAG)"; \
 	if [ -z "$${effective_tag}" ]; then \
 		effective_tag="sha-$$(git rev-parse HEAD)"; \
 	fi; \
-	if [ -z "$${COSIGN_KEY_REF:-}" ]; then \
+	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ] && [ -z "$${COSIGN_KEY_REF:-}" ]; then \
 		COSIGN_KEY_FILE="$${COSIGN_KEY_FILE:-$$HOME/.cosign/cosign.key}"; export COSIGN_KEY_FILE; \
 		if [ -z "$${COSIGN_PASSWORD:-}" ] && [ -f "$${COSIGN_KEY_FILE}" ] && [ -t 0 ]; then \
 			printf 'Cosign password: ' >&2; \
@@ -201,8 +207,12 @@ push_wasm_plugins: ## Build, publish, sign, and verify first-party Wasm plugin O
 		fi; \
 	fi; \
 	./scripts/push_all_wasm_plugins.sh --tag "$${effective_tag}"; \
-	./scripts/sign-wasm-plugin-publish.sh "$${effective_tag}"; \
-	$(MAKE) verify_wasm_plugins VERIFY_TAG="$${effective_tag}"
+	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
+		./scripts/sign-wasm-plugin-publish.sh "$${effective_tag}"; \
+		$(MAKE) verify_wasm_plugins VERIFY_TAG="$${effective_tag}"; \
+	else \
+		echo "skipping local cosign sign+verify for wasm plugins; in-cluster signer will sign after push"; \
+	fi
 
 .PHONY: verify_wasm_plugins
 verify_wasm_plugins: ## Verify published Wasm plugin OCI artifacts and signatures (set VERIFY_TAG=<tag> to include an extra tag)
