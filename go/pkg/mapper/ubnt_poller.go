@@ -577,9 +577,10 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	return deviceResp.Data, deviceCache, nil
 }
 
+var errUniFiClientsFetchFailed = errors.New("failed to fetch clients")
+
 func (*DiscoveryEngine) fetchUniFiClientsForSite(
 	ctx context.Context,
-	job *DiscoveryJob,
 	client *http.Client,
 	headers map[string]string,
 	apiConfig UniFiAPIConfig,
@@ -602,7 +603,7 @@ func (*DiscoveryEngine) fetchUniFiClientsForSite(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch clients for controller %s, site %s with status: %d", apiConfig.Name, site.Name, resp.StatusCode)
+		return nil, fmt.Errorf("%w: controller %s site %s status %d", errUniFiClientsFetchFailed, apiConfig.Name, site.Name, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -1153,7 +1154,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		return nil, err
 	}
 
-	wirelessClients, err := e.fetchUniFiClientsForSite(ctx, job, client, headers, apiConfig, site)
+	wirelessClients, err := e.fetchUniFiClientsForSite(ctx, client, headers, apiConfig, site)
 	if err != nil {
 		e.logger.Warn().
 			Str("job_id", job.ID).
@@ -1658,7 +1659,7 @@ func (*DiscoveryEngine) addPoEMetadata(metadata map[string]string, port *struct 
 		metadata["poe_standard"] = port.PoE.Standard
 		metadata["poe_type"] = fmt.Sprintf("%d", port.PoE.Type)
 		metadata["poe_state"] = port.PoE.State
-		metadata["poe_enabled"] = "true"
+		metadata["poe_enabled"] = stringTrueValue
 	}
 }
 

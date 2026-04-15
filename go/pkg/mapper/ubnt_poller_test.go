@@ -385,13 +385,12 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 			defer server.Close()
 
 			engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
-			job := &DiscoveryJob{ID: "test-job"}
 			client := &http.Client{Timeout: 30 * time.Second}
 			headers := map[string]string{"X-API-Key": "test-api-key", "Content-Type": "application/json"}
 			apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: server.URL, APIKey: "test-api-key"}
 			site := UniFiSite{ID: "site1", Name: "Site 1"}
 
-			clients, err := engine.fetchUniFiClientsForSite(context.Background(), job, client, headers, apiConfig, site)
+			clients, err := engine.fetchUniFiClientsForSite(context.Background(), client, headers, apiConfig, site)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Nil(t, clients)

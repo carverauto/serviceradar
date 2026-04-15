@@ -618,7 +618,7 @@ func stringValue(raw map[string]any, key string) string {
 
 func boolValue(raw map[string]any, key string) bool {
 	switch strings.ToLower(stringValue(raw, key)) {
-	case "true", "yes", "on", "enabled", "running":
+	case stringTrueValue, stringYesValue, "on", "enabled", "running":
 		return true
 	default:
 		return false
