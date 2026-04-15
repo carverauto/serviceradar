@@ -593,7 +593,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
            partition_id: partition_id,
            required_partition: partition_id,
            required_capability: "mtr",
-           actor: actor
+           actor: actor,
+           source: :automation
          ) do
       {:ok, _command_id} ->
         true
