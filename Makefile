@@ -172,8 +172,8 @@ push_all_release: ## Build, sign, and verify all OCI container images and first-
 	if [ -z "$${effective_tag}" ]; then \
 		effective_tag="sha-$$(git rev-parse HEAD)"; \
 	fi; \
-	$(MAKE) push_all PUSH_TAG="$${effective_tag}"; \
-	$(MAKE) push_wasm_plugins PUSH_TAG="$${effective_tag}"
+	$(MAKE) push_all LOCAL_COSIGN_SIGN=1 PUSH_TAG="$${effective_tag}"; \
+	$(MAKE) push_wasm_plugins LOCAL_COSIGN_SIGN=1 PUSH_TAG="$${effective_tag}"
 
 .PHONY: verify_publish
 verify_publish: ## Verify published OCI image shape and runtime metadata (set VERIFY_TAG=<tag> to include an extra tag)
