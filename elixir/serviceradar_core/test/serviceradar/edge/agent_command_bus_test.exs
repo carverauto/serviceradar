@@ -141,6 +141,49 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert length(commands) == 2
       assert Enum.all?(commands, &(&1.status == :sent))
     end
+
+    test "automation dispatches bypass the on-demand mtr concurrency limit", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      baseline_context = %{"trigger_mode" => "baseline", "target_key" => "device:uid-1"}
+
+      assert {:ok, _} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "1.1.1.1"},
+                 context: baseline_context,
+                 source: :automation
+               )
+
+      assert {:ok, _} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "8.8.8.8"},
+                 context: baseline_context,
+                 source: :automation
+               )
+
+      assert {:ok, _} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "9.9.9.9"},
+                 context: baseline_context,
+                 source: :automation
+               )
+
+      assert {:ok, _} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "2.2.2.2"},
+                 context: %{"device_uid" => "ui-request"}
+               )
+
+      commands =
+        AgentCommand
+        |> Ash.Query.filter(agent_id == ^agent_id and command_type == "mtr.run")
+        |> Ash.read!(actor: actor)
+
+      assert length(commands) == 4
+    end
   end
 
   describe "push-config delivery" do

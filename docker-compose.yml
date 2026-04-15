@@ -122,6 +122,11 @@ services:
         aliases:
           - cnpg
           - cnpg-rw
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      db-credentials:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   cert-permissions-fixer:
