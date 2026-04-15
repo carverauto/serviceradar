@@ -216,6 +216,16 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     password
   end
 
+  defp app_password_or_nil do
+    password =
+      read_text_file(System.get_env("CNPG_APP_PASSWORD_FILE")) ||
+        read_text_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+        System.get_env("CNPG_APP_PASSWORD") ||
+        System.get_env("CNPG_PASSWORD")
+
+    if password in [nil, ""], do: nil, else: password
+  end
+
   defp read_text_file(nil), do: nil
 
   defp read_text_file(path) do
@@ -437,24 +447,16 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   # Execute a function with a temporary admin (superuser) database connection.
   # Used for operations that require elevated privileges (e.g., granting on schemas owned by postgres).
   defp with_admin_connection(fun) do
-    {admin_user, admin_password} = admin_credentials!()
+    case execute_with_admin_credentials(fun) do
+      {:ok, value} ->
+        value
 
-    opts = [
-      hostname: System.get_env("CNPG_HOST", "localhost"),
-      port: parse_int(System.get_env("CNPG_PORT"), 5432),
-      username: admin_user,
-      password: admin_password,
-      database: app_database(),
-      ssl: admin_ssl_opts()
-    ]
+      {:retry, reason} ->
+        Logger.error(
+          "[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}"
+        )
 
-    case Postgrex.start_link(opts) do
-      {:ok, conn} ->
-        try do
-          fun.(conn)
-        after
-          GenServer.stop(conn)
-        end
+        raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
 
       {:error, reason} ->
         Logger.error(
@@ -462,6 +464,13 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         )
 
         raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
+
+      :ok ->
+        :ok
+
+      other ->
+        Logger.error("[StartupMigrations] Unexpected admin connection result: #{inspect(other)}")
+        raise RuntimeError, "Failed to connect as admin"
     end
   end
 
@@ -720,40 +729,42 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp ensure_app_database_exists!(database) do
     admin_database = System.get_env("CNPG_ADMIN_DATABASE", "postgres")
-    {admin_user, admin_password} = admin_credentials!()
     attempts = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_ATTEMPTS"), 30)
     delay_ms = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_DELAY_MS"), 2000)
 
     with_retry(attempts, delay_ms, fn ->
-      opts = [
-        hostname: System.get_env("CNPG_HOST", "localhost"),
-        port: parse_int(System.get_env("CNPG_PORT"), 5432),
-        username: admin_user,
-        password: admin_password,
-        database: admin_database,
-        ssl: admin_ssl_opts()
-      ]
+      case execute_with_admin_credentials(
+             fn conn ->
+             try do
+               %{rows: rows} =
+                 Postgrex.query!(conn, "SELECT 1 FROM pg_database WHERE datname = $1", [database])
 
-      case Postgrex.start_link(opts) do
-        {:ok, conn} ->
-          try do
-            %{rows: rows} =
-              Postgrex.query!(conn, "SELECT 1 FROM pg_database WHERE datname = $1", [database])
+               if rows == [] do
+                 Logger.info("[StartupMigrations] Creating database #{database}")
+                 Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}")
+               else
+                 Logger.info("[StartupMigrations] Database #{database} already exists; skipping")
+               end
 
-            if rows == [] do
-              Logger.info("[StartupMigrations] Creating database #{database}")
-              Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}")
-            else
-              Logger.info("[StartupMigrations] Database #{database} already exists; skipping")
-            end
+               :ok
+             rescue
+               e in [DBConnection.ConnectionError, Postgrex.Error] ->
+                 {:retry, e}
+             end
+             end,
+             admin_database
+           ) do
+        :ok ->
+          :ok
 
-            :ok
-          rescue
-            e in [DBConnection.ConnectionError, Postgrex.Error] ->
-              {:retry, e}
-          after
-            GenServer.stop(conn)
-          end
+        {:ok, :ok} ->
+          :ok
+
+        {:retry, reason} ->
+          {:retry, reason}
+
+        {:ok, {:retry, reason}} ->
+          {:retry, reason}
 
         {:error, reason} ->
           {:retry, reason}
@@ -761,30 +772,108 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     end)
   end
 
-  defp admin_credentials! do
-    admin_user =
-      read_text_file(System.get_env("CNPG_USERNAME_FILE")) ||
-        System.get_env("CNPG_USERNAME")
+  defp admin_connection_attempts do
+    primary = {
+      read_text_file(System.get_env("CNPG_USERNAME_FILE")) || System.get_env("CNPG_USERNAME"),
+      read_text_file(System.get_env("CNPG_PASSWORD_FILE")) || System.get_env("CNPG_PASSWORD"),
+      "configured admin credentials"
+    }
 
-    admin_password =
-      read_text_file(System.get_env("CNPG_PASSWORD_FILE")) ||
-        System.get_env("CNPG_PASSWORD")
+    configured =
+      case primary do
+        {nil, _, _} -> []
+        {"", _, _} -> []
+        {user, nil, label} -> [{user, "", label}]
+        {user, pwd, label} -> [{user, pwd, label}]
+    end
 
-    cond do
-      admin_user not in [nil, ""] and admin_password not in [nil, ""] ->
-        {admin_user, admin_password}
+    app_user = app_user()
+    app_password = app_password_or_nil()
 
-      admin_user in [nil, ""] and admin_password not in [nil, ""] ->
-        {app_user(), admin_password}
+    # Only include fallback when app credentials are usable and different from primary.
+    {primary_user, primary_password, _primary_label} = primary
+    app_creds =
+      if app_password in [nil, ""], do: [], else: [{app_user, app_password, "application credentials"}]
 
-      true ->
-        Logger.warning(
-          "[StartupMigrations] CNPG superuser credentials missing; falling back to app credentials"
-        )
+    if primary_user == app_user and primary_password == app_password do
+      configured
+    else
+      configured ++ app_creds
+    end
+    |> Enum.reject(fn
+      {nil, _, _} -> true
+      {_, nil, _} -> true
+      {_, "", _} -> true
+      _ -> false
+    end)
+    |> Enum.uniq_by(fn {user, password, _label} -> {user, password} end)
+    |> Enum.map(fn {user, password, label} ->
+      {user, password, label}
+    end)
+  end
 
-        {app_user(), app_password!()}
+  defp admin_connection_opts(admin_user, admin_password, database) do
+    [
+      hostname: System.get_env("CNPG_HOST", "localhost"),
+      port: parse_int(System.get_env("CNPG_PORT"), 5432),
+      username: admin_user,
+      password: admin_password,
+      database: database,
+      ssl: admin_ssl_opts()
+    ]
+  end
+
+  defp execute_with_admin_credentials(fun, database \\ app_database()) do
+    execute_with_admin_credentials(admin_connection_attempts(), fun, database)
+  end
+
+  defp execute_with_admin_credentials([], _fun, _database), do: {:error, :no_admin_credentials}
+
+  defp execute_with_admin_credentials([{user, password, label} | rest], fun, database) do
+    opts = admin_connection_opts(user, password, database)
+
+    case Postgrex.start_link(opts) do
+      {:ok, conn} ->
+        try do
+          {:ok, fun.(conn)}
+        after
+          GenServer.stop(conn)
+        end
+
+      {:error, reason} ->
+        if fallback_needed?(reason, rest) do
+          Logger.warning(
+            "[StartupMigrations] Admin connect with #{label} failed (#{inspect(reason)}), trying alternate credentials"
+          )
+
+          execute_with_admin_credentials(rest, fun, database)
+        else
+          {:error, reason}
+        end
     end
   end
+
+  defp fallback_needed?(reason, remaining_attempts) do
+    invalid_admin_credentials_error?(reason) && remaining_attempts != []
+  end
+
+  defp invalid_admin_credentials_error?(%Postgrex.Error{postgres: %{code: code}})
+       when code in ["28P01", :invalid_password, :invalid_authorization_specification] do
+    true
+  end
+
+  defp invalid_admin_credentials_error?(%Postgrex.Error{postgres: %{message: message}})
+       when is_binary(message) do
+    String.contains?(message, "password authentication failed")
+  end
+
+  defp invalid_admin_credentials_error?(%DBConnection.ConnectionError{message: message})
+       when is_binary(message) do
+    String.contains?(message, "password authentication failed") or
+      String.contains?(message, "FATAL 28P01")
+  end
+
+  defp invalid_admin_credentials_error?(_reason), do: false
 
   defp admin_ssl_opts do
     case System.get_env("CNPG_SSL_MODE", "require") do

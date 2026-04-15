@@ -272,9 +272,18 @@ Uses lookup to get current secret value, falls back to random if not found.
 {{- $ns := default .Release.Namespace .Values.spire.namespace -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $secretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
 {{- $existingSecret := (lookup "v1" "Secret" $ns $secretName) -}}
+{{- $existingSuperSecret := (lookup "v1" "Secret" $ns $superSecretName) -}}
+{{- $secretPayload := "" -}}
 {{- if and $existingSecret $existingSecret.data -}}
-{{- $existingSecret.data | toJson | sha256sum -}}
+{{- $secretPayload = printf "%s%s" $secretPayload ($existingSecret.data | toJson) -}}
+{{- end -}}
+{{- if and $existingSuperSecret $existingSuperSecret.data -}}
+{{- $secretPayload = printf "%s%s" $secretPayload ($existingSuperSecret.data | toJson) -}}
+{{- end -}}
+{{- if ne $secretPayload "" -}}
+{{- $secretPayload | sha256sum -}}
 {{- else -}}
 {{- randAlphaNum 32 | sha256sum -}}
 {{- end -}}
