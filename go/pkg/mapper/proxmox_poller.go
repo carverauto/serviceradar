@@ -469,7 +469,7 @@ func proxmoxGuestDeviceID(apiConfig ProxmoxAPIConfig, nodeName string, vmid int,
 func normalizeProxmoxIDComponent(value string) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	if normalized == "" {
-		return "unknown"
+		return fallbackUnknown
 	}
 
 	var b strings.Builder
@@ -492,7 +492,7 @@ func normalizeProxmoxIDComponent(value string) string {
 
 	out := strings.Trim(b.String(), "-")
 	if out == "" {
-		return "unknown"
+		return fallbackUnknown
 	}
 	return out
 }
