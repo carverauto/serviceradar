@@ -335,9 +335,9 @@ mod tests {
 
         // Double value
         let double_val = AnyValue {
-            value: Some(AnyValueEnum::DoubleValue(3.14)),
+            value: Some(AnyValueEnum::DoubleValue(2.5)),
         };
-        assert_eq!(any_value_to_json(&double_val), json!(3.14));
+        assert_eq!(any_value_to_json(&double_val), json!(2.5));
 
         // Bytes value
         let bytes_val = AnyValue {

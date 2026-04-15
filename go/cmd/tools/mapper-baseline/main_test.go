@@ -35,10 +35,10 @@ func TestLoadRunConfigAndNormalizeSNMP(t *testing.T) {
 		t.Fatalf("normalize config: %v", err)
 	}
 
-	if cfg.Mode != "snmp" {
+	if cfg.Mode != modeSNMP {
 		t.Fatalf("unexpected mode %q", cfg.Mode)
 	}
-	if cfg.DiscoveryMode != "snmp" {
+	if cfg.DiscoveryMode != modeSNMP {
 		t.Fatalf("expected discovery mode snmp, got %q", cfg.DiscoveryMode)
 	}
 	if len(cfg.Seeds) != 2 {
@@ -64,7 +64,7 @@ func TestNormalizeDerivesControllerSeeds(t *testing.T) {
 	if len(cfg.Seeds) != 1 || cfg.Seeds[0] != "unifi.example.com" {
 		t.Fatalf("unexpected derived seeds: %#v", cfg.Seeds)
 	}
-	if cfg.DiscoveryMode != "api" {
+	if cfg.DiscoveryMode != modeAPI {
 		t.Fatalf("expected discovery mode api, got %q", cfg.DiscoveryMode)
 	}
 }
@@ -73,7 +73,7 @@ func TestNormalizeAcceptsAPIConfigMode(t *testing.T) {
 	t.Parallel()
 
 	cfg := &runConfig{
-		Mode: "api",
+		Mode: modeAPI,
 		UniFi: []mapper.UniFiAPIConfig{{
 			BaseURL: "https://farm.example.com",
 			APIKey:  "token",
@@ -84,10 +84,10 @@ func TestNormalizeAcceptsAPIConfigMode(t *testing.T) {
 		t.Fatalf("normalize config: %v", err)
 	}
 
-	if cfg.Mode != "controller" {
+	if cfg.Mode != modeController {
 		t.Fatalf("expected normalized mode controller, got %q", cfg.Mode)
 	}
-	if cfg.DiscoveryMode != "api" {
+	if cfg.DiscoveryMode != modeAPI {
 		t.Fatalf("expected discovery mode api, got %q", cfg.DiscoveryMode)
 	}
 	if len(cfg.Seeds) != 1 || cfg.Seeds[0] != "farm.example.com" {
@@ -99,7 +99,7 @@ func TestNormalizeAcceptsHybridControllerMode(t *testing.T) {
 	t.Parallel()
 
 	cfg := &runConfig{
-		Mode: "snmp_api",
+		Mode: modeSNMPAPI,
 		UniFi: []mapper.UniFiAPIConfig{{
 			BaseURL: "https://farm.example.com",
 			APIKey:  "token",
@@ -115,10 +115,10 @@ func TestNormalizeAcceptsHybridControllerMode(t *testing.T) {
 		t.Fatalf("normalize config: %v", err)
 	}
 
-	if cfg.Mode != "controller" {
+	if cfg.Mode != modeController {
 		t.Fatalf("expected normalized mode controller, got %q", cfg.Mode)
 	}
-	if cfg.DiscoveryMode != "snmp_api" {
+	if cfg.DiscoveryMode != modeSNMPAPI {
 		t.Fatalf("expected discovery mode snmp_api, got %q", cfg.DiscoveryMode)
 	}
 	if len(cfg.Seeds) != 2 {
@@ -147,7 +147,7 @@ func TestParseRunConfigFlagsOverrideConfigFile(t *testing.T) {
 	cfg, err := parseRunConfig([]string{
 		"--config", path,
 		"--output", "/tmp/from-flag.json",
-		"--mode", "snmp_api",
+		"--mode", modeSNMPAPI,
 	})
 	if err != nil {
 		t.Fatalf("parse run config: %v", err)
@@ -156,7 +156,7 @@ func TestParseRunConfigFlagsOverrideConfigFile(t *testing.T) {
 	if cfg.Output != "/tmp/from-flag.json" {
 		t.Fatalf("expected output override to win, got %q", cfg.Output)
 	}
-	if cfg.Mode != "snmp_api" {
+	if cfg.Mode != modeSNMPAPI {
 		t.Fatalf("expected mode override to win, got %q", cfg.Mode)
 	}
 }
@@ -165,8 +165,8 @@ func TestNormalizeModeAliasOverridesConfigDiscoveryMode(t *testing.T) {
 	t.Parallel()
 
 	cfg := &runConfig{
-		Mode:          "snmp_api",
-		DiscoveryMode: "api",
+		Mode:          modeSNMPAPI,
+		DiscoveryMode: modeAPI,
 		UniFi: []mapper.UniFiAPIConfig{{
 			BaseURL: "https://farm.example.com",
 			APIKey:  "token",
@@ -177,10 +177,10 @@ func TestNormalizeModeAliasOverridesConfigDiscoveryMode(t *testing.T) {
 		t.Fatalf("normalize config: %v", err)
 	}
 
-	if cfg.Mode != "controller" {
+	if cfg.Mode != modeController {
 		t.Fatalf("expected normalized mode controller, got %q", cfg.Mode)
 	}
-	if cfg.DiscoveryMode != "snmp_api" {
+	if cfg.DiscoveryMode != modeSNMPAPI {
 		t.Fatalf("expected alias to override discovery mode, got %q", cfg.DiscoveryMode)
 	}
 }
@@ -189,7 +189,7 @@ func TestBuildReportProducesStableCounts(t *testing.T) {
 	t.Parallel()
 
 	report := buildReport(&runConfig{
-		Mode:  "snmp",
+		Mode:  modeSNMP,
 		Type:  "topology",
 		Seeds: []string{"192.168.1.238"},
 	}, &mapper.DiscoveryResults{

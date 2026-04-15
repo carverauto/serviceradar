@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,7 @@ func TestBulkCustomPropertiesHandlerSupportsBulkCustomPropertiesPayload(t *testi
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/custom-properties/_bulk/", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/devices/custom-properties/_bulk/", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer fake-token-test")
 
 	rr := httptest.NewRecorder()
@@ -58,7 +59,7 @@ func TestBulkCustomPropertiesHandlerSupportsLegacyUpsertPayload(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/custom-properties/_bulk/", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/devices/custom-properties/_bulk/", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer fake-token-test")
 
 	rr := httptest.NewRecorder()

@@ -2,6 +2,12 @@ package mapper
 
 import "testing"
 
+const (
+	testConfidenceHigh        = "high"
+	testEvidenceEndpointAttach = "endpoint-attachment"
+	testRelationAttachedTo    = "ATTACHED_TO"
+)
+
 func TestGenerateDeviceIDNormalizesMAC(t *testing.T) {
 	id1 := GenerateDeviceID("AA:BB:CC:DD:EE:FF")
 	id2 := GenerateDeviceID("aa-bb-cc-dd-ee-ff")
@@ -89,7 +95,7 @@ func TestApplyTopologyEvidenceClassAssignsConfidenceTier(t *testing.T) {
 		t.Fatalf("expected direct evidence class, got %q", link.Metadata["evidence_class"])
 	}
 
-	if link.Metadata["confidence_tier"] != "high" {
+	if link.Metadata["confidence_tier"] != testConfidenceHigh {
 		t.Fatalf("expected high confidence tier, got %q", link.Metadata["confidence_tier"])
 	}
 }
@@ -98,22 +104,22 @@ func TestApplyTopologyEvidenceClassPreservesEndpointAttachment(t *testing.T) {
 	link := &TopologyLink{
 		Protocol: "UniFi-API",
 		Metadata: map[string]string{
-			"evidence_class": "endpoint-attachment",
+			"evidence_class": testEvidenceEndpointAttach,
 			"source":         "unifi-api-wireless-client",
 		},
 	}
 
 	applyTopologyEvidenceClass(link)
 
-	if link.Metadata["evidence_class"] != "endpoint-attachment" {
+	if link.Metadata["evidence_class"] != testEvidenceEndpointAttach {
 		t.Fatalf("expected endpoint-attachment evidence class, got %q", link.Metadata["evidence_class"])
 	}
 
-	if link.Metadata["relation_family"] != "ATTACHED_TO" {
+	if link.Metadata["relation_family"] != testRelationAttachedTo {
 		t.Fatalf("expected ATTACHED_TO relation family, got %q", link.Metadata["relation_family"])
 	}
 
-	if link.Metadata["confidence_tier"] != "high" {
+	if link.Metadata["confidence_tier"] != testConfidenceHigh {
 		t.Fatalf("expected high confidence tier, got %q", link.Metadata["confidence_tier"])
 	}
 }
