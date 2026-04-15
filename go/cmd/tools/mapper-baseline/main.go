@@ -22,6 +22,24 @@ import (
 const (
 	defaultWorkers      = 4
 	defaultPollInterval = 500 * time.Millisecond
+
+	modeSNMP       = "snmp"
+	modeAPI        = "api"
+	modeController = "controller"
+	modeSNMPAPI    = "snmp_api"
+)
+
+var (
+	errBaselineConfigRequired    = errors.New("baseline config is required")
+	errBaselineModeRequired      = errors.New("baseline mode is required")
+	errSNMPNeedsSeed             = errors.New("snmp baseline requires at least one seed")
+	errControllerNeedsController = errors.New("controller baseline requires at least one controller")
+	errUniFiNeedsController      = errors.New("unifi baseline requires at least one controller")
+	errMikroTikNeedsController   = errors.New("mikrotik baseline requires at least one controller")
+	errUnsupportedBaselineMode   = errors.New("unsupported baseline mode")
+	errBaselineNeedsSeed         = errors.New("baseline requires at least one seed or derivable controller host")
+	errUnsupportedDiscoveryType  = errors.New("unsupported discovery type")
+	errDiscoveryEndedWithStatus  = errors.New("discovery ended")
 )
 
 type stringSliceFlag []string
@@ -306,12 +324,12 @@ func loadRunConfig(path string) (*runConfig, error) {
 
 func (c *runConfig) normalize() error {
 	if c == nil {
-		return errors.New("baseline config is required")
+		return errBaselineConfigRequired
 	}
 
 	c.Mode = strings.ToLower(strings.TrimSpace(c.Mode))
 	if c.Mode == "" {
-		return errors.New("baseline mode is required")
+		return errBaselineModeRequired
 	}
 	c.DiscoveryMode = normalizeDiscoveryMode(c.DiscoveryMode)
 
@@ -337,61 +355,61 @@ func (c *runConfig) normalize() error {
 	}
 
 	switch c.Mode {
-	case "api":
-		c.Mode = "controller"
-		c.DiscoveryMode = "api"
-	case "snmp_api":
-		c.Mode = "controller"
-		c.DiscoveryMode = "snmp_api"
+	case modeAPI:
+		c.Mode = modeController
+		c.DiscoveryMode = modeAPI
+	case modeSNMPAPI:
+		c.Mode = modeController
+		c.DiscoveryMode = modeSNMPAPI
 	}
 
 	switch c.Mode {
-	case "snmp":
+	case modeSNMP:
 		if len(c.Seeds) == 0 {
-			return errors.New("snmp baseline requires at least one seed")
+			return errSNMPNeedsSeed
 		}
 		if c.SNMP.Version == "" {
 			c.SNMP.Version = string(mapper.SNMPVersion2c)
 		}
 		if c.DiscoveryMode == "" {
-			c.DiscoveryMode = "snmp"
+			c.DiscoveryMode = modeSNMP
 		}
-	case "controller":
+	case modeController:
 		if len(c.UniFi) == 0 && len(c.MikroTik) == 0 {
-			return errors.New("controller baseline requires at least one controller")
+			return errControllerNeedsController
 		}
 		if len(c.Seeds) == 0 {
 			c.Seeds = deriveControllerSeeds(c.UniFi, c.MikroTik)
 		}
 		if c.DiscoveryMode == "" {
-			c.DiscoveryMode = "api"
+			c.DiscoveryMode = modeAPI
 		}
 	case "unifi":
 		if len(c.UniFi) == 0 {
-			return errors.New("unifi baseline requires at least one controller")
+			return errUniFiNeedsController
 		}
 		if len(c.Seeds) == 0 {
 			c.Seeds = deriveUniFiSeeds(c.UniFi)
 		}
 		if c.DiscoveryMode == "" {
-			c.DiscoveryMode = "api"
+			c.DiscoveryMode = modeAPI
 		}
 	case "mikrotik":
 		if len(c.MikroTik) == 0 {
-			return errors.New("mikrotik baseline requires at least one controller")
+			return errMikroTikNeedsController
 		}
 		if len(c.Seeds) == 0 {
 			c.Seeds = deriveMikroTikSeeds(c.MikroTik)
 		}
 		if c.DiscoveryMode == "" {
-			c.DiscoveryMode = "api"
+			c.DiscoveryMode = modeAPI
 		}
 	default:
-		return fmt.Errorf("unsupported baseline mode %q", c.Mode)
+		return fmt.Errorf("%w: %q", errUnsupportedBaselineMode, c.Mode)
 	}
 
 	if len(c.Seeds) == 0 {
-		return fmt.Errorf("%s baseline requires at least one seed or derivable controller host", c.Mode)
+		return fmt.Errorf("%s %w", c.Mode, errBaselineNeedsSeed)
 	}
 
 	if _, err := parseDiscoveryType(c.Type); err != nil {
@@ -477,7 +495,7 @@ func parseDiscoveryType(value string) (mapper.DiscoveryType, error) {
 	case "", "topology":
 		return mapper.DiscoveryTypeTopology, nil
 	default:
-		return "", fmt.Errorf("unsupported discovery type %q", value)
+		return "", fmt.Errorf("%w: %q", errUnsupportedDiscoveryType, value)
 	}
 }
 
@@ -496,10 +514,13 @@ func waitForResults(ctx context.Context, engine mapper.Mapper, discoveryID strin
 			return engine.GetDiscoveryResults(ctx, discoveryID, true)
 		case mapper.DiscoveryStatusFailed, mapper.DiscoverStatusCanceled:
 			results, resultsErr := engine.GetDiscoveryResults(ctx, discoveryID, true)
+			endedErr := fmt.Errorf("%w: %s with status %s: %s", errDiscoveryEndedWithStatus, discoveryID, status.Status, status.Error)
 			if resultsErr == nil {
-				return results, fmt.Errorf("discovery %s ended with status %s: %s", discoveryID, status.Status, status.Error)
+				return results, endedErr
 			}
-			return nil, fmt.Errorf("discovery %s ended with status %s: %s", discoveryID, status.Status, status.Error)
+			return nil, endedErr
+		case mapper.DiscoveryStatusUnknown, mapper.DiscoveryStatusPending, mapper.DiscoveryStatusRunning:
+			// non-terminal states keep polling
 		}
 
 		select {
