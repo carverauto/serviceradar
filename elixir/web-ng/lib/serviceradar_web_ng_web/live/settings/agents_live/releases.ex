@@ -46,7 +46,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:current_path, "/settings/agents/releases")
        |> assign(:artifact_formats, @artifact_formats)
        |> assign(:cohort_options, @cohort_options)
-       |> assign(:release_import_provider_options, ReleaseSourceImporter.provider_options())
        |> assign(:release_import_form, release_import_form())
        |> assign(:recent_repo_releases, [])
        |> assign(:recent_repo_release_error, nil)
@@ -507,13 +506,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             <div class="space-y-6">
               <.ui_panel>
                 <:header>
-                  <div class="text-sm font-semibold">Import Repository Release</div>
+                  <div class="text-sm font-semibold">Import Forgejo Release</div>
                 </:header>
                 <div class="p-6 space-y-4">
                   <p class="text-sm text-base-content/70">
-                    Use the repo release as the source of truth for production rollouts. The
+                    Use the Forgejo release as the source of truth for production rollouts. The
                     release must include a signed manifest asset and signature asset so ServiceRadar
-                    can publish the catalog entry directly.
+                    can publish the catalog entry directly from <span class="font-mono">code.carverauto.dev</span>.
                   </p>
 
                   <.form
@@ -524,16 +523,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     class="space-y-4"
                   >
                     <div class="grid gap-4 md:grid-cols-2">
-                      <.input
-                        field={@release_import_form[:provider]}
-                        type="select"
-                        label="Release Provider"
-                        options={@release_import_provider_options}
+                      <input
+                        type="hidden"
+                        name={@release_import_form[:provider].name}
+                        value={@release_import_form[:provider].value}
                       />
                       <.input
                         field={@release_import_form[:repo_url]}
                         label="Repository URL"
-                        placeholder="https://github.com/carverauto/serviceradar"
+                        placeholder="https://code.carverauto.dev/carverauto/serviceradar"
                         class="md:col-span-2"
                         required
                       />
@@ -556,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             Recent Repository Releases
                           </div>
                           <div class="text-xs text-base-content/60">
-                            The latest 10 releases are discovered automatically for the selected repository.
+                            The latest 10 releases are discovered automatically from the selected Forgejo repository.
                           </div>
                         </div>
                         <span class="text-xs text-base-content/50">
@@ -664,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
                     <div class="rounded-lg bg-base-200/40 px-4 py-3 text-xs text-base-content/70">
                       Keep the manual publish path below for local development and one-off testing
-                      when you do not want to push a signed release through the repo host. Use the
+                      when you do not want to push a signed release through Forgejo. Use the
                       field below when you want to import a specific tag that is not in the recent list.
                     </div>
 
@@ -1222,8 +1220,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp release_import_form(params \\ %{}) do
     to_form(
       %{
-        "provider" => Map.get(params, "provider", "github"),
-        "repo_url" => Map.get(params, "repo_url", "https://github.com/carverauto/serviceradar"),
+        "provider" => Map.get(params, "provider", "forgejo"),
+        "repo_url" => Map.get(params, "repo_url", "https://code.carverauto.dev/carverauto/serviceradar"),
         "release_tag" => Map.get(params, "release_tag", ""),
         "manifest_asset_name" =>
           Map.get(
@@ -1282,13 +1280,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp normalize_rollout_form(_other, releases), do: rollout_form(%{}, releases)
 
   defp selected_import_provider(params) when is_map(params) do
-    case Map.get(params, "provider") || Map.get(params, :provider) do
-      provider when provider in ["github", "forgejo"] -> {:ok, provider}
-      _ -> {:error, "Select a supported release provider"}
+    case Map.get(params, "provider") || Map.get(params, :provider) || "forgejo" do
+      "forgejo" -> {:ok, "forgejo"}
+      _ -> {:error, "Forgejo is the only supported release provider"}
     end
   end
 
-  defp selected_import_provider(_params), do: {:error, "Select a supported release provider"}
+  defp selected_import_provider(_params), do: {:ok, "forgejo"}
 
   defp maybe_reload_recent_repo_releases(socket, previous_params, params) do
     if repo_source_params_changed?(previous_params, params) do
@@ -1599,9 +1597,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  defp release_provider_label("github"), do: "GitHub Releases"
   defp release_provider_label("forgejo"), do: "Forgejo Releases"
-  defp release_provider_label(_provider), do: "repository releases"
+  defp release_provider_label(_provider), do: "Repository Release"
 
   defp release_source_summary(%{metadata: %{"source" => %{} = source}}) do
     provider =

@@ -328,6 +328,36 @@ func TestGenerateUserCredentials_RejectsOutOfScopePermissions(t *testing.T) {
 	}
 }
 
+func TestGenerateUserCredentials_AllowsSystemClaimsUpdateForSystemService(t *testing.T) {
+	accountSeed := createTestAccount(t)
+
+	customPerms := &UserPermissions{
+		PublishAllow:   []string{"$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE"},
+		SubscribeAllow: []string{"_INBOX.>"},
+		AllowResponses: true,
+		MaxResponses:   10,
+	}
+
+	creds, err := GenerateUserCredentials(
+		"SYS",
+		accountSeed,
+		"system-service",
+		CredentialTypeService,
+		customPerms,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("GenerateUserCredentials() unexpected error: %v", err)
+	}
+
+	if creds == nil {
+		t.Fatal("GenerateUserCredentials() returned nil credentials")
+	}
+	if creds.CredsFileContent == "" {
+		t.Fatal("GenerateUserCredentials() returned empty creds content")
+	}
+}
+
 func TestGenerateUserCredentials_InvalidAccountSeed(t *testing.T) {
 	_, err := GenerateUserCredentials(
 		"test-ns",

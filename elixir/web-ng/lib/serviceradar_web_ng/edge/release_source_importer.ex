@@ -9,21 +9,9 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   @default_signature_asset_name "serviceradar-agent-release-manifest.sig"
   @default_recent_release_limit 10
   @max_asset_redirects 5
-  @github_repo_host "github.com"
-  @github_api_host "api.github.com"
+  @default_provider "forgejo"
   @forgejo_host "code.carverauto.dev"
-  @provider_options [
-    {"GitHub Releases", "github"},
-    {"Forgejo Releases", "forgejo"}
-  ]
-
-  @type import_attrs :: %{
-          optional(:provider) => String.t(),
-          optional(String.t()) => String.t()
-        }
-
-  @spec provider_options() :: [{String.t(), String.t()}]
-  def provider_options, do: @provider_options
+  @type import_attrs :: %{optional(:provider) => String.t(), optional(String.t()) => String.t()}
 
   @spec default_manifest_asset_name() :: String.t()
   def default_manifest_asset_name, do: @default_manifest_asset_name
@@ -105,10 +93,14 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     attrs
     |> Map.get("provider", Map.get(attrs, :provider))
     |> normalize_provider()
+    |> case do
+      nil -> @default_provider
+      provider -> provider
+    end
     |> validate_provider()
   end
 
-  defp selected_provider(_attrs), do: {:error, "Select a supported release provider"}
+  defp selected_provider(_attrs), do: {:ok, @default_provider}
 
   defp import_repo(attrs) when is_map(attrs) do
     repo_url = Map.get(attrs, "repo_url") || Map.get(attrs, :repo_url)
@@ -120,24 +112,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   defp import_repo(_attrs), do: {:error, "Release import settings are invalid"}
 
-  defp validate_provider(provider) when provider in ["github", "forgejo"], do: {:ok, provider}
-  defp validate_provider(_provider), do: {:error, "Select a supported release provider"}
-
-  defp parse_repo_url("github", url) do
-    with {:ok, %URI{scheme: "https", host: @github_repo_host} = uri} <- parse_uri(url),
-         {:ok, owner, repo} <- repo_owner_and_name(uri.path) do
-      {:ok,
-       %{
-         provider: "github",
-         repo_url: "https://#{@github_repo_host}/#{owner}/#{repo}",
-         api_base_url: "https://#{@github_api_host}",
-         owner: owner,
-         repo: repo
-       }}
-    else
-      _ -> {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"}
-    end
-  end
+  defp validate_provider("forgejo"), do: {:ok, "forgejo"}
+  defp validate_provider(_provider), do: {:error, "Forgejo is the only supported release provider"}
 
   defp parse_repo_url("forgejo", url) do
     with {:ok, %URI{scheme: "https", host: @forgejo_host} = uri} <- parse_uri(url),
@@ -364,9 +340,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   defp normalize_string(value), do: value |> to_string() |> normalize_string()
 
-  defp api_headers("github"),
-    do: [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers("github")]
-
   defp api_headers("forgejo") do
     [{"user-agent", "serviceradar"}, {"accept", "application/json"} | auth_headers("forgejo")]
   end
@@ -378,14 +351,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
       headers ++ auth_headers(provider)
     else
       headers
-    end
-  end
-
-  defp auth_headers("github") do
-    case Application.get_env(:serviceradar_web_ng, :agent_release_import_github_token) ||
-           System.get_env("GITHUB_TOKEN") do
-      nil -> []
-      token -> [{"authorization", "Bearer #{token}"}]
     end
   end
 
@@ -438,13 +403,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp trusted_api_host?("github", host), do: host == @github_api_host
   defp trusted_api_host?("forgejo", host), do: host == @forgejo_host
   defp trusted_api_host?(_, _host), do: false
-
-  defp trusted_asset_host?("github", host) when is_binary(host) do
-    host == @github_repo_host or host == @github_api_host or String.ends_with?(host, ".githubusercontent.com")
-  end
 
   defp trusted_asset_host?("forgejo", host), do: host == @forgejo_host
   defp trusted_asset_host?(_, _host), do: false
@@ -453,7 +413,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     case URI.parse(url) do
       %URI{host: host} when is_binary(host) ->
         case provider do
-          "github" -> host in [@github_repo_host, @github_api_host]
           "forgejo" -> host == @forgejo_host
           _ -> false
         end
