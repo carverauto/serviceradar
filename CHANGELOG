@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.15
+
+Docker Compose bootstrap hardening for clean-room bringups, hermetic NATS credentials, and datasvc startup fixes that remove the last known fresh-install race and JetStream limit mismatches.
+
+## Whats New
+
+**1.2.15**
+- Switched Docker Compose runtime NATS credentials to the managed `nats-creds` volume by default so `docker compose down -v` resets bootstrap state instead of leaving stale host-side creds behind.
+- Hardened `nats-creds-init` to detect and recover partial credential bootstrap output instead of incorrectly skipping when only a subset of files exists.
+- Fixed generated NATS JetStream account defaults so fresh compose bootstrap stays within the server storage budget while still allowing the datasvc KV bucket sizing used by the local stack.
+- Updated the mTLS datasvc compose config to set explicit bucket history, TTL, and max-bytes values required by the bounded JetStream account policy.
+- Updated the Docker setup guide to require pinning a published `APP_TAG` instead of relying on the moving `latest` tag for reproducible compose installs.
+
 # ServiceRadar v1.2.14
 
 Forgejo-only managed agent release imports and fresh Docker Compose NATS bootstrap fixes for operators waiting on both release rollout and local bringup reliability.
