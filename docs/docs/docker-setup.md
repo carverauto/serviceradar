@@ -11,7 +11,10 @@ Use Docker Compose to run the full ServiceRadar platform stack (core-elx, agent-
 ```bash
 git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
-cp .env.example .env
+
+# Pin a published release tag or published sha tag.
+# Unset APP_TAG defaults to the moving `latest` tag, which is not reproducible.
+export APP_TAG=<published-release-tag>
 
 docker compose pull
 docker compose up -d
@@ -41,8 +44,8 @@ docker compose down
 ## Update an Existing Stack
 
 ```bash
-# Optional: pin a release or commit
-export APP_TAG=v1.0.77
+# Pin a published release or published sha tag.
+export APP_TAG=<published-release-tag>
 
 # Pull and restart
 docker compose pull
@@ -64,6 +67,12 @@ docker compose up -d
 
 Fresh installs and already-migrated PG18 volumes automatically no-op in the
 migration step.
+
+Current compose defaults store generated NATS runtime credentials in the named
+`nats-creds` volume, so `docker compose down -v` gives you a clean bootstrap for
+that state. If you are upgrading from an older checkout that wrote runtime
+credentials into `./docker/compose/creds`, clear that directory once before
+retrying so stale partial bootstrap files are not copied back in as seed data.
 
 If the old install used non-default credentials without a persisted
 `cnpg-credentials` volume, or if you want to run the migration explicitly, the

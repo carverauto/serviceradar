@@ -4,6 +4,15 @@ set -euo pipefail
 creds_dir="/etc/serviceradar/creds"
 seed_dir="/seed/creds"
 
+bootstrap_complete() {
+  [ -f "${creds_dir}/operator.jwt" ] &&
+  [ -f "${creds_dir}/system.jwt" ] &&
+  [ -f "${creds_dir}/system_account.pub" ] &&
+  [ -f "${creds_dir}/system.creds" ] &&
+  [ -f "${creds_dir}/platform.creds" ] &&
+  [ -f "${creds_dir}/nats.conf" ]
+}
+
 fix_runtime_perms() {
   mkdir -p "${creds_dir}"
   find "${creds_dir}" -type d -exec chmod 0755 {} \;
@@ -19,7 +28,7 @@ fix_runtime_perms() {
   fi
 }
 
-if [[ -f "${creds_dir}/operator.jwt" ]]; then
+if bootstrap_complete; then
   if [[ ! -f "${creds_dir}/operator.seed" ]]; then
     if [[ -n "${NATS_OPERATOR_SEED:-}" ]]; then
       echo "Persisting operator seed to creds volume."
@@ -34,6 +43,10 @@ if [[ -f "${creds_dir}/operator.jwt" ]]; then
   fix_runtime_perms
   echo "NATS creds already present; skipping bootstrap."
   exit 0
+fi
+
+if [[ -f "${creds_dir}/operator.jwt" ]] || [[ -f "${creds_dir}/system.creds" ]] || [[ -f "${creds_dir}/platform.creds" ]]; then
+  echo "Detected partial NATS creds bootstrap state; regenerating missing artifacts."
 fi
 
 mkdir -p "${creds_dir}"

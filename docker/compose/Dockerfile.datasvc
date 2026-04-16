@@ -87,9 +87,10 @@ WORKDIR /var/lib/serviceradar
 # Expose gRPC port
 EXPOSE 50057
 
-# Health check using grpcurl
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD grpcurl -plaintext localhost:50057 grpc.health.v1.Health/Check || exit 1
+# Health check only needs to confirm the gRPC socket is listening; the compose
+# stack layers a runtime-specific healthcheck on top.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
+    CMD nc -z 127.0.0.1 50057 || exit 1
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
