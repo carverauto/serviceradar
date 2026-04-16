@@ -282,7 +282,7 @@ jobs:
           chmod +x ./buildbuddy_setup_docker_auth.sh
           ./buildbuddy_setup_docker_auth.sh
 
-      - name: Authenticate OpenBao for cosign signing
+      - name: Prepare OpenBao env for cosign signing
         env:
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-runner
@@ -291,24 +291,28 @@ jobs:
           set -euo pipefail
 
           sa_token_file="/var/run/secrets/kubernetes.io/serviceaccount/token"
-          if [[ ! -f "${sa_token_file}" ]]; then
-            echo "Kubernetes service account token not found at ${sa_token_file}" >&2
+          if [[ -f "${sa_token_file}" ]]; then
+            vault_token="$(
+              curl -fsSL \
+                -H 'Content-Type: application/json' \
+                -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"$(tr -d '\n' < "${sa_token_file}")\"}" \
+                "${OPENBAO_ADDR}/v1/auth/kubernetes/login" \
+                | jq -er '.auth.client_token'
+            )"
+
+            {
+              echo "VAULT_ADDR=${OPENBAO_ADDR}"
+              echo "VAULT_TOKEN=${vault_token}"
+              echo "COSIGN_KEY_REF=${COSIGN_KEY_REF}"
+            } >> "${GITHUB_ENV}"
+
+            echo "Authenticated to OpenBao via in-job Kubernetes service account token."
+          elif [[ -n "${VAULT_TOKEN:-}" && -n "${VAULT_ADDR:-}" && -n "${COSIGN_KEY_REF:-}" ]]; then
+            echo "Using runner-provided OpenBao signing environment."
+          else
+            echo "No Kubernetes service account token and no runner-provided Vault signing env; cannot sign OCI images." >&2
             exit 1
           fi
-
-          vault_token="$(
-            curl -fsSL \
-              -H 'Content-Type: application/json' \
-              -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"$(tr -d '\n' < "${sa_token_file}")\"}" \
-              "${OPENBAO_ADDR}/v1/auth/kubernetes/login" \
-              | jq -er '.auth.client_token'
-          )"
-
-          {
-            echo "VAULT_ADDR=${OPENBAO_ADDR}"
-            echo "VAULT_TOKEN=${vault_token}"
-            echo "COSIGN_KEY_REF=${COSIGN_KEY_REF}"
-          } >> "${GITHUB_ENV}"
 
       - name: Publish container images
         env:
