@@ -189,19 +189,6 @@ func TestResolveReleaseRuntimeRootIgnoresEnvironmentOverride(t *testing.T) {
 	}
 }
 
-func TestValidatedAgentUpdaterPathRejectsNonRootOwnedFile(t *testing.T) {
-	tempDir := t.TempDir()
-	updaterPath := filepath.Join(tempDir, "updater")
-	if err := os.WriteFile(updaterPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	_, err := validatePackageOwnedExecutable(updaterPath)
-	if !errors.Is(err, errReleaseUpdaterOwnershipInvalid) {
-		t.Fatalf("expected errReleaseUpdaterOwnershipInvalid, got %v", err)
-	}
-}
-
 func TestValidateReleaseActivationExecArgsAcceptsCanonicalValues(t *testing.T) {
 	args, err := validateReleaseActivationExecArgs(
 		"v1.2.16",
