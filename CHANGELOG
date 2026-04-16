@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.16
+
+Package-managed agent release trust hardening, embedded verification-key delivery, and rollout safety fixes that remove local environment override chains from managed self-update.
+
+## Whats New
+
+**1.2.16**
+- Hardened package-managed agent releases so manifest verification now trusts only the build-time embedded release public key instead of `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` from local environment overrides.
+- Removed package-managed override support for updater path, runtime root, and seed binary path, and now validate the package-owned updater binary before activation to block unsafe local replacements.
+- Stopped package-managed edge onboarding from distributing the managed release verification key through `agent-env-overrides.env`, and ignore those protected keys if older bundles still carry them.
+- Embedded the release verification key into packaged agent builds and release runtimes so future managed rollouts do not depend on stale host-local trust-anchor state.
+- Updated the managed agent release runbook and OpenSpec requirements to document the hardened package-owned trust boundary and the one-time migration expectation for older hosts.
+
 # ServiceRadar v1.2.15
 
 Docker Compose bootstrap hardening for clean-room bringups, hermetic NATS credentials, and datasvc startup fixes that remove the last known fresh-install race and JetStream limit mismatches.
