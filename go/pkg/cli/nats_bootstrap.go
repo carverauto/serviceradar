@@ -583,15 +583,8 @@ func generatePlatformAccount(
 	}
 
 	signer := accounts.NewAccountSigner(operator)
-	mappings := []accounts.SubjectMapping{
-		{From: "events.>", To: "events.>"},
-		{From: "logs.>", To: "logs.>"},
-		{From: "otel.>", To: "otel.>"},
-		{From: "telemetry.>", To: "telemetry.>"},
-		{From: "netflow.>", To: "netflow.>"},
-	}
 
-	account, err := signer.CreateAccount(accountName, nil, mappings, nil)
+	account, err := signer.CreateAccount(accountName, nil, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

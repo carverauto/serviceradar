@@ -370,12 +370,28 @@ func ensureJetStreamEnabled(claims *jwt.AccountClaims) {
 	}
 }
 
-func userSubjectWithinApprovedScope(subject string) bool {
+func userSubjectWithinApprovedScope(
+	namespace string,
+	credType UserCredentialType,
+	subject string,
+) bool {
 	if subject == "" {
 		return false
 	}
 	if strings.HasPrefix(subject, "$") {
-		return false
+		return allowedSystemSubject(namespace, credType, subject)
 	}
 	return true
+}
+
+func allowedSystemSubject(
+	namespace string,
+	credType UserCredentialType,
+	subject string,
+) bool {
+	if namespace != "SYS" || credType != CredentialTypeService {
+		return false
+	}
+
+	return subject == "$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE"
 }

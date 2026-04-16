@@ -94,7 +94,7 @@ func GenerateUserCredentials(
 	claims.IssuerAccount = accountPublicKey
 
 	// Apply permissions based on credential type
-	if err := validateUserPermissions(permissions); err != nil {
+	if err := validateUserPermissions(namespace, credType, permissions); err != nil {
 		return nil, err
 	}
 	applyUserPermissions(claims, namespace, credType, permissions)
@@ -123,28 +123,32 @@ func GenerateUserCredentials(
 	}, nil
 }
 
-func validateUserPermissions(custom *UserPermissions) error {
+func validateUserPermissions(
+	namespace string,
+	credType UserCredentialType,
+	custom *UserPermissions,
+) error {
 	if custom == nil {
 		return nil
 	}
 
 	for _, subject := range custom.PublishAllow {
-		if !userSubjectWithinApprovedScope(subject) {
+		if !userSubjectWithinApprovedScope(namespace, credType, subject) {
 			return fmt.Errorf("%w: publish subject %q", ErrSubjectOutOfScope, subject)
 		}
 	}
 	for _, subject := range custom.PublishDeny {
-		if !userSubjectWithinApprovedScope(subject) {
+		if !userSubjectWithinApprovedScope(namespace, credType, subject) {
 			return fmt.Errorf("%w: publish deny subject %q", ErrSubjectOutOfScope, subject)
 		}
 	}
 	for _, subject := range custom.SubscribeAllow {
-		if !userSubjectWithinApprovedScope(subject) {
+		if !userSubjectWithinApprovedScope(namespace, credType, subject) {
 			return fmt.Errorf("%w: subscribe subject %q", ErrSubjectOutOfScope, subject)
 		}
 	}
 	for _, subject := range custom.SubscribeDeny {
-		if !userSubjectWithinApprovedScope(subject) {
+		if !userSubjectWithinApprovedScope(namespace, credType, subject) {
 			return fmt.Errorf("%w: subscribe deny subject %q", ErrSubjectOutOfScope, subject)
 		}
 	}
