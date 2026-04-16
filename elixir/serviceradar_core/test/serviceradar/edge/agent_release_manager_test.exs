@@ -458,6 +458,99 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert rollout.status == :active
   end
 
+  test "failed result completes a single-target rollout even when batch delay is still open", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1,
+        batch_delay_seconds: 3_600
+      })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: target.command_id,
+        success: false,
+        message: "release manifest signature verification failed",
+        payload: %{
+          "status" => "failed",
+          "reason" => "release manifest signature verification failed"
+        }
+      })
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :failed
+
+    rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+    assert rollout.status == :completed
+  end
+
+  test "reconcile_agent completes a restarting rollout when the agent reconnects on the desired version",
+       %{
+         actor: actor,
+         agent_id: agent_id,
+         release: release
+       } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    :ok =
+      AgentReleaseManager.handle_command_progress(%{
+        command_type: "agent.update_release",
+        command_id: target.command_id,
+        message: "restarting",
+        progress_percent: 95
+      })
+
+    agent = Agent.get_by_uid!(agent_id, actor: actor)
+
+    {:ok, _agent} =
+      agent
+      |> Ash.Changeset.for_update(
+        :update_release_status,
+        %{
+          desired_version: release.version,
+          release_rollout_state: :restarting,
+          version: release.version
+        }
+      )
+      |> Ash.update(actor: actor)
+
+    assert :ok = AgentReleaseManager.reconcile_agent(agent_id)
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :healthy
+    assert target.progress_percent == 100
+
+    rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+    assert rollout.status == :completed
+  end
+
   test "rolled back result marks the target and rollout terminal", %{
     actor: actor,
     agent_id: agent_id,
