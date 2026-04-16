@@ -236,15 +236,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   @impl true
-  def handle_info({:command_ack, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
+  def handle_info({:command_ack, data}, socket),
+    do: {:noreply, maybe_refresh_for_release_command(socket, data)}
 
-  def handle_info({:command_progress, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
+  def handle_info({:command_progress, data}, socket),
+    do: {:noreply, maybe_refresh_for_release_command(socket, data)}
 
-  def handle_info({:command_result, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
+  def handle_info({:command_result, data}, socket),
+    do: {:noreply, maybe_refresh_for_release_command(socket, data)}
 
-  def handle_info({:agent_registered, _metadata}, socket), do: {:noreply, schedule_refresh(socket)}
-  def handle_info({:agent_disconnected, _agent_id}, socket), do: {:noreply, schedule_refresh(socket)}
-  def handle_info({:agent_status_changed, _agent_id, _status}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:agent_registered, _metadata}, socket),
+    do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info({:agent_disconnected, _agent_id}, socket),
+    do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info({:agent_status_changed, _agent_id, _status}, socket),
+    do: {:noreply, schedule_refresh(socket)}
 
   def handle_info(:refresh_releases_page, socket) do
     {:noreply,
@@ -292,7 +300,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         else: rollout_form(prefill, releases)
       )
 
-    rollout_preview = build_rollout_preview(rollout_form.params || %{}, releases, connected_agents, scope)
+    rollout_preview =
+      build_rollout_preview(rollout_form.params || %{}, releases, connected_agents, scope)
 
     {recent_repo_releases, recent_repo_release_error} =
       load_recent_repo_releases(release_import_form.params || %{})
@@ -408,9 +417,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  defp compare_rollout_target_inserted_at(%DateTime{} = left, %DateTime{} = right), do: DateTime.compare(left, right)
+  defp compare_rollout_target_inserted_at(%DateTime{} = left, %DateTime{} = right),
+    do: DateTime.compare(left, right)
 
-  defp compare_rollout_target_inserted_at(left, right), do: compare_rollout_target_naive(left, right)
+  defp compare_rollout_target_inserted_at(left, right),
+    do: compare_rollout_target_naive(left, right)
 
   defp compare_rollout_target_naive(left, right) do
     cond do
@@ -444,7 +455,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp rollout_target_detail(target, agents_by_uid) do
     %{
       target: target,
-      platform_label: agents_by_uid |> Map.get(target.agent_id) |> agent_platform_label() |> presence()
+      platform_label:
+        agents_by_uid |> Map.get(target.agent_id) |> agent_platform_label() |> presence()
     }
   end
 
@@ -468,7 +480,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp increment_summary_bucket(summary, :healthy), do: Map.update!(summary, :healthy, &(&1 + 1))
   defp increment_summary_bucket(summary, :failed), do: Map.update!(summary, :failed, &(&1 + 1))
 
-  defp increment_summary_bucket(summary, :rolled_back), do: Map.update!(summary, :rolled_back, &(&1 + 1))
+  defp increment_summary_bucket(summary, :rolled_back),
+    do: Map.update!(summary, :rolled_back, &(&1 + 1))
 
   defp increment_summary_bucket(summary, _status), do: summary
 
@@ -1035,6 +1048,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     </tr>
                     <%= for rollout <- @rollouts do %>
                       <% summary = Map.get(@rollout_summaries, rollout.id, empty_rollout_summary()) %>
+                      <% display_status = rollout_display_status(rollout, summary) %>
                       <% rollout_target_details = Map.get(@rollout_targets, rollout.id, []) %>
                       <tr>
                         <td>
@@ -1045,7 +1059,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             </span>
                           </div>
                         </td>
-                        <td><.rollout_status_badge status={rollout.status} /></td>
+                        <td><.rollout_status_badge status={display_status} /></td>
                         <td class="text-xs">{length(rollout.cohort_agent_ids || [])} agents</td>
                         <td class="text-xs">
                           <div class="flex flex-col gap-2">
@@ -1068,7 +1082,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         <td>
                           <div class="flex flex-wrap gap-2">
                             <button
-                              :if={rollout.status == :active}
+                              :if={display_status == :active}
                               type="button"
                               phx-click="pause_rollout"
                               phx-value-id={rollout.id}
@@ -1077,7 +1091,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                               Pause
                             </button>
                             <button
-                              :if={rollout.status == :paused}
+                              :if={display_status == :paused}
                               type="button"
                               phx-click="resume_rollout"
                               phx-value-id={rollout.id}
@@ -1086,7 +1100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                               Resume
                             </button>
                             <button
-                              :if={rollout.status in [:active, :paused]}
+                              :if={display_status in [:active, :paused]}
                               type="button"
                               phx-click="cancel_rollout"
                               phx-value-id={rollout.id}
@@ -1156,7 +1170,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     """
   end
 
-  attr :status, :atom, required: true
+  attr(:status, :atom, required: true)
 
   defp rollout_status_badge(assigns) do
     {label, variant} =
@@ -1164,6 +1178,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         :active -> {"Active", "success"}
         :paused -> {"Paused", "warning"}
         :completed -> {"Completed", "info"}
+        :failed -> {"Failed", "error"}
         :canceled -> {"Canceled", "ghost"}
         _ -> {"Unknown", "ghost"}
       end
@@ -1175,7 +1190,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     """
   end
 
-  attr :status, :atom, required: true
+  attr(:status, :atom, required: true)
 
   defp target_status_badge(assigns) do
     {label, variant} =
@@ -1221,7 +1236,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     to_form(
       %{
         "provider" => Map.get(params, "provider", "forgejo"),
-        "repo_url" => Map.get(params, "repo_url", "https://code.carverauto.dev/carverauto/serviceradar"),
+        "repo_url" =>
+          Map.get(params, "repo_url", "https://code.carverauto.dev/carverauto/serviceradar"),
         "release_tag" => Map.get(params, "release_tag", ""),
         "manifest_asset_name" =>
           Map.get(
@@ -1304,7 +1320,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     tracked_keys = ["provider", "repo_url", "manifest_asset_name", "signature_asset_name"]
 
     Enum.any?(tracked_keys, fn key ->
-      normalize_repo_source_value(Map.get(previous_params, key)) != normalize_repo_source_value(Map.get(params, key))
+      normalize_repo_source_value(Map.get(previous_params, key)) !=
+        normalize_repo_source_value(Map.get(params, key))
     end)
   end
 
@@ -1437,7 +1454,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       unsupported_count: length(unsupported_agents),
       unsupported_agent_ids: Enum.map(unsupported_agents, & &1.agent_id),
       unknown_count: length(unknown_agent_ids),
-      supported_platforms: if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
+      supported_platforms:
+        if(selected_release, do: artifact_platforms(selected_release.manifest), else: []),
       unsupported_agents: Enum.take(unsupported_agents, 8),
       unknown_agent_ids: Enum.take(unknown_agent_ids, 8),
       release_missing?: is_nil(selected_release)
@@ -1461,7 +1479,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             Map.has_key?(agents_by_uid, agent_id)
           end)
 
-        {selected_agents, unknown_agent_ids, length(selected_agents) + length(unknown_agent_ids), "custom"}
+        {selected_agents, unknown_agent_ids, length(selected_agents) + length(unknown_agent_ids),
+         "custom"}
 
       _ ->
         connected_agents = Enum.reject(connected_agents, &externally_managed_agent?/1)
@@ -1587,7 +1606,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp rollout_created_message(rollout, preview) do
-    base = "Created rollout for #{rollout.desired_version} targeting #{length(preview.compatible_agent_ids)} agents"
+    base =
+      "Created rollout for #{rollout.desired_version} targeting #{length(preview.compatible_agent_ids)} agents"
 
     if preview.unsupported_count > 0 do
       suffix = if preview.unsupported_count == 1, do: "agent", else: "agents"
@@ -1618,7 +1638,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp release_source_summary(_release), do: nil
 
-  defp release_mirror_status(%{metadata: %{"storage" => %{"status" => status}}}) when status == "mirrored", do: :mirrored
+  defp release_mirror_status(%{metadata: %{"storage" => %{"status" => status}}})
+       when status == "mirrored", do: :mirrored
 
   defp release_mirror_status(%{metadata: %{storage: %{status: "mirrored"}}}), do: :mirrored
   defp release_mirror_status(_release), do: :pending
@@ -1725,7 +1746,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> Enum.join(" · ")
   end
 
-  defp rollout_version(%{desired_version: version}) when is_binary(version) and version != "", do: version
+  defp rollout_version(%{desired_version: version}) when is_binary(version) and version != "",
+    do: version
 
   defp rollout_version(%{release: %{version: version}}) when is_binary(version), do: version
   defp rollout_version(_rollout), do: "—"
@@ -1734,7 +1756,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   defp format_datetime(other), do: to_string(other)
 
-  defp format_error(%{errors: errors}) when is_list(errors), do: Enum.map_join(errors, "; ", &format_error/1)
+  defp format_error(%{errors: errors}) when is_list(errors),
+    do: Enum.map_join(errors, "; ", &format_error/1)
+
   defp format_error(%{message: message}) when is_binary(message), do: message
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
@@ -1752,7 +1776,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp platform_mismatch_error?(_error), do: false
 
   defp platform_label_from_error(error) when is_binary(error) do
-    case Regex.run(~r/agent platform ([[:alnum:]_.-]+\/[[:alnum:]_.-]+)/, error, capture: :all_but_first) do
+    case Regex.run(~r/agent platform ([[:alnum:]_.-]+\/[[:alnum:]_.-]+)/, error,
+           capture: :all_but_first
+         ) do
       [platform] -> platform
       _ -> nil
     end
@@ -1761,7 +1787,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp platform_label_from_error(_error), do: nil
 
   defp agent_platform_label(%Agent{metadata: metadata}) when is_map(metadata) do
-    platform_label(metadata_field(metadata, [:os, "os"]), metadata_field(metadata, [:arch, "arch"]))
+    platform_label(
+      metadata_field(metadata, [:os, "os"]),
+      metadata_field(metadata, [:arch, "arch"])
+    )
   end
 
   defp agent_platform_label(_agent), do: nil
@@ -1786,8 +1815,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  defp artifact_field(artifact, "os") when is_map(artifact), do: Map.get(artifact, "os") || Map.get(artifact, :os)
-  defp artifact_field(artifact, "arch") when is_map(artifact), do: Map.get(artifact, "arch") || Map.get(artifact, :arch)
+  defp artifact_field(artifact, "os") when is_map(artifact),
+    do: Map.get(artifact, "os") || Map.get(artifact, :os)
+
+  defp artifact_field(artifact, "arch") when is_map(artifact),
+    do: Map.get(artifact, "arch") || Map.get(artifact, :arch)
+
   defp artifact_field(_artifact, _key), do: nil
 
   defp present_text(value) when is_binary(value) do
@@ -1826,21 +1859,65 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp schedule_refresh(socket) do
     case socket.assigns[:refresh_timer] do
-      nil ->
+      ref when is_reference(ref) ->
+        Process.cancel_timer(ref)
         ref = Process.send_after(self(), :refresh_releases_page, 250)
         assign(socket, :refresh_timer, ref)
 
-      _ref ->
-        socket
+      _other ->
+        ref = Process.send_after(self(), :refresh_releases_page, 250)
+        assign(socket, :refresh_timer, ref)
     end
   end
 
-  defp rollout_prefill_message(count, "agent_detail"), do: "Prefilled #{count} agent from the detail view."
+  defp rollout_display_status(%{status: :active}, summary) do
+    case inferred_rollout_terminal_status(summary) do
+      nil -> :active
+      status -> status
+    end
+  end
+
+  defp rollout_display_status(%{status: :completed}, summary) do
+    case inferred_rollout_terminal_status(summary) do
+      :failed -> :failed
+      _ -> :completed
+    end
+  end
+
+  defp rollout_display_status(%{status: status}, _summary), do: status
+
+  defp inferred_rollout_terminal_status(summary) do
+    total = summary.total
+
+    terminal_total =
+      summary.healthy +
+        summary.failed +
+        summary.rolled_back +
+        Map.get(summary.state_counts, :canceled, 0)
+
+    cond do
+      total <= 0 or terminal_total != total ->
+        nil
+
+      Map.get(summary.state_counts, :canceled, 0) == total ->
+        :canceled
+
+      summary.failed + summary.rolled_back == total ->
+        :failed
+
+      true ->
+        :completed
+    end
+  end
+
+  defp rollout_prefill_message(count, "agent_detail"),
+    do: "Prefilled #{count} agent from the detail view."
 
   defp rollout_prefill_message(count, "agents_selection"),
     do: "Prefilled #{count} selected agents from the inventory view."
 
-  defp rollout_prefill_message(count, _source), do: "Prefilled #{count} visible agents from the inventory view."
+  defp rollout_prefill_message(count, _source),
+    do: "Prefilled #{count} visible agents from the inventory view."
 
   defp compact_map(map) do
     map
