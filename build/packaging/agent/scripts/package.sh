@@ -41,6 +41,9 @@ mkdir -p lib/systemd/system
 echo "Building Go binary..."
 
 AGENT_LDFLAGS="-X github.com/carverauto/serviceradar/go/cmd/agent.Version=${VERSION}"
+if [ -n "${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}" ]; then
+    AGENT_LDFLAGS="${AGENT_LDFLAGS} -X github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey=${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY}"
+fi
 
 # Build Go binaries
 cd "${BASE_DIR}/go/cmd/agent"

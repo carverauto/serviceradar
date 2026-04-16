@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,9 +19,9 @@ import (
 func TestMergeEnvOverridesPreservesExistingEntries(t *testing.T) {
 	t.Parallel()
 
-	existing := []byte("# existing config\nOTHER_SETTING=keep\nSERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=old\n")
+	existing := []byte("# existing config\nOTHER_SETTING=keep\n")
 	updates := map[string]string{
-		releasePublicKeyEnv: "new-public-key",
+		"SAFE_SETTING": "new-value",
 	}
 
 	merged := mergeEnvOverrides(existing, updates)
@@ -28,35 +29,40 @@ func TestMergeEnvOverridesPreservesExistingEntries(t *testing.T) {
 
 	assert.Contains(t, text, "# existing config\n")
 	assert.Contains(t, text, "OTHER_SETTING=keep\n")
-	assert.Contains(t, text, "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=new-public-key\n")
-	assert.NotContains(t, text, "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=old\n")
+	assert.Contains(t, text, "SAFE_SETTING=new-value\n")
 }
 
-func TestMergeEnvOverridesAddsReleaseKeyToEmptyFile(t *testing.T) {
+func TestMergeEnvOverridesAddsSafeSettingToEmptyFile(t *testing.T) {
 	t.Parallel()
 
 	merged := mergeEnvOverrides(nil, map[string]string{
-		releasePublicKeyEnv: "dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns=",
+		"SAFE_SETTING": "value",
 	})
 
-	assert.Equal(
-		t,
-		"SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns=\n",
-		string(merged),
-	)
+	assert.Equal(t, "SAFE_SETTING=value\n", string(merged))
 }
 
 func TestExtractBundleReadsOptionalOverridesFile(t *testing.T) {
 	t.Parallel()
 
-	payload, err := extractBundle(testAgentBundle(t, "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=test-key\n"))
+	payload, err := extractBundle(testAgentBundle(t, "SAFE_SETTING=test-key\n"))
 	require.NoError(t, err)
 
-	assert.Equal(
-		t,
-		"SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=test-key\n",
-		string(payload.EnvOverrides),
-	)
+	assert.Equal(t, "SAFE_SETTING=test-key\n", string(payload.EnvOverrides))
+}
+
+func TestExtractEnvOverridesRejectsProtectedKeys(t *testing.T) {
+	t.Parallel()
+
+	updates := extractEnvOverrides([]byte(strings.Join([]string{
+		"SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=test-key",
+		"SERVICERADAR_AGENT_UPDATER=/tmp/evil",
+		"SERVICERADAR_AGENT_RUNTIME_ROOT=/tmp/root",
+		"SERVICERADAR_AGENT_SEED_BINARY=/tmp/seed",
+		"SAFE_SETTING=allowed",
+	}, "\n")))
+
+	assert.Equal(t, map[string]string{"SAFE_SETTING": "allowed"}, updates)
 }
 
 func TestNormalizeCoreURLRequiresHTTPS(t *testing.T) {

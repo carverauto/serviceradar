@@ -556,9 +556,18 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 	_ = sender.Send(commandProgress(cmd, 60, "verifying"))
 	_ = sender.Send(commandProgress(cmd, 80, "staged"))
 
+	updaterPath, err := ValidatedAgentUpdaterPath()
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to prepare updater activation", map[string]interface{}{
+			"status": "failed",
+			"reason": err.Error(),
+		}))
+		return
+	}
+
 	updaterCmd := exec.CommandContext(
 		ctx,
-		AgentUpdaterPath(),
+		updaterPath,
 		"--runtime-root", result.RuntimeRoot,
 		"--version", result.Version,
 		"--command-id", cmd.CommandId,
