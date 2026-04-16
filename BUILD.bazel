@@ -23,6 +23,7 @@ exports_files([
     ".tool-versions",
     "elixir/.credo.base.exs",
     "elixir/.credo.ex_dna.exs",
+    "elixir/.credo.jump_checks.exs",
     "elixir/.credo.ex_slop.exs",
 ])
 
