@@ -26,12 +26,17 @@ import (
 )
 
 const (
-	defaultJetStreamMemoryBytes    int64 = 512 * 1024 * 1024
-	defaultJetStreamDiskBytes      int64 = 10 * 1024 * 1024 * 1024
+	defaultJetStreamMemoryBytes int64 = 512 * 1024 * 1024
+	// Keep the default below the compose NATS server's 10G decimal file-store
+	// budget so bootstrap accounts can enable JetStream on a fresh local stack.
+	defaultJetStreamDiskBytes      int64 = 8 * 1024 * 1024 * 1024
 	defaultJetStreamStreamLimit    int64 = 256
 	defaultJetStreamConsumerLimit  int64 = 1024
 	defaultJetStreamMaxAckPending  int64 = 1_000_000
-	defaultJetStreamStreamMaxBytes int64 = 512 * 1024 * 1024
+	defaultJetStreamMemoryMaxBytes int64 = 512 * 1024 * 1024
+	// Compose datasvc provisions a 5 GiB KV bucket, so disk-backed streams must
+	// allow at least that much while remaining under the account disk quota.
+	defaultJetStreamDiskMaxBytes int64 = 5 * 1024 * 1024 * 1024
 )
 
 // AccountLimits defines resource constraints for a NATS account.
@@ -364,8 +369,8 @@ func ensureJetStreamEnabled(claims *jwt.AccountClaims) {
 		Streams:              defaultJetStreamStreamLimit,
 		Consumer:             defaultJetStreamConsumerLimit,
 		MaxAckPending:        defaultJetStreamMaxAckPending,
-		MemoryMaxStreamBytes: defaultJetStreamStreamMaxBytes,
-		DiskMaxStreamBytes:   defaultJetStreamStreamMaxBytes,
+		MemoryMaxStreamBytes: defaultJetStreamMemoryMaxBytes,
+		DiskMaxStreamBytes:   defaultJetStreamDiskMaxBytes,
 		MaxBytesRequired:     true,
 	}
 }
