@@ -52,5 +52,8 @@
       {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   },
-  "bucket": "serviceradar-datasvc"
+  "bucket": "serviceradar-datasvc",
+  "bucket_history": 1,
+  "bucket_ttl": "24h",
+  "bucket_max_bytes": 5368709120
 }
