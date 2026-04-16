@@ -25,7 +25,7 @@ function emit_agent_release_public_key() {
 
   if [[ -n "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY:-}" || -n "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE:-}" ]]; then
     local derived_key
-    derived_key="$(go run ./tools/go/derive_agent_release_public_key.go)"
+    derived_key="$(go run ./tools/go/derive_agent_release_public_key)"
     if [[ -n "${derived_key}" ]]; then
       echo "STABLE_AGENT_RELEASE_PUBLIC_KEY ${derived_key}"
     fi

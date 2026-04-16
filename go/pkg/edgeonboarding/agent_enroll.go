@@ -33,13 +33,6 @@ const (
 	releasePublicKeyEnv       = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 )
 
-var protectedAgentOverrideKeys = map[string]struct{}{
-	releasePublicKeyEnv:               {},
-	"SERVICERADAR_AGENT_UPDATER":      {},
-	"SERVICERADAR_AGENT_RUNTIME_ROOT": {},
-	"SERVICERADAR_AGENT_SEED_BINARY":  {},
-}
-
 // EnrollOptions controls the agent enrollment workflow.
 type EnrollOptions struct {
 	Token         string
@@ -293,7 +286,7 @@ func extractEnvOverrides(content []byte) map[string]string {
 			continue
 		}
 
-		if _, protected := protectedAgentOverrideKeys[key]; protected {
+		if isProtectedAgentOverrideKey(key) {
 			continue
 		}
 
@@ -301,6 +294,18 @@ func extractEnvOverrides(content []byte) map[string]string {
 	}
 
 	return updates
+}
+
+func isProtectedAgentOverrideKey(key string) bool {
+	switch key {
+	case releasePublicKeyEnv,
+		"SERVICERADAR_AGENT_UPDATER",
+		"SERVICERADAR_AGENT_RUNTIME_ROOT",
+		"SERVICERADAR_AGENT_SEED_BINARY":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeAgentOverrides(path string, updates map[string]string) error {
