@@ -248,8 +248,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
   end
 
-  describe "agent release verification override" do
-    test "agent bundle includes agent-env-overrides.env when release key is configured", %{
+  describe "agent release verification trust anchor" do
+    test "agent bundle omits agent-env-overrides.env even when release key is configured", %{
       agent_package: package,
       agent_join_token: join_token
     } do
@@ -263,12 +263,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      {_, overrides} =
-        Enum.find(files, fn {name, _} ->
-          name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
-        end)
-
-      assert overrides =~ "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
+             end)
 
       {_, config_json} =
         Enum.find(files, fn {name, _} ->

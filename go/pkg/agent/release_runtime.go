@@ -34,13 +34,15 @@ const (
 	releaseActivationState  = "activation.json"
 	releaseActivationReport = "activation-report.json"
 	releaseSeedVersionDir   = "seed-installed"
-	releaseUpdaterPathEnv   = "SERVICERADAR_AGENT_UPDATER"
-	releaseSeedBinaryEnv    = "SERVICERADAR_AGENT_SEED_BINARY"
 )
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
 var errReleaseActivationPreviousTargetMissing = errors.New("release activation state missing previous target")
 var errReleaseSymlinkTargetInvalid = errors.New("release symlink target is invalid")
+var errReleaseUpdaterOwnershipUnknown = errors.New("release updater ownership could not be determined")
+var errReleaseUpdaterOwnershipInvalid = errors.New("release updater must be owned by root")
+var errReleaseUpdaterModeInvalid = errors.New("release updater must not be group or world writable")
+var errReleaseUpdaterNotRegular = errors.New("release updater must be a regular file")
 
 type ReleaseActivationConfig struct {
 	RuntimeRoot      string
@@ -220,17 +222,38 @@ func ClearReleaseActivationReport(runtimeRoot string) error {
 }
 
 func AgentUpdaterPath() string {
-	if path := strings.TrimSpace(os.Getenv(releaseUpdaterPathEnv)); path != "" {
-		return path
-	}
 	return defaultAgentUpdaterPath
 }
 
 func AgentSeedBinaryPath() string {
-	if path := strings.TrimSpace(os.Getenv(releaseSeedBinaryEnv)); path != "" {
-		return path
-	}
 	return defaultAgentSeedPath
+}
+
+func ValidatedAgentUpdaterPath() (string, error) {
+	return validatePackageOwnedExecutable(AgentUpdaterPath())
+}
+
+func validatePackageOwnedExecutable(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve release updater path: %w", err)
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("stat release updater path: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", errReleaseUpdaterNotRegular
+	}
+	if err := validateRootOwnedFile(info); err != nil {
+		return "", err
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return "", errReleaseUpdaterModeInvalid
+	}
+
+	return resolved, nil
 }
 
 func loadReleaseActivationState(runtimeRoot string) (*releaseActivationStateFile, error) {
