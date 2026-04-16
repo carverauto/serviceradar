@@ -163,6 +163,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     case AgentReleaseTarget.get_by_command_id(command_id, actor: actor) do
       {:ok, %AgentReleaseTarget{} = target} ->
         mark_release_result_status(target, data, actor)
+        maybe_complete_rollout(target.rollout_id, actor)
         maybe_dispatch_rollout(target.rollout_id, actor: actor)
         :ok
 
@@ -245,6 +246,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
           actor
         )
 
+      maybe_complete_rollout(target.rollout_id, actor)
       :ok
     else
       maybe_dispatch_rollout(target.rollout_id, actor: actor)

@@ -42,7 +42,7 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
     assert run.oban_job_id == 123
     assert run.started_at
     assert run.finished_at == nil
-    assert run.metadata == %{trigger: "schedule"}
+    assert run.metadata == %{"trigger" => "schedule"}
   end
 
   test "finishes a run successfully and persists counts", %{actor: actor} do
@@ -71,7 +71,7 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
     assert finished.error_count == 0
     assert finished.error_message == nil
     assert finished.finished_at
-    assert finished.metadata == %{trigger: "manual", outcome: "ok"}
+    assert finished.metadata == %{"outcome" => "ok", "trigger" => "manual"}
   end
 
   test "finishes a run with failure details and prevents re-finalizing", %{actor: actor} do
@@ -153,12 +153,13 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
 
     IntegrationSource
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
     |> Ash.Changeset.for_create(
       :create,
       %{name: name, source_type: :armis, endpoint: endpoint},
       actor: actor
     )
-    |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
     |> Ash.create!(actor: actor)
   end
 

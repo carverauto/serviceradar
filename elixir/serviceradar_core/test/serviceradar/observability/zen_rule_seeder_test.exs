@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeederTest do
   test "seed_all refreshes the default snmp rule when the compiled definition is stale", %{
     actor: actor
   } do
+    assert :ok = ZenRuleSeeder.seed_all()
     rule = fetch_snmp_rule!(actor)
     stale_compiled = replace_body_expression(rule.compiled_jdm, @legacy_snmp_body_expression)
 
@@ -49,6 +50,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeederTest do
   end
 
   test "seed_all preserves user-authored snmp rule overrides", %{actor: actor} do
+    assert :ok = ZenRuleSeeder.seed_all()
     rule = fetch_snmp_rule!(actor)
     custom_jdm = replace_body_expression(rule.compiled_jdm, "'custom override'")
 

@@ -34,7 +34,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v7.0.0",
                  "name" => "ServiceRadar 7.0.0",
                  "body" => "Imported release notes",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
+                 "html_url" =>
+                   "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                  "published_at" => "2026-03-28T20:00:00Z",
                  "assets" => [
                    %{
@@ -53,7 +54,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v6.9.9",
                  "name" => "ServiceRadar 6.9.9",
                  "body" => "Missing manifest",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
+                 "html_url" =>
+                   "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
                  "published_at" => "2026-03-27T20:00:00Z",
                  "assets" => [
                    %{
@@ -74,7 +76,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                "tag_name" => "v7.0.0",
                "name" => "ServiceRadar 7.0.0",
                "body" => "Imported release notes",
-               "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
+               "html_url" =>
+                 "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",
@@ -157,7 +160,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       if is_nil(original_client) do
         Application.delete_env(:serviceradar_web_ng, :agent_release_import_http_client)
       else
-        Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, original_client)
+        Application.put_env(
+          :serviceradar_web_ng,
+          :agent_release_import_http_client,
+          original_client
+        )
       end
     end)
 
@@ -244,7 +251,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   end
 
   test "imports and publishes a release from a repository release", %{conn: conn, scope: scope} do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ReleaseImportClient)
+    Application.put_env(
+      :serviceradar_web_ng,
+      :agent_release_import_http_client,
+      ReleaseImportClient
+    )
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
@@ -273,8 +284,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert get_in(release.metadata, ["source", "release_tag"]) == "v7.0.0"
   end
 
-  test "loads recent repository releases automatically and disables missing-asset imports", %{conn: conn} do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ReleaseImportClient)
+  test "loads recent repository releases automatically and disables missing-asset imports", %{
+    conn: conn
+  } do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :agent_release_import_http_client,
+      ReleaseImportClient
+    )
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
 
@@ -286,7 +303,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   end
 
   test "imports a recent repository release with one click", %{conn: conn, scope: scope} do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ReleaseImportClient)
+    Application.put_env(
+      :serviceradar_web_ng,
+      :agent_release_import_http_client,
+      ReleaseImportClient
+    )
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
@@ -353,11 +374,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "linux/amd64"
     assert html =~ "linux/arm64"
     assert html =~ "Unsupported Targets"
-    assert html =~ "Unsupported agents will be skipped; the rollout will target the compatible subset."
+
+    assert html =~
+             "Unsupported agents will be skipped; the rollout will target the compatible subset."
+
     refute has_element?(lv, "#create-rollout-form button[disabled]")
   end
 
-  test "treats atom-key agent metadata as compatible in rollout preview", %{conn: conn, scope: scope} do
+  test "treats atom-key agent metadata as compatible in rollout preview", %{
+    conn: conn,
+    scope: scope
+  } do
     version = "2.2.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -400,7 +427,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     refute has_element?(lv, "#create-rollout-form button[disabled]")
   end
 
-  test "ignores container-managed agents in the connected rollout cohort", %{conn: conn, scope: scope} do
+  test "ignores container-managed agents in the connected rollout cohort", %{
+    conn: conn,
+    scope: scope
+  } do
     version = "2.3.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -623,7 +653,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert rollout.cohort_agent_ids == [host_id]
   end
 
-  test "updates rollout compatibility preview for custom cohorts with unresolved ids", %{conn: conn, scope: scope} do
+  test "updates rollout compatibility preview for custom cohorts with unresolved ids", %{
+    conn: conn,
+    scope: scope
+  } do
     version = "3.0.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -680,7 +713,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "1 unresolved"
     assert html =~ "Unresolved Agent IDs"
     assert html =~ "missing-agent-1"
-    assert html =~ "Rollout creation is blocked until unresolved agent IDs are corrected or removed."
+
+    assert html =~
+             "Rollout creation is blocked until unresolved agent IDs are corrected or removed."
+
     assert has_element?(lv, "#create-rollout-form button[disabled]")
   end
 
@@ -740,7 +776,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     {:ok, _target} =
       AgentReleaseTarget.set_status(
         target,
-        %{status: :downloading, progress_percent: 42, last_status_message: "downloading artifact"},
+        %{
+          status: :downloading,
+          progress_percent: 42,
+          last_status_message: "downloading artifact"
+        },
         scope: scope
       )
 
@@ -823,7 +863,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "verification failed"
   end
 
-  test "blocks rollout creation when the cohort has no compatible agents", %{conn: conn, scope: scope} do
+  test "blocks rollout creation when the cohort has no compatible agents", %{
+    conn: conn,
+    scope: scope
+  } do
     version = "3.3.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -885,10 +928,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "No compatible agents are available for the selected release"
   end
 
-  test "creates a rollout for the compatible subset when the cohort includes unsupported agents", %{
-    conn: conn,
-    scope: scope
-  } do
+  test "creates a rollout for the compatible subset when the cohort includes unsupported agents",
+       %{
+         conn: conn,
+         scope: scope
+       } do
     version = "3.3.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -942,7 +986,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       })
       |> render_submit()
 
-    assert html =~ "Created rollout for #{version} targeting 1 agents and skipped 1 unsupported agent"
+    assert html =~
+             "Created rollout for #{version} targeting 1 agents and skipped 1 unsupported agent"
 
     rollout =
       AgentReleaseRollout
@@ -1015,7 +1060,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       })
       |> render_submit()
 
-    assert html =~ "Created rollout for #{version} targeting 1 agents and skipped 9 unsupported agents"
+    assert html =~
+             "Created rollout for #{version} targeting 1 agents and skipped 9 unsupported agents"
 
     rollout =
       AgentReleaseRollout
@@ -1031,7 +1077,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert get_in(rollout.metadata || %{}, ["skipped_unsupported_agent_ids"]) == unsupported_ids
   end
 
-  test "create rollout normalizes surrounding whitespace in the selected version", %{conn: conn, scope: scope} do
+  test "create rollout normalizes surrounding whitespace in the selected version", %{
+    conn: conn,
+    scope: scope
+  } do
     version = "4.4.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -1084,7 +1133,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "Created rollout for #{version} targeting 1 agents"
   end
 
-  test "selecting a published release updates the rollout form version", %{conn: conn, scope: scope} do
+  test "selecting a published release updates the rollout form version", %{
+    conn: conn,
+    scope: scope
+  } do
     older = "5.0.#{System.unique_integer([:positive])}"
     newer = "5.1.#{System.unique_integer([:positive])}"
 
@@ -1164,10 +1216,194 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         scope: scope
       )
 
-    send(lv.pid, {:command_progress, %{"command_type" => "agent.update_release", "agent_id" => agent_id}})
+    send(
+      lv.pid,
+      {:command_progress, %{"command_type" => "agent.update_release", "agent_id" => agent_id}}
+    )
+
     send(lv.pid, :refresh_releases_page)
 
     assert render(lv) =~ version
+  end
+
+  test "delayed final rollout updates still refresh to healthy without a manual reload", %{
+    conn: conn,
+    scope: scope
+  } do
+    version = "6.1.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-race-#{System.unique_integer([:positive])}"
+
+    _agent =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Race Test Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(
+        %{
+          version: version,
+          agent_ids: [agent_id],
+          batch_size: 1,
+          batch_delay_seconds: 0,
+          notes: "refresh race test"
+        },
+        scope: scope
+      )
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: scope)
+      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
+      |> Ash.read_one!()
+
+    :ok =
+      AgentReleaseManager.handle_command_progress(
+        %{
+          command_type: "agent.update_release",
+          command_id: target.command_id,
+          message: "restarting",
+          progress_percent: 95
+        },
+        scope: scope
+      )
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+    assert html =~ "Restarting"
+
+    send(lv.pid, {:command_progress, %{"command_type" => "agent.update_release"}})
+    Process.sleep(200)
+    send(lv.pid, {:command_result, %{"command_type" => "agent.update_release"}})
+    Process.sleep(125)
+
+    :ok =
+      AgentReleaseManager.handle_command_result(
+        %{
+          command_type: "agent.update_release",
+          command_id: target.command_id,
+          success: true,
+          message: "release activated",
+          payload: %{"status" => "healthy", "current_version" => version}
+        },
+        scope: scope
+      )
+
+    Process.sleep(200)
+    assert render(lv) =~ "Healthy"
+  end
+
+  test "failed rollouts render failed status and hide cancel even if the rollout row is stale active",
+       %{
+         conn: conn,
+         scope: scope
+       } do
+    version = "6.2.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-failed-#{System.unique_integer([:positive])}"
+
+    _agent =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Failed Rollout Agent",
+          gateway_id: gateway.id,
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(
+        %{
+          version: version,
+          agent_ids: [agent_id],
+          batch_size: 1,
+          batch_delay_seconds: 0,
+          notes: "failed rollout test"
+        },
+        scope: scope
+      )
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: scope)
+      |> Ash.Query.filter(expr(rollout_id == ^rollout.id and agent_id == ^agent_id))
+      |> Ash.read_one!()
+
+    :ok =
+      AgentReleaseManager.handle_command_result(
+        %{
+          command_type: "agent.update_release",
+          command_id: target.command_id,
+          success: false,
+          message: "release manifest signature verification failed",
+          payload: %{
+            "status" => "failed",
+            "reason" => "release manifest signature verification failed"
+          }
+        },
+        scope: scope
+      )
+
+    Ecto.Adapters.SQL.query!(
+      ServiceRadar.Repo,
+      """
+      UPDATE platform.agent_release_rollouts
+      SET status = 'active', completed_at = NULL
+      WHERE rollout_id = $1
+      """,
+      [rollout.id]
+    )
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ version
+    assert html =~ "Failed"
+    refute has_element?(lv, "button[phx-click='cancel_rollout'][phx-value-id='#{rollout.id}']")
   end
 
   test "viewer is blocked from releases settings", %{conn: conn} do
