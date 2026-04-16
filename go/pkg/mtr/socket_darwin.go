@@ -268,10 +268,11 @@ func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 		return nil, fmt.Errorf("set deadline: %w", err)
 	}
 
-	buf := make([]byte, darwinRecvBufSize)
+	buf := getRecvBuffer(darwinRecvBufSize)
 
 	n, peer, err := s.conn.ReadFrom(buf)
 	if err != nil {
+		putRecvBuffer(buf)
 		return nil, err
 	}
 
@@ -280,6 +281,7 @@ func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 
 	resp := &ICMPResponse{
 		RecvTime: recvTime,
+		recvBuf:  buf,
 	}
 
 	switch addr := peer.(type) {
@@ -290,10 +292,18 @@ func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 	}
 
 	if s.ipv6 {
-		return s.parseICMPv6(buf, resp)
+		parsed, parseErr := s.parseICMPv6(buf, resp)
+		if parseErr != nil {
+			resp.Release()
+		}
+		return parsed, parseErr
 	}
 
-	return s.parseICMPv4(buf, resp)
+	parsed, parseErr := s.parseICMPv4(buf, resp)
+	if parseErr != nil {
+		resp.Release()
+	}
+	return parsed, parseErr
 }
 
 func (s *darwinRawSocket) parseICMPv4(buf []byte, resp *ICMPResponse) (*ICMPResponse, error) {

@@ -5,9 +5,11 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
 
   use GenServer
 
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Observability.MtrAutomationDispatcher
   alias ServiceRadar.Observability.MtrGraph
   alias ServiceRadar.Observability.MtrPolicy
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -50,33 +52,159 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   defp run_policy(policy) do
     targets = MtrAutomationDispatcher.baseline_targets(policy)
 
-    stats =
-      Enum.reduce(targets, init_dispatch_stats(), fn target_ctx, acc ->
-        case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
-          {:ok, _selected_agents} ->
-            Map.update!(acc, :dispatched, &(&1 + 1))
+    if bulk_baseline_policy?(policy) do
+      stats = run_bulk_policy(policy, targets)
 
-          {:error, :cooldown_active} ->
-            Map.update!(acc, :cooldown, &(&1 + 1))
+      log_dispatch_summary(
+        "MTR baseline bulk dispatch summary",
+        Map.get(policy, :name),
+        length(targets),
+        stats
+      )
+    else
+      stats =
+        Enum.reduce(targets, init_dispatch_stats(), fn target_ctx, acc ->
+          case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+            {:ok, _selected_agents} ->
+              Map.update!(acc, :dispatched, &(&1 + 1))
 
-          {:error, :no_candidates} ->
-            Map.update!(acc, :no_candidates, &(&1 + 1))
+            {:error, :cooldown_active} ->
+              Map.update!(acc, :cooldown, &(&1 + 1))
 
-          {:error, reason} ->
-            reason_key = dispatch_reason_key(reason)
+            {:error, :no_candidates} ->
+              Map.update!(acc, :no_candidates, &(&1 + 1))
 
-            acc
-            |> Map.update!(:failed, &(&1 + 1))
-            |> update_reason_count(reason_key)
+            {:error, reason} ->
+              reason_key = dispatch_reason_key(reason)
+
+              acc
+              |> Map.update!(:failed, &(&1 + 1))
+              |> update_reason_count(reason_key)
+          end
+        end)
+
+      log_dispatch_summary(
+        "MTR baseline dispatch summary",
+        Map.get(policy, :name),
+        length(targets),
+        stats
+      )
+    end
+  end
+
+  defp run_bulk_policy(policy, targets) do
+    actor = ServiceRadar.Actors.SystemActor.system(:mtr_automation)
+    selector = Map.get(policy, :target_selector, %{}) || %{}
+    agent_id = Map.get(selector, "agent_id")
+    interval = Map.get(policy, :baseline_interval_sec) || 300
+    concurrency = selector_int(selector, "bulk_concurrency")
+    execution_profile = Map.get(selector, "bulk_execution_profile")
+
+    with true <- is_binary(agent_id) and agent_id != "",
+         {:ok, :ready} <- ensure_bulk_policy_ready(policy.id, interval),
+         bulk_targets when bulk_targets != [] <- extract_bulk_targets(targets),
+         {:ok, _command_id} <-
+           AgentCommandBus.dispatch_bulk_mtr(
+             agent_id,
+             bulk_targets,
+             protocol: Map.get(policy, :baseline_protocol),
+             concurrency: concurrency,
+             execution_profile: execution_profile,
+             actor: actor,
+             context: %{
+               "trigger_mode" => "baseline",
+               "mtr_policy_id" => policy.id,
+               "bulk_scheduler" => true
+             }
+           ) do
+      %{dispatched: length(bulk_targets), cooldown: 0, no_candidates: 0, failed: 0, reasons: %{}}
+    else
+      {:error, :cooldown_active} ->
+        %{dispatched: 0, cooldown: length(targets), no_candidates: 0, failed: 0, reasons: %{}}
+
+      false ->
+        %{dispatched: 0, cooldown: 0, no_candidates: length(targets), failed: 0, reasons: %{}}
+
+      [] ->
+        %{dispatched: 0, cooldown: 0, no_candidates: 0, failed: 0, reasons: %{}}
+
+      {:error, {:agent_busy, :bulk_mtr_job_running}} ->
+        %{
+          dispatched: 0,
+          cooldown: length(targets),
+          no_candidates: 0,
+          failed: 0,
+          reasons: %{"bulk_overlap" => 1}
+        }
+
+      {:error, :preferred_agent_unavailable} ->
+        %{dispatched: 0, cooldown: 0, no_candidates: length(targets), failed: 0, reasons: %{}}
+
+      {:error, reason} ->
+        %{
+          dispatched: 0,
+          cooldown: 0,
+          no_candidates: 0,
+          failed: 1,
+          reasons: %{dispatch_reason_key(reason) => 1}
+        }
+    end
+  end
+
+  defp bulk_baseline_policy?(policy) do
+    selector = Map.get(policy, :target_selector, %{}) || %{}
+
+    preferred_agent? =
+      is_binary(Map.get(selector, "agent_id")) and Map.get(selector, "agent_id") != ""
+
+    canaries = Map.get(policy, :baseline_canary_vantages) || 0
+    preferred_agent? and canaries == 0
+  end
+
+  defp extract_bulk_targets(targets) do
+    targets
+    |> Enum.map(fn target_ctx ->
+      Map.get(target_ctx, :target) || Map.get(target_ctx, :target_ip)
+    end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp ensure_bulk_policy_ready(policy_id, interval_seconds) do
+    query = """
+    SELECT status, inserted_at, completed_at
+    FROM platform.agent_commands
+    WHERE command_type = 'mtr.bulk_run'
+      AND context ->> 'mtr_policy_id' = $1
+    ORDER BY inserted_at DESC
+    LIMIT 1
+    """
+
+    case Repo.query(query, [to_string(policy_id)]) do
+      {:ok, %{rows: [[status, _inserted_at, completed_at]]}} ->
+        completed_at = normalize_datetime(completed_at)
+
+        cond do
+          status in ["queued", "sent", "acknowledged", "running"] ->
+            {:error, :cooldown_active}
+
+          match?(%DateTime{}, completed_at) and
+              DateTime.diff(DateTime.utc_now(), completed_at, :second) < interval_seconds ->
+            {:error, :cooldown_active}
+
+          true ->
+            {:ok, :ready}
         end
-      end)
 
-    log_dispatch_summary(
-      "MTR baseline dispatch summary",
-      Map.get(policy, :name),
-      length(targets),
-      stats
-    )
+      {:ok, %{rows: []}} ->
+        {:ok, :ready}
+
+      {:error, reason} ->
+        Logger.warning("MTR bulk baseline readiness query failed", reason: inspect(reason))
+        {:error, reason}
+    end
   end
 
   defp init_dispatch_stats do
@@ -163,4 +291,28 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
 
   defp parse_int(value, _default) when is_integer(value), do: value
   defp parse_int(_value, default), do: default
+
+  defp selector_int(selector, key) when is_map(selector) do
+    case Map.get(selector, key) do
+      value when is_integer(value) and value > 0 ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed > 0 -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_datetime(%DateTime{} = value), do: value
+
+  defp normalize_datetime(%NaiveDateTime{} = value) do
+    DateTime.from_naive!(value, "Etc/UTC")
+  end
+
+  defp normalize_datetime(_value), do: nil
 end

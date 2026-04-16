@@ -12,6 +12,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrPubSub
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -33,6 +34,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   def handle_info({:command_progress, data}, state) do
+    maybe_ingest_mtr_result(data)
     persist_progress(data, state.actor)
     AgentReleaseManager.handle_command_progress(data, actor: state.actor)
     {:noreply, state}
@@ -70,7 +72,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       {:ok, command} ->
         params = %{
           message: Map.get(data, :message),
-          progress_percent: Map.get(data, :progress_percent)
+          progress_percent: Map.get(data, :progress_percent),
+          progress_payload: Map.get(data, :payload)
         }
 
         cond do
@@ -142,13 +145,20 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp maybe_ingest_mtr_result(data) when is_map(data) do
     command_type = map_get_any(data, [:command_type, "command_type"], "")
     success = map_get_any(data, [:success, "success"], false)
+    payload = map_get_any(data, [:payload, "payload"], nil)
 
-    if to_string(command_type) == "mtr.run" and success == true do
-      payload = map_get_any(data, [:payload, "payload"], nil)
-      trace = payload_trace(payload)
+    cond do
+      to_string(command_type) == "mtr.run" and success == true ->
+        trace = payload_trace(payload)
 
-      if is_map(payload) and is_map(trace),
-        do: ingest_mtr_result(data, payload, trace)
+        if is_map(payload) and is_map(trace),
+          do: ingest_mtr_result(data, payload, trace)
+
+      to_string(command_type) == "mtr.bulk_run" and is_map(payload) ->
+        ingest_bulk_mtr_progress(payload, data)
+
+      true ->
+        :ok
     end
   end
 
@@ -223,6 +233,135 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   defp payload_trace(_payload), do: nil
+
+  defp ingest_bulk_mtr_progress(payload, data) when is_map(payload) do
+    payload
+    |> map_get_any(["target_updates", :target_updates], [])
+    |> List.wrap()
+    |> Enum.each(fn update ->
+      command_id = map_get_any(data, [:command_id, "command_id"], nil)
+      persist_bulk_target_update(command_id, update)
+      maybe_ingest_bulk_target_trace(command_id, data, update)
+    end)
+  end
+
+  defp ingest_bulk_mtr_progress(_payload, _data), do: :ok
+
+  defp maybe_ingest_bulk_target_trace(command_id, data, update) do
+    trace = map_get_any(update, ["trace", :trace], nil)
+    target = map_get_any(update, ["target", :target], "")
+    status = normalize_bulk_target_status(map_get_any(update, ["status", :status], "queued"))
+
+    if status == "completed" and is_map(trace) and target != "" do
+      timestamp =
+        map_get_any(trace, ["timestamp", :timestamp], nil) ||
+          map_get_any(data, [:timestamp, "timestamp"], nil)
+
+      mtr_payload =
+        build_bulk_ingest_payload(
+          data,
+          trace,
+          target,
+          timestamp,
+          "#{command_id}:#{target}"
+        )
+
+      status_payload = build_ingest_status(data)
+
+      case MtrMetricsIngestor.ingest(mtr_payload, status_payload) do
+        :ok ->
+          _ =
+            MtrPubSub.broadcast_ingest(%{
+              command_id: command_id,
+              target: target,
+              agent_id: Map.get(data, :agent_id)
+            })
+
+        {:error, reason} ->
+          Logger.warning(
+            "AgentCommandStatusHandler: failed to ingest bulk MTR result: #{inspect(reason)}",
+            command_id: command_id,
+            target: target,
+            reason: inspect(reason)
+          )
+      end
+    end
+  end
+
+  defp build_bulk_ingest_payload(data, trace, target, timestamp, check_id) do
+    %{
+      "results" => [
+        %{
+          "check_id" => check_id,
+          "check_name" => "bulk-mtr",
+          "target" => target,
+          "available" => map_get_any(trace, ["target_reached", :target_reached], false) == true,
+          "trace" => trace,
+          "timestamp" => timestamp,
+          "error" => nil,
+          "device_id" => map_get_any(data, [:command_id, "command_id"], nil)
+        }
+      ]
+    }
+  end
+
+  defp persist_bulk_target_update(nil, _update), do: :ok
+
+  defp persist_bulk_target_update(command_id, update) when is_map(update) do
+    target = map_get_any(update, ["target", :target], nil)
+    status = normalize_bulk_target_status(map_get_any(update, ["status", :status], "queued"))
+
+    if is_binary(target) and target != "" do
+      started_at = if status == "running", do: DateTime.utc_now()
+
+      completed_at =
+        if status in ["completed", "failed", "canceled", "timed_out"], do: DateTime.utc_now()
+
+      Repo.query(
+        """
+        INSERT INTO platform.mtr_bulk_job_targets (
+          command_id, target, status, error, result_payload, attempt_count, started_at, completed_at, inserted_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() AT TIME ZONE 'utc', now() AT TIME ZONE 'utc')
+        ON CONFLICT (command_id, target)
+        DO UPDATE SET
+          status = EXCLUDED.status,
+          error = EXCLUDED.error,
+          result_payload = COALESCE(EXCLUDED.result_payload, platform.mtr_bulk_job_targets.result_payload),
+          attempt_count = GREATEST(platform.mtr_bulk_job_targets.attempt_count, EXCLUDED.attempt_count),
+          started_at = COALESCE(platform.mtr_bulk_job_targets.started_at, EXCLUDED.started_at),
+          completed_at = COALESCE(EXCLUDED.completed_at, platform.mtr_bulk_job_targets.completed_at),
+          updated_at = now() AT TIME ZONE 'utc'
+        """,
+        [
+          command_id,
+          target,
+          status,
+          map_get_any(update, ["error", :error], nil),
+          map_get_any(update, ["result_payload", :result_payload], nil),
+          map_get_any(update, ["attempt_count", :attempt_count], 1),
+          started_at,
+          completed_at
+        ]
+      )
+    end
+  end
+
+  defp persist_bulk_target_update(_command_id, _update), do: :ok
+
+  defp normalize_bulk_target_status(value) do
+    value =
+      value
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    if value in ["queued", "running", "completed", "failed", "canceled", "timed_out"] do
+      value
+    else
+      "queued"
+    end
+  end
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->

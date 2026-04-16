@@ -87,10 +87,13 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:ok, stream} ->
         log_command_dispatch(state, command)
 
-        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
+        {:reply, {:ok, command.command_id},
+         track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
-        Logger.warning("Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}"
+        )
 
         {:reply, {:error, reason}, state}
     end
@@ -196,6 +199,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp broadcast_progress(progress, state) do
     command_meta = Map.get(state.commands, progress.command_id, %{})
+    payload = decode_payload(progress.payload_json)
 
     data =
       command_meta
@@ -205,7 +209,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         command_type: progress.command_type,
         progress_percent: progress.progress_percent,
         message: progress.message,
-        timestamp: progress.timestamp
+        timestamp: progress.timestamp,
+        payload: payload
       })
 
     PubSub.broadcast_progress(data)
@@ -250,11 +255,15 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp log_command_dispatch(state, command) do
-    Logger.info("Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})")
+    Logger.info(
+      "Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})"
+    )
   end
 
   defp log_command_ack(state, ack) do
-    Logger.info("Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}")
+    Logger.info(
+      "Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}"
+    )
   end
 
   defp log_command_progress(state, progress) do

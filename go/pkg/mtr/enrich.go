@@ -56,36 +56,45 @@ func NewEnricher(dbPath string) (*Enricher, error) {
 // ASNInfo if the database is unavailable or the IP is not found.
 func (e *Enricher) LookupASN(ip net.IP) ASNInfo {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
+	db := e.db
+	e.mu.RUnlock()
 
-	if e.db == nil {
+	if db == nil {
 		return ASNInfo{}
 	}
 
-	var record mmdbASNRecord
-	if err := e.db.Lookup(ip, &record); err != nil {
-		return ASNInfo{}
-	}
-
-	return ASNInfo(record)
+	return lookupASN(db, ip)
 }
 
 // EnrichHops adds ASN information to each hop result in place.
 func (e *Enricher) EnrichHops(hops []*HopResult) {
 	e.mu.RLock()
-	if e.db == nil {
-		e.mu.RUnlock()
+	db := e.db
+	e.mu.RUnlock()
+	if db == nil {
 		return
 	}
-	e.mu.RUnlock()
 
 	for _, hop := range hops {
 		hop.mu.Lock()
 		if hop.Addr != nil {
-			hop.ASN = e.LookupASN(hop.Addr)
+			hop.ASN = lookupASN(db, hop.Addr)
 		}
 		hop.mu.Unlock()
 	}
+}
+
+func lookupASN(db *maxminddb.Reader, ip net.IP) ASNInfo {
+	if db == nil {
+		return ASNInfo{}
+	}
+
+	var record mmdbASNRecord
+	if err := db.Lookup(ip, &record); err != nil {
+		return ASNInfo{}
+	}
+
+	return ASNInfo(record)
 }
 
 // Close releases the MMDB database resources.

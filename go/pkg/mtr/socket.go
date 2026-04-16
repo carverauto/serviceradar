@@ -18,8 +18,17 @@ package mtr
 
 import (
 	"net"
+	"sync"
 	"time"
 )
+
+const defaultRecvBufferSize = 1500
+
+var recvBufferPool = sync.Pool{
+	New: func() any {
+		return make([]byte, defaultRecvBufferSize)
+	},
+}
 
 // ICMPResponse represents a received ICMP packet with metadata.
 type ICMPResponse struct {
@@ -56,6 +65,8 @@ type ICMPResponse struct {
 	// ICMPLengthField is the "length" field from the ICMP header (byte 5),
 	// expressed in 32-bit words. Used for RFC 4884 extension parsing.
 	ICMPLengthField int
+
+	recvBuf []byte
 }
 
 // RawSocket abstracts raw ICMP socket operations for platform portability.
@@ -77,4 +88,32 @@ type RawSocket interface {
 
 	// IsIPv6 returns true if this socket operates on IPv6.
 	IsIPv6() bool
+}
+
+func getRecvBuffer(size int) []byte {
+	buf := recvBufferPool.Get().([]byte)
+	if cap(buf) < size {
+		return make([]byte, size)
+	}
+
+	return buf[:size]
+}
+
+func putRecvBuffer(buf []byte) {
+	if cap(buf) < defaultRecvBufferSize {
+		return
+	}
+
+	recvBufferPool.Put(buf[:defaultRecvBufferSize])
+}
+
+// Release returns pooled receive storage back to the raw-socket buffer pool.
+func (r *ICMPResponse) Release() {
+	if r == nil || r.recvBuf == nil {
+		return
+	}
+
+	putRecvBuffer(r.recvBuf)
+	r.recvBuf = nil
+	r.Payload = nil
 }
