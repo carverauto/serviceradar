@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.14
+
+Forgejo-only managed agent release imports and fresh Docker Compose NATS bootstrap fixes for operators waiting on both release rollout and local bringup reliability.
+
+## Whats New
+
+**1.2.14**
+- Removed GitHub from managed agent release import and settings flows, making Forgejo on `code.carverauto.dev` the only supported repository source for agent releases.
+- Updated the agent deployment and release-management UI copy and links so operators are directed to Forgejo releases instead of the retired GitHub release path.
+- Fixed fresh Docker Compose NATS bootstrap so `nats-creds-init` can generate system account credentials with the required `$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE` permission instead of failing on a clean startup.
+- Fixed local platform account generation in `nats-bootstrap` so fresh compose environments rely on the signer's default scoped subject mappings instead of invalid custom mappings that aborted bootstrap.
+
 # ServiceRadar v1.2.13
 
 Demo CNPG credential-drift recovery, release-signing fixes, and chart rollout hardening for secret-driven restarts.
