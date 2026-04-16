@@ -24,6 +24,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -43,6 +46,10 @@ var errReleaseUpdaterOwnershipUnknown = errors.New("release updater ownership co
 var errReleaseUpdaterOwnershipInvalid = errors.New("release updater must be owned by root")
 var errReleaseUpdaterModeInvalid = errors.New("release updater must not be group or world writable")
 var errReleaseUpdaterNotRegular = errors.New("release updater must be a regular file")
+var errReleaseActivationVersionInvalid = errors.New("release activation version is invalid")
+var errReleaseActivationCommandIDInvalid = errors.New("release activation command id is invalid")
+var errReleaseActivationCommandTypeInvalid = errors.New("release activation command type is invalid")
+var errReleaseActivationArgumentControlChars = errors.New("release activation arguments must not contain control characters")
 
 type ReleaseActivationConfig struct {
 	RuntimeRoot      string
@@ -69,9 +76,20 @@ type releaseActivationReportFile struct {
 	Payload     map[string]interface{} `json:"payload,omitempty"`
 }
 
+type releaseActivationExecArgs struct {
+	Version     string
+	CommandID   string
+	CommandType string
+}
+
 func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 	runtimeRoot := resolveReleaseRuntimeRoot(cfg.RuntimeRoot)
-	versionDir, err := releaseVersionDir(runtimeRoot, cfg.Version)
+	execArgs, err := validateReleaseActivationExecArgs(cfg.Version, cfg.CommandID, cfg.CommandType)
+	if err != nil {
+		return err
+	}
+
+	versionDir, err := releaseVersionDir(runtimeRoot, execArgs.Version)
 	if err != nil {
 		return err
 	}
@@ -98,9 +116,9 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 	}
 
 	state := releaseActivationStateFile{
-		CommandID:       strings.TrimSpace(cfg.CommandID),
-		CommandType:     strings.TrimSpace(cfg.CommandType),
-		TargetVersion:   strings.TrimSpace(cfg.Version),
+		CommandID:       execArgs.CommandID,
+		CommandType:     execArgs.CommandType,
+		TargetVersion:   execArgs.Version,
 		PreviousTarget:  previousTarget,
 		ActivatedAtUnix: time.Now().UTC().Unix(),
 		RollbackAtUnix:  time.Now().UTC().Add(deadline).Unix(),
@@ -112,7 +130,7 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 	if err := os.Remove(filepath.Join(runtimeRoot, releaseActivationReport)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove stale activation report: %w", err)
 	}
-	if err := switchReleaseCurrentSymlink(runtimeRoot, filepath.Join(releaseVersionsDirName, cfg.Version)); err != nil {
+	if err := switchReleaseCurrentSymlink(runtimeRoot, filepath.Join(releaseVersionsDirName, execArgs.Version)); err != nil {
 		return err
 	}
 
@@ -254,6 +272,94 @@ func validatePackageOwnedExecutable(path string) (string, error) {
 	}
 
 	return resolved, nil
+}
+
+func validateReleaseActivationExecArgs(version, commandID, commandType string) (releaseActivationExecArgs, error) {
+	cleanVersion, err := normalizeManagedReleaseVersion(version)
+	if err != nil {
+		return releaseActivationExecArgs{}, err
+	}
+
+	cleanCommandID, err := normalizeReleaseActivationCommandID(commandID)
+	if err != nil {
+		return releaseActivationExecArgs{}, err
+	}
+
+	cleanCommandType, err := normalizeReleaseActivationCommandType(commandType)
+	if err != nil {
+		return releaseActivationExecArgs{}, err
+	}
+
+	return releaseActivationExecArgs{
+		Version:     cleanVersion,
+		CommandID:   cleanCommandID,
+		CommandType: cleanCommandType,
+	}, nil
+}
+
+func normalizeManagedReleaseVersion(value string) (string, error) {
+	if containsControlChars(value) {
+		return "", fmt.Errorf("%w: version", errReleaseActivationArgumentControlChars)
+	}
+
+	clean := strings.TrimSpace(value)
+	if !isManagedReleaseVersionToken(clean) {
+		return "", errReleaseActivationVersionInvalid
+	}
+
+	return clean, nil
+}
+
+func normalizeReleaseActivationCommandID(value string) (string, error) {
+	if containsControlChars(value) {
+		return "", fmt.Errorf("%w: command_id", errReleaseActivationArgumentControlChars)
+	}
+
+	clean := strings.TrimSpace(value)
+	parsed, err := uuid.Parse(clean)
+	if err != nil || !strings.EqualFold(parsed.String(), clean) {
+		return "", errReleaseActivationCommandIDInvalid
+	}
+
+	return parsed.String(), nil
+}
+
+func normalizeReleaseActivationCommandType(value string) (string, error) {
+	if containsControlChars(value) {
+		return "", fmt.Errorf("%w: command_type", errReleaseActivationArgumentControlChars)
+	}
+
+	clean := strings.TrimSpace(value)
+	if clean != commandTypeAgentUpdate {
+		return "", errReleaseActivationCommandTypeInvalid
+	}
+
+	return commandTypeAgentUpdate, nil
+}
+
+func isManagedReleaseVersionToken(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+
+	for idx, r := range value {
+		switch {
+		case isASCIIAlphaNum(r):
+		case idx > 0 && (r == '.' || r == '_' || r == '-'):
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+func isASCIIAlphaNum(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+func containsControlChars(value string) bool {
+	return strings.IndexFunc(value, unicode.IsControl) >= 0
 }
 
 func loadReleaseActivationState(runtimeRoot string) (*releaseActivationStateFile, error) {

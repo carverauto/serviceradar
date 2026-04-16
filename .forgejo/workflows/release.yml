@@ -164,6 +164,11 @@ jobs:
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
 
@@ -230,6 +235,19 @@ jobs:
             echo "draft=${INPUT_DRAFT}"
             echo "overwrite_assets=${INPUT_OVERWRITE}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Derive managed agent release public key
+        if: ${{ env.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY != '' }}
+        env:
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          public_key="$(go run ./tools/go/derive_agent_release_public_key)"
+          if [[ -z "${public_key}" ]]; then
+            echo "derived managed agent release public key is empty" >&2
+            exit 1
+          fi
+          echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
 
       - name: Generate release notes from CHANGELOG
         id: notes
