@@ -274,7 +274,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       })
 
     assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
-    assert normalized.metadata["evidence_class"] == "endpoint-attachment"
+    assert normalized.metadata["evidence_class"] == "observed-only"
 
     TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
 
@@ -685,7 +685,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     assert Enum.any?(results, fn row ->
              row["neighbor"] == "sr:tonka" and row["relation_type"] == "CONNECTS_TO" and
-               row["evidence_class"] == "direct"
+               row["evidence_class"] == "direct-physical"
            end)
 
     assert Enum.any?(results, fn row ->

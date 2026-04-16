@@ -109,12 +109,17 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     attrs = %{
       uid: uid,
       hostname: hostname,
-      ip: "10.0.0.#{:rand.uniform(200)}"
+      ip: unique_ip_for_uid(uid)
     }
 
     Device
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.create(actor: actor)
+  end
+
+  defp unique_ip_for_uid(uid) do
+    <<a, b, c, _rest::binary>> = :crypto.hash(:sha256, uid)
+    "10.#{a}.#{b}.#{max(c, 1)}"
   end
 
   defp create_interface(actor, device_id, timestamp, interface_uid, if_index, if_name) do
