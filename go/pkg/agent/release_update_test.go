@@ -23,6 +23,8 @@ import (
 	"time"
 )
 
+const testReleaseCommandID = "00000000-0000-4000-8000-000000000123"
+
 func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
 	binaryData := []byte("#!/bin/sh\necho release\n")
 	server := newArtifactServer(t, binaryData)
@@ -307,8 +309,8 @@ func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
 		if got := r.Header.Get("X-ServiceRadar-Release-Target-ID"); got != "target-123" {
 			t.Fatalf("target header = %q, want %q", got, "target-123")
 		}
-		if got := r.Header.Get("X-ServiceRadar-Release-Command-ID"); got != "command-123" {
-			t.Fatalf("command header = %q, want %q", got, "command-123")
+		if got := r.Header.Get("X-ServiceRadar-Release-Command-ID"); got != testReleaseCommandID {
+			t.Fatalf("command header = %q, want %q", got, testReleaseCommandID)
 		}
 		http.Redirect(w, r, artifactServer.URL+"/artifact", http.StatusFound)
 	}))
@@ -346,7 +348,7 @@ func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
 		RuntimeRoot: t.TempDir(),
 		HTTPClient:  httpClient,
 		GatewayAddr: gatewayURL.Host,
-		CommandID:   "command-123",
+		CommandID:   testReleaseCommandID,
 	})
 	if !errors.Is(err, errReleaseRedirectOriginChanged) {
 		t.Fatalf("expected errReleaseRedirectOriginChanged, got %v", err)
@@ -359,8 +361,8 @@ func TestStageAgentReleaseUsesGatewayArtifactTransport(t *testing.T) {
 		if got := r.Header.Get("X-ServiceRadar-Release-Target-ID"); got != "target-123" {
 			t.Fatalf("target header = %q, want %q", got, "target-123")
 		}
-		if got := r.Header.Get("X-ServiceRadar-Release-Command-ID"); got != "command-123" {
-			t.Fatalf("command header = %q, want %q", got, "command-123")
+		if got := r.Header.Get("X-ServiceRadar-Release-Command-ID"); got != testReleaseCommandID {
+			t.Fatalf("command header = %q, want %q", got, testReleaseCommandID)
 		}
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
 	}))
@@ -392,7 +394,7 @@ func TestStageAgentReleaseUsesGatewayArtifactTransport(t *testing.T) {
 		RuntimeRoot: t.TempDir(),
 		HTTPClient:  server.Client(),
 		GatewayAddr: serverURL.Host,
-		CommandID:   "command-123",
+		CommandID:   testReleaseCommandID,
 	})
 	if err != nil {
 		t.Fatalf("expected gateway transport download to succeed, got %v", err)
