@@ -16,6 +16,67 @@ function remove_url_credentials() {
   which perl >/dev/null && perl -pe 's#//.*?:.*?@#//#' || cat
 }
 
+function derive_agent_release_public_key() {
+  python3 - <<'PY'
+import base64
+import binascii
+import os
+import subprocess
+import sys
+import tempfile
+
+value = os.environ.get("SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY", "").strip()
+if not value:
+    key_file = os.environ.get("SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE", "").strip()
+    if key_file:
+        with open(key_file, "r", encoding="utf-8") as handle:
+            value = handle.read().strip()
+
+if not value:
+    raise SystemExit("missing agent release signing private key")
+
+decoded = None
+for decoder in (
+    lambda raw: binascii.unhexlify(raw),
+    lambda raw: base64.b64decode(raw, validate=True),
+    lambda raw: base64.b64decode(raw + "=" * (-len(raw) % 4), validate=False),
+    lambda raw: base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)),
+):
+    try:
+        decoded = decoder(value)
+        break
+    except Exception:
+        continue
+
+if decoded is None:
+    raise SystemExit("invalid agent release signing private key encoding")
+
+if len(decoded) == 64:
+    decoded = decoded[:32]
+
+if len(decoded) != 32:
+    raise SystemExit(f"invalid agent release signing private key length: {len(decoded)}")
+
+pkcs8_der = bytes.fromhex("302e020100300506032b657004220420") + decoded
+with tempfile.NamedTemporaryFile(delete=False) as handle:
+    handle.write(pkcs8_der)
+    key_path = handle.name
+
+try:
+    public_der = subprocess.check_output(
+        ["openssl", "pkey", "-inform", "DER", "-outform", "DER", "-pubout", "-in", key_path],
+        stderr=subprocess.DEVNULL,
+    )
+finally:
+    os.unlink(key_path)
+
+if len(public_der) < 32:
+    raise SystemExit("invalid derived public key")
+
+sys.stdout.write(base64.b64encode(public_der[-32:]).decode("ascii"))
+PY
+}
+
 function emit_agent_release_public_key() {
   local key="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}"
   if [[ -n "${key}" ]]; then
@@ -25,7 +86,7 @@ function emit_agent_release_public_key() {
 
   if [[ -n "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY:-}" || -n "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE:-}" ]]; then
     local derived_key
-    derived_key="$(go run ./tools/go/derive_agent_release_public_key)"
+    derived_key="$(derive_agent_release_public_key)"
     if [[ -n "${derived_key}" ]]; then
       echo "STABLE_AGENT_RELEASE_PUBLIC_KEY ${derived_key}"
     fi
