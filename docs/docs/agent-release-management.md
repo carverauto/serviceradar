@@ -14,10 +14,9 @@ This runbook covers:
 Before using release management in production:
 
 - Install agents with the package-managed launcher and updater layout.
-- Ensure the agent runtime host has write access to `/var/lib/serviceradar/agent/releases` or the override set by `SERVICERADAR_AGENT_RUNTIME_ROOT`.
+- Ensure the agent runtime host has write access to `/var/lib/serviceradar/agent/releases`.
 - Ensure the control plane has the trusted Ed25519 public key configured before operators publish releases.
-- Ensure every managed agent has the trusted Ed25519 public key configured through `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` or a build-time `ReleaseSigningPublicKey` injection.
-- For newly onboarded agents, set `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` on `web-ng` before generating onboarding packages so the bundle can write that key into `/etc/serviceradar/kv-overrides.env` automatically during enrollment.
+- Ensure every managed agent package embeds the trusted Ed25519 public key through build-time `ReleaseSigningPublicKey` injection.
 - Publish artifacts over HTTPS.
 - Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format` and `entrypoint`.
 - If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
@@ -70,16 +69,19 @@ Recommended handling:
 
 Relevant agent settings:
 
-- `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY`: trusted Ed25519 public key used by the control plane and agents to verify release manifests.
-- `SERVICERADAR_AGENT_RUNTIME_ROOT`: optional override for the mutable runtime payload root.
-- `SERVICERADAR_AGENT_UPDATER`: optional override for the updater binary path.
-- `SERVICERADAR_AGENT_SEED_BINARY`: optional override for the package-owned seed agent binary.
+- Package-managed agents verify release manifests with the build-time embedded `ReleaseSigningPublicKey`.
+- Package-managed agents use fixed package-owned paths for the updater, seed binary, and mutable runtime root.
+- The control plane still reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` at runtime for release import and validation.
 
 Onboarding propagation:
 
-- `web-ng` reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` from its runtime environment when generating agent onboarding bundles.
-- Agent-capable onboarding bundles include `config/agent-env-overrides.env` only when that key is configured.
-- `serviceradar-cli enroll --core-url ... --token ...` merges that bundle override into `/etc/serviceradar/kv-overrides.env` without removing unrelated override entries already present on the host.
+- Agent onboarding bundles do not distribute the managed release verification key for package-managed agents.
+- `serviceradar-cli enroll --core-url ... --token ...` preserves unrelated `/etc/serviceradar/kv-overrides.env` entries, but protected agent release trust keys are ignored if they appear in a bundle.
+
+Migration guidance:
+
+- Older hosts may still carry `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` in `/etc/serviceradar/kv-overrides.env`.
+- After upgrading to a hardened package-managed agent build, those stale entries no longer define the managed release trust anchor.
 
 ## Rollout Guardrails
 

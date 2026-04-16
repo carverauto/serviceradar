@@ -76,6 +76,44 @@ func TestStageAgentReleaseRejectsInvalidSignature(t *testing.T) {
 	}
 }
 
+func TestStageAgentReleaseIgnoresEnvironmentVerificationKeyOverride(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+
+	otherPublicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+
+	t.Setenv("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(otherPublicKey))
+	originalKey := ReleaseSigningPublicKey
+	ReleaseSigningPublicKey = base64.StdEncoding.EncodeToString(publicKey)
+	t.Cleanup(func() {
+		ReleaseSigningPublicKey = originalKey
+	})
+
+	payload := signedReleasePayloadWithSigner(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	}, privateKey)
+
+	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if err != nil {
+		t.Fatalf("expected embedded verification key to win over env override, got %v", err)
+	}
+}
+
 func TestStageAgentReleaseRejectsDigestMismatch(t *testing.T) {
 	binaryData := []byte("binary")
 	server := newArtifactServer(t, []byte("unexpected"))
@@ -368,7 +406,17 @@ func signedReleasePayload(t *testing.T, artifactData []byte, artifact releaseArt
 	if err != nil {
 		t.Fatalf("ed25519.GenerateKey() error = %v", err)
 	}
-	t.Setenv(releasePublicKeyEnv, base64.StdEncoding.EncodeToString(publicKey))
+	originalKey := ReleaseSigningPublicKey
+	ReleaseSigningPublicKey = base64.StdEncoding.EncodeToString(publicKey)
+	t.Cleanup(func() {
+		ReleaseSigningPublicKey = originalKey
+	})
+
+	return signedReleasePayloadWithSigner(t, artifactData, artifact, privateKey)
+}
+
+func signedReleasePayloadWithSigner(t *testing.T, artifactData []byte, artifact releaseArtifactPayload, privateKey ed25519.PrivateKey) releaseUpdatePayload {
+	t.Helper()
 
 	manifest := map[string]interface{}{
 		"version": "1.1.0",

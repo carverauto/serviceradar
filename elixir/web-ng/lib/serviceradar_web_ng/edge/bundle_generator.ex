@@ -251,21 +251,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     config
   end
 
-  defp generate_agent_override_files(package_dir, package, opts) do
-    if effective_component_type(package.component_type) == "agent" do
-      case agent_release_public_key(opts) do
-        nil ->
-          []
-
-        public_key ->
-          [
-            {"#{package_dir}/config/agent-env-overrides.env", "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=#{public_key}\n"}
-          ]
-      end
-    else
-      []
-    end
-  end
+  defp generate_agent_override_files(_package_dir, _package, _opts), do: []
 
   defp encode_config_yaml(config) when is_map(config) do
     # Simple but safe YAML encoder for bootstrap config
@@ -930,19 +916,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp derive_gateway_addr(_), do: nil
-
-  defp agent_release_public_key(opts) do
-    opts
-    |> Keyword.get(:agent_release_public_key)
-    |> normalize_string()
-    |> case do
-      nil ->
-        normalize_string(Application.get_env(:serviceradar_web_ng, :agent_release_public_key))
-
-      public_key ->
-        public_key
-    end
-  end
 
   defp derive_gateway_host(host) when is_binary(host) do
     host = String.trim(host)
