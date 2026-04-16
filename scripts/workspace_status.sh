@@ -16,6 +16,22 @@ function remove_url_credentials() {
   which perl >/dev/null && perl -pe 's#//.*?:.*?@#//#' || cat
 }
 
+function emit_agent_release_public_key() {
+  local key="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}"
+  if [[ -n "${key}" ]]; then
+    echo "STABLE_AGENT_RELEASE_PUBLIC_KEY ${key}"
+    return
+  fi
+
+  if [[ -n "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY:-}" || -n "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE:-}" ]]; then
+    local derived_key
+    derived_key="$(go run ./tools/go/derive_agent_release_public_key.go)"
+    if [[ -n "${derived_key}" ]]; then
+      echo "STABLE_AGENT_RELEASE_PUBLIC_KEY ${derived_key}"
+    fi
+  fi
+}
+
 repo_url=$(git config --get remote.origin.url | remove_url_credentials)
 echo "REPO_URL $repo_url"
 
@@ -46,6 +62,7 @@ echo "STABLE_VERSION $version"
 #latest_version_tag=$(./tools/latest_version_tag.sh)
 #echo "STABLE_VERSION_TAG $latest_version_tag"
 echo "STABLE_COMMIT_SHA $commit_sha"
+emit_agent_release_public_key
 
 build_id="${BUILD_ID:-}"
 if [[ -n "$build_id" ]]; then

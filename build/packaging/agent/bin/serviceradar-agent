@@ -1,13 +1,39 @@
 #!/bin/sh
 set -eu
 
-RUNTIME_ROOT="${SERVICERADAR_AGENT_RUNTIME_ROOT:-/var/lib/serviceradar/agent}"
-SEED_BINARY="${SERVICERADAR_AGENT_SEED_BINARY:-/usr/local/lib/serviceradar/agent/serviceradar-agent-seed}"
+RUNTIME_ROOT="/var/lib/serviceradar/agent"
+SEED_BINARY="/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
 VERSIONS_DIR="${RUNTIME_ROOT}/versions"
 SEED_DIR="${VERSIONS_DIR}/seed-installed"
 CURRENT_LINK="${RUNTIME_ROOT}/current"
 
+validate_package_owned_file() {
+    path="$1"
+    label="$2"
+
+    if [ ! -f "${path}" ]; then
+        echo "${label} must be a regular file: ${path}" >&2
+        exit 1
+    fi
+
+    owner_uid="$(stat -c '%u' "${path}")"
+    if [ "${owner_uid}" != "0" ]; then
+        echo "${label} must be owned by root: ${path}" >&2
+        exit 1
+    fi
+
+    mode="$(stat -c '%A' "${path}")"
+    case "${mode}" in
+        ?????w????|????????w?)
+            echo "${label} must not be group or world writable: ${path}" >&2
+            exit 1
+            ;;
+    esac
+}
+
 mkdir -p "${VERSIONS_DIR}" "${RUNTIME_ROOT}/tmp"
+
+validate_package_owned_file "${SEED_BINARY}" "seed binary"
 
 mkdir -p "${SEED_DIR}"
 cp "${SEED_BINARY}" "${SEED_DIR}/serviceradar-agent.new"

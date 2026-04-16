@@ -52,9 +52,6 @@ const (
 	releaseDefaultEntrypoint         = "serviceradar-agent"
 	releaseArtifactFormatTarGz       = "tar.gz"
 	releaseArtifactMaxBytes    int64 = 256 * 1024 * 1024
-
-	releasePublicKeyEnv = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
-	releaseRuntimeEnv   = "SERVICERADAR_AGENT_RUNTIME_ROOT"
 )
 
 var (
@@ -367,10 +364,7 @@ func verifyReleaseManifestSignature(manifestJSON []byte, signature string) error
 }
 
 func releaseVerificationKey() (ed25519.PublicKey, error) {
-	keyValue := strings.TrimSpace(os.Getenv(releasePublicKeyEnv))
-	if keyValue == "" {
-		keyValue = strings.TrimSpace(ReleaseSigningPublicKey)
-	}
+	keyValue := strings.TrimSpace(ReleaseSigningPublicKey)
 	if keyValue == "" {
 		return nil, errReleaseVerificationKeyUnset
 	}
@@ -411,9 +405,6 @@ func decodeReleaseSignature(value string) ([]byte, error) {
 
 func resolveReleaseRuntimeRoot(configured string) string {
 	if runtimeRoot := strings.TrimSpace(configured); runtimeRoot != "" {
-		return runtimeRoot
-	}
-	if runtimeRoot := strings.TrimSpace(os.Getenv(releaseRuntimeEnv)); runtimeRoot != "" {
 		return runtimeRoot
 	}
 	return defaultReleaseRuntimeRoot

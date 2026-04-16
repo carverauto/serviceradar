@@ -162,3 +162,40 @@ func TestRollbackReleaseActivationRejectsUnsafePreviousTarget(t *testing.T) {
 		t.Fatalf("expected errReleaseSymlinkTargetInvalid, got %v", err)
 	}
 }
+
+func TestAgentUpdaterPathIgnoresEnvironmentOverride(t *testing.T) {
+	t.Setenv("SERVICERADAR_AGENT_UPDATER", "/tmp/evil-updater")
+
+	if got, want := AgentUpdaterPath(), defaultAgentUpdaterPath; got != want {
+		t.Fatalf("AgentUpdaterPath() = %q, want %q", got, want)
+	}
+}
+
+func TestAgentSeedBinaryPathIgnoresEnvironmentOverride(t *testing.T) {
+	t.Setenv("SERVICERADAR_AGENT_SEED_BINARY", "/tmp/evil-seed")
+
+	if got, want := AgentSeedBinaryPath(), defaultAgentSeedPath; got != want {
+		t.Fatalf("AgentSeedBinaryPath() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveReleaseRuntimeRootIgnoresEnvironmentOverride(t *testing.T) {
+	t.Setenv("SERVICERADAR_AGENT_RUNTIME_ROOT", "/tmp/evil-root")
+
+	if got, want := resolveReleaseRuntimeRoot(""), defaultReleaseRuntimeRoot; got != want {
+		t.Fatalf("resolveReleaseRuntimeRoot(\"\") = %q, want %q", got, want)
+	}
+}
+
+func TestValidatedAgentUpdaterPathRejectsNonRootOwnedFile(t *testing.T) {
+	tempDir := t.TempDir()
+	updaterPath := filepath.Join(tempDir, "updater")
+	if err := os.WriteFile(updaterPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := validatePackageOwnedExecutable(updaterPath)
+	if !errors.Is(err, errReleaseUpdaterOwnershipInvalid) {
+		t.Fatalf("expected errReleaseUpdaterOwnershipInvalid, got %v", err)
+	}
+}

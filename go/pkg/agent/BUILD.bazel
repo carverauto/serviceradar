@@ -21,6 +21,8 @@ go_library(
         "push_loop.go",
         "release_update.go",
         "release_runtime.go",
+        "release_runtime_unix.go",
+        "release_runtime_windows.go",
         "server.go",
         "snmp_service.go",
         "sync_runtime.go",
