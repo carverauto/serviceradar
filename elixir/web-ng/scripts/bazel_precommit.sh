@@ -207,7 +207,7 @@ copy_dir "$WEB_NG_SRC" "$WORKDIR/elixir/web-ng"
 if [ -f "$ROOT/.tool-versions" ]; then
   cp "$ROOT/.tool-versions" "$WORKDIR/elixir/web-ng/.tool-versions"
 fi
-for shared_credo in .credo.base.exs .credo.ex_dna.exs .credo.ex_slop.exs; do
+for shared_credo in .credo.base.exs .credo.ex_dna.exs .credo.jump_checks.exs .credo.ex_slop.exs; do
   if [ -f "$ROOT/elixir/$shared_credo" ]; then
     cp "$ROOT/elixir/$shared_credo" "$WORKDIR/elixir/$shared_credo"
   fi
