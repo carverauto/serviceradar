@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      |> assign(:last_uri, "/diagnostics/mtr")
      |> assign(:traces, [])
      |> assign(:pending_jobs, [])
+     |> assign(:bulk_jobs, [])
      |> assign(:limit, @default_limit)
      |> assign(:current_page, 1)
      |> assign(:total_count, 0)
@@ -41,6 +42,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      |> assign(:mtr_running, false)
      |> assign(:mtr_error, nil)
      |> assign(:mtr_command_id, nil)
+     |> assign(:show_bulk_mtr_modal, false)
+     |> assign(
+       :bulk_mtr_form,
+       to_form(
+         %{
+           "targets" => "",
+           "agent_id" => "",
+           "protocol" => "icmp",
+           "execution_profile" => "fast",
+           "concurrency" => "64"
+         },
+         as: :bulk_mtr
+       )
+     )
+     |> assign(:bulk_mtr_error, nil)
      |> assign(:refresh_timer, nil)
      |> SRQLPage.init("mtr_traces", default_limit: @default_limit)}
   end
@@ -130,6 +146,25 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     {:noreply, assign(socket, :show_mtr_modal, false)}
   end
 
+  def handle_event("open_bulk_mtr_modal", _params, socket) do
+    agents =
+      try do
+        AgentRegistry.find_agents()
+      rescue
+        _ -> []
+      end
+
+    {:noreply,
+     socket
+     |> assign(:show_bulk_mtr_modal, true)
+     |> assign(:mtr_agents, agents)
+     |> assign(:bulk_mtr_error, nil)}
+  end
+
+  def handle_event("close_bulk_mtr_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_mtr_modal, false)}
+  end
+
   def handle_event("run_mtr", %{"mtr" => mtr_params}, socket) do
     target = String.trim(mtr_params["target"] || "")
     agent_id = mtr_params["agent_id"] || ""
@@ -201,6 +236,52 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  def handle_event("run_bulk_mtr", %{"bulk_mtr" => params}, socket) do
+    targets =
+      params["targets"]
+      |> to_string()
+      |> String.split(~r/[\r\n,]+/, trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    agent_id = params["agent_id"] || ""
+    protocol = normalize_protocol(Map.get(params, "protocol", "icmp"))
+    execution_profile = normalize_bulk_execution_profile(Map.get(params, "execution_profile", "fast"))
+    concurrency = parse_positive_integer(Map.get(params, "concurrency"), 64)
+
+    cond do
+      targets == [] ->
+        {:noreply, assign(socket, :bulk_mtr_error, "At least one target is required")}
+
+      agent_id == "" ->
+        {:noreply, assign(socket, :bulk_mtr_error, "Please select an agent")}
+
+      true ->
+        case AgentCommandBus.dispatch_bulk_mtr(agent_id, targets,
+               protocol: protocol,
+               execution_profile: execution_profile,
+               concurrency: concurrency
+             ) do
+          {:ok, _command_id} ->
+            {:noreply,
+             socket
+             |> assign(:show_bulk_mtr_modal, false)
+             |> assign(:bulk_mtr_error, nil)
+             |> put_flash(:info, "Bulk MTR job queued")
+             |> refresh_diagnostics()}
+
+          {:error, {:agent_busy, :bulk_mtr_job_running}} ->
+            {:noreply, assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
+
+          {:error, {:agent_offline, _}} ->
+            {:noreply, assign(socket, :bulk_mtr_error, "Agent is offline")}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
+        end
+    end
+  end
+
   @impl true
   def handle_info({:command_result, %{command_type: "mtr.run"} = msg}, socket) do
     command_id = Map.get(msg, :command_id) || Map.get(msg, "command_id")
@@ -224,6 +305,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket), do: {:noreply, schedule_refresh(socket)}
 
   def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info({:command_ack, %{command_type: "mtr.bulk_run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info({:command_progress, %{command_type: "mtr.bulk_run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+
+  def handle_info({:command_result, %{command_type: "mtr.bulk_run"}}, socket), do: {:noreply, schedule_refresh(socket)}
 
   def handle_info(:refresh_diagnostics, socket) do
     {:noreply,
@@ -258,10 +345,76 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  defp normalize_bulk_execution_profile(value) do
+    value =
+      value
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    if value in ["fast", "balanced", "deep"] do
+      value
+    else
+      "fast"
+    end
+  end
+
+  defp parse_positive_integer(nil, default), do: default
+
+  defp parse_positive_integer(value, default) do
+    case Integer.parse(to_string(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> default
+    end
+  end
+
+  defp bulk_count(job, key, default) do
+    payload = job.result_payload || job.progress_payload || %{}
+    Map.get(payload, key, default)
+  end
+
+  defp count_targets(job) do
+    job
+    |> Map.get(:payload, %{})
+    |> Map.get("targets", [])
+    |> List.wrap()
+    |> length()
+  end
+
+  defp bulk_rate(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+
+    case Map.get(payload, "targets_per_minute") do
+      value when is_float(value) -> "#{Float.round(value, 1)} targets/min"
+      value when is_integer(value) -> "#{value}.0 targets/min"
+      value when is_binary(value) -> "#{value} targets/min"
+      _ -> "-"
+    end
+  end
+
+  defp bulk_duration(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+
+    case Map.get(payload, "duration_ms") do
+      value when is_integer(value) and value > 0 ->
+        "#{div(value, 1000)}s"
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed > 0 -> "#{div(parsed, 1000)}s"
+          _ -> "-"
+        end
+
+      _ ->
+        "-"
+    end
+  end
+
   defp refresh_diagnostics(socket) do
     socket
     |> load_traces()
     |> load_pending_jobs()
+    |> load_bulk_jobs()
   end
 
   defp schedule_refresh(socket) do
@@ -317,6 +470,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  defp load_bulk_jobs(socket) do
+    case MtrData.list_bulk_jobs(
+           socket.assigns.current_scope,
+           target_filter: socket.assigns.filter_target,
+           agent_filter: socket.assigns.filter_agent
+         ) do
+      {:ok, jobs} -> assign(socket, :bulk_jobs, jobs)
+      {:error, _} -> assign(socket, :bulk_jobs, [])
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -362,7 +526,68 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               </svg>
               Run MTR
             </button>
+            <button type="button" phx-click="open_bulk_mtr_modal" class="btn btn-sm btn-secondary">
+              Bulk MTR
+            </button>
           </div>
+        </div>
+
+        <div :if={@bulk_jobs != []} class="overflow-x-auto">
+          <table class="table table-sm table-zebra">
+            <thead>
+              <tr>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Agent</th>
+                <th>Targets</th>
+                <th>Progress</th>
+                <th>Rate</th>
+                <th>Profile</th>
+                <th>Protocol</th>
+                <th>Job</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={job <- @bulk_jobs} class="hover">
+                <td class="whitespace-nowrap text-xs">{format_time(job.inserted_at)}</td>
+                <td>
+                  <span class={["badge badge-sm", pending_status_class(job.status)]}>
+                    {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
+                  </span>
+                </td>
+                <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
+                  {job.agent_id}
+                </td>
+                <td>{bulk_count(job, "total_targets", count_targets(job))}</td>
+                <td class="text-xs">
+                  {bulk_count(job, "completed_targets", 0)}/{bulk_count(
+                    job,
+                    "total_targets",
+                    count_targets(job)
+                  )} complete, {bulk_count(job, "failed_targets", 0)} failed, {bulk_count(
+                    job,
+                    "running_targets",
+                    0
+                  )} running
+                </td>
+                <td class="text-xs">
+                  <div>{bulk_rate(job)}</div>
+                  <div class="text-base-content/60">{bulk_duration(job)}</div>
+                </td>
+                <td>
+                  <span class="badge badge-ghost badge-sm">
+                    {String.upcase((job.payload || %{})["execution_profile"] || "fast")}
+                  </span>
+                </td>
+                <td>
+                  <span class="badge badge-ghost badge-sm">
+                    {String.upcase((job.payload || %{})["protocol"] || "icmp")}
+                  </span>
+                </td>
+                <td class="text-xs text-base-content/50">{job.id}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <form phx-change="filter" class="flex gap-3">
@@ -583,17 +808,116 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             <div class="modal-backdrop" phx-click="close_mtr_modal"></div>
           </div>
         <% end %>
+
+        <%= if @show_bulk_mtr_modal do %>
+          <div class="modal modal-open">
+            <div class="modal-box max-w-2xl">
+              <h3 class="font-bold text-lg mb-4">Run Bulk MTR</h3>
+
+              <div :if={@bulk_mtr_error} class="alert alert-error mb-4">
+                <span>{@bulk_mtr_error}</span>
+              </div>
+
+              <.form for={@bulk_mtr_form} phx-submit="run_bulk_mtr">
+                <div class="form-control mb-3">
+                  <label class="label">
+                    <span class="label-text">Targets</span>
+                  </label>
+                  <textarea
+                    name="bulk_mtr[targets]"
+                    class="textarea textarea-bordered min-h-48"
+                    placeholder="One hostname or IP per line"
+                    required
+                  ><%= @bulk_mtr_form["targets"].value %></textarea>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">Agent</span></label>
+                    <select name="bulk_mtr[agent_id]" class="select select-bordered" required>
+                      <option value="">Select an agent...</option>
+                      <%= for agent <- @mtr_agents do %>
+                        <option value={agent_id(agent)}>{agent_label(agent)}</option>
+                      <% end %>
+                    </select>
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">Protocol</span></label>
+                    <select name="bulk_mtr[protocol]" class="select select-bordered">
+                      <option value="icmp" selected={@bulk_mtr_form["protocol"].value == "icmp"}>
+                        ICMP
+                      </option>
+                      <option value="udp" selected={@bulk_mtr_form["protocol"].value == "udp"}>
+                        UDP
+                      </option>
+                      <option value="tcp" selected={@bulk_mtr_form["protocol"].value == "tcp"}>
+                        TCP
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">Execution Profile</span></label>
+                    <select name="bulk_mtr[execution_profile]" class="select select-bordered">
+                      <option
+                        value="fast"
+                        selected={@bulk_mtr_form["execution_profile"].value == "fast"}
+                      >
+                        Fast
+                      </option>
+                      <option
+                        value="balanced"
+                        selected={@bulk_mtr_form["execution_profile"].value == "balanced"}
+                      >
+                        Balanced
+                      </option>
+                      <option
+                        value="deep"
+                        selected={@bulk_mtr_form["execution_profile"].value == "deep"}
+                      >
+                        Deep
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">Concurrency</span></label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="256"
+                      name="bulk_mtr[concurrency]"
+                      value={@bulk_mtr_form["concurrency"].value}
+                      class="input input-bordered"
+                    />
+                  </div>
+                </div>
+
+                <div class="modal-action">
+                  <button type="button" phx-click="close_bulk_mtr_modal" class="btn">
+                    Cancel
+                  </button>
+                  <button type="submit" class="btn btn-secondary">
+                    Queue Bulk Job
+                  </button>
+                </div>
+              </.form>
+            </div>
+            <div class="modal-backdrop" phx-click="close_bulk_mtr_modal"></div>
+          </div>
+        <% end %>
       </div>
     </Layouts.app>
     """
   end
 
-  attr :page, :integer, required: true
-  attr :limit, :integer, required: true
-  attr :total_count, :integer, required: true
-  attr :query, :string, default: ""
-  attr :filter_target, :string, default: ""
-  attr :filter_agent, :string, default: ""
+  attr(:page, :integer, required: true)
+  attr(:limit, :integer, required: true)
+  attr(:total_count, :integer, required: true)
+  attr(:query, :string, default: "")
+  attr(:filter_target, :string, default: "")
+  attr(:filter_agent, :string, default: "")
 
   defp mtr_pagination(assigns) do
     total_pages = max(1, ceil(assigns.total_count / max(assigns.limit, 1)))

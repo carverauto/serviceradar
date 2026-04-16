@@ -35,6 +35,22 @@ var (
 	errNoTargetAddresses = errors.New("no addresses found for target")
 )
 
+const receivePollInterval = 250 * time.Millisecond
+
+// TargetInfo captures a resolved target address for tracer reuse.
+type TargetInfo struct {
+	IP        net.IP
+	IPVersion int
+}
+
+// TracerResources allows callers to inject reusable tracer dependencies.
+type TracerResources struct {
+	Target   *TargetInfo
+	Enricher *Enricher
+	DNS      *DNSResolver
+	Socket   RawSocket
+}
+
 // probeRecord tracks an in-flight probe.
 type probeRecord struct {
 	hopIndex int
@@ -45,22 +61,28 @@ type probeRecord struct {
 // Tracer executes MTR traces — sending probes with incrementing TTL
 // and collecting ICMP responses to build hop-by-hop path statistics.
 type Tracer struct {
-	opts     Options
-	logger   logger.Logger
-	enricher *Enricher
-	dns      *DNSResolver
-	sock     RawSocket
+	opts         Options
+	logger       logger.Logger
+	enricher     *Enricher
+	dns          *DNSResolver
+	sock         RawSocket
+	ownsEnricher bool
+	ownsDNS      bool
+	ownsSocket   bool
 
 	// resolved target address
 	targetIP  net.IP
 	ipVersion int
 
 	// probe state
-	hops     []*HopResult
-	probes   map[int]*probeRecord // seq -> probe
-	probesMu sync.Mutex
-	nextSeq  int
-	icmpID   int
+	hops              []*HopResult
+	probes            map[int]probeRecord // seq -> probe
+	probesMu          sync.Mutex
+	nextSeq           int
+	icmpID            int
+	payload           []byte
+	activeHopsScratch []*HopResult
+	expiredScratch    []probeRecord
 
 	// target reached flag
 	targetReached atomic.Bool
@@ -68,18 +90,36 @@ type Tracer struct {
 
 // NewTracer creates a new MTR tracer with the given options.
 func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, error) {
+	return NewTracerWithResources(ctx, opts, log, TracerResources{})
+}
+
+// ResolveTarget resolves a target once so callers can reuse the result.
+func ResolveTarget(ctx context.Context, target string) (*TargetInfo, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	// Resolve target.
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", opts.Target)
+	if ip := net.ParseIP(target); ip != nil {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			return &TargetInfo{
+				IP:        append(net.IP(nil), ipv4...),
+				IPVersion: 4,
+			}, nil
+		}
+
+		return &TargetInfo{
+			IP:        append(net.IP(nil), ip...),
+			IPVersion: 6,
+		}, nil
+	}
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", target)
 	if err != nil {
-		return nil, fmt.Errorf("resolve target %q: %w", opts.Target, err)
+		return nil, fmt.Errorf("resolve target %q: %w", target, err)
 	}
 
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("%w %q", errNoTargetAddresses, opts.Target)
+		return nil, fmt.Errorf("%w %q", errNoTargetAddresses, target)
 	}
 
 	// Prefer IPv4 unless only IPv6 is available.
@@ -101,51 +141,114 @@ func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, e
 		ipVersion = 6
 	}
 
-	// Create enricher (graceful degradation if MMDB unavailable).
-	enricher, enrichErr := NewEnricher(opts.ASNDBPath)
-	if enrichErr != nil {
-		log.Warn().Err(enrichErr).Msg("ASN enrichment unavailable")
+	return &TargetInfo{
+		IP:        append(net.IP(nil), targetIP...),
+		IPVersion: ipVersion,
+	}, nil
+}
+
+// NewTracerWithResources creates a tracer using injected reusable dependencies.
+func NewTracerWithResources(
+	ctx context.Context,
+	opts Options,
+	log logger.Logger,
+	resources TracerResources,
+) (*Tracer, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	target := resources.Target
+	if target == nil {
+		resolved, err := ResolveTarget(ctx, opts.Target)
+		if err != nil {
+			return nil, err
+		}
+		target = resolved
+	}
+
+	enricher := resources.Enricher
+	ownsEnricher := false
+	if enricher == nil {
+		var enrichErr error
+		enricher, enrichErr = NewEnricher(opts.ASNDBPath)
+		if enrichErr != nil {
+			log.Warn().Err(enrichErr).Msg("ASN enrichment unavailable")
+		}
+		ownsEnricher = true
 	}
 
 	return &Tracer{
-		opts:      opts,
-		logger:    log,
-		enricher:  enricher,
-		targetIP:  targetIP,
-		ipVersion: ipVersion,
-		hops:      make([]*HopResult, opts.MaxHops),
-		probes:    make(map[int]*probeRecord),
-		nextSeq:   nextProbeSeqStart(),
-		icmpID:    nextICMPID(),
+		opts:         opts,
+		logger:       log,
+		enricher:     enricher,
+		dns:          resources.DNS,
+		sock:         resources.Socket,
+		ownsEnricher: ownsEnricher,
+		targetIP:     append(net.IP(nil), target.IP...),
+		ipVersion:    target.IPVersion,
+		hops:         make([]*HopResult, opts.MaxHops),
+		probes:       make(map[int]probeRecord),
+		nextSeq:      nextProbeSeqStart(),
+		icmpID:       nextICMPID(),
 	}, nil
+}
+
+// ResetForTarget resets a tracer for another target while reusing internal buffers.
+func (t *Tracer) ResetForTarget(opts Options, target *TargetInfo) error {
+	if target == nil || len(target.IP) == 0 {
+		return errors.New("missing target info")
+	}
+
+	if t.sock != nil && t.sock.IsIPv6() != (target.IPVersion == 6) {
+		return fmt.Errorf("socket IP version mismatch for target %q", opts.Target)
+	}
+
+	t.opts = opts
+	t.targetIP = append(t.targetIP[:0], target.IP...)
+	t.ipVersion = target.IPVersion
+	t.resetRunState()
+
+	return nil
 }
 
 // Run executes a complete MTR trace and returns the enriched result.
 func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	isIPv6 := t.ipVersion == 6
 
-	sock, err := NewRawSocket(isIPv6)
-	if err != nil {
-		return nil, fmt.Errorf("create socket: %w", err)
+	if t.sock == nil {
+		sock, err := NewRawSocket(isIPv6)
+		if err != nil {
+			return nil, fmt.Errorf("create socket: %w", err)
+		}
+		t.sock = sock
+		t.ownsSocket = true
 	}
-
-	t.sock = sock
+	if t.sock.IsIPv6() != isIPv6 {
+		return nil, fmt.Errorf("socket IP version mismatch for target %q", t.opts.Target)
+	}
 	defer func() {
-		if closeErr := t.sock.Close(); closeErr != nil {
-			t.logger.Debug().Err(closeErr).Msg("close probe socket")
+		if t.ownsSocket && t.sock != nil {
+			if closeErr := t.sock.Close(); closeErr != nil {
+				t.logger.Debug().Err(closeErr).Msg("close probe socket")
+			}
+			t.sock = nil
 		}
 	}()
 
-	// Initialize DNS resolver if enabled.
-	if t.opts.DNSResolve {
-		t.dns = NewDNSResolver(ctx)
-		defer t.dns.Stop()
-	}
+	t.resetRunState()
 
-	// Initialize hops.
-	for i := range t.opts.MaxHops {
-		t.hops[i] = NewHopResult(i+1, t.opts.RingBufferSize)
+	// Initialize DNS resolver if enabled.
+	if t.opts.DNSResolve && t.dns == nil {
+		t.dns = NewDNSResolver(ctx)
+		t.ownsDNS = true
 	}
+	defer func() {
+		if t.ownsDNS && t.dns != nil {
+			t.dns.Stop()
+			t.dns = nil
+		}
+	}()
 
 	// Start receiver goroutine.
 	recvDone := make(chan struct{})
@@ -165,8 +268,10 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	<-drainCtx.Done()
 
 	// Signal receiver to stop.
-	if err := t.sock.Close(); err != nil {
-		t.logger.Debug().Err(err).Msg("close probe socket for receiver shutdown")
+	if t.ownsSocket && t.sock != nil {
+		if err := t.sock.Close(); err != nil {
+			t.logger.Debug().Err(err).Msg("close probe socket for receiver shutdown")
+		}
 	}
 	<-recvDone
 
@@ -204,10 +309,11 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			unknown := hop.Sent > 0 && hop.Received == 0 && hop.InFlight == 0
 			hop.mu.RUnlock()
 
+			if !unknown {
+				consecutiveUnknown = 0
+			}
 			if unknown {
 				consecutiveUnknown++
-			} else {
-				consecutiveUnknown = 0
 			}
 
 			if consecutiveUnknown >= t.opts.MaxUnknownHops {
@@ -219,7 +325,7 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			probeKey := seq
 
 			t.probesMu.Lock()
-			t.probes[probeKey] = &probeRecord{
+			t.probes[probeKey] = probeRecord{
 				hopIndex: hopIdx,
 				seq:      seq,
 				sentAt:   time.Now(),
@@ -284,10 +390,8 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			}
 
 			// Inter-probe delay.
-			select {
-			case <-ctx.Done():
+			if !waitForProbeInterval(ctx, t.opts.ProbeInterval) {
 				return
-			case <-time.After(t.opts.ProbeInterval):
 			}
 		}
 	}
@@ -300,7 +404,7 @@ func (t *Tracer) receiveLoop(ctx context.Context) {
 			return
 		}
 
-		deadline := time.Now().Add(t.opts.Timeout)
+		deadline := receiveDeadline(ctx, t.opts.Timeout)
 
 		resp, err := t.sock.Receive(deadline)
 		if err != nil {
@@ -322,6 +426,8 @@ func (t *Tracer) receiveLoop(ctx context.Context) {
 
 // handleResponse processes a received ICMP response.
 func (t *Tracer) handleResponse(resp *ICMPResponse) {
+	defer resp.Release()
+
 	seq, ok := t.matchProbeResponse(resp)
 	if !ok {
 		return
@@ -425,15 +531,15 @@ func (t *Tracer) enrichResults() {
 		return
 	}
 
-	// Collect hops that had at least one response.
-	var activeHops []*HopResult
-
+	activeHops := t.activeHopsScratch[:0]
 	for _, hop := range t.hops {
-		if hop.Addr != nil {
-			activeHops = append(activeHops, hop)
+		if hop == nil || hop.Addr == nil {
+			continue
 		}
-	}
 
+		activeHops = append(activeHops, hop)
+	}
+	t.activeHopsScratch = activeHops
 	t.enricher.EnrichHops(activeHops)
 }
 
@@ -486,21 +592,17 @@ func (t *Tracer) expireTimedOutProbes(now time.Time) {
 	}
 
 	cutoff := now.Add(-t.opts.Timeout)
-	expired := make([]*probeRecord, 0)
+	expired := t.expiredScratch[:0]
 
 	t.probesMu.Lock()
 	for key, probe := range t.probes {
-		if probe == nil {
-			delete(t.probes, key)
-			continue
-		}
-
 		if !probe.sentAt.After(cutoff) {
 			expired = append(expired, probe)
 			delete(t.probes, key)
 		}
 	}
 	t.probesMu.Unlock()
+	t.expiredScratch = expired[:0]
 
 	for _, probe := range expired {
 		if probe.hopIndex < 0 || probe.hopIndex >= len(t.hops) {
@@ -560,16 +662,45 @@ func nextProbeSeqStart() int {
 }
 
 func (t *Tracer) makePayload() []byte {
-	return make([]byte, max(t.opts.PacketSize, 0))
+	return t.payload
 }
 
 // Close releases resources held by the tracer.
 func (t *Tracer) Close() error {
-	if t.enricher != nil {
+	if t.ownsDNS && t.dns != nil {
+		t.dns.Stop()
+		t.dns = nil
+	}
+
+	if t.ownsSocket && t.sock != nil {
+		if err := t.sock.Close(); err != nil {
+			return err
+		}
+		t.sock = nil
+	}
+
+	if t.ownsEnricher && t.enricher != nil {
 		return t.enricher.Close()
 	}
 
 	return nil
+}
+
+func receiveDeadline(ctx context.Context, timeout time.Duration) time.Time {
+	now := time.Now()
+	deadline := now.Add(receivePollInterval)
+
+	if timeout > 0 && timeout < receivePollInterval {
+		deadline = now.Add(timeout)
+	}
+
+	if ctx != nil {
+		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+			return ctxDeadline
+		}
+	}
+
+	return deadline
 }
 
 func isTimeoutError(err error) bool {
@@ -586,4 +717,65 @@ func (t *Tracer) isTargetReached() bool {
 
 func (t *Tracer) setTargetReached(v bool) {
 	t.targetReached.Store(v)
+}
+
+func (t *Tracer) resetRunState() {
+	t.targetReached.Store(false)
+	t.nextSeq = nextProbeSeqStart()
+	t.icmpID = nextICMPID()
+	clear(t.probes)
+
+	t.preparePayloadBuffer(max(t.opts.PacketSize, 0))
+	t.prepareHopBuffer(t.opts.MaxHops)
+
+	for i := 0; i < t.opts.MaxHops; i++ {
+		if t.hops[i] == nil {
+			t.hops[i] = NewHopResult(i+1, t.opts.RingBufferSize)
+			continue
+		}
+
+		t.hops[i].Reset(i+1, t.opts.RingBufferSize)
+	}
+}
+
+func (t *Tracer) preparePayloadBuffer(payloadSize int) {
+	if cap(t.payload) < payloadSize {
+		t.payload = make([]byte, payloadSize)
+		return
+	}
+
+	t.payload = t.payload[:payloadSize]
+	clear(t.payload)
+}
+
+func (t *Tracer) prepareHopBuffer(maxHops int) {
+	if cap(t.hops) < maxHops {
+		t.hops = make([]*HopResult, maxHops)
+		return
+	}
+
+	t.hops = t.hops[:maxHops]
+}
+
+func waitForProbeInterval(ctx context.Context, probeInterval time.Duration) bool {
+	if probeInterval <= 0 {
+		return ctx.Err() == nil
+	}
+
+	timer := time.NewTimer(probeInterval)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

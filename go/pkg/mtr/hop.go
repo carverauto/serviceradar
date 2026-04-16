@@ -83,10 +83,10 @@ type HopResult struct {
 	m2   float64 // sum of squares of differences from mean
 
 	// Jitter tracking
-	prevRTT      int64 // previous RTT for jitter calc
-	jitterSum    float64
-	jitterCount  int
-	jitterWorst  int64
+	prevRTT            int64 // previous RTT for jitter calc
+	jitterSum          float64
+	jitterCount        int
+	jitterWorst        int64
 	jitterInterarrival float64 // RFC 1889 interarrival jitter
 
 	// Ring buffer of recent RTT samples (microseconds).
@@ -106,6 +106,43 @@ func NewHopResult(hopNumber int, ringBufferSize int) *HopResult {
 		HopNumber: hopNumber,
 		ringBuf:   make([]int64, ringBufferSize),
 		ringSize:  ringBufferSize,
+	}
+}
+
+// Reset clears accumulated hop state while reusing internal buffers.
+func (h *HopResult) Reset(hopNumber int, ringBufferSize int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if ringBufferSize <= 0 {
+		ringBufferSize = DefaultRingBufferSize
+	}
+
+	h.HopNumber = hopNumber
+	h.Addr = nil
+	h.Hostname = ""
+	h.ECMPAddrs = h.ECMPAddrs[:0]
+	h.ASN = ASNInfo{}
+	h.MPLSLabels = h.MPLSLabels[:0]
+	h.Sent = 0
+	h.Received = 0
+	h.InFlight = 0
+	h.Last = 0
+	h.Best = 0
+	h.Worst = 0
+	h.mean = 0
+	h.m2 = 0
+	h.prevRTT = 0
+	h.jitterSum = 0
+	h.jitterCount = 0
+	h.jitterWorst = 0
+	h.jitterInterarrival = 0
+	h.ringPos = 0
+	h.ringFull = false
+
+	if h.ringSize != ringBufferSize || len(h.ringBuf) != ringBufferSize {
+		h.ringBuf = make([]int64, ringBufferSize)
+		h.ringSize = ringBufferSize
 	}
 }
 
@@ -129,13 +166,12 @@ func (h *HopResult) AddSample(rtt time.Duration) {
 	if h.Received == 1 {
 		h.Best = us
 		h.Worst = us
-	} else {
-		if us < h.Best {
-			h.Best = us
-		}
-		if us > h.Worst {
-			h.Worst = us
-		}
+	}
+	if h.Received > 1 && us < h.Best {
+		h.Best = us
+	}
+	if h.Received > 1 && us > h.Worst {
+		h.Worst = us
 	}
 
 	// Welford's online algorithm for mean and variance.
@@ -189,13 +225,12 @@ func (h *HopResult) AddResponse(rtt time.Duration) {
 	if h.Received == 1 {
 		h.Best = us
 		h.Worst = us
-	} else {
-		if us < h.Best {
-			h.Best = us
-		}
-		if us > h.Worst {
-			h.Worst = us
-		}
+	}
+	if h.Received > 1 && us < h.Best {
+		h.Best = us
+	}
+	if h.Received > 1 && us > h.Worst {
+		h.Worst = us
 	}
 
 	// Welford's online algorithm for mean and variance.
@@ -354,10 +389,11 @@ func (h *HopResult) Samples() []int64 {
 		result = make([]int64, h.ringSize)
 		copy(result, h.ringBuf[h.ringPos:])
 		copy(result[h.ringSize-h.ringPos:], h.ringBuf[:h.ringPos])
-	} else {
-		result = make([]int64, h.ringPos)
-		copy(result, h.ringBuf[:h.ringPos])
+		return result
 	}
+
+	result = make([]int64, h.ringPos)
+	copy(result, h.ringBuf[:h.ringPos])
 
 	return result
 }
