@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     def get(url, _opts) do
       cond do
-        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
           {:ok,
            %Req.Response{
              status: 200,
@@ -34,18 +34,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v7.0.0",
                  "name" => "ServiceRadar 7.0.0",
                  "body" => "Imported release notes",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v7.0.0",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                  "published_at" => "2026-03-28T20:00:00Z",
                  "assets" => [
                    %{
                      "name" => "serviceradar-agent-release-manifest.json",
                      "browser_download_url" =>
-                       "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
+                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
                    },
                    %{
                      "name" => "serviceradar-agent-release-manifest.sig",
                      "browser_download_url" =>
-                       "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
+                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
                    }
                  ]
                },
@@ -53,20 +53,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v6.9.9",
                  "name" => "ServiceRadar 6.9.9",
                  "body" => "Missing manifest",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v6.9.9",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
                  "published_at" => "2026-03-27T20:00:00Z",
                  "assets" => [
                    %{
                      "name" => "serviceradar-agent-release-manifest.sig",
                      "browser_download_url" =>
-                       "https://github.com/carverauto/serviceradar/releases/download/v6.9.9/manifest.sig"
+                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v6.9.9/manifest.sig"
                    }
                  ]
                }
              ]
            }}
 
-        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v7.0.0") ->
+        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v7.0.0") ->
           {:ok,
            %Req.Response{
              status: 200,
@@ -74,17 +74,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                "tag_name" => "v7.0.0",
                "name" => "ServiceRadar 7.0.0",
                "body" => "Imported release notes",
-               "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v7.0.0",
+               "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",
                    "browser_download_url" =>
-                     "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
+                     "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
                  },
                  %{
                    "name" => "serviceradar-agent-release-manifest.sig",
                    "browser_download_url" =>
-                     "https://github.com/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
+                     "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
                  }
                ]
              }
@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
             "format" => "tar.gz",
             "entrypoint" => "serviceradar-agent",
             "url" =>
-              "https://github.com/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent-linux-amd64.tar.gz",
+              "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent-linux-amd64.tar.gz",
             "sha256" => String.duplicate("a", 64)
           }
         ]
@@ -170,6 +170,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "Agent Releases"
     assert html =~ "Publish Release"
     assert html =~ "Create Rollout"
+    assert html =~ "https://code.carverauto.dev/carverauto/serviceradar"
+    refute html =~ "Release Provider"
   end
 
   test "prefills the rollout form from agent inventory handoff params", %{conn: conn} do
@@ -249,8 +251,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     lv
     |> form("#import-release-form", %{
       "release_import" => %{
-        "provider" => "github",
-        "repo_url" => "https://github.com/carverauto/serviceradar",
+        "repo_url" => "https://code.carverauto.dev/carverauto/serviceradar",
         "release_tag" => "v7.0.0",
         "manifest_asset_name" => "serviceradar-agent-release-manifest.json",
         "signature_asset_name" => "serviceradar-agent-release-manifest.sig"
@@ -258,8 +259,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     })
     |> render_submit()
 
-    assert render(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
-    assert render(lv) =~ "GitHub Releases"
+    assert render(lv) =~ "Imported and published agent release 7.0.0 from Forgejo Releases"
+    assert render(lv) =~ "Forgejo Releases"
     assert render(lv) =~ "carverauto/serviceradar"
 
     release =
@@ -268,7 +269,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       |> Ash.read_one!(scope: scope)
 
     assert release.release_notes == "Imported release notes"
-    assert get_in(release.metadata, ["source", "provider"]) == "github"
+    assert get_in(release.metadata, ["source", "provider"]) == "forgejo"
     assert get_in(release.metadata, ["source", "release_tag"]) == "v7.0.0"
   end
 
@@ -293,7 +294,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     |> element("button[phx-value-release_tag='v7.0.0']")
     |> render_click()
 
-    assert render(lv) =~ "Imported and published agent release 7.0.0 from GitHub Releases"
+    assert render(lv) =~ "Imported and published agent release 7.0.0 from Forgejo Releases"
 
     release =
       AgentRelease

@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
         "format" => "tar.gz",
         "entrypoint" => "serviceradar-agent",
         "url" =>
-          "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-linux-amd64.tar.gz",
+          "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-linux-amd64.tar.gz",
         "sha256" => String.duplicate("a", 64)
       }
     ]
@@ -23,14 +23,14 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
   def manifest_json, do: Jason.encode!(@manifest)
   def signature, do: @signature
 
-  defmodule GitHubClient do
+  defmodule ForgejoClient do
     @moduledoc false
 
     alias ServiceRadarWebNG.Edge.ReleaseSourceImporterTest
 
     def get(url, _opts) do
       cond do
-        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
           {:ok,
            %Req.Response{
              status: 200,
@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                  "tag_name" => "v1.2.4",
                  "name" => "ServiceRadar 1.2.4",
                  "body" => "Newest release",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.4",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.2.4",
                  "published_at" => "2026-03-28T20:00:00Z",
                  "assets" => [
                    %{"name" => "serviceradar-agent-release-manifest.json"},
@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                  "tag_name" => "v1.2.3",
                  "name" => "ServiceRadar 1.2.3",
                  "body" => "Missing manifest asset",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.2.3",
                  "published_at" => "2026-03-27T20:00:00Z",
                  "assets" => [
                    %{"name" => "serviceradar-agent-release-manifest.sig"}
@@ -59,25 +59,25 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
              ]
            }}
 
-        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
+        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
           {:ok,
            %Req.Response{
              status: 200,
              body: %{
                "tag_name" => "v1.2.3",
                "name" => "ServiceRadar 1.2.3",
-               "body" => "GitHub release notes",
-               "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
+               "body" => "Forgejo release notes",
+               "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.2.3",
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",
                    "browser_download_url" =>
-                     "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-release-manifest.json"
+                     "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-release-manifest.json"
                  },
                  %{
                    "name" => "serviceradar-agent-release-manifest.sig",
                    "browser_download_url" =>
-                     "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-release-manifest.sig"
+                     "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-agent-release-manifest.sig"
                  }
                ]
              }
@@ -152,71 +152,58 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     :ok
   end
 
-  test "imports a GitHub release manifest and signature" do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, GitHubClient)
+  test "imports a Forgejo release manifest and signature" do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ForgejoClient)
 
     assert {:ok, attrs} =
              ReleaseSourceImporter.import(%{
-               "provider" => "github",
-               "repo_url" => "https://github.com/carverauto/serviceradar",
+               "repo_url" => "https://code.carverauto.dev/carverauto/serviceradar",
                "release_tag" => "v1.2.3"
              })
 
     assert attrs.version == "1.2.3"
     assert attrs.signature == @signature
-    assert attrs.release_notes == "GitHub release notes"
+    assert attrs.release_notes == "Forgejo release notes"
     assert attrs.manifest == @manifest
-    assert get_in(attrs, [:metadata, "source", "provider"]) == "github"
-    assert get_in(attrs, [:metadata, "source", "repo_url"]) == "https://github.com/carverauto/serviceradar"
-  end
-
-  test "imports a Forgejo release manifest with custom asset names" do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ForgejoClient)
-
-    assert {:ok, attrs} =
-             ReleaseSourceImporter.import(%{
-               "provider" => "forgejo",
-               "repo_url" => "https://code.carverauto.dev/acme/serviceradar",
-               "release_tag" => "v9.9.9",
-               "manifest_asset_name" => "custom-manifest.json",
-               "signature_asset_name" => "custom-manifest.sig"
-             })
-
-    assert attrs.version == "1.2.3"
     assert get_in(attrs, [:metadata, "source", "provider"]) == "forgejo"
 
     assert get_in(attrs, [:metadata, "source", "repo_url"]) ==
-             "https://code.carverauto.dev/acme/serviceradar"
+             "https://code.carverauto.dev/carverauto/serviceradar"
   end
 
   test "rejects Forgejo repository URLs on untrusted hosts" do
     assert {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"} =
              ReleaseSourceImporter.import(%{
-               "provider" => "forgejo",
                "repo_url" => "https://forgejo.example.com/acme/serviceradar",
                "release_tag" => "v9.9.9"
              })
   end
 
+  test "rejects GitHub repository URLs for agent release import" do
+    assert {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"} =
+             ReleaseSourceImporter.import(%{
+               "repo_url" => "https://github.com/carverauto/serviceradar",
+               "release_tag" => "v1.2.3"
+             })
+  end
+
   test "returns a helpful error when the release asset is missing" do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, GitHubClient)
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ForgejoClient)
 
     assert {:error, "Release asset missing.sig was not found"} =
              ReleaseSourceImporter.import(%{
-               "provider" => "github",
-               "repo_url" => "https://github.com/carverauto/serviceradar",
+               "repo_url" => "https://code.carverauto.dev/carverauto/serviceradar",
                "release_tag" => "v1.2.3",
                "signature_asset_name" => "missing.sig"
              })
   end
 
   test "lists recent releases with import readiness" do
-    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, GitHubClient)
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ForgejoClient)
 
     assert {:ok, [latest, previous]} =
              ReleaseSourceImporter.list_recent_releases(%{
-               "provider" => "github",
-               "repo_url" => "https://github.com/carverauto/serviceradar"
+               "repo_url" => "https://code.carverauto.dev/carverauto/serviceradar"
              })
 
     assert latest.tag == "v1.2.4"
