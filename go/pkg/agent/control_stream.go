@@ -565,13 +565,22 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 		return
 	}
 
+	execArgs, err := validateReleaseActivationExecArgs(result.Version, cmd.CommandId, cmd.CommandType)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to validate updater activation arguments", map[string]interface{}{
+			"status": "failed",
+			"reason": err.Error(),
+		}))
+		return
+	}
+
 	updaterCmd := exec.CommandContext(
 		ctx,
 		updaterPath,
 		"--runtime-root", result.RuntimeRoot,
-		"--version", result.Version,
-		"--command-id", cmd.CommandId,
-		"--command-type", cmd.CommandType,
+		"--version", execArgs.Version,
+		"--command-id", execArgs.CommandID,
+		"--command-type", execArgs.CommandType,
 		"--rollback-deadline", "3m0s",
 	)
 	updaterCmd.Stdout = os.Stdout

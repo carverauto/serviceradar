@@ -411,8 +411,11 @@ func resolveReleaseRuntimeRoot(configured string) string {
 }
 
 func releaseVersionDir(runtimeRoot, version string) (string, error) {
-	clean := strings.TrimSpace(version)
-	if clean == "" || clean == "." || strings.Contains(clean, string(filepath.Separator)) || strings.Contains(clean, "..") {
+	clean, err := normalizeManagedReleaseVersion(version)
+	if err != nil {
+		return "", err
+	}
+	if clean == "." || strings.Contains(clean, string(filepath.Separator)) || strings.Contains(clean, "..") {
 		return "", errReleaseVersionPathInvalid
 	}
 	return filepath.Join(runtimeRoot, releaseVersionsDirName, clean), nil
