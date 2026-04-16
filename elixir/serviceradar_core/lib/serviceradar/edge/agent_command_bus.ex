@@ -245,6 +245,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
 
   defp ensure_dispatch_capacity(agent_id, "mtr.run", _source, ash_opts) do
+    now = DateTime.utc_now()
+
     query =
       AgentCommand
       |> Ash.Query.for_read(:read, %{})
@@ -252,6 +254,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         expr(
           agent_id == ^agent_id and command_type == "mtr.run" and
             status in ^@active_mtr_statuses and
+            (is_nil(expires_at) or expires_at > ^now) and
             fragment("(? ->> 'trigger_mode') IS NULL", context)
         )
       )
