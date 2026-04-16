@@ -142,6 +142,35 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert Enum.all?(commands, &(&1.status == :sent))
     end
 
+    test "expired active mtr commands do not count toward the concurrency limit", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      _stale_one =
+        create_mtr_command(actor, agent_id, "1.1.1.1",
+          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          status: :sent
+        )
+
+      _stale_two =
+        create_mtr_command(actor, agent_id, "8.8.8.8",
+          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          status: :acknowledged
+        )
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch(agent_id, "mtr.run", %{target: "9.9.9.9"})
+
+      command = wait_for_status(command_id, :sent, actor)
+      assert command.agent_id == agent_id
+    end
+
     test "automation dispatches bypass the on-demand mtr concurrency limit", %{
       agent_id: agent_id,
       actor: actor
@@ -307,6 +336,38 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end)
 
     {pid, metadata}
+  end
+
+  defp create_mtr_command(actor, agent_id, target, opts) do
+    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 60, :second))
+    status = Keyword.get(opts, :status, :queued)
+
+    {:ok, command} =
+      AgentCommand.create_command(
+        %{
+          command_type: "mtr.run",
+          agent_id: agent_id,
+          partition_id: "default",
+          payload: %{"target" => target},
+          ttl_seconds: 60,
+          expires_at: expires_at
+        },
+        actor: actor
+      )
+
+    case status do
+      :queued ->
+        command
+
+      :sent ->
+        {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+        command
+
+      :acknowledged ->
+        {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+        {:ok, command} = AgentCommand.acknowledge(command, [message: "ack"], actor: actor)
+        command
+    end
   end
 
   defp wait_for_status(command_id, expected_status, actor) do
