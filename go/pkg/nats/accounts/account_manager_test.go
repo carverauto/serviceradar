@@ -24,6 +24,9 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
+const dockerComposeMaxFileStoreBytes int64 = 10 * 1000 * 1000 * 1000
+const dockerComposeDatasvcBucketMaxBytes int64 = 5 * 1024 * 1024 * 1024
+
 func TestNewAccountSigner(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
@@ -185,8 +188,22 @@ func TestAccountSigner_CreateAccount_DefaultJetStreamLimitsAreFinite(t *testing.
 	if claims.Limits.DiskStorage <= 0 {
 		t.Errorf("DiskStorage = %d, want finite positive limit", claims.Limits.DiskStorage)
 	}
+	if claims.Limits.DiskStorage > dockerComposeMaxFileStoreBytes {
+		t.Errorf(
+			"DiskStorage = %d, exceeds docker compose NATS max_file_store budget %d",
+			claims.Limits.DiskStorage,
+			dockerComposeMaxFileStoreBytes,
+		)
+	}
 	if claims.Limits.Streams <= 0 {
 		t.Errorf("Streams = %d, want finite positive limit", claims.Limits.Streams)
+	}
+	if claims.Limits.DiskMaxStreamBytes < dockerComposeDatasvcBucketMaxBytes {
+		t.Errorf(
+			"DiskMaxStreamBytes = %d, want at least compose datasvc bucket limit %d",
+			claims.Limits.DiskMaxStreamBytes,
+			dockerComposeDatasvcBucketMaxBytes,
+		)
 	}
 	if claims.Limits.Consumer <= 0 {
 		t.Errorf("Consumer = %d, want finite positive limit", claims.Limits.Consumer)
