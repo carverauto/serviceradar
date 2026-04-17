@@ -243,16 +243,46 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
     command_id = map_get_any(data, [:command_id, "command_id"], nil)
     persist_bulk_target_updates(command_id, updates)
-
-    Enum.each(updates, fn update ->
-      command_id = map_get_any(data, [:command_id, "command_id"], nil)
-      maybe_ingest_bulk_target_trace(command_id, data, update)
-    end)
+    ingest_bulk_target_traces(command_id, data, updates)
   end
 
   defp ingest_bulk_mtr_progress(_payload, _data), do: :ok
 
-  defp maybe_ingest_bulk_target_trace(command_id, data, update) do
+  defp ingest_bulk_target_traces(nil, _data, _updates), do: :ok
+  defp ingest_bulk_target_traces(_command_id, _data, []), do: :ok
+
+  defp ingest_bulk_target_traces(command_id, data, updates) when is_list(updates) do
+    results =
+      updates
+      |> Enum.map(&bulk_ingest_result(command_id, data, &1))
+      |> Enum.reject(&is_nil/1)
+
+    if results != [] do
+      status_payload = build_ingest_status(data)
+
+      case MtrMetricsIngestor.ingest(%{"results" => results}, status_payload) do
+        :ok ->
+          Enum.each(results, fn result ->
+            _ =
+              MtrPubSub.broadcast_ingest(%{
+                command_id: command_id,
+                target: result["target"],
+                agent_id: Map.get(data, :agent_id)
+              })
+          end)
+
+        {:error, reason} ->
+          Logger.warning(
+            "AgentCommandStatusHandler: failed to ingest bulk MTR results",
+            command_id: command_id,
+            reason: inspect(reason),
+            target_count: length(results)
+          )
+      end
+    end
+  end
+
+  defp bulk_ingest_result(command_id, data, update) when is_map(update) do
     trace = map_get_any(update, ["trace", :trace], nil)
     target = map_get_any(update, ["target", :target], "")
     status = normalize_bulk_target_status(map_get_any(update, ["status", :status], "queued"))
@@ -262,53 +292,20 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         map_get_any(trace, ["timestamp", :timestamp], nil) ||
           map_get_any(data, [:timestamp, "timestamp"], nil)
 
-      mtr_payload =
-        build_bulk_ingest_payload(
-          data,
-          trace,
-          target,
-          timestamp,
-          "#{command_id}:#{target}"
-        )
-
-      status_payload = build_ingest_status(data)
-
-      case MtrMetricsIngestor.ingest(mtr_payload, status_payload) do
-        :ok ->
-          _ =
-            MtrPubSub.broadcast_ingest(%{
-              command_id: command_id,
-              target: target,
-              agent_id: Map.get(data, :agent_id)
-            })
-
-        {:error, reason} ->
-          Logger.warning(
-            "AgentCommandStatusHandler: failed to ingest bulk MTR result: #{inspect(reason)}",
-            command_id: command_id,
-            target: target,
-            reason: inspect(reason)
-          )
-      end
+      %{
+        "check_id" => "#{command_id}:#{target}",
+        "check_name" => "bulk-mtr",
+        "target" => target,
+        "available" => map_get_any(trace, ["target_reached", :target_reached], false) == true,
+        "trace" => trace,
+        "timestamp" => timestamp,
+        "error" => nil,
+        "device_id" => map_get_any(data, [:command_id, "command_id"], nil)
+      }
     end
   end
 
-  defp build_bulk_ingest_payload(data, trace, target, timestamp, check_id) do
-    %{
-      "results" => [
-        %{
-          "check_id" => check_id,
-          "check_name" => "bulk-mtr",
-          "target" => target,
-          "available" => map_get_any(trace, ["target_reached", :target_reached], false) == true,
-          "trace" => trace,
-          "timestamp" => timestamp,
-          "error" => nil,
-          "device_id" => map_get_any(data, [:command_id, "command_id"], nil)
-        }
-      ]
-    }
-  end
+  defp bulk_ingest_result(_command_id, _data, _update), do: nil
 
   defp persist_bulk_target_updates(nil, _updates), do: :ok
   defp persist_bulk_target_updates(_command_id, []), do: :ok

@@ -25,10 +25,8 @@ import (
 
 const defaultRecvBufferSize = 1500
 
-var recvBufferPool = sync.Pool{
-	New: func() any {
-		return make([]byte, defaultRecvBufferSize)
-	},
+type recvBufferPool struct {
+	pool sync.Pool
 }
 
 // ICMPResponse represents a received ICMP packet with metadata.
@@ -67,7 +65,8 @@ type ICMPResponse struct {
 	// expressed in 32-bit words. Used for RFC 4884 extension parsing.
 	ICMPLengthField int
 
-	recvBuf []byte
+	recvBuf  []byte
+	recvPool *recvBufferPool
 }
 
 // RawSocket abstracts raw ICMP socket operations for platform portability.
@@ -91,8 +90,23 @@ type RawSocket interface {
 	IsIPv6() bool
 }
 
-func getRecvBuffer(size int) []byte {
-	buf := recvBufferPool.Get().([]byte)
+func newRecvBufferPool() recvBufferPool {
+	return recvBufferPool{
+		pool: sync.Pool{
+			New: func() any {
+				buf := make([]byte, defaultRecvBufferSize)
+				return &buf
+			},
+		},
+	}
+}
+
+func (p *recvBufferPool) get(size int) []byte {
+	if p == nil {
+		return make([]byte, size)
+	}
+
+	buf := *(p.pool.Get().(*[]byte))
 	if cap(buf) < size {
 		return make([]byte, size)
 	}
@@ -100,12 +114,16 @@ func getRecvBuffer(size int) []byte {
 	return buf[:size]
 }
 
-func putRecvBuffer(buf []byte) {
+func (p *recvBufferPool) put(buf []byte) {
+	if p == nil {
+		return
+	}
 	if cap(buf) < defaultRecvBufferSize {
 		return
 	}
 
-	recvBufferPool.Put(buf[:defaultRecvBufferSize])
+	reusable := buf[:defaultRecvBufferSize]
+	p.pool.Put(&reusable)
 }
 
 // Release returns pooled receive storage back to the raw-socket buffer pool.
@@ -114,8 +132,9 @@ func (r *ICMPResponse) Release() {
 		return
 	}
 
-	putRecvBuffer(r.recvBuf)
+	r.recvPool.put(r.recvBuf)
 	r.recvBuf = nil
+	r.recvPool = nil
 	r.Payload = nil
 }
 

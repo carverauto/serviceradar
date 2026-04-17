@@ -88,6 +88,11 @@ type Tracer struct {
 	targetReached atomic.Bool
 }
 
+var (
+	errMissingTargetInfo       = errors.New("missing target info")
+	errSocketIPVersionMismatch = errors.New("socket IP version mismatch")
+)
+
 // NewTracer creates a new MTR tracer with the given options.
 func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, error) {
 	return NewTracerWithResources(ctx, opts, log, TracerResources{})
@@ -197,11 +202,11 @@ func NewTracerWithResources(
 // ResetForTarget resets a tracer for another target while reusing internal buffers.
 func (t *Tracer) ResetForTarget(opts Options, target *TargetInfo) error {
 	if target == nil || len(target.IP) == 0 {
-		return errors.New("missing target info")
+		return errMissingTargetInfo
 	}
 
 	if t.sock != nil && t.sock.IsIPv6() != (target.IPVersion == 6) {
-		return fmt.Errorf("socket IP version mismatch for target %q", opts.Target)
+		return fmt.Errorf("%w for target %q", errSocketIPVersionMismatch, opts.Target)
 	}
 
 	t.opts = opts
@@ -225,7 +230,7 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 		t.ownsSocket = true
 	}
 	if t.sock.IsIPv6() != isIPv6 {
-		return nil, fmt.Errorf("socket IP version mismatch for target %q", t.opts.Target)
+		return nil, fmt.Errorf("%w for target %q", errSocketIPVersionMismatch, t.opts.Target)
 	}
 	defer func() {
 		if t.ownsSocket && t.sock != nil {

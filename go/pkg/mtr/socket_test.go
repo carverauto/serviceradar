@@ -8,10 +8,12 @@ import (
 func TestICMPResponseReleaseClearsPooledPayload(t *testing.T) {
 	t.Parallel()
 
-	buf := getRecvBuffer(defaultRecvBufferSize)
+	pool := newRecvBufferPool()
+	buf := pool.get(defaultRecvBufferSize)
 	resp := &ICMPResponse{
-		Payload: buf[:32],
-		recvBuf: buf,
+		Payload:  buf[:32],
+		recvBuf:  buf,
+		recvPool: &pool,
 	}
 
 	resp.Release()

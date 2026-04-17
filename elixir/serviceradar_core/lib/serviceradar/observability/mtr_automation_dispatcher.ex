@@ -63,15 +63,31 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp baseline_targets_from_srql(srql_query, limit) do
+  @spec target_contexts_from_srql(String.t(), pos_integer(), keyword()) ::
+          {:ok, [target_ctx()]} | {:error, term()}
+  def target_contexts_from_srql(srql_query, limit, opts \\ [])
+      when is_binary(srql_query) and is_integer(limit) and limit > 0 and is_list(opts) do
     query = normalize_srql_target_query(srql_query, limit)
 
-    case SRQLRunner.query(query, limit: limit) do
+    case SRQLRunner.query(query, Keyword.merge([limit: limit], opts)) do
       {:ok, rows} when is_list(rows) ->
-        rows
-        |> Enum.map(&row_to_target_ctx/1)
-        |> Enum.reject(&is_nil/1)
-        |> enforce_managed_baseline_targets(srql_query)
+        targets =
+          rows
+          |> Enum.map(&row_to_target_ctx/1)
+          |> Enum.reject(&is_nil/1)
+          |> enforce_managed_baseline_targets(srql_query)
+
+        {:ok, targets}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp baseline_targets_from_srql(srql_query, limit) do
+    case target_contexts_from_srql(srql_query, limit) do
+      {:ok, targets} ->
+        targets
 
       {:error, reason} ->
         Logger.warning("MTR baseline SRQL query failed",
