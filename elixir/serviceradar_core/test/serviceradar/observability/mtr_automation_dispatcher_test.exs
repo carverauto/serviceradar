@@ -110,6 +110,73 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
              ]
     end
 
+    test "continues paging until it finds enough eligible target contexts" do
+      translate_fn = fn
+        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
+             "params" => [],
+             "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
+           })}
+
+        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
+             "params" => [],
+             "pagination" => %{"limit" => 2}
+           })}
+      end
+
+      query_fn = fn
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_1", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               [nil, "ignored-01", "dev-ignored-1", "p1", "gw-1"],
+               [nil, "ignored-02", "dev-ignored-2", "p1", "gw-1"]
+             ]
+           }}
+
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_2", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               ["192.0.2.10", "edge-01", "dev-1", "p1", "gw-1"],
+               ["192.0.2.11", "edge-02", "p2-dev-2", "p2", nil]
+             ]
+           }}
+      end
+
+      assert {:ok, targets} =
+               MtrAutomationDispatcher.target_contexts_from_srql("tags.role:edge", 2,
+                 translate_fn: translate_fn,
+                 query_fn: query_fn
+               )
+
+      assert targets == [
+               %{
+                 target: "edge-01",
+                 target_ip: "192.0.2.10",
+                 target_device_uid: "dev-1",
+                 partition_id: "p1",
+                 gateway_id: "gw-1",
+                 target_key: "device:dev-1"
+               },
+               %{
+                 target: "edge-02",
+                 target_ip: "192.0.2.11",
+                 target_device_uid: "p2-dev-2",
+                 partition_id: "p2",
+                 gateway_id: nil,
+                 target_key: "device:p2-dev-2"
+               }
+             ]
+    end
+
     test "returns SRQL errors" do
       translate_fn = fn "in:devices hostname:bad limit:10", 10, nil, nil, nil ->
         {:error, :bad_query}

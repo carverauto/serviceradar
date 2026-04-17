@@ -68,20 +68,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   def target_contexts_from_srql(srql_query, limit, opts \\ [])
       when is_binary(srql_query) and is_integer(limit) and limit > 0 and is_list(opts) do
     query = normalize_srql_target_query(srql_query, limit)
-
-    case SRQLRunner.query(query, Keyword.merge([limit: limit], opts)) do
-      {:ok, rows} when is_list(rows) ->
-        targets =
-          rows
-          |> Enum.map(&row_to_target_ctx/1)
-          |> Enum.reject(&is_nil/1)
-          |> enforce_managed_baseline_targets(srql_query)
-
-        {:ok, targets}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    collect_target_contexts(query, srql_query, limit, nil, [], MapSet.new(), MapSet.new(), opts)
   end
 
   defp baseline_targets_from_srql(srql_query, limit) do
@@ -96,6 +83,64 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         )
 
         []
+    end
+  end
+
+  defp collect_target_contexts(
+         query,
+         srql_query,
+         limit,
+         cursor,
+         acc,
+         seen_targets,
+         seen_cursors,
+         opts
+       ) do
+    page_opts =
+      opts
+      |> Keyword.put(:limit, limit)
+      |> maybe_put_cursor(cursor)
+
+    case SRQLRunner.query_page(query, page_opts) do
+      {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
+        {acc, seen_targets} =
+          rows
+          |> Enum.map(&row_to_target_ctx/1)
+          |> Enum.reject(&is_nil/1)
+          |> enforce_managed_baseline_targets(srql_query)
+          |> Enum.reduce({acc, seen_targets}, fn target, {targets, seen} ->
+            target_id = Map.get(target, :target_key) || Map.get(target, :target_ip)
+
+            if is_binary(target_id) and MapSet.member?(seen, target_id) do
+              {targets, seen}
+            else
+              {targets ++ [target], MapSet.put(seen, target_id)}
+            end
+          end)
+
+        cond do
+          length(acc) >= limit ->
+            {:ok, Enum.take(acc, limit)}
+
+          is_binary(next_cursor) and next_cursor != "" and
+              not MapSet.member?(seen_cursors, next_cursor) ->
+            collect_target_contexts(
+              query,
+              srql_query,
+              limit,
+              next_cursor,
+              acc,
+              seen_targets,
+              MapSet.put(seen_cursors, next_cursor),
+              opts
+            )
+
+          true ->
+            {:ok, acc}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -841,6 +886,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       "#{query} limit:#{limit}"
     end
   end
+
+  defp maybe_put_cursor(opts, nil), do: opts
+  defp maybe_put_cursor(opts, ""), do: opts
+  defp maybe_put_cursor(opts, cursor), do: Keyword.put(opts, :cursor, cursor)
 
   defp normalize_srql_entity_prefix(""), do: "in:devices"
 

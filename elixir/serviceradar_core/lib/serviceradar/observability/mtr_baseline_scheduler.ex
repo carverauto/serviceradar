@@ -174,7 +174,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
 
   defp ensure_bulk_policy_ready(policy_id, interval_seconds) do
     query = """
-    SELECT status, inserted_at, completed_at
+    SELECT status, inserted_at, completed_at, expires_at
     FROM platform.agent_commands
     WHERE command_type = 'mtr.bulk_run'
       AND context ->> 'mtr_policy_id' = $1
@@ -183,11 +183,16 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
     """
 
     case Repo.query(query, [to_string(policy_id)]) do
-      {:ok, %{rows: [[status, _inserted_at, completed_at]]}} ->
+      {:ok, %{rows: [[status, _inserted_at, completed_at, expires_at]]}} ->
         completed_at = normalize_datetime(completed_at)
+        expires_at = normalize_datetime(expires_at)
+
+        active_unexpired? =
+          status in ["queued", "sent", "acknowledged", "running"] and
+            (is_nil(expires_at) or DateTime.after?(expires_at, DateTime.utc_now()))
 
         cond do
-          status in ["queued", "sent", "acknowledged", "running"] ->
+          active_unexpired? ->
             {:error, :cooldown_active}
 
           match?(%DateTime{}, completed_at) and
