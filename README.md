@@ -9,19 +9,10 @@
 
 Active source development and releases now live at `https://code.carverauto.dev/carverauto/serviceradar`.
 
-<img width="1470" height="836" alt="Screenshot 2025-12-16 at 10 09 19 PM" src="https://github.com/user-attachments/assets/e64ca26b-f4d8-42df-ab81-2de1d7941f92" />
-<img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 39 36 PM" src="https://github.com/user-attachments/assets/4f959217-4e53-487b-ae78-30c2fd3344b3" />
-<img width="1470" height="804" alt="Screenshot 2026-02-16 at 8 36 26 PM" src="https://github.com/user-attachments/assets/bec3d2cb-c311-4a26-848d-2fece4a5af86" />
-<img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 37 08 PM" src="https://github.com/user-attachments/assets/0384520a-755f-4bdd-843a-a41f02d7c439" />
-
-
-https://github.com/user-attachments/assets/1cf2b90a-06f4-4ba7-b229-79720b16e0aa
-
 [![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git?ref=badge_shield&issueType=security)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11310/badge)](https://www.bestpractices.dev/projects/11310)
 <a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carverauto/serviceradar)
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting to ensure you stay informed even during network or power outages.
 
@@ -34,10 +25,10 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` p
 - **Topology**: GPU-native topology engine capable of rendering millions of interactive nodes and edges at 60fps via [deck.gl](https://deck.gl/), [Apache Arrow](https://arrow.apache.org/) for zero-copy streaming, and WASM-native logic layer.
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
-- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph topology data.
+- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
-- **Security**: Hardened with mTLS (SPIFFE/SPIRE on Kubernetes), RBAC, and SSO integration.
+- **Security**: Hardened with mTLS, RBAC, and SSO integration.
 
 ## WASM-Based Extensibility
 
@@ -55,9 +46,9 @@ ServiceRadar replaces traditional "script-and-shell" plugins with a [modern WebA
 
 ### Plug-in SDK
 
-**Go**: https://github.com/carverauto/serviceradar-sdk-go
+**Go**: https://code.carverauto.dev/carverauto/serviceradar-sdk-go
 
-**Rust**: https://github.com/carverauto/serviceradar-sdk-rust -- Coming Soon
+**Rust**: https://code.carverauto.dev/carverauto/serviceradar-sdk-rust
 
 ## Quick Installation (Docker Compose)
 
@@ -71,6 +62,7 @@ export GATEWAY_PUBLIC_BIND=0.0.0.0
 git clone https://code.carverauto.dev/carverauto/serviceradar.git
 cd serviceradar
 
+docker compose pull
 docker compose up -d
 
 # Get your admin password
@@ -85,18 +77,18 @@ ServiceRadar provides an official Helm chart for Kubernetes deployments, publish
 
 ```bash
 # Inspect chart metadata and default values
-helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.1.1
-helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.1.1 > values.yaml
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.16
+helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.16 > values.yaml
 
 # Install a pinned release (recommended)
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  --version 1.1.1 \
+  --version 1.2.16 \
   -n serviceradar --create-namespace \
-  --set global.imageTag="v1.1.1"
+  --set global.imageTag="v1.2.16"
 
 # Track mutable images (staging/dev): pulls :latest and forces re-pull
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  --version 1.1.1 \
+  --version 1.2.16 \
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
   --set global.imagePullPolicy="Always"
@@ -123,7 +115,7 @@ Verify a released or immutable image tag with:
 cosign verify \
   --experimental-oci11 \
   --key docs/cosign.pub \
-  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.10
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.16
 ```
 
 For build-specific images, prefer the immutable `sha-<commit>` tags:
@@ -150,13 +142,13 @@ cosign verify \
 ```
 
 Docker Compose notes:
-- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.1.1`).
+- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.2.16`).
 - Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
 
 **Chart URL:** `oci://registry.carverauto.dev/serviceradar/charts/serviceradar`
 
 Notes:
-- [Chart](helm/serviceradar/Chart.yaml) versions are like `1.1.1`; ServiceRadar image tags are like `v1.1.1`.
+- [Chart](helm/serviceradar/Chart.yaml) versions are like `1.2.16`; ServiceRadar image tags are like `v1.2.16`.
 - If your cluster requires registry credentials, set `image.registryPullSecret` (default `registry-carverauto-dev-cred`).
 
 For ArgoCD deployments, use `registry.carverauto.dev/serviceradar/charts` as the repository URL (without the `oci://` prefix):
@@ -174,11 +166,11 @@ spec:
   source:
     repoURL: registry.carverauto.dev/serviceradar/charts
     chart: serviceradar
-    targetRevision: "1.1.1"
+    targetRevision: "1.2.16"
     helm:
       values: |
         global:
-          imageTag: "v1.1.1"
+          imageTag: "v1.2.16"
 ```
 
 ## Architecture
@@ -194,6 +186,7 @@ spec:
 
 For detailed guides on setup, security, and WASM SDK usage, visit:
 **[https://docs.serviceradar.cloud](https://docs.serviceradar.cloud)**
+**[http://developer.serviceradar.cloud](http://developer.serviceradar.cloud/)**
 
 ## Contributing
 
