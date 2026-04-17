@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -18,6 +19,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @default_ttl_seconds 60
   @active_mtr_statuses [:queued, :sent, :acknowledged, :running]
   @max_concurrent_on_demand_mtr 2
+  @max_concurrent_bulk_mtr_jobs 1
   @send_timeout 5_000
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
@@ -62,6 +64,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp dispatch_created_command(command, ctx) do
+    persist_command_side_effects(command, ctx)
+
     command_request =
       build_command_request(
         command.id,
@@ -88,6 +92,45 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, reason} ->
         _ = mark_failed(command, reason, ctx.ash_opts)
         {:error, reason}
+    end
+  end
+
+  defp persist_command_side_effects(command, ctx) do
+    if ctx.command_type == "mtr.bulk_run" do
+      persist_bulk_mtr_targets(command.id, ctx.payload_json)
+    end
+  end
+
+  defp persist_bulk_mtr_targets(command_id, payload_json) do
+    with {:ok, %{"targets" => targets}} <- Jason.decode(payload_json),
+         true <- is_list(targets) do
+      now = DateTime.utc_now()
+
+      rows =
+        targets
+        |> Enum.map(&to_string/1)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+        |> Enum.map(fn target ->
+          %{
+            command_id: command_id,
+            target: target,
+            status: "queued",
+            inserted_at: now,
+            updated_at: now
+          }
+        end)
+
+      if rows != [] do
+        Repo.insert_all("mtr_bulk_job_targets", rows,
+          prefix: "platform",
+          on_conflict: :nothing,
+          conflict_target: [:command_id, :target]
+        )
+      end
+    else
+      _ -> :ok
     end
   end
 
@@ -198,6 +241,39 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
+  def dispatch_bulk_mtr(agent_id, targets, opts \\ []) when is_list(targets) do
+    normalized_targets =
+      targets
+      |> Enum.map(&to_string/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    payload =
+      %{
+        "targets" => normalized_targets,
+        "protocol" => normalize_mtr_protocol(Keyword.get(opts, :protocol, "icmp")),
+        "execution_profile" =>
+          normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
+      }
+      |> maybe_put("target_query", normalize_optional_string(Keyword.get(opts, :target_query)))
+      |> maybe_put("selector_limit", Keyword.get(opts, :selector_limit))
+      |> maybe_put("max_hops", Keyword.get(opts, :max_hops))
+      |> maybe_put("concurrency", Keyword.get(opts, :concurrency))
+
+    ttl_seconds =
+      opts
+      |> Keyword.get(:ttl_seconds, bulk_mtr_ttl_seconds(length(normalized_targets)))
+      |> max(60)
+
+    dispatch(agent_id, "mtr.bulk_run", payload,
+      ttl_seconds: ttl_seconds,
+      required_capability: "mtr",
+      context: Keyword.get(opts, :context, %{}),
+      actor: Keyword.get(opts, :actor)
+    )
+  end
+
   def start_camera_relay(agent_id, payload, opts \\ []) do
     payload = normalize_camera_relay_start_payload(payload)
 
@@ -270,6 +346,39 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       {:error, reason} ->
         Logger.warning("Failed to evaluate MTR dispatch capacity",
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp ensure_dispatch_capacity(agent_id, "mtr.bulk_run", _source, ash_opts) do
+    now = DateTime.utc_now()
+
+    query =
+      AgentCommand
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(
+        expr(
+          agent_id == ^agent_id and command_type == "mtr.bulk_run" and
+            status in ^@active_mtr_statuses and
+            (is_nil(expires_at) or expires_at > ^now)
+        )
+      )
+      |> Ash.Query.limit(@max_concurrent_bulk_mtr_jobs)
+      |> Ash.Query.select([:id])
+
+    case Ash.read(query, ash_opts) do
+      {:ok, commands} when length(commands) >= @max_concurrent_bulk_mtr_jobs ->
+        {:error, {:agent_busy, :bulk_mtr_job_running}}
+
+      {:ok, _commands} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to evaluate bulk MTR dispatch capacity",
           agent_id: agent_id,
           reason: inspect(reason)
         )
@@ -599,4 +708,42 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp capability_for_config_type(:sysmon), do: "sysmon"
   defp capability_for_config_type(:snmp), do: "snmp"
   defp capability_for_config_type(_), do: nil
+
+  defp bulk_mtr_ttl_seconds(target_count) when is_integer(target_count) and target_count > 0 do
+    max(300, target_count * 15)
+  end
+
+  defp bulk_mtr_ttl_seconds(_target_count), do: 300
+
+  defp normalize_bulk_execution_profile(value) do
+    value =
+      value
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    if value in ["fast", "balanced", "deep"], do: value, else: "fast"
+  end
+
+  defp normalize_optional_string(nil), do: nil
+
+  defp normalize_optional_string(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_mtr_protocol(value) do
+    value =
+      value
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    if value in ["icmp", "udp", "tcp"], do: value, else: "icmp"
+  end
 end

@@ -171,6 +171,137 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert command.agent_id == agent_id
     end
 
+    test "bulk mtr dispatch normalizes targets and persists queued target rows", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch_bulk_mtr(
+                 agent_id,
+                 [" 1.1.1.1 ", "1.1.1.1", "", "router-a"],
+                 protocol: "udp",
+                 concurrency: 24,
+                 context: %{"mtr_policy_id" => "policy-1"}
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      assert command.command_type == "mtr.bulk_run"
+
+      payload = Jason.decode!(command.payload_json)
+
+      assert payload["targets"] == ["1.1.1.1", "router-a"]
+      assert payload["protocol"] == "udp"
+      assert payload["concurrency"] == 24
+      assert context.mtr_policy_id == "policy-1"
+
+      command = wait_for_status(command_id, :sent, actor)
+
+      assert {:ok, %{rows: rows}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT target, status
+                 FROM platform.mtr_bulk_job_targets
+                 WHERE command_id = $1
+                 ORDER BY target
+                 """,
+                 [command.id]
+               )
+
+      assert rows == [["1.1.1.1", "queued"], ["router-a", "queued"]]
+    end
+
+    test "bulk mtr progress persists multiple target updates", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      ensure_status_handler_started()
+
+      command =
+        create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "router-a"], status: :acknowledged)
+
+      send(
+        StatusHandler,
+        {:command_progress,
+         %{
+           command_id: command.id,
+           command_type: "mtr.bulk_run",
+           message: "running",
+           progress_percent: 50,
+           payload: %{
+             "target_updates" => [
+               %{"target" => "1.1.1.1", "status" => "running", "attempt_count" => 1},
+               %{
+                 "target" => "router-a",
+                 "status" => "completed",
+                 "attempt_count" => 1,
+                 "result_payload" => %{"summary" => "ok"}
+               }
+             ]
+           }
+         }}
+      )
+
+      _command = wait_for_status(command.id, :running, actor)
+
+      assert {:ok, %{rows: rows}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT target, status, result_payload
+                 FROM platform.mtr_bulk_job_targets
+                 WHERE command_id = $1
+                 ORDER BY target
+                 """,
+                 [command.id]
+               )
+
+      assert rows == [
+               ["1.1.1.1", "running", nil],
+               ["router-a", "completed", %{"summary" => "ok"}]
+             ]
+    end
+
+    test "blocks bulk mtr dispatches while another bulk job is active", %{
+      agent_id: agent_id
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["1.1.1.1", "1.1.1.2"])
+
+      assert {:error, {:agent_busy, :bulk_mtr_job_running}} =
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["8.8.8.8"])
+    end
+
+    test "expired active bulk mtr commands do not block dispatch", %{
+      agent_id: agent_id
+    } do
+      actor = SystemActor.system(:agent_command_bus_test)
+
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "1.1.1.2"],
+        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        status: :sent
+      )
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["9.9.9.9"])
+    end
+
     test "automation dispatches bypass the on-demand mtr concurrency limit", %{
       agent_id: agent_id,
       actor: actor
@@ -350,6 +481,38 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           partition_id: "default",
           payload: %{"target" => target},
           ttl_seconds: 60,
+          expires_at: expires_at
+        },
+        actor: actor
+      )
+
+    case status do
+      :queued ->
+        command
+
+      :sent ->
+        {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+        command
+
+      :acknowledged ->
+        {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+        {:ok, command} = AgentCommand.acknowledge(command, [message: "ack"], actor: actor)
+        command
+    end
+  end
+
+  defp create_bulk_mtr_command(actor, agent_id, targets, opts) do
+    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 300, :second))
+    status = Keyword.get(opts, :status, :queued)
+
+    {:ok, command} =
+      AgentCommand.create_command(
+        %{
+          command_type: "mtr.bulk_run",
+          agent_id: agent_id,
+          partition_id: "default",
+          payload: %{"targets" => targets, "protocol" => "icmp"},
+          ttl_seconds: 300,
           expires_at: expires_at
         },
         actor: actor
