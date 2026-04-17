@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -24,6 +25,7 @@ const (
 	balancedBulkMaxHops        = 24
 	bulkMtrProgressBatchSize   = 16
 	bulkMtrProgressInterval    = 200 * time.Millisecond
+	bulkMtrAdaptiveWindowSize  = 32
 
 	bulkMtrProfileFast     = "fast"
 	bulkMtrProfileBalanced = "balanced"
@@ -67,6 +69,7 @@ type mtrBulkProgressPayload struct {
 	CompletedTargets int                   `json:"completed_targets"`
 	FailedTargets    int                   `json:"failed_targets"`
 	Concurrency      int                   `json:"concurrency,omitempty"`
+	MaxConcurrency   int                   `json:"max_concurrency,omitempty"`
 	DurationMs       int64                 `json:"duration_ms,omitempty"`
 	TargetsPerMinute float64               `json:"targets_per_minute,omitempty"`
 	TargetUpdates    []mtrBulkTargetUpdate `json:"target_updates,omitempty"`
@@ -82,10 +85,10 @@ type bulkMtrSharedResources struct {
 	dns      *mtr.DNSResolver
 }
 
-type bulkResolvedTarget struct {
-	info  *mtr.TargetInfo
-	err   error
-	ready chan struct{}
+type bulkMtrTask struct {
+	target string
+	info   *mtr.TargetInfo
+	err    error
 }
 
 type bulkMtrWorker struct {
@@ -96,8 +99,14 @@ type bulkMtrWorker struct {
 	ipv6Socket mtr.RawSocket
 	ipv4Tracer *mtr.Tracer
 	ipv6Tracer *mtr.Tracer
-	targets    map[string]*bulkResolvedTarget
-	targetsMu  *sync.Mutex
+}
+
+type bulkMtrAdaptiveController struct {
+	max       int
+	current   int
+	completed int
+	failed    int
+	timedOut  int
 }
 
 func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
@@ -131,25 +140,44 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	defer cancel()
 
 	baseOpts := bulkMtrOptions(payload)
-	workerCount := normalizeBulkMtrConcurrency(payload.Concurrency, len(targets))
+	maxConcurrency := normalizeBulkMtrConcurrency(payload.Concurrency, len(targets))
+	resolverCount := normalizeBulkMtrResolverCount(len(targets))
 	startedAt := time.Now()
-	targetCh := make(chan string, workerCount*2)
-	eventCh := make(chan mtrBulkEvent, workerCount*2)
+	targetCh := make(chan string, resolverCount*2)
+	taskCh := make(chan bulkMtrTask, maxConcurrency*2)
+	eventCh := make(chan mtrBulkEvent, maxConcurrency*2)
+	slotFreedCh := make(chan struct{}, maxConcurrency*2)
 	sharedResources := newBulkMtrSharedResources(jobCtx, baseOpts, p.logger)
 	defer sharedResources.close()
 
-	var wg sync.WaitGroup
-	targetCache := make(map[string]*bulkResolvedTarget, len(targets))
-	targetCacheMu := &sync.Mutex{}
-	go warmBulkTargets(jobCtx, targets, targetCache, targetCacheMu)
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
+	controller := newBulkMtrAdaptiveController(maxConcurrency)
+	currentConcurrency := controller.current
+	currentLimit := atomic.Int32{}
+	currentLimit.Store(int32(currentConcurrency))
+
+	var resolverWG sync.WaitGroup
+	for i := 0; i < resolverCount; i++ {
+		resolverWG.Add(1)
 		go func() {
-			defer wg.Done()
-			worker := newBulkMtrWorker(baseOpts, p.logger, sharedResources, targetCache, targetCacheMu)
+			defer resolverWG.Done()
+			resolveBulkTargets(jobCtx, targetCh, taskCh)
+		}()
+	}
+
+	go func() {
+		resolverWG.Wait()
+		close(taskCh)
+	}()
+
+	var workerWG sync.WaitGroup
+	for i := 0; i < maxConcurrency; i++ {
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			worker := newBulkMtrWorker(baseOpts, p.logger, sharedResources)
 			defer worker.close()
 			for {
-				target, ok := nextBulkMtrTarget(jobCtx, targetCh)
+				task, ok := nextBulkMtrTask(jobCtx, taskCh)
 				if !ok {
 					return
 				}
@@ -157,7 +185,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 				if !sendBulkMtrEvent(jobCtx, eventCh, mtrBulkEvent{
 					started: true,
 					update: mtrBulkTargetUpdate{
-						Target:       target,
+						Target:       task.target,
 						Status:       bulkMtrStatusRunning,
 						AttemptCount: 1,
 					},
@@ -165,9 +193,19 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 					return
 				}
 
-				trace, err := worker.run(jobCtx, target)
+				if task.err != nil {
+					if !sendBulkMtrEvent(jobCtx, eventCh, mtrBulkEvent{
+						update: buildBulkMtrTargetUpdate(task.target, nil, task.err),
+					}) {
+						return
+					}
+
+					continue
+				}
+
+				trace, err := worker.runResolved(jobCtx, task.target, task.info)
 				if !sendBulkMtrEvent(jobCtx, eventCh, mtrBulkEvent{
-					update: buildBulkMtrTargetUpdate(target, trace, err),
+					update: buildBulkMtrTargetUpdate(task.target, trace, err),
 				}) {
 					return
 				}
@@ -177,17 +215,11 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 
 	go func() {
 		defer close(targetCh)
-		for _, target := range targets {
-			select {
-			case <-jobCtx.Done():
-				return
-			case targetCh <- target:
-			}
-		}
+		dispatchBulkTargets(jobCtx, targets, targetCh, slotFreedCh, &currentLimit)
 	}()
 
 	go func() {
-		wg.Wait()
+		workerWG.Wait()
 		close(eventCh)
 	}()
 
@@ -206,7 +238,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			TotalTargets:   len(targets),
 			QueuedTargets:  queuedTargets,
 			RunningTargets: runningTargets,
-			Concurrency:    workerCount,
+			Concurrency:    currentConcurrency,
+			MaxConcurrency: maxConcurrency,
 		},
 	))
 
@@ -224,11 +257,13 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		}
 
 		switch event.update.Status {
-		case "completed":
+		case bulkMtrStatusCompleted:
 			completedTargets++
 		default:
 			failedTargets++
 		}
+		releaseBulkMtrSlot(slotFreedCh)
+		currentConcurrency = observeBulkMtrConcurrency(controller, event.update.Status, &currentLimit)
 
 		progressUpdates = append(progressUpdates, event.update)
 		now := time.Now()
@@ -250,7 +285,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			runningTargets,
 			completedTargets,
 			failedTargets,
-			workerCount,
+			currentConcurrency,
+			maxConcurrency,
 			startedAt,
 			progressUpdates,
 		)
@@ -267,7 +303,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			runningTargets,
 			completedTargets,
 			failedTargets,
-			workerCount,
+			currentConcurrency,
+			maxConcurrency,
 			startedAt,
 			progressUpdates,
 		)
@@ -280,7 +317,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		RunningTargets:   runningTargets,
 		CompletedTargets: completedTargets,
 		FailedTargets:    failedTargets,
-		Concurrency:      workerCount,
+		Concurrency:      currentConcurrency,
+		MaxConcurrency:   maxConcurrency,
 		DurationMs:       durationMs,
 		TargetsPerMinute: calculateTargetsPerMinute(len(targets), durationMs),
 	}
@@ -360,6 +398,28 @@ func normalizeBulkMtrConcurrency(requested, targetCount int) int {
 		return 1
 	}
 	return requested
+}
+
+func normalizeBulkMtrResolverCount(targetCount int) int {
+	if targetCount <= 0 {
+		return 1
+	}
+	if targetCount < 16 {
+		return targetCount
+	}
+
+	return 16
+}
+
+func newBulkMtrAdaptiveController(maxConcurrency int) *bulkMtrAdaptiveController {
+	if maxConcurrency < 1 {
+		maxConcurrency = 1
+	}
+
+	return &bulkMtrAdaptiveController{
+		max:     maxConcurrency,
+		current: maxConcurrency,
+	}
 }
 
 func bulkMtrOptions(payload mtrBulkRunPayload) mtr.Options {
@@ -459,6 +519,7 @@ func flushBulkMtrProgress(
 	completedTargets int,
 	failedTargets int,
 	concurrency int,
+	maxConcurrency int,
 	startedAt time.Time,
 	targetUpdates []mtrBulkTargetUpdate,
 ) {
@@ -479,6 +540,7 @@ func flushBulkMtrProgress(
 			CompletedTargets: completedTargets,
 			FailedTargets:    failedTargets,
 			Concurrency:      concurrency,
+			MaxConcurrency:   maxConcurrency,
 			DurationMs:       time.Since(startedAt).Milliseconds(),
 			TargetUpdates:    targetUpdates,
 		},
@@ -503,69 +565,158 @@ func sendBulkMtrEvent(ctx context.Context, eventCh chan<- mtrBulkEvent, event mt
 	}
 }
 
+func dispatchBulkTargets(
+	ctx context.Context,
+	targets []string,
+	targetCh chan<- string,
+	slotFreedCh <-chan struct{},
+	currentLimit *atomic.Int32,
+) {
+	inFlight := 0
+
+	for _, target := range targets {
+		for inFlight >= int(currentLimit.Load()) {
+			if !waitForBulkMtrSlot(ctx, slotFreedCh, &inFlight) {
+				return
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-slotFreedCh:
+			if inFlight > 0 {
+				inFlight--
+			}
+			if !queueBulkMtrTarget(ctx, targetCh, target, &inFlight) {
+				return
+			}
+		case targetCh <- target:
+			inFlight++
+		}
+	}
+}
+
+func queueBulkMtrTarget(
+	ctx context.Context,
+	targetCh chan<- string,
+	target string,
+	inFlight *int,
+) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case targetCh <- target:
+		if inFlight != nil {
+			*inFlight++
+		}
+		return true
+	}
+}
+
+func waitForBulkMtrSlot(ctx context.Context, slotFreedCh <-chan struct{}, inFlight *int) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-slotFreedCh:
+		if inFlight != nil && *inFlight > 0 {
+			*inFlight--
+		}
+		return true
+	}
+}
+
+func releaseBulkMtrSlot(slotFreedCh chan<- struct{}) {
+	select {
+	case slotFreedCh <- struct{}{}:
+	default:
+	}
+}
+
+func observeBulkMtrConcurrency(
+	controller *bulkMtrAdaptiveController,
+	status string,
+	currentLimit *atomic.Int32,
+) int {
+	if controller == nil {
+		return int(currentLimit.Load())
+	}
+
+	controller.observe(status)
+	currentLimit.Store(int32(controller.current))
+
+	return controller.current
+}
+
+func (c *bulkMtrAdaptiveController) observe(status string) {
+	if c == nil {
+		return
+	}
+
+	switch status {
+	case bulkMtrStatusCompleted:
+		c.completed++
+	case bulkMtrStatusTimedOut:
+		c.failed++
+		c.timedOut++
+	default:
+		c.failed++
+	}
+
+	if c.completed+c.failed < bulkMtrAdaptiveWindowSize {
+		return
+	}
+
+	c.adjust()
+	c.resetWindow()
+}
+
+func (c *bulkMtrAdaptiveController) adjust() {
+	if c == nil {
+		return
+	}
+
+	if c.current < 1 {
+		c.current = 1
+	}
+
+	if c.timedOut*4 >= bulkMtrAdaptiveWindowSize {
+		c.current = max(1, c.current/2)
+		return
+	}
+
+	if c.failed*2 >= bulkMtrAdaptiveWindowSize {
+		c.current = max(1, c.current-(c.current/4))
+		return
+	}
+
+	if c.current >= c.max {
+		return
+	}
+
+	if c.completed*4 < bulkMtrAdaptiveWindowSize*3 {
+		return
+	}
+
+	step := max(1, c.current/4)
+	c.current = min(c.max, c.current+step)
+}
+
+func (c *bulkMtrAdaptiveController) resetWindow() {
+	c.completed = 0
+	c.failed = 0
+	c.timedOut = 0
+}
+
 func newBulkMtrWorker(
 	baseOpts mtr.Options,
 	log logger.Logger,
 	shared *bulkMtrSharedResources,
-	targets map[string]*bulkResolvedTarget,
-	targetsMu *sync.Mutex,
 ) *bulkMtrWorker {
 	return &bulkMtrWorker{
-		log:       log,
-		baseOpts:  baseOpts,
-		shared:    shared,
-		targets:   targets,
-		targetsMu: targetsMu,
-	}
-}
-
-func warmBulkTargets(
-	jobCtx context.Context,
-	targets []string,
-	cache map[string]*bulkResolvedTarget,
-	cacheMu *sync.Mutex,
-) {
-	if len(targets) == 0 {
-		return
-	}
-
-	workers := len(targets)
-	if workers > 16 {
-		workers = 16
-	}
-	if workers < 1 {
-		workers = 1
-	}
-
-	targetCh := make(chan string, workers)
-	var wg sync.WaitGroup
-
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				target, ok := nextBulkMtrTarget(jobCtx, targetCh)
-				if !ok {
-					return
-				}
-
-				_, _ = resolveBulkTarget(jobCtx, target, cache, cacheMu)
-			}
-		}()
-	}
-
-	defer func() {
-		close(targetCh)
-		wg.Wait()
-	}()
-
-	for _, target := range targets {
-		select {
-		case <-jobCtx.Done():
-			return
-		case targetCh <- target:
-		}
+		log:      log,
+		baseOpts: baseOpts,
+		shared:   shared,
 	}
 }
 
@@ -588,7 +739,11 @@ func (w *bulkMtrWorker) close() {
 	}
 }
 
-func (w *bulkMtrWorker) run(jobCtx context.Context, target string) (*mtr.TraceResult, error) {
+func (w *bulkMtrWorker) runResolved(
+	jobCtx context.Context,
+	target string,
+	targetInfo *mtr.TargetInfo,
+) (*mtr.TraceResult, error) {
 	opts := w.baseOpts
 	opts.Target = target
 
@@ -609,11 +764,6 @@ func (w *bulkMtrWorker) run(jobCtx context.Context, target string) (*mtr.TraceRe
 
 	traceCtx, cancel := context.WithTimeout(jobCtx, timeout)
 	defer cancel()
-
-	targetInfo, err := w.resolveTarget(traceCtx, target)
-	if err != nil {
-		return nil, err
-	}
 
 	socket, err := w.socketForTarget(targetInfo)
 	if err != nil {
@@ -662,10 +812,6 @@ func (r *bulkMtrSharedResources) close() {
 		_ = r.enricher.Close()
 		r.enricher = nil
 	}
-}
-
-func (w *bulkMtrWorker) resolveTarget(ctx context.Context, target string) (*mtr.TargetInfo, error) {
-	return resolveBulkTarget(ctx, target, w.targets, w.targetsMu)
 }
 
 func (w *bulkMtrWorker) socketForTarget(target *mtr.TargetInfo) (mtr.RawSocket, error) {
@@ -740,29 +886,38 @@ func (w *bulkMtrWorker) tracerForTarget(
 	return w.ipv4Tracer, w.ipv4Tracer.ResetForTarget(opts, target)
 }
 
-func resolveBulkTarget(
+func resolveBulkTargets(
 	ctx context.Context,
-	target string,
-	cache map[string]*bulkResolvedTarget,
-	cacheMu *sync.Mutex,
-) (*mtr.TargetInfo, error) {
-	cacheMu.Lock()
-	if entry, ok := cache[target]; ok {
-		cacheMu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-entry.ready:
-			return entry.info, entry.err
+	targetCh <-chan string,
+	taskCh chan<- bulkMtrTask,
+) {
+	for {
+		target, ok := nextBulkMtrTarget(ctx, targetCh)
+		if !ok {
+			return
+		}
+
+		info, err := mtr.ResolveTarget(ctx, target)
+		if !sendBulkMtrTask(ctx, taskCh, bulkMtrTask{target: target, info: info, err: err}) {
+			return
 		}
 	}
+}
 
-	entry := &bulkResolvedTarget{ready: make(chan struct{})}
-	cache[target] = entry
-	cacheMu.Unlock()
+func nextBulkMtrTask(ctx context.Context, taskCh <-chan bulkMtrTask) (bulkMtrTask, bool) {
+	select {
+	case <-ctx.Done():
+		return bulkMtrTask{}, false
+	case task, ok := <-taskCh:
+		return task, ok
+	}
+}
 
-	entry.info, entry.err = mtr.ResolveTarget(ctx, target)
-	close(entry.ready)
-
-	return entry.info, entry.err
+func sendBulkMtrTask(ctx context.Context, taskCh chan<- bulkMtrTask, task bulkMtrTask) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case taskCh <- task:
+		return true
+	}
 }

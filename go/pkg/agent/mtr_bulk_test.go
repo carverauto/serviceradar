@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,36 +137,96 @@ func TestBulkMtrOptions_ExplicitMaxHopsOverridesProfileDefault(t *testing.T) {
 	}
 }
 
-func TestResolveBulkTarget_CachesResolvedLiteralIP(t *testing.T) {
-	cache := make(map[string]*bulkResolvedTarget)
-	cacheMu := &sync.Mutex{}
-
-	first, err := resolveBulkTarget(context.Background(), "127.0.0.1", cache, cacheMu)
-	if err != nil {
-		t.Fatalf("expected first resolve to succeed, got %v", err)
-	}
-
-	second, err := resolveBulkTarget(context.Background(), "127.0.0.1", cache, cacheMu)
-	if err != nil {
-		t.Fatalf("expected second resolve to succeed, got %v", err)
-	}
-
-	if first != second {
-		t.Fatal("expected cached target info pointer to be reused")
-	}
-	if first.IPVersion != 4 {
-		t.Fatalf("expected IPv4 target, got version %d", first.IPVersion)
-	}
-}
-
 func TestBuildBulkMtrTargetUpdate_MapsCanceledContext(t *testing.T) {
 	update := buildBulkMtrTargetUpdate("example.com", nil, context.Canceled)
 
-	if update.Status != "canceled" {
+	if update.Status != bulkMtrStatusCanceled {
 		t.Fatalf("expected canceled status, got %q", update.Status)
 	}
 	if update.Error == "" {
 		t.Fatal("expected canceled update to include an error message")
+	}
+}
+
+func TestNormalizeBulkMtrResolverCount(t *testing.T) {
+	if got := normalizeBulkMtrResolverCount(0); got != 1 {
+		t.Fatalf("expected minimum resolver count of 1, got %d", got)
+	}
+
+	if got := normalizeBulkMtrResolverCount(4); got != 4 {
+		t.Fatalf("expected resolver count to match small target count, got %d", got)
+	}
+
+	if got := normalizeBulkMtrResolverCount(128); got != 16 {
+		t.Fatalf("expected resolver count cap of 16, got %d", got)
+	}
+}
+
+func TestResolveBulkTargets_ProducesResolvedTasks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	targetCh := make(chan string, 1)
+	taskCh := make(chan bulkMtrTask, 1)
+	targetCh <- "127.0.0.1"
+	close(targetCh)
+
+	go resolveBulkTargets(ctx, targetCh, taskCh)
+
+	task, ok := nextBulkMtrTask(ctx, taskCh)
+	if !ok {
+		t.Fatal("expected resolved bulk task")
+	}
+	if task.target != "127.0.0.1" {
+		t.Fatalf("expected target 127.0.0.1, got %q", task.target)
+	}
+	if task.err != nil {
+		t.Fatalf("expected target resolution to succeed, got %v", task.err)
+	}
+	if task.info == nil {
+		t.Fatal("expected resolved target info")
+	}
+	if task.info.IPVersion != 4 {
+		t.Fatalf("expected IPv4 target, got version %d", task.info.IPVersion)
+	}
+}
+
+func TestBulkMtrAdaptiveController_ReducesConcurrencyOnTimeoutPressure(t *testing.T) {
+	controller := newBulkMtrAdaptiveController(64)
+	limit := atomic.Int32{}
+	limit.Store(64)
+
+	for i := 0; i < bulkMtrAdaptiveWindowSize; i++ {
+		got := observeBulkMtrConcurrency(controller, bulkMtrStatusTimedOut, &limit)
+		if got < 1 {
+			t.Fatalf("expected adaptive concurrency to stay positive, got %d", got)
+		}
+	}
+
+	if controller.current >= 64 {
+		t.Fatalf("expected adaptive concurrency to back off, got %d", controller.current)
+	}
+	if limit.Load() != int32(controller.current) {
+		t.Fatalf("expected exported limit %d to match controller current %d", limit.Load(), controller.current)
+	}
+}
+
+func TestBulkMtrAdaptiveController_IncreasesConcurrencyAfterHealthyWindow(t *testing.T) {
+	controller := newBulkMtrAdaptiveController(64)
+	controller.current = 16
+
+	limit := atomic.Int32{}
+	limit.Store(16)
+
+	for i := 0; i < bulkMtrAdaptiveWindowSize; i++ {
+		observeBulkMtrConcurrency(controller, bulkMtrStatusCompleted, &limit)
+	}
+
+	if controller.current <= 16 {
+		t.Fatalf("expected adaptive concurrency to increase, got %d", controller.current)
+	}
+	if controller.current > 64 {
+		t.Fatalf("expected adaptive concurrency to respect max 64, got %d", controller.current)
 	}
 }
 
