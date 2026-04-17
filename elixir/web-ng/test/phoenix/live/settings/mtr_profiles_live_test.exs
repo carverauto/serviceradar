@@ -76,12 +76,48 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
     assert html =~ "Measured throughput: 60.0 targets/min"
     assert html =~ "Estimated runtime for current scope: 120s"
     assert html =~ "Recommended minimum interval: 150s"
+    assert html =~ "120"
+    assert html =~ "managed target(s) are currently eligible per baseline run"
 
     assert html =~
              "Configured interval is tighter than the measured recommendation and is likely to overlap."
 
     assert_received {:srql_query, query}
+    assert query =~ "is_managed:true"
     assert query =~ "stats:\"count() as total\""
+  end
+
+  test "explains managed-only eligibility and selector limit caps", %{conn: conn, scope: scope} do
+    {:ok, profile} =
+      MtrPolicy.create_policy(
+        %{
+          name: "Managed Scope Profile",
+          enabled: true,
+          partition_id: "default",
+          target_selector: %{
+            "srql_query" => "in:devices tags.role:edge",
+            "limit" => 25
+          },
+          baseline_interval_sec: 300,
+          baseline_protocol: "icmp",
+          baseline_canary_vantages: 0,
+          incident_fanout_max_agents: 3,
+          incident_cooldown_sec: 600,
+          recovery_capture: true,
+          consensus_mode: "majority",
+          consensus_threshold: 0.66,
+          consensus_min_agents: 2
+        },
+        scope: scope
+      )
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/mtr/#{profile.id}/edit")
+
+    assert html =~ "Baseline MTR automation always targets managed devices only."
+    assert html =~ "25"
+
+    assert html =~
+             "120 eligible managed device(s) match the SRQL query, and the selector limit caps each run at 25 target(s)."
   end
 
   defp create_completed_bulk_job(actor, agent_id, total_targets) do

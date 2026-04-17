@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
        |> assign(:show_form, nil)
        |> assign(:selected_profile, nil)
        |> assign(:form, nil)
-       |> assign(:target_device_count, nil)
+       |> assign(:target_scope_summary, nil)
        |> assign(:bulk_interval_guidance, nil)
        |> assign(:agents, list_connected_agents())
        |> assign(:builder_open, false)
@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     |> assign(:show_form, nil)
     |> assign(:selected_profile, nil)
     |> assign(:form, nil)
-    |> assign(:target_device_count, nil)
+    |> assign(:target_scope_summary, nil)
     |> assign(:bulk_interval_guidance, nil)
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
@@ -88,29 +88,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp apply_action(socket, :new_profile, _params) do
     defaults = default_form_params()
+    selector_limit = defaults[@selector_limit_key]
 
     socket
     |> assign(:page_title, "New MTR Automation Profile")
     |> assign(:show_form, :new_profile)
     |> assign(:selected_profile, nil)
     |> assign(:form, to_form(defaults, as: :form))
-    |> assign(
-      :target_device_count,
-      count_target_devices(socket.assigns.current_scope, defaults[@selector_query_key])
-    )
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
     |> assign(:agents, list_connected_agents())
-    |> assign(
-      :bulk_interval_guidance,
-      bulk_interval_guidance(
-        socket.assigns.current_scope,
-        defaults["preferred_agent_id"],
-        defaults[@selector_execution_profile_key],
-        count_target_devices(socket.assigns.current_scope, defaults[@selector_query_key]),
-        defaults["baseline_interval_sec"]
-      )
+    |> assign_target_scope(
+      socket.assigns.current_scope,
+      defaults[@selector_query_key],
+      selector_limit,
+      defaults["preferred_agent_id"],
+      defaults[@selector_execution_profile_key],
+      defaults["baseline_interval_sec"]
     )
   end
 
@@ -121,22 +116,20 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       {:ok, profile} ->
         params = profile_to_form_params(profile)
         {builder, builder_sync} = parse_target_query_to_builder(params[@selector_query_key])
+        selector_limit = Map.get(params, @selector_limit_key)
 
         socket
         |> assign(:page_title, "Edit #{profile.name}")
         |> assign(:show_form, :edit_profile)
         |> assign(:selected_profile, profile)
         |> assign(:form, to_form(params, as: :form))
-        |> assign(:target_device_count, count_target_devices(scope, params[@selector_query_key]))
-        |> assign(
-          :bulk_interval_guidance,
-          bulk_interval_guidance(
-            scope,
-            params["preferred_agent_id"],
-            params[@selector_execution_profile_key],
-            count_target_devices(scope, params[@selector_query_key]),
-            params["baseline_interval_sec"]
-          )
+        |> assign_target_scope(
+          scope,
+          params[@selector_query_key],
+          selector_limit,
+          params["preferred_agent_id"],
+          params[@selector_execution_profile_key],
+          params["baseline_interval_sec"]
         )
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
@@ -155,20 +148,18 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     query = normalize_target_query(Map.get(params, @selector_query_key))
     params = Map.put(params, @selector_query_key, query || "")
     {parsed_builder, builder_sync} = parse_target_query_to_builder(query)
+    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
 
     socket =
       socket
       |> assign(:form, to_form(params, as: :form))
-      |> assign(:target_device_count, count_target_devices(socket.assigns.current_scope, query))
-      |> assign(
-        :bulk_interval_guidance,
-        bulk_interval_guidance(
-          socket.assigns.current_scope,
-          Map.get(params, "preferred_agent_id"),
-          Map.get(params, @selector_execution_profile_key),
-          count_target_devices(socket.assigns.current_scope, query),
-          Map.get(params, "baseline_interval_sec")
-        )
+      |> assign_target_scope(
+        socket.assigns.current_scope,
+        query,
+        selector_limit,
+        Map.get(params, "preferred_agent_id"),
+        Map.get(params, @selector_execution_profile_key),
+        Map.get(params, "baseline_interval_sec")
       )
       |> assign(:builder_sync, builder_sync)
 
@@ -338,7 +329,14 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
      socket
      |> assign(:form, to_form(params, as: :form))
      |> assign(:builder_sync, true)
-     |> assign(:target_device_count, count_target_devices(socket.assigns.current_scope, query))}
+     |> assign_target_scope(
+       socket.assigns.current_scope,
+       query,
+       Map.get(params, @selector_limit_key),
+       Map.get(params, "preferred_agent_id"),
+       Map.get(params, @selector_execution_profile_key),
+       Map.get(params, "baseline_interval_sec")
+     )}
   end
 
   @impl true
@@ -354,7 +352,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             form={@form}
             show_form={@show_form}
             selected_profile={@selected_profile}
-            target_device_count={@target_device_count}
+            target_scope_summary={@target_scope_summary}
             builder_open={@builder_open}
             builder={@builder}
             builder_sync={@builder_sync}
@@ -460,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   attr(:form, :map, required: true)
   attr(:show_form, :atom, required: true)
   attr(:selected_profile, :any, default: nil)
-  attr(:target_device_count, :any, default: nil)
+  attr(:target_scope_summary, :any, default: nil)
   attr(:builder_open, :boolean, default: false)
   attr(:builder, :map, default: %{})
   attr(:builder_sync, :boolean, default: true)
@@ -513,6 +511,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                   class="input input-bordered w-full font-mono text-sm"
                   placeholder="in:devices tags.role:edge"
                 />
+                <p class="mt-2 text-xs text-base-content/60">
+                  Baseline MTR automation always targets managed devices only. This SRQL query
+                  selects candidates, and unmanaged matches are excluded before scheduling.
+                </p>
               </div>
               <.ui_icon_button
                 active={@builder_open}
@@ -595,9 +597,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             </div>
           </div>
 
-          <div :if={@target_device_count != nil} class="text-sm">
-            <span class="font-semibold">{@target_device_count}</span>
-            <span class="text-base-content/60">device(s) currently match this query</span>
+          <div
+            :if={@target_scope_summary}
+            class="rounded-lg border border-base-200 bg-base-100/50 p-3 text-sm"
+          >
+            <div>
+              <span class="font-semibold">{@target_scope_summary.effective_target_count}</span>
+              <span class="text-base-content/70">
+                managed target(s) are currently eligible per baseline run
+              </span>
+            </div>
+            <div class="mt-1 text-base-content/60">
+              Managed-device eligibility is enforced in addition to the SRQL query, and devices
+              without an IP are skipped at execution time.
+            </div>
+            <div :if={@target_scope_summary.limited?} class="mt-1 text-base-content/60">
+              {@target_scope_summary.eligible_managed_count} eligible managed device(s) match the
+              SRQL query, and the selector limit caps each run at {@target_scope_summary.selector_limit} target(s).
+            </div>
           </div>
 
           <div
@@ -802,6 +819,31 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp save_profile(:edit_profile, profile, attrs, scope), do: MtrPolicy.update_policy(profile, attrs, scope: scope)
 
   defp save_profile(_, _profile, _attrs, _scope), do: {:error, :invalid_form_state}
+
+  defp assign_target_scope(
+         socket,
+         scope,
+         target_query,
+         selector_limit,
+         preferred_agent_id,
+         execution_profile,
+         configured_interval
+       ) do
+    summary = target_scope_summary(scope, target_query, selector_limit)
+
+    socket
+    |> assign(:target_scope_summary, summary)
+    |> assign(
+      :bulk_interval_guidance,
+      bulk_interval_guidance(
+        scope,
+        preferred_agent_id,
+        execution_profile,
+        effective_target_count(summary),
+        configured_interval
+      )
+    )
+  end
 
   defp default_form_params do
     %{
@@ -1175,15 +1217,23 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp normalize_target_query(_), do: nil
 
-  defp count_target_devices(_scope, nil), do: nil
-  defp count_target_devices(_scope, ""), do: nil
+  defp target_scope_summary(_scope, nil, _selector_limit), do: nil
+  defp target_scope_summary(_scope, "", _selector_limit), do: nil
 
-  defp count_target_devices(scope, target_query) when is_binary(target_query) do
+  defp target_scope_summary(scope, target_query, selector_limit) when is_binary(target_query) do
     with normalized when is_binary(normalized) <- normalize_target_query(target_query),
-         full_query = build_count_query(normalized),
+         full_query = build_managed_count_query(normalized),
          {:ok, %{"results" => [%{"total" => count} | _]}} <-
-           srql_module().query(full_query, %{scope: scope}) do
-      extract_total_count(count)
+           srql_module().query(full_query, %{scope: scope}),
+         eligible_count when is_integer(eligible_count) <- extract_total_count(count) do
+      selector_limit = parse_int(selector_limit, 100, 1)
+
+      %{
+        eligible_managed_count: eligible_count,
+        selector_limit: selector_limit,
+        effective_target_count: min(eligible_count, selector_limit),
+        limited?: eligible_count > selector_limit
+      }
     else
       _ -> nil
     end
@@ -1191,7 +1241,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     _ -> nil
   end
 
-  defp build_count_query(normalized) when is_binary(normalized) do
+  defp effective_target_count(%{effective_target_count: count}) when is_integer(count), do: count
+  defp effective_target_count(_), do: nil
+
+  defp build_managed_count_query(normalized) when is_binary(normalized) do
     normalized =
       normalized
       |> String.replace(~r/(^|\s)limit:\S+/i, "")
@@ -1200,7 +1253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       |> String.replace(~r/\s+/, " ")
       |> String.trim()
 
-    Kernel.<>("#{normalized} stats:\"count() as total\"", " limit:1")
+    Kernel.<>("#{normalized} is_managed:true stats:\"count() as total\"", " limit:1")
   end
 
   defp extract_total_count(count) when is_integer(count), do: count
@@ -1363,7 +1416,14 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
       socket
       |> assign(:form, to_form(params, as: :form))
-      |> assign(:target_device_count, count_target_devices(socket.assigns.current_scope, query))
+      |> assign_target_scope(
+        socket.assigns.current_scope,
+        query,
+        Map.get(params, @selector_limit_key),
+        Map.get(params, "preferred_agent_id"),
+        Map.get(params, @selector_execution_profile_key),
+        Map.get(params, "baseline_interval_sec")
+      )
     else
       socket
     end
