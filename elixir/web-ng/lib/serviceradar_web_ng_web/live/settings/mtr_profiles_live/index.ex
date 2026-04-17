@@ -16,6 +16,31 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   require Ash.Query
 
+  @command_type_mtr_bulk_run "mtr.bulk_run"
+  @protocol_icmp "icmp"
+  @protocol_udp "udp"
+  @protocol_tcp "tcp"
+  @protocols [@protocol_icmp, @protocol_udp, @protocol_tcp]
+  @execution_profile_fast "fast"
+  @execution_profile_balanced "balanced"
+  @execution_profile_deep "deep"
+  @execution_profiles [
+    @execution_profile_fast,
+    @execution_profile_balanced,
+    @execution_profile_deep
+  ]
+  @selector_query_key "srql_query"
+  @selector_limit_key "limit"
+  @selector_agent_id_key "agent_id"
+  @selector_execution_profile_key "bulk_execution_profile"
+  @payload_targets_key "targets"
+  @payload_total_targets_key "total_targets"
+  @payload_timed_out_targets_key "timed_out_targets"
+  @payload_targets_per_minute_key "targets_per_minute"
+  @payload_concurrency_key "concurrency"
+  @payload_max_concurrency_key "max_concurrency"
+  @payload_concurrency_history_key "concurrency_history"
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -71,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     |> assign(:form, to_form(defaults, as: :form))
     |> assign(
       :target_device_count,
-      count_target_devices(socket.assigns.current_scope, defaults["target_query"])
+      count_target_devices(socket.assigns.current_scope, defaults[@selector_query_key])
     )
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
@@ -82,8 +107,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       bulk_interval_guidance(
         socket.assigns.current_scope,
         defaults["preferred_agent_id"],
-        defaults["bulk_execution_profile"],
-        count_target_devices(socket.assigns.current_scope, defaults["target_query"]),
+        defaults[@selector_execution_profile_key],
+        count_target_devices(socket.assigns.current_scope, defaults[@selector_query_key]),
         defaults["baseline_interval_sec"]
       )
     )
@@ -95,21 +120,21 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     case Ash.get(MtrPolicy, id, scope: scope) do
       {:ok, profile} ->
         params = profile_to_form_params(profile)
-        {builder, builder_sync} = parse_target_query_to_builder(params["target_query"])
+        {builder, builder_sync} = parse_target_query_to_builder(params[@selector_query_key])
 
         socket
         |> assign(:page_title, "Edit #{profile.name}")
         |> assign(:show_form, :edit_profile)
         |> assign(:selected_profile, profile)
         |> assign(:form, to_form(params, as: :form))
-        |> assign(:target_device_count, count_target_devices(scope, params["target_query"]))
+        |> assign(:target_device_count, count_target_devices(scope, params[@selector_query_key]))
         |> assign(
           :bulk_interval_guidance,
           bulk_interval_guidance(
             scope,
             params["preferred_agent_id"],
-            params["bulk_execution_profile"],
-            count_target_devices(scope, params["target_query"]),
+            params[@selector_execution_profile_key],
+            count_target_devices(scope, params[@selector_query_key]),
             params["baseline_interval_sec"]
           )
         )
@@ -127,8 +152,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   @impl true
   def handle_event("validate_profile", %{"form" => params}, socket) do
-    query = normalize_target_query(Map.get(params, "target_query"))
-    params = Map.put(params, "target_query", query || "")
+    query = normalize_target_query(Map.get(params, @selector_query_key))
+    params = Map.put(params, @selector_query_key, query || "")
     {parsed_builder, builder_sync} = parse_target_query_to_builder(query)
 
     socket =
@@ -140,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         bulk_interval_guidance(
           socket.assigns.current_scope,
           Map.get(params, "preferred_agent_id"),
-          Map.get(params, "bulk_execution_profile"),
+          Map.get(params, @selector_execution_profile_key),
           count_target_devices(socket.assigns.current_scope, query),
           Map.get(params, "baseline_interval_sec")
         )
@@ -159,21 +184,21 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   def handle_event("save_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
-    query = normalize_target_query(Map.get(params, "target_query"))
-    selector_limit = parse_int(Map.get(params, "selector_limit"), 100, 1)
+    query = normalize_target_query(Map.get(params, @selector_query_key))
+    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
     preferred_agent_id = blank_to_nil(Map.get(params, "preferred_agent_id"))
 
     bulk_execution_profile =
-      normalize_bulk_execution_profile(Map.get(params, "bulk_execution_profile"))
+      normalize_bulk_execution_profile(Map.get(params, @selector_execution_profile_key))
 
     target_selector =
       maybe_put(
         %{
-          "srql_query" => query || "in:devices",
-          "limit" => selector_limit,
-          "bulk_execution_profile" => bulk_execution_profile
+          @selector_query_key => query || "in:devices",
+          @selector_limit_key => selector_limit,
+          @selector_execution_profile_key => bulk_execution_profile
         },
-        "agent_id",
+        @selector_agent_id_key,
         preferred_agent_id
       )
 
@@ -243,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     socket =
       if builder_open do
         params = socket.assigns.form.params || %{}
-        target_query = Map.get(params, "target_query", "")
+        target_query = Map.get(params, @selector_query_key, "")
         {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
         socket
@@ -307,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   def handle_event("builder_apply", _params, socket) do
     query = build_target_query(socket.assigns.builder)
     params = socket.assigns.form.params || %{}
-    params = Map.put(params, "target_query", query)
+    params = Map.put(params, @selector_query_key, query)
 
     {:noreply,
      socket
@@ -381,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 {selector_query(profile)}
               </td>
               <td class="font-mono text-xs">{selector_agent(profile) || "-"}</td>
-              <td>{String.upcase(profile.baseline_protocol || "icmp")}</td>
+              <td>{String.upcase(profile.baseline_protocol || @protocol_icmp)}</td>
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
@@ -609,9 +634,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               :if={@bulk_interval_guidance.throttled_runs > 0}
               class="text-base-content/70"
             >
-              Adaptive backoff observed in {@bulk_interval_guidance.throttled_runs}/{
-                @bulk_interval_guidance.sample_count
-              } recent runs.
+              Adaptive backoff observed in {@bulk_interval_guidance.throttled_runs}/{@bulk_interval_guidance.sample_count} recent runs.
             </div>
             <div :if={@bulk_interval_guidance.warning?} class="mt-2 font-medium text-warning-content">
               Configured interval is tighter than the measured recommendation and is likely to overlap.
@@ -661,7 +684,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               type="select"
               field={@form[:baseline_protocol]}
               class="select select-bordered w-full"
-              options={[{"ICMP", "icmp"}, {"UDP", "udp"}, {"TCP", "tcp"}]}
+              options={[{"ICMP", @protocol_icmp}, {"UDP", @protocol_udp}, {"TCP", @protocol_tcp}]}
             />
           </div>
           <div>
@@ -671,9 +694,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               field={@form[:bulk_execution_profile]}
               class="select select-bordered w-full"
               options={[
-                {"Fast", "fast"},
-                {"Balanced", "balanced"},
-                {"Deep", "deep"}
+                {"Fast", @execution_profile_fast},
+                {"Balanced", @execution_profile_balanced},
+                {"Deep", @execution_profile_deep}
               ]}
             />
           </div>
@@ -778,11 +801,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
-  defp save_profile(:new_profile, _profile, attrs, scope),
-    do: MtrPolicy.create_policy(attrs, scope: scope)
+  defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
 
-  defp save_profile(:edit_profile, profile, attrs, scope),
-    do: MtrPolicy.update_policy(profile, attrs, scope: scope)
+  defp save_profile(:edit_profile, profile, attrs, scope), do: MtrPolicy.update_policy(profile, attrs, scope: scope)
 
   defp save_profile(_, _profile, _attrs, _scope), do: {:error, :invalid_form_state}
 
@@ -790,12 +811,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     %{
       "name" => "",
       "enabled" => true,
-      "target_query" => "in:devices",
-      "selector_limit" => 100,
+      @selector_query_key => "in:devices",
+      @selector_limit_key => 100,
       "preferred_agent_id" => "",
       "partition_id" => "",
-      "baseline_protocol" => "icmp",
-      "bulk_execution_profile" => "fast",
+      "baseline_protocol" => @protocol_icmp,
+      @selector_execution_profile_key => @execution_profile_fast,
       "baseline_interval_sec" => 300,
       "baseline_canary_vantages" => 0,
       "incident_fanout_max_agents" => 3,
@@ -814,70 +835,49 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     %{
       "name" => fallback(profile.name, defaults["name"]),
       "enabled" => truthy(profile.enabled),
-      "target_query" => selector_query(profile),
-      "selector_limit" => fallback(Map.get(selector, "limit"), defaults["selector_limit"]),
-      "preferred_agent_id" =>
-        fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
+      @selector_query_key => selector_query(profile),
+      @selector_limit_key => fallback(Map.get(selector, @selector_limit_key), defaults[@selector_limit_key]),
+      "preferred_agent_id" => fallback(Map.get(selector, @selector_agent_id_key), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
       "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
-      "bulk_execution_profile" =>
-        fallback(Map.get(selector, "bulk_execution_profile"), defaults["bulk_execution_profile"]),
-      "baseline_interval_sec" =>
-        fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
-      "baseline_canary_vantages" =>
-        fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
+      @selector_execution_profile_key =>
+        fallback(
+          Map.get(selector, @selector_execution_profile_key),
+          defaults[@selector_execution_profile_key]
+        ),
+      "baseline_interval_sec" => fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
+      "baseline_canary_vantages" => fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
       "incident_fanout_max_agents" =>
         fallback(profile.incident_fanout_max_agents, defaults["incident_fanout_max_agents"]),
-      "incident_cooldown_sec" =>
-        fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
+      "incident_cooldown_sec" => fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
       "recovery_capture" => truthy(profile.recovery_capture),
       "consensus_mode" => fallback(profile.consensus_mode, defaults["consensus_mode"]),
-      "consensus_threshold" =>
-        fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
-      "consensus_min_agents" =>
-        fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
+      "consensus_threshold" => fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
+      "consensus_min_agents" => fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
     }
   end
 
   defp selector_query(profile) do
     selector = profile.target_selector || %{}
-    Map.get(selector, "srql_query") || "in:devices"
+    Map.get(selector, @selector_query_key) || "in:devices"
   end
 
   defp selector_agent(profile) do
     selector = profile.target_selector || %{}
-    Map.get(selector, "agent_id")
+    Map.get(selector, @selector_agent_id_key)
   end
 
-  defp bulk_interval_guidance(
-         _scope,
-         preferred_agent_id,
-         _execution_profile,
-         _target_count,
-         _configured_interval
-       )
+  defp bulk_interval_guidance(_scope, preferred_agent_id, _execution_profile, _target_count, _configured_interval)
        when preferred_agent_id in [nil, ""] do
     nil
   end
 
-  defp bulk_interval_guidance(
-         _scope,
-         _preferred_agent_id,
-         _execution_profile,
-         target_count,
-         _configured_interval
-       )
+  defp bulk_interval_guidance(_scope, _preferred_agent_id, _execution_profile, target_count, _configured_interval)
        when not is_integer(target_count) or target_count <= 0 do
     nil
   end
 
-  defp bulk_interval_guidance(
-         scope,
-         preferred_agent_id,
-         execution_profile,
-         target_count,
-         configured_interval
-       ) do
+  defp bulk_interval_guidance(scope, preferred_agent_id, execution_profile, target_count, configured_interval) do
     configured_interval = parse_int(configured_interval, 300, 30)
     execution_profile = normalize_bulk_execution_profile(execution_profile)
 
@@ -886,7 +886,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(
         expr(
-          command_type == "mtr.bulk_run" and agent_id == ^preferred_agent_id and
+          command_type == @command_type_mtr_bulk_run and agent_id == ^preferred_agent_id and
             status == :completed
         )
       )
@@ -914,9 +914,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         |> Enum.map(& &1.timeout_ratio)
         |> average()
 
-      throttled_runs =
-        measurements
-        |> Enum.count(& &1.throttled?)
+      throttled_runs = Enum.count(measurements, & &1.throttled?)
 
       estimated_duration_sec =
         if avg_targets_per_minute > 0 do
@@ -961,10 +959,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     total_targets = extract_bulk_total_targets(job)
     payload = job.result_payload || job.progress_payload || %{}
     {effective_concurrency, throttled?} = extract_bulk_concurrency_measurement(payload)
-    timed_out_targets = extract_int_metric(payload, "timed_out_targets") || 0
+    timed_out_targets = extract_int_metric(payload, @payload_timed_out_targets_key) || 0
     timeout_ratio = safe_ratio(timed_out_targets, total_targets)
 
-    case extract_float_metric(payload, "targets_per_minute") do
+    case extract_float_metric(payload, @payload_targets_per_minute_key) do
       value when is_float(value) and value > 0 ->
         [
           %{
@@ -998,7 +996,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp extract_bulk_concurrency_measurement(payload) when is_map(payload) do
     history = extract_bulk_concurrency_history(payload)
 
-    if history != [] do
+    if history == [] do
+      current = extract_float_metric(payload, @payload_concurrency_key) || 0.0
+      max = extract_float_metric(payload, @payload_max_concurrency_key) || current
+      {current, max > current and current > 0}
+    else
       avg_effective_concurrency =
         history
         |> Enum.map(&Map.get(&1, :concurrency, 0))
@@ -1016,14 +1018,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         if avg_effective_concurrency > 0 do
           avg_effective_concurrency
         else
-          extract_float_metric(payload, "concurrency") || 0.0
+          extract_float_metric(payload, @payload_concurrency_key) || 0.0
         end
 
       {effective_concurrency, throttled?}
-    else
-      current = extract_float_metric(payload, "concurrency") || 0.0
-      max = extract_float_metric(payload, "max_concurrency") || current
-      {current, max > current and current > 0}
     end
   end
 
@@ -1031,13 +1029,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp extract_bulk_concurrency_history(payload) when is_map(payload) do
     payload
-    |> Map.get("concurrency_history", [])
+    |> Map.get(@payload_concurrency_history_key, [])
     |> List.wrap()
     |> Enum.map(fn
       %{} = sample ->
         %{
-          concurrency: extract_int_metric(sample, "concurrency") || 0,
-          max_concurrency: extract_int_metric(sample, "max_concurrency") || 0
+          concurrency: extract_int_metric(sample, @payload_concurrency_key) || 0,
+          max_concurrency: extract_int_metric(sample, @payload_max_concurrency_key) || 0
         }
 
       _ ->
@@ -1050,24 +1048,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp bulk_job_profile(job) do
     payload = job.payload || %{}
-    normalize_bulk_execution_profile(Map.get(payload, "execution_profile"))
+    normalize_bulk_execution_profile(Map.get(payload, @selector_execution_profile_key))
   end
 
   defp extract_bulk_total_targets(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
-    case Map.get(payload, "total_targets") do
+    case Map.get(payload, @payload_total_targets_key) do
       value when is_integer(value) ->
         value
 
       value when is_binary(value) ->
         case Integer.parse(value) do
           {parsed, ""} -> parsed
-          _ -> length(List.wrap(job.payload["targets"]))
+          _ -> length(List.wrap(job.payload[@payload_targets_key]))
         end
 
       _ ->
-        length(List.wrap(job.payload["targets"]))
+        length(List.wrap(job.payload[@payload_targets_key]))
     end
   end
 
@@ -1080,7 +1078,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp safe_ratio(_value, total) when total in [0, 0.0, nil], do: 0.0
   defp safe_ratio(value, total), do: min(1.0, max(value / total, 0.0))
 
-  defp normalize_bulk_execution_profile(nil), do: "fast"
+  defp normalize_bulk_execution_profile(nil), do: @execution_profile_fast
 
   defp normalize_bulk_execution_profile(value) do
     value =
@@ -1089,7 +1087,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       |> String.trim()
       |> String.downcase()
 
-    if value in ["fast", "balanced", "deep"], do: value, else: "fast"
+    if value in @execution_profiles, do: value, else: @execution_profile_fast
   end
 
   defp extract_float_metric(payload, key) when is_map(payload) do
@@ -1146,7 +1144,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp agent_id(agent) do
-    Map.get(agent, :agent_id) || Map.get(agent, "agent_id") || ""
+    Map.get(agent, :agent_id) || Map.get(agent, @selector_agent_id_key) || ""
   end
 
   defp agent_label(agent) do
@@ -1359,7 +1357,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     if socket.assigns.builder_sync do
       query = build_target_query(socket.assigns.builder)
       params = socket.assigns.form.params || %{}
-      params = Map.put(params, "target_query", query)
+      params = Map.put(params, @selector_query_key, query)
 
       socket
       |> assign(:form, to_form(params, as: :form))
@@ -1412,7 +1410,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp normalize_protocol(value) do
     value = value |> to_string() |> String.downcase()
-    if value in ["icmp", "udp", "tcp"], do: value, else: "icmp"
+    if value in @protocols, do: value, else: @protocol_icmp
   end
 
   defp normalize_consensus_mode(value) do
