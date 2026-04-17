@@ -20,6 +20,10 @@ const (
 	balancedBulkMtrTimeout     = 2500 * time.Millisecond
 	fastBulkRingBufferSize     = 32
 	balancedBulkRingBufferSize = 64
+	fastBulkMaxHops            = 16
+	balancedBulkMaxHops        = 24
+	bulkMtrProgressBatchSize   = 16
+	bulkMtrProgressInterval    = 200 * time.Millisecond
 )
 
 type mtrBulkRunPayload struct {
@@ -173,6 +177,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	runningTargets := 0
 	completedTargets := 0
 	failedTargets := 0
+	progressUpdates := make([]mtrBulkTargetUpdate, 0, bulkMtrProgressBatchSize)
+	lastProgressSent := time.Now()
 
 	_ = sender.Send(commandProgressWithPayload(
 		cmd,
@@ -206,27 +212,47 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			failedTargets++
 		}
 
-		progress := calculateBulkMtrProgress(completedTargets+failedTargets, len(targets))
-		message := "running"
-		if completedTargets+failedTargets == len(targets) {
-			message = "completed"
+		progressUpdates = append(progressUpdates, event.update)
+		now := time.Now()
+		if !shouldFlushBulkMtrProgress(
+			len(progressUpdates),
+			completedTargets+failedTargets,
+			len(targets),
+			lastProgressSent,
+			now,
+		) {
+			continue
 		}
 
-		_ = sender.Send(commandProgressWithPayload(
+		flushBulkMtrProgress(
+			sender,
 			cmd,
-			progress,
-			message,
-			mtrBulkProgressPayload{
-				TotalTargets:     len(targets),
-				QueuedTargets:    queuedTargets,
-				RunningTargets:   runningTargets,
-				CompletedTargets: completedTargets,
-				FailedTargets:    failedTargets,
-				Concurrency:      workerCount,
-				DurationMs:       time.Since(startedAt).Milliseconds(),
-				TargetUpdates:    []mtrBulkTargetUpdate{event.update},
-			},
-		))
+			len(targets),
+			queuedTargets,
+			runningTargets,
+			completedTargets,
+			failedTargets,
+			workerCount,
+			startedAt,
+			progressUpdates,
+		)
+		progressUpdates = progressUpdates[:0]
+		lastProgressSent = now
+	}
+
+	if len(progressUpdates) > 0 {
+		flushBulkMtrProgress(
+			sender,
+			cmd,
+			len(targets),
+			queuedTargets,
+			runningTargets,
+			completedTargets,
+			failedTargets,
+			workerCount,
+			startedAt,
+			progressUpdates,
+		)
 	}
 
 	durationMs := time.Since(startedAt).Milliseconds()
@@ -340,6 +366,7 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 
 	switch normalizeBulkExecutionProfile(profile) {
 	case "balanced":
+		opts.MaxHops = balancedBulkMaxHops
 		opts.ProbesPerHop = 5
 		opts.ProbeInterval = 50 * time.Millisecond
 		opts.Timeout = balancedBulkMtrTimeout
@@ -347,6 +374,7 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.MaxUnknownHops = 7
 		opts.RingBufferSize = balancedBulkRingBufferSize
 	case "deep":
+		opts.MaxHops = mtr.DefaultMaxHops
 		opts.ProbesPerHop = mtr.DefaultProbesPerHop
 		opts.ProbeInterval = time.Duration(mtr.DefaultProbeIntervalMs) * time.Millisecond
 		opts.Timeout = mtr.DefaultTimeout
@@ -354,6 +382,7 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.MaxUnknownHops = mtr.DefaultMaxUnknownHops
 		opts.RingBufferSize = mtr.DefaultRingBufferSize
 	default:
+		opts.MaxHops = fastBulkMaxHops
 		opts.ProbesPerHop = 3
 		opts.ProbeInterval = 25 * time.Millisecond
 		opts.Timeout = fastBulkMtrTimeout
@@ -387,6 +416,55 @@ func calculateTargetsPerMinute(totalTargets int, durationMs int64) float64 {
 	}
 
 	return float64(totalTargets) / (float64(durationMs) / float64(time.Minute/time.Millisecond))
+}
+
+func shouldFlushBulkMtrProgress(pendingUpdates, done, total int, lastSent, now time.Time) bool {
+	if pendingUpdates <= 0 {
+		return false
+	}
+	if done >= total {
+		return true
+	}
+	if pendingUpdates >= bulkMtrProgressBatchSize {
+		return true
+	}
+
+	return now.Sub(lastSent) >= bulkMtrProgressInterval
+}
+
+func flushBulkMtrProgress(
+	sender *controlStreamSender,
+	cmd *proto.CommandRequest,
+	totalTargets int,
+	queuedTargets int,
+	runningTargets int,
+	completedTargets int,
+	failedTargets int,
+	concurrency int,
+	startedAt time.Time,
+	targetUpdates []mtrBulkTargetUpdate,
+) {
+	progress := calculateBulkMtrProgress(completedTargets+failedTargets, totalTargets)
+	message := "running"
+	if completedTargets+failedTargets == totalTargets {
+		message = "completed"
+	}
+
+	_ = sender.Send(commandProgressWithPayload(
+		cmd,
+		progress,
+		message,
+		mtrBulkProgressPayload{
+			TotalTargets:     totalTargets,
+			QueuedTargets:    queuedTargets,
+			RunningTargets:   runningTargets,
+			CompletedTargets: completedTargets,
+			FailedTargets:    failedTargets,
+			Concurrency:      concurrency,
+			DurationMs:       time.Since(startedAt).Milliseconds(),
+			TargetUpdates:    targetUpdates,
+		},
+	))
 }
 
 func nextBulkMtrTarget(ctx context.Context, targetCh <-chan string) (string, bool) {

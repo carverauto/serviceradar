@@ -27,8 +27,6 @@ import (
 	"time"
 
 	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
-	"golang.org/x/net/ipv6"
 )
 
 const (
@@ -53,9 +51,10 @@ var (
 
 // linuxRawSocket implements RawSocket using Linux raw sockets.
 type linuxRawSocket struct {
-	sendFD int
-	conn   *icmp.PacketConn
-	ipv6   bool
+	sendFD  int
+	conn    *icmp.PacketConn
+	ipv6    bool
+	sendBuf []byte
 }
 
 // NewRawSocket creates a new raw socket for ICMP probing.
@@ -121,19 +120,6 @@ func (s *linuxRawSocket) IsIPv6() bool {
 }
 
 func (s *linuxRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte) error {
-	var msgType icmp.Type
-	if s.ipv6 {
-		msgType = ipv6.ICMPTypeEchoRequest
-	} else {
-		msgType = ipv4.ICMPTypeEcho
-	}
-
-	body := &icmp.Echo{
-		ID:   id,
-		Seq:  seq,
-		Data: payload,
-	}
-
 	var proto int
 	if s.ipv6 {
 		proto = 58 // ICMPv6
@@ -141,19 +127,10 @@ func (s *linuxRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte) 
 		proto = 1 // ICMPv4
 	}
 
-	msg := icmp.Message{
-		Type: msgType,
-		Code: 0,
-		Body: body,
-	}
-
-	data, err := msg.Marshal(nil)
-	if err != nil {
-		return fmt.Errorf("marshal ICMP: %w", err)
-	}
+	s.sendBuf = prepareICMPEchoPacket(s.sendBuf, payload, id, seq, s.ipv6)
 
 	if s.sendFD >= 0 {
-		return s.sendRaw(dst, ttl, data)
+		return s.sendRaw(dst, ttl, s.sendBuf)
 	}
 
 	// SOCK_DGRAM fallback: set TTL via PacketConn control.
@@ -168,7 +145,7 @@ func (s *linuxRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte) 
 	}
 
 	addr := &net.UDPAddr{IP: dst, Port: proto}
-	if _, err := s.conn.WriteTo(data, addr); err != nil {
+	if _, err := s.conn.WriteTo(s.sendBuf, addr); err != nil {
 		return fmt.Errorf("send ICMP: %w", err)
 	}
 

@@ -235,12 +235,17 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp payload_trace(_payload), do: nil
 
   defp ingest_bulk_mtr_progress(payload, data) when is_map(payload) do
-    payload
-    |> map_get_any(["target_updates", :target_updates], [])
-    |> List.wrap()
-    |> Enum.each(fn update ->
+    updates =
+      payload
+      |> map_get_any(["target_updates", :target_updates], [])
+      |> List.wrap()
+      |> Enum.filter(&is_map/1)
+
+    command_id = map_get_any(data, [:command_id, "command_id"], nil)
+    persist_bulk_target_updates(command_id, updates)
+
+    Enum.each(updates, fn update ->
       command_id = map_get_any(data, [:command_id, "command_id"], nil)
-      persist_bulk_target_update(command_id, update)
       maybe_ingest_bulk_target_trace(command_id, data, update)
     end)
   end
@@ -305,49 +310,110 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     }
   end
 
-  defp persist_bulk_target_update(nil, _update), do: :ok
+  defp persist_bulk_target_updates(nil, _updates), do: :ok
+  defp persist_bulk_target_updates(_command_id, []), do: :ok
 
-  defp persist_bulk_target_update(command_id, update) when is_map(update) do
-    target = map_get_any(update, ["target", :target], nil)
-    status = normalize_bulk_target_status(map_get_any(update, ["status", :status], "queued"))
+  defp persist_bulk_target_updates(command_id, updates) when is_list(updates) do
+    rows =
+      updates
+      |> Enum.map(&bulk_target_update_row/1)
+      |> Enum.reject(&is_nil/1)
 
-    if is_binary(target) and target != "" do
-      started_at = if status == "running", do: DateTime.utc_now()
+    if rows != [] do
+      case Repo.query(
+             """
+             WITH updates AS (
+               SELECT
+                 $1::uuid AS command_id,
+                 x.target::text AS target,
+                 x.status::text AS status,
+                 x.error::text AS error,
+                 x.result_payload::jsonb AS result_payload,
+                 COALESCE(x.attempt_count, 1)::integer AS attempt_count,
+                 CASE WHEN x.status = 'running' THEN now() AT TIME ZONE 'utc' END AS started_at,
+                 CASE
+                   WHEN x.status IN ('completed', 'failed', 'canceled', 'timed_out')
+                     THEN now() AT TIME ZONE 'utc'
+                 END AS completed_at
+               FROM jsonb_to_recordset($2::jsonb) AS x(
+                 target text,
+                 status text,
+                 error text,
+                 result_payload jsonb,
+                 attempt_count integer
+               )
+               WHERE x.target IS NOT NULL AND btrim(x.target) <> ''
+             )
+             INSERT INTO platform.mtr_bulk_job_targets (
+               command_id,
+               target,
+               status,
+               error,
+               result_payload,
+               attempt_count,
+               started_at,
+               completed_at,
+               inserted_at,
+               updated_at
+             )
+             SELECT
+               command_id,
+               target,
+               status,
+               error,
+               result_payload,
+               attempt_count,
+               started_at,
+               completed_at,
+               now() AT TIME ZONE 'utc',
+               now() AT TIME ZONE 'utc'
+             FROM updates
+             ON CONFLICT (command_id, target)
+             DO UPDATE SET
+               status = EXCLUDED.status,
+               error = EXCLUDED.error,
+               result_payload = COALESCE(EXCLUDED.result_payload, platform.mtr_bulk_job_targets.result_payload),
+               attempt_count = GREATEST(platform.mtr_bulk_job_targets.attempt_count, EXCLUDED.attempt_count),
+               started_at = COALESCE(platform.mtr_bulk_job_targets.started_at, EXCLUDED.started_at),
+               completed_at = COALESCE(EXCLUDED.completed_at, platform.mtr_bulk_job_targets.completed_at),
+               updated_at = now() AT TIME ZONE 'utc'
+             """,
+             [command_id, Jason.encode!(rows)]
+           ) do
+        {:ok, _result} ->
+          :ok
 
-      completed_at =
-        if status in ["completed", "failed", "canceled", "timed_out"], do: DateTime.utc_now()
-
-      Repo.query(
-        """
-        INSERT INTO platform.mtr_bulk_job_targets (
-          command_id, target, status, error, result_payload, attempt_count, started_at, completed_at, inserted_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() AT TIME ZONE 'utc', now() AT TIME ZONE 'utc')
-        ON CONFLICT (command_id, target)
-        DO UPDATE SET
-          status = EXCLUDED.status,
-          error = EXCLUDED.error,
-          result_payload = COALESCE(EXCLUDED.result_payload, platform.mtr_bulk_job_targets.result_payload),
-          attempt_count = GREATEST(platform.mtr_bulk_job_targets.attempt_count, EXCLUDED.attempt_count),
-          started_at = COALESCE(platform.mtr_bulk_job_targets.started_at, EXCLUDED.started_at),
-          completed_at = COALESCE(EXCLUDED.completed_at, platform.mtr_bulk_job_targets.completed_at),
-          updated_at = now() AT TIME ZONE 'utc'
-        """,
-        [
-          command_id,
-          target,
-          status,
-          map_get_any(update, ["error", :error], nil),
-          map_get_any(update, ["result_payload", :result_payload], nil),
-          map_get_any(update, ["attempt_count", :attempt_count], 1),
-          started_at,
-          completed_at
-        ]
-      )
+        {:error, reason} ->
+          Logger.warning(
+            "AgentCommandStatusHandler: failed to persist bulk MTR target updates",
+            command_id: command_id,
+            reason: inspect(reason),
+            target_count: length(rows)
+          )
+      end
     end
   end
 
-  defp persist_bulk_target_update(_command_id, _update), do: :ok
+  defp bulk_target_update_row(update) when is_map(update) do
+    target =
+      update
+      |> map_get_any(["target", :target], nil)
+      |> to_string_or_nil()
+
+    if is_nil(target) or target == "" do
+      nil
+    else
+      %{
+        target: target,
+        status: normalize_bulk_target_status(map_get_any(update, ["status", :status], "queued")),
+        error: map_get_any(update, ["error", :error], nil),
+        result_payload: map_get_any(update, ["result_payload", :result_payload], nil),
+        attempt_count: map_get_any(update, ["attempt_count", :attempt_count], 1)
+      }
+    end
+  end
+
+  defp bulk_target_update_row(_update), do: nil
 
   defp normalize_bulk_target_status(value) do
     value =
@@ -373,4 +439,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   defp map_get_any(_map, _keys, default), do: default
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(value), do: to_string(value)
 end
