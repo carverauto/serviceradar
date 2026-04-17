@@ -1786,8 +1786,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end)
   end
 
-  defp metadata_field(_metadata, _keys), do: nil
-
   defp platform_label(os, arch) do
     case {presence(os), presence(arch)} do
       {nil, nil} -> nil

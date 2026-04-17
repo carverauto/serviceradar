@@ -100,8 +100,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     |> validate_provider()
   end
 
-  defp selected_provider(_attrs), do: {:ok, @default_provider}
-
   defp import_repo(attrs) when is_map(attrs) do
     repo_url = Map.get(attrs, "repo_url") || Map.get(attrs, :repo_url)
 
@@ -109,8 +107,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
       parse_repo_url(provider, repo_url)
     end
   end
-
-  defp import_repo(_attrs), do: {:error, "Release import settings are invalid"}
 
   defp validate_provider("forgejo"), do: {:ok, "forgejo"}
   defp validate_provider(_provider), do: {:error, "Forgejo is the only supported release provider"}
@@ -311,8 +307,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
       {:error, _reason} -> {:error, "Release manifest asset is not valid JSON"}
     end
   end
-
-  defp decode_manifest(_body), do: {:error, "Release manifest asset is not valid JSON"}
 
   defp manifest_version(manifest) when is_map(manifest) do
     manifest
