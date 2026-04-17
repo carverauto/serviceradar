@@ -167,9 +167,8 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   """
   @impl Guardian
   def after_encode_and_sign(resource, claims, token, _opts) do
-    # Extension point for Permit integration
     Hooks.on_token_generated(resource, token, claims)
-    {:ok, {resource, claims, token}}
+    {:ok, token}
   end
 
   # Token Generation Helpers

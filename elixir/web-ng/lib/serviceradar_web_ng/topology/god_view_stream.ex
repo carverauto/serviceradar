@@ -328,7 +328,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp materialize_projection_attachment_nodes(nodes, _edges) when is_list(nodes), do: nodes
-  defp materialize_projection_attachment_nodes(_nodes, _edges), do: []
 
   defp materialize_projection_attachment_edge_nodes(edge, nodes_by_id, acc)
        when is_map(edge) and is_map(nodes_by_id) and is_map(acc) do
@@ -371,13 +370,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     endpoint_attachment_edge?(edge) and not weak_endpoint_cluster_membership_edge?(edge)
   end
 
-  defp materializable_projection_attachment_edge?(_edge), do: false
-
   defp unresolved_materializable_projection_endpoint?(endpoint_id, endpoint_node) when is_binary(endpoint_id) do
     not resolved_endpoint_identity?(endpoint_id, endpoint_node)
   end
-
-  defp unresolved_materializable_projection_endpoint?(_endpoint_id, _endpoint_node), do: false
 
   defp projection_attachment_node_identity(edge, endpoint_id, endpoint_node, nodes_by_id)
        when is_map(edge) and is_binary(endpoint_id) and is_map(nodes_by_id) do
@@ -1227,8 +1222,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp fetch_unplaced_devices(_actor, _connected_node_ids), do: {:ok, []}
-
   defp prune_unplaced_devices(devices, connected_node_id_set)
        when is_list(devices) and is_struct(connected_node_id_set, MapSet) do
     devices
@@ -1290,8 +1283,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     edge_connected_node_ids(edge_node_ids) ++ unplaced_node_ids(edge_node_ids, devices)
   end
 
-  defp node_ids(edge_node_ids, _devices), do: edge_connected_node_ids(edge_node_ids)
-
   defp unplaced_node_ids(edge_node_ids, devices) when is_list(edge_node_ids) and is_list(devices) do
     connected =
       edge_node_ids
@@ -1322,7 +1313,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp build_nodes(node_ids, device_by_id, node_pps_by_id, camera_sources_by_device_uid, unplaced_node_ids) do
     total = max(length(node_ids), 1)
-    unplaced_node_id_set = MapSet.new(unplaced_node_ids || [])
+    unplaced_node_id_set = MapSet.new(unplaced_node_ids)
 
     node_ids
     |> Enum.with_index()
@@ -1368,8 +1359,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       disambiguate_duplicate_node_label(node, label, duplicate_labels)
     end)
   end
-
-  defp disambiguate_duplicate_node_labels(nodes), do: nodes
 
   defp disambiguate_duplicate_node_label(node, label, duplicate_labels) do
     if is_binary(label) and MapSet.member?(duplicate_labels, label) do
@@ -2377,8 +2366,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp suppress_shadowed_raw_attachment_edges(edges, _nodes, _summarized_groups) when is_list(edges), do: edges
 
-  defp suppress_shadowed_raw_attachment_edges(_edges, _nodes, _summarized_groups), do: []
-
   defp shadowed_raw_attachment_edge?(edge, nodes_by_id, summarized_endpoint_ids, explicit_controller_endpoint_ids)
        when is_map(edge) and is_map(nodes_by_id) and is_struct(summarized_endpoint_ids, MapSet) and
               is_struct(explicit_controller_endpoint_ids, MapSet) do
@@ -2940,8 +2927,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     if valid_ifindex?(if_index), do: if_index
   end
 
-  defp endpoint_cluster_anchor_if_index(_direction, _edge), do: nil
-
   defp endpoint_cluster_anchor_if_name(:source, edge) when is_map(edge) do
     if_name = Map.get(edge, :local_if_name_ab) || Map.get(edge, :local_if_name)
     sanitize_endpoint_cluster_anchor_if_name(if_name)
@@ -2951,8 +2936,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     if_name = Map.get(edge, :local_if_name_ba) || Map.get(edge, :neighbor_if_name)
     sanitize_endpoint_cluster_anchor_if_name(if_name)
   end
-
-  defp endpoint_cluster_anchor_if_name(_direction, _edge), do: nil
 
   defp sanitize_endpoint_cluster_anchor_if_name(value) when is_binary(value) do
     trimmed = String.trim(value)
@@ -3041,8 +3024,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp endpoint_cluster_membership_source_rank(_edge), do: 0
-
   defp endpoint_cluster_candidate_port_fanout(candidate, port_candidate_counts)
        when is_map(candidate) and is_map(port_candidate_counts) do
     candidate
@@ -3074,8 +3055,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp synthesized_endpoint_cluster_membership_key?(membership_key) when is_binary(membership_key) do
     String.starts_with?(membership_key, "ip:") or String.starts_with?(membership_key, "mac:")
   end
-
-  defp synthesized_endpoint_cluster_membership_key?(_membership_key), do: false
 
   defp provisional_topology_sighting_membership?(endpoint_id, node) when is_binary(endpoint_id) and is_map(node) do
     topology_sighting_device?(node) and provisional_identity_state?(node) and
@@ -3121,8 +3100,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         0
     end
   end
-
-  defp attachment_observation_count(_edge), do: 0
 
   defp endpoint_cluster_confidence_rank(value) when is_binary(value) do
     case String.downcase(String.trim(value)) do
@@ -3413,8 +3390,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp raw_endpoint_attachment_edge?(edge) when is_map(edge) do
     endpoint_attachment_edge?(edge) and normalize_id(Map.get(edge, :protocol)) != "cluster"
   end
-
-  defp raw_endpoint_attachment_edge?(_edge), do: false
 
   defp projected_cluster_attachment_edge?(edge, summarized_groups) when is_map(edge) and is_list(summarized_groups) do
     raw_endpoint_attachment_edge?(edge) and
@@ -3767,8 +3742,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end)
   end
 
-  defp known_infrastructure_ip_set(_nodes_by_id), do: MapSet.new()
-
   defp known_infrastructure_node?(node_id, node) do
     is_binary(node_id) and is_map(node) and infrastructure_device?(node) and
       not cluster_summary_node?(node)
@@ -3819,8 +3792,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     blank_or_unknown_identity?(Map.get(edge, :neighbor_if_name))
   end
 
-  defp member_interface_name_unknown?(_edge, _role), do: true
-
   defp endpoint_cluster_edge_member_mac(edge, :source) when is_map(edge) do
     attachment_side_mac(edge, :source)
   end
@@ -3828,8 +3799,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp endpoint_cluster_edge_member_mac(edge, :target) when is_map(edge) do
     attachment_side_mac(edge, :target)
   end
-
-  defp endpoint_cluster_edge_member_mac(_edge, _role), do: nil
 
   defp endpoint_like_node?(node) when is_map(node) do
     kind =
@@ -3870,8 +3839,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> metadata_value("identity_state")
     |> normalize_id() == "provisional"
   end
-
-  defp provisional_identity_state?(_device), do: false
 
   defp blank_or_unknown_identity?(value) when is_binary(value) do
     case String.downcase(String.trim(value)) do
@@ -5077,8 +5044,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       Map.get(edge, :telemetry_source) != "interface"
   end
 
-  defp weak_endpoint_cluster_membership_edge?(_edge), do: false
-
   defp attachment_candidate_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
     endpoint_attachment_edge?(edge) or
       inferred_segment_attachment_candidate?(edge, device_by_id) or
@@ -5165,7 +5130,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp promote_projection_attachment_candidates(edges, _nodes) when is_list(edges), do: edges
-  defp promote_projection_attachment_candidates(_edges, _nodes), do: []
 
   defp promote_projection_attachment_candidate_edge(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
     if inferred_segment_projection_attachment_candidate?(edge, nodes_by_id) or

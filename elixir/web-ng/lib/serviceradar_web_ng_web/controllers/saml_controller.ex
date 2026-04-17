@@ -225,7 +225,6 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       {:ok, url}
     else
-      {:url, _url} -> {:error, :invalid_metadata}
       {:error, :invalid_sso_url} -> {:error, :invalid_metadata}
       error -> error
     end
