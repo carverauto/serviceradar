@@ -63,6 +63,7 @@ git clone https://code.carverauto.dev/carverauto/serviceradar.git
 cd serviceradar
 
 docker compose pull
+docker compose up nats-creds-init
 docker compose up -d
 
 # Get your admin password
