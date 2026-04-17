@@ -100,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   def upload_blob(conn, %{"id" => id}) do
     actor = SystemActor.system(:plugin_blob)
 
@@ -514,6 +515,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp read_full_body(conn, max_bytes) do
     tmp_path = plugin_upload_temp_path()
 

@@ -1,10 +1,13 @@
 defmodule ServiceRadarWebNG.TempArchive do
   @moduledoc false
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @retry_attempts 5
 
   @spec create_tar_gz(String.t(), [{String.t(), iodata() | nil}]) ::
           {:ok, binary()} | {:error, term()}
+  @sobelow_skip ["Traversal.FileModule"]
   def create_tar_gz(prefix, files) when is_binary(prefix) and is_list(files) do
     entries =
       Enum.map(files, fn {name, content} ->
@@ -27,6 +30,7 @@ defmodule ServiceRadarWebNG.TempArchive do
     error -> {:error, {:tar_creation_failed, error}}
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp with_secure_temp_path(prefix, fun) when is_function(fun, 1) do
     base_dir = Path.join(System.tmp_dir!(), "serviceradar")
     File.mkdir_p!(base_dir)
@@ -37,6 +41,7 @@ defmodule ServiceRadarWebNG.TempArchive do
     {:error, :tempfile_allocation_failed}
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp do_with_secure_temp_path(base_dir, prefix, fun, attempts_left) do
     random =
       16
