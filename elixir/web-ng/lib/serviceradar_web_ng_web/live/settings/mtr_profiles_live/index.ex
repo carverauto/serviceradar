@@ -406,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 {selector_query(profile)}
               </td>
               <td class="font-mono text-xs">{selector_agent(profile) || "-"}</td>
-              <td>{String.upcase(profile.baseline_protocol || @protocol_icmp)}</td>
+              <td>{String.upcase(profile.baseline_protocol || protocol_icmp())}</td>
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
@@ -684,7 +684,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               type="select"
               field={@form[:baseline_protocol]}
               class="select select-bordered w-full"
-              options={[{"ICMP", @protocol_icmp}, {"UDP", @protocol_udp}, {"TCP", @protocol_tcp}]}
+              options={protocol_options()}
             />
           </div>
           <div>
@@ -693,11 +693,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               type="select"
               field={@form[:bulk_execution_profile]}
               class="select select-bordered w-full"
-              options={[
-                {"Fast", @execution_profile_fast},
-                {"Balanced", @execution_profile_balanced},
-                {"Deep", @execution_profile_deep}
-              ]}
+              options={execution_profile_options()}
             />
           </div>
           <div>
@@ -1088,6 +1084,14 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     if value in @execution_profiles, do: value, else: @execution_profile_fast
   end
 
+  defp execution_profile_options do
+    [
+      {"Fast", @execution_profile_fast},
+      {"Balanced", @execution_profile_balanced},
+      {"Deep", @execution_profile_deep}
+    ]
+  end
+
   defp extract_float_metric(payload, key) when is_map(payload) do
     case Map.get(payload, key) do
       value when is_float(value) ->
@@ -1409,6 +1413,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp normalize_protocol(value) do
     value = value |> to_string() |> String.downcase()
     if value in @protocols, do: value, else: @protocol_icmp
+  end
+
+  defp protocol_icmp, do: @protocol_icmp
+
+  defp protocol_options do
+    [{"ICMP", @protocol_icmp}, {"UDP", @protocol_udp}, {"TCP", @protocol_tcp}]
   end
 
   defp normalize_consensus_mode(value) do
