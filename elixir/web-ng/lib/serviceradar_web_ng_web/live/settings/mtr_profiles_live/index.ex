@@ -1044,8 +1044,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp extract_bulk_concurrency_history(_payload), do: []
-
   defp bulk_job_profile(job) do
     payload = job.payload || %{}
     normalize_bulk_execution_profile(Map.get(payload, @selector_execution_profile_key))
