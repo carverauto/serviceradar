@@ -236,8 +236,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   def get_trace_detail(_), do: {:error, :invalid_trace_id}
 
-  def suppress_completed_pending_jobs(pending_jobs, traces)
-      when is_list(pending_jobs) and is_list(traces) do
+  def suppress_completed_pending_jobs(pending_jobs, traces) when is_list(pending_jobs) and is_list(traces) do
     completed_command_ids =
       traces
       |> Enum.map(&Map.get(&1, "check_id"))
@@ -288,8 +287,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       if target_filter == "" do
         {conditions, params, idx}
       else
-        {conditions ++ ["(target ILIKE $#{idx} OR target_ip ILIKE $#{idx})"],
-         params ++ ["%#{target_filter}%"], idx + 1}
+        {conditions ++ ["(target ILIKE $#{idx} OR target_ip ILIKE $#{idx})"], params ++ ["%#{target_filter}%"], idx + 1}
       end
 
     {conditions, params, idx} =
@@ -302,8 +300,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     {conditions, params, _idx} =
       case {device_uid, device_ip} do
         {uid, ip} when is_binary(uid) and uid != "" and is_binary(ip) and ip != "" ->
-          {conditions ++ ["(device_id::text = $#{idx} OR target_ip = $#{idx + 1})"],
-           params ++ [uid, ip], idx + 2}
+          {conditions ++ ["(device_id::text = $#{idx} OR target_ip = $#{idx + 1})"], params ++ [uid, ip], idx + 2}
 
         {uid, _ip} when is_binary(uid) and uid != "" ->
           {conditions ++ ["device_id::text = $#{idx}"], params ++ [uid], idx + 1}
@@ -567,11 +564,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  defp apply_filter_by_field("", _value, conditions, params, idx, sort),
-    do: {conditions, params, idx, sort}
+  defp apply_filter_by_field("", _value, conditions, params, idx, sort), do: {conditions, params, idx, sort}
 
-  defp apply_filter_by_field(_field, value, conditions, params, idx, sort)
-       when not is_binary(value) or value == "" do
+  defp apply_filter_by_field(_field, value, conditions, params, idx, sort) when not is_binary(value) or value == "" do
     {conditions, params, idx, sort}
   end
 
@@ -593,8 +588,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  defp maybe_add_boolean_filter(nil, _field, conditions, params, idx, sort),
-    do: {conditions, params, idx, sort}
+  defp maybe_add_boolean_filter(nil, _field, conditions, params, idx, sort), do: {conditions, params, idx, sort}
 
   defp maybe_add_boolean_filter(bool_value, field, conditions, params, idx, sort) do
     {conditions ++ ["#{field} = $#{idx}"], params ++ [bool_value], idx + 1, sort}

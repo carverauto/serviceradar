@@ -9,6 +9,42 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
+  @command_type_mtr_run "mtr.run"
+  @command_type_mtr_bulk_run "mtr.bulk_run"
+  @protocol_icmp "icmp"
+  @protocol_udp "udp"
+  @protocol_tcp "tcp"
+  @protocols [@protocol_icmp, @protocol_udp, @protocol_tcp]
+  @execution_profile_fast "fast"
+  @execution_profile_balanced "balanced"
+  @execution_profile_deep "deep"
+  @execution_profiles [
+    @execution_profile_fast,
+    @execution_profile_balanced,
+    @execution_profile_deep
+  ]
+  @payload_target_key "target"
+  @payload_targets_key "targets"
+  @payload_agent_id_key "agent_id"
+  @payload_elapsed_ms_key "elapsed_ms"
+  @payload_target_ip_key "target_ip"
+  @payload_check_name_key "check_name"
+  @payload_ip_version_key "ip_version"
+  @payload_targets_per_minute_key "targets_per_minute"
+  @payload_duration_ms_key "duration_ms"
+  @payload_concurrency_key "concurrency"
+  @payload_max_concurrency_key "max_concurrency"
+  @payload_concurrency_history_key "concurrency_history"
+  @payload_total_targets_key "total_targets"
+  @payload_completed_targets_key "completed_targets"
+  @payload_failed_targets_key "failed_targets"
+  @payload_running_targets_key "running_targets"
+  @payload_timed_out_targets_key "timed_out_targets"
+  @payload_protocol_key "protocol"
+  @payload_execution_profile_key "execution_profile"
+  @payload_target_query_key "target_query"
+  @payload_selector_limit_key "selector_limit"
+
   @default_limit 25
   @max_limit 200
 
@@ -38,7 +74,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      |> assign(:mtr_agents, [])
      |> assign(
        :mtr_form,
-       to_form(%{"target" => "", "agent_id" => "", "protocol" => "icmp"}, as: :mtr)
+       to_form(
+         %{
+           @payload_target_key => "",
+           @payload_agent_id_key => "",
+           @payload_protocol_key => @protocol_icmp
+         },
+         as: :mtr
+       )
      )
      |> assign(:mtr_running, false)
      |> assign(:mtr_error, nil)
@@ -48,13 +91,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
        :bulk_mtr_form,
        to_form(
          %{
-           "targets" => "",
-           "target_query" => "",
-           "selector_limit" => "100",
-           "agent_id" => "",
-           "protocol" => "icmp",
-           "execution_profile" => "fast",
-           "concurrency" => "64"
+           @payload_targets_key => "",
+           @payload_target_query_key => "",
+           @payload_selector_limit_key => "100",
+           @payload_agent_id_key => "",
+           @payload_protocol_key => @protocol_icmp,
+           @payload_execution_profile_key => @execution_profile_fast,
+           @payload_concurrency_key => "64"
          },
          as: :bulk_mtr
        )
@@ -122,13 +165,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("open_mtr_modal", _params, socket) do
@@ -171,9 +212,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("run_mtr", %{"mtr" => mtr_params}, socket) do
-    target = String.trim(mtr_params["target"] || "")
-    agent_id = mtr_params["agent_id"] || ""
-    protocol = normalize_protocol(Map.get(mtr_params, "protocol", "icmp"))
+    target = String.trim(mtr_params[@payload_target_key] || "")
+    agent_id = mtr_params[@payload_agent_id_key] || ""
+    protocol = normalize_protocol(Map.get(mtr_params, @payload_protocol_key, @protocol_icmp))
 
     cond do
       target == "" ->
@@ -183,9 +224,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         {:noreply, assign(socket, :mtr_error, "Please select an agent")}
 
       true ->
-        payload = %{"target" => target, "protocol" => protocol}
+        payload = %{@payload_target_key => target, @payload_protocol_key => protocol}
 
-        case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, required_capability: "mtr") do
+        case AgentCommandBus.dispatch(agent_id, @command_type_mtr_run, payload, required_capability: "mtr") do
           {:ok, command_id} ->
             {:noreply,
              socket
@@ -214,10 +255,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("run_again", %{"target" => target, "agent_id" => agent_id} = params, socket) do
-    protocol = normalize_protocol(Map.get(params, "protocol", "icmp"))
-    payload = %{"target" => target, "protocol" => protocol}
+    protocol = normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp))
+    payload = %{@payload_target_key => target, @payload_protocol_key => protocol}
 
-    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, required_capability: "mtr") do
+    case AgentCommandBus.dispatch(agent_id, @command_type_mtr_run, payload, required_capability: "mtr") do
       {:ok, command_id} ->
         {:noreply,
          socket
@@ -245,14 +286,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     socket =
       assign(socket, :bulk_mtr_form, to_form(normalize_bulk_mtr_params(params), as: :bulk_mtr))
 
-    agent_id = params["agent_id"] || ""
-    protocol = normalize_protocol(Map.get(params, "protocol", "icmp"))
+    agent_id = params[@payload_agent_id_key] || ""
+    protocol = normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp))
 
     execution_profile =
-      normalize_bulk_execution_profile(Map.get(params, "execution_profile", "fast"))
+      normalize_bulk_execution_profile(Map.get(params, @payload_execution_profile_key, @execution_profile_fast))
 
     concurrency = parse_positive_integer(Map.get(params, "concurrency"), 64)
-    selector_limit = parse_positive_integer(Map.get(params, "selector_limit"), 100)
+    selector_limit = parse_positive_integer(Map.get(params, @payload_selector_limit_key), 100)
 
     with :ok <- validate_bulk_mtr_agent(agent_id),
          {:ok, targets} <- bulk_targets_from_params(params, selector_limit),
@@ -286,24 +327,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         {:noreply, assign(socket, :bulk_mtr_error, "SRQL query returned no eligible targets")}
 
       {:error, {:srql_query_failed, reason}} ->
-        {:noreply,
-         assign(socket, :bulk_mtr_error, "SRQL target resolution failed: #{inspect(reason)}")}
+        {:noreply, assign(socket, :bulk_mtr_error, "SRQL target resolution failed: #{inspect(reason)}")}
 
       {:error, {:agent_busy, :bulk_mtr_job_running}} ->
-        {:noreply,
-         assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
+        {:noreply, assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
 
       {:error, {:agent_offline, _}} ->
         {:noreply, assign(socket, :bulk_mtr_error, "Agent is offline")}
 
       {:error, reason} ->
-        {:noreply,
-         assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
+        {:noreply, assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
     end
   end
 
   @impl true
-  def handle_info({:command_result, %{command_type: "mtr.run"} = msg}, socket) do
+  def handle_info({:command_result, %{command_type: @command_type_mtr_run} = msg}, socket) do
     command_id = Map.get(msg, :command_id) || Map.get(msg, "command_id")
 
     socket =
@@ -322,19 +360,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     {:noreply, schedule_refresh(socket)}
   end
 
-  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket),
+  def handle_info({:command_ack, %{command_type: @command_type_mtr_run}}, socket),
     do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket),
+  def handle_info({:command_progress, %{command_type: @command_type_mtr_run}}, socket),
     do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_ack, %{command_type: "mtr.bulk_run"}}, socket),
+  def handle_info({:command_ack, %{command_type: @command_type_mtr_bulk_run}}, socket),
     do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_progress, %{command_type: "mtr.bulk_run"}}, socket),
+  def handle_info({:command_progress, %{command_type: @command_type_mtr_bulk_run}}, socket),
     do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_result, %{command_type: "mtr.bulk_run"}}, socket),
+  def handle_info({:command_result, %{command_type: @command_type_mtr_bulk_run}}, socket),
     do: {:noreply, schedule_refresh(socket)}
 
   def handle_info(:refresh_diagnostics, socket) do
@@ -363,10 +401,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       |> String.trim()
       |> String.downcase()
 
-    if value in ["icmp", "udp", "tcp"] do
+    if value in @protocols do
       value
     else
-      "icmp"
+      @protocol_icmp
     end
   end
 
@@ -377,23 +415,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       |> String.trim()
       |> String.downcase()
 
-    if value in ["fast", "balanced", "deep"] do
+    if value in @execution_profiles do
       value
     else
-      "fast"
+      @execution_profile_fast
     end
   end
 
   defp normalize_bulk_mtr_params(params) when is_map(params) do
     %{
-      "targets" => to_string(Map.get(params, "targets", "")),
-      "target_query" => to_string(Map.get(params, "target_query", "")),
-      "selector_limit" => to_string(Map.get(params, "selector_limit", "100")),
-      "agent_id" => to_string(Map.get(params, "agent_id", "")),
-      "protocol" => normalize_protocol(Map.get(params, "protocol", "icmp")),
-      "execution_profile" =>
-        normalize_bulk_execution_profile(Map.get(params, "execution_profile", "fast")),
-      "concurrency" => to_string(Map.get(params, "concurrency", "64"))
+      "targets" => to_string(Map.get(params, @payload_targets_key, "")),
+      @payload_target_query_key => to_string(Map.get(params, @payload_target_query_key, "")),
+      @payload_selector_limit_key => to_string(Map.get(params, @payload_selector_limit_key, "100")),
+      "agent_id" => to_string(Map.get(params, @payload_agent_id_key, "")),
+      @payload_protocol_key => normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp)),
+      @payload_execution_profile_key =>
+        normalize_bulk_execution_profile(Map.get(params, @payload_execution_profile_key, @execution_profile_fast)),
+      "concurrency" => to_string(Map.get(params, @payload_concurrency_key, "64"))
     }
   end
 
@@ -407,43 +445,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     |> Enum.uniq()
   end
 
-  defp bulk_targets_from_params(params, selector_limit)
-       when is_map(params) and is_integer(selector_limit) do
+  defp bulk_targets_from_params(params, selector_limit) when is_map(params) and is_integer(selector_limit) do
     query =
       params
-      |> Map.get("target_query", "")
+      |> Map.get(@payload_target_query_key, "")
       |> to_string()
       |> String.trim()
 
-    if query == "" do
-      manual_targets = manual_bulk_targets(params)
+    case query do
+      "" ->
+        params
+        |> manual_bulk_targets()
+        |> wrap_manual_bulk_targets()
 
-      if manual_targets == [] do
-        {:error, :missing_targets}
-      else
-        {:ok, manual_targets}
-      end
-    else
-      case MtrAutomationDispatcher.target_contexts_from_srql(query, selector_limit) do
-        {:ok, []} ->
-          {:error, :empty_srql_targets}
-
-        {:ok, target_contexts} ->
-          targets =
-            target_contexts
-            |> Enum.map(&bulk_target_from_ctx/1)
-            |> Enum.reject(&is_nil/1)
-            |> Enum.uniq()
-
-          if targets == [] do
-            {:error, :empty_srql_targets}
-          else
-            {:ok, targets}
-          end
-
-        {:error, reason} ->
-          {:error, {:srql_query_failed, reason}}
-      end
+      _ ->
+        query
+        |> MtrAutomationDispatcher.target_contexts_from_srql(selector_limit)
+        |> wrap_srql_bulk_targets()
     end
   end
 
@@ -461,7 +479,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp bulk_target_query(params) when is_map(params) do
     params
-    |> Map.get("target_query", "")
+    |> Map.get(@payload_target_query_key, "")
     |> normalize_text()
   end
 
@@ -494,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp bulk_rate(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
-    case Map.get(payload, "targets_per_minute") do
+    case Map.get(payload, @payload_targets_per_minute_key) do
       value when is_float(value) -> "#{Float.round(value, 1)} targets/min"
       value when is_integer(value) -> "#{value}.0 targets/min"
       value when is_binary(value) -> "#{value} targets/min"
@@ -504,13 +522,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp bulk_rate_value(job) do
     payload = job.result_payload || job.progress_payload || %{}
-    extract_float_metric(payload, "targets_per_minute") || 0.0
+    extract_float_metric(payload, @payload_targets_per_minute_key) || 0.0
   end
 
   defp bulk_duration(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
-    case Map.get(payload, "duration_ms") do
+    case Map.get(payload, @payload_duration_ms_key) do
       value when is_integer(value) and value > 0 ->
         "#{div(value, 1000)}s"
 
@@ -528,8 +546,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp bulk_concurrency(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
-    current = Map.get(payload, "concurrency")
-    max = Map.get(payload, "max_concurrency")
+    current = Map.get(payload, @payload_concurrency_key)
+    max = Map.get(payload, @payload_max_concurrency_key)
 
     case {current, max} do
       {curr, maxc} when is_integer(curr) and is_integer(maxc) and maxc > 0 and curr != maxc ->
@@ -547,19 +565,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   defp bulk_timeout_count(job) do
-    bulk_count(job, "timed_out_targets", 0)
+    bulk_count(job, @payload_timed_out_targets_key, 0)
   end
 
   defp bulk_success_rate(job) do
-    total_targets = bulk_count(job, "total_targets", count_targets(job))
-    completed_targets = bulk_count(job, "completed_targets", 0)
+    total_targets = bulk_count(job, @payload_total_targets_key, count_targets(job))
+    completed_targets = bulk_count(job, @payload_completed_targets_key, 0)
     Float.round(safe_ratio(completed_targets, total_targets) * 100, 1)
   end
 
   defp bulk_mix(job) do
-    total_targets = bulk_count(job, "total_targets", count_targets(job))
-    completed_targets = bulk_count(job, "completed_targets", 0)
-    failed_targets = bulk_count(job, "failed_targets", 0)
+    total_targets = bulk_count(job, @payload_total_targets_key, count_targets(job))
+    completed_targets = bulk_count(job, @payload_completed_targets_key, 0)
+    failed_targets = bulk_count(job, @payload_failed_targets_key, 0)
     timed_out_targets = bulk_timeout_count(job)
     error_targets = max(failed_targets - timed_out_targets, 0)
 
@@ -575,14 +593,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     payload = job.result_payload || job.progress_payload || %{}
 
     payload
-    |> Map.get("concurrency_history", [])
+    |> Map.get(@payload_concurrency_history_key, [])
     |> List.wrap()
     |> Enum.map(fn
       %{} = sample ->
         %{
-          elapsed_ms: extract_int_metric(sample, "elapsed_ms") || 0,
-          concurrency: extract_int_metric(sample, "concurrency") || 0,
-          max_concurrency: extract_int_metric(sample, "max_concurrency") || 0
+          elapsed_ms: extract_int_metric(sample, @payload_elapsed_ms_key) || 0,
+          concurrency: extract_int_metric(sample, @payload_concurrency_key) || 0,
+          max_concurrency: extract_int_metric(sample, @payload_max_concurrency_key) || 0
         }
 
       _ ->
@@ -595,30 +613,28 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     payload = job.result_payload || job.progress_payload || %{}
     history = bulk_concurrency_history(job)
 
-    cond do
-      history != [] ->
-        Enum.any?(history, fn sample ->
-          sample.max_concurrency > 0 and sample.concurrency < sample.max_concurrency
-        end)
-
-      true ->
-        current = Map.get(payload, "concurrency")
-        max = Map.get(payload, "max_concurrency")
-        is_integer(current) and is_integer(max) and max > current
+    if history == [] do
+      current = Map.get(payload, @payload_concurrency_key)
+      max = Map.get(payload, @payload_max_concurrency_key)
+      is_integer(current) and is_integer(max) and max > current
+    else
+      Enum.any?(history, fn sample ->
+        sample.max_concurrency > 0 and sample.concurrency < sample.max_concurrency
+      end)
     end
   end
 
   defp bulk_job_query(job) do
     job
     |> Map.get(:payload, %{})
-    |> Map.get("target_query")
+    |> Map.get(@payload_target_query_key)
     |> normalize_text()
   end
 
   defp bulk_job_selector_limit(job) do
     job
     |> Map.get(:payload, %{})
-    |> Map.get("selector_limit", "-")
+    |> Map.get(@payload_selector_limit_key, "-")
   end
 
   defp bulk_dashboard_stats(jobs) do
@@ -635,7 +651,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
     total_targets =
       completed
-      |> Enum.map(&bulk_count(&1, "total_targets", count_targets(&1)))
+      |> Enum.map(&bulk_count(&1, @payload_total_targets_key, count_targets(&1)))
       |> Enum.filter(&is_integer/1)
       |> Enum.sum()
 
@@ -663,15 +679,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp recent_bulk_job_bars(jobs) do
     jobs = List.wrap(jobs)
 
-    completed_jobs =
-      jobs
-      |> Enum.filter(&(&1.status == :completed))
-      |> Enum.filter(&(bulk_rate_value(&1) > 0))
+    completed_jobs = Enum.filter(jobs, &(&1.status == :completed and bulk_rate_value(&1) > 0))
 
-    if completed_jobs != [] do
-      Enum.take(completed_jobs, 8)
-    else
+    if completed_jobs == [] do
       Enum.take(jobs, 8)
+    else
+      Enum.take(completed_jobs, 8)
     end
   end
 
@@ -702,7 +715,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     |> List.wrap()
     |> Enum.find_value(fn job ->
       mix = bulk_mix(job)
-      if mix.total_targets > 0, do: %{job: job, mix: mix}, else: nil
+      if mix.total_targets > 0, do: %{job: job, mix: mix}
     end)
   end
 
@@ -711,6 +724,28 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp safe_ratio(_value, max_value) when max_value in [0, 0.0], do: 0.0
   defp safe_ratio(value, max_value), do: min(1.0, max(value / max_value, 0.0))
+
+  defp payload_running_targets_key, do: @payload_running_targets_key
+  defp payload_target_ip_key, do: @payload_target_ip_key
+  defp payload_check_name_key, do: @payload_check_name_key
+  defp payload_ip_version_key, do: @payload_ip_version_key
+
+  defp wrap_manual_bulk_targets([]), do: {:error, :missing_targets}
+  defp wrap_manual_bulk_targets(targets), do: {:ok, targets}
+
+  defp wrap_srql_bulk_targets({:ok, []}), do: {:error, :empty_srql_targets}
+  defp wrap_srql_bulk_targets({:error, reason}), do: {:error, {:srql_query_failed, reason}}
+
+  defp wrap_srql_bulk_targets({:ok, target_contexts}) do
+    target_contexts
+    |> Enum.map(&bulk_target_from_ctx/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> wrap_srql_resolved_targets()
+  end
+
+  defp wrap_srql_resolved_targets([]), do: {:error, :empty_srql_targets}
+  defp wrap_srql_resolved_targets(targets), do: {:ok, targets}
 
   defp mix_segment_width(count, total) do
     "#{Float.round(safe_ratio(count, total) * 100, 1)}%"
@@ -901,11 +936,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               <div class="mt-2 text-3xl font-semibold">{dashboard.avg_success_rate}%</div>
             </div>
             <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Recent Timed Out Targets</div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60">
+                Recent Timed Out Targets
+              </div>
               <div class="mt-2 text-3xl font-semibold">{dashboard.timed_out_targets}</div>
             </div>
             <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Adaptive Backoff Runs</div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60">
+                Adaptive Backoff Runs
+              </div>
               <div class="mt-2 text-3xl font-semibold">{dashboard.throttled_count}</div>
             </div>
           </div>
@@ -1044,15 +1083,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
                   {job.agent_id}
                 </td>
-                <td>{bulk_count(job, "total_targets", count_targets(job))}</td>
+                <td>{bulk_count(job, @payload_total_targets_key, count_targets(job))}</td>
                 <td class="text-xs">
-                  {bulk_count(job, "completed_targets", 0)}/{bulk_count(
+                  {bulk_count(job, @payload_completed_targets_key, 0)}/{bulk_count(
                     job,
-                    "total_targets",
+                    @payload_total_targets_key,
                     count_targets(job)
-                  )} complete, {bulk_count(job, "failed_targets", 0)} failed, {bulk_count(
+                  )} complete, {bulk_count(job, @payload_failed_targets_key, 0)} failed, {bulk_count(
                     job,
-                    "running_targets",
+                    payload_running_targets_key(),
                     0
                   )} running
                   <div :if={bulk_timeout_count(job) > 0} class="text-warning">
@@ -1071,13 +1110,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase((job.payload || %{})["execution_profile"] || "fast")}
+                    {String.upcase(
+                      (job.payload || %{})[@payload_execution_profile_key] || @execution_profile_fast
+                    )}
                   </span>
                 </td>
                 <td class="text-xs">
                   <%= if bulk_job_query(job) do %>
                     <div class="badge badge-info badge-sm">SRQL</div>
-                    <div class="text-base-content/60 mt-1 truncate max-w-[220px]" title={bulk_job_query(job)}>
+                    <div
+                      class="text-base-content/60 mt-1 truncate max-w-[220px]"
+                      title={bulk_job_query(job)}
+                    >
                       {bulk_job_query(job)}
                     </div>
                     <div class="text-base-content/50">
@@ -1089,7 +1133,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase((job.payload || %{})["protocol"] || "icmp")}
+                    {String.upcase((job.payload || %{})[@payload_protocol_key] || @protocol_icmp)}
                   </span>
                 </td>
                 <td class="text-xs text-base-content/50">{job.id}</td>
@@ -1137,7 +1181,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   {format_time(job.inserted_at)}
                 </td>
                 <td>
-                  <div class="font-mono text-sm">{job.payload["target"] || "-"}</div>
+                  <div class="font-mono text-sm">{job.payload[@payload_target_key] || "-"}</div>
                 </td>
                 <td>
                   <span class={[
@@ -1150,7 +1194,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-center">-</td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase((job.payload || %{})["protocol"] || "icmp")}
+                    {String.upcase((job.payload || %{})[@payload_protocol_key] || @protocol_icmp)}
                   </span>
                 </td>
                 <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
@@ -1168,12 +1212,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   {format_time(trace["time"])}
                 </td>
                 <td>
-                  <div class="font-mono text-sm">{trace["target"]}</div>
+                  <div class="font-mono text-sm">{trace[@payload_target_key]}</div>
                   <div
-                    :if={trace["target_ip"] != trace["target"]}
+                    :if={trace[payload_target_ip_key()] != trace[@payload_target_key]}
                     class="text-xs text-base-content/50"
                   >
-                    {trace["target_ip"]}
+                    {trace[payload_target_ip_key()]}
                   </div>
                 </td>
                 <td>
@@ -1184,26 +1228,32 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-center">{trace["total_hops"]}</td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase(trace["protocol"] || "icmp")}
+                    {String.upcase(trace[@payload_protocol_key] || @protocol_icmp)}
                   </span>
-                  <span :if={trace["ip_version"] == 6} class="badge badge-info badge-sm ml-1">
+                  <span
+                    :if={trace[payload_ip_version_key()] == 6}
+                    class="badge badge-info badge-sm ml-1"
+                  >
                     IPv6
                   </span>
                 </td>
-                <td class="text-xs font-mono max-w-[120px] truncate" title={trace["agent_id"]}>
-                  {trace["agent_id"]}
+                <td
+                  class="text-xs font-mono max-w-[120px] truncate"
+                  title={trace[@payload_agent_id_key]}
+                >
+                  {trace[@payload_agent_id_key]}
                 </td>
-                <td class="text-xs max-w-[120px] truncate" title={trace["check_name"]}>
-                  {trace["check_name"] || "-"}
+                <td class="text-xs max-w-[120px] truncate" title={trace[payload_check_name_key()]}>
+                  {trace[payload_check_name_key()] || "-"}
                 </td>
                 <td class="flex items-center gap-1">
                   <button
                     type="button"
                     class="btn btn-xs btn-ghost"
                     phx-click="run_again"
-                    phx-value-target={trace["target"] || ""}
-                    phx-value-agent_id={trace["agent_id"] || ""}
-                    phx-value-protocol={trace["protocol"] || "icmp"}
+                    phx-value-target={trace[@payload_target_key] || ""}
+                    phx-value-agent_id={trace[@payload_agent_id_key] || ""}
+                    phx-value-protocol={trace[@payload_protocol_key] || @protocol_icmp}
                     title="Run again"
                     aria-label="Run MTR trace again"
                   >
@@ -1266,7 +1316,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <input
                     type="text"
                     name="mtr[target]"
-                    value={@mtr_form["target"].value}
+                    value={@mtr_form[@payload_target_key].value}
                     placeholder="e.g. 8.8.8.8 or google.com"
                     class="input input-bordered"
                     required
@@ -1297,9 +1347,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <span class="label-text">Protocol</span>
                   </label>
                   <select name="mtr[protocol]" class="select select-bordered">
-                    <option value="icmp" selected>ICMP</option>
-                    <option value="udp">UDP</option>
-                    <option value="tcp">TCP</option>
+                    <option value={@protocol_icmp} selected>ICMP</option>
+                    <option value={@protocol_udp}>UDP</option>
+                    <option value={@protocol_tcp}>TCP</option>
                   </select>
                 </div>
 
@@ -1334,7 +1384,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <input
                     type="text"
                     name="bulk_mtr[target_query]"
-                    value={@bulk_mtr_form["target_query"].value}
+                    value={@bulk_mtr_form[@payload_target_query_key].value}
                     placeholder="in:devices tags.role:edge"
                     class="input input-bordered"
                   />
@@ -1369,7 +1419,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                       min="1"
                       max="5000"
                       name="bulk_mtr[selector_limit]"
-                      value={@bulk_mtr_form["selector_limit"].value}
+                      value={@bulk_mtr_form[@payload_selector_limit_key].value}
                       class="input input-bordered"
                     />
                   </div>
@@ -1387,13 +1437,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <div class="form-control">
                     <label class="label"><span class="label-text">Protocol</span></label>
                     <select name="bulk_mtr[protocol]" class="select select-bordered">
-                      <option value="icmp" selected={@bulk_mtr_form["protocol"].value == "icmp"}>
+                      <option
+                        value={@protocol_icmp}
+                        selected={@bulk_mtr_form[@payload_protocol_key].value == @protocol_icmp}
+                      >
                         ICMP
                       </option>
-                      <option value="udp" selected={@bulk_mtr_form["protocol"].value == "udp"}>
+                      <option
+                        value={@protocol_udp}
+                        selected={@bulk_mtr_form[@payload_protocol_key].value == @protocol_udp}
+                      >
                         UDP
                       </option>
-                      <option value="tcp" selected={@bulk_mtr_form["protocol"].value == "tcp"}>
+                      <option
+                        value={@protocol_tcp}
+                        selected={@bulk_mtr_form[@payload_protocol_key].value == @protocol_tcp}
+                      >
                         TCP
                       </option>
                     </select>
@@ -1403,20 +1462,29 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <label class="label"><span class="label-text">Execution Profile</span></label>
                     <select name="bulk_mtr[execution_profile]" class="select select-bordered">
                       <option
-                        value="fast"
-                        selected={@bulk_mtr_form["execution_profile"].value == "fast"}
+                        value={@execution_profile_fast}
+                        selected={
+                          @bulk_mtr_form[@payload_execution_profile_key].value ==
+                            @execution_profile_fast
+                        }
                       >
                         Fast
                       </option>
                       <option
-                        value="balanced"
-                        selected={@bulk_mtr_form["execution_profile"].value == "balanced"}
+                        value={@execution_profile_balanced}
+                        selected={
+                          @bulk_mtr_form[@payload_execution_profile_key].value ==
+                            @execution_profile_balanced
+                        }
                       >
                         Balanced
                       </option>
                       <option
-                        value="deep"
-                        selected={@bulk_mtr_form["execution_profile"].value == "deep"}
+                        value={@execution_profile_deep}
+                        selected={
+                          @bulk_mtr_form[@payload_execution_profile_key].value ==
+                            @execution_profile_deep
+                        }
                       >
                         Deep
                       </option>
@@ -1430,7 +1498,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                       min="1"
                       max="256"
                       name="bulk_mtr[concurrency]"
-                      value={@bulk_mtr_form["concurrency"].value}
+                      value={@bulk_mtr_form[@payload_concurrency_key].value}
                       class="input input-bordered"
                     />
                   </div>
@@ -1555,7 +1623,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp trace_status_label(trace) when is_map(trace) do
     reached? = trace["target_reached"] == true
-    protocol = trace["protocol"] |> to_string() |> String.downcase()
+    protocol = trace[@payload_protocol_key] |> to_string() |> String.downcase()
     total_hops = trace["total_hops"] || 0
 
     cond do

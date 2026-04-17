@@ -582,9 +582,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       # Click favorite star for first interface
       view
-      |> element(
-        "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']"
-      )
+      |> element("button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
       # Should show favorited state (star icon changes)
@@ -1284,7 +1282,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         sent: 5,
         received: 5,
         loss_pct: 0.0,
-        avg_us: 12000,
+        avg_us: 12_000,
         created_at: now
       },
       %{
@@ -1296,7 +1294,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         sent: 5,
         received: 2,
         loss_pct: 60.0,
-        avg_us: 34000,
+        avg_us: 34_000,
         created_at: DateTime.add(now, -60, :second)
       }
     ])

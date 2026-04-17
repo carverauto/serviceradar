@@ -102,10 +102,6 @@ func NewTracer(ctx context.Context, opts Options, log logger.Logger) (*Tracer, e
 
 // ResolveTarget resolves a target once so callers can reuse the result.
 func ResolveTarget(ctx context.Context, target string) (*TargetInfo, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	if ip := net.ParseIP(target); ip != nil {
 		if ipv4 := ip.To4(); ipv4 != nil {
 			return &TargetInfo{
@@ -161,10 +157,6 @@ func NewTracerWithResources(
 	log logger.Logger,
 	resources TracerResources,
 ) (*Tracer, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	target := resources.Target
 	if target == nil {
 		resolved, err := ResolveTarget(ctx, opts.Target)
