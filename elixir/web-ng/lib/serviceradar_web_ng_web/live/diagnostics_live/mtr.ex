@@ -725,10 +725,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp safe_ratio(_value, max_value) when max_value in [0, 0.0], do: 0.0
   defp safe_ratio(value, max_value), do: min(1.0, max(value / max_value, 0.0))
 
+  defp execution_profile_fast, do: @execution_profile_fast
+  defp execution_profile_balanced, do: @execution_profile_balanced
+  defp execution_profile_deep, do: @execution_profile_deep
+  defp payload_agent_id_key, do: @payload_agent_id_key
+  defp payload_completed_targets_key, do: @payload_completed_targets_key
+  defp payload_concurrency_key, do: @payload_concurrency_key
+  defp payload_execution_profile_key, do: @payload_execution_profile_key
+  defp payload_failed_targets_key, do: @payload_failed_targets_key
+  defp payload_protocol_key, do: @payload_protocol_key
   defp payload_running_targets_key, do: @payload_running_targets_key
-  defp payload_target_ip_key, do: @payload_target_ip_key
   defp payload_check_name_key, do: @payload_check_name_key
   defp payload_ip_version_key, do: @payload_ip_version_key
+  defp payload_selector_limit_key, do: @payload_selector_limit_key
+  defp payload_target_ip_key, do: @payload_target_ip_key
+  defp payload_target_key, do: @payload_target_key
+  defp payload_target_query_key, do: @payload_target_query_key
+  defp payload_total_targets_key, do: @payload_total_targets_key
+  defp protocol_icmp, do: @protocol_icmp
+  defp protocol_tcp, do: @protocol_tcp
+  defp protocol_udp, do: @protocol_udp
 
   defp wrap_manual_bulk_targets([]), do: {:error, :missing_targets}
   defp wrap_manual_bulk_targets(targets), do: {:ok, targets}
@@ -1081,13 +1097,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
                   {job.agent_id}
                 </td>
-                <td>{bulk_count(job, @payload_total_targets_key, count_targets(job))}</td>
+                <td>{bulk_count(job, payload_total_targets_key(), count_targets(job))}</td>
                 <td class="text-xs">
-                  {bulk_count(job, @payload_completed_targets_key, 0)}/{bulk_count(
+                  {bulk_count(job, payload_completed_targets_key(), 0)}/{bulk_count(
                     job,
-                    @payload_total_targets_key,
+                    payload_total_targets_key(),
                     count_targets(job)
-                  )} complete, {bulk_count(job, @payload_failed_targets_key, 0)} failed, {bulk_count(
+                  )} complete, {bulk_count(job, payload_failed_targets_key(), 0)} failed, {bulk_count(
                     job,
                     payload_running_targets_key(),
                     0
@@ -1109,7 +1125,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td>
                   <span class="badge badge-ghost badge-sm">
                     {String.upcase(
-                      (job.payload || %{})[@payload_execution_profile_key] || @execution_profile_fast
+                      (job.payload || %{})[payload_execution_profile_key()] ||
+                        execution_profile_fast()
                     )}
                   </span>
                 </td>
@@ -1131,7 +1148,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase((job.payload || %{})[@payload_protocol_key] || @protocol_icmp)}
+                    {String.upcase((job.payload || %{})[payload_protocol_key()] || protocol_icmp())}
                   </span>
                 </td>
                 <td class="text-xs text-base-content/50">{job.id}</td>
@@ -1179,7 +1196,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   {format_time(job.inserted_at)}
                 </td>
                 <td>
-                  <div class="font-mono text-sm">{job.payload[@payload_target_key] || "-"}</div>
+                  <div class="font-mono text-sm">{job.payload[payload_target_key()] || "-"}</div>
                 </td>
                 <td>
                   <span class={[
@@ -1192,7 +1209,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-center">-</td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase((job.payload || %{})[@payload_protocol_key] || @protocol_icmp)}
+                    {String.upcase((job.payload || %{})[payload_protocol_key()] || protocol_icmp())}
                   </span>
                 </td>
                 <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
@@ -1210,9 +1227,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   {format_time(trace["time"])}
                 </td>
                 <td>
-                  <div class="font-mono text-sm">{trace[@payload_target_key]}</div>
+                  <div class="font-mono text-sm">{trace[payload_target_key()]}</div>
                   <div
-                    :if={trace[payload_target_ip_key()] != trace[@payload_target_key]}
+                    :if={trace[payload_target_ip_key()] != trace[payload_target_key()]}
                     class="text-xs text-base-content/50"
                   >
                     {trace[payload_target_ip_key()]}
@@ -1226,7 +1243,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-center">{trace["total_hops"]}</td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
-                    {String.upcase(trace[@payload_protocol_key] || @protocol_icmp)}
+                    {String.upcase(trace[payload_protocol_key()] || protocol_icmp())}
                   </span>
                   <span
                     :if={trace[payload_ip_version_key()] == 6}
@@ -1237,9 +1254,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </td>
                 <td
                   class="text-xs font-mono max-w-[120px] truncate"
-                  title={trace[@payload_agent_id_key]}
+                  title={trace[payload_agent_id_key()]}
                 >
-                  {trace[@payload_agent_id_key]}
+                  {trace[payload_agent_id_key()]}
                 </td>
                 <td class="text-xs max-w-[120px] truncate" title={trace[payload_check_name_key()]}>
                   {trace[payload_check_name_key()] || "-"}
@@ -1249,9 +1266,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     type="button"
                     class="btn btn-xs btn-ghost"
                     phx-click="run_again"
-                    phx-value-target={trace[@payload_target_key] || ""}
-                    phx-value-agent_id={trace[@payload_agent_id_key] || ""}
-                    phx-value-protocol={trace[@payload_protocol_key] || @protocol_icmp}
+                    phx-value-target={trace[payload_target_key()] || ""}
+                    phx-value-agent_id={trace[payload_agent_id_key()] || ""}
+                    phx-value-protocol={trace[payload_protocol_key()] || protocol_icmp()}
                     title="Run again"
                     aria-label="Run MTR trace again"
                   >
@@ -1314,7 +1331,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <input
                     type="text"
                     name="mtr[target]"
-                    value={@mtr_form[@payload_target_key].value}
+                    value={@mtr_form[payload_target_key()].value}
                     placeholder="e.g. 8.8.8.8 or google.com"
                     class="input input-bordered"
                     required
@@ -1345,9 +1362,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <span class="label-text">Protocol</span>
                   </label>
                   <select name="mtr[protocol]" class="select select-bordered">
-                    <option value={@protocol_icmp} selected>ICMP</option>
-                    <option value={@protocol_udp}>UDP</option>
-                    <option value={@protocol_tcp}>TCP</option>
+                    <option value={protocol_icmp()} selected>ICMP</option>
+                    <option value={protocol_udp()}>UDP</option>
+                    <option value={protocol_tcp()}>TCP</option>
                   </select>
                 </div>
 
@@ -1382,7 +1399,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <input
                     type="text"
                     name="bulk_mtr[target_query]"
-                    value={@bulk_mtr_form[@payload_target_query_key].value}
+                    value={@bulk_mtr_form[payload_target_query_key()].value}
                     placeholder="in:devices tags.role:edge"
                     class="input input-bordered"
                   />
@@ -1417,7 +1434,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                       min="1"
                       max="5000"
                       name="bulk_mtr[selector_limit]"
-                      value={@bulk_mtr_form[@payload_selector_limit_key].value}
+                      value={@bulk_mtr_form[payload_selector_limit_key()].value}
                       class="input input-bordered"
                     />
                   </div>
@@ -1436,20 +1453,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <label class="label"><span class="label-text">Protocol</span></label>
                     <select name="bulk_mtr[protocol]" class="select select-bordered">
                       <option
-                        value={@protocol_icmp}
-                        selected={@bulk_mtr_form[@payload_protocol_key].value == @protocol_icmp}
+                        value={protocol_icmp()}
+                        selected={@bulk_mtr_form[payload_protocol_key()].value == protocol_icmp()}
                       >
                         ICMP
                       </option>
                       <option
-                        value={@protocol_udp}
-                        selected={@bulk_mtr_form[@payload_protocol_key].value == @protocol_udp}
+                        value={protocol_udp()}
+                        selected={@bulk_mtr_form[payload_protocol_key()].value == protocol_udp()}
                       >
                         UDP
                       </option>
                       <option
-                        value={@protocol_tcp}
-                        selected={@bulk_mtr_form[@payload_protocol_key].value == @protocol_tcp}
+                        value={protocol_tcp()}
+                        selected={@bulk_mtr_form[payload_protocol_key()].value == protocol_tcp()}
                       >
                         TCP
                       </option>
@@ -1460,28 +1477,28 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <label class="label"><span class="label-text">Execution Profile</span></label>
                     <select name="bulk_mtr[execution_profile]" class="select select-bordered">
                       <option
-                        value={@execution_profile_fast}
+                        value={execution_profile_fast()}
                         selected={
-                          @bulk_mtr_form[@payload_execution_profile_key].value ==
-                            @execution_profile_fast
+                          @bulk_mtr_form[payload_execution_profile_key()].value ==
+                            execution_profile_fast()
                         }
                       >
                         Fast
                       </option>
                       <option
-                        value={@execution_profile_balanced}
+                        value={execution_profile_balanced()}
                         selected={
-                          @bulk_mtr_form[@payload_execution_profile_key].value ==
-                            @execution_profile_balanced
+                          @bulk_mtr_form[payload_execution_profile_key()].value ==
+                            execution_profile_balanced()
                         }
                       >
                         Balanced
                       </option>
                       <option
-                        value={@execution_profile_deep}
+                        value={execution_profile_deep()}
                         selected={
-                          @bulk_mtr_form[@payload_execution_profile_key].value ==
-                            @execution_profile_deep
+                          @bulk_mtr_form[payload_execution_profile_key()].value ==
+                            execution_profile_deep()
                         }
                       >
                         Deep
@@ -1496,7 +1513,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                       min="1"
                       max="256"
                       name="bulk_mtr[concurrency]"
-                      value={@bulk_mtr_form[@payload_concurrency_key].value}
+                      value={@bulk_mtr_form[payload_concurrency_key()].value}
                       class="input input-bordered"
                     />
                   </div>
