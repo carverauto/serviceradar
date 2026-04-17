@@ -511,7 +511,6 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     case conn.body_params do
       %Plug.Conn.Unfetched{} -> nil
       body when is_map(body) -> Map.get(body, key)
-      _ -> nil
     end
   end
 

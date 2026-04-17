@@ -217,8 +217,7 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   end
 
   defp normalize_transaction_result({:ok, %User{} = user}), do: {:ok, user}
-  defp normalize_transaction_result({:error, reason}), do: {:error, reason}
-  defp normalize_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
+  defp normalize_transaction_result({:ok, %User{} = user, _notifications}), do: {:ok, user}
   defp normalize_transaction_result(other), do: other
 
   defp normalize_profile_id(nil), do: nil

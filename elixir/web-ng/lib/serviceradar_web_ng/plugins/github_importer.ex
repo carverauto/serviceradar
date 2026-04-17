@@ -437,8 +437,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     end
   end
 
-  defp normalize_ref(_ref), do: {:error, :invalid_ref}
-
   defp valid_commit_sha?(value) when is_binary(value) do
     Regex.match?(~r/\A[0-9a-f]{40}\z/i, value)
   end
@@ -473,8 +471,6 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
         end
     end
   end
-
-  defp normalize_repo_path(_path, error_atom), do: {:error, error_atom}
 
   defp encode_path(path) do
     path
