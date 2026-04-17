@@ -39,6 +39,7 @@ const (
 	commandTypeMapperRun       = "mapper.run_job"
 	commandTypeSweepRun        = "sweep.run_group"
 	commandTypeMtrRun          = "mtr.run"
+	commandTypeMtrBulkRun      = "mtr.bulk_run"
 	commandTypeCameraRelayOpen = "camera.open_relay"
 	commandTypeCameraRelayStop = "camera.close_relay"
 	commandTypeAgentUpdate     = "agent.update_release"
@@ -257,6 +258,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleSweepRun(ctx, cmd, sender)
 		case commandTypeMtrRun:
 			p.handleMtrRun(ctx, cmd, sender)
+		case commandTypeMtrBulkRun:
+			p.handleMtrBulkRun(ctx, cmd, sender)
 		case commandTypeCameraRelayOpen:
 			p.handleCameraRelayOpen(ctx, cmd, sender)
 		case commandTypeCameraRelayStop:
@@ -658,6 +661,30 @@ func (p *PushLoop) releaseOnDemandMtrSlot() {
 	}
 }
 
+func (p *PushLoop) tryAcquireBulkMtrJobSlot() bool {
+	if p == nil || p.mtrBulkJobSem == nil {
+		return true
+	}
+
+	select {
+	case p.mtrBulkJobSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *PushLoop) releaseBulkMtrJobSlot() {
+	if p == nil || p.mtrBulkJobSem == nil {
+		return
+	}
+
+	select {
+	case <-p.mtrBulkJobSem:
+	default:
+	}
+}
+
 func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
 	target := strings.TrimSpace(payload.Target)
 	opts := mtr.DefaultOptions(target)
@@ -705,6 +732,20 @@ func commandExpired(cmd *proto.CommandRequest) bool {
 }
 
 func commandProgress(cmd *proto.CommandRequest, progressPercent int32, message string) *proto.ControlStreamRequest {
+	return commandProgressWithPayload(cmd, progressPercent, message, nil)
+}
+
+func commandProgressWithPayload(
+	cmd *proto.CommandRequest,
+	progressPercent int32,
+	message string,
+	payload any,
+) *proto.ControlStreamRequest {
+	var payloadJSON []byte
+	if payload != nil {
+		payloadJSON, _ = json.Marshal(payload)
+	}
+
 	return &proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_CommandProgress{
 			CommandProgress: &proto.CommandProgress{
@@ -713,12 +754,13 @@ func commandProgress(cmd *proto.CommandRequest, progressPercent int32, message s
 				ProgressPercent: progressPercent,
 				Message:         message,
 				Timestamp:       time.Now().Unix(),
+				PayloadJson:     payloadJSON,
 			},
 		},
 	}
 }
 
-func commandResult(cmd *proto.CommandRequest, success bool, message string, payload map[string]interface{}) *proto.ControlStreamRequest {
+func commandResult(cmd *proto.CommandRequest, success bool, message string, payload any) *proto.ControlStreamRequest {
 	var payloadJSON []byte
 	if payload != nil {
 		payloadJSON, _ = json.Marshal(payload)

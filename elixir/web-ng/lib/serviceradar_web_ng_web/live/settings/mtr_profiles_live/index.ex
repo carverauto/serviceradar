@@ -4,13 +4,42 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import Ash.Expr
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  require Ash.Query
+
+  @command_type_mtr_bulk_run "mtr.bulk_run"
+  @protocol_icmp "icmp"
+  @protocol_udp "udp"
+  @protocol_tcp "tcp"
+  @protocols [@protocol_icmp, @protocol_udp, @protocol_tcp]
+  @execution_profile_fast "fast"
+  @execution_profile_balanced "balanced"
+  @execution_profile_deep "deep"
+  @execution_profiles [
+    @execution_profile_fast,
+    @execution_profile_balanced,
+    @execution_profile_deep
+  ]
+  @selector_query_key "srql_query"
+  @selector_limit_key "limit"
+  @selector_agent_id_key "agent_id"
+  @selector_execution_profile_key "bulk_execution_profile"
+  @payload_targets_key "targets"
+  @payload_total_targets_key "total_targets"
+  @payload_timed_out_targets_key "timed_out_targets"
+  @payload_targets_per_minute_key "targets_per_minute"
+  @payload_concurrency_key "concurrency"
+  @payload_max_concurrency_key "max_concurrency"
+  @payload_concurrency_history_key "concurrency_history"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -26,6 +55,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
        |> assign(:selected_profile, nil)
        |> assign(:form, nil)
        |> assign(:target_device_count, nil)
+       |> assign(:bulk_interval_guidance, nil)
        |> assign(:agents, list_connected_agents())
        |> assign(:builder_open, false)
        |> assign(:builder, default_builder_state())
@@ -50,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     |> assign(:selected_profile, nil)
     |> assign(:form, nil)
     |> assign(:target_device_count, nil)
+    |> assign(:bulk_interval_guidance, nil)
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
@@ -65,12 +96,22 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     |> assign(:form, to_form(defaults, as: :form))
     |> assign(
       :target_device_count,
-      count_target_devices(socket.assigns.current_scope, defaults["target_query"])
+      count_target_devices(socket.assigns.current_scope, defaults[@selector_query_key])
     )
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
     |> assign(:agents, list_connected_agents())
+    |> assign(
+      :bulk_interval_guidance,
+      bulk_interval_guidance(
+        socket.assigns.current_scope,
+        defaults["preferred_agent_id"],
+        defaults[@selector_execution_profile_key],
+        count_target_devices(socket.assigns.current_scope, defaults[@selector_query_key]),
+        defaults["baseline_interval_sec"]
+      )
+    )
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -79,14 +120,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     case Ash.get(MtrPolicy, id, scope: scope) do
       {:ok, profile} ->
         params = profile_to_form_params(profile)
-        {builder, builder_sync} = parse_target_query_to_builder(params["target_query"])
+        {builder, builder_sync} = parse_target_query_to_builder(params[@selector_query_key])
 
         socket
         |> assign(:page_title, "Edit #{profile.name}")
         |> assign(:show_form, :edit_profile)
         |> assign(:selected_profile, profile)
         |> assign(:form, to_form(params, as: :form))
-        |> assign(:target_device_count, count_target_devices(scope, params["target_query"]))
+        |> assign(:target_device_count, count_target_devices(scope, params[@selector_query_key]))
+        |> assign(
+          :bulk_interval_guidance,
+          bulk_interval_guidance(
+            scope,
+            params["preferred_agent_id"],
+            params[@selector_execution_profile_key],
+            count_target_devices(scope, params[@selector_query_key]),
+            params["baseline_interval_sec"]
+          )
+        )
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
@@ -101,14 +152,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   @impl true
   def handle_event("validate_profile", %{"form" => params}, socket) do
-    query = normalize_target_query(Map.get(params, "target_query"))
-    params = Map.put(params, "target_query", query || "")
+    query = normalize_target_query(Map.get(params, @selector_query_key))
+    params = Map.put(params, @selector_query_key, query || "")
     {parsed_builder, builder_sync} = parse_target_query_to_builder(query)
 
     socket =
       socket
       |> assign(:form, to_form(params, as: :form))
       |> assign(:target_device_count, count_target_devices(socket.assigns.current_scope, query))
+      |> assign(
+        :bulk_interval_guidance,
+        bulk_interval_guidance(
+          socket.assigns.current_scope,
+          Map.get(params, "preferred_agent_id"),
+          Map.get(params, @selector_execution_profile_key),
+          count_target_devices(socket.assigns.current_scope, query),
+          Map.get(params, "baseline_interval_sec")
+        )
+      )
       |> assign(:builder_sync, builder_sync)
 
     socket =
@@ -123,18 +184,21 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   def handle_event("save_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
-    query = normalize_target_query(Map.get(params, "target_query"))
-    selector_limit = parse_int(Map.get(params, "selector_limit"), 100, 1)
+    query = normalize_target_query(Map.get(params, @selector_query_key))
+    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
     preferred_agent_id = blank_to_nil(Map.get(params, "preferred_agent_id"))
+
+    bulk_execution_profile =
+      normalize_bulk_execution_profile(Map.get(params, @selector_execution_profile_key))
 
     target_selector =
       maybe_put(
         %{
-          "srql_query" => query || "in:devices",
-          "device_uids" => resolve_target_device_uids(scope, query, selector_limit),
-          "limit" => selector_limit
+          @selector_query_key => query || "in:devices",
+          @selector_limit_key => selector_limit,
+          @selector_execution_profile_key => bulk_execution_profile
         },
-        "agent_id",
+        @selector_agent_id_key,
         preferred_agent_id
       )
 
@@ -204,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     socket =
       if builder_open do
         params = socket.assigns.form.params || %{}
-        target_query = Map.get(params, "target_query", "")
+        target_query = Map.get(params, @selector_query_key, "")
         {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
         socket
@@ -268,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   def handle_event("builder_apply", _params, socket) do
     query = build_target_query(socket.assigns.builder)
     params = socket.assigns.form.params || %{}
-    params = Map.put(params, "target_query", query)
+    params = Map.put(params, @selector_query_key, query)
 
     {:noreply,
      socket
@@ -295,6 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             builder={@builder}
             builder_sync={@builder_sync}
             agents={@agents}
+            bulk_interval_guidance={@bulk_interval_guidance}
           />
         <% else %>
           <.profiles_table profiles={@profiles} />
@@ -304,7 +369,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     """
   end
 
-  attr :profiles, :list, required: true
+  attr(:profiles, :list, required: true)
 
   defp profiles_table(assigns) do
     ~H"""
@@ -341,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 {selector_query(profile)}
               </td>
               <td class="font-mono text-xs">{selector_agent(profile) || "-"}</td>
-              <td>{String.upcase(profile.baseline_protocol || "icmp")}</td>
+              <td>{String.upcase(profile.baseline_protocol || @protocol_icmp)}</td>
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
@@ -392,14 +457,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     """
   end
 
-  attr :form, :map, required: true
-  attr :show_form, :atom, required: true
-  attr :selected_profile, :any, default: nil
-  attr :target_device_count, :any, default: nil
-  attr :builder_open, :boolean, default: false
-  attr :builder, :map, default: %{}
-  attr :builder_sync, :boolean, default: true
-  attr :agents, :list, default: []
+  attr(:form, :map, required: true)
+  attr(:show_form, :atom, required: true)
+  attr(:selected_profile, :any, default: nil)
+  attr(:target_device_count, :any, default: nil)
+  attr(:builder_open, :boolean, default: false)
+  attr(:builder, :map, default: %{})
+  attr(:builder_sync, :boolean, default: true)
+  attr(:agents, :list, default: [])
+  attr(:bulk_interval_guidance, :any, default: nil)
 
   defp profile_form(assigns) do
     config = Catalog.entity("devices")
@@ -533,6 +599,50 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <span class="font-semibold">{@target_device_count}</span>
             <span class="text-base-content/60">device(s) currently match this query</span>
           </div>
+
+          <div
+            :if={@bulk_interval_guidance}
+            class={[
+              "rounded-lg border px-3 py-3 text-sm",
+              if(@bulk_interval_guidance.warning?,
+                do: "border-warning/40 bg-warning/10",
+                else: "border-success/30 bg-success/10"
+              )
+            ]}
+          >
+            <div class="font-semibold">
+              Bulk baseline guidance for {@bulk_interval_guidance.agent_id} ({String.upcase(
+                @bulk_interval_guidance.execution_profile
+              )})
+            </div>
+            <div class="text-base-content/70 mt-1">
+              Measured throughput: {@bulk_interval_guidance.targets_per_minute} targets/min
+            </div>
+            <div class="text-base-content/70">
+              Effective concurrency: {@bulk_interval_guidance.effective_concurrency}
+            </div>
+            <div :if={@bulk_interval_guidance.timeout_ratio_percent > 0} class="text-base-content/70">
+              Avg timeout ratio: {@bulk_interval_guidance.timeout_ratio_percent}%
+            </div>
+            <div class="text-base-content/70">
+              Estimated runtime for current scope: {@bulk_interval_guidance.estimated_duration_sec}s
+            </div>
+            <div class="text-base-content/70">
+              Recommended minimum interval: {@bulk_interval_guidance.recommended_interval_sec}s
+            </div>
+            <div
+              :if={@bulk_interval_guidance.throttled_runs > 0}
+              class="text-base-content/70"
+            >
+              Adaptive backoff observed in {@bulk_interval_guidance.throttled_runs}/{@bulk_interval_guidance.sample_count} recent runs.
+            </div>
+            <div :if={@bulk_interval_guidance.warning?} class="mt-2 font-medium text-warning-content">
+              Configured interval is tighter than the measured recommendation and is likely to overlap.
+            </div>
+            <div :if={!@bulk_interval_guidance.warning?} class="mt-2 font-medium text-success-content">
+              Configured interval leaves headroom relative to measured throughput.
+            </div>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -574,7 +684,20 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               type="select"
               field={@form[:baseline_protocol]}
               class="select select-bordered w-full"
-              options={[{"ICMP", "icmp"}, {"UDP", "udp"}, {"TCP", "tcp"}]}
+              options={[{"ICMP", @protocol_icmp}, {"UDP", @protocol_udp}, {"TCP", @protocol_tcp}]}
+            />
+          </div>
+          <div>
+            <label class="label"><span class="label-text">Bulk Execution Profile</span></label>
+            <.input
+              type="select"
+              field={@form[:bulk_execution_profile]}
+              class="select select-bordered w-full"
+              options={[
+                {"Fast", @execution_profile_fast},
+                {"Balanced", @execution_profile_balanced},
+                {"Deep", @execution_profile_deep}
+              ]}
             />
           </div>
           <div>
@@ -688,11 +811,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     %{
       "name" => "",
       "enabled" => true,
-      "target_query" => "in:devices",
-      "selector_limit" => 100,
+      @selector_query_key => "in:devices",
+      @selector_limit_key => 100,
       "preferred_agent_id" => "",
       "partition_id" => "",
-      "baseline_protocol" => "icmp",
+      "baseline_protocol" => @protocol_icmp,
+      @selector_execution_profile_key => @execution_profile_fast,
       "baseline_interval_sec" => 300,
       "baseline_canary_vantages" => 0,
       "incident_fanout_max_agents" => 3,
@@ -711,11 +835,16 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     %{
       "name" => fallback(profile.name, defaults["name"]),
       "enabled" => truthy(profile.enabled),
-      "target_query" => selector_query(profile),
-      "selector_limit" => fallback(Map.get(selector, "limit"), defaults["selector_limit"]),
-      "preferred_agent_id" => fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
+      @selector_query_key => selector_query(profile),
+      @selector_limit_key => fallback(Map.get(selector, @selector_limit_key), defaults[@selector_limit_key]),
+      "preferred_agent_id" => fallback(Map.get(selector, @selector_agent_id_key), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
       "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
+      @selector_execution_profile_key =>
+        fallback(
+          Map.get(selector, @selector_execution_profile_key),
+          defaults[@selector_execution_profile_key]
+        ),
       "baseline_interval_sec" => fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
       "baseline_canary_vantages" => fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
       "incident_fanout_max_agents" =>
@@ -730,12 +859,280 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp selector_query(profile) do
     selector = profile.target_selector || %{}
-    Map.get(selector, "srql_query") || "in:devices"
+    Map.get(selector, @selector_query_key) || "in:devices"
   end
 
   defp selector_agent(profile) do
     selector = profile.target_selector || %{}
-    Map.get(selector, "agent_id")
+    Map.get(selector, @selector_agent_id_key)
+  end
+
+  defp bulk_interval_guidance(_scope, preferred_agent_id, _execution_profile, _target_count, _configured_interval)
+       when preferred_agent_id in [nil, ""] do
+    nil
+  end
+
+  defp bulk_interval_guidance(_scope, _preferred_agent_id, _execution_profile, target_count, _configured_interval)
+       when not is_integer(target_count) or target_count <= 0 do
+    nil
+  end
+
+  defp bulk_interval_guidance(scope, preferred_agent_id, execution_profile, target_count, configured_interval) do
+    configured_interval = parse_int(configured_interval, 300, 30)
+    execution_profile = normalize_bulk_execution_profile(execution_profile)
+
+    query =
+      AgentCommand
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(
+        expr(
+          command_type == @command_type_mtr_bulk_run and agent_id == ^preferred_agent_id and
+            status == :completed
+        )
+      )
+      |> Ash.Query.sort(completed_at: :desc)
+      |> Ash.Query.limit(20)
+
+    with {:ok, jobs} <- Ash.read(query, scope: scope),
+         measurements when measurements != [] <-
+           jobs
+           |> List.wrap()
+           |> Enum.filter(&(bulk_job_profile(&1) == execution_profile))
+           |> Enum.flat_map(&bulk_job_measurement/1) do
+      avg_targets_per_minute =
+        measurements
+        |> Enum.map(& &1.targets_per_minute)
+        |> average()
+
+      avg_effective_concurrency =
+        measurements
+        |> Enum.map(& &1.effective_concurrency)
+        |> average()
+
+      avg_timeout_ratio =
+        measurements
+        |> Enum.map(& &1.timeout_ratio)
+        |> average()
+
+      throttled_runs = Enum.count(measurements, & &1.throttled?)
+
+      estimated_duration_sec =
+        if avg_targets_per_minute > 0 do
+          ceil(target_count / avg_targets_per_minute * 60)
+        else
+          0
+        end
+
+      headroom_factor =
+        cond do
+          throttled_runs > 0 and avg_timeout_ratio >= 0.10 -> 1.7
+          avg_timeout_ratio >= 0.10 -> 1.6
+          throttled_runs > 0 -> 1.4
+          true -> 1.25
+        end
+
+      recommended_interval_sec =
+        estimated_duration_sec
+        |> Kernel.*(headroom_factor)
+        |> ceil()
+        |> round_up_to_30()
+        |> max(30)
+
+      %{
+        agent_id: preferred_agent_id,
+        execution_profile: execution_profile,
+        targets_per_minute: Float.round(avg_targets_per_minute, 1),
+        effective_concurrency: Float.round(avg_effective_concurrency, 1),
+        timeout_ratio_percent: Float.round(avg_timeout_ratio * 100, 1),
+        estimated_duration_sec: estimated_duration_sec,
+        recommended_interval_sec: recommended_interval_sec,
+        throttled_runs: throttled_runs,
+        sample_count: length(measurements),
+        warning?: configured_interval < recommended_interval_sec
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp bulk_job_measurement(job) do
+    total_targets = extract_bulk_total_targets(job)
+    payload = job.result_payload || job.progress_payload || %{}
+    {effective_concurrency, throttled?} = extract_bulk_concurrency_measurement(payload)
+    timed_out_targets = extract_int_metric(payload, @payload_timed_out_targets_key) || 0
+    timeout_ratio = safe_ratio(timed_out_targets, total_targets)
+
+    case extract_float_metric(payload, @payload_targets_per_minute_key) do
+      value when is_float(value) and value > 0 ->
+        [
+          %{
+            targets_per_minute: value,
+            effective_concurrency: effective_concurrency,
+            timeout_ratio: timeout_ratio,
+            throttled?: throttled?
+          }
+        ]
+
+      _ ->
+        with total when is_integer(total) and total > 0 <- total_targets,
+             %DateTime{} = inserted_at <- job.inserted_at,
+             %DateTime{} = completed_at <- job.completed_at,
+             duration_sec when duration_sec > 0 <-
+               DateTime.diff(completed_at, inserted_at, :second) do
+          [
+            %{
+              targets_per_minute: total / (duration_sec / 60),
+              effective_concurrency: effective_concurrency,
+              timeout_ratio: timeout_ratio,
+              throttled?: throttled?
+            }
+          ]
+        else
+          _ -> []
+        end
+    end
+  end
+
+  defp extract_bulk_concurrency_measurement(payload) when is_map(payload) do
+    history = extract_bulk_concurrency_history(payload)
+
+    if history == [] do
+      current = extract_float_metric(payload, @payload_concurrency_key) || 0.0
+      max = extract_float_metric(payload, @payload_max_concurrency_key) || current
+      {current, max > current and current > 0}
+    else
+      avg_effective_concurrency =
+        history
+        |> Enum.map(&Map.get(&1, :concurrency, 0))
+        |> Enum.reject(&(&1 <= 0))
+        |> average()
+
+      throttled? =
+        Enum.any?(history, fn sample ->
+          max_concurrency = Map.get(sample, :max_concurrency, 0)
+          concurrency = Map.get(sample, :concurrency, 0)
+          max_concurrency > 0 and concurrency > 0 and concurrency < max_concurrency
+        end)
+
+      effective_concurrency =
+        if avg_effective_concurrency > 0 do
+          avg_effective_concurrency
+        else
+          extract_float_metric(payload, @payload_concurrency_key) || 0.0
+        end
+
+      {effective_concurrency, throttled?}
+    end
+  end
+
+  defp extract_bulk_concurrency_measurement(_payload), do: {0.0, false}
+
+  defp extract_bulk_concurrency_history(payload) when is_map(payload) do
+    payload
+    |> Map.get(@payload_concurrency_history_key, [])
+    |> List.wrap()
+    |> Enum.map(fn
+      %{} = sample ->
+        %{
+          concurrency: extract_int_metric(sample, @payload_concurrency_key) || 0,
+          max_concurrency: extract_int_metric(sample, @payload_max_concurrency_key) || 0
+        }
+
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp bulk_job_profile(job) do
+    payload = job.payload || %{}
+    normalize_bulk_execution_profile(Map.get(payload, @selector_execution_profile_key))
+  end
+
+  defp extract_bulk_total_targets(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+
+    case Map.get(payload, @payload_total_targets_key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> length(List.wrap(job.payload[@payload_targets_key]))
+        end
+
+      _ ->
+        length(List.wrap(job.payload[@payload_targets_key]))
+    end
+  end
+
+  defp average(values) when is_list(values) and values != [] do
+    Enum.sum(values) / length(values)
+  end
+
+  defp average(_values), do: 0.0
+
+  defp safe_ratio(_value, total) when total in [0, 0.0, nil], do: 0.0
+  defp safe_ratio(value, total), do: min(1.0, max(value / total, 0.0))
+
+  defp normalize_bulk_execution_profile(nil), do: @execution_profile_fast
+
+  defp normalize_bulk_execution_profile(value) do
+    value =
+      value
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    if value in @execution_profiles, do: value, else: @execution_profile_fast
+  end
+
+  defp extract_float_metric(payload, key) when is_map(payload) do
+    case Map.get(payload, key) do
+      value when is_float(value) ->
+        value
+
+      value when is_integer(value) ->
+        value * 1.0
+
+      value when is_binary(value) ->
+        case Float.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_float_metric(_payload, _key), do: nil
+
+  defp extract_int_metric(payload, key) when is_map(payload) do
+    case Map.get(payload, key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_float(value) ->
+        trunc(value)
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_int_metric(_payload, _key), do: nil
+
+  defp round_up_to_30(value) when is_integer(value) do
+    rem = rem(value, 30)
+    if rem == 0, do: value, else: value + 30 - rem
   end
 
   defp list_connected_agents do
@@ -745,7 +1142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp agent_id(agent) do
-    Map.get(agent, :agent_id) || Map.get(agent, "agent_id") || ""
+    Map.get(agent, :agent_id) || Map.get(agent, @selector_agent_id_key) || ""
   end
 
   defp agent_label(agent) do
@@ -813,27 +1210,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp extract_total_count(_count), do: nil
-
-  defp resolve_target_device_uids(_scope, nil, _limit), do: []
-  defp resolve_target_device_uids(_scope, "", _limit), do: []
-
-  defp resolve_target_device_uids(scope, target_query, limit) do
-    srql_module = srql_module()
-    query = "#{normalize_target_query(target_query)} limit:#{limit}"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        results
-        |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, :uid) end)
-        |> Enum.filter(&is_binary/1)
-        |> Enum.uniq()
-
-      _ ->
-        []
-    end
-  rescue
-    _ -> []
-  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
@@ -979,7 +1355,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     if socket.assigns.builder_sync do
       query = build_target_query(socket.assigns.builder)
       params = socket.assigns.form.params || %{}
-      params = Map.put(params, "target_query", query)
+      params = Map.put(params, @selector_query_key, query)
 
       socket
       |> assign(:form, to_form(params, as: :form))
@@ -1032,7 +1408,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp normalize_protocol(value) do
     value = value |> to_string() |> String.downcase()
-    if value in ["icmp", "udp", "tcp"], do: value, else: "icmp"
+    if value in @protocols, do: value, else: @protocol_icmp
   end
 
   defp normalize_consensus_mode(value) do

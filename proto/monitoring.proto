@@ -313,6 +313,7 @@ message CommandProgress {
   int32 progress_percent = 3;  // Progress percentage (0-100)
   string message = 4;          // Optional progress message
   int64 timestamp = 5;         // Progress time (unix seconds)
+  bytes payload_json = 6;      // Optional progress payload as JSON
 }
 
 // CommandResult reports completion for a command.

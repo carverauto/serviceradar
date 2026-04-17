@@ -128,6 +128,7 @@ type PushLoop struct {
 	syncRuntime               *SyncRuntime
 	mtrState                  *mtrCheckerState
 	mtrOnDemandSem            chan struct{}
+	mtrBulkJobSem             chan struct{}
 	cameraRelayManager        *cameraRelayManager
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
@@ -330,6 +331,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		syncRuntime:        NewSyncRuntime(server, gateway, log),
 		mtrState:           newMtrCheckerState(),
 		mtrOnDemandSem:     make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
+		mtrBulkJobSem:      make(chan struct{}, 1),
 		cameraRelayManager: cameraRelayManager,
 	}
 }

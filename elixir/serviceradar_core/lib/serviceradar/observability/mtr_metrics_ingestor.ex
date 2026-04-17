@@ -35,6 +35,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   require Logger
 
+  @default_bulk_create_chunk_size 500
+
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
@@ -72,34 +74,52 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp insert_results(results, agent_id, gateway_id, partition, now) do
     actor = SystemActor.system(:mtr_metrics_ingestor)
+    domain = ServiceRadar.Observability
 
-    [MtrTrace, MtrHop]
-    |> Ash.transaction(fn ->
-      Enum.reduce_while(results, :ok, fn result, :ok ->
-        reduce_insert_result(result, agent_id, gateway_id, partition, now, actor)
+    with {:ok, trace_rows, hop_rows} <-
+           build_insert_rows(results, agent_id, gateway_id, partition, now) do
+      [MtrTrace, MtrHop]
+      |> Ash.transaction(fn ->
+        with :ok <- insert_bulk(trace_rows, MtrTrace, actor, domain),
+             :ok <- insert_bulk(hop_rows, MtrHop, actor, domain) do
+          :ok
+        else
+          {:error, reason} -> Ash.DataLayer.rollback([MtrTrace, MtrHop], reason)
+        end
       end)
+      |> case do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+
+        {:error, reason, _stacktrace} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp build_insert_rows(results, agent_id, gateway_id, partition, now) do
+    Enum.reduce_while(results, {:ok, [], []}, fn result, {:ok, trace_rows, hop_rows} ->
+      case build_result_rows(result, agent_id, gateway_id, partition, now) do
+        {:ok, trace_row, result_hops} when is_map(trace_row) ->
+          {:cont, {:ok, [trace_row | trace_rows], Enum.reverse(result_hops, hop_rows)}}
+
+        {:ok, nil, []} ->
+          {:cont, {:ok, trace_rows, hop_rows}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
     end)
     |> case do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-
-      {:error, reason, _stacktrace} ->
-        {:error, reason}
+      {:ok, trace_rows, hop_rows} -> {:ok, Enum.reverse(trace_rows), Enum.reverse(hop_rows)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp reduce_insert_result(result, agent_id, gateway_id, partition, now, actor) do
-    case insert_single_result(result, agent_id, gateway_id, partition, now, actor) do
-      :ok -> {:cont, :ok}
-      {:error, reason} -> Ash.DataLayer.rollback([MtrTrace, MtrHop], reason)
-    end
-  end
-
-  defp insert_single_result(result, agent_id, gateway_id, partition, now, actor)
-       when is_map(result) do
+  defp build_result_rows(result, agent_id, gateway_id, partition, now) when is_map(result) do
     trace = map_get_any(result, ["trace", :trace], %{})
 
     target_value =
@@ -116,38 +136,69 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       trace_id = Ecto.UUID.generate()
       trace_time = trace_time(result, trace, now)
 
-      with {:ok, _trace} <-
-             result
-             |> build_trace_row(trace, trace_id, trace_time, agent_id, gateway_id, partition)
-             |> insert_trace(actor) do
-        insert_trace_hops(
-          map_get_any(trace, ["hops", :hops], []),
-          trace_id,
-          trace_time,
-          actor
-        )
-      end
+      trace_row =
+        build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition)
+
+      hop_rows = build_hop_rows(map_get_any(trace, ["hops", :hops], []), trace_id, trace_time)
+      {:ok, trace_row, hop_rows}
     else
       {:error, :missing_target_ip}
     end
   end
 
-  defp insert_single_result(_result, _agent_id, _gateway_id, _partition, _now, _actor), do: :ok
+  defp build_result_rows(_result, _agent_id, _gateway_id, _partition, _now), do: {:ok, nil, []}
 
-  defp insert_trace(row, actor) do
-    MtrTrace
-    |> Ash.Changeset.for_create(:create, row)
-    |> Ash.create(actor: actor)
-  end
+  defp insert_bulk([], _resource, _actor, _domain), do: :ok
 
-  defp insert_hops(hops, trace_id, trace_time, actor) do
-    Enum.reduce_while(hops, :ok, fn hop, _acc ->
-      case insert_hop(hop, trace_id, trace_time, actor) do
-        {:ok, _hop} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
+  defp insert_bulk(records, resource, actor, domain) do
+    records
+    |> chunk_records()
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      case Ash.bulk_create(chunk, resource, :create,
+             actor: actor,
+             domain: domain,
+             return_records?: false,
+             return_errors?: true,
+             stop_on_error?: true
+           ) do
+        %Ash.BulkResult{status: :success} ->
+          {:cont, :ok}
+
+        %Ash.BulkResult{status: :error, errors: errors} = result ->
+          {:halt, {:error, errors || result}}
+
+        {:ok, _} ->
+          {:cont, :ok}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+
+        other ->
+          {:halt, {:error, other}}
       end
     end)
   end
+
+  defp chunk_records(records) when is_list(records) do
+    Enum.chunk_every(records, bulk_create_chunk_size())
+  end
+
+  defp bulk_create_chunk_size do
+    :serviceradar_core
+    |> Application.get_env(:mtr_metrics_ingestor_chunk_size, @default_bulk_create_chunk_size)
+    |> normalize_chunk_size()
+  end
+
+  defp normalize_chunk_size(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_chunk_size(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> @default_bulk_create_chunk_size
+    end
+  end
+
+  defp normalize_chunk_size(_value), do: @default_bulk_create_chunk_size
 
   defp trace_time(result, trace, now) do
     parse_trace_time(
@@ -177,16 +228,19 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     }
   end
 
-  defp insert_trace_hops([], _trace_id, _trace_time, _actor), do: :ok
+  defp build_hop_rows([], _trace_id, _trace_time), do: []
 
-  defp insert_trace_hops(hops, trace_id, trace_time, actor) when is_list(hops),
-    do: insert_hops(hops, trace_id, trace_time, actor)
+  defp build_hop_rows(hops, trace_id, trace_time) when is_list(hops) do
+    hops
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&build_hop_row(&1, trace_id, trace_time))
+  end
 
-  defp insert_trace_hops(hops, trace_id, trace_time, actor) do
+  defp build_hop_rows(hops, trace_id, trace_time) do
     hops
     |> List.wrap()
     |> Enum.filter(&is_map/1)
-    |> insert_hops(trace_id, trace_time, actor)
+    |> Enum.map(&build_hop_row(&1, trace_id, trace_time))
   end
 
   defp first_present(values, default) when is_list(values) do
@@ -204,7 +258,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp insert_hop(hop, trace_id, trace_time, actor) when is_map(hop) do
+  defp build_hop_row(hop, trace_id, trace_time) when is_map(hop) do
     ecmp_addrs = hop["ecmp_addrs"] || []
     asn_info = hop["asn"] || %{}
     mpls_labels = hop["mpls_labels"]
@@ -214,7 +268,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
         %{"labels" => mpls_labels}
       end
 
-    attrs = %{
+    %{
       id: Ecto.UUID.generate(),
       time: trace_time,
       trace_id: trace_id,
@@ -237,13 +291,9 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       jitter_worst_us: hop["jitter_worst_us"],
       jitter_interarrival_us: hop["jitter_interarrival_us"]
     }
-
-    MtrHop
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(actor: actor)
   end
 
-  defp insert_hop(_hop, _trace_id, _trace_time, _actor), do: {:ok, nil}
+  defp build_hop_row(_hop, _trace_id, _trace_time), do: nil
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->
