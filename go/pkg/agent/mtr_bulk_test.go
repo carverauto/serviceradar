@@ -230,6 +230,56 @@ func TestBulkMtrAdaptiveController_IncreasesConcurrencyAfterHealthyWindow(t *tes
 	}
 }
 
+func TestBulkMtrAdaptiveController_HistorySnapshotTracksAdaptiveWindows(t *testing.T) {
+	controller := newBulkMtrAdaptiveController(64, time.Now().Add(-time.Second))
+	limit := atomic.Int32{}
+	limit.Store(64)
+
+	for i := 0; i < bulkMtrAdaptiveWindowSize; i++ {
+		observeBulkMtrConcurrency(controller, bulkMtrStatusTimedOut, &limit)
+	}
+
+	history := controller.historySnapshot()
+	if len(history) < 2 {
+		t.Fatalf("expected initial and adaptive history samples, got %d", len(history))
+	}
+
+	last := history[len(history)-1]
+	if last.Concurrency >= 64 {
+		t.Fatalf("expected adaptive history to capture reduced concurrency, got %d", last.Concurrency)
+	}
+	if last.Failed != bulkMtrAdaptiveWindowSize {
+		t.Fatalf("expected failed count %d, got %d", bulkMtrAdaptiveWindowSize, last.Failed)
+	}
+	if last.TimedOut != bulkMtrAdaptiveWindowSize {
+		t.Fatalf("expected timed out count %d, got %d", bulkMtrAdaptiveWindowSize, last.TimedOut)
+	}
+}
+
+func TestBulkMtrAdaptiveController_FinalHistorySnapshotAppendsTerminalTotals(t *testing.T) {
+	controller := newBulkMtrAdaptiveController(32, time.Now().Add(-2*time.Second))
+	controller.current = 24
+
+	history := controller.finalHistorySnapshot(120, 8)
+	if len(history) == 0 {
+		t.Fatal("expected final history snapshot to include a terminal sample")
+	}
+
+	last := history[len(history)-1]
+	if last.Completed != 120 {
+		t.Fatalf("expected completed total 120, got %d", last.Completed)
+	}
+	if last.Failed != 8 {
+		t.Fatalf("expected failed total 8, got %d", last.Failed)
+	}
+	if last.Concurrency != 24 {
+		t.Fatalf("expected concurrency 24, got %d", last.Concurrency)
+	}
+	if last.MaxConcurrency != 32 {
+		t.Fatalf("expected max concurrency 32, got %d", last.MaxConcurrency)
+	}
+}
+
 func TestNextBulkMtrTarget_StopsWhenContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -596,6 +596,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <div class="text-base-content/70">
               Effective concurrency: {@bulk_interval_guidance.effective_concurrency}
             </div>
+            <div :if={@bulk_interval_guidance.timeout_ratio_percent > 0} class="text-base-content/70">
+              Avg timeout ratio: {@bulk_interval_guidance.timeout_ratio_percent}%
+            </div>
             <div class="text-base-content/70">
               Estimated runtime for current scope: {@bulk_interval_guidance.estimated_duration_sec}s
             </div>
@@ -906,6 +909,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         |> Enum.map(& &1.effective_concurrency)
         |> average()
 
+      avg_timeout_ratio =
+        measurements
+        |> Enum.map(& &1.timeout_ratio)
+        |> average()
+
       throttled_runs =
         measurements
         |> Enum.count(& &1.throttled?)
@@ -918,10 +926,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         end
 
       headroom_factor =
-        if throttled_runs > 0 do
-          1.4
-        else
-          1.25
+        cond do
+          throttled_runs > 0 and avg_timeout_ratio >= 0.10 -> 1.7
+          avg_timeout_ratio >= 0.10 -> 1.6
+          throttled_runs > 0 -> 1.4
+          true -> 1.25
         end
 
       recommended_interval_sec =
@@ -936,6 +945,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         execution_profile: execution_profile,
         targets_per_minute: Float.round(avg_targets_per_minute, 1),
         effective_concurrency: Float.round(avg_effective_concurrency, 1),
+        timeout_ratio_percent: Float.round(avg_timeout_ratio * 100, 1),
         estimated_duration_sec: estimated_duration_sec,
         recommended_interval_sec: recommended_interval_sec,
         throttled_runs: throttled_runs,
@@ -951,6 +961,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     total_targets = extract_bulk_total_targets(job)
     payload = job.result_payload || job.progress_payload || %{}
     {effective_concurrency, throttled?} = extract_bulk_concurrency_measurement(payload)
+    timed_out_targets = extract_int_metric(payload, "timed_out_targets") || 0
+    timeout_ratio = safe_ratio(timed_out_targets, total_targets)
 
     case extract_float_metric(payload, "targets_per_minute") do
       value when is_float(value) and value > 0 ->
@@ -958,6 +970,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           %{
             targets_per_minute: value,
             effective_concurrency: effective_concurrency,
+            timeout_ratio: timeout_ratio,
             throttled?: throttled?
           }
         ]
@@ -972,6 +985,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             %{
               targets_per_minute: total / (duration_sec / 60),
               effective_concurrency: effective_concurrency,
+              timeout_ratio: timeout_ratio,
               throttled?: throttled?
             }
           ]
@@ -1062,6 +1076,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp average(_values), do: 0.0
+
+  defp safe_ratio(_value, total) when total in [0, 0.0, nil], do: 0.0
+  defp safe_ratio(value, total), do: min(1.0, max(value / total, 0.0))
 
   defp normalize_bulk_execution_profile(nil), do: "fast"
 

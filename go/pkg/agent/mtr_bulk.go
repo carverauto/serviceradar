@@ -69,6 +69,7 @@ type mtrBulkProgressPayload struct {
 	RunningTargets     int                        `json:"running_targets"`
 	CompletedTargets   int                        `json:"completed_targets"`
 	FailedTargets      int                        `json:"failed_targets"`
+	TimedOutTargets    int                        `json:"timed_out_targets,omitempty"`
 	Concurrency        int                        `json:"concurrency,omitempty"`
 	MaxConcurrency     int                        `json:"max_concurrency,omitempty"`
 	ConcurrencyHistory []bulkMtrConcurrencySample `json:"concurrency_history,omitempty"`
@@ -240,6 +241,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	runningTargets := 0
 	completedTargets := 0
 	failedTargets := 0
+	timedOutTargets := 0
 	progressUpdates := make([]mtrBulkTargetUpdate, 0, bulkMtrProgressBatchSize)
 	lastProgressSent := time.Now()
 
@@ -273,6 +275,9 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		switch event.update.Status {
 		case bulkMtrStatusCompleted:
 			completedTargets++
+		case bulkMtrStatusTimedOut:
+			failedTargets++
+			timedOutTargets++
 		default:
 			failedTargets++
 		}
@@ -299,6 +304,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			runningTargets,
 			completedTargets,
 			failedTargets,
+			timedOutTargets,
 			currentConcurrency,
 			maxConcurrency,
 			controller.historySnapshot(),
@@ -318,6 +324,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			runningTargets,
 			completedTargets,
 			failedTargets,
+			timedOutTargets,
 			currentConcurrency,
 			maxConcurrency,
 			controller.historySnapshot(),
@@ -333,6 +340,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		RunningTargets:     runningTargets,
 		CompletedTargets:   completedTargets,
 		FailedTargets:      failedTargets,
+		TimedOutTargets:    timedOutTargets,
 		Concurrency:        currentConcurrency,
 		MaxConcurrency:     maxConcurrency,
 		ConcurrencyHistory: controller.finalHistorySnapshot(completedTargets, failedTargets),
@@ -539,6 +547,7 @@ func flushBulkMtrProgress(
 	runningTargets int,
 	completedTargets int,
 	failedTargets int,
+	timedOutTargets int,
 	concurrency int,
 	maxConcurrency int,
 	concurrencyHistory []bulkMtrConcurrencySample,
@@ -561,6 +570,7 @@ func flushBulkMtrProgress(
 			RunningTargets:     runningTargets,
 			CompletedTargets:   completedTargets,
 			FailedTargets:      failedTargets,
+			TimedOutTargets:    timedOutTargets,
 			Concurrency:        concurrency,
 			MaxConcurrency:     maxConcurrency,
 			ConcurrencyHistory: concurrencyHistory,

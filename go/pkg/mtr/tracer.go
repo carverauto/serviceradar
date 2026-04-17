@@ -78,6 +78,7 @@ type Tracer struct {
 	hops              []*HopResult
 	probes            map[int]probeRecord // seq -> probe
 	probesMu          sync.Mutex
+	probeUpdateCh     chan struct{}
 	nextSeq           int
 	icmpID            int
 	payload           []byte
@@ -184,18 +185,19 @@ func NewTracerWithResources(
 	}
 
 	return &Tracer{
-		opts:         opts,
-		logger:       log,
-		enricher:     enricher,
-		dns:          resources.DNS,
-		sock:         resources.Socket,
-		ownsEnricher: ownsEnricher,
-		targetIP:     append(net.IP(nil), target.IP...),
-		ipVersion:    target.IPVersion,
-		hops:         make([]*HopResult, opts.MaxHops),
-		probes:       make(map[int]probeRecord),
-		nextSeq:      nextProbeSeqStart(),
-		icmpID:       nextICMPID(),
+		opts:          opts,
+		logger:        log,
+		enricher:      enricher,
+		dns:           resources.DNS,
+		sock:          resources.Socket,
+		ownsEnricher:  ownsEnricher,
+		targetIP:      append(net.IP(nil), target.IP...),
+		ipVersion:     target.IPVersion,
+		hops:          make([]*HopResult, opts.MaxHops),
+		probes:        make(map[int]probeRecord),
+		probeUpdateCh: make(chan struct{}, 1),
+		nextSeq:       nextProbeSeqStart(),
+		icmpID:        nextICMPID(),
 	}, nil
 }
 
@@ -255,22 +257,22 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 		}
 	}()
 
+	receiveCtx, stopReceive := context.WithCancel(ctx)
+	defer stopReceive()
+
 	// Start receiver goroutine.
 	recvDone := make(chan struct{})
 
 	go func() {
 		defer close(recvDone)
-		t.receiveLoop(ctx)
+		t.receiveLoop(receiveCtx)
 	}()
 
 	// Send probe cycles.
 	t.sendProbes(ctx)
 
-	// Wait for final responses with a timeout.
-	drainCtx, drainCancel := context.WithTimeout(ctx, t.opts.Timeout)
-	defer drainCancel()
-
-	<-drainCtx.Done()
+	t.waitForOutstandingProbes(ctx)
+	stopReceive()
 
 	// Signal receiver to stop.
 	if t.ownsSocket && t.sock != nil {
@@ -289,6 +291,27 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	return t.buildResult(), nil
 }
 
+func (t *Tracer) waitForOutstandingProbes(ctx context.Context) {
+	if t.pendingProbeCount() == 0 {
+		return
+	}
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if t.pendingProbeCount() == 0 {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.probeUpdateCh:
+		}
+	}
+}
+
 // sendProbes sends probes for each hop across all configured cycles.
 func (t *Tracer) sendProbes(ctx context.Context) {
 	for cycle := range t.opts.ProbesPerHop {
@@ -303,9 +326,11 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 				return
 			}
 
+			loopNow := time.Now()
+
 			// Age out timed-out probes during active probing so unknown-hop cutoff
 			// can trigger without waiting for end-of-run finalization.
-			t.expireTimedOutProbes(time.Now())
+			t.expireTimedOutProbes(loopNow)
 
 			// Evaluate unknown-hop cutoff from completed historical probes only.
 			// Do not treat a hop as unknown immediately after dispatching a fresh probe.
@@ -333,13 +358,14 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			t.probes[probeKey] = probeRecord{
 				hopIndex: hopIdx,
 				seq:      seq,
-				sentAt:   time.Now(),
+				sentAt:   loopNow,
 			}
 			t.hops[hopIdx].mu.Lock()
 			t.hops[hopIdx].Sent++
 			t.hops[hopIdx].InFlight++
 			t.hops[hopIdx].mu.Unlock()
 			t.probesMu.Unlock()
+			t.signalProbeStateChanged()
 
 			var sendErr error
 
@@ -447,6 +473,7 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 
 	delete(t.probes, seq)
 	t.probesMu.Unlock()
+	t.signalProbeStateChanged()
 
 	rtt := resp.RecvTime.Sub(probe.sentAt)
 	hop := t.hops[probe.hopIndex]
@@ -607,6 +634,9 @@ func (t *Tracer) expireTimedOutProbes(now time.Time) {
 		}
 	}
 	t.probesMu.Unlock()
+	if len(expired) > 0 {
+		t.signalProbeStateChanged()
+	}
 	t.expiredScratch = expired[:0]
 
 	for _, probe := range expired {
@@ -624,6 +654,24 @@ func (t *Tracer) expireTimedOutProbes(now time.Time) {
 			hop.InFlight--
 		}
 		hop.mu.Unlock()
+	}
+}
+
+func (t *Tracer) pendingProbeCount() int {
+	t.probesMu.Lock()
+	defer t.probesMu.Unlock()
+
+	return len(t.probes)
+}
+
+func (t *Tracer) signalProbeStateChanged() {
+	if t == nil || t.probeUpdateCh == nil {
+		return
+	}
+
+	select {
+	case t.probeUpdateCh <- struct{}{}:
+	default:
 	}
 }
 

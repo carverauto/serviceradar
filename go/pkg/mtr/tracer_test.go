@@ -194,6 +194,37 @@ func TestWaitForProbeInterval_StopsOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestWaitForOutstandingProbes_ReturnsWhenPendingSetClears(t *testing.T) {
+	t.Parallel()
+
+	tracer := &Tracer{
+		probes: map[int]probeRecord{
+			1: {seq: 1},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	tracer.probeUpdateCh = make(chan struct{}, 1)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		tracer.probesMu.Lock()
+		delete(tracer.probes, 1)
+		tracer.probesMu.Unlock()
+		tracer.signalProbeStateChanged()
+	}()
+
+	startedAt := time.Now()
+	tracer.waitForOutstandingProbes(ctx)
+	elapsed := time.Since(startedAt)
+
+	if elapsed >= 150*time.Millisecond {
+		t.Fatalf("expected outstanding probe wait to stop early, took %s", elapsed)
+	}
+}
+
 type fakeRawSocket struct {
 	closeCalls int
 }
