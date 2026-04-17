@@ -113,55 +113,24 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   def check_authorization(action, resource, actor, record \\ nil)
 
   def check_authorization(:read, resource, actor, _record) do
-    case Ash.can?({resource, :read}, actor) do
-      {:ok, true} -> :authorized
-      {:ok, false} -> {:unauthorized, :forbidden}
-      {:ok, true, _} -> :authorized
-      {:ok, false, _} -> {:unauthorized, :forbidden}
-      {:error, error} -> {:unauthorized, error}
-    end
+    authorization_result(Ash.can?({resource, :read}, actor))
   end
 
   def check_authorization(:create, resource, actor, _record) do
-    case Ash.can?({resource, :create}, actor) do
-      {:ok, true} -> :authorized
-      {:ok, false} -> {:unauthorized, :forbidden}
-      {:ok, true, _} -> :authorized
-      {:ok, false, _} -> {:unauthorized, :forbidden}
-      {:error, error} -> {:unauthorized, error}
-    end
+    authorization_result(Ash.can?({resource, :create}, actor))
   end
 
   def check_authorization(:update, _resource, actor, record) when not is_nil(record) do
-    case Ash.can?({record, :update}, actor) do
-      {:ok, true} -> :authorized
-      {:ok, false} -> {:unauthorized, :forbidden}
-      {:ok, true, _} -> :authorized
-      {:ok, false, _} -> {:unauthorized, :forbidden}
-      {:error, error} -> {:unauthorized, error}
-    end
+    authorization_result(Ash.can?({record, :update}, actor))
   end
 
   def check_authorization(:destroy, _resource, actor, record) when not is_nil(record) do
-    case Ash.can?({record, :destroy}, actor) do
-      {:ok, true} -> :authorized
-      {:ok, false} -> {:unauthorized, :forbidden}
-      {:ok, true, _} -> :authorized
-      {:ok, false, _} -> {:unauthorized, :forbidden}
-      {:error, error} -> {:unauthorized, error}
-    end
+    authorization_result(Ash.can?({record, :destroy}, actor))
   end
 
   def check_authorization(action, resource, actor, record) do
-    target = if record, do: {record, action}, else: {resource, action}
-
-    case Ash.can?(target, actor) do
-      {:ok, true} -> :authorized
-      {:ok, false} -> {:unauthorized, :forbidden}
-      {:ok, true, _} -> :authorized
-      {:ok, false, _} -> {:unauthorized, :forbidden}
-      {:error, error} -> {:unauthorized, error}
-    end
+    target = authorization_target(action, resource, record)
+    authorization_result(Ash.can?(target, actor))
   end
 
   @doc """
@@ -254,4 +223,10 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
       _ -> false
     end
   end
+
+  defp authorization_target(action, resource, record) when is_nil(record), do: {resource, action}
+  defp authorization_target(action, _resource, record), do: {record, action}
+
+  defp authorization_result(true), do: :authorized
+  defp authorization_result(false), do: {:unauthorized, :forbidden}
 end
