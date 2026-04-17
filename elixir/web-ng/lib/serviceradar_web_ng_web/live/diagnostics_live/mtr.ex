@@ -520,6 +520,36 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  defp bulk_concurrency(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+
+    current = Map.get(payload, "concurrency")
+    max = Map.get(payload, "max_concurrency")
+
+    case {current, max} do
+      {curr, maxc} when is_integer(curr) and is_integer(maxc) and maxc > 0 and curr != maxc ->
+        "#{curr}/#{maxc}"
+
+      {curr, maxc} when is_integer(curr) and is_integer(maxc) and maxc > 0 ->
+        "#{curr}"
+
+      {curr, _} when is_integer(curr) ->
+        "#{curr}"
+
+      _ ->
+        "-"
+    end
+  end
+
+  defp bulk_throttled?(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+
+    current = Map.get(payload, "concurrency")
+    max = Map.get(payload, "max_concurrency")
+
+    is_integer(current) and is_integer(max) and max > current
+  end
+
   defp bulk_job_query(job) do
     job
     |> Map.get(:payload, %{})
@@ -665,6 +695,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <th>Targets</th>
                 <th>Progress</th>
                 <th>Rate</th>
+                <th>Concurrency</th>
                 <th>Profile</th>
                 <th>Source</th>
                 <th>Protocol</th>
@@ -697,6 +728,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-xs">
                   <div>{bulk_rate(job)}</div>
                   <div class="text-base-content/60">{bulk_duration(job)}</div>
+                </td>
+                <td class="text-xs">
+                  <div>{bulk_concurrency(job)}</div>
+                  <div :if={bulk_throttled?(job)} class="text-warning">
+                    adaptive backoff
+                  </div>
                 </td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
