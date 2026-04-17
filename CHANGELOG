@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.18
+
+Bulk MTR dispatch completion fixes, managed baseline scope clarity, and diagnostics/profile polish needed to make queued automation jobs actually execute and explain their target set correctly.
+
+## Whats New
+
+**1.2.18**
+- Fixed `mtr.bulk_run` persistence in `core-elx` so queued bulk jobs store UUID-backed target rows correctly and can be dispatched instead of sitting queued forever behind scheduler crashes.
+- Expired stale queued bulk jobs when evaluating active work, preventing old never-ran jobs from blocking new baseline dispatches and cleaning up diagnostics visibility for operators.
+- Kept baseline automation hard-scoped to managed devices with IPs, while updating the MTR profile UI to explain that managed-device eligibility is enforced after the SRQL query and that selector limits cap each run.
+- Improved MTR diagnostics and automation UX by linking queued automation jobs back to their source profile and hiding expired active rows from the live diagnostics queue view.
+- Added regression coverage around managed-target pagination/counting and the diagnostics/profile data shaping used by the new MTR automation flow.
+
 # ServiceRadar v1.2.17
 
 Bulk-queued MTR diagnostics and automation, managed agent rollout completion fixes, and web-ng stability fixes for the new MTR diagnostics and profile flows.
