@@ -14,7 +14,7 @@ This runbook covers:
 Before using release management in production:
 
 - Install agents with the package-managed launcher and updater layout.
-- Ensure the agent runtime host has write access to `/var/lib/serviceradar/agent/releases`.
+- Ensure the agent runtime host has write access to `/var/lib/serviceradar/agent`.
 - Ensure the control plane has the trusted Ed25519 public key configured before operators publish releases.
 - Ensure every managed agent package embeds the trusted Ed25519 public key through build-time `ReleaseSigningPublicKey` injection.
 - Publish artifacts over HTTPS.
