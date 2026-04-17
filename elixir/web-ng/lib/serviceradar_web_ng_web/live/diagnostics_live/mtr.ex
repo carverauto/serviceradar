@@ -546,6 +546,31 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  defp bulk_timeout_count(job) do
+    bulk_count(job, "timed_out_targets", 0)
+  end
+
+  defp bulk_success_rate(job) do
+    total_targets = bulk_count(job, "total_targets", count_targets(job))
+    completed_targets = bulk_count(job, "completed_targets", 0)
+    Float.round(safe_ratio(completed_targets, total_targets) * 100, 1)
+  end
+
+  defp bulk_mix(job) do
+    total_targets = bulk_count(job, "total_targets", count_targets(job))
+    completed_targets = bulk_count(job, "completed_targets", 0)
+    failed_targets = bulk_count(job, "failed_targets", 0)
+    timed_out_targets = bulk_timeout_count(job)
+    error_targets = max(failed_targets - timed_out_targets, 0)
+
+    %{
+      total_targets: total_targets,
+      completed_targets: completed_targets,
+      timed_out_targets: timed_out_targets,
+      error_targets: error_targets
+    }
+  end
+
   defp bulk_concurrency_history(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
@@ -614,10 +639,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       |> Enum.filter(&is_integer/1)
       |> Enum.sum()
 
+    avg_success_rate =
+      completed
+      |> Enum.map(&bulk_success_rate/1)
+      |> average_float()
+
+    timed_out_targets =
+      completed
+      |> Enum.map(&bulk_timeout_count/1)
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
+
     %{
       active_count: active_count,
       throttled_count: throttled_count,
       avg_rate: Float.round(avg_rate, 1),
+      avg_success_rate: Float.round(avg_success_rate, 1),
+      timed_out_targets: timed_out_targets,
       total_targets: total_targets
     }
   end
@@ -659,11 +697,24 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end)
   end
 
+  defp latest_bulk_mix(jobs) do
+    jobs
+    |> List.wrap()
+    |> Enum.find_value(fn job ->
+      mix = bulk_mix(job)
+      if mix.total_targets > 0, do: %{job: job, mix: mix}, else: nil
+    end)
+  end
+
   defp average_float([]), do: 0.0
   defp average_float(values), do: Enum.sum(values) / length(values)
 
   defp safe_ratio(_value, max_value) when max_value in [0, 0.0], do: 0.0
   defp safe_ratio(value, max_value), do: min(1.0, max(value / max_value, 0.0))
+
+  defp mix_segment_width(count, total) do
+    "#{Float.round(safe_ratio(count, total) * 100, 1)}%"
+  end
 
   defp extract_float_metric(payload, key) when is_map(payload) do
     case Map.get(payload, key) do
@@ -786,6 +837,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       <% recent_bars = recent_bulk_job_bars(@bulk_jobs) %>
       <% max_rate = recent_bars |> Enum.map(&bulk_rate_value/1) |> Enum.max(fn -> 0.0 end) %>
       <% latest_history = latest_bulk_history(@bulk_jobs) %>
+      <% latest_mix = latest_bulk_mix(@bulk_jobs) %>
       <div class="p-6 space-y-6">
         <div class="flex items-center justify-between">
           <div>
@@ -834,7 +886,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         </div>
 
         <div :if={@bulk_jobs != []} class="overflow-x-auto">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-4">
             <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
               <div class="text-xs uppercase tracking-wide text-base-content/60">Active Bulk Jobs</div>
               <div class="mt-2 text-3xl font-semibold">{dashboard.active_count}</div>
@@ -845,8 +897,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               <div class="text-sm text-base-content/60">targets/min</div>
             </div>
             <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Recent Completed Targets</div>
-              <div class="mt-2 text-3xl font-semibold">{dashboard.total_targets}</div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Avg Success Rate</div>
+              <div class="mt-2 text-3xl font-semibold">{dashboard.avg_success_rate}%</div>
+            </div>
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Recent Timed Out Targets</div>
+              <div class="mt-2 text-3xl font-semibold">{dashboard.timed_out_targets}</div>
             </div>
             <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
               <div class="text-xs uppercase tracking-wide text-base-content/60">Adaptive Backoff Runs</div>
@@ -918,6 +974,49 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             </div>
           </div>
 
+          <div
+            :if={latest_mix}
+            class="rounded-xl border border-base-300 bg-base-100/80 p-4 mb-4"
+          >
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Latest Run Mix</h3>
+              <div class="text-xs text-base-content/60">
+                {latest_mix.job.agent_id} • {bulk_success_rate(latest_mix.job)}% success
+              </div>
+            </div>
+            <div class="mt-4 h-3 rounded-full bg-base-200 overflow-hidden flex">
+              <div
+                class="h-full bg-success"
+                style={"width: #{mix_segment_width(latest_mix.mix.completed_targets, latest_mix.mix.total_targets)}"}
+              >
+              </div>
+              <div
+                class="h-full bg-warning"
+                style={"width: #{mix_segment_width(latest_mix.mix.timed_out_targets, latest_mix.mix.total_targets)}"}
+              >
+              </div>
+              <div
+                class="h-full bg-error"
+                style={"width: #{mix_segment_width(latest_mix.mix.error_targets, latest_mix.mix.total_targets)}"}
+              >
+              </div>
+            </div>
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div class="rounded-lg bg-base-200/70 p-3">
+                <div class="text-base-content/60 uppercase tracking-wide">Completed</div>
+                <div class="mt-1 text-lg font-semibold">{latest_mix.mix.completed_targets}</div>
+              </div>
+              <div class="rounded-lg bg-base-200/70 p-3">
+                <div class="text-base-content/60 uppercase tracking-wide">Timed Out</div>
+                <div class="mt-1 text-lg font-semibold">{latest_mix.mix.timed_out_targets}</div>
+              </div>
+              <div class="rounded-lg bg-base-200/70 p-3">
+                <div class="text-base-content/60 uppercase tracking-wide">Other Failures</div>
+                <div class="mt-1 text-lg font-semibold">{latest_mix.mix.error_targets}</div>
+              </div>
+            </div>
+          </div>
+
           <table class="table table-sm table-zebra">
             <thead>
               <tr>
@@ -956,6 +1055,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     "running_targets",
                     0
                   )} running
+                  <div :if={bulk_timeout_count(job) > 0} class="text-warning">
+                    {bulk_timeout_count(job)} timed out
+                  </div>
                 </td>
                 <td class="text-xs">
                   <div>{bulk_rate(job)}</div>
