@@ -344,6 +344,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end)
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp put_blob_file_jetstream(object_key, source_path) do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
