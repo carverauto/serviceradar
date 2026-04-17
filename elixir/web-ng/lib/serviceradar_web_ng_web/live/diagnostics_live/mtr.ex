@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Observability.MtrAutomationDispatcher
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -48,6 +49,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
        to_form(
          %{
            "targets" => "",
+           "target_query" => "",
+           "selector_limit" => "100",
            "agent_id" => "",
            "protocol" => "icmp",
            "execution_profile" => "fast",
@@ -119,11 +122,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("open_mtr_modal", _params, socket) do
@@ -237,48 +242,63 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("run_bulk_mtr", %{"bulk_mtr" => params}, socket) do
-    targets =
-      params["targets"]
-      |> to_string()
-      |> String.split(~r/[\r\n,]+/, trim: true)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
+    socket =
+      assign(socket, :bulk_mtr_form, to_form(normalize_bulk_mtr_params(params), as: :bulk_mtr))
 
     agent_id = params["agent_id"] || ""
     protocol = normalize_protocol(Map.get(params, "protocol", "icmp"))
-    execution_profile = normalize_bulk_execution_profile(Map.get(params, "execution_profile", "fast"))
+
+    execution_profile =
+      normalize_bulk_execution_profile(Map.get(params, "execution_profile", "fast"))
+
     concurrency = parse_positive_integer(Map.get(params, "concurrency"), 64)
+    selector_limit = parse_positive_integer(Map.get(params, "selector_limit"), 100)
 
-    cond do
-      targets == [] ->
-        {:noreply, assign(socket, :bulk_mtr_error, "At least one target is required")}
+    with :ok <- validate_bulk_mtr_agent(agent_id),
+         {:ok, targets} <- bulk_targets_from_params(params, selector_limit),
+         {:ok, _command_id} <-
+           AgentCommandBus.dispatch_bulk_mtr(agent_id, targets,
+             protocol: protocol,
+             execution_profile: execution_profile,
+             concurrency: concurrency,
+             target_query: bulk_target_query(params),
+             selector_limit: selector_limit
+           ) do
+      {:noreply,
+       socket
+       |> assign(:show_bulk_mtr_modal, false)
+       |> assign(:bulk_mtr_error, nil)
+       |> put_flash(:info, "Bulk MTR job queued for #{length(targets)} targets")
+       |> refresh_diagnostics()}
+    else
+      {:error, :missing_targets} ->
+        {:noreply,
+         assign(
+           socket,
+           :bulk_mtr_error,
+           "Provide at least one target or an SRQL query"
+         )}
 
-      agent_id == "" ->
+      {:error, :missing_agent} ->
         {:noreply, assign(socket, :bulk_mtr_error, "Please select an agent")}
 
-      true ->
-        case AgentCommandBus.dispatch_bulk_mtr(agent_id, targets,
-               protocol: protocol,
-               execution_profile: execution_profile,
-               concurrency: concurrency
-             ) do
-          {:ok, _command_id} ->
-            {:noreply,
-             socket
-             |> assign(:show_bulk_mtr_modal, false)
-             |> assign(:bulk_mtr_error, nil)
-             |> put_flash(:info, "Bulk MTR job queued")
-             |> refresh_diagnostics()}
+      {:error, :empty_srql_targets} ->
+        {:noreply, assign(socket, :bulk_mtr_error, "SRQL query returned no eligible targets")}
 
-          {:error, {:agent_busy, :bulk_mtr_job_running}} ->
-            {:noreply, assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
+      {:error, {:srql_query_failed, reason}} ->
+        {:noreply,
+         assign(socket, :bulk_mtr_error, "SRQL target resolution failed: #{inspect(reason)}")}
 
-          {:error, {:agent_offline, _}} ->
-            {:noreply, assign(socket, :bulk_mtr_error, "Agent is offline")}
+      {:error, {:agent_busy, :bulk_mtr_job_running}} ->
+        {:noreply,
+         assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
 
-          {:error, reason} ->
-            {:noreply, assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
-        end
+      {:error, {:agent_offline, _}} ->
+        {:noreply, assign(socket, :bulk_mtr_error, "Agent is offline")}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
     end
   end
 
@@ -302,15 +322,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     {:noreply, schedule_refresh(socket)}
   end
 
-  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_ack, %{command_type: "mtr.run"}}, socket),
+    do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_progress, %{command_type: "mtr.run"}}, socket),
+    do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_ack, %{command_type: "mtr.bulk_run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_ack, %{command_type: "mtr.bulk_run"}}, socket),
+    do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_progress, %{command_type: "mtr.bulk_run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_progress, %{command_type: "mtr.bulk_run"}}, socket),
+    do: {:noreply, schedule_refresh(socket)}
 
-  def handle_info({:command_result, %{command_type: "mtr.bulk_run"}}, socket), do: {:noreply, schedule_refresh(socket)}
+  def handle_info({:command_result, %{command_type: "mtr.bulk_run"}}, socket),
+    do: {:noreply, schedule_refresh(socket)}
 
   def handle_info(:refresh_diagnostics, socket) do
     {:noreply,
@@ -358,6 +383,91 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       "fast"
     end
   end
+
+  defp normalize_bulk_mtr_params(params) when is_map(params) do
+    %{
+      "targets" => to_string(Map.get(params, "targets", "")),
+      "target_query" => to_string(Map.get(params, "target_query", "")),
+      "selector_limit" => to_string(Map.get(params, "selector_limit", "100")),
+      "agent_id" => to_string(Map.get(params, "agent_id", "")),
+      "protocol" => normalize_protocol(Map.get(params, "protocol", "icmp")),
+      "execution_profile" =>
+        normalize_bulk_execution_profile(Map.get(params, "execution_profile", "fast")),
+      "concurrency" => to_string(Map.get(params, "concurrency", "64"))
+    }
+  end
+
+  defp manual_bulk_targets(params) when is_map(params) do
+    params
+    |> Map.get("targets", "")
+    |> to_string()
+    |> String.split(~r/[\r\n,]+/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp bulk_targets_from_params(params, selector_limit)
+       when is_map(params) and is_integer(selector_limit) do
+    query =
+      params
+      |> Map.get("target_query", "")
+      |> to_string()
+      |> String.trim()
+
+    if query == "" do
+      manual_targets = manual_bulk_targets(params)
+
+      if manual_targets == [] do
+        {:error, :missing_targets}
+      else
+        {:ok, manual_targets}
+      end
+    else
+      case MtrAutomationDispatcher.target_contexts_from_srql(query, selector_limit) do
+        {:ok, []} ->
+          {:error, :empty_srql_targets}
+
+        {:ok, target_contexts} ->
+          targets =
+            target_contexts
+            |> Enum.map(&bulk_target_from_ctx/1)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.uniq()
+
+          if targets == [] do
+            {:error, :empty_srql_targets}
+          else
+            {:ok, targets}
+          end
+
+        {:error, reason} ->
+          {:error, {:srql_query_failed, reason}}
+      end
+    end
+  end
+
+  defp bulk_target_from_ctx(target_ctx) when is_map(target_ctx) do
+    target =
+      Map.get(target_ctx, :target) ||
+        Map.get(target_ctx, "target") ||
+        Map.get(target_ctx, :target_ip) ||
+        Map.get(target_ctx, "target_ip")
+
+    normalize_text(target)
+  end
+
+  defp bulk_target_from_ctx(_), do: nil
+
+  defp bulk_target_query(params) when is_map(params) do
+    params
+    |> Map.get("target_query", "")
+    |> normalize_text()
+  end
+
+  defp validate_bulk_mtr_agent(""), do: {:error, :missing_agent}
+  defp validate_bulk_mtr_agent(nil), do: {:error, :missing_agent}
+  defp validate_bulk_mtr_agent(_agent_id), do: :ok
 
   defp parse_positive_integer(nil, default), do: default
 
@@ -408,6 +518,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       _ ->
         "-"
     end
+  end
+
+  defp bulk_job_query(job) do
+    job
+    |> Map.get(:payload, %{})
+    |> Map.get("target_query")
+    |> normalize_text()
+  end
+
+  defp bulk_job_selector_limit(job) do
+    job
+    |> Map.get(:payload, %{})
+    |> Map.get("selector_limit", "-")
   end
 
   defp refresh_diagnostics(socket) do
@@ -543,6 +666,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <th>Progress</th>
                 <th>Rate</th>
                 <th>Profile</th>
+                <th>Source</th>
                 <th>Protocol</th>
                 <th>Job</th>
               </tr>
@@ -578,6 +702,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <span class="badge badge-ghost badge-sm">
                     {String.upcase((job.payload || %{})["execution_profile"] || "fast")}
                   </span>
+                </td>
+                <td class="text-xs">
+                  <%= if bulk_job_query(job) do %>
+                    <div class="badge badge-info badge-sm">SRQL</div>
+                    <div class="text-base-content/60 mt-1 truncate max-w-[220px]" title={bulk_job_query(job)}>
+                      {bulk_job_query(job)}
+                    </div>
+                    <div class="text-base-content/50">
+                      limit {bulk_job_selector_limit(job)}
+                    </div>
+                  <% else %>
+                    <span class="badge badge-ghost badge-sm">MANUAL</span>
+                  <% end %>
                 </td>
                 <td>
                   <span class="badge badge-ghost badge-sm">
@@ -821,17 +958,51 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               <.form for={@bulk_mtr_form} phx-submit="run_bulk_mtr">
                 <div class="form-control mb-3">
                   <label class="label">
+                    <span class="label-text">SRQL Query</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="bulk_mtr[target_query]"
+                    value={@bulk_mtr_form["target_query"].value}
+                    placeholder="in:devices tags.role:edge"
+                    class="input input-bordered"
+                  />
+                  <label class="label">
+                    <span class="label-text-alt">
+                      Optional. When present, ServiceRadar reruns the SRQL query at submit time and queues the current matching targets.
+                    </span>
+                  </label>
+                </div>
+
+                <div class="form-control mb-3">
+                  <label class="label">
                     <span class="label-text">Targets</span>
                   </label>
                   <textarea
                     name="bulk_mtr[targets]"
                     class="textarea textarea-bordered min-h-48"
                     placeholder="One hostname or IP per line"
-                    required
                   ><%= @bulk_mtr_form["targets"].value %></textarea>
+                  <label class="label">
+                    <span class="label-text-alt">
+                      Optional when using SRQL. Manual targets are used only when the SRQL query field is blank.
+                    </span>
+                  </label>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">Selector Limit</span></label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="5000"
+                      name="bulk_mtr[selector_limit]"
+                      value={@bulk_mtr_form["selector_limit"].value}
+                      class="input input-bordered"
+                    />
+                  </div>
+
                   <div class="form-control">
                     <label class="label"><span class="label-text">Agent</span></label>
                     <select name="bulk_mtr[agent_id]" class="select select-bordered" required>

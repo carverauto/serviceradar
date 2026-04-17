@@ -51,10 +51,11 @@ var (
 
 // linuxRawSocket implements RawSocket using Linux raw sockets.
 type linuxRawSocket struct {
-	sendFD  int
-	conn    *icmp.PacketConn
-	ipv6    bool
-	sendBuf []byte
+	sendFD   int
+	conn     *icmp.PacketConn
+	ipv6     bool
+	sendBuf  []byte
+	recvPool recvBufferPool
 }
 
 // NewRawSocket creates a new raw socket for ICMP probing.
@@ -77,7 +78,7 @@ func newRawSocket4() (RawSocket, error) {
 			return nil, fmt.Errorf("no raw or dgram ICMP socket available: raw=%w, dgram=%w", err, dErr)
 		}
 
-		return &linuxRawSocket{sendFD: -1, conn: conn, ipv6: false}, nil
+		return &linuxRawSocket{sendFD: -1, conn: conn, ipv6: false, recvPool: newRecvBufferPool()}, nil
 	}
 
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
@@ -89,7 +90,7 @@ func newRawSocket4() (RawSocket, error) {
 		return nil, fmt.Errorf("create ICMP listener: %w", err)
 	}
 
-	return &linuxRawSocket{sendFD: fd, conn: conn, ipv6: false}, nil
+	return &linuxRawSocket{sendFD: fd, conn: conn, ipv6: false, recvPool: newRecvBufferPool()}, nil
 }
 
 func newRawSocket6() (RawSocket, error) {
@@ -100,7 +101,7 @@ func newRawSocket6() (RawSocket, error) {
 			return nil, fmt.Errorf("no raw or dgram ICMPv6 socket available: raw=%w, dgram=%w", err, dErr)
 		}
 
-		return &linuxRawSocket{sendFD: -1, conn: conn, ipv6: true}, nil
+		return &linuxRawSocket{sendFD: -1, conn: conn, ipv6: true, recvPool: newRecvBufferPool()}, nil
 	}
 
 	conn, err := icmp.ListenPacket("ip6:ipv6-icmp", "::")
@@ -112,7 +113,7 @@ func newRawSocket6() (RawSocket, error) {
 		return nil, fmt.Errorf("create ICMPv6 listener: %w", err)
 	}
 
-	return &linuxRawSocket{sendFD: fd, conn: conn, ipv6: true}, nil
+	return &linuxRawSocket{sendFD: fd, conn: conn, ipv6: true, recvPool: newRecvBufferPool()}, nil
 }
 
 func (s *linuxRawSocket) IsIPv6() bool {
@@ -120,11 +121,9 @@ func (s *linuxRawSocket) IsIPv6() bool {
 }
 
 func (s *linuxRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte) error {
-	var proto int
+	proto := 1 // ICMPv4
 	if s.ipv6 {
 		proto = 58 // ICMPv6
-	} else {
-		proto = 1 // ICMPv4
 	}
 
 	s.sendBuf = prepareICMPEchoPacket(s.sendBuf, payload, id, seq, s.ipv6)
@@ -138,7 +137,8 @@ func (s *linuxRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte) 
 		if err := s.conn.IPv6PacketConn().SetHopLimit(ttl); err != nil {
 			return fmt.Errorf("set hop limit: %w", err)
 		}
-	} else {
+	}
+	if !s.ipv6 {
 		if err := s.conn.IPv4PacketConn().SetTTL(ttl); err != nil {
 			return fmt.Errorf("set TTL: %w", err)
 		}
@@ -158,11 +158,9 @@ func (s *linuxRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload 
 	}
 
 	// Create a UDP socket with controlled TTL.
-	var family int
+	family := syscall.AF_INET
 	if s.ipv6 {
 		family = syscall.AF_INET6
-	} else {
-		family = syscall.AF_INET
 	}
 
 	fd, err := syscall.Socket(family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
@@ -179,7 +177,8 @@ func (s *linuxRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload 
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
 			return fmt.Errorf("set hop limit: %w", err)
 		}
-	} else {
+	}
+	if !s.ipv6 {
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
 			return fmt.Errorf("set TTL: %w", err)
 		}
@@ -230,7 +229,8 @@ func (s *linuxRawSocket) SendTCP(dst net.IP, ttl, srcPort, dstPort int) (err err
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
 			return fmt.Errorf("set TCP hop limit: %w", err)
 		}
-	} else {
+	}
+	if !s.ipv6 {
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
 			return fmt.Errorf("set TCP TTL: %w", err)
 		}
@@ -250,7 +250,8 @@ func (s *linuxRawSocket) SendTCP(dst net.IP, ttl, srcPort, dstPort int) (err err
 		dstSA := &syscall.SockaddrInet6{Port: dstPort}
 		copy(dstSA.Addr[:], dst.To16())
 		err = syscall.Connect(fd, dstSA)
-	} else {
+	}
+	if !s.ipv6 {
 		sa := &syscall.SockaddrInet4{Port: srcPort}
 		if err := syscall.Bind(fd, sa); err != nil {
 			return fmt.Errorf("bind TCP: %w", err)
@@ -301,11 +302,11 @@ func (s *linuxRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 		return nil, fmt.Errorf("set deadline: %w", err)
 	}
 
-	buf := getRecvBuffer(recvBufSize)
+	buf := s.recvPool.get(recvBufSize)
 
 	n, peer, err := s.conn.ReadFrom(buf)
 	if err != nil {
-		putRecvBuffer(buf)
+		s.recvPool.put(buf)
 		return nil, err
 	}
 
@@ -315,6 +316,7 @@ func (s *linuxRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 	resp := &ICMPResponse{
 		RecvTime: recvTime,
 		recvBuf:  buf,
+		recvPool: &s.recvPool,
 	}
 
 	// Parse peer address.

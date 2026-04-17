@@ -24,7 +24,25 @@ const (
 	balancedBulkMaxHops        = 24
 	bulkMtrProgressBatchSize   = 16
 	bulkMtrProgressInterval    = 200 * time.Millisecond
+
+	bulkMtrProfileFast     = "fast"
+	bulkMtrProfileBalanced = "balanced"
+	bulkMtrProfileDeep     = "deep"
+
+	bulkMtrStatusQueued    = "queued"
+	bulkMtrStatusRunning   = "running"
+	bulkMtrStatusCompleted = "completed"
+	bulkMtrStatusFailed    = "failed"
+	bulkMtrStatusCanceled  = "canceled"
+	bulkMtrStatusTimedOut  = "timed_out"
+
+	bulkMtrMessageCompleted            = "bulk mtr job completed"
+	bulkMtrMessageCompletedWithFailure = "bulk mtr job completed with failures"
+	bulkMtrMessageCanceled             = "bulk mtr job canceled"
+	bulkMtrMessageTimedOut             = "bulk mtr job timed out"
 )
+
+var errMissingBulkTargetInfo = errors.New("missing target info")
 
 type mtrBulkRunPayload struct {
 	Targets          []string `json:"targets"`
@@ -140,7 +158,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 					started: true,
 					update: mtrBulkTargetUpdate{
 						Target:       target,
-						Status:       "running",
+						Status:       bulkMtrStatusRunning,
 						AttemptCount: 1,
 					},
 				}) {
@@ -183,7 +201,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	_ = sender.Send(commandProgressWithPayload(
 		cmd,
 		0,
-		"queued",
+		bulkMtrStatusQueued,
 		mtrBulkProgressPayload{
 			TotalTargets:   len(targets),
 			QueuedTargets:  queuedTargets,
@@ -267,15 +285,15 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		TargetsPerMinute: calculateTargetsPerMinute(len(targets), durationMs),
 	}
 
-	message := "bulk mtr job completed"
+	message := bulkMtrMessageCompleted
 	if failedTargets > 0 {
-		message = "bulk mtr job completed with failures"
+		message = bulkMtrMessageCompletedWithFailure
 	}
 	if errors.Is(jobCtx.Err(), context.Canceled) {
-		message = "bulk mtr job canceled"
+		message = bulkMtrMessageCanceled
 	}
 	if errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
-		message = "bulk mtr job timed out"
+		message = bulkMtrMessageTimedOut
 	}
 
 	_ = sender.Send(commandResult(cmd, jobCtx.Err() == nil, message, resultPayload))
@@ -288,19 +306,19 @@ func buildBulkMtrTargetUpdate(target string, trace *mtr.TraceResult, err error) 
 	}
 
 	if err == nil {
-		update.Status = "completed"
+		update.Status = bulkMtrStatusCompleted
 		update.Trace = trace
 		return update
 	}
 
 	update.Error = err.Error()
-	update.Status = "failed"
+	update.Status = bulkMtrStatusFailed
 
 	if errors.Is(err, context.Canceled) {
-		update.Status = "canceled"
+		update.Status = bulkMtrStatusCanceled
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		update.Status = "timed_out"
+		update.Status = bulkMtrStatusTimedOut
 	}
 
 	return update
@@ -365,7 +383,7 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 	}
 
 	switch normalizeBulkExecutionProfile(profile) {
-	case "balanced":
+	case bulkMtrProfileBalanced:
 		opts.MaxHops = balancedBulkMaxHops
 		opts.ProbesPerHop = 5
 		opts.ProbeInterval = 50 * time.Millisecond
@@ -373,7 +391,7 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.DNSResolve = false
 		opts.MaxUnknownHops = 7
 		opts.RingBufferSize = balancedBulkRingBufferSize
-	case "deep":
+	case bulkMtrProfileDeep:
 		opts.MaxHops = mtr.DefaultMaxHops
 		opts.ProbesPerHop = mtr.DefaultProbesPerHop
 		opts.ProbeInterval = time.Duration(mtr.DefaultProbeIntervalMs) * time.Millisecond
@@ -394,10 +412,10 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 
 func normalizeBulkExecutionProfile(profile string) string {
 	profile = strings.TrimSpace(strings.ToLower(profile))
-	if profile == "balanced" || profile == "deep" {
+	if profile == bulkMtrProfileBalanced || profile == bulkMtrProfileDeep {
 		return profile
 	}
-	return "fast"
+	return bulkMtrProfileFast
 }
 
 func calculateBulkMtrProgress(done, total int) int32 {
@@ -445,9 +463,9 @@ func flushBulkMtrProgress(
 	targetUpdates []mtrBulkTargetUpdate,
 ) {
 	progress := calculateBulkMtrProgress(completedTargets+failedTargets, totalTargets)
-	message := "running"
+	message := bulkMtrStatusRunning
 	if completedTargets+failedTargets == totalTargets {
-		message = "completed"
+		message = bulkMtrStatusCompleted
 	}
 
 	_ = sender.Send(commandProgressWithPayload(
@@ -652,7 +670,7 @@ func (w *bulkMtrWorker) resolveTarget(ctx context.Context, target string) (*mtr.
 
 func (w *bulkMtrWorker) socketForTarget(target *mtr.TargetInfo) (mtr.RawSocket, error) {
 	if target == nil {
-		return nil, errors.New("missing target info")
+		return nil, errMissingBulkTargetInfo
 	}
 
 	if target.IPVersion == 6 {
@@ -684,7 +702,7 @@ func (w *bulkMtrWorker) tracerForTarget(
 	socket mtr.RawSocket,
 ) (*mtr.Tracer, error) {
 	if target == nil {
-		return nil, errors.New("missing target info")
+		return nil, errMissingBulkTargetInfo
 	}
 
 	if target.IPVersion == 6 {

@@ -173,7 +173,6 @@ func (h *HopResult) AddSample(rtt time.Duration) {
 	if h.Received > 1 && us > h.Worst {
 		h.Worst = us
 	}
-
 	// Welford's online algorithm for mean and variance.
 	n := float64(h.Received)
 	delta := float64(us) - h.mean

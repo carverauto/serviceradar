@@ -256,6 +256,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         "execution_profile" =>
           normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
       }
+      |> maybe_put("target_query", normalize_optional_string(Keyword.get(opts, :target_query)))
+      |> maybe_put("selector_limit", Keyword.get(opts, :selector_limit))
       |> maybe_put("max_hops", Keyword.get(opts, :max_hops))
       |> maybe_put("concurrency", Keyword.get(opts, :concurrency))
 
@@ -721,6 +723,18 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       |> String.downcase()
 
     if value in ["fast", "balanced", "deep"], do: value, else: "fast"
+  end
+
+  defp normalize_optional_string(nil), do: nil
+
+  defp normalize_optional_string(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
   end
 
   defp normalize_mtr_protocol(value) do

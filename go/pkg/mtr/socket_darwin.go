@@ -52,10 +52,11 @@ var (
 // On macOS, raw sockets include the IP header in received packets,
 // and IP header length field uses host byte order.
 type darwinRawSocket struct {
-	sendFD  int
-	conn    *icmp.PacketConn
-	ipv6    bool
-	sendBuf []byte
+	sendFD   int
+	conn     *icmp.PacketConn
+	ipv6     bool
+	sendBuf  []byte
+	recvPool recvBufferPool
 }
 
 // NewRawSocket creates a new raw socket for ICMP probing on macOS.
@@ -82,7 +83,7 @@ func newDarwinRawSocket4() (RawSocket, error) {
 		return nil, fmt.Errorf("create ICMP listener: %w", err)
 	}
 
-	return &darwinRawSocket{sendFD: fd, conn: conn, ipv6: false}, nil
+	return &darwinRawSocket{sendFD: fd, conn: conn, ipv6: false, recvPool: newRecvBufferPool()}, nil
 }
 
 func newDarwinRawSocket6() (RawSocket, error) {
@@ -100,7 +101,7 @@ func newDarwinRawSocket6() (RawSocket, error) {
 		return nil, fmt.Errorf("create ICMPv6 listener: %w", err)
 	}
 
-	return &darwinRawSocket{sendFD: fd, conn: conn, ipv6: true}, nil
+	return &darwinRawSocket{sendFD: fd, conn: conn, ipv6: true, recvPool: newRecvBufferPool()}, nil
 }
 
 func (s *darwinRawSocket) IsIPv6() bool {
@@ -132,11 +133,9 @@ func (s *darwinRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte)
 }
 
 func (s *darwinRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload []byte) (err error) {
-	var family int
+	family := syscall.AF_INET
 	if s.ipv6 {
 		family = syscall.AF_INET6
-	} else {
-		family = syscall.AF_INET
 	}
 
 	fd, err := syscall.Socket(family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
@@ -200,7 +199,8 @@ func (s *darwinRawSocket) SendTCP(dst net.IP, ttl, srcPort, dstPort int) (err er
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
 			return fmt.Errorf("set TCP hop limit: %w", err)
 		}
-	} else {
+	}
+	if !s.ipv6 {
 		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
 			return fmt.Errorf("set TCP TTL: %w", err)
 		}
@@ -219,7 +219,8 @@ func (s *darwinRawSocket) SendTCP(dst net.IP, ttl, srcPort, dstPort int) (err er
 		dstSA := &syscall.SockaddrInet6{Port: dstPort}
 		copy(dstSA.Addr[:], dst.To16())
 		err = syscall.Connect(fd, dstSA)
-	} else {
+	}
+	if !s.ipv6 {
 		sa := &syscall.SockaddrInet4{Port: srcPort}
 		if err := syscall.Bind(fd, sa); err != nil {
 			return fmt.Errorf("bind TCP: %w", err)
@@ -247,11 +248,11 @@ func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 		return nil, fmt.Errorf("set deadline: %w", err)
 	}
 
-	buf := getRecvBuffer(darwinRecvBufSize)
+	buf := s.recvPool.get(darwinRecvBufSize)
 
 	n, peer, err := s.conn.ReadFrom(buf)
 	if err != nil {
-		putRecvBuffer(buf)
+		s.recvPool.put(buf)
 		return nil, err
 	}
 
@@ -261,6 +262,7 @@ func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 	resp := &ICMPResponse{
 		RecvTime: recvTime,
 		recvBuf:  buf,
+		recvPool: &s.recvPool,
 	}
 
 	switch addr := peer.(type) {
