@@ -78,6 +78,7 @@ type Tracer struct {
 	hops              []*HopResult
 	probes            map[int]probeRecord // seq -> probe
 	probesMu          sync.Mutex
+	pendingProbes     atomic.Int32
 	probeUpdateCh     chan struct{}
 	nextSeq           int
 	icmpID            int
@@ -365,6 +366,7 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			t.hops[hopIdx].InFlight++
 			t.hops[hopIdx].mu.Unlock()
 			t.probesMu.Unlock()
+			t.pendingProbes.Add(1)
 			t.signalProbeStateChanged()
 
 			var sendErr error
@@ -473,6 +475,7 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 
 	delete(t.probes, seq)
 	t.probesMu.Unlock()
+	t.pendingProbes.Add(-1)
 	t.signalProbeStateChanged()
 
 	rtt := resp.RecvTime.Sub(probe.sentAt)
@@ -625,16 +628,19 @@ func (t *Tracer) expireTimedOutProbes(now time.Time) {
 
 	cutoff := now.Add(-t.opts.Timeout)
 	expired := t.expiredScratch[:0]
+	removed := 0
 
 	t.probesMu.Lock()
 	for key, probe := range t.probes {
 		if !probe.sentAt.After(cutoff) {
 			expired = append(expired, probe)
 			delete(t.probes, key)
+			removed++
 		}
 	}
 	t.probesMu.Unlock()
-	if len(expired) > 0 {
+	if removed > 0 {
+		t.pendingProbes.Add(int32(-removed))
 		t.signalProbeStateChanged()
 	}
 	t.expiredScratch = expired[:0]
@@ -658,10 +664,11 @@ func (t *Tracer) expireTimedOutProbes(now time.Time) {
 }
 
 func (t *Tracer) pendingProbeCount() int {
-	t.probesMu.Lock()
-	defer t.probesMu.Unlock()
+	if t == nil {
+		return 0
+	}
 
-	return len(t.probes)
+	return int(t.pendingProbes.Load())
 }
 
 func (t *Tracer) signalProbeStateChanged() {
@@ -777,6 +784,7 @@ func (t *Tracer) resetRunState() {
 	t.nextSeq = nextProbeSeqStart()
 	t.icmpID = nextICMPID()
 	clear(t.probes)
+	t.pendingProbes.Store(0)
 
 	t.preparePayloadBuffer(max(t.opts.PacketSize, 0))
 	t.prepareHopBuffer(t.opts.MaxHops)

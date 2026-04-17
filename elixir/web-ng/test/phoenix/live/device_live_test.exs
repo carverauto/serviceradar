@@ -77,7 +77,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "using 2 managed devices"
   end
 
-  test "does not show advisory when managed-device count stays within configured limit", %{conn: conn} do
+  test "does not show advisory when managed-device count stays within configured limit", %{
+    conn: conn
+  } do
     previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
     Application.put_env(:serviceradar_web_ng, :managed_device_limit, 2)
 
@@ -580,7 +582,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       # Click favorite star for first interface
       view
-      |> element("button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']")
+      |> element(
+        "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']"
+      )
       |> render_click()
 
       # Should show favorited state (star icon changes)
@@ -731,12 +735,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   describe "device show page camera relays" do
     setup %{conn: conn} do
       previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
-      previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
-      previous_close_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_close_result)
+
+      previous_open_result =
+        Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
+
+      previous_close_result =
+        Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_close_result)
+
       previous_fetcher = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetcher)
-      previous_fetch_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result)
-      previous_poll_interval = Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms)
-      previous_test_pid = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_test_pid)
+
+      previous_fetch_result =
+        Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result)
+
+      previous_poll_interval =
+        Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms)
+
+      previous_test_pid =
+        Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_test_pid)
 
       Application.put_env(
         :serviceradar_web_ng,
@@ -754,7 +769,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         :serviceradar_web_ng,
         :camera_relay_session_fetcher,
         fn _relay_session_id, _opts ->
-          Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result, {:ok, nil})
+          Application.get_env(
+            :serviceradar_web_ng,
+            :camera_relay_session_fetch_result,
+            {:ok, nil}
+          )
         end
       )
 
@@ -1205,5 +1224,90 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         created_at: ts
       }
     ])
+  end
+
+  test "renders MTR dashboard visuals on the device diagnostics tab", %{conn: conn} do
+    uid = "test-device-mtr-dashboard-#{System.unique_integer([:positive])}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    trace_one_id = Ecto.UUID.generate()
+    trace_two_id = Ecto.UUID.generate()
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "mtr-dashboard-host",
+        ip: "10.42.0.15",
+        is_available: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    Repo.insert_all("mtr_traces", [
+      %{
+        id: trace_one_id,
+        time: now,
+        agent_id: "agent-mtr-1",
+        device_id: uid,
+        target: "10.42.0.15",
+        target_ip: "10.42.0.15",
+        target_reached: true,
+        total_hops: 6,
+        protocol: "icmp",
+        ip_version: 4,
+        created_at: now
+      },
+      %{
+        id: trace_two_id,
+        time: DateTime.add(now, -60, :second),
+        agent_id: "agent-mtr-1",
+        device_id: uid,
+        target: "10.42.0.15",
+        target_ip: "10.42.0.15",
+        target_reached: false,
+        total_hops: 9,
+        protocol: "icmp",
+        ip_version: 4,
+        error: "timeout",
+        created_at: DateTime.add(now, -60, :second)
+      }
+    ])
+
+    Repo.insert_all("mtr_hops", [
+      %{
+        id: Ecto.UUID.generate(),
+        time: now,
+        trace_id: trace_one_id,
+        hop_number: 6,
+        addr: "10.42.0.15",
+        sent: 5,
+        received: 5,
+        loss_pct: 0.0,
+        avg_us: 12000,
+        created_at: now
+      },
+      %{
+        id: Ecto.UUID.generate(),
+        time: DateTime.add(now, -60, :second),
+        trace_id: trace_two_id,
+        hop_number: 9,
+        addr: "10.42.0.1",
+        sent: 5,
+        received: 2,
+        loss_pct: 60.0,
+        avg_us: 34000,
+        created_at: DateTime.add(now, -60, :second)
+      }
+    ])
+
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}?tab=mtr")
+
+    assert html =~ "Reachability"
+    assert html =~ "Recent Trace Outcomes"
+    assert html =~ "Reached"
+    assert html =~ "Unreachable"
+    assert html =~ "50.0%"
+    assert html =~ "23.0ms"
   end
 end
