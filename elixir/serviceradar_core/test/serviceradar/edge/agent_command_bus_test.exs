@@ -216,6 +216,56 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert rows == [["1.1.1.1", "queued"], ["router-a", "queued"]]
     end
 
+    test "bulk mtr progress persists multiple target updates", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      ensure_status_handler_started()
+
+      command =
+        create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "router-a"], status: :acknowledged)
+
+      send(
+        StatusHandler,
+        {:command_progress,
+         %{
+           command_id: command.id,
+           command_type: "mtr.bulk_run",
+           message: "running",
+           progress_percent: 50,
+           payload: %{
+             "target_updates" => [
+               %{"target" => "1.1.1.1", "status" => "running", "attempt_count" => 1},
+               %{
+                 "target" => "router-a",
+                 "status" => "completed",
+                 "attempt_count" => 1,
+                 "result_payload" => %{"summary" => "ok"}
+               }
+             ]
+           }
+         }}
+      )
+
+      _command = wait_for_status(command.id, :running, actor)
+
+      assert {:ok, %{rows: rows}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT target, status, result_payload
+                 FROM platform.mtr_bulk_job_targets
+                 WHERE command_id = $1
+                 ORDER BY target
+                 """,
+                 [command.id]
+               )
+
+      assert rows == [
+               ["1.1.1.1", "running", nil],
+               ["router-a", "completed", %{"summary" => "ok"}]
+             ]
+    end
+
     test "blocks bulk mtr dispatches while another bulk job is active", %{
       agent_id: agent_id
     } do

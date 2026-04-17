@@ -27,8 +27,6 @@ import (
 	"time"
 
 	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
-	"golang.org/x/net/ipv6"
 )
 
 const (
@@ -54,9 +52,10 @@ var (
 // On macOS, raw sockets include the IP header in received packets,
 // and IP header length field uses host byte order.
 type darwinRawSocket struct {
-	sendFD int
-	conn   *icmp.PacketConn
-	ipv6   bool
+	sendFD  int
+	conn    *icmp.PacketConn
+	ipv6    bool
+	sendBuf []byte
 }
 
 // NewRawSocket creates a new raw socket for ICMP probing on macOS.
@@ -109,27 +108,7 @@ func (s *darwinRawSocket) IsIPv6() bool {
 }
 
 func (s *darwinRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte) error {
-	var msgType icmp.Type
-	if s.ipv6 {
-		msgType = ipv6.ICMPTypeEchoRequest
-	} else {
-		msgType = ipv4.ICMPTypeEcho
-	}
-
-	msg := icmp.Message{
-		Type: msgType,
-		Code: 0,
-		Body: &icmp.Echo{
-			ID:   id,
-			Seq:  seq,
-			Data: payload,
-		},
-	}
-
-	data, err := msg.Marshal(nil)
-	if err != nil {
-		return fmt.Errorf("marshal ICMP: %w", err)
-	}
+	s.sendBuf = prepareICMPEchoPacket(s.sendBuf, payload, id, seq, s.ipv6)
 
 	if s.ipv6 {
 		if err := syscall.SetsockoptInt(s.sendFD, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
@@ -139,7 +118,7 @@ func (s *darwinRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte)
 		sa := &syscall.SockaddrInet6{Port: 0}
 		copy(sa.Addr[:], dst.To16())
 
-		return syscall.Sendto(s.sendFD, data, 0, sa)
+		return syscall.Sendto(s.sendFD, s.sendBuf, 0, sa)
 	}
 
 	if err := syscall.SetsockoptInt(s.sendFD, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
@@ -149,7 +128,7 @@ func (s *darwinRawSocket) SendICMP(dst net.IP, ttl, id, seq int, payload []byte)
 	sa := &syscall.SockaddrInet4{Port: 0}
 	copy(sa.Addr[:], dst.To4())
 
-	return syscall.Sendto(s.sendFD, data, 0, sa)
+	return syscall.Sendto(s.sendFD, s.sendBuf, 0, sa)
 }
 
 func (s *darwinRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload []byte) (err error) {

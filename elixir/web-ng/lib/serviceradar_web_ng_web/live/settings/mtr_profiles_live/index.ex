@@ -162,13 +162,14 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     query = normalize_target_query(Map.get(params, "target_query"))
     selector_limit = parse_int(Map.get(params, "selector_limit"), 100, 1)
     preferred_agent_id = blank_to_nil(Map.get(params, "preferred_agent_id"))
-    bulk_execution_profile = normalize_bulk_execution_profile(Map.get(params, "bulk_execution_profile"))
+
+    bulk_execution_profile =
+      normalize_bulk_execution_profile(Map.get(params, "bulk_execution_profile"))
 
     target_selector =
       maybe_put(
         %{
           "srql_query" => query || "in:devices",
-          "device_uids" => resolve_target_device_uids(scope, query, selector_limit),
           "limit" => selector_limit,
           "bulk_execution_profile" => bulk_execution_profile
         },
@@ -763,9 +764,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
-  defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
+  defp save_profile(:new_profile, _profile, attrs, scope),
+    do: MtrPolicy.create_policy(attrs, scope: scope)
 
-  defp save_profile(:edit_profile, profile, attrs, scope), do: MtrPolicy.update_policy(profile, attrs, scope: scope)
+  defp save_profile(:edit_profile, profile, attrs, scope),
+    do: MtrPolicy.update_policy(profile, attrs, scope: scope)
 
   defp save_profile(_, _profile, _attrs, _scope), do: {:error, :invalid_form_state}
 
@@ -799,20 +802,26 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "enabled" => truthy(profile.enabled),
       "target_query" => selector_query(profile),
       "selector_limit" => fallback(Map.get(selector, "limit"), defaults["selector_limit"]),
-      "preferred_agent_id" => fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
+      "preferred_agent_id" =>
+        fallback(Map.get(selector, "agent_id"), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
       "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
       "bulk_execution_profile" =>
         fallback(Map.get(selector, "bulk_execution_profile"), defaults["bulk_execution_profile"]),
-      "baseline_interval_sec" => fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
-      "baseline_canary_vantages" => fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
+      "baseline_interval_sec" =>
+        fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
+      "baseline_canary_vantages" =>
+        fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
       "incident_fanout_max_agents" =>
         fallback(profile.incident_fanout_max_agents, defaults["incident_fanout_max_agents"]),
-      "incident_cooldown_sec" => fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
+      "incident_cooldown_sec" =>
+        fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
       "recovery_capture" => truthy(profile.recovery_capture),
       "consensus_mode" => fallback(profile.consensus_mode, defaults["consensus_mode"]),
-      "consensus_threshold" => fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
-      "consensus_min_agents" => fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
+      "consensus_threshold" =>
+        fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
+      "consensus_min_agents" =>
+        fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
     }
   end
 
@@ -826,17 +835,35 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     Map.get(selector, "agent_id")
   end
 
-  defp bulk_interval_guidance(_scope, preferred_agent_id, _execution_profile, _target_count, _configured_interval)
+  defp bulk_interval_guidance(
+         _scope,
+         preferred_agent_id,
+         _execution_profile,
+         _target_count,
+         _configured_interval
+       )
        when preferred_agent_id in [nil, ""] do
     nil
   end
 
-  defp bulk_interval_guidance(_scope, _preferred_agent_id, _execution_profile, target_count, _configured_interval)
+  defp bulk_interval_guidance(
+         _scope,
+         _preferred_agent_id,
+         _execution_profile,
+         target_count,
+         _configured_interval
+       )
        when not is_integer(target_count) or target_count <= 0 do
     nil
   end
 
-  defp bulk_interval_guidance(scope, preferred_agent_id, execution_profile, target_count, configured_interval) do
+  defp bulk_interval_guidance(
+         scope,
+         preferred_agent_id,
+         execution_profile,
+         target_count,
+         configured_interval
+       ) do
     configured_interval = parse_int(configured_interval, 300, 30)
     execution_profile = normalize_bulk_execution_profile(execution_profile)
 
@@ -902,7 +929,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         with total when is_integer(total) and total > 0 <- total_targets,
              %DateTime{} = inserted_at <- job.inserted_at,
              %DateTime{} = completed_at <- job.completed_at,
-             duration_sec when duration_sec > 0 <- DateTime.diff(completed_at, inserted_at, :second) do
+             duration_sec when duration_sec > 0 <-
+               DateTime.diff(completed_at, inserted_at, :second) do
           [%{targets_per_minute: total / (duration_sec / 60)}]
         else
           _ -> []
@@ -1052,27 +1080,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp extract_total_count(_count), do: nil
-
-  defp resolve_target_device_uids(_scope, nil, _limit), do: []
-  defp resolve_target_device_uids(_scope, "", _limit), do: []
-
-  defp resolve_target_device_uids(scope, target_query, limit) do
-    srql_module = srql_module()
-    query = "#{normalize_target_query(target_query)} limit:#{limit}"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        results
-        |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, :uid) end)
-        |> Enum.filter(&is_binary/1)
-        |> Enum.uniq()
-
-      _ ->
-        []
-    end
-  rescue
-    _ -> []
-  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

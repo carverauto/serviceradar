@@ -51,6 +51,9 @@ func TestCalculateTargetsPerMinute(t *testing.T) {
 func TestBulkMtrOptions_AppliesFastExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "fast"})
 
+	if opts.MaxHops != fastBulkMaxHops {
+		t.Fatalf("expected fast profile max hops %d, got %d", fastBulkMaxHops, opts.MaxHops)
+	}
 	if opts.ProbesPerHop != 3 {
 		t.Fatalf("expected fast profile probes_per_hop=3, got %d", opts.ProbesPerHop)
 	}
@@ -74,6 +77,9 @@ func TestBulkMtrOptions_AppliesFastExecutionProfile(t *testing.T) {
 func TestBulkMtrOptions_AppliesBalancedExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "balanced"})
 
+	if opts.MaxHops != balancedBulkMaxHops {
+		t.Fatalf("expected balanced profile max hops %d, got %d", balancedBulkMaxHops, opts.MaxHops)
+	}
 	if opts.ProbesPerHop != 5 {
 		t.Fatalf("expected balanced profile probes_per_hop=5, got %d", opts.ProbesPerHop)
 	}
@@ -97,6 +103,9 @@ func TestBulkMtrOptions_AppliesBalancedExecutionProfile(t *testing.T) {
 func TestBulkMtrOptions_AppliesDeepExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "deep"})
 
+	if opts.MaxHops != mtr.DefaultMaxHops {
+		t.Fatalf("expected deep profile max hops %d, got %d", mtr.DefaultMaxHops, opts.MaxHops)
+	}
 	if opts.ProbesPerHop != mtr.DefaultProbesPerHop {
 		t.Fatalf("expected deep profile probes_per_hop=%d, got %d", mtr.DefaultProbesPerHop, opts.ProbesPerHop)
 	}
@@ -114,6 +123,17 @@ func TestBulkMtrOptions_AppliesDeepExecutionProfile(t *testing.T) {
 	}
 	if opts.RingBufferSize != mtr.DefaultRingBufferSize {
 		t.Fatalf("expected deep profile ring buffer size %d, got %d", mtr.DefaultRingBufferSize, opts.RingBufferSize)
+	}
+}
+
+func TestBulkMtrOptions_ExplicitMaxHopsOverridesProfileDefault(t *testing.T) {
+	opts := bulkMtrOptions(mtrBulkRunPayload{
+		ExecutionProfile: "fast",
+		MaxHops:          12,
+	})
+
+	if opts.MaxHops != 12 {
+		t.Fatalf("expected explicit max hops override to win, got %d", opts.MaxHops)
 	}
 }
 
@@ -169,5 +189,37 @@ func TestSendBulkMtrEvent_StopsWhenContextCanceled(t *testing.T) {
 
 	if sendBulkMtrEvent(ctx, make(chan mtrBulkEvent), mtrBulkEvent{}) {
 		t.Fatal("expected canceled context to prevent event send")
+	}
+}
+
+func TestShouldFlushBulkMtrProgress_FlushesOnCompletion(t *testing.T) {
+	now := time.Now()
+
+	if !shouldFlushBulkMtrProgress(1, 10, 10, now, now) {
+		t.Fatal("expected completed bulk progress to flush immediately")
+	}
+}
+
+func TestShouldFlushBulkMtrProgress_FlushesOnBatchSize(t *testing.T) {
+	now := time.Now()
+
+	if !shouldFlushBulkMtrProgress(bulkMtrProgressBatchSize, 5, 10, now, now) {
+		t.Fatal("expected batch-size threshold to flush progress")
+	}
+}
+
+func TestShouldFlushBulkMtrProgress_FlushesOnInterval(t *testing.T) {
+	now := time.Now()
+
+	if !shouldFlushBulkMtrProgress(1, 5, 10, now.Add(-bulkMtrProgressInterval), now) {
+		t.Fatal("expected progress interval threshold to flush progress")
+	}
+}
+
+func TestShouldFlushBulkMtrProgress_HoldsSmallRecentBatch(t *testing.T) {
+	now := time.Now()
+
+	if shouldFlushBulkMtrProgress(1, 5, 10, now, now) {
+		t.Fatal("expected small recent progress batch to stay buffered")
 	}
 }

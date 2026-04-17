@@ -17,6 +17,7 @@
 package mtr
 
 import (
+	"encoding/binary"
 	"net"
 	"sync"
 	"time"
@@ -116,4 +117,52 @@ func (r *ICMPResponse) Release() {
 	putRecvBuffer(r.recvBuf)
 	r.recvBuf = nil
 	r.Payload = nil
+}
+
+func prepareICMPEchoPacket(buf []byte, payload []byte, id, seq int, ipv6 bool) []byte {
+	packetLen := 8 + len(payload)
+	if cap(buf) < packetLen {
+		buf = make([]byte, packetLen)
+	}
+
+	packet := buf[:packetLen]
+	clear(packet)
+
+	packet[0] = icmpEchoRequestType(ipv6)
+	packet[1] = 0
+	binary.BigEndian.PutUint16(packet[4:6], uint16(id))
+	binary.BigEndian.PutUint16(packet[6:8], uint16(seq))
+	copy(packet[8:], payload)
+
+	if !ipv6 {
+		binary.BigEndian.PutUint16(packet[2:4], checksum(packet))
+	}
+
+	return packet
+}
+
+func icmpEchoRequestType(ipv6 bool) byte {
+	if ipv6 {
+		return 128
+	}
+
+	return 8
+}
+
+func checksum(data []byte) uint16 {
+	var sum uint32
+
+	for i := 0; i+1 < len(data); i += 2 {
+		sum += uint32(binary.BigEndian.Uint16(data[i : i+2]))
+	}
+
+	if len(data)%2 == 1 {
+		sum += uint32(data[len(data)-1]) << 8
+	}
+
+	for sum > 0xFFFF {
+		sum = (sum >> 16) + (sum & 0xFFFF)
+	}
+
+	return ^uint16(sum)
 }
