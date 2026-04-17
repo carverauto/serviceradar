@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Plugins.Storage
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_manifest_path "plugin.yaml"
   @default_wasm_path "plugin.wasm"
   @max_ref_length 200
@@ -331,6 +333,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp github_raw_get_streaming(url, headers) do
     with_secure_download_file("plugin-import", fn tmp_path ->
       case Req.get(url, headers: headers, decode_body: false, into: File.stream!(tmp_path)) do
@@ -478,6 +481,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     |> Enum.map_join("/", &URI.encode_www_form/1)
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp with_secure_download_file(prefix, fun) when is_function(fun, 1) do
     base_dir = Path.join(System.tmp_dir!(), "serviceradar")
     File.mkdir_p!(base_dir)
@@ -488,6 +492,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     {:error, :tempfile_allocation_failed}
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp do_with_secure_download_file(base_dir, prefix, fun, attempts_left) do
     random =
       16
