@@ -103,7 +103,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp persist_bulk_mtr_targets(command_id, payload_json) do
     with {:ok, %{"targets" => targets}} <- Jason.decode(payload_json),
-         true <- is_list(targets) do
+         true <- is_list(targets),
+         {:ok, command_uuid} <- Ecto.UUID.dump(command_id) do
       now = DateTime.utc_now()
 
       rows =
@@ -114,7 +115,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         |> Enum.uniq()
         |> Enum.map(fn target ->
           %{
-            command_id: command_id,
+            command_id: command_uuid,
             target: target,
             status: "queued",
             inserted_at: now,
@@ -130,6 +131,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         )
       end
     else
+      :error ->
+        Logger.warning("Failed to persist bulk MTR queued target rows due to invalid command UUID",
+          command_id: inspect(command_id)
+        )
+
       _ -> :ok
     end
   end

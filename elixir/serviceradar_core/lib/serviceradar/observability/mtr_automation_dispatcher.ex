@@ -107,7 +107,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           rows
           |> Enum.map(&row_to_target_ctx/1)
           |> Enum.reject(&is_nil/1)
-          |> enforce_managed_baseline_targets(srql_query)
+          |> enforce_managed_baseline_targets()
           |> Enum.reduce({acc, seen_targets}, fn target, {targets, seen} ->
             target_id = Map.get(target, :target_key) || Map.get(target, :target_ip)
 
@@ -546,7 +546,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp row_to_target_ctx(_), do: nil
 
-  defp enforce_managed_baseline_targets(targets, srql_query) when is_list(targets) do
+  defp enforce_managed_baseline_targets(targets) when is_list(targets) do
     device_uids =
       targets
       |> Enum.map(&Map.get(&1, :target_device_uid))
@@ -558,7 +558,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       targets
     else
       actor = SystemActor.system(:mtr_automation)
-      exclude_armis? = srql_excludes_armis?(srql_query)
 
       query =
         Device
@@ -567,10 +566,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
       case Ash.read(query, actor: actor) do
         {:ok, %Keyset{results: devices}} ->
-          filter_targets_by_devices(targets, devices, exclude_armis?)
+          filter_targets_by_devices(targets, devices)
 
         {:ok, devices} when is_list(devices) ->
-          filter_targets_by_devices(targets, devices, exclude_armis?)
+          filter_targets_by_devices(targets, devices)
 
         {:error, reason} ->
           Logger.warning("MTR baseline SRQL managed-device enforcement failed",
@@ -582,45 +581,28 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp enforce_managed_baseline_targets(targets, _srql_query), do: targets
+  defp enforce_managed_baseline_targets(targets), do: targets
 
-  defp filter_targets_by_devices(targets, devices, exclude_armis?) do
+  defp filter_targets_by_devices(targets, devices) do
     device_map = Map.new(devices, fn device -> {blank_to_nil(device.uid), device} end)
 
-    Enum.filter(targets, &target_allowed?(&1, device_map, exclude_armis?))
+    Enum.filter(targets, &target_allowed?(&1, device_map))
   end
 
-  defp target_allowed?(target, device_map, exclude_armis?) do
+  defp target_allowed?(target, device_map) do
     case Map.get(target, :target_device_uid) do
       uid when is_binary(uid) and uid != "" ->
-        device_allowed?(Map.get(device_map, uid), exclude_armis?)
+        device_allowed?(Map.get(device_map, uid))
 
       _ ->
         true
     end
   end
 
-  defp device_allowed?(nil, _exclude_armis?), do: false
+  defp device_allowed?(nil), do: false
 
-  defp device_allowed?(device, exclude_armis?) do
-    managed_ok = device.is_managed == true and is_binary(blank_to_nil(device.ip))
-    armis_ok = not (exclude_armis? and armis_source?(device))
-    managed_ok and armis_ok
-  end
-
-  defp srql_excludes_armis?(query) when is_binary(query) do
-    normalized = query |> String.downcase() |> String.replace(~r/\s+/, "")
-
-    String.contains?(normalized, "!discovery_sources:(armis)") or
-      String.contains?(normalized, "!discovery_sources:armis")
-  end
-
-  defp armis_source?(device) do
-    device
-    |> Map.get(:discovery_sources, [])
-    |> List.wrap()
-    |> Enum.any?(fn source -> to_string(source) == "armis" end)
-  end
+  defp device_allowed?(device),
+    do: device.is_managed == true and is_binary(blank_to_nil(device.ip))
 
   defp maybe_filter_uids(query, []), do: query
 

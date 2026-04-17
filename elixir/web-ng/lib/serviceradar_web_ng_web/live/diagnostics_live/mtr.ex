@@ -631,6 +631,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     |> normalize_text()
   end
 
+  defp bulk_job_profile_id(job) do
+    context = Map.get(job, :context, %{}) || %{}
+    normalize_text(Map.get(context, "mtr_policy_id") || Map.get(context, :mtr_policy_id))
+  end
+
   defp bulk_job_selector_limit(job) do
     job
     |> Map.get(:payload, %{})
@@ -1151,7 +1156,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     {String.upcase((job.payload || %{})[payload_protocol_key()] || protocol_icmp())}
                   </span>
                 </td>
-                <td class="text-xs text-base-content/50">{job.id}</td>
+                <td class="text-xs text-base-content/50">
+                  <%= if bulk_job_profile_id(job) != "" do %>
+                    <.link
+                      navigate={~p"/settings/networks/mtr/#{bulk_job_profile_id(job)}/edit"}
+                      class="link link-primary"
+                    >
+                      {job.id}
+                    </.link>
+                  <% else %>
+                    {job.id}
+                  <% end %>
+                </td>
               </tr>
             </tbody>
           </table>
