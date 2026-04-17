@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	defaultReleaseRuntimeRoot        = "/var/lib/serviceradar/agent/releases"
+	defaultReleaseRuntimeRoot        = "/var/lib/serviceradar/agent"
 	releaseVersionsDirName           = "versions"
 	releaseTmpDirName                = "tmp"
 	releaseMetadataFileName          = ".serviceradar-release.json"

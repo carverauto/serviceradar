@@ -189,6 +189,12 @@ func TestResolveReleaseRuntimeRootIgnoresEnvironmentOverride(t *testing.T) {
 	}
 }
 
+func TestDefaultReleaseRuntimeRootMatchesPackagedAgentLayout(t *testing.T) {
+	if got, want := defaultReleaseRuntimeRoot, "/var/lib/serviceradar/agent"; got != want {
+		t.Fatalf("defaultReleaseRuntimeRoot = %q, want %q", got, want)
+	}
+}
+
 func TestValidateReleaseActivationExecArgsAcceptsCanonicalValues(t *testing.T) {
 	args, err := validateReleaseActivationExecArgs(
 		"v1.2.16",
