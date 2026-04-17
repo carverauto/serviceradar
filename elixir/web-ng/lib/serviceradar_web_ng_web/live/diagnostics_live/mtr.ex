@@ -791,8 +791,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
-  defp extract_int_metric(_payload, _key), do: nil
-
   defp refresh_diagnostics(socket) do
     socket
     |> load_traces()
@@ -1116,7 +1114,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   </span>
                 </td>
                 <td class="text-xs">
-                  <%= if bulk_job_query(job) do %>
+                  <%= if bulk_job_query(job) != "" do %>
                     <div class="badge badge-info badge-sm">SRQL</div>
                     <div
                       class="text-base-content/60 mt-1 truncate max-w-[220px]"
