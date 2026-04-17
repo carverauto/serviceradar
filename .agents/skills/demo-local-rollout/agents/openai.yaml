@@ -1,0 +1,4 @@
+interface:
+  display_name: "Demo Local Rollout"
+  short_description: "Build, sign, and roll demo locally"
+  default_prompt: "Use $demo-local-rollout to build changed images locally, sign them, and roll the demo namespace to a test tag."

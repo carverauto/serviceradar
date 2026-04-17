@@ -1,0 +1,4 @@
+interface:
+  display_name: "Demo Web-NG Fast Path"
+  short_description: "Roll web-ng-only demo changes fast"
+  default_prompt: "Use $demo-web-ng-fastpath to rebuild only web-ng, sign it, and roll the demo namespace when the diff only touches elixir/web-ng."
