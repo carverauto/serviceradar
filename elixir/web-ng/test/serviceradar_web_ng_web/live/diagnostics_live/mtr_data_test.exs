@@ -54,6 +54,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     refute Enum.any?(jobs, &(&1.id == unrelated.id))
   end
 
+  test "list_bulk_jobs excludes expired active bulk commands", %{actor: actor, scope: scope} do
+    stale =
+      create_bulk_mtr_command(actor, "agent-stale", ["192.0.2.10"],
+        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        status: :queued
+      )
+
+    recent =
+      create_bulk_mtr_command(actor, "agent-recent", ["192.0.2.20"],
+        inserted_at: DateTime.add(DateTime.utc_now(), -5, :second)
+      )
+
+    assert {:ok, jobs} = MtrData.list_bulk_jobs(scope)
+
+    job_ids = MapSet.new(Enum.map(jobs, & &1.id))
+
+    refute MapSet.member?(job_ids, stale.id)
+    assert MapSet.member?(job_ids, recent.id)
+  end
+
   defp create_mtr_command(actor, agent_id, target, opts) do
     expires_at = Keyword.fetch!(opts, :expires_at)
     status = Keyword.get(opts, :status, :queued)
@@ -88,6 +108,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
   defp create_bulk_mtr_command(actor, agent_id, targets, opts) do
     inserted_at = Keyword.get(opts, :inserted_at, DateTime.utc_now())
+    expires_at = Keyword.get(opts, :expires_at, DateTime.add(inserted_at, 300, :second))
+    status = Keyword.get(opts, :status, :completed)
 
     {:ok, command} =
       AgentCommand.create_command(
@@ -97,21 +119,54 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
           partition_id: "default",
           payload: %{"targets" => targets, "protocol" => "icmp"},
           ttl_seconds: 300,
-          expires_at: DateTime.add(inserted_at, 300, :second)
+          expires_at: expires_at
         },
         actor: actor
       )
 
-    {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+    command =
+      case status do
+        :queued ->
+          command
 
-    {:ok, command} =
-      AgentCommand.complete(command, [message: "done", result_payload: %{"total_targets" => 2}], actor: actor)
+        :sent ->
+          {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+          command
+
+        :acknowledged ->
+          {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+          {:ok, command} = AgentCommand.acknowledge(command, [message: "ack"], actor: actor)
+          command
+
+        :running ->
+          {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+          {:ok, command} = AgentCommand.start(command, [message: "running"], actor: actor)
+          command
+
+        :completed ->
+          {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
+
+          {:ok, command} =
+            AgentCommand.complete(
+              command,
+              [message: "done", result_payload: %{"total_targets" => 2}],
+              actor: actor
+            )
+
+          command
+      end
+
+    completed_at =
+      case status do
+        :completed -> DateTime.add(inserted_at, 10, :second)
+        _ -> nil
+      end
 
     ServiceRadar.Repo.query!(
-      "UPDATE platform.agent_commands SET inserted_at = $2, completed_at = $3 WHERE id = $1",
-      [command.id, inserted_at, DateTime.add(inserted_at, 10, :second)]
+      "UPDATE platform.agent_commands SET inserted_at = $2, completed_at = $3, expires_at = $4 WHERE id = $1",
+      [command.id, inserted_at, completed_at, expires_at]
     )
 
-    %{command | inserted_at: inserted_at, completed_at: DateTime.add(inserted_at, 10, :second)}
+    %{command | inserted_at: inserted_at, completed_at: completed_at, expires_at: expires_at}
   end
 end

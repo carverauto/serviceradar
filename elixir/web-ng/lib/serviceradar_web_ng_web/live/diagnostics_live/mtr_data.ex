@@ -155,6 +155,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   def list_bulk_jobs(scope, opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
+    now = DateTime.utc_now()
 
     if is_nil(scope) do
       {:error, :missing_scope}
@@ -168,6 +169,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
       with {:ok, jobs} <- read_all(query, scope) do
         jobs
+        |> Enum.reject(&expired_active_bulk_job?(&1, now))
         |> Enum.filter(fn job ->
           match_agent?(job, agent_filter) and match_bulk_job_target?(job, target_filter)
         end)
@@ -449,6 +451,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   end
 
   defp fetch_map(_map, _key), do: nil
+
+  defp expired_active_bulk_job?(job, now) when is_map(job) do
+    Map.get(job, :status) in @default_pending_states and
+      case Map.get(job, :expires_at) do
+        %DateTime{} = expires_at -> DateTime.compare(expires_at, now) != :gt
+        _ -> false
+      end
+  end
+
+  defp expired_active_bulk_job?(_job, _now), do: false
 
   defp normalize_string(nil), do: nil
 
