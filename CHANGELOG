@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.17
+
+Bulk-queued MTR diagnostics and automation, managed agent rollout completion fixes, and web-ng stability fixes for the new MTR diagnostics and profile flows.
+
+## Whats New
+
+**1.2.17**
+- Added bulk-queued MTR execution end to end across agent, proto, core scheduler/dispatcher, database storage, and web UI, including diagnostics dashboards, throughput metrics, and editable automation profiles for device-scoped baselines.
+- Fixed stale pending MTR diagnostics jobs and improved tracer/performance handling so queued diagnostics and automation runs progress more reliably and scale more predictably.
+- Fixed managed agent rollout completion and the releases LiveView refresh path so rollout state advances cleanly after agent status updates and operators see current release progress without stale UI state.
+- Fixed web-ng MTR pages after the new diagnostics/profile UI work by removing HEEx key crashes in `/diagnostics/mtr` and `/settings/networks/mtr/:id/edit`.
+- Added related test, dialyzer, and release-workflow cleanup needed to support the new MTR and release-management paths.
+
 # ServiceRadar v1.2.16
 
 Package-managed agent release trust hardening, embedded verification-key delivery, and rollout safety fixes that remove local environment override chains from managed self-update.
