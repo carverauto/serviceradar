@@ -502,6 +502,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
+  defp bulk_rate_value(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+    extract_float_metric(payload, "targets_per_minute") || 0.0
+  end
+
   defp bulk_duration(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
@@ -541,13 +546,41 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     end
   end
 
-  defp bulk_throttled?(job) do
+  defp bulk_concurrency_history(job) do
     payload = job.result_payload || job.progress_payload || %{}
 
-    current = Map.get(payload, "concurrency")
-    max = Map.get(payload, "max_concurrency")
+    payload
+    |> Map.get("concurrency_history", [])
+    |> List.wrap()
+    |> Enum.map(fn
+      %{} = sample ->
+        %{
+          elapsed_ms: extract_int_metric(sample, "elapsed_ms") || 0,
+          concurrency: extract_int_metric(sample, "concurrency") || 0,
+          max_concurrency: extract_int_metric(sample, "max_concurrency") || 0
+        }
 
-    is_integer(current) and is_integer(max) and max > current
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp bulk_throttled?(job) do
+    payload = job.result_payload || job.progress_payload || %{}
+    history = bulk_concurrency_history(job)
+
+    cond do
+      history != [] ->
+        Enum.any?(history, fn sample ->
+          sample.max_concurrency > 0 and sample.concurrency < sample.max_concurrency
+        end)
+
+      true ->
+        current = Map.get(payload, "concurrency")
+        max = Map.get(payload, "max_concurrency")
+        is_integer(current) and is_integer(max) and max > current
+    end
   end
 
   defp bulk_job_query(job) do
@@ -562,6 +595,117 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     |> Map.get(:payload, %{})
     |> Map.get("selector_limit", "-")
   end
+
+  defp bulk_dashboard_stats(jobs) do
+    jobs = List.wrap(jobs)
+    completed = Enum.filter(jobs, &(&1.status == :completed))
+    active_count = Enum.count(jobs, &(&1.status in [:queued, :sent, :acknowledged, :running]))
+    throttled_count = Enum.count(jobs, &bulk_throttled?/1)
+
+    avg_rate =
+      completed
+      |> Enum.map(&bulk_rate_value/1)
+      |> Enum.reject(&(&1 <= 0))
+      |> average_float()
+
+    total_targets =
+      completed
+      |> Enum.map(&bulk_count(&1, "total_targets", count_targets(&1)))
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
+
+    %{
+      active_count: active_count,
+      throttled_count: throttled_count,
+      avg_rate: Float.round(avg_rate, 1),
+      total_targets: total_targets
+    }
+  end
+
+  defp recent_bulk_job_bars(jobs) do
+    jobs = List.wrap(jobs)
+
+    completed_jobs =
+      jobs
+      |> Enum.filter(&(&1.status == :completed))
+      |> Enum.filter(&(bulk_rate_value(&1) > 0))
+
+    if completed_jobs != [] do
+      Enum.take(completed_jobs, 8)
+    else
+      Enum.take(jobs, 8)
+    end
+  end
+
+  defp bulk_bar_width(job, max_rate) do
+    rate = bulk_rate_value(job)
+    ratio = safe_ratio(rate, max_rate)
+    "#{Float.round(ratio * 100, 1)}%"
+  end
+
+  defp bulk_history_bar_width(sample) do
+    max_concurrency = Map.get(sample, :max_concurrency, 0)
+    concurrency = Map.get(sample, :concurrency, 0)
+    ratio = safe_ratio(concurrency, max_concurrency)
+    "#{Float.round(ratio * 100, 1)}%"
+  end
+
+  defp latest_bulk_history(jobs) do
+    jobs
+    |> List.wrap()
+    |> Enum.find_value(fn job ->
+      history = bulk_concurrency_history(job)
+      if history == [], do: nil, else: %{job: job, history: history}
+    end)
+  end
+
+  defp average_float([]), do: 0.0
+  defp average_float(values), do: Enum.sum(values) / length(values)
+
+  defp safe_ratio(_value, max_value) when max_value in [0, 0.0], do: 0.0
+  defp safe_ratio(value, max_value), do: min(1.0, max(value / max_value, 0.0))
+
+  defp extract_float_metric(payload, key) when is_map(payload) do
+    case Map.get(payload, key) do
+      value when is_float(value) ->
+        value
+
+      value when is_integer(value) ->
+        value * 1.0
+
+      value when is_binary(value) ->
+        case Float.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_float_metric(_payload, _key), do: nil
+
+  defp extract_int_metric(payload, key) when is_map(payload) do
+    case Map.get(payload, key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_float(value) ->
+        trunc(value)
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_int_metric(_payload, _key), do: nil
 
   defp refresh_diagnostics(socket) do
     socket
@@ -638,6 +782,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
+      <% dashboard = bulk_dashboard_stats(@bulk_jobs) %>
+      <% recent_bars = recent_bulk_job_bars(@bulk_jobs) %>
+      <% max_rate = recent_bars |> Enum.map(&bulk_rate_value/1) |> Enum.max(fn -> 0.0 end) %>
+      <% latest_history = latest_bulk_history(@bulk_jobs) %>
       <div class="p-6 space-y-6">
         <div class="flex items-center justify-between">
           <div>
@@ -686,6 +834,90 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         </div>
 
         <div :if={@bulk_jobs != []} class="overflow-x-auto">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Active Bulk Jobs</div>
+              <div class="mt-2 text-3xl font-semibold">{dashboard.active_count}</div>
+            </div>
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Avg Throughput</div>
+              <div class="mt-2 text-3xl font-semibold">{dashboard.avg_rate}</div>
+              <div class="text-sm text-base-content/60">targets/min</div>
+            </div>
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Recent Completed Targets</div>
+              <div class="mt-2 text-3xl font-semibold">{dashboard.total_targets}</div>
+            </div>
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Adaptive Backoff Runs</div>
+              <div class="mt-2 text-3xl font-semibold">{dashboard.throttled_count}</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="flex items-center justify-between">
+                <h3 class="font-semibold">Recent Throughput</h3>
+                <div class="text-xs text-base-content/60">last {length(recent_bars)} jobs</div>
+              </div>
+              <div class="mt-4 space-y-3">
+                <div :for={job <- recent_bars} class="space-y-1">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="truncate max-w-[220px]">{job.agent_id}</span>
+                    <span>{bulk_rate(job)}</span>
+                  </div>
+                  <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                    <div
+                      class={[
+                        "h-full rounded-full transition-all",
+                        if(bulk_throttled?(job), do: "bg-warning", else: "bg-primary")
+                      ]}
+                      style={"width: #{bulk_bar_width(job, max_rate)}"}
+                    >
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+              <div class="flex items-center justify-between">
+                <h3 class="font-semibold">Adaptive Concurrency</h3>
+                <div class="text-xs text-base-content/60">
+                  <%= if latest_history do %>
+                    {latest_history.job.agent_id}
+                  <% else %>
+                    no history yet
+                  <% end %>
+                </div>
+              </div>
+              <div :if={latest_history} class="mt-4 space-y-3">
+                <div :for={sample <- latest_history.history} class="space-y-1">
+                  <div class="flex items-center justify-between text-xs">
+                    <span>{sample.elapsed_ms}ms</span>
+                    <span>{sample.concurrency}/{sample.max_concurrency}</span>
+                  </div>
+                  <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                    <div
+                      class={[
+                        "h-full rounded-full transition-all",
+                        if(sample.concurrency < sample.max_concurrency,
+                          do: "bg-warning",
+                          else: "bg-success"
+                        )
+                      ]}
+                      style={"width: #{bulk_history_bar_width(sample)}"}
+                    >
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div :if={!latest_history} class="mt-4 text-sm text-base-content/60">
+                Run a bulk job long enough to trigger calibration windows and adaptive snapshots.
+              </div>
+            </div>
+          </div>
+
           <table class="table table-sm table-zebra">
             <thead>
               <tr>

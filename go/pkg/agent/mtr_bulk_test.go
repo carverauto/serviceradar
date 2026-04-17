@@ -192,7 +192,7 @@ func TestResolveBulkTargets_ProducesResolvedTasks(t *testing.T) {
 }
 
 func TestBulkMtrAdaptiveController_ReducesConcurrencyOnTimeoutPressure(t *testing.T) {
-	controller := newBulkMtrAdaptiveController(64)
+	controller := newBulkMtrAdaptiveController(64, time.Now())
 	limit := atomic.Int32{}
 	limit.Store(64)
 
@@ -212,7 +212,7 @@ func TestBulkMtrAdaptiveController_ReducesConcurrencyOnTimeoutPressure(t *testin
 }
 
 func TestBulkMtrAdaptiveController_IncreasesConcurrencyAfterHealthyWindow(t *testing.T) {
-	controller := newBulkMtrAdaptiveController(64)
+	controller := newBulkMtrAdaptiveController(64, time.Now())
 	controller.current = 16
 
 	limit := atomic.Int32{}

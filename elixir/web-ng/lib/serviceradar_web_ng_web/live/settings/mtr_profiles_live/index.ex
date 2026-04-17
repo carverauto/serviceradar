@@ -594,10 +594,21 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               Measured throughput: {@bulk_interval_guidance.targets_per_minute} targets/min
             </div>
             <div class="text-base-content/70">
+              Effective concurrency: {@bulk_interval_guidance.effective_concurrency}
+            </div>
+            <div class="text-base-content/70">
               Estimated runtime for current scope: {@bulk_interval_guidance.estimated_duration_sec}s
             </div>
             <div class="text-base-content/70">
               Recommended minimum interval: {@bulk_interval_guidance.recommended_interval_sec}s
+            </div>
+            <div
+              :if={@bulk_interval_guidance.throttled_runs > 0}
+              class="text-base-content/70"
+            >
+              Adaptive backoff observed in {@bulk_interval_guidance.throttled_runs}/{
+                @bulk_interval_guidance.sample_count
+              } recent runs.
             </div>
             <div :if={@bulk_interval_guidance.warning?} class="mt-2 font-medium text-warning-content">
               Configured interval is tighter than the measured recommendation and is likely to overlap.
@@ -890,6 +901,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         |> Enum.map(& &1.targets_per_minute)
         |> average()
 
+      avg_effective_concurrency =
+        measurements
+        |> Enum.map(& &1.effective_concurrency)
+        |> average()
+
+      throttled_runs =
+        measurements
+        |> Enum.count(& &1.throttled?)
+
       estimated_duration_sec =
         if avg_targets_per_minute > 0 do
           ceil(target_count / avg_targets_per_minute * 60)
@@ -897,9 +917,16 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           0
         end
 
+      headroom_factor =
+        if throttled_runs > 0 do
+          1.4
+        else
+          1.25
+        end
+
       recommended_interval_sec =
         estimated_duration_sec
-        |> Kernel.*(1.25)
+        |> Kernel.*(headroom_factor)
         |> ceil()
         |> round_up_to_30()
         |> max(30)
@@ -908,8 +935,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         agent_id: preferred_agent_id,
         execution_profile: execution_profile,
         targets_per_minute: Float.round(avg_targets_per_minute, 1),
+        effective_concurrency: Float.round(avg_effective_concurrency, 1),
         estimated_duration_sec: estimated_duration_sec,
         recommended_interval_sec: recommended_interval_sec,
+        throttled_runs: throttled_runs,
+        sample_count: length(measurements),
         warning?: configured_interval < recommended_interval_sec
       }
     else
@@ -920,10 +950,17 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   defp bulk_job_measurement(job) do
     total_targets = extract_bulk_total_targets(job)
     payload = job.result_payload || job.progress_payload || %{}
+    {effective_concurrency, throttled?} = extract_bulk_concurrency_measurement(payload)
 
     case extract_float_metric(payload, "targets_per_minute") do
       value when is_float(value) and value > 0 ->
-        [%{targets_per_minute: value}]
+        [
+          %{
+            targets_per_minute: value,
+            effective_concurrency: effective_concurrency,
+            throttled?: throttled?
+          }
+        ]
 
       _ ->
         with total when is_integer(total) and total > 0 <- total_targets,
@@ -931,12 +968,71 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
              %DateTime{} = completed_at <- job.completed_at,
              duration_sec when duration_sec > 0 <-
                DateTime.diff(completed_at, inserted_at, :second) do
-          [%{targets_per_minute: total / (duration_sec / 60)}]
+          [
+            %{
+              targets_per_minute: total / (duration_sec / 60),
+              effective_concurrency: effective_concurrency,
+              throttled?: throttled?
+            }
+          ]
         else
           _ -> []
         end
     end
   end
+
+  defp extract_bulk_concurrency_measurement(payload) when is_map(payload) do
+    history = extract_bulk_concurrency_history(payload)
+
+    if history != [] do
+      avg_effective_concurrency =
+        history
+        |> Enum.map(&Map.get(&1, :concurrency, 0))
+        |> Enum.reject(&(&1 <= 0))
+        |> average()
+
+      throttled? =
+        Enum.any?(history, fn sample ->
+          max_concurrency = Map.get(sample, :max_concurrency, 0)
+          concurrency = Map.get(sample, :concurrency, 0)
+          max_concurrency > 0 and concurrency > 0 and concurrency < max_concurrency
+        end)
+
+      effective_concurrency =
+        if avg_effective_concurrency > 0 do
+          avg_effective_concurrency
+        else
+          extract_float_metric(payload, "concurrency") || 0.0
+        end
+
+      {effective_concurrency, throttled?}
+    else
+      current = extract_float_metric(payload, "concurrency") || 0.0
+      max = extract_float_metric(payload, "max_concurrency") || current
+      {current, max > current and current > 0}
+    end
+  end
+
+  defp extract_bulk_concurrency_measurement(_payload), do: {0.0, false}
+
+  defp extract_bulk_concurrency_history(payload) when is_map(payload) do
+    payload
+    |> Map.get("concurrency_history", [])
+    |> List.wrap()
+    |> Enum.map(fn
+      %{} = sample ->
+        %{
+          concurrency: extract_int_metric(sample, "concurrency") || 0,
+          max_concurrency: extract_int_metric(sample, "max_concurrency") || 0
+        }
+
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp extract_bulk_concurrency_history(_payload), do: []
 
   defp bulk_job_profile(job) do
     payload = job.payload || %{}
@@ -999,6 +1095,27 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp extract_float_metric(_payload, _key), do: nil
+
+  defp extract_int_metric(payload, key) when is_map(payload) do
+    case Map.get(payload, key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_float(value) ->
+        trunc(value)
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_int_metric(_payload, _key), do: nil
 
   defp round_up_to_30(value) when is_integer(value) do
     rem = rem(value, 30)
