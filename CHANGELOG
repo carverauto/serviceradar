@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.19
+
+Managed agent rollout activation now uses the packaged runtime layout consistently, fixing package-managed self-update on hosts that already have the correct `/var/lib/serviceradar/agent` structure.
+
+## Whats New
+
+**1.2.19**
+- Fixed package-managed agent release activation to use `/var/lib/serviceradar/agent` as the runtime root instead of the stale `/var/lib/serviceradar/agent/releases` path that caused rollout activation to fail after staging.
+- Added regression coverage locking the managed agent runtime root to the packaged launcher layout so future release-path changes cannot drift away from the installed filesystem contract.
+- Updated the agent release-management runbook to document the correct package-managed runtime directory required for staged release activation.
+
 # ServiceRadar v1.2.18
 
 Bulk MTR dispatch completion fixes, managed baseline scope clarity, and diagnostics/profile polish needed to make queued automation jobs actually execute and explain their target set correctly.
