@@ -26,6 +26,7 @@ const (
 	bulkMtrProgressBatchSize   = 16
 	bulkMtrProgressInterval    = 200 * time.Millisecond
 	bulkMtrAdaptiveWindowSize  = 32
+	bulkMtrAdaptiveHistorySize = 12
 
 	bulkMtrProfileFast     = "fast"
 	bulkMtrProfileBalanced = "balanced"
@@ -63,16 +64,26 @@ type mtrBulkTargetUpdate struct {
 }
 
 type mtrBulkProgressPayload struct {
-	TotalTargets     int                   `json:"total_targets"`
-	QueuedTargets    int                   `json:"queued_targets"`
-	RunningTargets   int                   `json:"running_targets"`
-	CompletedTargets int                   `json:"completed_targets"`
-	FailedTargets    int                   `json:"failed_targets"`
-	Concurrency      int                   `json:"concurrency,omitempty"`
-	MaxConcurrency   int                   `json:"max_concurrency,omitempty"`
-	DurationMs       int64                 `json:"duration_ms,omitempty"`
-	TargetsPerMinute float64               `json:"targets_per_minute,omitempty"`
-	TargetUpdates    []mtrBulkTargetUpdate `json:"target_updates,omitempty"`
+	TotalTargets       int                        `json:"total_targets"`
+	QueuedTargets      int                        `json:"queued_targets"`
+	RunningTargets     int                        `json:"running_targets"`
+	CompletedTargets   int                        `json:"completed_targets"`
+	FailedTargets      int                        `json:"failed_targets"`
+	Concurrency        int                        `json:"concurrency,omitempty"`
+	MaxConcurrency     int                        `json:"max_concurrency,omitempty"`
+	ConcurrencyHistory []bulkMtrConcurrencySample `json:"concurrency_history,omitempty"`
+	DurationMs         int64                      `json:"duration_ms,omitempty"`
+	TargetsPerMinute   float64                    `json:"targets_per_minute,omitempty"`
+	TargetUpdates      []mtrBulkTargetUpdate      `json:"target_updates,omitempty"`
+}
+
+type bulkMtrConcurrencySample struct {
+	ElapsedMs      int64 `json:"elapsed_ms,omitempty"`
+	Concurrency    int   `json:"concurrency,omitempty"`
+	MaxConcurrency int   `json:"max_concurrency,omitempty"`
+	Completed      int   `json:"completed,omitempty"`
+	Failed         int   `json:"failed,omitempty"`
+	TimedOut       int   `json:"timed_out,omitempty"`
 }
 
 type mtrBulkEvent struct {
@@ -107,6 +118,8 @@ type bulkMtrAdaptiveController struct {
 	completed int
 	failed    int
 	timedOut  int
+	startedAt time.Time
+	history   []bulkMtrConcurrencySample
 }
 
 func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
@@ -150,7 +163,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	sharedResources := newBulkMtrSharedResources(jobCtx, baseOpts, p.logger)
 	defer sharedResources.close()
 
-	controller := newBulkMtrAdaptiveController(maxConcurrency)
+	controller := newBulkMtrAdaptiveController(maxConcurrency, startedAt)
 	currentConcurrency := controller.current
 	currentLimit := atomic.Int32{}
 	currentLimit.Store(int32(currentConcurrency))
@@ -235,11 +248,12 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		0,
 		bulkMtrStatusQueued,
 		mtrBulkProgressPayload{
-			TotalTargets:   len(targets),
-			QueuedTargets:  queuedTargets,
-			RunningTargets: runningTargets,
-			Concurrency:    currentConcurrency,
-			MaxConcurrency: maxConcurrency,
+			TotalTargets:       len(targets),
+			QueuedTargets:      queuedTargets,
+			RunningTargets:     runningTargets,
+			Concurrency:        currentConcurrency,
+			MaxConcurrency:     maxConcurrency,
+			ConcurrencyHistory: controller.historySnapshot(),
 		},
 	))
 
@@ -287,6 +301,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			failedTargets,
 			currentConcurrency,
 			maxConcurrency,
+			controller.historySnapshot(),
 			startedAt,
 			progressUpdates,
 		)
@@ -305,6 +320,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 			failedTargets,
 			currentConcurrency,
 			maxConcurrency,
+			controller.historySnapshot(),
 			startedAt,
 			progressUpdates,
 		)
@@ -312,15 +328,16 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 
 	durationMs := time.Since(startedAt).Milliseconds()
 	resultPayload := mtrBulkProgressPayload{
-		TotalTargets:     len(targets),
-		QueuedTargets:    queuedTargets,
-		RunningTargets:   runningTargets,
-		CompletedTargets: completedTargets,
-		FailedTargets:    failedTargets,
-		Concurrency:      currentConcurrency,
-		MaxConcurrency:   maxConcurrency,
-		DurationMs:       durationMs,
-		TargetsPerMinute: calculateTargetsPerMinute(len(targets), durationMs),
+		TotalTargets:       len(targets),
+		QueuedTargets:      queuedTargets,
+		RunningTargets:     runningTargets,
+		CompletedTargets:   completedTargets,
+		FailedTargets:      failedTargets,
+		Concurrency:        currentConcurrency,
+		MaxConcurrency:     maxConcurrency,
+		ConcurrencyHistory: controller.finalHistorySnapshot(completedTargets, failedTargets),
+		DurationMs:         durationMs,
+		TargetsPerMinute:   calculateTargetsPerMinute(len(targets), durationMs),
 	}
 
 	message := bulkMtrMessageCompleted
@@ -411,15 +428,19 @@ func normalizeBulkMtrResolverCount(targetCount int) int {
 	return 16
 }
 
-func newBulkMtrAdaptiveController(maxConcurrency int) *bulkMtrAdaptiveController {
+func newBulkMtrAdaptiveController(maxConcurrency int, startedAt time.Time) *bulkMtrAdaptiveController {
 	if maxConcurrency < 1 {
 		maxConcurrency = 1
 	}
 
-	return &bulkMtrAdaptiveController{
-		max:     maxConcurrency,
-		current: maxConcurrency,
+	controller := &bulkMtrAdaptiveController{
+		max:       maxConcurrency,
+		current:   maxConcurrency,
+		startedAt: startedAt,
 	}
+	controller.appendHistorySample(0, 0)
+
+	return controller
 }
 
 func bulkMtrOptions(payload mtrBulkRunPayload) mtr.Options {
@@ -520,6 +541,7 @@ func flushBulkMtrProgress(
 	failedTargets int,
 	concurrency int,
 	maxConcurrency int,
+	concurrencyHistory []bulkMtrConcurrencySample,
 	startedAt time.Time,
 	targetUpdates []mtrBulkTargetUpdate,
 ) {
@@ -534,15 +556,16 @@ func flushBulkMtrProgress(
 		progress,
 		message,
 		mtrBulkProgressPayload{
-			TotalTargets:     totalTargets,
-			QueuedTargets:    queuedTargets,
-			RunningTargets:   runningTargets,
-			CompletedTargets: completedTargets,
-			FailedTargets:    failedTargets,
-			Concurrency:      concurrency,
-			MaxConcurrency:   maxConcurrency,
-			DurationMs:       time.Since(startedAt).Milliseconds(),
-			TargetUpdates:    targetUpdates,
+			TotalTargets:       totalTargets,
+			QueuedTargets:      queuedTargets,
+			RunningTargets:     runningTargets,
+			CompletedTargets:   completedTargets,
+			FailedTargets:      failedTargets,
+			Concurrency:        concurrency,
+			MaxConcurrency:     maxConcurrency,
+			ConcurrencyHistory: concurrencyHistory,
+			DurationMs:         time.Since(startedAt).Milliseconds(),
+			TargetUpdates:      targetUpdates,
 		},
 	))
 }
@@ -668,6 +691,7 @@ func (c *bulkMtrAdaptiveController) observe(status string) {
 	}
 
 	c.adjust()
+	c.appendHistorySample(c.completed, c.failed)
 	c.resetWindow()
 }
 
@@ -706,6 +730,80 @@ func (c *bulkMtrAdaptiveController) resetWindow() {
 	c.completed = 0
 	c.failed = 0
 	c.timedOut = 0
+}
+
+func (c *bulkMtrAdaptiveController) historySnapshot() []bulkMtrConcurrencySample {
+	if c == nil || len(c.history) == 0 {
+		return nil
+	}
+
+	history := make([]bulkMtrConcurrencySample, len(c.history))
+	copy(history, c.history)
+
+	return history
+}
+
+func (c *bulkMtrAdaptiveController) finalHistorySnapshot(
+	completedTargets int,
+	failedTargets int,
+) []bulkMtrConcurrencySample {
+	if c == nil {
+		return nil
+	}
+
+	history := c.historySnapshot()
+	finalSample := bulkMtrConcurrencySample{
+		ElapsedMs:      time.Since(c.startedAt).Milliseconds(),
+		Concurrency:    c.current,
+		MaxConcurrency: c.max,
+		Completed:      completedTargets,
+		Failed:         failedTargets,
+		TimedOut:       c.timedOut,
+	}
+
+	if len(history) == 0 {
+		return []bulkMtrConcurrencySample{finalSample}
+	}
+
+	last := history[len(history)-1]
+	if last.ElapsedMs == finalSample.ElapsedMs &&
+		last.Concurrency == finalSample.Concurrency &&
+		last.Completed == finalSample.Completed &&
+		last.Failed == finalSample.Failed &&
+		last.TimedOut == finalSample.TimedOut {
+		return history
+	}
+
+	history = append(history, finalSample)
+	if len(history) <= bulkMtrAdaptiveHistorySize {
+		return history
+	}
+
+	return history[len(history)-bulkMtrAdaptiveHistorySize:]
+}
+
+func (c *bulkMtrAdaptiveController) appendHistorySample(
+	completedTargets int,
+	failedTargets int,
+) {
+	if c == nil {
+		return
+	}
+
+	c.history = append(c.history, bulkMtrConcurrencySample{
+		ElapsedMs:      time.Since(c.startedAt).Milliseconds(),
+		Concurrency:    c.current,
+		MaxConcurrency: c.max,
+		Completed:      completedTargets,
+		Failed:         failedTargets,
+		TimedOut:       c.timedOut,
+	})
+
+	if len(c.history) <= bulkMtrAdaptiveHistorySize {
+		return
+	}
+
+	c.history = c.history[len(c.history)-bulkMtrAdaptiveHistorySize:]
 }
 
 func newBulkMtrWorker(
