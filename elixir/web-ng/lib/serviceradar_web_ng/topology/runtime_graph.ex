@@ -472,8 +472,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     |> String.upcase()
   end
 
-  defp runtime_relation_type(_row), do: ""
-
   defp runtime_evidence_class(row) when is_map(row) do
     row
     |> map_fetch(:evidence_class)
@@ -481,8 +479,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     |> String.trim()
     |> String.downcase()
   end
-
-  defp runtime_evidence_class(_row), do: ""
 
   defp canonical_runtime_id(value) when is_binary(value) do
     trimmed = String.trim(value)

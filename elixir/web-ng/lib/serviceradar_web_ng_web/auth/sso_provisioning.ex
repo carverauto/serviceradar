@@ -69,8 +69,6 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
     apply_role_mapping(user, role, actor)
   end
 
-  defp maybe_update_role(result, _role, _actor), do: result
-
   defp apply_role_mapping(user, role, actor) do
     cond do
       is_nil(role) ->
