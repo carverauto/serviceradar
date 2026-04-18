@@ -95,6 +95,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert drain_srql_calls() == []
   end
 
+  test "netflows keep the shared observability shell visible", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "netflows", q: "in:flows time:last_1h sort:timestamp:desc", limit: 20}}")
+
+    assert html =~ "Observability"
+    assert html =~ "Unified view of logs, traces, metrics, and infrastructure signals."
+  end
+
   defp drain_srql_calls(acc \\ []) do
     receive do
       {:srql_query, payload} ->

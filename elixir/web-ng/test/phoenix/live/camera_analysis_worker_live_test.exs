@@ -33,8 +33,11 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
   end
 
   test "renders the camera analysis worker operations page", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/observability/camera-analysis-workers")
+    {:ok, _view, html} = live(conn, ~p"/observability/camera-relays/workers")
 
+    assert html =~ "Observability"
+    assert html =~ "Camera Relays"
+    assert html =~ "Analysis Workers"
     assert html =~ "Camera Analysis Workers"
     assert html =~ "Alpha Detector"
     assert html =~ "Beta Detector"
@@ -70,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
   end
 
   test "toggles worker enabled state", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/observability/camera-analysis-workers")
+    {:ok, view, _html} = live(conn, ~p"/observability/camera-relays/workers")
     worker_id = "00000000-0000-0000-0000-000000000101"
 
     html =
@@ -84,12 +87,17 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     assert opts[:scope]
   end
 
+  test "legacy worker route redirects to the camera relays subsection", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: "/observability/camera-relays/workers"}}} =
+             live(conn, ~p"/observability/camera-analysis-workers")
+  end
+
   test "redirects viewers without settings.edge.manage", %{conn: conn} do
     viewer = viewer_user_fixture()
     conn = log_in_user(build_conn(), viewer)
 
     assert {:error, {:live_redirect, %{to: "/analytics"} = info}} =
-             live(conn, ~p"/observability/camera-analysis-workers")
+             live(conn, ~p"/observability/camera-relays/workers")
 
     assert is_map(info.flash)
   end

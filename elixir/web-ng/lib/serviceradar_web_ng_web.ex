@@ -104,6 +104,7 @@ defmodule ServiceRadarWebNGWeb do
       import Phoenix.HTML
       # Core UI components
       import ServiceRadarWebNGWeb.CoreComponents
+      import ServiceRadarWebNGWeb.ObservabilityComponents
       import ServiceRadarWebNGWeb.QueryBuilderComponents
       import ServiceRadarWebNGWeb.ReactComponents
       import ServiceRadarWebNGWeb.SRQLComponents

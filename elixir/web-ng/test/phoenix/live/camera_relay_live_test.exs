@@ -34,6 +34,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
   test "renders camera relay operations page", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/observability/camera-relays")
 
+    assert html =~ "Observability"
+    assert html =~ "Analysis Workers"
     assert html =~ "Camera Relay Operations"
     assert html =~ "Active Relay Sessions"
     assert html =~ "Recent Terminal Sessions"

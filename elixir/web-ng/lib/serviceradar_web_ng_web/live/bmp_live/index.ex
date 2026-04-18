@@ -74,6 +74,8 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6 space-y-4">
+        <.observability_chrome active_pane="bmp" />
+
         <div class="flex items-center justify-between">
           <div>
             <h1 class="text-xl font-semibold">BMP Routing Events</h1>
