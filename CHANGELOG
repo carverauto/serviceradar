@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.20
+
+Device detail MTR diagnostics now load correctly for direct visits and in-page tab navigation, fixing cases where matching traces existed in storage but the device page rendered an empty MTR tab.
+
+## Whats New
+
+**1.2.20**
+- Fixed the device details LiveView so `/devices/:uid?tab=mtr` loads MTR traces during the initial render instead of waiting for a manual tab-switch event.
+- Fixed same-device tab URL patches to reload MTR diagnostics when navigating into the MTR tab, keeping bookmarked links and in-page navigation consistent.
+- Added regression coverage for device-page MTR tab loading so direct visits and `push_patch` transitions keep rendering the expected trace data.
+
 # ServiceRadar v1.2.19
 
 Managed agent rollout activation now uses the packaged runtime layout consistently, fixing package-managed self-update on hosts that already have the correct `/var/lib/serviceradar/agent` structure.
