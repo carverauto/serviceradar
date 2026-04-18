@@ -99,6 +99,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        service_count: 0,
        sample_size: 0
      })
+     |> assign(:logs_live?, false)
+     |> assign(:current_params, %{})
+     |> assign(:log_view_params, %{})
      |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
      |> assign(:metrics_stats, %{
        total: 0,
@@ -141,12 +144,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     same_tab_query_change =
       socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
 
+    logs_live? = next_logs_live_state(socket, tab, params)
+    log_view_params = if tab == "logs", do: tracked_log_view_params(params), else: %{}
+
     # For same-tab query changes (stat card clicks), keep current data visible.
     # For tab switches and initial loads, reset to empty defaults.
     socket =
       if same_tab_query_change do
         socket
         |> assign(:active_tab, tab)
+        |> assign(:logs_live?, logs_live?)
+        |> assign(:current_params, params)
+        |> assign(:log_view_params, log_view_params)
         |> assign(:netflow_compact?, netflow_compact?)
         |> assign(:netflow_talker_cidr, netflow_talker_cidr)
         |> assign(:netflow_compare_mode, netflow_compare_mode)
@@ -161,6 +170,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       else
         socket
         |> assign(:active_tab, tab)
+        |> assign(:logs_live?, logs_live?)
+        |> assign(:current_params, params)
+        |> assign(:log_view_params, log_view_params)
         |> assign(:logs, [])
         |> assign(:traces, [])
         |> assign(:metrics, [])
@@ -219,6 +231,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("toggle_logs_live", _params, socket) do
+    socket = assign(socket, :logs_live?, !Map.get(socket.assigns, :logs_live?, false))
+
+    socket =
+      if socket.assigns.active_tab == "logs" and socket.assigns.logs_live? do
+        refresh_tab(socket, "logs")
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("netflow_open", %{"idx" => idx}, socket) do
@@ -889,7 +914,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_info({:logs_ingested, _event}, socket) do
-    {:noreply, schedule_debounced_refresh(socket, "logs")}
+    {:noreply, maybe_schedule_live_logs_refresh(socket)}
   end
 
   @impl true
@@ -980,13 +1005,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.ui_panel :if={@active_tab != "netflows" or @netflow_view in ["explorer", "all"]}>
             <:header>
               <div class="min-w-0">
-                <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
+                <div class="text-sm font-semibold">{panel_title(@active_tab, @logs_live?)}</div>
                 <div class="text-xs text-base-content/70">
-                  {panel_subtitle(@active_tab)}
+                  {panel_subtitle(@active_tab, @logs_live?)}
                 </div>
               </div>
 
-              <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
+              <.log_panel_controls
+                :if={@active_tab == "logs"}
+                srql={@srql}
+                limit={@limit}
+                live?={@logs_live?}
+              />
               <.netflow_presets
                 :if={@active_tab == "netflows"}
                 srql={@srql}
@@ -2948,7 +2978,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:sources, sources)
 
     ~H"""
-    <div class="flex items-center justify-end gap-2">
+    <div class="flex items-center gap-2">
       <div class="hidden sm:flex items-center gap-2">
         <span class="text-[10px] uppercase tracking-wider text-base-content/50">Source</span>
         <div class="flex flex-wrap gap-1">
@@ -2985,6 +3015,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </:item>
         </.ui_dropdown>
       </div>
+    </div>
+    """
+  end
+
+  attr(:srql, :map, required: true)
+  attr(:limit, :integer, required: true)
+  attr(:live?, :boolean, default: false)
+
+  defp log_panel_controls(assigns) do
+    assigns =
+      assigns
+      |> assign(:toggle_title, if(assigns.live?, do: "Pause live log streaming", else: "Start live log streaming"))
+      |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
+      |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+
+    ~H"""
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <.ui_button
+        id="logs-live-toggle"
+        phx-click="toggle_logs_live"
+        variant={@toggle_variant}
+        size="xs"
+        active={@live?}
+        class="rounded-full gap-2"
+        title={@toggle_title}
+      >
+        <span class="text-xs font-medium">Live</span>
+        <.ui_badge id="logs-live-status" size="xs" variant={@toggle_badge_variant}>
+          {if @live?, do: "On", else: "Off"}
+        </.ui_badge>
+      </.ui_button>
+
+      <.log_source_filters srql={@srql} limit={@limit} />
     </div>
     """
   end
@@ -3090,6 +3153,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp preset_active?(_, _), do: false
+
+  defp next_logs_live_state(socket, tab, params) do
+    cond do
+      tab != "logs" ->
+        false
+
+      manual_log_navigation?(socket, tab, params) ->
+        false
+
+      true ->
+        Map.get(socket.assigns, :logs_live?, false)
+    end
+  end
+
+  defp manual_log_navigation?(socket, tab, params) do
+    socket.assigns[:_initial_load_done] &&
+      socket.assigns.active_tab == "logs" &&
+      tab == "logs" &&
+      tracked_log_view_params(params) != Map.get(socket.assigns, :log_view_params, %{})
+  end
+
+  defp tracked_log_view_params(params) when is_map(params) do
+    Map.take(params, ["q", "limit", "cursor", "page", "tab"])
+  end
+
+  defp tracked_log_view_params(_), do: %{}
 
   attr(:label, :string, required: true)
   attr(:value, :string, default: nil)
@@ -6419,21 +6508,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp compute_netflow_summary(_), do: empty_netflow_summary()
 
-  defp panel_title("traces"), do: "Traces"
-  defp panel_title("metrics"), do: "Metrics"
-  defp panel_title("events"), do: "Events"
-  defp panel_title("alerts"), do: "Alerts"
-  defp panel_title("netflows"), do: "Flows"
-  defp panel_title(_), do: "Log Stream"
+  defp panel_title("logs", true), do: "Log Stream"
+  defp panel_title("logs", false), do: "Logs"
+  defp panel_title("traces", _), do: "Traces"
+  defp panel_title("metrics", _), do: "Metrics"
+  defp panel_title("events", _), do: "Events"
+  defp panel_title("alerts", _), do: "Alerts"
+  defp panel_title("netflows", _), do: "Flows"
+  defp panel_title(_, _), do: "Logs"
 
-  defp panel_subtitle("traces"), do: "Click a trace to jump to correlated logs."
+  defp panel_subtitle("logs", true), do: "Streaming newest log updates. Click any log entry to view full details."
+  defp panel_subtitle("logs", false), do: "Click any log entry to view full details."
+  defp panel_subtitle("traces", _), do: "Click a trace to jump to correlated logs."
 
-  defp panel_subtitle("metrics"), do: "Click a metric to jump to correlated logs (if trace_id is present)."
+  defp panel_subtitle("metrics", _), do: "Click a metric to jump to correlated logs (if trace_id is present)."
 
-  defp panel_subtitle("events"), do: "Click any event to view full details."
-  defp panel_subtitle("alerts"), do: "Click any alert to view full details."
-  defp panel_subtitle("netflows"), do: "Network flow data from NetFlow collectors."
-  defp panel_subtitle(_), do: "Click any log entry to view full details."
+  defp panel_subtitle("events", _), do: "Click any event to view full details."
+  defp panel_subtitle("alerts", _), do: "Click any alert to view full details."
+  defp panel_subtitle("netflows", _), do: "Network flow data from NetFlow collectors."
+  defp panel_subtitle(_, _), do: "Click any log entry to view full details."
 
   defp panel_result_count("traces", _logs, traces, _metrics, _events, _alerts, _netflows), do: length(traces)
 
@@ -6724,6 +6817,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp maybe_schedule_live_logs_refresh(socket) do
+    if socket.assigns.active_tab == "logs" and Map.get(socket.assigns, :logs_live?, false) do
+      schedule_debounced_refresh(socket, "logs")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "logs") do
+    if socket.assigns.active_tab == "logs" and Map.get(socket.assigns, :logs_live?, false) do
+      refresh_tab(socket, "logs")
+    else
+      socket
+    end
+  end
+
   defp maybe_refresh_tab(socket, tab) do
     if socket.assigns.active_tab == tab do
       refresh_tab(socket, tab)
@@ -6738,7 +6847,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     srql = Map.get(socket.assigns, :srql, %{})
     query = Map.get(srql, :query, "")
     limit = Map.get(socket.assigns, :limit, default_limit)
-    params = %{"q" => query, "limit" => limit}
+
+    params =
+      socket.assigns
+      |> Map.get(:current_params, %{})
+      |> Map.put("q", query)
+      |> Map.put("limit", limit)
+
     uri = Map.get(srql, :page_path, "/observability")
 
     socket
