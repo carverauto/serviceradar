@@ -30,7 +30,10 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, "bgp:observations")
     end
 
-    {:ok, assign(socket, :page_title, "BGP Routing")}
+    {:ok,
+     socket
+     |> assign(:page_title, "BGP Routing")
+     |> assign(:srql, %{enabled: false, page_path: "/observability/bgp"})}
   end
 
   @impl true
@@ -159,190 +162,146 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      <!-- Observability Navigation -->
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-2">
-        <div class="flex flex-wrap gap-2">
-          <.link
-            navigate="/observability?tab=logs"
-            class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-rectangle-stack" class="size-4" /> Logs
-          </.link>
-          <.link
-            navigate="/observability?tab=traces"
-            class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-clock" class="size-4" /> Traces
-          </.link>
-          <.link
-            navigate="/observability?tab=metrics"
-            class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-chart-bar" class="size-4" /> Metrics
-          </.link>
-          <.link
-            navigate="/observability?tab=events"
-            class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-bell-alert" class="size-4" /> Events
-          </.link>
-          <.link
-            navigate="/observability?tab=alerts"
-            class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-exclamation-triangle" class="size-4" /> Alerts
-          </.link>
-          <.link
-            navigate="/observability?tab=netflows"
-            class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-arrow-path" class="size-4" /> NetFlow
-          </.link>
-          <.link
-            navigate="/observability/bgp"
-            class="btn btn-sm btn-primary rounded-lg flex items-center gap-2"
-          >
-            <.icon name="hero-globe-alt" class="size-4" /> BGP Routing
-          </.link>
-        </div>
-      </div>
-      
-    <!-- Header -->
-      <div class="flex justify-between items-center">
-        <div>
-          <h1 class="text-2xl font-semibold text-base-content">
-            BGP Routing
-          </h1>
-          <p class="text-sm text-base-content/60 mt-1">
-            BGP routing information from NetFlow, sFlow, and BMP sources
-          </p>
-        </div>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
+      <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <.observability_chrome active_pane="bgp" />
         
+    <!-- Header -->
+        <div class="flex justify-between items-center">
+          <div>
+            <h1 class="text-2xl font-semibold text-base-content">
+              BGP Routing
+            </h1>
+            <p class="text-sm text-base-content/60 mt-1">
+              BGP routing information from NetFlow, sFlow, and BMP sources
+            </p>
+          </div>
+
     <!-- Filters -->
-        <div class="flex gap-3">
-          <!-- Time Range Selector -->
-          <select
-            phx-change="change_time_range"
-            name="time_range"
-            class="select select-sm select-bordered"
-          >
-            <option value="last_1h" selected={@time_range == "last_1h"}>Last 1 Hour</option>
-            <option value="last_6h" selected={@time_range == "last_6h"}>Last 6 Hours</option>
-            <option value="last_24h" selected={@time_range == "last_24h"}>Last 24 Hours</option>
-            <option value="last_7d" selected={@time_range == "last_7d"}>Last 7 Days</option>
-          </select>
-          
+          <div class="flex gap-3">
+            <!-- Time Range Selector -->
+            <select
+              phx-change="change_time_range"
+              name="time_range"
+              class="select select-sm select-bordered"
+            >
+              <option value="last_1h" selected={@time_range == "last_1h"}>Last 1 Hour</option>
+              <option value="last_6h" selected={@time_range == "last_6h"}>Last 6 Hours</option>
+              <option value="last_24h" selected={@time_range == "last_24h"}>Last 24 Hours</option>
+              <option value="last_7d" selected={@time_range == "last_7d"}>Last 7 Days</option>
+            </select>
+
     <!-- Source Protocol Selector -->
-          <select
-            phx-change="change_source_protocol"
-            name="source_protocol"
-            class="select select-sm select-bordered"
-          >
-            <option value="all" selected={is_nil(@source_protocol)}>All Sources</option>
-            <option value="netflow" selected={@source_protocol == "netflow"}>NetFlow</option>
-            <option value="sflow" selected={@source_protocol == "sflow"}>sFlow</option>
-            <option value="bgp_peering" selected={@source_protocol == "bgp_peering"}>
-              BGP Peering
-            </option>
-          </select>
-          
+            <select
+              phx-change="change_source_protocol"
+              name="source_protocol"
+              class="select select-sm select-bordered"
+            >
+              <option value="all" selected={is_nil(@source_protocol)}>All Sources</option>
+              <option value="netflow" selected={@source_protocol == "netflow"}>NetFlow</option>
+              <option value="sflow" selected={@source_protocol == "sflow"}>sFlow</option>
+              <option value="bgp_peering" selected={@source_protocol == "bgp_peering"}>
+                BGP Peering
+              </option>
+            </select>
+
     <!-- Clear Filters Button -->
-          <%= if @selected_as || @selected_community do %>
-            <button phx-click="clear_filters" class="btn btn-sm btn-ghost">
-              Clear Filters
-            </button>
-          <% end %>
-        </div>
-      </div>
-      
-    <!-- Active Filters Display -->
-      <%= if @selected_as || @selected_community do %>
-        <div class="alert alert-info">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-medium">Active Filters:</span>
-            <%= if @selected_as do %>
-              <span class="badge badge-primary">AS {@selected_as}</span>
-            <% end %>
-            <%= if @selected_community do %>
-              <span class="badge badge-primary">
-                Community {format_community(@selected_community)}
-              </span>
+            <%= if @selected_as || @selected_community do %>
+              <button phx-click="clear_filters" class="btn btn-sm btn-ghost">
+                Clear Filters
+              </button>
             <% end %>
           </div>
         </div>
-      <% end %>
 
-      <%= if @has_data do %>
-        <!-- Export Button -->
-        <div class="flex justify-end mb-4">
-          <button phx-click="export_csv" class="btn btn-sm btn-outline gap-2">
-            <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
-          </button>
-        </div>
-        
+    <!-- Active Filters Display -->
+        <%= if @selected_as || @selected_community do %>
+          <div class="alert alert-info">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium">Active Filters:</span>
+              <%= if @selected_as do %>
+                <span class="badge badge-primary">AS {@selected_as}</span>
+              <% end %>
+              <%= if @selected_community do %>
+                <span class="badge badge-primary">
+                  Community {format_community(@selected_community)}
+                </span>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+
+        <%= if @has_data do %>
+          <!-- Export Button -->
+          <div class="flex justify-end mb-4">
+            <button phx-click="export_csv" class="btn btn-sm btn-outline gap-2">
+              <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
+            </button>
+          </div>
+
     <!-- Data Sources Panel -->
-        <.data_sources_panel sources={@data_sources} />
-        
+          <.data_sources_panel sources={@data_sources} />
+
     <!-- Traffic Time Series -->
-        <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
-        
+          <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
+          
     <!-- Main Statistics Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Traffic by AS -->
-          <.bgp_traffic_by_as_view
-            traffic_data={@traffic_data}
-            max_bytes={@max_bytes}
-            selected_as={@selected_as}
-          />
-          
-    <!-- Top BGP Communities -->
-          <.bgp_top_communities_view
-            communities={@communities}
-            max_bytes={@max_bytes}
-            selected_community={@selected_community}
-          />
-          
-    <!-- AS Path Diversity -->
-          <.bgp_path_diversity_panel path_diversity={@path_diversity} />
-          
-    <!-- AS Topology Graph -->
-          <.bgp_topology_visualization topology={@topology} />
-        </div>
-        
-    <!-- AS Path Details Table -->
-        <.as_path_details_table paths={@as_path_details} />
-        
-    <!-- Prefix Analysis Table -->
-        <.prefix_analysis_table prefixes={@prefix_analysis} />
-      <% else %>
-        <!-- Empty State -->
-        <div class="text-center py-16">
-          <svg
-            class="mx-auto h-12 w-12 text-base-content/40"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Traffic by AS -->
+            <.bgp_traffic_by_as_view
+              traffic_data={@traffic_data}
+              max_bytes={@max_bytes}
+              selected_as={@selected_as}
             />
-          </svg>
-          <h3 class="mt-2 text-sm font-medium text-base-content">
-            No BGP Routing Data
-          </h3>
-          <p class="mt-1 text-sm text-base-content/60">
-            No BGP observations found for the selected time range and filters.
-          </p>
-          <p class="mt-1 text-xs text-base-content/40">
-            BGP data is populated from NetFlow, sFlow, or BMP sources.
-          </p>
-        </div>
-      <% end %>
-    </div>
+
+    <!-- Top BGP Communities -->
+            <.bgp_top_communities_view
+              communities={@communities}
+              max_bytes={@max_bytes}
+              selected_community={@selected_community}
+            />
+
+    <!-- AS Path Diversity -->
+            <.bgp_path_diversity_panel path_diversity={@path_diversity} />
+
+    <!-- AS Topology Graph -->
+            <.bgp_topology_visualization topology={@topology} />
+          </div>
+
+    <!-- AS Path Details Table -->
+          <.as_path_details_table paths={@as_path_details} />
+
+    <!-- Prefix Analysis Table -->
+          <.prefix_analysis_table prefixes={@prefix_analysis} />
+        <% else %>
+          <!-- Empty State -->
+          <div class="text-center py-16">
+            <svg
+              class="mx-auto h-12 w-12 text-base-content/40"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-base-content">
+              No BGP Routing Data
+            </h3>
+            <p class="mt-1 text-sm text-base-content/60">
+              No BGP observations found for the selected time range and filters.
+            </p>
+            <p class="mt-1 text-xs text-base-content/40">
+              BGP data is populated from NetFlow, sFlow, or BMP sources.
+            </p>
+          </div>
+        <% end %>
+      </div>
+    </Layouts.app>
     """
   end
 

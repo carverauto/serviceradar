@@ -943,16 +943,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <div :if={@active_tab != "netflows"} class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
-              <div class="text-xl font-semibold">Observability</div>
-              <div class="text-sm text-base-content/60">
-                Unified view of logs, traces, and metrics.
-              </div>
-            </div>
-          </div>
-
-          <.observability_tabs :if={@active_tab != "netflows"} active={@active_tab} />
+          <.observability_chrome active_pane={@active_tab} tab_link_kind="patch" />
 
           <div :if={@active_tab == "traces" and trace_rollup_warning?(@trace_rollup_status)}>
             <div role="alert" class="alert alert-warning">
@@ -3284,82 +3275,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp color_bg("primary"), do: "bg-primary"
   defp color_bg("success"), do: "bg-success"
   defp color_bg(_), do: "bg-base-content"
-
-  attr(:active, :string, required: true)
-
-  defp observability_tabs(assigns) do
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-2">
-      <div class="flex flex-wrap gap-2">
-        <.tab_button id="logs" label="Logs" icon="hero-rectangle-stack" active={@active} />
-        <.tab_button id="traces" label="Traces" icon="hero-clock" active={@active} />
-        <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
-        <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
-        <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
-        <.tab_button id="netflows" label="Flows" icon="hero-arrow-path" active={@active} />
-        <.link
-          navigate={~p"/observability/bmp"}
-          class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
-        >
-          <.icon name="hero-arrows-right-left" class="size-4" /> BMP
-        </.link>
-        <.external_tab_button
-          path="/observability/bgp"
-          label="BGP Routing"
-          icon="hero-globe-alt"
-          active={@active}
-        />
-        <.external_tab_button
-          path="/observability/camera-relays"
-          label="Camera Relays"
-          icon="hero-video-camera"
-          active={@active}
-        />
-      </div>
-    </div>
-    """
-  end
-
-  attr(:id, :string, required: true)
-  attr(:label, :string, required: true)
-  attr(:icon, :string, required: true)
-  attr(:active, :string, required: true)
-
-  defp tab_button(assigns) do
-    active? = assigns.active == assigns.id
-    assigns = assign(assigns, :active?, active?)
-
-    ~H"""
-    <.link
-      patch={~p"/observability?#{%{tab: @id}}"}
-      class={[
-        "btn btn-sm rounded-lg flex items-center gap-2 transition-colors",
-        @active? && "btn-primary",
-        not @active? && "btn-ghost"
-      ]}
-    >
-      <.icon name={@icon} class="size-4" />
-      {@label}
-    </.link>
-    """
-  end
-
-  attr(:path, :string, required: true)
-  attr(:label, :string, required: true)
-  attr(:icon, :string, required: true)
-  attr(:active, :string, required: true)
-
-  defp external_tab_button(assigns) do
-    ~H"""
-    <.link
-      navigate={@path}
-      class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2 transition-colors"
-    >
-      <.icon name={@icon} class="size-4" />
-      {@label}
-    </.link>
-    """
-  end
 
   attr(:stats, :map, required: true)
   attr(:latency, :map, required: true)

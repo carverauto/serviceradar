@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(:active_tab, "netflow")
+      |> assign(:active_tab, "netflows")
       |> assign(:netflow_viz_state, NFState.default())
       |> assign(:netflow_viz_state_error, nil)
       |> assign(:netflow_chart_keys_json, "[]")
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   def handle_event("srql_submit", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
-       fallback_path: "/flows/visualize",
+       fallback_path: "/observability/flows",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_toggle", %{},
        entity: "flows",
-       fallback_path: "/flows/visualize"
+       fallback_path: "/observability/flows"
      )}
   end
 
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        entity: "flows",
-       fallback_path: "/flows/visualize",
+       fallback_path: "/observability/flows",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -498,7 +498,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="px-4 py-4">
+      <div class="mx-auto max-w-7xl p-6 space-y-4">
+        <.observability_chrome active_pane="netflows" />
+
         <div class="flex flex-col lg:flex-row gap-4 items-start">
           <aside class="w-full lg:w-80 shrink-0">
             <div class="card bg-base-100 border border-base-200">
@@ -924,7 +926,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   flows={@flows}
                   rdns_map={@rdns_map}
                   geo_iso2_map={@geo_iso2_map}
-                  base_path="/flows/visualize"
+                  base_path="/observability/flows"
                   query={Map.get(@srql, :query) || ""}
                   limit={@limit}
                   nf_param={nf_param(@netflow_viz_state)}
@@ -935,7 +937,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <.ui_pagination
                     prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
                     next_cursor={Map.get(@flows_pagination, "next_cursor")}
-                    base_path="/flows/visualize"
+                    base_path="/observability/flows"
                     query={Map.get(@srql, :query) || ""}
                     limit={@limit}
                     result_count={length(@flows || [])}
@@ -3012,7 +3014,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> Map.merge(extra_params)
       |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
-    "/flows/visualize?" <> URI.encode_query(params)
+    "/observability/flows?" <> URI.encode_query(params)
   end
 
   defp merge_nf_state(%{} = current, %{} = incoming) do

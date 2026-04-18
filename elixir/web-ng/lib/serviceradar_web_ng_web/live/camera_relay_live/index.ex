@@ -62,6 +62,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="space-y-6">
+        <.observability_chrome active_pane="camera-relays" active_subsection="operations">
+          <:actions>
+            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
+              <.icon name="hero-arrow-path" class="size-4" /> Refresh
+            </button>
+          </:actions>
+        </.observability_chrome>
+
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="space-y-2">
             <div class="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-base-content/50">
@@ -75,71 +83,6 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 Live relay visibility for active sessions, viewer load, and recent shutdown reasons.
               </p>
             </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <.link href={~p"/observability"} class="btn btn-ghost btn-sm">
-              <.icon name="hero-arrow-left" class="size-4" /> Observability
-            </.link>
-            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
-              <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
-          </div>
-        </div>
-
-        <div class="rounded-xl border border-base-200 bg-base-100 p-2">
-          <div class="flex flex-wrap gap-2">
-            <.link
-              navigate={~p"/observability?#{%{tab: "logs"}}"}
-              class="btn btn-sm btn-ghost rounded-lg"
-            >
-              <.icon name="hero-rectangle-stack" class="size-4" /> Logs
-            </.link>
-            <.link
-              navigate={~p"/observability?#{%{tab: "traces"}}"}
-              class="btn btn-sm btn-ghost rounded-lg"
-            >
-              <.icon name="hero-clock" class="size-4" /> Traces
-            </.link>
-            <.link
-              navigate={~p"/observability?#{%{tab: "metrics"}}"}
-              class="btn btn-sm btn-ghost rounded-lg"
-            >
-              <.icon name="hero-chart-bar" class="size-4" /> Metrics
-            </.link>
-            <.link
-              navigate={~p"/observability?#{%{tab: "events"}}"}
-              class="btn btn-sm btn-ghost rounded-lg"
-            >
-              <.icon name="hero-bell-alert" class="size-4" /> Events
-            </.link>
-            <.link
-              navigate={~p"/observability?#{%{tab: "alerts"}}"}
-              class="btn btn-sm btn-ghost rounded-lg"
-            >
-              <.icon name="hero-exclamation-triangle" class="size-4" /> Alerts
-            </.link>
-            <.link navigate={~p"/flows"} class="btn btn-sm btn-ghost rounded-lg">
-              <.icon name="hero-arrow-path" class="size-4" /> Flows
-            </.link>
-            <.link navigate={~p"/observability/bmp"} class="btn btn-sm btn-ghost rounded-lg">
-              <.icon name="hero-arrows-right-left" class="size-4" /> BMP
-            </.link>
-            <.link navigate={~p"/observability/bgp"} class="btn btn-sm btn-ghost rounded-lg">
-              <.icon name="hero-globe-alt" class="size-4" /> BGP Routing
-            </.link>
-            <.link
-              navigate={~p"/observability/camera-relays"}
-              class="btn btn-sm btn-primary rounded-lg"
-            >
-              <.icon name="hero-video-camera" class="size-4" /> Camera Relays
-            </.link>
-            <.link
-              navigate={~p"/observability/camera-analysis-workers"}
-              class="btn btn-sm btn-ghost rounded-lg"
-            >
-              <.icon name="hero-cpu-chip" class="size-4" /> Analysis Workers
-            </.link>
           </div>
         </div>
 

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
       {:ok,
        socket
        |> assign(:page_title, "Camera Analysis Workers")
+       |> assign(:srql, %{enabled: false, page_path: "/observability/camera-relays/workers"})
        |> assign(:workers, [])
        |> assign(:summary, empty_summary())
        |> assign(:error, nil)
@@ -60,10 +61,28 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   end
 
   @impl true
+  def handle_params(_params, _uri, %{assigns: %{live_action: :legacy}} = socket) do
+    {:noreply, push_navigate(socket, to: ~p"/observability/camera-relays/workers")}
+  end
+
+  @impl true
+  def handle_params(_params, _uri, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{enabled: false}}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="space-y-6">
+        <.observability_chrome active_pane="camera-relays" active_subsection="analysis-workers">
+          <:actions>
+            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
+              <.icon name="hero-arrow-path" class="size-4" /> Refresh
+            </button>
+          </:actions>
+        </.observability_chrome>
+
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="space-y-2">
             <div class="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-base-content/50">
@@ -77,15 +96,6 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                 Registered worker inventory, health state, and bounded failover-relevant runtime status.
               </p>
             </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <.link href={~p"/observability/camera-relays"} class="btn btn-ghost btn-sm">
-              <.icon name="hero-arrow-left" class="size-4" /> Camera Relays
-            </.link>
-            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
-              <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
           </div>
         </div>
 
