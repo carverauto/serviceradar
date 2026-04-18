@@ -370,6 +370,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         cursor
       )
       |> maybe_reload_interfaces_for_active_tab(active_tab, uid)
+      |> maybe_load_mtr_for_active_tab(active_tab)
 
     {:noreply,
      socket
@@ -619,6 +620,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sweep_results, sweep_results)
      |> assign(:device_snmp_credential, device_snmp_credential)
      |> assign(:srql, srql)
+     |> maybe_load_mtr_for_active_tab(active_tab)
      |> maybe_begin_flow_background_loads(active_tab, uid, device_flows)}
   end
 
@@ -7550,6 +7552,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # ---------------------------------------------------------------------------
   # MTR Traces
   # ---------------------------------------------------------------------------
+
+  defp maybe_load_mtr_for_active_tab(socket, "mtr"), do: load_mtr_traces(socket)
+  defp maybe_load_mtr_for_active_tab(socket, _active_tab), do: socket
 
   defp maybe_refresh_mtr_tab(socket) do
     if socket.assigns.active_tab == "mtr" do
