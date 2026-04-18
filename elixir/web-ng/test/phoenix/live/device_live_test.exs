@@ -1308,4 +1308,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "50.0%"
     assert html =~ "23.0ms"
   end
+
+  test "loads MTR data when patching the same device to the mtr tab", %{conn: conn} do
+    uid = "test-device-mtr-patch-#{System.unique_integer([:positive])}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "mtr-patch-host",
+        ip: "10.42.0.25",
+        is_available: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    Repo.insert_all("mtr_traces", [
+      %{
+        id: Ecto.UUID.generate(),
+        time: now,
+        agent_id: "agent-mtr-2",
+        device_id: uid,
+        target: "10.42.0.25",
+        target_ip: "10.42.0.25",
+        target_reached: true,
+        total_hops: 4,
+        protocol: "icmp",
+        ip_version: 4,
+        created_at: now
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_patch(view, ~p"/devices/#{uid}?tab=mtr")
+
+    assert html =~ "Reachability"
+    assert html =~ "100.0%"
+    assert html =~ "Reached"
+  end
 end
