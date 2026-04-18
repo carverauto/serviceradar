@@ -60,6 +60,15 @@ Prefer Bazel targets when modifying code that already has BUILD files. Always ru
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
 
+## Iron Laws
+
+- **LiveView**: no database queries in disconnected mount. Use streams for lists larger than 100 items. Check `connected?/1` before PubSub subscribe.
+- **Ecto**: never use `:float` for money. Always pin values with `^` in queries. Use separate queries for `has_many`, `JOIN` for `belongs_to`.
+- **Oban**: jobs must be idempotent. Args use string keys. Never store structs in args.
+- **Security**: no `String.to_atom/1` with user input. Authorize in every LiveView `handle_event`. Never use `raw/1` with untrusted content.
+- **OTP**: no process without a runtime reason. Supervise all long-lived processes.
+- **Elixir**: declare `@external_resource` for compile-time files. Wrap third-party library APIs behind project-owned modules. Never use `assign_new` for values refreshed every mount.
+
 ## Operational Runbooks
 
 Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/reseed steps, materialized view recreation, and stream replay commands. Use those instructions whenever resetting the demo environment or investigating canonical device counts.
