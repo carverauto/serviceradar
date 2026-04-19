@@ -921,11 +921,15 @@ if config_env() == :prod do
   end
 
   if is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" do
-    config :serviceradar_web_ng, :onboarding_token_private_key, String.trim(onboarding_token_private_key)
+    config :serviceradar_web_ng,
+           :onboarding_token_private_key,
+           String.trim(onboarding_token_private_key)
   end
 
   if is_binary(onboarding_token_public_key) and String.trim(onboarding_token_public_key) != "" do
-    config :serviceradar_web_ng, :onboarding_token_public_key, String.trim(onboarding_token_public_key)
+    config :serviceradar_web_ng,
+           :onboarding_token_public_key,
+           String.trim(onboarding_token_public_key)
   end
 
   nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")
@@ -989,7 +993,8 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do
@@ -1068,14 +1073,20 @@ if config_env() == :prod do
   mail_from_email = System.get_env("SERVICERADAR_MAIL_FROM_EMAIL") || "noreply@serviceradar.cloud"
 
   smtp_relay_auth =
-    case "SMTP_RELAY_AUTH" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_AUTH"
+         |> System.get_env("if_available")
+         |> String.trim()
+         |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
     end
 
   smtp_relay_tls =
-    case "SMTP_RELAY_TLS" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_TLS"
+         |> System.get_env("if_available")
+         |> String.trim()
+         |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
@@ -1086,7 +1097,11 @@ if config_env() == :prod do
   mailer_adapter =
     case String.trim(mailer_adapter_env || "") do
       "" ->
-        Local
+        if local_mailer do
+          Local
+        else
+          Swoosh.Adapters.Test
+        end
 
       "local" ->
         Local

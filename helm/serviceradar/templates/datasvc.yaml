@@ -19,8 +19,9 @@ spec:
       labels:
         app: serviceradar-datasvc
         app.kubernetes.io/part-of: serviceradar
-      {{- if .Values.global.forceRolloutOnUpgrade }}
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
