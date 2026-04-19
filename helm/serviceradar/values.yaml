@@ -64,8 +64,14 @@ natsCreds:
   system: ""
   operator: ""
 nats:
+  replicas: 1
+  clusterName: "serviceradar"
+  jetstream:
+    maxMemoryStore: 1G
+    maxFileStore: 10G
   persistence:
     size: 30Gi
+    storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
   regenerator:
@@ -100,6 +106,7 @@ prometheusRules:
     slowQueryLogThresholdMs: 500
 
 core:
+  replicas: 1
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
   clusterStrategy: "dns"
@@ -415,6 +422,7 @@ geoipMmdb:
   size: 1Gi
   storageClassName: ""
 webNg:
+  replicas: 1
   host: ""
   publicUrl: ""
   godViewEnabled: "true"
@@ -454,11 +462,13 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
+    backend: "file"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
+    jetstreamReplicas: 1
 agent:
   enabled: true
   agentId: "k8s-agent"
