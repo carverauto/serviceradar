@@ -36,6 +36,7 @@ use rule_watcher::watch_rules;
 
 const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_RETRIES: i64 = 3;
+
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-zen")]
 struct Cli {
@@ -120,33 +121,7 @@ async fn main() -> Result<()> {
         filter_subjects: cfg.subjects.clone(),
         ..Default::default()
     };
-    let consumer = match stream.consumer_info(&cfg.consumer_name).await {
-        Ok(info) => {
-            if info.config.filter_subjects != cfg.subjects {
-                warn!(
-                    "consumer {} configuration changed, recreating",
-                    cfg.consumer_name
-                );
-                stream
-                    .delete_consumer(&cfg.consumer_name)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                stream
-                    .create_consumer(desired_cfg.clone())
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?
-            } else {
-                stream
-                    .get_consumer(&cfg.consumer_name)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?
-            }
-        }
-        Err(_) => stream
-            .create_consumer(desired_cfg.clone())
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-    };
+    let consumer = ensure_pull_consumer(&stream, &cfg.consumer_name, &cfg.subjects, &desired_cfg).await?;
     info!("using consumer {}", cfg.consumer_name);
 
     let engine = build_engine(&cfg, &js).await?;
@@ -215,6 +190,49 @@ async fn main() -> Result<()> {
                     debug!("acknowledged message {}", info.stream_sequence);
                 }
             }
+        }
+    }
+}
+
+async fn ensure_pull_consumer(
+    stream: &jetstream::stream::Stream,
+    consumer_name: &str,
+    subjects: &[String],
+    desired_cfg: &PullConfig,
+) -> Result<jetstream::consumer::Consumer<PullConfig>> {
+    match stream.consumer_info(consumer_name).await {
+        Ok(info) => {
+            if info.config.filter_subjects != subjects {
+                warn!("consumer {} configuration changed, recreating", consumer_name);
+                let _ = stream.delete_consumer(consumer_name).await;
+                create_or_get_consumer(stream, consumer_name, desired_cfg).await
+            } else {
+                stream
+                    .get_consumer(consumer_name)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))
+            }
+        }
+        Err(_) => create_or_get_consumer(stream, consumer_name, desired_cfg).await,
+    }
+}
+
+async fn create_or_get_consumer(
+    stream: &jetstream::stream::Stream,
+    consumer_name: &str,
+    desired_cfg: &PullConfig,
+) -> Result<jetstream::consumer::Consumer<PullConfig>> {
+    match stream.create_consumer(desired_cfg.clone()).await {
+        Ok(consumer) => Ok(consumer),
+        Err(create_err) => {
+            warn!(
+                "create_consumer for {} failed, retrying get_consumer: {}",
+                consumer_name, create_err
+            );
+            stream
+                .get_consumer(consumer_name)
+                .await
+                .map_err(|get_err| anyhow::anyhow!("create failed: {create_err}; get failed: {get_err}"))
         }
     }
 }

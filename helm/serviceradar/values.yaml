@@ -531,7 +531,17 @@ dbEventWriter:
   configSource: file
   kvBootstrap:
     enabled: true
+  data:
+    enabled: true
+    size: 5Gi
+    storageClassName: ""
 datasvc:
+  replicaCount: 1
+  data:
+    enabled: true
+    size: 5Gi
+    storageClassName: ""
+zen:
   replicaCount: 1
   data:
     enabled: true
