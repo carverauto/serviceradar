@@ -23,4 +23,5 @@
 - [ ] 5.1 Exercise rolling restarts and single-pod loss for `core`, `web-ng`, `agent-gateway`, and NATS in `demo`.
 - [ ] 5.2 Verify that recurring work, cluster health, live agent/gateway state, and operator workflows remain correct throughout the scaled rollout.
 - [ ] 5.3 Validate ingress traffic and recovery for replicated trap, syslog, and flow collectors in `demo`.
-- [x] 5.4 Run `openspec validate update-demo-control-plane-ha --strict`.
+- [x] 5.4 Prevent runtime cert layout refreshes from rotating the external-agent trust root during HA rollouts.
+- [x] 5.5 Run `openspec validate update-demo-control-plane-ha --strict`.

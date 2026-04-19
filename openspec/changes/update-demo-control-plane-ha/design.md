@@ -46,6 +46,14 @@ Consequences:
 - This change is not just about changing `replicas`.
 - The proposal must include validation of `/settings/cluster` and other live views against distributed placement.
 
+### Decision: Runtime cert layout upgrades must preserve the existing trust root
+`demo` control-plane rollouts can regenerate runtime server certificates to pick up new SANs or component layouts, but externally onboarded agents keep their installed trust root and client certificate material until they are explicitly reprovisioned.
+
+Consequences:
+- A layout-version bump must not silently rotate `root.pem` or other long-lived CA material.
+- Runtime cert refreshes should regenerate leaf certificates by default while preserving the existing root and CNPG CAs unless rotation is explicitly requested.
+- HA rollout validation must include external-agent reconnect behavior after runtime-cert hook execution.
+
 ### Decision: NATS clustering is a topology change, not a replica count change
 The current NATS deployment is a singleton `Deployment` with one PVC. A multi-node NATS topology requires:
 - clustered peer discovery

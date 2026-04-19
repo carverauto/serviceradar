@@ -3,6 +3,9 @@ set -e
 CERT_DIR="${CERT_DIR:-./certs}"
 DAYS_VALID=3650
 COMPONENT_DAYS_VALID=365
+FORCE_REGENERATE="${FORCE_REGENERATE:-false}"
+ROTATE_ROOT_CA="${ROTATE_ROOT_CA:-false}"
+ROTATE_CNPG_CA="${ROTATE_CNPG_CA:-false}"
 COUNTRY="US"
 STATE="CA"
 LOCALITY="San Francisco"
@@ -13,12 +16,12 @@ DEFAULT_AGENT_COMPONENT_ID="${DEFAULT_AGENT_COMPONENT_ID:-agent-001}"
 mkdir -p "$CERT_DIR"
 mkdir -p "$CERT_DIR/components"
 chmod 755 "$CERT_DIR"
-if [ ! -f "$CERT_DIR/root.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
+if [ ! -f "$CERT_DIR/root.pem" ] || [ "$ROTATE_ROOT_CA" = "true" ]; then
   openssl genrsa -out "$CERT_DIR/root-key.pem" 4096
   openssl req -new -x509 -sha256 -key "$CERT_DIR/root-key.pem" -out "$CERT_DIR/root.pem" -days $DAYS_VALID -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$ORG_UNIT/CN=ServiceRadar Root CA"
   chmod 644 "$CERT_DIR/root.pem"; chmod 640 "$CERT_DIR/root-key.pem"
 fi
-if [ ! -f "$CERT_DIR/cnpg-ca.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
+if [ ! -f "$CERT_DIR/cnpg-ca.pem" ] || [ "$ROTATE_CNPG_CA" = "true" ]; then
   openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/cnpg-ca-key.pem"
   cat > "$CERT_DIR/cnpg-ca.conf" <<EOF
 [req]
