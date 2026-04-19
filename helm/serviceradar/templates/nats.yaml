@@ -186,10 +186,10 @@ spec:
                 user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["logs.syslog", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                    allow: ["logs.syslog", "otel.>", "logs.otel", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -197,10 +197,10 @@ spec:
                 user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                    allow: ["logs.syslog", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -208,10 +208,10 @@ spec:
                 user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["otel.>", "logs.otel", "$JS.API.>"]
+                    allow: ["otel.>", "logs.otel", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -219,10 +219,10 @@ spec:
                 user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                    allow: ["logs.snmp", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -230,10 +230,10 @@ spec:
                 user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -241,10 +241,10 @@ spec:
                 user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -252,10 +252,10 @@ spec:
                 user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["arancini.updates", "arancini.updates.>", "$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "$JS.API.>"]
+                    allow: ["arancini.updates", "arancini.updates.>", "\$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "\$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -263,10 +263,10 @@ spec:
                 user: "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["falco.>", "$JS.API.STREAM.INFO.falco_events", "$JS.API.STREAM.CREATE.falco_events", "$JS.API.>"]
+                    allow: ["falco.>", "\$JS.API.STREAM.INFO.falco_events", "\$JS.API.STREAM.CREATE.falco_events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
