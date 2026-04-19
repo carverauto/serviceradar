@@ -3,6 +3,7 @@ import Config
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 
+alias Cluster.Strategy.DNSPoll
 alias Geolix.Adapter.MMDB2
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
@@ -329,8 +330,190 @@ if config_env() == :prod do
     trust_bundle_path: spiffe_bundle_path
 
   # Cluster configuration
+  hosted_cluster_contract =
+    case System.get_env("SERVICERADAR_HOSTED_CLUSTER_CONTRACT") do
+      nil ->
+        %{}
+
+      raw ->
+        case Jason.decode(raw) do
+          {:ok, contract} when is_map(contract) -> contract
+          _ -> %{}
+        end
+    end
+
+  cluster_strategy =
+    get_in(hosted_cluster_contract, ["strategy"]) ||
+      "CLUSTER_STRATEGY"
+      |> System.get_env("epmd")
+      |> String.downcase()
+
+  cluster_enabled =
+    case get_in(hosted_cluster_contract, ["enabled"]) do
+      value when is_boolean(value) -> value
+      _ -> System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
+    end
+
+  topologies =
+    if cluster_enabled do
+      case cluster_strategy do
+        "kubernetes" ->
+          namespace = System.get_env("NAMESPACE", "serviceradar")
+          kubernetes_selector = System.get_env("KUBERNETES_SELECTOR", "app=serviceradar-core")
+
+          kubernetes_node_basename =
+            System.get_env("KUBERNETES_NODE_BASENAME", "serviceradar_core")
+
+          web_service =
+            System.get_env("CLUSTER_WEB_SERVICE", "serviceradar-web-ng-headless")
+
+          web_node_basename =
+            System.get_env("CLUSTER_WEB_NODE_BASENAME", "serviceradar_web_ng")
+
+          gateway_service =
+            System.get_env("CLUSTER_GATEWAY_SERVICE", "serviceradar-agent-gateway-headless")
+
+          gateway_node_basename =
+            System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
+
+          [
+            serviceradar: [
+              strategy: Cluster.Strategy.Kubernetes,
+              config: [
+                mode: :dns,
+                kubernetes_node_basename: kubernetes_node_basename,
+                kubernetes_selector: kubernetes_selector,
+                kubernetes_namespace: namespace,
+                polling_interval: 5_000
+              ]
+            ],
+            serviceradar_web: [
+              strategy: Cluster.Strategy.Kubernetes.DNS,
+              config: [
+                service: web_service,
+                application_name: web_node_basename,
+                namespace: namespace,
+                polling_interval: 5_000
+              ]
+            ],
+            serviceradar_gateway: [
+              strategy: Cluster.Strategy.Kubernetes.DNS,
+              config: [
+                service: gateway_service,
+                application_name: gateway_node_basename,
+                namespace: namespace,
+                polling_interval: 5_000
+              ]
+            ]
+          ]
+
+        "dns" ->
+          dns_query =
+            get_in(hosted_cluster_contract, ["core", "dns_query"]) ||
+              System.get_env("CLUSTER_DNS_QUERY", "")
+
+          node_basename =
+            get_in(hosted_cluster_contract, ["core", "node_basename"]) ||
+              System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_core")
+
+          web_dns_query =
+            get_in(hosted_cluster_contract, ["core", "web_dns_query"]) ||
+              System.get_env("CLUSTER_WEB_DNS_QUERY", "")
+
+          web_node_basename =
+            get_in(hosted_cluster_contract, ["core", "web_node_basename"]) ||
+              System.get_env("CLUSTER_WEB_NODE_BASENAME", "serviceradar_web_ng")
+
+          gateway_dns_query =
+            get_in(hosted_cluster_contract, ["core", "gateway_dns_query"]) ||
+              System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
+
+          gateway_node_basename =
+            get_in(hosted_cluster_contract, ["core", "gateway_node_basename"]) ||
+              System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
+
+          maybe_add_dns_topology = fn current_topologies, name, query, basename ->
+            if query in [nil, ""] do
+              current_topologies
+            else
+              current_topologies ++
+                [
+                  {name,
+                   [
+                     strategy: DNSPoll,
+                     config: [
+                       polling_interval: 5_000,
+                       query: query,
+                       node_basename: basename
+                     ]
+                   ]}
+                ]
+            end
+          end
+
+          []
+          |> maybe_add_dns_topology.(:serviceradar, dns_query, node_basename)
+          |> maybe_add_dns_topology.(:serviceradar_web, web_dns_query, web_node_basename)
+          |> maybe_add_dns_topology.(
+            :serviceradar_gateway,
+            gateway_dns_query,
+            gateway_node_basename
+          )
+
+        "epmd" ->
+          hosts_str = System.get_env("CLUSTER_HOSTS", "")
+
+          hosts =
+            hosts_str
+            |> String.split(",", trim: true)
+            |> Enum.map(&String.trim/1)
+            |> Enum.map(&String.to_atom/1)
+
+          if hosts == [] do
+            []
+          else
+            [
+              serviceradar: [
+                strategy: Cluster.Strategy.Epmd,
+                config: [hosts: hosts]
+              ]
+            ]
+          end
+
+        "gossip" ->
+          gossip_port = String.to_integer(System.get_env("CLUSTER_GOSSIP_PORT", "45892"))
+          gossip_secret = System.get_env("CLUSTER_GOSSIP_SECRET")
+
+          if gossip_secret do
+            [
+              serviceradar: [
+                strategy: Cluster.Strategy.Gossip,
+                config: [
+                  port: gossip_port,
+                  if_addr: "0.0.0.0",
+                  multicast_addr: "230.1.1.1",
+                  multicast_ttl: 1,
+                  secret: gossip_secret
+                ]
+              ]
+            ]
+          else
+            []
+          end
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+
+  if topologies != [] do
+    config :libcluster, topologies: topologies
+  end
+
   config :serviceradar_core,
-    cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") == "true"
+    cluster_enabled: cluster_enabled
 
   config :serviceradar_core,
     device_enrichment_rules_dir:
