@@ -524,6 +524,7 @@ agentGateway:
       cpu: "200m"
       memory: "512Mi"
 dbEventWriter:
+  replicaCount: 1
   # Enable database migrations on startup (creates otel_traces, logs, etc. tables)
   enableMigrations: true
   # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
@@ -531,6 +532,12 @@ dbEventWriter:
   kvBootstrap:
     enabled: true
 logCollector:
+  replicaCount: 1
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
   probes:
     liveness:
       initialDelaySeconds: 30
@@ -577,6 +584,7 @@ logCollector:
         protocol: UDP
   tcpCollector:
     enabled: false
+    replicaCount: 1
     listen: "0.0.0.0:514"
     format: "rfc3164"
     framing: "line"
@@ -612,6 +620,7 @@ logCollector:
         memory: "512Mi"
         cpu: "500m"
 trapd:
+  replicaCount: 1
   # External service configuration for SNMP trap ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
@@ -628,6 +637,7 @@ trapd:
         protocol: UDP
 flowCollector:
   enabled: false
+  replicaCount: 1
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"

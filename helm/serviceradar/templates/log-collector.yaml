@@ -1,6 +1,7 @@
 {{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
 {{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
 {{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
+{{- $logCollectorData := .Values.logCollector.data | default dict -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -73,6 +74,7 @@ data:
     [grpc_tls]
     cert_file = "/etc/serviceradar/certs/log-collector.pem"
     key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+{{- if and ($logCollectorData.enabled | default true) (not $logCollectorData.existingClaim) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -83,7 +85,11 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: {{ default "1Gi" $logCollectorData.size | quote }}
+  {{- if $logCollectorData.storageClassName }}
+  storageClassName: {{ $logCollectorData.storageClassName | quote }}
+  {{- end }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -92,7 +98,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ .Values.logCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-log-collector
@@ -225,8 +231,15 @@ spec:
           secretName: serviceradar-nats-creds
       {{- end }}
       - name: log-collector-data
+        {{- if $logCollectorData.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $logCollectorData.existingClaim | quote }}
+        {{- else if ($logCollectorData.enabled | default true) }}
         persistentVolumeClaim:
           claimName: serviceradar-log-collector-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       - name: logs
         emptyDir: {}
       {{- if .Values.spire.enabled }}
