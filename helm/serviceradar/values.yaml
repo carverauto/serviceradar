@@ -74,7 +74,7 @@ nats:
     storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
-  runtimeLayoutVersion: "3"
+  runtimeLayoutVersion: "4"
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
     enabled: false
@@ -111,6 +111,12 @@ core:
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
   clusterStrategy: "dns"
+  clusterWebService: "serviceradar-web-ng-headless"
+  clusterWebDnsQuery: ""
+  clusterWebNodeBasename: "serviceradar_web_ng"
+  clusterGatewayService: "serviceradar-agent-gateway-headless"
+  clusterGatewayDnsQuery: ""
+  clusterGatewayNodeBasename: "serviceradar_agent_gateway"
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
@@ -501,6 +507,7 @@ agentGateway:
   gatewayId: "gateway-platform"
   partitionId: "default"
   domain: "default"
+  publicHostname: ""
   capabilities: "icmp,tcp,http,grpc"
   clusterStrategy: "dns"
   clusterCoreService: "serviceradar-core-elx-headless"

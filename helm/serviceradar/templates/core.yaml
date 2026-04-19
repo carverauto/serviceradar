@@ -85,6 +85,14 @@ spec:
           value: {{ printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace | quote }}
         - name: CLUSTER_NODE_BASENAME
           value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_WEB_DNS_QUERY
+          value: {{ default (printf "serviceradar-web-ng-headless.%s.svc.cluster.local" .Release.Namespace) $coreVals.clusterWebDnsQuery | quote }}
+        - name: CLUSTER_WEB_NODE_BASENAME
+          value: {{ default "serviceradar_web_ng" $coreVals.clusterWebNodeBasename | quote }}
+        - name: CLUSTER_GATEWAY_DNS_QUERY
+          value: {{ default (printf "serviceradar-agent-gateway-headless.%s.svc.cluster.local" .Release.Namespace) $coreVals.clusterGatewayDnsQuery | quote }}
+        - name: CLUSTER_GATEWAY_NODE_BASENAME
+          value: {{ default "serviceradar_agent_gateway" $coreVals.clusterGatewayNodeBasename | quote }}
         - name: NAMESPACE
           valueFrom:
             fieldRef:
@@ -105,6 +113,10 @@ spec:
           value: {{ $coreClusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME
           value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_WEB_SERVICE
+          value: {{ default "serviceradar-web-ng-headless" $coreVals.clusterWebService | quote }}
+        - name: CLUSTER_GATEWAY_SERVICE
+          value: {{ default "serviceradar-agent-gateway-headless" $coreVals.clusterGatewayService | quote }}
         - name: RELEASE_NODE
           value: "serviceradar_core@$(POD_IP)"
         - name: RELEASE_DISTRIBUTION

@@ -50,6 +50,7 @@ logCollector:
 agentGateway:
   enabled: true
   replicas: 3
+  publicHostname: "demo-gw.serviceradar.cloud"
   service:
     type: LoadBalancer
     port: 50052
@@ -189,7 +190,7 @@ webNg:
       cpu: "500m"
       memory: 2Gi
   devRoutes: "true"
-  localMailer: "true"
+  localMailer: "false"
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true
@@ -238,6 +239,8 @@ gobgp:
 
 core:
   replicas: 3
+  clusterWebDnsQuery: "serviceradar-web-ng-headless.demo.svc.cluster.local"
+  clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
   database:
     poolSize: 10
   # MTR automation rollout profiles (copy/paste into mtrAutomation):

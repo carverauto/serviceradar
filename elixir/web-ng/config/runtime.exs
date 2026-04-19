@@ -823,12 +823,25 @@ if config_env() == :prod do
       _ -> false
     end
 
-  local_mailer =
+  local_mailer_requested =
     case System.get_env("SERVICERADAR_LOCAL_MAILER") do
       "true" -> true
       "1" -> true
       "yes" -> true
       _ -> false
+    end
+
+  local_mailer =
+    if local_mailer_requested and cluster_enabled do
+      require Logger
+
+      Logger.warning(
+        "SERVICERADAR_LOCAL_MAILER is disabled because clustered web-ng replicas cannot share local Swoosh storage safely"
+      )
+
+      false
+    else
+      local_mailer_requested
     end
 
   # Security mode for edge onboarding: "mtls" for docker deployments, "spire" for k8s
