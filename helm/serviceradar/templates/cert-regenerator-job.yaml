@@ -81,6 +81,8 @@ spec:
           value: {{ default "default" (default (dict) .Values.agent).partitionId | quote }}
         - name: DEFAULT_AGENT_COMPONENT_ID
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
+        - name: RUNTIME_CERT_LAYOUT_VERSION
+          value: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
         args:
         - |
           set -euo pipefail
@@ -92,6 +94,7 @@ spec:
           chmod +x /tmp/generate-certs.sh
           mkdir -p "${CERT_DIR}"
           bash /tmp/generate-certs.sh
+          printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
 
           python3 <<'PY'
           import base64

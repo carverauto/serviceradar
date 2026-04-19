@@ -74,6 +74,7 @@ nats:
     storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
+  runtimeLayoutVersion: "2"
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
     enabled: false
