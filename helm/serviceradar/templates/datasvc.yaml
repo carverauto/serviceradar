@@ -1,4 +1,7 @@
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+{{- $datasvc := default (dict) .Values.datasvc -}}
+{{- $datasvcData := default (dict) (get $datasvc "data") -}}
+{{- $datasvcDataEnabled := ne false (get $datasvcData "enabled") -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -10,7 +13,7 @@ kind: Deployment
 metadata:
   name: serviceradar-datasvc
 spec:
-  replicas: {{ .Values.datasvc.replicaCount | default 1 }}
+  replicas: {{ get $datasvc "replicaCount" | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-datasvc
@@ -115,7 +118,7 @@ spec:
           optional: true
       {{- end }}
       - name: datasvc-data
-        {{- if .Values.datasvc.data.enabled | default true }}
+        {{- if $datasvcDataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-datasvc-data
         {{- else }}
@@ -139,7 +142,7 @@ spec:
   - name: grpc
     port: 50057
     targetPort: grpc
-{{- if .Values.datasvc.data.enabled | default true }}
+{{- if $datasvcDataEnabled }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -150,8 +153,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ .Values.datasvc.data.size | default "5Gi" | quote }}
-  {{- if .Values.datasvc.data.storageClassName }}
-  storageClassName: {{ .Values.datasvc.data.storageClassName | quote }}
+      storage: {{ get $datasvcData "size" | default "5Gi" | quote }}
+  {{- if get $datasvcData "storageClassName" }}
+  storageClassName: {{ get $datasvcData "storageClassName" | quote }}
   {{- end }}
 {{- end }}

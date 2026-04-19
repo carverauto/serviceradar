@@ -1,7 +1,8 @@
 {{- if .Values.bmpCollector.enabled }}
 {{- $data := default (dict) .Values.bmpCollector.data -}}
 {{- $cfg := default (dict) .Values.bmpCollector.config -}}
-{{- if and ($data.enabled | default true) (not $data.existingClaim) }}
+{{- $dataEnabled := ne false (get $data "enabled") -}}
+{{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -143,7 +144,7 @@ spec:
         {{- if $data.existingClaim }}
         persistentVolumeClaim:
           claimName: {{ $data.existingClaim | quote }}
-        {{- else if ($data.enabled | default true) }}
+        {{- else if $dataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-bmp-collector-data
         {{- else }}
