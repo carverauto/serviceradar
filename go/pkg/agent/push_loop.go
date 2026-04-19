@@ -773,6 +773,7 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
+	runtimeMetadata := currentRuntimeMetadata()
 
 	if len(statuses) > 0 {
 		var invalidNames int
@@ -816,6 +817,10 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 		Partition: partition,
 		SourceIp:  p.getSourceIP(),
 		KvStoreId: kvStoreID,
+		Version:   runtimeMetadata.Version,
+		Hostname:  runtimeMetadata.Hostname,
+		Os:        runtimeMetadata.Os,
+		Arch:      runtimeMetadata.Arch,
 	}
 
 	resp, err := p.gateway.PushStatus(ctx, req)
@@ -848,6 +853,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
+	runtimeMetadata := currentRuntimeMetadata()
 
 	var chunks []*proto.GatewayStatusChunk
 
@@ -869,6 +875,10 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 					Timestamp: time.Now().UnixNano(),
 					Partition: partition,
 					SourceIp:  p.getSourceIP(),
+					Version:   runtimeMetadata.Version,
+					Hostname:  runtimeMetadata.Hostname,
+					Os:        runtimeMetadata.Os,
+					Arch:      runtimeMetadata.Arch,
 				})
 			}
 		}
@@ -886,6 +896,10 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 			IsFinal:     true,
 			ChunkIndex:  0,
 			TotalChunks: 1,
+			Version:     runtimeMetadata.Version,
+			Hostname:    runtimeMetadata.Hostname,
+			Os:          runtimeMetadata.Os,
+			Arch:        runtimeMetadata.Arch,
 		})
 	}
 
@@ -968,6 +982,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
+	runtimeMetadata := currentRuntimeMetadata()
 
 	if snmpSvc == nil || !snmpSvc.IsEnabled() {
 		return false
@@ -1031,6 +1046,10 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		ChunkIndex:  0,
 		TotalChunks: 1,
 		KvStoreId:   kvStoreID,
+		Version:     runtimeMetadata.Version,
+		Hostname:    runtimeMetadata.Hostname,
+		Os:          runtimeMetadata.Os,
+		Arch:        runtimeMetadata.Arch,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -1059,6 +1078,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
+	runtimeMetadata := currentRuntimeMetadata()
 
 	if pluginManager == nil {
 		return false
@@ -1092,6 +1112,10 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 			ChunkIndex:  int32(i),
 			TotalChunks: int32(len(results)),
 			KvStoreId:   kvStoreID,
+			Version:     runtimeMetadata.Version,
+			Hostname:    runtimeMetadata.Hostname,
+			Os:          runtimeMetadata.Os,
+			Arch:        runtimeMetadata.Arch,
 		}
 		chunks = append(chunks, chunk)
 	}
@@ -1133,6 +1157,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
+	runtimeMetadata := currentRuntimeMetadata()
 
 	if pluginManager == nil {
 		return false
@@ -1165,6 +1190,10 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 		Partition: partition,
 		SourceIp:  p.getSourceIP(),
 		KvStoreId: kvStoreID,
+		Version:   runtimeMetadata.Version,
+		Hostname:  runtimeMetadata.Hostname,
+		Os:        runtimeMetadata.Os,
+		Arch:      runtimeMetadata.Arch,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -2147,6 +2176,7 @@ func buildResultsStatusChunksForAgent(
 	}
 
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
+	runtimeMetadata := currentRuntimeMetadata()
 
 	for _, chunk := range chunks {
 		if chunk == nil {
@@ -2176,10 +2206,35 @@ func buildResultsStatusChunksForAgent(
 			ChunkIndex:  chunk.ChunkIndex,
 			TotalChunks: chunk.TotalChunks,
 			KvStoreId:   "",
+			Version:     runtimeMetadata.Version,
+			Hostname:    runtimeMetadata.Hostname,
+			Os:          runtimeMetadata.Os,
+			Arch:        runtimeMetadata.Arch,
 		})
 	}
 
 	return statusChunks
+}
+
+type statusRuntimeMetadata struct {
+	Version  string
+	Hostname string
+	Os       string
+	Arch     string
+}
+
+func currentRuntimeMetadata() statusRuntimeMetadata {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = ""
+	}
+
+	return statusRuntimeMetadata{
+		Version:  Version,
+		Hostname: hostname,
+		Os:       runtime.GOOS,
+		Arch:     runtime.GOARCH,
+	}
 }
 
 // getSourceIP attempts to determine the source IP of this agent.

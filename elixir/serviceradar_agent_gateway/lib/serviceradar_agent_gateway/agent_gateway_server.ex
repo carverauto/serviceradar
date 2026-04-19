@@ -575,6 +575,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         _ -> get_peer_ip(stream)
       end
 
+    track_connected_agent(agent_id, partition_id, request, source_ip)
+
     config_source = extract_config_source(request)
 
     touch_agent_record(identity, agent_id, partition_id, source_ip, config_source)

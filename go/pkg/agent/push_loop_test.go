@@ -82,3 +82,41 @@ func TestEvaluateStatusPushHeartbeat(t *testing.T) {
 		t.Fatalf("expected heartbeat push, got %+v", afterHeartbeat)
 	}
 }
+
+func TestBuildResultsStatusChunksForAgentIncludesRuntimeMetadata(t *testing.T) {
+	metadata := currentRuntimeMetadata()
+	chunks := buildResultsStatusChunksForAgent(
+		[]*proto.ResultsChunk{
+			{
+				Data:        []byte(`{"ok":true}`),
+				IsFinal:     true,
+				ChunkIndex:  0,
+				TotalChunks: 1,
+				Timestamp:   time.Now().UnixNano(),
+			},
+		},
+		"sysmon",
+		"sysmon",
+		"agent-1",
+		"default",
+		"gateway-1",
+	)
+
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+
+	chunk := chunks[0]
+	if chunk.Version != metadata.Version {
+		t.Fatalf("expected version %q, got %q", metadata.Version, chunk.Version)
+	}
+	if chunk.Hostname != metadata.Hostname {
+		t.Fatalf("expected hostname %q, got %q", metadata.Hostname, chunk.Hostname)
+	}
+	if chunk.Os != metadata.Os {
+		t.Fatalf("expected os %q, got %q", metadata.Os, chunk.Os)
+	}
+	if chunk.Arch != metadata.Arch {
+		t.Fatalf("expected arch %q, got %q", metadata.Arch, chunk.Arch)
+	}
+}

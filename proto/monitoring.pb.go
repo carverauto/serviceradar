@@ -1309,6 +1309,10 @@ type GatewayStatusRequest struct {
 	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`              // Host IP where agent is running
 	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`         // KV store identifier this agent is using
 	ConfigSource  string                  `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
+	Version       string                  `protobuf:"bytes,11,opt,name=version,proto3" json:"version,omitempty"`                               // Agent runtime version at push time
+	Hostname      string                  `protobuf:"bytes,12,opt,name=hostname,proto3" json:"hostname,omitempty"`                             // Agent host name at push time
+	Os            string                  `protobuf:"bytes,13,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
+	Arch          string                  `protobuf:"bytes,14,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1399,6 +1403,34 @@ func (x *GatewayStatusRequest) GetConfigSource() string {
 	return ""
 }
 
+func (x *GatewayStatusRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
 // GatewayStatusResponse is the response from the gateway after receiving status.
 type GatewayStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1458,6 +1490,10 @@ type GatewayStatusChunk struct {
 	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`    // Total number of chunks
 	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`        // KV store identifier this agent is using
 	ConfigSource  string                  `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
+	Version       string                  `protobuf:"bytes,14,opt,name=version,proto3" json:"version,omitempty"`                               // Agent runtime version at push time
+	Hostname      string                  `protobuf:"bytes,15,opt,name=hostname,proto3" json:"hostname,omitempty"`                             // Agent host name at push time
+	Os            string                  `protobuf:"bytes,16,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
+	Arch          string                  `protobuf:"bytes,17,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1565,6 +1601,34 @@ func (x *GatewayStatusChunk) GetKvStoreId() string {
 func (x *GatewayStatusChunk) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetArch() string {
+	if x != nil {
+		return x.Arch
 	}
 	return ""
 }
@@ -4375,7 +4439,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x15port_exhaustion_count\x18\n" +
 	" \x01(\x04R\x13portExhaustionCount\x120\n" +
 	"\x14rate_limit_deferrals\x18\v \x01(\x04R\x12rateLimitDeferrals\x12/\n" +
-	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\xb8\x02\n" +
+	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\x92\x03\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -4386,10 +4450,14 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12\x1e\n" +
 	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\x12#\n" +
 	"\rconfig_source\x18\n" +
-	" \x01(\tR\fconfigSourceJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	" \x01(\tR\fconfigSource\x12\x18\n" +
+	"\aversion\x18\v \x01(\tR\aversion\x12\x1a\n" +
+	"\bhostname\x18\f \x01(\tR\bhostname\x12\x0e\n" +
+	"\x02os\x18\r \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\x0e \x01(\tR\x04archJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
 	"\"3\n" +
 	"\x15GatewayStatusResponse\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"\x95\x03\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\xef\x03\n" +
 	"\x12GatewayStatusChunk\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -4404,7 +4472,11 @@ const file_monitoring_proto_rawDesc = "" +
 	"\ftotal_chunks\x18\t \x01(\x05R\vtotalChunks\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
 	" \x01(\tR\tkvStoreId\x12#\n" +
-	"\rconfig_source\x18\r \x01(\tR\fconfigSourceJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
+	"\rconfig_source\x18\r \x01(\tR\fconfigSource\x12\x18\n" +
+	"\aversion\x18\x0e \x01(\tR\aversion\x12\x1a\n" +
+	"\bhostname\x18\x0f \x01(\tR\bhostname\x12\x0e\n" +
+	"\x02os\x18\x10 \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\x11 \x01(\tR\x04archJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
 	"\x14GatewayServiceStatus\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +

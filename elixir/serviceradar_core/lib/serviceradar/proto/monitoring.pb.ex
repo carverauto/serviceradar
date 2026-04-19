@@ -292,6 +292,10 @@ defmodule Monitoring.GatewayStatusRequest do
   field(:source_ip, 6, type: :string, json_name: "sourceIp")
   field(:kv_store_id, 7, type: :string, json_name: "kvStoreId")
   field(:config_source, 10, type: :string, json_name: "configSource")
+  field(:version, 11, type: :string)
+  field(:hostname, 12, type: :string)
+  field(:os, 13, type: :string)
+  field(:arch, 14, type: :string)
 end
 
 defmodule Monitoring.GatewayStatusResponse do
@@ -324,6 +328,10 @@ defmodule Monitoring.GatewayStatusChunk do
   field(:total_chunks, 9, type: :int32, json_name: "totalChunks")
   field(:kv_store_id, 10, type: :string, json_name: "kvStoreId")
   field(:config_source, 13, type: :string, json_name: "configSource")
+  field(:version, 14, type: :string)
+  field(:hostname, 15, type: :string)
+  field(:os, 16, type: :string)
+  field(:arch, 17, type: :string)
 end
 
 defmodule Monitoring.GatewayServiceStatus do

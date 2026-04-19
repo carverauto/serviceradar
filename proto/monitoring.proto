@@ -173,6 +173,10 @@ message GatewayStatusRequest {
   string kv_store_id = 7;      // KV store identifier this agent is using
   reserved 8, 9;               // Removed: deployment identifiers (single-deployment)
   string config_source = 10;   // Source of sysmon config: "remote", "local", "cached", "default"
+  string version = 11;         // Agent runtime version at push time
+  string hostname = 12;        // Agent host name at push time
+  string os = 13;              // Agent runtime OS at push time
+  string arch = 14;            // Agent runtime architecture at push time
 }
 
 // GatewayStatusResponse is the response from the gateway after receiving status.
@@ -194,6 +198,10 @@ message GatewayStatusChunk {
   string kv_store_id = 10;     // KV store identifier this agent is using
   reserved 11, 12;             // Removed: deployment identifiers (single-deployment)
   string config_source = 13;   // Source of sysmon config: "remote", "local", "cached", "default"
+  string version = 14;         // Agent runtime version at push time
+  string hostname = 15;        // Agent host name at push time
+  string os = 16;              // Agent runtime OS at push time
+  string arch = 17;            // Agent runtime architecture at push time
 }
 
 // GatewayServiceStatus represents a single service status pushed by an agent.
