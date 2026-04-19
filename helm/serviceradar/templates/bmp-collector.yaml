@@ -43,6 +43,7 @@ data:
       "subject_prefix" (default "arancini.updates" $cfg.subjectPrefix)
       "stream_subjects" (default (list) $cfg.streamSubjects)
       "stream_max_bytes" (default 10737418240 $cfg.streamMaxBytes)
+      "stream_replicas" (default 1 $cfg.streamReplicas)
       "publish_timeout_ms" (default 5000 $cfg.publishTimeoutMs)
       | toPrettyJson | nindent 4 }}
 ---

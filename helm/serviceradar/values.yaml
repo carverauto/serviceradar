@@ -698,6 +698,7 @@ bmpCollector:
     subjectPrefix: "arancini.updates"
     streamSubjects: []
     streamMaxBytes: 10737418240
+    streamReplicas: 1
     publishTimeoutMs: 5000
   data:
     enabled: true
