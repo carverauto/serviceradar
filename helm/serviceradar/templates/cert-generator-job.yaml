@@ -176,6 +176,7 @@ spec:
           tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
           chmod +x /tmp/generate-certs.sh
           mkdir -p "${CERT_DIR}"
+          export FORCE_REGENERATE=true
           bash /tmp/generate-certs.sh
           printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
 
