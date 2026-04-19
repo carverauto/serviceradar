@@ -13,7 +13,7 @@ DEFAULT_AGENT_COMPONENT_ID="${DEFAULT_AGENT_COMPONENT_ID:-agent-001}"
 mkdir -p "$CERT_DIR"
 mkdir -p "$CERT_DIR/components"
 chmod 755 "$CERT_DIR"
-if [ ! -f "$CERT_DIR/root.pem" ]; then
+if [ ! -f "$CERT_DIR/root.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
   openssl genrsa -out "$CERT_DIR/root-key.pem" 4096
   openssl req -new -x509 -sha256 -key "$CERT_DIR/root-key.pem" -out "$CERT_DIR/root.pem" -days $DAYS_VALID -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$ORG_UNIT/CN=ServiceRadar Root CA"
   chmod 644 "$CERT_DIR/root.pem"; chmod 640 "$CERT_DIR/root-key.pem"
@@ -81,57 +81,57 @@ generate_cert "bmp-collector" "serviceradar-bmp-collector" "DNS:serviceradar-bmp
 generate_cert "falcosidekick" "serviceradar-falcosidekick" "DNS:serviceradar-falcosidekick,DNS:falcosidekick,DNS:falcosidekick-nats-auth,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
-if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
+if [ -f "$CERT_DIR/root.pem" ] && { [ ! -f "$CERT_DIR/ca.crt" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
   chmod 644 "$CERT_DIR/ca.crt"
 fi
-if [ -f "$CERT_DIR/tools.pem" ] && [ ! -f "$CERT_DIR/client.pem" ]; then
+if [ -f "$CERT_DIR/tools.pem" ] && { [ ! -f "$CERT_DIR/client.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/tools.pem" "$CERT_DIR/client.pem"
   chmod 644 "$CERT_DIR/client.pem"
 fi
-if [ -f "$CERT_DIR/tools-key.pem" ] && [ ! -f "$CERT_DIR/client-key.pem" ]; then
+if [ -f "$CERT_DIR/tools-key.pem" ] && { [ ! -f "$CERT_DIR/client-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/tools-key.pem" "$CERT_DIR/client-key.pem"
   chmod 640 "$CERT_DIR/client-key.pem"
 fi
 if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then
-  if [ ! -f "$CERT_DIR/flow-client.crt" ]; then
+  if [ ! -f "$CERT_DIR/flow-client.crt" ] || [ "$FORCE_REGENERATE" = "true" ]; then
     cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/flow-client.crt"
     chmod 644 "$CERT_DIR/flow-client.crt"
   fi
-  if [ ! -f "$CERT_DIR/flow-client.key" ]; then
+  if [ ! -f "$CERT_DIR/flow-client.key" ] || [ "$FORCE_REGENERATE" = "true" ]; then
     cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/flow-client.key"
     chmod 600 "$CERT_DIR/flow-client.key"
   fi
 fi
-if [ -f "$CERT_DIR/flow-collector.pem" ] && [ ! -f "$CERT_DIR/netflow-collector.pem" ]; then
+if [ -f "$CERT_DIR/flow-collector.pem" ] && { [ ! -f "$CERT_DIR/netflow-collector.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/netflow-collector.pem"
   chmod 644 "$CERT_DIR/netflow-collector.pem"
 fi
-if [ -f "$CERT_DIR/flow-collector-key.pem" ] && [ ! -f "$CERT_DIR/netflow-collector-key.pem" ]; then
+if [ -f "$CERT_DIR/flow-collector-key.pem" ] && { [ ! -f "$CERT_DIR/netflow-collector-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/netflow-collector-key.pem"
   chmod 600 "$CERT_DIR/netflow-collector-key.pem"
 fi
-if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/flowgger.pem" ]; then
+if [ -f "$CERT_DIR/log-collector.pem" ] && { [ ! -f "$CERT_DIR/flowgger.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/flowgger.pem"
   chmod 644 "$CERT_DIR/flowgger.pem"
 fi
-if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/flowgger-key.pem" ]; then
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && { [ ! -f "$CERT_DIR/flowgger-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/flowgger-key.pem"
   chmod 600 "$CERT_DIR/flowgger-key.pem"
 fi
-if [ -f "$CERT_DIR/log-collector.pem" ] && [ ! -f "$CERT_DIR/otel.pem" ]; then
+if [ -f "$CERT_DIR/log-collector.pem" ] && { [ ! -f "$CERT_DIR/otel.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/otel.pem"
   chmod 644 "$CERT_DIR/otel.pem"
 fi
-if [ -f "$CERT_DIR/log-collector-key.pem" ] && [ ! -f "$CERT_DIR/otel-key.pem" ]; then
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && { [ ! -f "$CERT_DIR/otel-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
   chmod 600 "$CERT_DIR/otel-key.pem"
 fi
-if [ -f "$CERT_DIR/rperf-client.pem" ] && [ ! -f "$CERT_DIR/rperf-checker.pem" ]; then
+if [ -f "$CERT_DIR/rperf-client.pem" ] && { [ ! -f "$CERT_DIR/rperf-checker.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/rperf-client.pem" "$CERT_DIR/rperf-checker.pem"
   chmod 644 "$CERT_DIR/rperf-checker.pem"
 fi
-if [ -f "$CERT_DIR/rperf-client-key.pem" ] && [ ! -f "$CERT_DIR/rperf-checker-key.pem" ]; then
+if [ -f "$CERT_DIR/rperf-client-key.pem" ] && { [ ! -f "$CERT_DIR/rperf-checker-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/rperf-client-key.pem" "$CERT_DIR/rperf-checker-key.pem"
   chmod 600 "$CERT_DIR/rperf-checker-key.pem"
 fi
