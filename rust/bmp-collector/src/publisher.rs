@@ -3,8 +3,8 @@ use crate::model;
 use anyhow::{Context, Result};
 use arancini_lib::sender::UpdateSender;
 use arancini_lib::update::Update;
-use async_nats::ConnectOptions;
 use async_nats::jetstream::{self, stream::StorageType};
+use async_nats::ConnectOptions;
 use log::debug;
 use log::warn;
 use std::net::IpAddr;
@@ -66,7 +66,22 @@ impl Publisher {
         Ok(Self { config, js })
     }
 
-    async fn publish_update(&self, update: Update) -> Result<()> {
+    async fn publish_update(&self, update: &Update) -> Result<()> {
+        match self.publish_update_once(update).await {
+            Ok(()) => Ok(()),
+            Err(err) if stream_missing(&err) => {
+                warn!(
+                    "JetStream stream {} missing while publishing; re-ensuring stream and retrying once",
+                    self.config.stream_name
+                );
+                ensure_stream(&self.config, &self.js).await?;
+                self.publish_update_once(update).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn publish_update_once(&self, update: &Update) -> Result<()> {
         let subject = subject_for_update(&self.config.subject_prefix, &update);
         let payload = serde_json::to_vec(&model::to_payload(&update))?;
         let ack = self
@@ -135,8 +150,16 @@ impl UpdateSender for Publisher {
         &'a self,
         update: Update,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move { self.publish_update(update).await })
+        Box::pin(async move { self.publish_update(&update).await })
     }
+}
+
+fn stream_missing(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .to_string()
+            .contains("no stream found for given subject")
+    })
 }
 
 fn subject_for_update(base_subject: &str, update: &Update) -> String {
@@ -223,6 +246,7 @@ async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
                 storage: StorageType::File,
                 max_bytes: config.stream_max_bytes,
                 max_age: Duration::from_secs(24 * 60 * 60),
+                num_replicas: config.stream_replicas,
                 ..Default::default()
             };
             js.get_or_create_stream(cfg).await?;

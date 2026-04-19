@@ -391,9 +391,10 @@ bmpCollector:
     - "--curation-snapshot-backend=local"
     - "-vvv"
   config:
-    stream_max_bytes: 1073741824
-    nats_tls_client_cert_path: "/etc/serviceradar/certs/bmp-collector.pem"
-    nats_tls_client_key_path: "/etc/serviceradar/certs/bmp-collector-key.pem"
+    streamMaxBytes: 1073741824
+    streamReplicas: 1
+    natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
+    natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
   service:
     type: LoadBalancer
     annotations:

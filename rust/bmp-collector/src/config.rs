@@ -32,6 +32,8 @@ pub struct Config {
     pub stream_subjects: Option<Vec<String>>,
     #[serde(default = "default_stream_max_bytes")]
     pub stream_max_bytes: i64,
+    #[serde(default = "default_stream_replicas")]
+    pub stream_replicas: usize,
     #[serde(default = "default_publish_timeout_ms")]
     pub publish_timeout_ms: u64,
 }
@@ -65,6 +67,9 @@ impl Config {
         }
         if self.subject_prefix.trim().is_empty() {
             anyhow::bail!("subject_prefix is required");
+        }
+        if self.stream_replicas == 0 {
+            anyhow::bail!("stream_replicas must be > 0");
         }
         Ok(())
     }
@@ -114,6 +119,10 @@ fn default_subject_prefix() -> String {
 
 fn default_stream_max_bytes() -> i64 {
     10 * 1024 * 1024 * 1024
+}
+
+fn default_stream_replicas() -> usize {
+    1
 }
 
 fn default_publish_timeout_ms() -> u64 {
