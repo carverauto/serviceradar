@@ -33,7 +33,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ .Values.flowCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-flow-collector

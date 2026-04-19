@@ -17,12 +17,13 @@ But the deployed topology is still effectively singleton for every major control
   - Preserve a single logical owner for coordinator and scheduler duties.
   - Keep live operator-visible state correct across replicas and restarts.
   - Replace singleton demo NATS with a real clustered topology.
+  - Scale stateless observability ingress services in `demo` where shared durable state is not required.
   - Make the demo rollout exercise the same distributed assumptions we claim in architecture docs.
 - Non-Goals:
   - Introduce cross-region or multi-cluster federation.
   - Solve generic autoscaling or horizontal pod autoscaler policy in this change.
   - Redesign every registry/tracker abstraction unless it is required for correct clustered behavior.
-  - Expand this work to all workloads in one pass; initial scope is `core`, `web-ng`, `agent-gateway`, and NATS.
+  - Treat singleton storage or consumer ownership as solved for `datasvc`, `zen`, or `db-event-writer` without explicit redesign.
 
 ## Decisions
 
@@ -56,6 +57,14 @@ Consequences:
 - NATS should move to a clustered contract such as a `StatefulSet` plus headless service, not a replicated singleton deployment.
 - JetStream durability and quorum semantics must be defined explicitly.
 
+### Decision: Stateless ingest services can scale before singleton consumers do
+The next HA slice includes observability ingest services that only receive traffic and publish into shared NATS streams. Those services can scale independently as long as they do not depend on shared node-local state or singleton durable-consumer ownership.
+
+Consequences:
+- `trapd`, `log-collector`, `log-collector-tcp`, and `flow-collector` can use standard multi-replica `Deployment` semantics in `demo`.
+- Services with singleton storage or consumer ownership such as `datasvc`, `zen`, and `db-event-writer` remain explicitly singleton until they have a replica-safe storage and ownership contract.
+- Demo-only storage for safe ingest replicas may use pod-local scratch (`emptyDir`) instead of a shared single PVC when the service does not persist authoritative state there.
+
 ### Decision: Migration ownership must be serialized outside normal multi-replica startup
 Per-pod migration init containers are acceptable for a singleton deployment, but they are the wrong contract for a replicated `core` rollout.
 
@@ -68,16 +77,19 @@ Consequences:
 - Node-local tracker state may continue to be a hidden source of inconsistency if we do not make authoritative live-state rules explicit.
 - Clustered NATS increases operational complexity in exchange for eliminating a major singleton broker failure mode.
 - Moving migrations out of per-pod init paths may require chart and release-flow changes that affect more than `demo`.
+- UDP/TCP ingest services still need runtime validation under external load balancers, especially when `externalTrafficPolicy: Local` is used.
 
 ## Migration Plan
 1. Document the current singleton assumptions and define the target multi-replica topology.
 2. Introduce replica-safe control-plane semantics for `core`, `web-ng`, and `agent-gateway`.
 3. Move `core` migrations to a serialized ownership model.
 4. Convert demo NATS to a clustered topology with durable peer storage.
-5. Validate rolling restarts, single-pod loss, and operator workflows before declaring demo HA-ready.
+5. Scale stateless observability ingest services where pod-local scratch storage is sufficient.
+6. Validate rolling restarts, single-pod loss, and operator workflows before declaring demo HA-ready.
 
 ## Open Questions
 - Should `core` use explicit leader election, or should one replica be assigned coordinator responsibility via deployment topology and readiness contracts?
 - Is the current RPC aggregation over node-local ETS trackers sufficient, or do some live state paths need a more authoritative cluster-wide registry?
 - Do agent connections require service affinity or any gateway-side coordination changes when the gateway pool scales beyond one replica in `demo`?
 - What NATS JetStream quorum and storage layout is acceptable for `demo` versus production?
+- Should `datasvc`, `zen`, and `db-event-writer` move to per-pod durable state, explicit leader ownership, or remain singleton by design?

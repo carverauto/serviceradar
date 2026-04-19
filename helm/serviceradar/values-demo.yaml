@@ -29,6 +29,9 @@ cnpg:
   storageClass: local-path-big
 
 logCollector:
+  replicaCount: 3
+  data:
+    enabled: false
   probes:
     liveness:
       timeoutSeconds: 10
@@ -322,6 +325,7 @@ prometheusRules:
     slowQueryLogThresholdMs: 500
 
 trapd:
+  replicaCount: 3
   externalService:
     enabled: true
     annotations:
@@ -339,6 +343,9 @@ flowgger:
 
 flowCollector:
   enabled: true
+  replicaCount: 3
+  data:
+    enabled: false
   service:
     type: LoadBalancer
     annotations:

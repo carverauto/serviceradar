@@ -58,7 +58,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ $tcpCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-log-collector-tcp
