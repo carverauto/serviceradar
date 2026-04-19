@@ -58,6 +58,8 @@ spec:
       labels:
         app: serviceradar-nats
         app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       containers:

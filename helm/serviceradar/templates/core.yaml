@@ -52,6 +52,7 @@ spec:
         app: serviceradar-core
         app.kubernetes.io/part-of: serviceradar
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
         {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
