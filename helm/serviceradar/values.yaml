@@ -424,6 +424,8 @@ geoipMmdb:
   storageClassName: ""
 webNg:
   replicas: 1
+  database:
+    poolSize: 10
   host: ""
   publicUrl: ""
   godViewEnabled: "true"

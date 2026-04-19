@@ -169,6 +169,8 @@ geoipMmdb:
 
 webNg:
   replicas: 3
+  database:
+    poolSize: 8
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
@@ -233,6 +235,8 @@ gobgp:
 
 core:
   replicas: 3
+  database:
+    poolSize: 10
   # MTR automation rollout profiles (copy/paste into mtrAutomation):
   # baseline_only:
   #   enabled: true
