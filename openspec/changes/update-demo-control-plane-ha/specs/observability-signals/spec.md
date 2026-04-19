@@ -14,11 +14,18 @@ The system SHALL support running stateless observability ingest services with mu
 - **THEN** each replica SHALL be able to use pod-local scratch storage instead of a single shared PVC
 - **AND** scaling the deployment SHALL NOT require all replicas to mount the same ReadWriteOnce claim
 
-### Requirement: Singleton ingest-adjacent services remain explicit
-The system SHALL keep ingest-adjacent services with singleton storage or durable-consumer ownership explicit until a replica-safe ownership contract exists.
+### Requirement: JetStream-backed workers support replicated pull-consumer workers
+The system SHALL support running JetStream-backed observability workers with multiple replicas when they share one durable pull consumer and do not depend on shared node-local durable state.
 
-#### Scenario: Singleton datasvc, zen, and db-event-writer remain intentional
-- **GIVEN** `datasvc`, `zen`, or `db-event-writer` still depend on single-claim storage or a fixed durable consumer identity
-- **WHEN** the demo HA topology is updated
-- **THEN** those services SHALL remain explicitly singleton
-- **AND** their replica count SHALL NOT be increased as part of the stateless ingress scaling step
+#### Scenario: Replicated durable pull-consumer workers share one work queue
+- **GIVEN** `zen` or `db-event-writer` are configured with more than one replica
+- **AND** each replica binds to the same durable pull consumer for its JetStream stream
+- **WHEN** messages are available on the consumer
+- **THEN** the replicas SHALL compete for pull batches from the same durable consumer
+- **AND** each message SHALL be processed by only one healthy worker replica at a time
+
+#### Scenario: Worker replicas do not require shared ReadWriteOnce storage
+- **GIVEN** `zen` or `db-event-writer` run with more than one replica in `demo`
+- **WHEN** each replica starts
+- **THEN** each replica SHALL be able to use pod-local scratch storage instead of a single shared PVC
+- **AND** scaling the deployment SHALL NOT require all replicas to mount the same ReadWriteOnce claim

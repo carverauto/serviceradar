@@ -292,9 +292,18 @@ zenRulesBootstrap:
   enabled: true
 
 dbEventWriter:
+  replicaCount: 3
+  enableMigrations: false
+  data:
+    enabled: false
   kvBootstrap:
     # Disabled in demo: the post-upgrade KV seed job is not required for
     # steady-state upgrades and can leave Helm stuck in pending-upgrade.
+    enabled: false
+
+zen:
+  replicaCount: 3
+  data:
     enabled: false
 
 datasvc:
