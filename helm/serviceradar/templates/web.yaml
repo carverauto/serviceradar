@@ -249,6 +249,11 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cluster-cookie
+        - name: SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: edge-onboarding-key
         - name: DATASVC_ENABLED
           value: "true"
         - name: SECRET_KEY_BASE
