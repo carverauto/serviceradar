@@ -1190,6 +1190,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     partition_id = resolve_partition(identity, hello.partition)
     capabilities = normalize_capabilities(hello.capabilities || [])
+    source_ip = get_peer_ip(stream)
+
+    ensure_agent_record(identity, agent_id, partition_id, hello, source_ip)
+    ensure_device_for_agent(identity, agent_id, partition_id, hello, source_ip)
+    ensure_agent_registered(identity, agent_id, partition_id, capabilities, stream)
+    track_connected_agent(agent_id, partition_id, hello, source_ip)
 
     {:ok, session} = ControlStreamSession.start_link(stream: stream)
     register_control_session(session, agent_id, partition_id, capabilities)

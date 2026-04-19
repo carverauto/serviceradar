@@ -2075,10 +2075,16 @@ func (x *AgentConfigResponse) GetPluginConfig() *PluginConfig {
 // ControlStreamHello identifies the agent on the control stream.
 type ControlStreamHello struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                   // Unique agent identifier
-	Partition     string                 `protobuf:"bytes,2,opt,name=partition,proto3" json:"partition,omitempty"`                              // Partition/site identifier
-	Capabilities  []string               `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`                        // Agent capabilities (e.g., ["mapper", "sweep"])
-	ConfigVersion string                 `protobuf:"bytes,4,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"` // Current config version hash
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                                          // Unique agent identifier
+	Partition     string                 `protobuf:"bytes,2,opt,name=partition,proto3" json:"partition,omitempty"`                                                                     // Partition/site identifier
+	Capabilities  []string               `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`                                                               // Agent capabilities (e.g., ["mapper", "sweep"])
+	ConfigVersion string                 `protobuf:"bytes,4,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`                                        // Current config version hash
+	Version       string                 `protobuf:"bytes,5,opt,name=version,proto3" json:"version,omitempty"`                                                                         // Agent software version (e.g., "1.2.3")
+	Hostname      string                 `protobuf:"bytes,6,opt,name=hostname,proto3" json:"hostname,omitempty"`                                                                       // Host machine name
+	Os            string                 `protobuf:"bytes,7,opt,name=os,proto3" json:"os,omitempty"`                                                                                   // Operating system (e.g., "linux", "darwin", "windows")
+	Arch          string                 `protobuf:"bytes,8,opt,name=arch,proto3" json:"arch,omitempty"`                                                                               // Architecture (e.g., "amd64", "arm64")
+	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
+	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2137,6 +2143,48 @@ func (x *ControlStreamHello) GetCapabilities() []string {
 func (x *ControlStreamHello) GetConfigVersion() string {
 	if x != nil {
 		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *ControlStreamHello) GetConfigSource() string {
+	if x != nil {
+		return x.ConfigSource
 	}
 	return ""
 }
@@ -4411,12 +4459,22 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rsysmon_config\x18\b \x01(\v2\x18.monitoring.SysmonConfigR\fsysmonConfig\x127\n" +
 	"\vsnmp_config\x18\t \x01(\v2\x16.monitoring.SNMPConfigR\n" +
 	"snmpConfig\x12=\n" +
-	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\"\x98\x01\n" +
+	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\"\x96\x03\n" +
 	"\x12ControlStreamHello\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1c\n" +
 	"\tpartition\x18\x02 \x01(\tR\tpartition\x12\"\n" +
 	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12%\n" +
-	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\"\xb5\x01\n" +
+	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\x12\x18\n" +
+	"\aversion\x18\x05 \x01(\tR\aversion\x12\x1a\n" +
+	"\bhostname\x18\x06 \x01(\tR\bhostname\x12\x0e\n" +
+	"\x02os\x18\a \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\b \x01(\tR\x04arch\x12B\n" +
+	"\x06labels\x18\t \x03(\v2*.monitoring.ControlStreamHello.LabelsEntryR\x06labels\x12#\n" +
+	"\rconfig_source\x18\n" +
+	" \x01(\tR\fconfigSource\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb5\x01\n" +
 	"\x0eCommandRequest\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12!\n" +
@@ -4699,7 +4757,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_monitoring_proto_goTypes = []any{
 	(SNMPVersion)(0),                  // 0: monitoring.SNMPVersion
 	(SNMPSecurityLevel)(0),            // 1: monitoring.SNMPSecurityLevel
@@ -4748,8 +4806,9 @@ var file_monitoring_proto_goTypes = []any{
 	(*MtrTraceResult)(nil),            // 44: monitoring.MtrTraceResult
 	(*MtrCheckResult)(nil),            // 45: monitoring.MtrCheckResult
 	nil,                               // 46: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                               // 47: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                               // 48: monitoring.AgentCheckConfig.SettingsEntry
+	nil,                               // 47: monitoring.ControlStreamHello.LabelsEntry
+	nil,                               // 48: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                               // 49: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
 	14, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -4764,50 +4823,51 @@ var file_monitoring_proto_depIdxs = []int32{
 	35, // 9: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
 	37, // 10: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
 	32, // 11: monitoring.AgentConfigResponse.plugin_config:type_name -> monitoring.PluginConfig
-	24, // 12: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
-	26, // 13: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
-	27, // 14: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
-	28, // 15: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
-	29, // 16: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
-	25, // 17: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
-	23, // 18: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
-	34, // 19: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
-	33, // 20: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
-	47, // 21: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	48, // 22: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	38, // 23: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
-	0,  // 24: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
-	39, // 25: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
-	40, // 26: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
-	1,  // 27: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
-	2,  // 28: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
-	3,  // 29: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
-	4,  // 30: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
-	42, // 31: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
-	41, // 32: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
-	43, // 33: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
-	44, // 34: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
-	7,  // 35: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	8,  // 36: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	8,  // 37: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	20, // 38: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	22, // 39: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	16, // 40: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	18, // 41: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	30, // 42: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
-	9,  // 43: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	10, // 44: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	13, // 45: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	21, // 46: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	23, // 47: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	17, // 48: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	17, // 49: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	31, // 50: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	43, // [43:51] is the sub-list for method output_type
-	35, // [35:43] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	47, // 12: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
+	24, // 13: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
+	26, // 14: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
+	27, // 15: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
+	28, // 16: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
+	29, // 17: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
+	25, // 18: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
+	23, // 19: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
+	34, // 20: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
+	33, // 21: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
+	48, // 22: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	49, // 23: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	38, // 24: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	0,  // 25: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	39, // 26: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	40, // 27: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	1,  // 28: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	2,  // 29: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	3,  // 30: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	4,  // 31: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	42, // 32: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
+	41, // 33: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
+	43, // 34: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
+	44, // 35: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
+	7,  // 36: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	8,  // 37: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	8,  // 38: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	20, // 39: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	22, // 40: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	16, // 41: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	18, // 42: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	30, // 43: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
+	9,  // 44: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	10, // 45: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	13, // 46: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	21, // 47: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	23, // 48: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	17, // 49: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	17, // 50: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	31, // 51: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	44, // [44:52] is the sub-list for method output_type
+	36, // [36:44] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -4832,7 +4892,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   43,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

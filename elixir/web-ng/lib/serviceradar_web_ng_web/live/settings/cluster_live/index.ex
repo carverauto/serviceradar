@@ -106,8 +106,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       end)
       |> Map.new()
 
+    refreshed_agents_cache = reconcile_agents_cache(pruned_agents_cache)
+
     gateways = compute_gateways(refreshed_gateways_cache)
-    agents = compute_connected_agents(pruned_agents_cache)
+    agents = compute_connected_agents(refreshed_agents_cache)
     cluster_health = build_cluster_health(gateways, agents)
     job_counts = load_job_counts(socket.assigns.current_scope)
 
@@ -116,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:cluster_status, cluster_status)
      |> assign(:cluster_health, cluster_health)
      |> assign(:gateways_cache, refreshed_gateways_cache)
-     |> assign(:agents_cache, pruned_agents_cache)
+     |> assign(:agents_cache, refreshed_agents_cache)
      |> assign(:gateways, gateways)
      |> assign(:agents, agents)
      |> assign(:job_counts, job_counts)
@@ -153,10 +155,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   def handle_info({:agent_registered, metadata}, socket) do
     event = %{type: :agent_registered, agent_id: metadata.agent_id, timestamp: DateTime.utc_now()}
-    agents = compute_connected_agents(socket.assigns.agents_cache)
+    updated_cache = reconcile_agents_cache(socket.assigns.agents_cache)
+    agents = compute_connected_agents(updated_cache)
 
     {:noreply,
      socket
+     |> assign(:agents_cache, updated_cache)
      |> assign(:agents, agents)
      |> assign(:cluster_health, build_cluster_health(socket.assigns.gateways, agents))
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)}
@@ -238,8 +242,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     refreshed_gateways_cache =
       merge_gateways_cache(socket.assigns.gateways_cache, load_initial_gateways_cache())
 
+    refreshed_agents_cache = reconcile_agents_cache(socket.assigns.agents_cache)
+
     gateways = compute_gateways(refreshed_gateways_cache)
-    agents = compute_connected_agents(socket.assigns.agents_cache)
+    agents = compute_connected_agents(refreshed_agents_cache)
     cluster_health = build_cluster_health(gateways, agents)
     job_counts = load_job_counts(socket.assigns.current_scope)
 
@@ -248,6 +254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:cluster_status, cluster_status)
      |> assign(:cluster_health, cluster_health)
      |> assign(:gateways_cache, refreshed_gateways_cache)
+     |> assign(:agents_cache, refreshed_agents_cache)
      |> assign(:gateways, gateways)
      |> assign(:agents, agents)
      |> assign(:job_counts, job_counts)
@@ -801,8 +808,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     Enum.reduce(all_agents, %{}, fn agent, acc ->
       case agent_id_from(agent) do
-        nil -> acc
-        agent_id -> Map.put(acc, agent_id, normalize_agent_entry(agent))
+        nil ->
+          acc
+
+        agent_id ->
+          normalized = normalize_agent_entry(agent)
+          Map.update(acc, agent_id, normalized, &prefer_agent_entry(&1, normalized))
       end
     end)
   end
@@ -839,14 +850,50 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     incoming = normalize_agent_entry(agent)
 
     Map.update(cache, agent_id, incoming, fn existing ->
-      merge_agent_entries(existing, incoming)
+      prefer_agent_entry(existing, incoming)
     end)
   end
 
-  defp merge_agent_entries(existing, incoming) do
-    Map.merge(existing, incoming, fn _key, old_value, new_value ->
-      if present_value?(new_value), do: new_value, else: old_value
+  defp reconcile_agents_cache(existing_cache) do
+    merge_agents_cache(existing_cache, load_initial_agents_cache())
+  end
+
+  defp merge_agents_cache(existing_cache, incoming_cache) do
+    Map.merge(existing_cache, incoming_cache, fn _agent_id, existing, incoming ->
+      prefer_agent_entry(existing, incoming)
     end)
+  end
+
+  defp prefer_agent_entry(existing, incoming) do
+    {preferred, fallback} = preferred_agent_entry_pair(existing, incoming)
+
+    Map.merge(fallback, preferred, fn _key, fallback_value, preferred_value ->
+      if present_value?(preferred_value), do: preferred_value, else: fallback_value
+    end)
+  end
+
+  defp preferred_agent_entry_pair(existing, incoming) do
+    existing_ms = agent_last_seen_ms(existing)
+    incoming_ms = agent_last_seen_ms(incoming)
+    existing_mono = Map.get(existing, :last_seen_mono)
+    incoming_mono = Map.get(incoming, :last_seen_mono)
+
+    cond do
+      is_integer(incoming_ms) and is_integer(existing_ms) and incoming_ms >= existing_ms ->
+        {incoming, existing}
+
+      is_integer(incoming_ms) and not is_integer(existing_ms) ->
+        {incoming, existing}
+
+      is_integer(incoming_mono) and is_integer(existing_mono) and incoming_mono >= existing_mono ->
+        {incoming, existing}
+
+      is_integer(incoming_mono) and not is_integer(existing_mono) ->
+        {incoming, existing}
+
+      true ->
+        {existing, incoming}
+    end
   end
 
   defp present_value?(value) when value in [nil, "", []], do: false
@@ -938,9 +985,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     agents_cache
     |> Map.values()
-    |> Enum.map(fn agent ->
-      Map.put(agent, :active, agent_active?(agent, now_ms))
-    end)
+    |> Enum.map(&Map.put(&1, :active, agent_active?(&1, now_ms)))
     |> Enum.sort_by(& &1.agent_id)
   end
 

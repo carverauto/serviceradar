@@ -62,4 +62,44 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
     assert html =~ "Unknown gateway"
     assert html =~ "Partition unknown"
   end
+
+  test "refresh reconciles connected-agent metadata from tracker snapshot", %{conn: conn} do
+    agent_id = "agent-runtime-refresh-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      AgentTracker.remove_agent(agent_id)
+    end)
+
+    :ok =
+      AgentTracker.track_agent(agent_id, %{
+        service_count: 1,
+        gateway_id: "gateway-demo",
+        partition: "default"
+      })
+
+    {:ok, view, html} = live(conn, ~p"/settings/cluster")
+
+    assert html =~ agent_id
+    assert html =~ "Unknown version"
+    assert html =~ "Unknown platform"
+
+    updated_agent =
+      agent_id
+      |> AgentTracker.get_agent()
+      |> Map.merge(%{
+        version: "1.2.19",
+        hostname: "agent-refresh-host",
+        os: "linux",
+        arch: "amd64"
+      })
+
+    true = :ets.insert(:agent_tracker, {agent_id, updated_agent})
+
+    send(view.pid, :refresh)
+    refreshed_html = render(view)
+
+    assert refreshed_html =~ "1.2.19"
+    assert refreshed_html =~ "linux/amd64"
+    assert refreshed_html =~ "agent-refresh-host"
+  end
 end
