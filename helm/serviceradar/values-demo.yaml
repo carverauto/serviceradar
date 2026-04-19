@@ -297,6 +297,11 @@ dbEventWriter:
     # steady-state upgrades and can leave Helm stuck in pending-upgrade.
     enabled: false
 
+datasvc:
+  replicaCount: 3
+  data:
+    enabled: false
+
 # Temporarily disabled client CA for initial testing - there's a circular dependency
 # where CNPG needs the client CA secret, but the job that creates it
 # runs post-install and needs CNPG to be running first.
@@ -382,6 +387,7 @@ certs:
 
 bmpCollector:
   enabled: true
+  replicaCount: 3
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
   args:
@@ -402,6 +408,8 @@ bmpCollector:
     streamReplicas: 1
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
+  data:
+    enabled: false
   service:
     type: LoadBalancer
     annotations:

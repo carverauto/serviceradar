@@ -10,7 +10,7 @@ kind: Deployment
 metadata:
   name: serviceradar-datasvc
 spec:
-  replicas: 1
+  replicas: {{ .Values.datasvc.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-datasvc
@@ -115,8 +115,12 @@ spec:
           optional: true
       {{- end }}
       - name: datasvc-data
+        {{- if .Values.datasvc.data.enabled | default true }}
         persistentVolumeClaim:
           claimName: serviceradar-datasvc-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
@@ -135,6 +139,7 @@ spec:
   - name: grpc
     port: 50057
     targetPort: grpc
+{{- if .Values.datasvc.data.enabled | default true }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -145,4 +150,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      storage: {{ .Values.datasvc.data.size | default "5Gi" | quote }}
+  {{- if .Values.datasvc.data.storageClassName }}
+  storageClassName: {{ .Values.datasvc.data.storageClassName | quote }}
+  {{- end }}
+{{- end }}
