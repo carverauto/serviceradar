@@ -57,6 +57,11 @@ config:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
     default_isolation_type: oci
+    image_pull_timeout: 15m
+    startup_warmup_max_wait_secs: 300
+    warmup_timeout_secs: 300
+    warmup_additional_images:
+      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23
     oci:
       mounts:
         - source: /cache
