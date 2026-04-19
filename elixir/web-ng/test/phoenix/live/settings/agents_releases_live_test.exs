@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   import Ash.Expr
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.AgentTracker
   alias ServiceRadar.Edge.AgentRelease
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
@@ -34,7 +35,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v7.0.0",
                  "name" => "ServiceRadar 7.0.0",
                  "body" => "Imported release notes",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
+                 "html_url" =>
+                   "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                  "published_at" => "2026-03-28T20:00:00Z",
                  "assets" => [
                    %{
@@ -53,7 +55,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v6.9.9",
                  "name" => "ServiceRadar 6.9.9",
                  "body" => "Missing manifest",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
+                 "html_url" =>
+                   "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
                  "published_at" => "2026-03-27T20:00:00Z",
                  "assets" => [
                    %{
@@ -74,7 +77,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                "tag_name" => "v7.0.0",
                "name" => "ServiceRadar 7.0.0",
                "body" => "Imported release notes",
-               "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
+               "html_url" =>
+                 "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",
@@ -413,6 +417,65 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       actor: system_actor()
     )
     |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "Compatibility Preview"
+    assert html =~ "1 selected"
+    assert html =~ "1 compatible"
+    refute html =~ "1 unsupported"
+    refute html =~ "unknown platform"
+    refute has_element?(lv, "#create-rollout-form button[disabled]")
+  end
+
+  test "uses live tracker metadata in rollout preview when persisted agent metadata is blank", %{
+    conn: conn,
+    scope: scope
+  } do
+    version = "2.2-live.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-preview-live-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      AgentTracker.remove_agent(agent_id)
+    end)
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_id,
+        name: "Live Tracker Metadata Agent",
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    :ok =
+      AgentTracker.track_agent(agent_id, %{
+        version: "1.2.20",
+        gateway_id: gateway.id,
+        os: "linux",
+        arch: "amd64"
+      })
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
 
