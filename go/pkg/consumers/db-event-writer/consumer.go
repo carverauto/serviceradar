@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -52,8 +53,7 @@ func NewConsumer(
 		cfg.FilterSubjects = subjects
 	}
 
-	// Always create or update the consumer to ensure it has the correct filter subjects
-	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, cfg)
+	consumer, err := ensurePullConsumer(ctx, js, streamName, consumerName, subjects, cfg, log)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -68,6 +68,122 @@ func NewConsumer(
 	log.Debug().Msg("Pull consumer created or retrieved successfully")
 
 	return &Consumer{js: js, streamName: streamName, consumerName: consumerName, consumer: consumer, logger: log}, nil
+}
+
+func ensurePullConsumer(
+	ctx context.Context,
+	js jetstream.JetStream,
+	streamName, consumerName string,
+	subjects []string,
+	cfg jetstream.ConsumerConfig,
+	log logger.Logger,
+) (jetstream.Consumer, error) {
+	existing, err := js.Consumer(ctx, streamName, consumerName)
+	switch {
+	case err == nil:
+		info, infoErr := existing.Info(ctx)
+		if infoErr == nil && consumerConfigMatches(info.Config, cfg, subjects) {
+			return existing, nil
+		}
+
+		log.Warn().
+			Str("stream_name", streamName).
+			Str("consumer_name", consumerName).
+			Strs("subjects", subjects).
+			Msg("Existing consumer config changed; recreating durable pull consumer")
+
+		if deleteErr := js.DeleteConsumer(ctx, streamName, consumerName); deleteErr != nil &&
+			!errors.Is(deleteErr, jetstream.ErrConsumerNotFound) {
+			return nil, fmt.Errorf("delete mismatched consumer %s: %w", consumerName, deleteErr)
+		}
+	case !errors.Is(err, jetstream.ErrConsumerNotFound):
+		log.Warn().
+			Err(err).
+			Str("stream_name", streamName).
+			Str("consumer_name", consumerName).
+			Msg("Failed to inspect existing consumer; retrying create-or-get path")
+	}
+
+	return createOrGetConsumer(ctx, js, streamName, consumerName, cfg, subjects, log)
+}
+
+func createOrGetConsumer(
+	ctx context.Context,
+	js jetstream.JetStream,
+	streamName, consumerName string,
+	cfg jetstream.ConsumerConfig,
+	subjects []string,
+	log logger.Logger,
+) (jetstream.Consumer, error) {
+	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, cfg)
+	if err == nil {
+		return consumer, nil
+	}
+
+	log.Warn().
+		Err(err).
+		Str("stream_name", streamName).
+		Str("consumer_name", consumerName).
+		Msg("CreateOrUpdateConsumer failed; retrying with existing durable lookup")
+
+	existing, getErr := js.Consumer(ctx, streamName, consumerName)
+	if getErr != nil {
+		return nil, fmt.Errorf("create/update failed: %w; get failed: %w", err, getErr)
+	}
+
+	info, infoErr := existing.Info(ctx)
+	if infoErr != nil {
+		return nil, fmt.Errorf("create/update failed: %w; info failed: %w", err, infoErr)
+	}
+
+	if !consumerConfigMatches(info.Config, cfg, subjects) {
+		return nil, fmt.Errorf("create/update failed: %w; existing consumer %s has mismatched config", err, consumerName)
+	}
+
+	return existing, nil
+}
+
+func consumerConfigMatches(current, desired jetstream.ConsumerConfig, subjects []string) bool {
+	if current.Durable != desired.Durable {
+		return false
+	}
+
+	if current.AckPolicy != desired.AckPolicy ||
+		current.AckWait != desired.AckWait ||
+		current.MaxDeliver != desired.MaxDeliver ||
+		current.MaxAckPending != desired.MaxAckPending {
+		return false
+	}
+
+	return normalizedConsumerSubjects(current) == normalizedSubjects(subjects)
+}
+
+func normalizedConsumerSubjects(cfg jetstream.ConsumerConfig) string {
+	switch {
+	case cfg.FilterSubject != "":
+		return normalizedSubjects([]string{cfg.FilterSubject})
+	case len(cfg.FilterSubjects) > 0:
+		return normalizedSubjects(cfg.FilterSubjects)
+	default:
+		return normalizedSubjects(nil)
+	}
+}
+
+func normalizedSubjects(subjects []string) string {
+	if len(subjects) == 0 {
+		return ""
+	}
+
+	normalized := make([]string, 0, len(subjects))
+	for _, subject := range subjects {
+		if subject == "" {
+			continue
+		}
+		normalized = append(normalized, subject)
+	}
+
+	sort.Strings(normalized)
+	return fmt.Sprintf("%q", normalized)
 }
 
 const (
