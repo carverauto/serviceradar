@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp edge_ops_tab(path, current_scope) do
     %{
       label: "Edge Ops",
-      navigate: edge_ops_tab_navigate(current_scope),
+      href: edge_ops_tab_href(current_scope),
       active:
         String.starts_with?(path, "/admin/collectors") or
           String.starts_with?(path, "/admin/edge-sites") or
@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     }
   end
 
-  defp edge_ops_tab_navigate(current_scope) do
+  defp edge_ops_tab_href(current_scope) do
     cond do
       RBAC.can?(current_scope, "settings.edge.manage") -> ~p"/settings/agents/releases"
       RBAC.can?(current_scope, "settings.sysmon_profiles.manage") -> ~p"/settings/sysmon"
@@ -461,19 +461,19 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       [
         %{
           label: "Edge Sites",
-          navigate: ~p"/admin/edge-sites",
+          href: ~p"/admin/edge-sites",
           active: String.starts_with?(path, "/admin/edge-sites"),
           show: can_edge or is_nil(current_scope)
         },
         %{
           label: "Data Collectors",
-          navigate: ~p"/admin/collectors",
+          href: ~p"/admin/collectors",
           active: String.starts_with?(path, "/admin/collectors"),
           show: (can_edge or is_nil(current_scope)) and Capabilities.collectors_enabled?()
         },
         %{
           label: "Agents",
-          navigate: ~p"/settings/agents/releases",
+          href: ~p"/settings/agents/releases",
           active:
             String.starts_with?(path, "/settings/agents/releases") or
               String.starts_with?(path, "/settings/agents/deploy") or
@@ -482,13 +482,13 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         },
         %{
           label: "Host Health",
-          navigate: ~p"/settings/sysmon",
+          href: ~p"/settings/sysmon",
           active: String.starts_with?(path, "/settings/sysmon"),
           show: can_sysmon
         },
         %{
           label: "Plugins",
-          navigate: ~p"/settings/agents/plugins",
+          href: ~p"/settings/agents/plugins",
           active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
           show: can_plugins
         }
