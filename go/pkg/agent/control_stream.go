@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -155,7 +156,15 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
+	configSource := ""
+	if p.server.config != nil {
+		configSource = normalizeConfigSourceLabel(p.server.config)
+	}
 	p.server.mu.RUnlock()
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = ""
+	}
 
 	req := &proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_Hello{
@@ -164,6 +173,12 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 				Partition:     partition,
 				Capabilities:  getAgentCapabilities(),
 				ConfigVersion: p.getConfigVersion(),
+				Version:       Version,
+				Hostname:      hostname,
+				Os:            runtime.GOOS,
+				Arch:          runtime.GOARCH,
+				Labels:        deploymentHelloLabels(),
+				ConfigSource:  configSource,
 			},
 		},
 	}
@@ -177,6 +192,17 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 	}
 
 	return nil
+}
+
+func normalizeConfigSourceLabel(cfg *ServerConfig) string {
+	switch {
+	case cfg == nil:
+		return ""
+	case cfg.GatewayAddr == "":
+		return "local"
+	default:
+		return "remote"
+	}
 }
 
 func (p *PushLoop) handleControlStream(

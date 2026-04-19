@@ -287,6 +287,12 @@ message ControlStreamHello {
   string partition = 2;             // Partition/site identifier
   repeated string capabilities = 3; // Agent capabilities (e.g., ["mapper", "sweep"])
   string config_version = 4;        // Current config version hash
+  string version = 5;               // Agent software version (e.g., "1.2.3")
+  string hostname = 6;              // Host machine name
+  string os = 7;                    // Operating system (e.g., "linux", "darwin", "windows")
+  string arch = 8;                  // Architecture (e.g., "amd64", "arm64")
+  map<string, string> labels = 9;   // Optional labels/tags for grouping
+  string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // CommandRequest represents a command sent to the agent.

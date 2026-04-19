@@ -428,6 +428,18 @@ defmodule Monitoring.AgentConfigResponse do
   field(:plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig")
 end
 
+defmodule Monitoring.ControlStreamHello.LabelsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3,
+    map: true
+
+  field(:key, 1, type: :string)
+  field(:value, 2, type: :string)
+end
+
 defmodule Monitoring.ControlStreamHello do
   @moduledoc false
 
@@ -440,6 +452,12 @@ defmodule Monitoring.ControlStreamHello do
   field(:partition, 2, type: :string)
   field(:capabilities, 3, repeated: true, type: :string)
   field(:config_version, 4, type: :string, json_name: "configVersion")
+  field(:version, 5, type: :string)
+  field(:hostname, 6, type: :string)
+  field(:os, 7, type: :string)
+  field(:arch, 8, type: :string)
+  field(:labels, 9, repeated: true, type: Monitoring.ControlStreamHello.LabelsEntry, map: true)
+  field(:config_source, 10, type: :string, json_name: "configSource")
 end
 
 defmodule Monitoring.CommandRequest do
