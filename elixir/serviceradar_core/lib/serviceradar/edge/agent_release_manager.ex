@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentRelease
   alias ServiceRadar.Edge.AgentReleaseRollout
@@ -87,7 +88,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
-        reconcile_agent_targets(agent_id, agent, actor)
+        reconcile_agent_targets(agent_id, AgentRuntimeMetadata.hydrate_agent(agent), actor)
         :ok
 
       _ ->
@@ -283,6 +284,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp dispatch_target(target, rollout, release, actor) do
     with {:ok, %Agent{} = agent} <- Agent.get_by_uid(target.agent_id, actor: actor),
+         agent = AgentRuntimeMetadata.hydrate_agent(agent),
          false <- version_matches?(agent.version, target.desired_version),
          {:ok, artifact} <- select_artifact(release, agent),
          {:ok, command_id} <-
@@ -414,6 +416,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   end
 
   defp select_artifact(release, agent) do
+    agent = AgentRuntimeMetadata.hydrate_agent(agent)
+
     artifacts =
       release.manifest
       |> map_get_any([:artifacts, "artifacts"], [])
@@ -601,8 +605,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp agent_current_version(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do
-      {:ok, %Agent{version: version}} -> version
-      _ -> nil
+      {:ok, %Agent{} = agent} ->
+        agent |> AgentRuntimeMetadata.hydrate_agent() |> Map.get(:version)
+
+      _ ->
+        nil
     end
   end
 
@@ -645,6 +652,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(uid in ^agent_ids)
     |> Ash.read!(actor: actor)
+    |> AgentRuntimeMetadata.hydrate_agents()
   end
 
   defp rollout_validation_errors(unknown_agent_ids, unsupported_agents) do

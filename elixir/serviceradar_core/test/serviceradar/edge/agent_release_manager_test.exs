@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentTracker
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
@@ -298,6 +299,56 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
     assert is_nil(updated_agent.release_rollout_state)
     assert is_nil(updated_agent.last_update_error)
+  end
+
+  test "create_rollout uses live tracker platform metadata when persisted metadata is missing", %{
+    actor: actor,
+    release: release
+  } do
+    agent_id = "agent-release-live-platform-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      AgentTracker.remove_agent(agent_id)
+    end)
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_id,
+          name: "Live Metadata Agent",
+          version: "1.0.0",
+          type_id: 4,
+          type: "Performance",
+          capabilities: ["agent"],
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    :ok =
+      AgentTracker.track_agent(agent_id, %{
+        version: "1.2.20",
+        os: "linux",
+        arch: "amd64"
+      })
+
+    assert {:ok, rollout} =
+             AgentReleaseManager.create_rollout(%{
+               release_id: release.id,
+               agent_ids: [agent_id],
+               batch_size: 1
+             })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert target
   end
 
   test "create_rollout rejects unresolved custom agent ids before any targets are created", %{
