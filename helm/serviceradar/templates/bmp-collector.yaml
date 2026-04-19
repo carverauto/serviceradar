@@ -54,7 +54,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ .Values.bmpCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-bmp-collector
@@ -63,6 +63,11 @@ spec:
       labels:
         app: serviceradar-bmp-collector
         app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}

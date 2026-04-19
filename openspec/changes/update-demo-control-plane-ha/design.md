@@ -62,7 +62,9 @@ The next HA slice includes observability ingest services that only receive traff
 
 Consequences:
 - `trapd`, `log-collector`, `log-collector-tcp`, and `flow-collector` can use standard multi-replica `Deployment` semantics in `demo`.
-- Services with singleton storage or consumer ownership such as `datasvc`, `zen`, and `db-event-writer` remain explicitly singleton until they have a replica-safe storage and ownership contract.
+- Services with singleton consumer ownership such as `zen` and `db-event-writer` remain explicitly singleton until they have a replica-safe ownership contract.
+- `datasvc` can scale in Kubernetes when its file-backed resolver paths remain unset and its `/var/lib/serviceradar` mount is treated as pod-local scratch instead of authoritative storage.
+- `bmp-collector` can scale as a per-connection ingress tier when each replica uses pod-local curation state and publishes normalized updates into shared JetStream subjects.
 - Demo-only storage for safe ingest replicas may use pod-local scratch (`emptyDir`) instead of a shared single PVC when the service does not persist authoritative state there.
 
 ### Decision: Migration ownership must be serialized outside normal multi-replica startup
@@ -92,4 +94,4 @@ Consequences:
 - Is the current RPC aggregation over node-local ETS trackers sufficient, or do some live state paths need a more authoritative cluster-wide registry?
 - Do agent connections require service affinity or any gateway-side coordination changes when the gateway pool scales beyond one replica in `demo`?
 - What NATS JetStream quorum and storage layout is acceptable for `demo` versus production?
-- Should `datasvc`, `zen`, and `db-event-writer` move to per-pod durable state, explicit leader ownership, or remain singleton by design?
+- Should `zen` and `db-event-writer` move to per-pod durable state, explicit leader ownership, or remain singleton by design?

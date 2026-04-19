@@ -531,6 +531,12 @@ dbEventWriter:
   configSource: file
   kvBootstrap:
     enabled: true
+datasvc:
+  replicaCount: 1
+  data:
+    enabled: true
+    size: 5Gi
+    storageClassName: ""
 logCollector:
   replicaCount: 1
   data:
@@ -689,6 +695,7 @@ flowCollector:
       cpu: "500m"
 bmpCollector:
   enabled: false
+  replicaCount: 1
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
     pullPolicy: IfNotPresent
