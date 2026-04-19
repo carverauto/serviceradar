@@ -46,6 +46,7 @@ logCollector:
 
 agentGateway:
   enabled: true
+  replicas: 3
   service:
     type: LoadBalancer
     port: 50052
@@ -167,6 +168,7 @@ geoipMmdb:
   storageClassName: ""
 
 webNg:
+  replicas: 3
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
@@ -186,11 +188,13 @@ webNg:
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true
+    backend: "jetstream"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
+    jetstreamReplicas: 3
 
 faker:
   enabled: true
@@ -228,6 +232,7 @@ gobgp:
     pullPolicy: IfNotPresent
 
 core:
+  replicas: 3
   # MTR automation rollout profiles (copy/paste into mtrAutomation):
   # baseline_only:
   #   enabled: true
@@ -391,3 +396,5 @@ bmpCollector:
       metallb.universe.tf/address-pool: k3s-pool
     loadBalancerIP: "23.138.124.27"
     externalTrafficPolicy: Local
+nats:
+  replicas: 3
