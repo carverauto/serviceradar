@@ -113,14 +113,14 @@ defmodule ServiceRadar.GatewayTracker do
   @doc """
   Unregister a gateway.
   """
-  @spec unregister(String.t()) :: :ok
-  def unregister(gateway_id) do
+  @spec unregister(String.t(), node()) :: :ok
+  def unregister(gateway_id, node \\ Node.self()) do
     :ets.delete(@table, gateway_id)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "gateway:platform",
-      {:gateway_unregistered, gateway_id}
+      {:gateway_unregistered, gateway_id, node}
     )
 
     :ok
