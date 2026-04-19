@@ -255,6 +255,8 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: web-ng-secret-key-base
+        - name: POOL_SIZE
+          value: {{ default 10 (default (dict) $webNg.database).poolSize | quote }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
           value: {{ $pluginStorageBackend | quote }}
