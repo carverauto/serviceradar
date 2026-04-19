@@ -47,12 +47,18 @@ The system SHALL allow alerts to be generated from events and SHALL link alerts 
 - **AND** the alert SHALL reference the triggering event
 
 ### Requirement: Observability panes in the UI
-The web UI SHALL provide separate panes for logs, events, and alerts with navigation between related records.
+The web UI SHALL provide a shared observability shell for logs, traces, metrics, events, alerts, flows, BMP, BGP Routing, and Camera Relays. Navigating to any of those panes, including direct entry by URL, SHALL preserve the same top-level observability shell and active-pane treatment rather than replacing it with pane-specific top-level navigation chrome.
 
-#### Scenario: Event view links to source log and alert
-- **GIVEN** a user viewing an event
-- **WHEN** the event has related log or alert records
-- **THEN** the UI SHALL provide navigation to those records
+#### Scenario: Switching from logs to flows keeps the shared shell
+- **GIVEN** a user is viewing `/observability` in the logs pane
+- **WHEN** the user opens the flows pane
+- **THEN** the observability shell SHALL remain visible
+- **AND** the flows pane SHALL appear as the active top-level observability pane instead of suppressing the shared shell
+
+#### Scenario: Direct entry into a route-backed observability pane keeps the shared shell
+- **WHEN** a user navigates directly to a route-backed observability pane such as BMP, BGP Routing, or Camera Relays
+- **THEN** the page SHALL render within the same observability shell used by the other observability panes
+- **AND** the matching top-level observability pane SHALL appear active
 
 ### Requirement: Integration sync lifecycle logging
 The system SHALL record integration sync lifecycle updates as OTEL log records and SHALL NOT emit OCSF events by default.
@@ -387,4 +393,38 @@ The system SHALL provide default alert rules or templates that can create alerts
 - **GIVEN** the relay health event stream records gateway saturation over the configured alert window
 - **WHEN** the saturation condition persists
 - **THEN** the system SHALL create or update an alert for the saturation incident
+
+### Requirement: Opt-in live log streaming
+The Observability logs pane SHALL default to standard paginated browsing with live updates disabled. The pane SHALL expose a header control that lets the operator explicitly enable live log streaming for the current view.
+
+#### Scenario: Logs open in standard browsing mode
+- **WHEN** a user opens the `/observability` logs pane
+- **THEN** the logs list SHALL load as a normal paginated view
+- **AND** incoming log-ingest refresh events SHALL NOT force the list to reload automatically
+
+#### Scenario: Operator enables live mode
+- **GIVEN** the user is viewing the logs pane
+- **WHEN** the user activates the `Live` control in the pane header
+- **THEN** the logs pane SHALL begin auto-refreshing as new logs arrive
+- **AND** the UI SHALL indicate that live mode is active
+
+#### Scenario: Manual browsing pauses live mode
+- **GIVEN** live mode is active in the logs pane
+- **WHEN** the user changes pagination, query text, or log filters
+- **THEN** the logs pane SHALL pause live mode before applying the manual navigation change
+- **AND** subsequent incoming log-ingest refresh events SHALL NOT reset the user's current page or query state unless live mode is enabled again
+
+### Requirement: Camera relay subsections stay under Camera Relays
+Camera relay operational surfaces SHALL remain under the Camera Relays top-level observability pane. Camera Analysis Workers SHALL be presented as a subsection of Camera Relays rather than a separate top-level observability destination.
+
+#### Scenario: Camera relay worker management loads as a subsection
+- **GIVEN** a user is in the Camera Relays observability pane
+- **WHEN** the user opens Camera Analysis Workers
+- **THEN** the Camera Relays top-level pane SHALL remain active
+- **AND** the worker management surface SHALL render as a Camera Relays subsection
+
+#### Scenario: Direct worker link resolves under Camera Relays
+- **WHEN** a user opens a direct link to the camera worker management surface
+- **THEN** the UI SHALL resolve that request under the Camera Relays top-level observability pane
+- **AND** the worker management subsection SHALL be selected on load
 
