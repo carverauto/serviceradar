@@ -225,11 +225,13 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       command =
         create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "router-a"], status: :acknowledged)
 
+      command_id = uuid_text(command.id)
+
       send(
         StatusHandler,
         {:command_progress,
          %{
-           command_id: command.id,
+           command_id: command_id,
            command_type: "mtr.bulk_run",
            message: "running",
            progress_percent: 50,
@@ -264,6 +266,25 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                ["1.1.1.1", "running", nil],
                ["router-a", "completed", %{"summary" => "ok"}]
              ]
+
+      send(
+        StatusHandler,
+        {:command_result,
+         %{
+           command_id: command_id,
+           command_type: "mtr.bulk_run",
+           success: true,
+           message: "bulk mtr job completed",
+           payload: %{
+             "target_updates" => [
+               %{"target" => "1.1.1.1", "status" => "completed", "attempt_count" => 1},
+               %{"target" => "router-a", "status" => "completed", "attempt_count" => 1}
+             ]
+           }
+         }}
+      )
+
+      _command = wait_for_status(command.id, :completed, actor)
     end
 
     test "blocks bulk mtr dispatches while another bulk job is active", %{
@@ -544,5 +565,15 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           {:cont, nil}
       end
     end) || flunk("Expected command #{command_id} to reach status #{inspect(expected_status)}")
+  end
+
+  defp uuid_text(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        uuid
+
+      :error ->
+        Ecto.UUID.load!(id)
+    end
   end
 end
