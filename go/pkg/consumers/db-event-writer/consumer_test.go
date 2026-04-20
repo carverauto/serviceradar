@@ -3,6 +3,7 @@ package dbeventwriter
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"

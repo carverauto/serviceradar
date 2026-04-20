@@ -265,7 +265,7 @@ func (s *Service) setConnection(nc *nats.Conn, js jetstream.JetStream, consumer 
 	defer s.mu.Unlock()
 
 	if s.nc != nil {
-		s.nc.Close()
+		drainOrCloseConnection(s.nc, s.logger)
 	}
 
 	s.nc = nc
@@ -278,7 +278,7 @@ func (s *Service) resetConnection() {
 	defer s.mu.Unlock()
 
 	if s.nc != nil {
-		s.nc.Close()
+		drainOrCloseConnection(s.nc, s.logger)
 	}
 
 	s.nc = nil
@@ -376,6 +376,19 @@ func (s *Service) createConnection(ctx context.Context) (*nats.Conn, jetstream.J
 	}
 
 	return nc, js, consumer, nil
+}
+
+func drainOrCloseConnection(nc *nats.Conn, log logger.Logger) {
+	if nc == nil {
+		return
+	}
+
+	if err := nc.Drain(); err != nil &&
+		!errors.Is(err, nats.ErrConnectionClosed) &&
+		!errors.Is(err, nats.ErrConnectionReconnecting) {
+		log.Warn().Err(err).Msg("Failed to drain NATS connection cleanly; closing immediately")
+		nc.Close()
+	}
 }
 
 func (s *Service) subjects() []string {

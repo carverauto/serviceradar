@@ -8,7 +8,7 @@
 - [x] 2.2 Ensure `core` coordinator-only responsibilities remain single-owner when multiple `core` pods are running.
 - [ ] 2.3 Ensure web and gateway features that depend on live cluster state remain correct when requests land on any healthy replica.
 - [x] 2.4 Add replica support for stateless observability ingress deployments (`trapd`, `log-collector`, `log-collector-tcp`, `flow-collector`, and `bmp-collector`) where pod-local storage is sufficient.
-- [ ] 2.5 Validate which remaining singleton workloads can safely scale in Kubernetes and convert shared durable pull-consumer workers (`zen` and `db-event-writer`) to replica-safe deployments.
+- [x] 2.5 Validate which remaining singleton workloads can safely scale in Kubernetes and convert shared durable pull-consumer workers (`zen` and `db-event-writer`) to replica-safe deployments.
 
 ## 3. Cluster-visible live state
 - [ ] 3.1 Standardize how live gateway and agent tracker data is made authoritative across replicas instead of assuming node-local ETS is sufficient.
