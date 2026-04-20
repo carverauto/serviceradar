@@ -545,9 +545,14 @@ dbEventWriter:
     storageClassName: ""
 datasvc:
   replicaCount: 1
+  # Replica count for datasvc-owned JetStream streams (KV/object metadata).
   jetstreamReplicas: 1
+  # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
   bucketMaxBytes: 5368709120
+  # Reserved capacity for the object metadata stream (OBJ_serviceradar-objects).
   objectMaxBytes: 536870912
+  # Object-store budget exposed to datasvc config; keep this aligned with the
+  # object stream reservation unless you intentionally want a tighter logical limit.
   objectStoreBytes: 2147483648
   data:
     enabled: true
@@ -555,6 +560,7 @@ datasvc:
     storageClassName: ""
 zen:
   replicaCount: 1
+  # zen shares the JetStream durable consumers used for event normalization.
   streamReplicas: 1
   data:
     enabled: true
@@ -562,7 +568,9 @@ zen:
     storageClassName: ""
 logCollector:
   replicaCount: 1
+  # Shared "events" stream replica count for OTEL/syslog writers.
   streamReplicas: 1
+  # Reserved capacity for the shared "events" stream.
   streamMaxBytes: 2147483648
   data:
     enabled: true
@@ -616,6 +624,7 @@ logCollector:
   tcpCollector:
     enabled: false
     replicaCount: 1
+    # TCP syslog also publishes into the shared "events" stream.
     streamReplicas: 1
     listen: "0.0.0.0:514"
     format: "rfc3164"
@@ -653,6 +662,7 @@ logCollector:
         cpu: "500m"
 trapd:
   replicaCount: 1
+  # trapd publishes into the shared "events" stream.
   streamReplicas: 1
   # External service configuration for SNMP trap ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
@@ -671,11 +681,13 @@ trapd:
 flowCollector:
   enabled: false
   replicaCount: 1
+  # flow-collector publishes raw flow subjects into the shared "events" stream.
   streamReplicas: 1
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
+    # Reserved capacity for the shared "events" stream when flow collectors reconcile it.
     stream_max_bytes: 10737418240
     stream_replicas: 1
     channel_size: 10000
@@ -744,7 +756,9 @@ bmpCollector:
     streamName: "ARANCINI_CAUSAL"
     subjectPrefix: "arancini.updates"
     streamSubjects: []
+    # Dedicated BMP/Arancini stream reservation.
     streamMaxBytes: 10737418240
+    # Replica count for the dedicated ARANCINI_CAUSAL stream.
     streamReplicas: 1
     publishTimeoutMs: 5000
   data:
