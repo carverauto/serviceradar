@@ -1165,5 +1165,8 @@ data:
           ]
         },
         "bucket": "serviceradar-datasvc",
+        "bucket_max_bytes": {{ default 5368709120 .Values.datasvc.bucketMaxBytes }},
+        "object_max_bytes": {{ default 536870912 .Values.datasvc.objectMaxBytes }},
+        "object_store_bytes": {{ default 2147483648 .Values.datasvc.objectStoreBytes }},
         "jetstream_replicas": {{ default 1 .Values.datasvc.jetstreamReplicas }}
       }

@@ -894,14 +894,14 @@ func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig
 }
 
 func (n *NATSStore) reconcileKVStreamLocked(ctx context.Context, js jetstream.JetStream) error {
-	return n.reconcileStreamReplicasLocked(ctx, js, fmt.Sprintf("KV_%s", n.bucket))
+	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("KV_%s", n.bucket), n.bucketMaxBytes)
 }
 
 func (n *NATSStore) reconcileObjectStoreStreamLocked(ctx context.Context, js jetstream.JetStream, bucket string) error {
-	return n.reconcileStreamReplicasLocked(ctx, js, fmt.Sprintf("OBJ_%s", bucket))
+	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("OBJ_%s", bucket), n.objectStoreBytes)
 }
 
-func (n *NATSStore) reconcileStreamReplicasLocked(ctx context.Context, js jetstream.JetStream, streamName string) error {
+func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstream.JetStream, streamName string, maxBytes int64) error {
 	if n.jetstreamReplicas <= 0 {
 		return nil
 	}
@@ -915,14 +915,25 @@ func (n *NATSStore) reconcileStreamReplicasLocked(ctx context.Context, js jetstr
 	if err != nil {
 		return fmt.Errorf("stream info failed for %q: %w", streamName, err)
 	}
-	if info.Config.Replicas == n.jetstreamReplicas {
+	needsUpdate := false
+	cfg := info.Config
+
+	if cfg.Replicas != n.jetstreamReplicas {
+		cfg.Replicas = n.jetstreamReplicas
+		needsUpdate = true
+	}
+
+	if maxBytes > 0 && cfg.MaxBytes != maxBytes {
+		cfg.MaxBytes = maxBytes
+		needsUpdate = true
+	}
+
+	if !needsUpdate {
 		return nil
 	}
 
-	cfg := info.Config
-	cfg.Replicas = n.jetstreamReplicas
 	if _, err := js.UpdateStream(ctx, cfg); err != nil {
-		return fmt.Errorf("stream replica reconciliation failed for %q: %w", streamName, err)
+		return fmt.Errorf("stream config reconciliation failed for %q: %w", streamName, err)
 	}
 	return nil
 }

@@ -546,6 +546,9 @@ dbEventWriter:
 datasvc:
   replicaCount: 1
   jetstreamReplicas: 1
+  bucketMaxBytes: 5368709120
+  objectMaxBytes: 536870912
+  objectStoreBytes: 2147483648
   data:
     enabled: true
     size: 5Gi
@@ -560,6 +563,7 @@ zen:
 logCollector:
   replicaCount: 1
   streamReplicas: 1
+  streamMaxBytes: 2147483648
   data:
     enabled: true
     existingClaim: ""
@@ -672,6 +676,7 @@ flowCollector:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
+    stream_max_bytes: 10737418240
     stream_replicas: 1
     channel_size: 10000
     batch_size: 100

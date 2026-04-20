@@ -30,11 +30,12 @@ cnpg:
 
 logCollector:
   replicaCount: 3
-  streamReplicas: 2
+  streamReplicas: 3
+  streamMaxBytes: 1073741824
   tcpCollector:
     enabled: true
     replicaCount: 3
-    streamReplicas: 2
+    streamReplicas: 3
   data:
     enabled: false
   probes:
@@ -312,13 +313,16 @@ dbEventWriter:
 
 zen:
   replicaCount: 3
-  streamReplicas: 2
+  streamReplicas: 3
   data:
     enabled: false
 
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
+  bucketMaxBytes: 536870912
+  objectMaxBytes: 268435456
+  objectStoreBytes: 536870912
   data:
     enabled: false
 
@@ -351,7 +355,7 @@ prometheusRules:
 
 trapd:
   replicaCount: 3
-  streamReplicas: 2
+  streamReplicas: 3
   externalService:
     enabled: true
     annotations:
@@ -370,9 +374,10 @@ flowgger:
 flowCollector:
   enabled: true
   replicaCount: 3
-  streamReplicas: 2
+  streamReplicas: 3
   config:
-    stream_replicas: 2
+    stream_max_bytes: 1073741824
+    stream_replicas: 3
   data:
     enabled: false
   service:
