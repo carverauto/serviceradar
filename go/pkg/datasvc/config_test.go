@@ -202,6 +202,7 @@ func TestConfigValidateSetsDefaultObjectLimits(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 	require.EqualValues(t, defaultObjectMaxBytes, cfg.ObjectMaxBytes)
 	require.EqualValues(t, defaultObjectStoreBytes, cfg.ObjectStoreBytes)
+	require.EqualValues(t, 1, cfg.JetStreamReplicas)
 }
 
 func TestConfigValidateRejectsNegativeObjectLimits(t *testing.T) {
@@ -238,4 +239,33 @@ func TestConfigValidateRejectsNegativeObjectLimits(t *testing.T) {
 	err = cfg.Validate()
 	require.Error(t, err)
 	require.ErrorIs(t, err, errObjectStoreBytesNegative)
+}
+
+func TestConfigValidateRejectsInvalidJetStreamReplicas(t *testing.T) {
+	cfg := &Config{
+		ListenAddr:        "127.0.0.1:0",
+		NATSURL:           "nats://127.0.0.1:4222",
+		NATSCredsFile:     "/etc/serviceradar/creds/platform.creds",
+		JetStreamReplicas: 6,
+		Security: &models.SecurityConfig{
+			Mode: models.SecurityMode("mtls"),
+			TLS: models.TLSConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
+		NATSSecurity: &models.SecurityConfig{
+			Mode: models.SecurityMode("mtls"),
+			TLS: models.TLSConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorIs(t, err, errJetStreamReplicasInvalid)
 }

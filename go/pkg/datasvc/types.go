@@ -53,15 +53,16 @@ type Config struct {
 	RBAC          struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
-	Bucket           string            `json:"bucket,omitempty"`             // KV bucket name
-	Domain           string            `json:"domain,omitempty"`             // Optional JetStream domain
-	ObjectBucket     string            `json:"object_bucket,omitempty"`      // JetStream object store bucket name
-	BucketMaxBytes   int64             `json:"bucket_max_bytes,omitempty"`   // Hard cap for bucket size (bytes)
-	ObjectMaxBytes   int64             `json:"object_max_bytes,omitempty"`   // Hard cap for a single uploaded object (bytes)
-	ObjectStoreBytes int64             `json:"object_store_bytes,omitempty"` // Hard cap for the JetStream object store bucket (bytes)
-	BucketTTL        models.Duration   `json:"bucket_ttl,omitempty"`         // TTL for entries (0 = no expiry)
-	BucketHistory    uint32            `json:"bucket_history,omitempty"`     // History depth per key
-	CoreRegistration *CoreRegistration `json:"core_registration,omitempty"`  // Core service registration settings
+	Bucket            string            `json:"bucket,omitempty"`             // KV bucket name
+	Domain            string            `json:"domain,omitempty"`             // Optional JetStream domain
+	ObjectBucket      string            `json:"object_bucket,omitempty"`      // JetStream object store bucket name
+	JetStreamReplicas int               `json:"jetstream_replicas,omitempty"` // Desired JetStream replica count for KV/object stores
+	BucketMaxBytes    int64             `json:"bucket_max_bytes,omitempty"`   // Hard cap for bucket size (bytes)
+	ObjectMaxBytes    int64             `json:"object_max_bytes,omitempty"`   // Hard cap for a single uploaded object (bytes)
+	ObjectStoreBytes  int64             `json:"object_store_bytes,omitempty"` // Hard cap for the JetStream object store bucket (bytes)
+	BucketTTL         models.Duration   `json:"bucket_ttl,omitempty"`         // TTL for entries (0 = no expiry)
+	BucketHistory     uint32            `json:"bucket_history,omitempty"`     // History depth per key
+	CoreRegistration  *CoreRegistration `json:"core_registration,omitempty"`  // Core service registration settings
 
 	// NATSOperator configures the NATS account management service for namespace isolation.
 	// When configured, datasvc will expose the NATSAccountService gRPC endpoint.
