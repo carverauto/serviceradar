@@ -524,6 +524,7 @@ data:
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
         "stream_name": "events",
+        "stream_replicas": {{ default 1 .Values.zen.streamReplicas }},
         "consumer_name": "zen-consumer",
         "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
         "decision_groups": [
@@ -991,6 +992,7 @@ data:
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
         "stream_name": "events",
+        "stream_replicas": {{ default 1 .Values.trapd.streamReplicas }},
         "subject": "logs.snmp",
         "nats_security": {
           "mode": "mtls",

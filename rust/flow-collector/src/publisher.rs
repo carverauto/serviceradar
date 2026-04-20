@@ -131,6 +131,12 @@ impl Publisher {
                 if needs_update {
                     let mut updated_config = info.config.clone();
                     updated_config.subjects = current_subjects;
+                    updated_config.num_replicas = self.config.stream_replicas;
+                    js.update_stream(updated_config).await?;
+                    js.get_stream(&self.config.stream_name).await?;
+                } else if info.config.num_replicas != self.config.stream_replicas {
+                    let mut updated_config = info.config.clone();
+                    updated_config.num_replicas = self.config.stream_replicas;
                     js.update_stream(updated_config).await?;
                     js.get_stream(&self.config.stream_name).await?;
                 }
@@ -142,6 +148,7 @@ impl Publisher {
                     storage: StorageType::File,
                     max_bytes: self.config.stream_max_bytes,
                     max_age: Duration::from_secs(24 * 60 * 60),
+                    num_replicas: self.config.stream_replicas,
                     ..Default::default()
                 };
                 js.get_or_create_stream(stream_config).await?;

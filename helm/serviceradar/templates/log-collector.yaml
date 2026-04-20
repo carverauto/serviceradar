@@ -37,6 +37,7 @@ data:
     nats_url = "tls://serviceradar-nats:4222"
     nats_subject = "logs.syslog"
     nats_stream = "events"
+    nats_stream_replicas = {{ default 1 .Values.logCollector.streamReplicas }}
     nats_timeout = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
     nats_tls_cert = "/etc/serviceradar/certs/log-collector.pem"
@@ -66,6 +67,7 @@ data:
     timeout_secs = 30
     max_bytes = 2147483648
     max_age_secs = 1800
+    stream_replicas = {{ default 1 .Values.logCollector.streamReplicas }}
 {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
     creds_file = "/etc/serviceradar/creds/platform.creds"
 {{- end }}
