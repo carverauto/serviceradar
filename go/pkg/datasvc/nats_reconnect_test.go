@@ -113,7 +113,7 @@ func TestObjectStoreConfigIncludesMaxBytes(t *testing.T) {
 	cfg := store.objectStoreConfig("bounded-objects")
 	require.Equal(t, "bounded-objects", cfg.Bucket)
 	require.EqualValues(t, 4096, cfg.MaxBytes)
-	require.EqualValues(t, 3, cfg.Replicas)
+	require.Equal(t, 3, cfg.Replicas)
 }
 
 func TestKeyValueConfigIncludesReplicas(t *testing.T) {
@@ -129,7 +129,7 @@ func TestKeyValueConfigIncludesReplicas(t *testing.T) {
 	cfg := store.keyValueConfig()
 	require.Equal(t, "test-kv", cfg.Bucket)
 	require.EqualValues(t, 1, cfg.History)
-	require.EqualValues(t, 3, cfg.Replicas)
+	require.Equal(t, 3, cfg.Replicas)
 	require.EqualValues(t, 2048, cfg.MaxBytes)
 }
 
