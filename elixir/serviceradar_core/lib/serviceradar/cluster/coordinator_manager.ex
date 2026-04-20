@@ -30,7 +30,8 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
       conn: nil,
       conn_mon: nil,
       leader?: false,
-      coordinator_child: nil
+      coordinator_child: nil,
+      coordinator_child_mon: nil
     }
 
     send(self(), :ensure_coordinator)
@@ -51,6 +52,17 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{conn_mon: ref} = state) do
     Logger.warning("Coordinator DB lock connection exited", reason: inspect(reason))
     {:noreply, demote(%{state | conn: nil, conn_mon: nil})}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{coordinator_child_mon: ref} = state) do
+    Logger.warning("Coordinator child tree exited", reason: inspect(reason))
+
+    {:noreply,
+     demote(%{
+       state
+       | coordinator_child: nil,
+         coordinator_child_mon: nil
+     })}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -106,10 +118,12 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   defp promote(state) do
     case DynamicSupervisor.start_child(CoordinatorRuntimeSupervisor, coordinator_child_spec()) do
       {:ok, pid} ->
-        %{state | leader?: true, coordinator_child: pid}
+        child_mon = Process.monitor(pid)
+        %{state | leader?: true, coordinator_child: pid, coordinator_child_mon: child_mon}
 
       {:error, {:already_started, pid}} ->
-        %{state | leader?: true, coordinator_child: pid}
+        child_mon = Process.monitor(pid)
+        %{state | leader?: true, coordinator_child: pid, coordinator_child_mon: child_mon}
 
       {:error, reason} ->
         Logger.error("Failed to start coordinator children", reason: inspect(reason))
@@ -123,13 +137,18 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
     maybe_stop_child(state.coordinator_child)
     maybe_unlock(state.conn)
     Logger.warning("Core coordinator lock released", node: Node.self())
-    %{state | leader?: false, coordinator_child: nil}
+    %{state | leader?: false, coordinator_child: nil, coordinator_child_mon: nil}
   end
 
   defp maybe_stop_child(nil), do: :ok
 
   defp maybe_stop_child(pid) when is_pid(pid) do
-    DynamicSupervisor.terminate_child(CoordinatorRuntimeSupervisor, pid)
+    case DynamicSupervisor.terminate_child(CoordinatorRuntimeSupervisor, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+      {:error, :noproc} -> :ok
+      {:error, _reason} -> :ok
+    end
   end
 
   defp maybe_unlock(nil), do: :ok
