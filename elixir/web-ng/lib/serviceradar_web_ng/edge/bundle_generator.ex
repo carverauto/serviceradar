@@ -796,7 +796,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     set -e
 
     echo "Enrolling ServiceRadar agent..."
-    /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}
+    #{agent_enroll_command(token, base_url)}
 
     echo ""
     echo "Enrollment complete."
@@ -810,7 +810,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     Enroll the agent with the onboarding token (no config edits required):
 
     ```bash
-    /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}
+    #{agent_enroll_command(token, base_url)}
     ```
     """
   end
@@ -867,6 +867,19 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     kubectl apply -f kubernetes/deployment.yaml
     ```
     """
+  end
+
+  def agent_enroll_command(token, base_url) when is_binary(token) and is_binary(base_url) do
+    command =
+      "/usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}"
+
+    case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
+      public_key when is_binary(public_key) and public_key != "" ->
+        "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=#{Shell.literal(public_key)} #{command}"
+
+      _ ->
+        command
+    end
   end
 
   defp metadata_map(%OnboardingPackage{metadata_json: metadata_json})

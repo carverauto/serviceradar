@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
@@ -672,7 +671,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
-        "sudo /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(onboarding_token)}"
+        "sudo " <> BundleGenerator.agent_enroll_command(onboarding_token, base_url)
       end
 
     docker_cmd =

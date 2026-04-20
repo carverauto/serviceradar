@@ -43,7 +43,7 @@ func NewConsumer(
 		Durable:       consumerName,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
-		MaxDeliver:    3,
+		MaxDeliver:    -1,
 		MaxAckPending: 1000,
 	}
 
@@ -189,7 +189,6 @@ func normalizedSubjects(subjects []string) string {
 const (
 	defaultMaxPullMessages = 50
 	defaultPullExpiry      = 30 * time.Second
-	defaultMaxRetries      = 3
 	reconnectDelay         = 5 * time.Second
 )
 
@@ -199,13 +198,7 @@ func (c *Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, proces
 		c.logger.Error().Err(err).Msg("Failed to process message batch")
 
 		for _, msg := range processed {
-			metadata, _ := msg.Metadata()
-
-			if metadata.NumDelivered >= defaultMaxRetries {
-				_ = msg.Ack()
-			} else {
-				_ = msg.Nak()
-			}
+			_ = msg.Nak()
 		}
 
 		return
