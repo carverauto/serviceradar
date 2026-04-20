@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.RBAC
 
@@ -45,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:show_edit_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:selected_source, nil)
+        |> assign(:selected_source_runs, [])
         |> assign(:create_form, build_create_form(actor))
         |> assign(:edit_form, nil)
         |> assign(:filter_type, nil)
@@ -52,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         # Query management for forms
         |> assign(:form_queries, [default_query()])
         |> assign(:form_network_blacklist, "")
+        |> assign(:form_custom_fields, "")
         |> assign(:mapbox_settings, load_mapbox_settings(actor))
         |> assign(:mapbox_form, mapbox_settings_to_form(load_mapbox_settings(actor)))
 
@@ -130,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       {:ok, source} ->
         socket
         |> assign(:selected_source, source)
+        |> assign(:selected_source_runs, list_recent_update_runs(source.id, actor))
         |> assign(:show_details_modal, true)
 
       {:error, _} ->
@@ -148,12 +152,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         form_queries = source_queries_to_form(source.queries)
         # Convert network_blacklist array to textarea format
         form_blacklist = Enum.join(source.network_blacklist || [], "\n")
+        form_custom_fields = Enum.join(source.custom_fields || [], ", ")
 
         socket
         |> assign(:selected_source, source)
         |> assign(:edit_form, build_edit_form(source, actor))
         |> assign(:form_queries, form_queries)
         |> assign(:form_network_blacklist, form_blacklist)
+        |> assign(:form_custom_fields, form_custom_fields)
         |> assign(:show_edit_modal, true)
 
       {:error, _} ->
@@ -194,7 +200,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:agent_index, agent_index)
        |> assign(:agent_options, agent_options)
        |> assign(:form_queries, [default_query()])
-       |> assign(:form_network_blacklist, "")}
+       |> assign(:form_network_blacklist, "")
+       |> assign(:form_custom_fields, "")}
     else
       {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
@@ -236,7 +243,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
      |> assign(:show_create_modal, false)
      |> assign(:create_form, build_create_form(actor))
      |> assign(:form_queries, [default_query()])
-     |> assign(:form_network_blacklist, "")}
+     |> assign(:form_network_blacklist, "")
+     |> assign(:form_custom_fields, "")}
   end
 
   def handle_event("close_edit_modal", _params, socket) do
@@ -246,14 +254,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
      |> assign(:selected_source, nil)
      |> assign(:edit_form, nil)
      |> assign(:form_queries, [default_query()])
-     |> assign(:form_network_blacklist, "")}
+     |> assign(:form_network_blacklist, "")
+     |> assign(:form_custom_fields, "")}
   end
 
   def handle_event("close_details_modal", _params, socket) do
     {:noreply,
      socket
      |> assign(:show_details_modal, false)
-     |> assign(:selected_source, nil)}
+     |> assign(:selected_source, nil)
+     |> assign(:selected_source_runs, [])}
   end
 
   def handle_event("validate_create", %{"form" => params}, socket) do
@@ -323,6 +333,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     {:noreply, assign(socket, :form_network_blacklist, value)}
   end
 
+  def handle_event("update_custom_fields", params, socket) do
+    value = params["value"] || params["custom_fields_text"] || ""
+    {:noreply, assign(socket, :form_custom_fields, value)}
+  end
+
   def handle_event("create_source", %{"form" => params}, socket) do
     actor = get_actor(socket)
 
@@ -335,8 +350,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       params = Map.put(params, "queries", queries)
 
       # Add network_blacklist from textarea
-      blacklist = parse_network_blacklist(socket.assigns.form_network_blacklist)
+      blacklist =
+        parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
+
       params = Map.put(params, "network_blacklist", blacklist)
+
+      params =
+        Map.put(
+          params,
+          "custom_fields",
+          parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
+        )
 
       form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
 
@@ -347,6 +371,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> assign(:show_create_modal, false)
            |> assign(:sources, list_sources(actor))
            |> assign(:create_form, build_create_form(actor))
+           |> assign(:form_custom_fields, "")
            |> put_flash(:info, "Integration source created successfully")}
 
         {:error, form} ->
@@ -371,8 +396,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     params = Map.put(params, "queries", queries)
 
     # Add network_blacklist from textarea
-    blacklist = parse_network_blacklist(socket.assigns.form_network_blacklist)
+    blacklist =
+      parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
+
     params = Map.put(params, "network_blacklist", blacklist)
+
+    params =
+      Map.put(
+        params,
+        "custom_fields",
+        parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
+      )
 
     form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
 
@@ -386,6 +420,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
          |> assign(:sources, list_sources(actor))
          |> assign(:form_queries, [default_query()])
          |> assign(:form_network_blacklist, "")
+         |> assign(:form_custom_fields, "")
          |> put_flash(:info, "Integration source updated successfully")}
 
       {:error, form} ->
@@ -460,6 +495,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              socket
              |> put_flash(:info, "Queued Armis northbound run for #{source.name}")
              |> assign(:selected_source, refreshed)
+             |> assign(:selected_source_runs, list_recent_update_runs(source.id, actor))
              |> assign(:sources, list_sources(actor, active_filters(socket)))}
 
           {:error, reason} ->
@@ -676,8 +712,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     <th>Partition</th>
                     <th>Agent</th>
                     <th>Endpoint</th>
-                    <th>Status</th>
-                    <th>Last Sync</th>
+                    <th>Discovery</th>
+                    <th>Northbound</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -726,9 +762,36 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             {source.last_error_message}
                           </div>
                         <% end %>
+                        <div class="mt-1 text-xs text-base-content/60">
+                          {format_datetime(source.last_sync_at)}
+                        </div>
                       </td>
-                      <td class="text-xs text-base-content/70">
-                        {format_datetime(source.last_sync_at)}
+                      <td>
+                        <%= if armis_source?(source) do %>
+                          <.northbound_status_badge
+                            enabled={source.northbound_enabled}
+                            status={source.northbound_status}
+                            result={source.northbound_last_result}
+                          />
+                          <div class="mt-1 text-xs text-base-content/60">
+                            {format_datetime(source.northbound_last_run_at)}
+                          </div>
+                          <div class="mt-1 text-xs text-base-content/70">
+                            {source.northbound_last_updated_count || 0} updated
+                            <span class="mx-1">•</span>
+                            {source.northbound_last_skipped_count || 0} skipped
+                          </div>
+                          <%= if source.northbound_last_error_message do %>
+                            <div
+                              class="text-xs text-error/80 max-w-[180px] truncate"
+                              title={source.northbound_last_error_message}
+                            >
+                              {source.northbound_last_error_message}
+                            </div>
+                          <% end %>
+                        <% else %>
+                          <span class="text-xs text-base-content/40">-</span>
+                        <% end %>
                       </td>
                       <td>
                         <div class="flex gap-1">
@@ -869,6 +932,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         agent_options={@agent_options}
         form_queries={@form_queries}
         form_network_blacklist={@form_network_blacklist}
+        form_custom_fields={@form_custom_fields}
       />
       <.edit_modal
         :if={@show_edit_modal}
@@ -878,11 +942,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         agent_options={@agent_options}
         form_queries={@form_queries}
         form_network_blacklist={@form_network_blacklist}
+        form_custom_fields={@form_custom_fields}
       />
       <.details_modal
         :if={@show_details_modal}
         source={@selected_source}
         agent_index={@agent_index}
+        selected_source_runs={@selected_source_runs}
       />
     </Layouts.app>
     """
@@ -1001,6 +1067,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             form={@form}
             source_type={@form[:source_type].value || :armis}
             mode={:create}
+          />
+
+          <.armis_northbound_fields
+            :if={armis_source?(@form[:source_type].value || :armis)}
+            form={@form}
+            custom_fields_value={@form_custom_fields}
           />
 
           <div class="divider text-xs text-base-content/60">Queries</div>
@@ -1194,6 +1266,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             mode={:edit}
           />
 
+          <.armis_northbound_fields
+            :if={armis_source?((@source && @source.source_type) || :armis)}
+            form={@form}
+            custom_fields_value={@form_custom_fields}
+          />
+
           <div class="divider text-xs text-base-content/60">Queries</div>
 
           <div class="space-y-3">
@@ -1365,7 +1443,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider">Sync Statistics</div>
+          <div class="divider">Discovery Status</div>
 
           <div class="grid grid-cols-3 gap-4">
             <div class="stat bg-base-200 rounded-lg p-3">
@@ -1405,6 +1483,117 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="alert alert-error text-sm">
               <.icon name="hero-exclamation-circle" class="size-5" />
               <span>{@source.last_error_message}</span>
+            </div>
+          <% end %>
+
+          <%= if armis_source?(@source) do %>
+            <div class="divider">Armis Northbound</div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">Enabled</div>
+                <div class="mt-1">
+                  <.ui_badge
+                    variant={if @source.northbound_enabled, do: "success", else: "ghost"}
+                    size="xs"
+                  >
+                    {if @source.northbound_enabled, do: "Enabled", else: "Disabled"}
+                  </.ui_badge>
+                </div>
+              </div>
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+                <div class="mt-1">
+                  <.northbound_status_badge
+                    enabled={@source.northbound_enabled}
+                    status={@source.northbound_status}
+                    result={@source.northbound_last_result}
+                  />
+                </div>
+              </div>
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">Cadence</div>
+                <div>{format_interval(@source.northbound_interval_seconds)}</div>
+              </div>
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">
+                  Custom Property
+                </div>
+                <div class="font-mono text-sm">{custom_fields_display(@source.custom_fields)}</div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4">
+              <div class="stat bg-base-200 rounded-lg p-3">
+                <div class="stat-title text-xs">Last Device Count</div>
+                <div class="stat-value text-lg">{@source.northbound_last_device_count || 0}</div>
+              </div>
+              <div class="stat bg-base-200 rounded-lg p-3">
+                <div class="stat-title text-xs">Last Updated</div>
+                <div class="stat-value text-lg">{@source.northbound_last_updated_count || 0}</div>
+              </div>
+              <div class="stat bg-base-200 rounded-lg p-3">
+                <div class="stat-title text-xs">Last Skipped</div>
+                <div class="stat-value text-lg">{@source.northbound_last_skipped_count || 0}</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Last Run</div>
+              <div class="text-sm">{format_datetime(@source.northbound_last_run_at)}</div>
+            </div>
+
+            <%= if @source.northbound_last_error_message do %>
+              <div class="alert alert-error text-sm">
+                <.icon name="hero-exclamation-circle" class="size-5" />
+                <span>{@source.northbound_last_error_message}</span>
+              </div>
+            <% end %>
+
+            <div>
+              <div class="mb-2 text-xs uppercase tracking-wide text-base-content/60">Recent Runs</div>
+              <%= if @selected_source_runs == [] do %>
+                <div class="rounded-lg border border-dashed border-base-200 bg-base-100 p-4 text-sm text-base-content/60">
+                  No northbound runs recorded yet.
+                </div>
+              <% else %>
+                <div class="overflow-x-auto rounded-lg border border-base-200">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                        <th>Started</th>
+                        <th>Status</th>
+                        <th>Updated</th>
+                        <th>Skipped</th>
+                        <th>Errors</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <%= for run <- @selected_source_runs do %>
+                        <tr>
+                          <td class="text-xs text-base-content/70">
+                            {format_datetime(run.started_at)}
+                          </td>
+                          <td><.run_status_badge status={run.status} /></td>
+                          <td class="text-xs text-base-content/70">{run.updated_count || 0}</td>
+                          <td class="text-xs text-base-content/70">{run.skipped_count || 0}</td>
+                          <td class="text-xs text-base-content/70">
+                            {run.error_count || 0}
+                            <%= if run.error_message do %>
+                              <div
+                                class="max-w-[220px] truncate text-error/80"
+                                title={run.error_message}
+                              >
+                                {run.error_message}
+                              </div>
+                            <% end %>
+                          </td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+              <% end %>
             </div>
           <% end %>
         </div>
@@ -1481,7 +1670,45 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     """
   end
 
+  defp northbound_status_badge(assigns) do
+    {variant, label} =
+      cond do
+        not assigns.enabled -> {"ghost", "Disabled"}
+        assigns.status == :running -> {"info", "Running"}
+        assigns.result == :success -> {"success", "Success"}
+        assigns.result == :partial -> {"warning", "Partial"}
+        assigns.result in [:failed, :timeout] -> {"error", "Failed"}
+        true -> {"ghost", "Idle"}
+      end
+
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp run_status_badge(assigns) do
+    {variant, label} =
+      case assigns.status do
+        :running -> {"info", "Running"}
+        :success -> {"success", "Success"}
+        :partial -> {"warning", "Partial"}
+        :failed -> {"error", "Failed"}
+        :timeout -> {"error", "Timeout"}
+        _ -> {"ghost", "Unknown"}
+      end
+
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
   defp armis_source?(%{source_type: :armis}), do: true
+  defp armis_source?("armis"), do: true
+  defp armis_source?(:armis), do: true
   defp armis_source?(_), do: false
 
   defp refresh_selected_source(nil, _actor), do: nil
@@ -1518,6 +1745,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       true -> "#{seconds} second(s)"
     end
   end
+
+  defp custom_fields_display(fields) when is_list(fields) and fields != [] do
+    Enum.join(fields, ", ")
+  end
+
+  defp custom_fields_display(_), do: "-"
 
   # Data access helpers
 
@@ -1612,6 +1845,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp get_source(id, actor) do
     IntegrationSource.get_by_id(id, actor: actor)
+  end
+
+  defp list_recent_update_runs(source_id, actor) do
+    source_id
+    |> IntegrationUpdateRun.list_recent_by_source(actor: actor)
+    |> case do
+      {:ok, %Keyset{results: results}} -> results
+      {:ok, results} when is_list(results) -> results
+      _ -> []
+    end
+  rescue
+    _ -> []
   end
 
   defp build_create_form(actor) do
@@ -1759,6 +2004,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   end
 
   defp parse_network_blacklist(_), do: []
+
+  defp parse_custom_fields(text) when is_binary(text) do
+    text
+    |> String.split([",", "\n"])
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_custom_fields(_), do: []
 
   # Source types that support network blacklist (discovery-based integrations)
   defp shows_network_blacklist?(:armis), do: true
@@ -1976,6 +2231,57 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
         </div>
     <% end %>
+    """
+  end
+
+  attr(:form, :any, required: true)
+  attr(:custom_fields_value, :string, default: "")
+
+  defp armis_northbound_fields(assigns) do
+    ~H"""
+    <div class="divider text-xs text-base-content/60">Armis Northbound</div>
+
+    <div class="space-y-4 rounded-xl border border-base-200 bg-base-100/70 p-4">
+      <label class="flex items-center gap-3 text-sm">
+        <input type="hidden" name="form[northbound_enabled]" value="false" />
+        <input
+          type="checkbox"
+          name="form[northbound_enabled]"
+          value="true"
+          class="toggle toggle-primary"
+          checked={truthy(@form[:northbound_enabled].value)}
+        />
+        <span>Enable northbound Armis availability updates</span>
+      </label>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <.input
+          field={@form[:northbound_interval_seconds]}
+          type="number"
+          label="Northbound Interval (sec)"
+          placeholder="3600"
+        />
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Armis Custom Property / Tag</span>
+          </label>
+          <input
+            type="text"
+            name="custom_fields_text"
+            class="input input-bordered w-full font-mono text-sm"
+            value={@custom_fields_value}
+            placeholder="availability"
+            phx-blur="update_custom_fields"
+          />
+          <label class="label">
+            <span class="label-text-alt text-base-content/60">
+              The updater uses the first configured value as the target property in Armis.
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
     """
   end
 
