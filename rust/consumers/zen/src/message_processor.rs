@@ -80,6 +80,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             domain: None,
             stream_name: "test-stream".to_string(),
+            stream_replicas: 1,
             consumer_name: "test-consumer".to_string(),
             subjects: vec![
                 "events.json".to_string(),

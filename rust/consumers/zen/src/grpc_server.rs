@@ -270,6 +270,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             domain: None,
             stream_name: "events".to_string(),
+            stream_replicas: 1,
             consumer_name: "zen-consumer".to_string(),
             subjects: vec!["logs.syslog".to_string()],
             subject_prefix: None,
