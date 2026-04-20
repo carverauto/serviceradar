@@ -29,7 +29,9 @@ import {registerGlobalWindowEvents, registerLiveReloadHelpers} from "./utils/win
 // Custom hooks
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
-  longPollFallbackMs: 2500,
+  // Demo is currently falling back to longpoll instead of websocket for LiveView.
+  // Keep the fallback enabled, but avoid a multi-second blank wait before mount.
+  longPollFallbackMs: 250,
   params: {_csrf_token: csrfToken},
   hooks: {...HookModules},
 })
