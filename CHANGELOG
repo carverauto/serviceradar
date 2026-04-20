@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.21
+
+Demo high-availability hardening, Armis northbound operator controls, device-details performance work, and the bulk MTR status fix needed to keep diagnostics jobs moving cleanly in production.
+
+## Whats New
+
+**1.2.21**
+- Completed the validated demo control-plane HA profile across `core`, `web-ng`, `agent-gateway`, `datasvc`, `zen`, and ingest workers, including JetStream sizing cleanup, durable-consumer turnover fixes, onboarding/runtime certificate fixes, and updated Helm/docs coverage for the published chart overlays.
+- Added Armis northbound settings and run-status visibility in the integrations UI so operators can configure the target custom property/tag, cadence, enablement, and review recent northbound update runs directly from product settings.
+- Optimized the device-details critical path by deferring nonessential work off initial load, reducing serial fan-out, and tightening page startup so heavy device detail views render faster.
+- Fixed bulk MTR command status persistence in `core` so progress/result updates from agents reporting string UUID command IDs no longer crash the status handler or leave jobs stuck in `ACKNOWLEDGED`.
+
 # ServiceRadar v1.2.20
 
 Device detail MTR diagnostics now load correctly for direct visits and in-page tab navigation, fixing cases where matching traces existed in storage but the device page rendered an empty MTR tab.
