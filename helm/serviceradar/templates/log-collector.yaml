@@ -65,7 +65,7 @@ data:
     logs_subject = "logs.otel"
     stream = "events"
     timeout_secs = 30
-    max_bytes = 2147483648
+    max_bytes = {{ default 2147483648 .Values.logCollector.streamMaxBytes }}
     max_age_secs = 1800
     stream_replicas = {{ default 1 .Values.logCollector.streamReplicas }}
 {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
