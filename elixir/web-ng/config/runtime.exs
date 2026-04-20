@@ -897,7 +897,44 @@ if config_env() == :prod do
   gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
   agent_release_public_key = System.get_env("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY")
   onboarding_token_private_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY")
-  onboarding_token_public_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY")
+  onboarding_token_public_key_env = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY")
+
+  decode_ed25519_key = fn raw_key ->
+    raw_key = String.trim(raw_key)
+
+    decoders = [
+      fn -> Base.decode64(raw_key) end,
+      fn -> Base.url_decode64(raw_key, padding: false) end,
+      fn -> Base.decode16(raw_key, case: :mixed) end
+    ]
+
+    Enum.reduce_while(decoders, {:error, :invalid_key}, fn decoder, _acc ->
+      case decoder.() do
+        {:ok, decoded} -> {:halt, {:ok, decoded}}
+        :error -> {:cont, {:error, :invalid_key}}
+      end
+    end)
+  end
+
+  onboarding_token_public_key =
+    cond do
+      is_binary(onboarding_token_public_key_env) and
+          String.trim(onboarding_token_public_key_env) != "" ->
+        String.trim(onboarding_token_public_key_env)
+
+      is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" ->
+        with {:ok, key_bytes} <- decode_ed25519_key.(onboarding_token_private_key),
+             seed when byte_size(seed) in [32, 64] <-
+               if(byte_size(key_bytes) == 64, do: binary_part(key_bytes, 0, 32), else: key_bytes),
+             {public_key, _private_key} <- :crypto.generate_key(:eddsa, :ed25519, seed) do
+          Base.encode64(public_key)
+        else
+          _ -> nil
+        end
+
+      true ->
+        nil
+    end
 
   # Configure ServiceRadar.Repo from serviceradar_core
   config :serviceradar_core, ServiceRadar.Repo,
