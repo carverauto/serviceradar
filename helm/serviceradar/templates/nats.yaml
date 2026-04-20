@@ -1,9 +1,55 @@
-apiVersion: apps/v1
-kind: Deployment
+{{- $nats := default (dict) .Values.nats -}}
+{{- $persistence := default (dict) $nats.persistence -}}
+{{- $jetstream := default (dict) $nats.jetstream -}}
+{{- $replicas := int (default 1 $nats.replicas) -}}
+{{- $clusterName := default "serviceradar" $nats.clusterName -}}
+---
+apiVersion: v1
+kind: Service
 metadata:
   name: serviceradar-nats
 spec:
-  replicas: 1
+  selector:
+    app: serviceradar-nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: client
+  - name: monitoring
+    port: 8222
+    targetPort: monitoring
+  - name: cluster
+    port: 6222
+    targetPort: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-nats-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: serviceradar-nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: client
+  - name: monitoring
+    port: 8222
+    targetPort: monitoring
+  - name: cluster
+    port: 6222
+    targetPort: cluster
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: serviceradar-nats
+spec:
+  serviceName: serviceradar-nats-headless
+  replicas: {{ $replicas }}
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: serviceradar-nats
@@ -13,13 +59,251 @@ spec:
         app: serviceradar-nats
         app.kubernetes.io/part-of: serviceradar
       annotations:
-        checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       containers:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}
-        args: ["--config", "/etc/nats-config/nats-server.conf", "--jetstream"]
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          ROUTES_BLOCK=""
+          for i in $(seq 0 $((NATS_REPLICAS - 1))); do
+            peer="serviceradar-nats-${i}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local"
+            if [ "${peer}" != "${POD_NAME}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local" ]; then
+              ROUTES_BLOCK="${ROUTES_BLOCK}        nats://${peer}:6222,\n"
+            fi
+          done
+
+          cat >/tmp/nats-server.conf <<EOF
+          server_name: ${POD_NAME}
+          listen: 0.0.0.0:4222
+          http: 0.0.0.0:8222
+
+          jetstream {
+            store_dir: /data/jetstream
+            max_memory_store: {{ default "1G" $jetstream.maxMemoryStore }}
+            max_file_store: {{ default "10G" $jetstream.maxFileStore }}
+          }
+
+          tls {
+            cert_file: "/etc/serviceradar/certs/nats.pem"
+            key_file: "/etc/serviceradar/certs/nats-key.pem"
+            ca_file: "/etc/serviceradar/certs/root.pem"
+            verify: true
+            verify_and_map: true
+          }
+
+          cluster {
+            name: {{ $clusterName | quote }}
+            listen: 0.0.0.0:6222
+            advertise: ${POD_NAME}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local:6222
+            tls {
+              cert_file: "/etc/serviceradar/certs/nats.pem"
+              key_file: "/etc/serviceradar/certs/nats-key.pem"
+              ca_file: "/etc/serviceradar/certs/root.pem"
+              verify: true
+            }
+            routes: [
+          $(printf "%b" "${ROUTES_BLOCK}")      ]
+          }
+
+          accounts {
+            SYS: {
+              users: []
+            }
+
+            SERVICERADAR: {
+              jetstream: enabled
+              users: [
+              {
+                user: "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["logs.syslog", "otel.>", "logs.otel", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["logs.syslog", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["otel.>", "logs.otel", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["logs.snmp", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["arancini.updates", "arancini.updates.>", "\$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "\$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["falco.>", "\$JS.API.STREAM.INFO.falco_events", "\$JS.API.STREAM.CREATE.falco_events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "O=ServiceRadar"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              }
+              ]
+            }
+          }
+
+          system_account: SYS
+          debug: true
+          trace: false
+          EOF
+
+          exec nats-server --config /tmp/nats-server.conf
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NATS_REPLICAS
+          value: {{ $replicas | quote }}
         ports:
         - containerPort: 4222
           name: client
@@ -30,8 +314,6 @@ spec:
         volumeMounts:
         - name: nats-data
           mountPath: /data
-        - name: serviceradar-nats-config
-          mountPath: /etc/nats-config
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -55,44 +337,18 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
       volumes:
-      - name: nats-data
-        persistentVolumeClaim:
-          claimName: serviceradar-nats-data
-      - name: serviceradar-nats-config
-        configMap:
-          name: serviceradar-config
-          items:
-            - key: nats.conf
-              path: nats-server.conf
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: serviceradar-nats
-spec:
-  selector:
-    app: serviceradar-nats
-  ports:
-  - name: client
-    port: 4222
-    targetPort: client
-  - name: monitoring
-    port: 8222
-    targetPort: monitoring
-  - name: cluster
-    port: 6222
-    targetPort: cluster
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: serviceradar-nats-data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ default "30Gi" (default (dict) .Values.nats.persistence).size }}
+  volumeClaimTemplates:
+  - metadata:
+      name: nats-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ default "30Gi" $persistence.size }}
+      {{- if $persistence.storageClassName }}
+      storageClassName: {{ $persistence.storageClassName | quote }}
+      {{- end }}

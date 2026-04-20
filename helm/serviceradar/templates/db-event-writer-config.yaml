@@ -42,6 +42,7 @@ data:
         "database": {{ default "serviceradar" .Values.cnpg.database | quote }},
         "username": {{ default "serviceradar" .Values.cnpg.username | quote }},
         "password": "",
+        "max_connections": {{ default 32 .Values.dbEventWriter.cnpgMaxConnections }},
         "ssl_mode": "verify-full",
         "cert_dir": {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }},
         "runtime_params": {

@@ -1,5 +1,9 @@
 {{- if .Values.flowCollector.enabled }}
 {{- $data := default (dict) .Values.flowCollector.data -}}
+{{- $dataEnabled := true -}}
+{{- if hasKey $data "enabled" -}}
+{{- $dataEnabled = $data.enabled -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,7 +12,7 @@ data:
   flow-collector.json: |
     {{- toJson .Values.flowCollector.config | nindent 4 }}
 ---
-{{- if and ($data.enabled | default true) (not $data.existingClaim) }}
+{{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -33,7 +37,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ .Values.flowCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-flow-collector
@@ -173,7 +177,7 @@ spec:
         {{- if $data.existingClaim }}
         persistentVolumeClaim:
           claimName: {{ $data.existingClaim | quote }}
-        {{- else if ($data.enabled | default true) }}
+        {{- else if $dataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-flow-collector-data
         {{- else }}

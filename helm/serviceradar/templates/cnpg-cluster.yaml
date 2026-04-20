@@ -25,6 +25,17 @@
 {{- if eq $superPass "" }}
   {{- $superPass = randAlphaNum 32 }}
 {{- end }}
+{{- $defaultExtensionsSQL := list
+      "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+      "CREATE EXTENSION IF NOT EXISTS age;"
+      "CREATE EXTENSION IF NOT EXISTS postgis;"
+      "CREATE EXTENSION IF NOT EXISTS vector;"
+      (printf "GRANT USAGE ON SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+  -}}
+{{- $extensionsSQL := default $defaultExtensionsSQL $cnpg.extensionsSQL -}}
 {{- $clientCASecret := default "" $cnpg.clientCASecret -}}
 {{- if and (not $clientCASecret) $cnpg.requireClientCert }}
   {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
@@ -79,7 +90,7 @@ spec:
       owner: {{ $appUser | quote }}
       secret:
         name: {{ $appSecretName | quote }}
-      {{- with $cnpg.extensionsSQL }}
+      {{- with $extensionsSQL }}
       postInitApplicationSQL:
         {{- range $stmt := . }}
         - {{ $stmt | quote }}

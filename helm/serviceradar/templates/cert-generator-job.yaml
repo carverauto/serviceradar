@@ -92,6 +92,8 @@ spec:
           value: {{ default "default" (default (dict) .Values.agent).partitionId | quote }}
         - name: DEFAULT_AGENT_COMPONENT_ID
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
+        - name: RUNTIME_CERT_LAYOUT_VERSION
+          value: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
         args:
         - |
           set -euo pipefail
@@ -107,6 +109,7 @@ spec:
 
           secret_name = os.environ["SECRET_NAME"]
           cert_dir = os.environ["CERT_DIR"]
+          expected_layout_version = os.environ["RUNTIME_CERT_LAYOUT_VERSION"]
           agent_component_cert = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-chain.pem'
           agent_component_key = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-key.pem'
           serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
@@ -135,16 +138,28 @@ spec:
               "tools-key.pem",
               "falcosidekick.pem",
               "falcosidekick-key.pem",
+              "runtime-cert-layout-version",
               agent_component_cert,
               agent_component_key,
             ]
 
             missing = [name for name in required if not os.path.exists(os.path.join(cert_dir, name))]
-            if not missing:
+            layout_version_path = os.path.join(cert_dir, "runtime-cert-layout-version")
+            layout_version = ""
+            if os.path.exists(layout_version_path):
+              layout_version = open(layout_version_path, encoding="utf-8").read().strip()
+
+            if not missing and layout_version == expected_layout_version:
               print(f"Secret {secret_name} already exists with required runtime certs; preserving current runtime certs")
               sys.exit(0)
 
-            print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
+            if missing:
+              print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
+            else:
+              print(
+                f"Secret {secret_name} has runtime cert layout version {layout_version or 'unset'}; "
+                f"expected {expected_layout_version}. Regenerating runtime certs."
+              )
             sys.exit(1)
           except urllib.error.HTTPError as exc:
             if exc.code == 404:
@@ -161,7 +176,9 @@ spec:
           tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
           chmod +x /tmp/generate-certs.sh
           mkdir -p "${CERT_DIR}"
+          export FORCE_REGENERATE=true
           bash /tmp/generate-certs.sh
+          printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
 
           python3 <<'PY'
           import base64

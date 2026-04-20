@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
@@ -672,7 +671,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
-        "sudo /usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(onboarding_token)}"
+        "sudo " <> BundleGenerator.agent_enroll_command(onboarding_token, base_url)
       end
 
     docker_cmd =
@@ -698,6 +697,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:systemd_cmd, systemd_cmd)
       |> assign(:onboarding_token, onboarding_token)
       |> assign(:enroll_cmd, enroll_cmd)
+      |> assign(:enroll_cmd_error, enroll_cmd_error(onboarding_token, enroll_cmd))
       |> assign(:component_type, component_type)
 
     ~H"""
@@ -723,18 +723,25 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <p class="text-xs text-base-content/50">
             The gateway address is derived from your deployment configuration by default.
           </p>
-          <div class="relative">
-            <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>
-            <button
-              type="button"
-              class="btn btn-sm btn-ghost absolute top-2 right-2"
-              phx-click="copy_token"
-              phx-value-token={@enroll_cmd}
-              title="Copy enroll command"
-            >
-              <.icon name="hero-clipboard" class="size-4" />
-            </button>
-          </div>
+          <%= if is_binary(@enroll_cmd) and @enroll_cmd != "" do %>
+            <div class="relative">
+              <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost absolute top-2 right-2"
+                phx-click="copy_token"
+                phx-value-token={@enroll_cmd}
+                title="Copy enroll command"
+              >
+                <.icon name="hero-clipboard" class="size-4" />
+              </button>
+            </div>
+          <% else %>
+            <div class="alert alert-error alert-soft">
+              <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
+              <span>{@enroll_cmd_error}</span>
+            </div>
+          <% end %>
         </div>
       <% else %>
         <div class="divider">Quick Install</div>
@@ -850,6 +857,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     </div>
     """
   end
+
+  defp enroll_cmd_error(onboarding_token, enroll_cmd)
+
+  defp enroll_cmd_error(_onboarding_token, enroll_cmd) when is_binary(enroll_cmd) and enroll_cmd != "", do: nil
+
+  defp enroll_cmd_error(nil, _enroll_cmd),
+    do: "The onboarding command could not be generated because the token signing key is not configured on web-ng."
+
+  defp enroll_cmd_error(_onboarding_token, _enroll_cmd),
+    do: "The onboarding command could not be generated for this package."
 
   defp format_expiry(nil), do: "N/A"
 

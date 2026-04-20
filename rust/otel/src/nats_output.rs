@@ -29,6 +29,7 @@ pub struct NATSConfig {
     pub timeout: Duration,
     pub max_bytes: i64,
     pub max_age: Duration,
+    pub stream_replicas: usize,
     pub creds_file: Option<PathBuf>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
@@ -45,6 +46,7 @@ impl Default for NATSConfig {
             timeout: Duration::from_secs(30),
             max_bytes: 2 * 1024 * 1024 * 1024,
             max_age: Duration::from_secs(30 * 60),
+            stream_replicas: 1,
             creds_file: None,
             tls_cert: None,
             tls_key: None,
@@ -344,6 +346,7 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
         storage: StorageType::File,
         max_bytes: config.max_bytes,
         max_age: config.max_age,
+        num_replicas: config.stream_replicas,
         ..Default::default()
     };
 
@@ -401,6 +404,15 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                     config.stream, updated_config.max_age, config.max_age
                 );
                 updated_config.max_age = config.max_age;
+                needs_update = true;
+            }
+
+            if updated_config.num_replicas != config.stream_replicas {
+                debug!(
+                    "Updating stream '{}' replicas from {} to {}",
+                    config.stream, updated_config.num_replicas, config.stream_replicas
+                );
+                updated_config.num_replicas = config.stream_replicas;
                 needs_update = true;
             }
 
@@ -476,6 +488,10 @@ async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> R
                     }
                     if updated_config.max_age != config.max_age {
                         updated_config.max_age = config.max_age;
+                        needs_update = true;
+                    }
+                    if updated_config.num_replicas != config.stream_replicas {
+                        updated_config.num_replicas = config.stream_replicas;
                         needs_update = true;
                     }
 

@@ -29,6 +29,17 @@ cnpg:
   storageClass: local-path-big
 
 logCollector:
+  replicaCount: 3
+  # Keep the shared events stream at 3 replicas in demo, but with a smaller
+  # reservation so JetStream placement fits within the account budget.
+  streamReplicas: 3
+  streamMaxBytes: 1073741824
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
+    streamReplicas: 3
+  data:
+    enabled: false
   probes:
     liveness:
       timeoutSeconds: 10
@@ -46,6 +57,8 @@ logCollector:
 
 agentGateway:
   enabled: true
+  replicas: 3
+  publicHostname: "demo-gw.serviceradar.cloud"
   service:
     type: LoadBalancer
     port: 50052
@@ -167,6 +180,9 @@ geoipMmdb:
   storageClassName: ""
 
 webNg:
+  replicas: 3
+  database:
+    poolSize: 8
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
@@ -182,15 +198,17 @@ webNg:
       cpu: "500m"
       memory: 2Gi
   devRoutes: "true"
-  localMailer: "true"
+  localMailer: "false"
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true
+    backend: "jetstream"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
+    jetstreamReplicas: 3
 
 faker:
   enabled: true
@@ -228,6 +246,11 @@ gobgp:
     pullPolicy: IfNotPresent
 
 core:
+  replicas: 3
+  clusterWebDnsQuery: "serviceradar-web-ng-headless.demo.svc.cluster.local"
+  clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
+  database:
+    poolSize: 10
   # MTR automation rollout profiles (copy/paste into mtrAutomation):
   # baseline_only:
   #   enabled: true
@@ -280,9 +303,34 @@ zenRulesBootstrap:
   enabled: true
 
 dbEventWriter:
+  replicaCount: 3
+  cnpgMaxConnections: 4
+  enableMigrations: false
+  data:
+    # db-event-writer is now queue-backed and stateless in demo.
+    enabled: false
   kvBootstrap:
     # Disabled in demo: the post-upgrade KV seed job is not required for
     # steady-state upgrades and can leave Helm stuck in pending-upgrade.
+    enabled: false
+
+zen:
+  replicaCount: 3
+  streamReplicas: 3
+  data:
+    # zen now uses shared durable consumers instead of local singleton state.
+    enabled: false
+
+datasvc:
+  replicaCount: 3
+  jetstreamReplicas: 3
+  # Demo stores little real KV/object data; keep reserved capacity small so the
+  # rest of JetStream can also run at 3 replicas.
+  bucketMaxBytes: 536870912
+  objectMaxBytes: 268435456
+  objectStoreBytes: 536870912
+  data:
+    # datasvc is safe to run stateless in demo because KV/object state lives in NATS.
     enabled: false
 
 # Temporarily disabled client CA for initial testing - there's a circular dependency
@@ -313,6 +361,9 @@ prometheusRules:
     slowQueryLogThresholdMs: 500
 
 trapd:
+  replicaCount: 3
+  # trapd writes into the shared 3x events stream.
+  streamReplicas: 3
   externalService:
     enabled: true
     annotations:
@@ -330,6 +381,15 @@ flowgger:
 
 flowCollector:
   enabled: true
+  replicaCount: 3
+  # flow-collector also reconciles the shared events stream.
+  streamReplicas: 3
+  config:
+    stream_max_bytes: 1073741824
+    stream_replicas: 3
+  data:
+    # flow collector is stateless in demo; raw flow durability is in JetStream.
+    enabled: false
   service:
     type: LoadBalancer
     annotations:
@@ -366,6 +426,7 @@ certs:
 
 bmpCollector:
   enabled: true
+  replicaCount: 3
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
   args:
@@ -382,12 +443,19 @@ bmpCollector:
     - "--curation-snapshot-backend=local"
     - "-vvv"
   config:
-    stream_max_bytes: 1073741824
-    nats_tls_client_cert_path: "/etc/serviceradar/certs/bmp-collector.pem"
-    nats_tls_client_key_path: "/etc/serviceradar/certs/bmp-collector-key.pem"
+    streamMaxBytes: 1073741824
+    # Pods are HA, but the dedicated ARANCINI_CAUSAL stream still stays at a
+    # single JetStream replica until that budget is sized separately.
+    streamReplicas: 1
+    natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
+    natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
+  data:
+    enabled: false
   service:
     type: LoadBalancer
     annotations:
       metallb.universe.tf/address-pool: k3s-pool
     loadBalancerIP: "23.138.124.27"
     externalTrafficPolicy: Local
+nats:
+  replicas: 3

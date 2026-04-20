@@ -524,6 +524,7 @@ data:
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
         "stream_name": "events",
+        "stream_replicas": {{ default 1 .Values.zen.streamReplicas }},
         "consumer_name": "zen-consumer",
         "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
         "decision_groups": [
@@ -991,6 +992,7 @@ data:
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
         "stream_name": "events",
+        "stream_replicas": {{ default 1 .Values.trapd.streamReplicas }},
         "subject": "logs.snmp",
         "nats_security": {
           "mode": "mtls",
@@ -1162,5 +1164,9 @@ data:
             {"identity": "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
           ]
         },
-        "bucket": "serviceradar-datasvc"
+        "bucket": "serviceradar-datasvc",
+        "bucket_max_bytes": {{ default 5368709120 .Values.datasvc.bucketMaxBytes }},
+        "object_max_bytes": {{ default 536870912 .Values.datasvc.objectMaxBytes }},
+        "object_store_bytes": {{ default 2147483648 .Values.datasvc.objectStoreBytes }},
+        "jetstream_replicas": {{ default 1 .Values.datasvc.jetstreamReplicas }}
       }

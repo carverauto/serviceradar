@@ -309,35 +309,68 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp ensure_ag_catalog_privileges!(app_user) do
     if repo_enabled?() and schema_exists?("ag_catalog") do
-      # AGE privileges must be granted by superuser since the schemas may be owned by postgres.
-      # Use admin connection for all AGE-related grants.
-      with_admin_connection(fn conn ->
-        Postgrex.query!(conn, "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}", [])
+      graph_name = Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
 
-        Postgrex.query!(
-          conn,
-          "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-          []
-        )
+      if age_privileges_already_satisfied?(app_user, graph_name) do
+        :ok
+      else
+        # AGE privileges must be granted by superuser when the schema was created by postgres.
+        with_admin_connection(fn conn ->
+          Postgrex.query!(
+            conn,
+            "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+            []
+          )
 
-        Postgrex.query!(
-          conn,
-          "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-          []
-        )
+          Postgrex.query!(
+            conn,
+            "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+            []
+          )
 
-        Postgrex.query!(
-          conn,
-          "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
-          []
-        )
+          Postgrex.query!(
+            conn,
+            "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+            []
+          )
 
-        # Also grant privileges on the AGE graph schema (configured graph name).
-        # AGE creates a schema for each graph to store vertex/edge labels.
-        graph_name = Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
-        ensure_age_graph_privileges!(conn, app_user, graph_name)
-      end)
+          Postgrex.query!(
+            conn,
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+            []
+          )
+
+          ensure_age_graph_privileges!(conn, app_user, graph_name)
+        end)
+      end
     end
+  end
+
+  defp age_privileges_already_satisfied?(app_user, graph_name) do
+    has_ag_catalog_usage?() and age_graph_owner(graph_name) == app_user
+  end
+
+  defp has_ag_catalog_usage? do
+    case ServiceRadar.Repo.query!(
+           "SELECT has_schema_privilege(current_user, 'ag_catalog', 'USAGE')"
+         ) do
+      %{rows: [[true]]} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp age_graph_owner(graph_name) do
+    case ServiceRadar.Repo.query!(
+           "SELECT schema_owner FROM information_schema.schemata WHERE schema_name = $1",
+           [graph_name]
+         ) do
+      %{rows: [[owner]]} when is_binary(owner) -> owner
+      _ -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   # Grant privileges on an AGE graph schema using an admin connection.
@@ -728,54 +761,79 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp ensure_app_database_exists!(database) do
-    admin_database = System.get_env("CNPG_ADMIN_DATABASE", "postgres")
-    attempts = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_ATTEMPTS"), 30)
-    delay_ms = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_DELAY_MS"), 2000)
+    if repo_connected_to_database?(database) do
+      :ok
+    else
+      admin_database = System.get_env("CNPG_ADMIN_DATABASE", "postgres")
+      attempts = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_ATTEMPTS"), 30)
+      delay_ms = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_DELAY_MS"), 2000)
 
-    with_retry(attempts, delay_ms, fn ->
-      case execute_with_admin_credentials(
-             fn conn ->
-             try do
-               %{rows: rows} =
-                 Postgrex.query!(conn, "SELECT 1 FROM pg_database WHERE datname = $1", [database])
+      with_retry(attempts, delay_ms, fn ->
+        case execute_with_admin_credentials(
+               fn conn ->
+                 try do
+                   %{rows: rows} =
+                     Postgrex.query!(conn, "SELECT 1 FROM pg_database WHERE datname = $1", [
+                       database
+                     ])
 
-               if rows == [] do
-                 Logger.info("[StartupMigrations] Creating database #{database}")
-                 Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}")
-               else
-                 Logger.info("[StartupMigrations] Database #{database} already exists; skipping")
-               end
+                   if rows == [] do
+                     Logger.info("[StartupMigrations] Creating database #{database}")
+                     Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}")
+                   else
+                     Logger.info(
+                       "[StartupMigrations] Database #{database} already exists; skipping"
+                     )
+                   end
 
-               :ok
-             rescue
-               e in [DBConnection.ConnectionError, Postgrex.Error] ->
-                 {:retry, e}
-             end
-             end,
-             admin_database
-           ) do
-        :ok ->
-          :ok
+                   :ok
+                 rescue
+                   e in [DBConnection.ConnectionError, Postgrex.Error] ->
+                     {:retry, e}
+                 end
+               end,
+               admin_database
+             ) do
+          :ok ->
+            :ok
 
-        {:ok, :ok} ->
-          :ok
+          {:ok, :ok} ->
+            :ok
 
-        {:retry, reason} ->
-          {:retry, reason}
+          {:retry, reason} ->
+            {:retry, reason}
 
-        {:ok, {:retry, reason}} ->
-          {:retry, reason}
+          {:ok, {:retry, reason}} ->
+            {:retry, reason}
 
-        {:error, reason} ->
-          {:retry, reason}
+          {:error, reason} ->
+            {:retry, reason}
+        end
+      end)
+    end
+  end
+
+  defp repo_connected_to_database?(database) do
+    if repo_enabled?() do
+      case ServiceRadar.Repo.query!("SELECT current_database()") do
+        %{rows: [[^database]]} -> true
+        _ -> false
       end
-    end)
+    else
+      false
+    end
+  rescue
+    _ -> false
   end
 
   defp admin_connection_attempts do
     primary = {
-      read_text_file(System.get_env("CNPG_USERNAME_FILE")) || System.get_env("CNPG_USERNAME"),
-      read_text_file(System.get_env("CNPG_PASSWORD_FILE")) || System.get_env("CNPG_PASSWORD"),
+      read_text_file(System.get_env("CNPG_ADMIN_USERNAME_FILE")) ||
+        System.get_env("CNPG_ADMIN_USERNAME") ||
+        read_text_file(System.get_env("CNPG_USERNAME_FILE")) || System.get_env("CNPG_USERNAME"),
+      read_text_file(System.get_env("CNPG_ADMIN_PASSWORD_FILE")) ||
+        System.get_env("CNPG_ADMIN_PASSWORD") ||
+        read_text_file(System.get_env("CNPG_PASSWORD_FILE")) || System.get_env("CNPG_PASSWORD"),
       "configured admin credentials"
     }
 
@@ -785,15 +843,18 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         {"", _, _} -> []
         {user, nil, label} -> [{user, "", label}]
         {user, pwd, label} -> [{user, pwd, label}]
-    end
+      end
 
     app_user = app_user()
     app_password = app_password_or_nil()
 
     # Only include fallback when app credentials are usable and different from primary.
     {primary_user, primary_password, _primary_label} = primary
+
     app_creds =
-      if app_password in [nil, ""], do: [], else: [{app_user, app_password, "application credentials"}]
+      if app_password in [nil, ""],
+        do: [],
+        else: [{app_user, app_password, "application credentials"}]
 
     if primary_user == app_user and primary_password == app_password do
       configured

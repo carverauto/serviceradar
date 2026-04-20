@@ -27,6 +27,7 @@ var (
 	errFailedToParseCACert      = errors.New("failed to parse CA certificate")
 	errBucketHistoryTooLarge    = errors.New("bucket_history cannot exceed 255")
 	errBucketMaxBytesNegative   = errors.New("bucket_max_bytes cannot be negative")
+	errJetStreamReplicasInvalid = errors.New("jetstream_replicas must be between 1 and 5")
 	errObjectMaxBytesNegative   = errors.New("object_max_bytes cannot be negative")
 	errObjectStoreBytesNegative = errors.New("object_store_bytes cannot be negative")
 	errNilConfig                = errors.New("kv: nil config provided")

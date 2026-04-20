@@ -81,6 +81,8 @@ spec:
           value: {{ default "default" (default (dict) .Values.agent).partitionId | quote }}
         - name: DEFAULT_AGENT_COMPONENT_ID
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
+        - name: RUNTIME_CERT_LAYOUT_VERSION
+          value: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
         args:
         - |
           set -euo pipefail
@@ -92,6 +94,7 @@ spec:
           chmod +x /tmp/generate-certs.sh
           mkdir -p "${CERT_DIR}"
           bash /tmp/generate-certs.sh
+          printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
 
           python3 <<'PY'
           import base64
@@ -110,11 +113,12 @@ spec:
           context = ssl.create_default_context(cafile=cafile)
 
           data = {}
-          for entry in sorted(os.listdir(cert_dir)):
-            path = os.path.join(cert_dir, entry)
-            if os.path.isfile(path):
+          for root, _, files in os.walk(cert_dir):
+            for entry in sorted(files):
+              path = os.path.join(root, entry)
+              key = os.path.basename(path)
               with open(path, "rb") as handle:
-                data[entry] = base64.b64encode(handle.read()).decode("ascii")
+                data[key] = base64.b64encode(handle.read()).decode("ascii")
 
           payload = {"data": data}
           base_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"

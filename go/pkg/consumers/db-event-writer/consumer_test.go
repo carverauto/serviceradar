@@ -3,6 +3,7 @@ package dbeventwriter
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -74,4 +75,47 @@ func TestConsumerProcessMessagesReturnsFatalError(t *testing.T) {
 			require.ErrorIs(t, err, tc.err)
 		})
 	}
+}
+
+func TestConsumerConfigMatches(t *testing.T) {
+	t.Parallel()
+
+	base := jetstream.ConsumerConfig{
+		Durable:       "writer",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       30 * time.Second,
+		MaxDeliver:    3,
+		MaxAckPending: 1000,
+		FilterSubjects: []string{
+			"logs.otel.processed",
+			"otel.metrics.>",
+		},
+	}
+
+	t.Run("matches equivalent subject sets", func(t *testing.T) {
+		t.Parallel()
+
+		desired := base
+		desired.FilterSubjects = []string{"otel.metrics.>", "logs.otel.processed"}
+
+		require.True(t, consumerConfigMatches(base, desired, desired.FilterSubjects))
+	})
+
+	t.Run("detects subject mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		desired := base
+		desired.FilterSubjects = []string{"logs.otel.processed"}
+
+		require.False(t, consumerConfigMatches(base, desired, desired.FilterSubjects))
+	})
+
+	t.Run("detects ack config mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		desired := base
+		desired.MaxDeliver = 5
+
+		require.False(t, consumerConfigMatches(base, desired, base.FilterSubjects))
+	})
 }

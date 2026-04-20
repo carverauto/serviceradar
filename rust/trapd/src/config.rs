@@ -73,6 +73,10 @@ fn default_stream_name() -> String {
     "events".to_string()
 }
 
+fn default_stream_replicas() -> usize {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub listen_addr: String,
@@ -81,6 +85,8 @@ pub struct Config {
     pub nats_domain: Option<String>,
     #[serde(default = "default_stream_name")]
     pub stream_name: String,
+    #[serde(default = "default_stream_replicas")]
+    pub stream_replicas: usize,
     pub subject: String,
     #[serde(default)]
     pub nats_creds_file: Option<String>,
@@ -100,6 +106,9 @@ impl Config {
         }
         if self.stream_name.is_empty() {
             anyhow::bail!("stream_name is required");
+        }
+        if self.stream_replicas == 0 {
+            anyhow::bail!("stream_replicas must be > 0");
         }
         if self.subject.is_empty() {
             anyhow::bail!("subject is required");
@@ -187,6 +196,7 @@ mod tests {
             nats_url: "tls://serviceradar-nats:4222".into(),
             nats_domain: None,
             stream_name: "events".into(),
+            stream_replicas: 1,
             subject: "logs.snmp".into(),
             nats_creds_file: None,
             nats_security: None,

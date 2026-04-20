@@ -39,24 +39,25 @@ import (
 )
 
 type NATSStore struct {
-	nc               *nats.Conn
-	ctx              context.Context
-	natsURL          string
-	credsFile        string
-	security         *models.SecurityConfig
-	bucket           string
-	defaultDomain    string
-	bucketHistory    uint32
-	bucketTTL        time.Duration
-	bucketMaxBytes   int64
-	objectMaxBytes   int64
-	objectStoreBytes int64
-	objectBucket     string
-	jsByDomain       map[string]jetstream.JetStream
-	kvByDomain       map[string]jetstream.KeyValue
-	objectStores     map[string]jetstream.ObjectStore
-	mu               sync.Mutex
-	connectFn        func() (*nats.Conn, error)
+	nc                *nats.Conn
+	ctx               context.Context
+	natsURL           string
+	credsFile         string
+	security          *models.SecurityConfig
+	bucket            string
+	defaultDomain     string
+	jetstreamReplicas int
+	bucketHistory     uint32
+	bucketTTL         time.Duration
+	bucketMaxBytes    int64
+	objectMaxBytes    int64
+	objectStoreBytes  int64
+	objectBucket      string
+	jsByDomain        map[string]jetstream.JetStream
+	kvByDomain        map[string]jetstream.KeyValue
+	objectStores      map[string]jetstream.ObjectStore
+	mu                sync.Mutex
+	connectFn         func() (*nats.Conn, error)
 }
 
 const (
@@ -72,25 +73,29 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	}
 
 	store := &NATSStore{
-		ctx:              ctx,
-		natsURL:          cfg.NATSURL,
-		credsFile:        cfg.NATSCredsFile,
-		security:         cloneSecurityConfig(cfg.NATSSecurity),
-		bucket:           cfg.Bucket,
-		defaultDomain:    cfg.Domain,
-		bucketHistory:    cfg.BucketHistory,
-		bucketTTL:        time.Duration(cfg.BucketTTL),
-		bucketMaxBytes:   cfg.BucketMaxBytes,
-		objectMaxBytes:   cfg.ObjectMaxBytes,
-		objectStoreBytes: cfg.ObjectStoreBytes,
-		objectBucket:     cfg.ObjectBucket,
-		jsByDomain:       make(map[string]jetstream.JetStream),
-		kvByDomain:       make(map[string]jetstream.KeyValue),
-		objectStores:     make(map[string]jetstream.ObjectStore),
+		ctx:               ctx,
+		natsURL:           cfg.NATSURL,
+		credsFile:         cfg.NATSCredsFile,
+		security:          cloneSecurityConfig(cfg.NATSSecurity),
+		bucket:            cfg.Bucket,
+		defaultDomain:     cfg.Domain,
+		jetstreamReplicas: cfg.JetStreamReplicas,
+		bucketHistory:     cfg.BucketHistory,
+		bucketTTL:         time.Duration(cfg.BucketTTL),
+		bucketMaxBytes:    cfg.BucketMaxBytes,
+		objectMaxBytes:    cfg.ObjectMaxBytes,
+		objectStoreBytes:  cfg.ObjectStoreBytes,
+		objectBucket:      cfg.ObjectBucket,
+		jsByDomain:        make(map[string]jetstream.JetStream),
+		kvByDomain:        make(map[string]jetstream.KeyValue),
+		objectStores:      make(map[string]jetstream.ObjectStore),
 	}
 
 	if store.bucketHistory == 0 {
 		store.bucketHistory = 1
+	}
+	if store.jetstreamReplicas == 0 {
+		store.jetstreamReplicas = 1
 	}
 	if store.bucketTTL < 0 {
 		store.bucketTTL = 0
@@ -812,21 +817,14 @@ func (n *NATSStore) ensureDomainLocked(ctx context.Context, domain string) (jets
 			return nil, fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, n.bucketHistory)
 		}
 
-		cfg := jetstream.KeyValueConfig{
-			Bucket:  n.bucket,
-			History: uint8(n.bucketHistory),
-		}
-		if n.bucketTTL > 0 {
-			cfg.TTL = n.bucketTTL
-		}
-		if n.bucketMaxBytes > 0 {
-			cfg.MaxBytes = n.bucketMaxBytes
-		}
-
+		cfg := n.keyValueConfig()
 		kv, err = js.CreateKeyValue(ctx, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("kv bucket init failed for domain %q: %w", domain, err)
 		}
+	}
+	if err := n.reconcileKVStreamLocked(ctx, js); err != nil {
+		return nil, err
 	}
 
 	n.kvByDomain[domain] = kv
@@ -860,18 +858,84 @@ func (n *NATSStore) ensureObjectStoreLocked(ctx context.Context, domain string, 
 			return nil, fmt.Errorf("object store init failed for domain %q: %w", domain, err)
 		}
 	}
+	if err := n.reconcileObjectStoreStreamLocked(ctx, js, bucket); err != nil {
+		return nil, err
+	}
 
 	n.objectStores[domain] = store
 
 	return store, nil
 }
 
+func (n *NATSStore) keyValueConfig() jetstream.KeyValueConfig {
+	cfg := jetstream.KeyValueConfig{
+		Bucket:   n.bucket,
+		History:  uint8(n.bucketHistory),
+		Replicas: n.jetstreamReplicas,
+	}
+	if n.bucketTTL > 0 {
+		cfg.TTL = n.bucketTTL
+	}
+	if n.bucketMaxBytes > 0 {
+		cfg.MaxBytes = n.bucketMaxBytes
+	}
+	return cfg
+}
+
 func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig {
-	cfg := jetstream.ObjectStoreConfig{Bucket: bucket}
+	cfg := jetstream.ObjectStoreConfig{
+		Bucket:   bucket,
+		Replicas: n.jetstreamReplicas,
+	}
 	if n.objectStoreBytes > 0 {
 		cfg.MaxBytes = n.objectStoreBytes
 	}
 	return cfg
+}
+
+func (n *NATSStore) reconcileKVStreamLocked(ctx context.Context, js jetstream.JetStream) error {
+	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("KV_%s", n.bucket), n.bucketMaxBytes)
+}
+
+func (n *NATSStore) reconcileObjectStoreStreamLocked(ctx context.Context, js jetstream.JetStream, bucket string) error {
+	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("OBJ_%s", bucket), n.objectStoreBytes)
+}
+
+func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstream.JetStream, streamName string, maxBytes int64) error {
+	if n.jetstreamReplicas <= 0 {
+		return nil
+	}
+
+	stream, err := js.Stream(ctx, streamName)
+	if err != nil {
+		return fmt.Errorf("stream lookup failed for %q: %w", streamName, err)
+	}
+
+	info, err := stream.Info(ctx)
+	if err != nil {
+		return fmt.Errorf("stream info failed for %q: %w", streamName, err)
+	}
+	needsUpdate := false
+	cfg := info.Config
+
+	if cfg.Replicas != n.jetstreamReplicas {
+		cfg.Replicas = n.jetstreamReplicas
+		needsUpdate = true
+	}
+
+	if maxBytes > 0 && cfg.MaxBytes != maxBytes {
+		cfg.MaxBytes = maxBytes
+		needsUpdate = true
+	}
+
+	if !needsUpdate {
+		return nil
+	}
+
+	if _, err := js.UpdateStream(ctx, cfg); err != nil {
+		return fmt.Errorf("stream config reconciliation failed for %q: %w", streamName, err)
+	}
+	return nil
 }
 
 func (n *NATSStore) resetConnectionLocked() {

@@ -13,6 +13,8 @@ pub struct Config {
     pub stream_subjects: Option<Vec<String>>,
     #[serde(default = "default_stream_max_bytes")]
     pub stream_max_bytes: i64,
+    #[serde(default = "default_stream_replicas")]
+    pub stream_replicas: usize,
     #[serde(default = "default_partition")]
     pub partition: String,
 
@@ -181,6 +183,10 @@ fn default_stream_max_bytes() -> i64 {
     10 * 1024 * 1024 * 1024
 }
 
+fn default_stream_replicas() -> usize {
+    1
+}
+
 fn default_max_templates() -> usize {
     2000
 }
@@ -219,6 +225,9 @@ impl Config {
         }
         if self.stream_name.is_empty() {
             anyhow::bail!("stream_name cannot be empty");
+        }
+        if self.stream_replicas == 0 {
+            anyhow::bail!("stream_replicas must be > 0");
         }
         if self.listeners.is_empty() {
             anyhow::bail!("at least one listener is required");

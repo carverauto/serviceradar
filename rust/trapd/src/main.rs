@@ -150,13 +150,7 @@ async fn main() -> Result<()> {
         async_nats::jetstream::new(nats_client)
     };
 
-    let stream_config = async_nats::jetstream::stream::Config {
-        name: cfg.stream_name.clone(),
-        subjects: vec![cfg.subject.clone()],
-        storage: async_nats::jetstream::stream::StorageType::File,
-        ..Default::default()
-    };
-    if let Err(e) = js.get_or_create_stream(stream_config).await {
+    if let Err(e) = ensure_stream(&js, &cfg).await {
         warn!("failed to ensure stream {}: {e}", cfg.stream_name);
     }
 
@@ -184,6 +178,41 @@ fn ensure_rustls_provider_installed() {
     ONCE.call_once(|| {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     });
+}
+
+async fn ensure_stream(js: &async_nats::jetstream::Context, cfg: &Config) -> Result<()> {
+    match js.get_stream(&cfg.stream_name).await {
+        Ok(mut stream) => {
+            let info = stream.info().await?;
+            let mut updated_config = info.config.clone();
+            let mut changed = false;
+
+            if !updated_config.subjects.contains(&cfg.subject) {
+                updated_config.subjects.push(cfg.subject.clone());
+                changed = true;
+            }
+            if updated_config.num_replicas != cfg.stream_replicas {
+                updated_config.num_replicas = cfg.stream_replicas;
+                changed = true;
+            }
+
+            if changed {
+                js.update_stream(updated_config).await?;
+            }
+        }
+        Err(_) => {
+            let stream_config = async_nats::jetstream::stream::Config {
+                name: cfg.stream_name.clone(),
+                subjects: vec![cfg.subject.clone()],
+                storage: async_nats::jetstream::stream::StorageType::File,
+                num_replicas: cfg.stream_replicas,
+                ..Default::default()
+            };
+            js.get_or_create_stream(stream_config).await?;
+        }
+    }
+
+    Ok(())
 }
 
 fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {

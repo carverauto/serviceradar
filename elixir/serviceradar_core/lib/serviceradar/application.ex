@@ -50,8 +50,6 @@ defmodule ServiceRadar.Application do
   """
   use Application
 
-  alias ServiceRadar.Observability.LogPromotionConsumer
-
   require Logger
 
   @impl true
@@ -89,9 +87,6 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
-        # Sweep scheduling reconciliation (safe when Oban is unavailable)
-        sweep_schedule_reconciler_child(),
-
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
 
@@ -111,61 +106,8 @@ defmodule ServiceRadar.Application do
         # Sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
-        # Results router for agent-gateway push results
-        results_router_child(),
-
-        # Status handler (legacy) for agent-gateway push results
-        status_handler_child(),
-
-        # Agent command status handler (persists command lifecycle updates)
-        command_status_handler_child(),
-
-        # Health check runner supervisor (high-frequency gRPC checks)
-        health_check_runner_supervisor_child(),
-
-        # Health check registrar (subscribes to agent events, auto-registers services)
-        health_check_registrar_child(),
-
         # Horde registries (always started for registration support)
         registry_children(),
-
-        # Template seeding for rule builder defaults
-        template_seeder_child(),
-
-        # Zen rule defaults for deployment onboarding
-        zen_rule_seeder_child(),
-
-        # Zen rule reconciliation to datasvc KV
-        zen_rule_sync_child(),
-
-        # Log promotion and stateful alert rule defaults
-        rule_seeder_child(),
-
-        # Job schedule defaults
-        job_schedule_seeder_child(),
-
-        # Device cleanup settings defaults
-        device_cleanup_settings_seeder_child(),
-
-        # Default SNMP profile seed
-        snmp_profile_seeder_child(),
-
-        # Default RBAC role profiles seed
-        role_profile_seeder_child(),
-
-        # NetFlow enrichment background maintenance (scheduled on coordinator only)
-        ip_enrichment_scheduler_child(),
-        geolite_mmdb_scheduler_child(),
-        ipinfo_mmdb_scheduler_child(),
-        netflow_enrichment_dataset_scheduler_child(),
-        netflow_security_scheduler_child(),
-        netflow_cache_scheduler_child(),
-        armis_northbound_scheduler_child(),
-        mtr_baseline_scheduler_child(),
-        mtr_state_trigger_worker_child(),
-        mtr_consensus_worker_child(),
-        topology_state_scheduler_child(),
-        plugin_target_policy_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -176,14 +118,11 @@ defmodule ServiceRadar.Application do
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children(),
 
-        # Log promotion consumer for processed logs
-        log_promotion_consumer_child(),
+        # Coordinator-only duties for core-elx candidates
+        coordinator_children(),
 
         # NATS ingest notification → PubSub bridge (lightweight, no ack needed)
-        nats_ingest_notifier_child(),
-
-        # EventWriter for NATS JetStream → CNPG consumption (optional)
-        event_writer_child()
+        nats_ingest_notifier_child()
       ]
       |> List.flatten()
       |> Enum.reject(&is_nil/1)
@@ -264,39 +203,9 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp sweep_schedule_reconciler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.SweepJobs.SweepScheduleReconciler
-    end
-  end
-
-  defp netflow_security_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Observability.NetflowSecurityScheduler
-    end
-  end
-
-  defp netflow_cache_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Observability.NetflowCacheScheduler
-    end
-  end
-
-  defp armis_northbound_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Integrations.ArmisNorthboundScheduler
-    end
-  end
-
   defp startup_migrations_child do
     if Application.get_env(:serviceradar_core, :run_startup_migrations, false) do
       ServiceRadar.Cluster.StartupMigrations
-    end
-  end
-
-  defp plugin_target_policy_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Plugins.PluginTargetPolicyScheduler
     end
   end
 
@@ -354,24 +263,6 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp status_handler_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.StatusHandler
-    end
-  end
-
-  defp command_status_handler_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.AgentCommands.StatusHandler
-    end
-  end
-
-  defp results_router_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.ResultsRouter
-    end
-  end
-
   defp grpc_client_supervisor_child do
     if datasvc_enabled?() or spiffe_workload_api?() do
       {GRPC.Client.Supervisor, []}
@@ -382,127 +273,6 @@ defmodule ServiceRadar.Application do
     if datasvc_enabled?() do
       ServiceRadar.DataService.Client
     end
-  end
-
-  defp template_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.Observability.TemplateSeeder
-    end
-  end
-
-  defp zen_rule_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.Observability.ZenRuleSeeder
-    end
-  end
-
-  defp zen_rule_sync_child do
-    if repo_enabled?() do
-      ServiceRadar.Observability.ZenRuleSync
-    end
-  end
-
-  defp rule_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.Observability.RuleSeeder
-    end
-  end
-
-  defp job_schedule_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.Jobs.JobScheduleSeeder
-    end
-  end
-
-  defp device_cleanup_settings_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
-    end
-  end
-
-  defp snmp_profile_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.SNMPProfiles.SNMPProfileSeeder
-    end
-  end
-
-  defp role_profile_seeder_child do
-    if repo_enabled?() and
-         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
-      ServiceRadar.Identity.RoleProfileSeeder
-    end
-  end
-
-  defp ip_enrichment_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Observability.IpEnrichmentScheduler
-    end
-  end
-
-  defp geolite_mmdb_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Observability.GeoLiteMmdbScheduler
-    end
-  end
-
-  defp ipinfo_mmdb_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Observability.IpinfoMmdbScheduler
-    end
-  end
-
-  defp netflow_enrichment_dataset_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
-    end
-  end
-
-  defp topology_state_scheduler_child do
-    if repo_enabled?() and job_scheduler_node?() do
-      ServiceRadar.NetworkDiscovery.TopologyStateScheduler
-    end
-  end
-
-  defp mtr_baseline_scheduler_child do
-    if mtr_baseline_automation_enabled?() and
-         repo_enabled?() and
-         job_scheduler_node?() do
-      ServiceRadar.Observability.MtrBaselineScheduler
-    end
-  end
-
-  defp mtr_state_trigger_worker_child do
-    if mtr_trigger_automation_enabled?() and
-         repo_enabled?() and
-         job_scheduler_node?() do
-      ServiceRadar.Observability.MtrStateTriggerWorker
-    end
-  end
-
-  defp mtr_consensus_worker_child do
-    if mtr_consensus_automation_enabled?() and
-         repo_enabled?() and
-         job_scheduler_node?() do
-      ServiceRadar.Observability.MtrConsensusWorker
-    end
-  end
-
-  # Only one node should be responsible for inserting periodic/scheduled jobs.
-  # In clustered deployments, that's the cluster coordinator (core-elx).
-  # In non-clustered deployments, schedule locally.
-  defp job_scheduler_node? do
-    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
-
-    cluster_coordinator =
-      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
-
-    if cluster_enabled, do: cluster_coordinator == true, else: true
   end
 
   defp repo_enabled? do
@@ -546,23 +316,8 @@ defmodule ServiceRadar.Application do
   defp cluster_children do
     cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
 
-    # cluster_coordinator controls whether this node runs ClusterHealth
-    # - core-elx sets this to true (it's the coordinator)
-    # - web-ng/agent-gateway should have it false (they join cluster but don't coordinate)
-    # Defaults to cluster_enabled for backwards compatibility
-    cluster_coordinator =
-      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
-
     if cluster_enabled do
-      # All cluster-enabled nodes should start ClusterSupervisor for libcluster
-      base = [ServiceRadar.ClusterSupervisor]
-
-      # Only coordinator nodes run ClusterHealth
-      if cluster_coordinator do
-        base ++ [ServiceRadar.ClusterHealth]
-      else
-        base
-      end
+      [ServiceRadar.ClusterSupervisor]
     else
       []
     end
@@ -596,35 +351,6 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp health_check_runner_supervisor_child do
-    if health_check_runner_enabled?() do
-      {DynamicSupervisor,
-       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor, strategy: :one_for_one}
-    end
-  end
-
-  defp health_check_runner_enabled? do
-    case System.get_env("HEALTH_CHECK_RUNNER_ENABLED") do
-      nil -> Application.get_env(:serviceradar_core, :health_check_runner_enabled, true)
-      value when value in ["true", "1", "yes"] -> true
-      _ -> false
-    end
-  end
-
-  defp health_check_registrar_child do
-    if health_check_registrar_enabled?() do
-      ServiceRadar.Infrastructure.HealthCheckRegistrar
-    end
-  end
-
-  defp health_check_registrar_enabled? do
-    case System.get_env("HEALTH_CHECK_REGISTRAR_ENABLED") do
-      nil -> Application.get_env(:serviceradar_core, :health_check_registrar_enabled, true)
-      value when value in ["true", "1", "yes"] -> true
-      _ -> false
-    end
-  end
-
   defp service_heartbeat_child do
     if service_heartbeat_enabled?() do
       ServiceRadar.Infrastructure.ServiceHeartbeat
@@ -651,81 +377,29 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp log_promotion_consumer_child do
-    if LogPromotionConsumer.enabled?() do
-      LogPromotionConsumer
-    end
-  end
-
   defp nats_ingest_notifier_child do
     if nats_enabled?() do
       ServiceRadar.Observability.NatsIngestNotifier
     end
   end
 
-  defp event_writer_child do
-    if event_writer_enabled?() do
-      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :temporary)
+  defp coordinator_children do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+    coordinator_candidate = Application.get_env(:serviceradar_core, :cluster_coordinator, false)
+
+    cond do
+      not repo_enabled?() or not coordinator_candidate ->
+        []
+
+      cluster_enabled ->
+        [
+          {DynamicSupervisor,
+           name: ServiceRadar.Cluster.CoordinatorRuntimeSupervisor, strategy: :one_for_one},
+          ServiceRadar.Cluster.CoordinatorManager
+        ]
+
+      true ->
+        ServiceRadar.Cluster.CoordinatorChildren.children()
     end
-  end
-
-  defp event_writer_enabled? do
-    case System.get_env("EVENT_WRITER_ENABLED") do
-      nil -> Application.get_env(:serviceradar_core, :event_writer_enabled, false)
-      value when is_binary(value) -> truthy_env_value?(value)
-    end
-  end
-
-  defp mtr_automation_enabled? do
-    case System.get_env("MTR_AUTOMATION_ENABLED") do
-      nil -> Application.get_env(:serviceradar_core, :mtr_automation_enabled, false)
-      value when is_binary(value) -> truthy_env_value?(value)
-    end
-  end
-
-  defp mtr_baseline_automation_enabled? do
-    case System.get_env("MTR_AUTOMATION_BASELINE_ENABLED") do
-      nil ->
-        Application.get_env(
-          :serviceradar_core,
-          :mtr_automation_baseline_enabled,
-          mtr_automation_enabled?()
-        )
-
-      value when is_binary(value) ->
-        truthy_env_value?(value)
-    end
-  end
-
-  defp mtr_trigger_automation_enabled? do
-    case System.get_env("MTR_AUTOMATION_TRIGGER_ENABLED") do
-      nil ->
-        Application.get_env(
-          :serviceradar_core,
-          :mtr_automation_trigger_enabled,
-          mtr_automation_enabled?()
-        )
-
-      value when is_binary(value) ->
-        truthy_env_value?(value)
-    end
-  end
-
-  defp mtr_consensus_automation_enabled? do
-    case System.get_env("MTR_AUTOMATION_CONSENSUS_ENABLED") do
-      nil ->
-        Application.get_env(
-          :serviceradar_core,
-          :mtr_automation_consensus_enabled,
-          mtr_automation_enabled?()
-        )
-
-      value when is_binary(value) ->
-        truthy_env_value?(value)
-    end
-  end
-
-  defp truthy_env_value?(value) when is_binary(value) do
-    String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]
   end
 end
