@@ -3,6 +3,7 @@ use clap::Parser;
 use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use env_logger::Env;
 use log::{debug, info, warn};
+use std::pin::pin;
 use std::sync::Once;
 use std::time::Duration;
 
@@ -61,7 +62,7 @@ async fn main() -> Result<()> {
     let cfg: Config = bootstrap.load().await?;
     cfg.validate()?;
 
-    let (_client, js) = connect_nats(&cfg).await?;
+    let (client, js) = connect_nats(&cfg).await?;
 
     // Build the complete list of subjects we need (input + result subjects)
     let mut required_subjects = cfg.subjects.clone();
@@ -121,7 +122,8 @@ async fn main() -> Result<()> {
         filter_subjects: cfg.subjects.clone(),
         ..Default::default()
     };
-    let consumer = ensure_pull_consumer(&stream, &cfg.consumer_name, &cfg.subjects, &desired_cfg).await?;
+    let consumer =
+        ensure_pull_consumer(&stream, &cfg.consumer_name, &cfg.subjects, &desired_cfg).await?;
     info!("using consumer {}", cfg.consumer_name);
 
     let engine = build_engine(&cfg, &js).await?;
@@ -144,6 +146,7 @@ async fn main() -> Result<()> {
     }
 
     info!("waiting for messages on subjects: {:?}", cfg.subjects);
+    let mut shutdown = pin!(shutdown_signal());
 
     loop {
         let mut messages = consumer
@@ -153,41 +156,57 @@ async fn main() -> Result<()> {
             .messages()
             .await?;
         debug!("waiting for up to 10 messages or {BATCH_TIMEOUT:?} timeout");
-        while let Some(message) = messages.next().await {
-            let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            if let Err(e) = process_message(&engine, &cfg, &js, &message).await {
-                warn!("processing failed: {e}");
-                match message.info() {
-                    Ok(info) if info.delivered >= MAX_RETRIES => {
-                        if let Err(e) = message.ack().await {
-                            warn!("failed to Ack: {e}");
-                        } else {
-                            debug!(
-                                "acknowledged message {} after {} retries",
-                                info.stream_sequence, info.delivered
-                            );
-                        }
+        loop {
+            tokio::select! {
+                _ = &mut shutdown => {
+                    info!("shutdown signal received; draining zen NATS client");
+                    if let Err(err) = client.drain().await {
+                        warn!("failed to drain zen NATS client: {err}");
                     }
-                    Ok(info) => {
-                        if let Err(e) = message.ack_with(jetstream::AckKind::Nak(None)).await {
-                            warn!("failed to NAK: {e}");
-                        } else {
-                            debug!("nacked message {}", info.stream_sequence);
-                        }
-                    }
-                    Err(_) => {
-                        if let Err(e) = message.ack_with(jetstream::AckKind::Nak(None)).await {
-                            warn!("failed to NAK: {e}");
-                        }
-                    }
+
+                    return Ok(());
                 }
-            } else {
-                message
-                    .ack()
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                if let Ok(info) = message.info() {
-                    debug!("acknowledged message {}", info.stream_sequence);
+                maybe_message = messages.next() => {
+                    let Some(message) = maybe_message else {
+                        break;
+                    };
+
+                    let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    if let Err(e) = process_message(&engine, &cfg, &js, &message).await {
+                        warn!("processing failed: {e}");
+                        match message.info() {
+                            Ok(info) if info.delivered >= MAX_RETRIES => {
+                                if let Err(e) = message.ack().await {
+                                    warn!("failed to Ack: {e}");
+                                } else {
+                                    debug!(
+                                        "acknowledged message {} after {} retries",
+                                        info.stream_sequence, info.delivered
+                                    );
+                                }
+                            }
+                            Ok(info) => {
+                                if let Err(e) = message.ack_with(jetstream::AckKind::Nak(None)).await {
+                                    warn!("failed to NAK: {e}");
+                                } else {
+                                    debug!("nacked message {}", info.stream_sequence);
+                                }
+                            }
+                            Err(_) => {
+                                if let Err(e) = message.ack_with(jetstream::AckKind::Nak(None)).await {
+                                    warn!("failed to NAK: {e}");
+                                }
+                            }
+                        }
+                    } else {
+                        message
+                            .ack()
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        if let Ok(info) = message.info() {
+                            debug!("acknowledged message {}", info.stream_sequence);
+                        }
+                    }
                 }
             }
         }
@@ -202,10 +221,12 @@ async fn ensure_pull_consumer(
 ) -> Result<jetstream::consumer::Consumer<PullConfig>> {
     match stream.consumer_info(consumer_name).await {
         Ok(info) => {
-            if info.config.filter_subjects != subjects {
-                warn!("consumer {} configuration changed, recreating", consumer_name);
-                let _ = stream.delete_consumer(consumer_name).await;
-                create_or_get_consumer(stream, consumer_name, desired_cfg).await
+            if !consumer_config_matches(&info.config, desired_cfg, subjects) {
+                warn!("consumer {} configuration changed, updating", consumer_name);
+                stream
+                    .update_consumer(desired_cfg.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))
             } else {
                 stream
                     .get_consumer(consumer_name)
@@ -229,11 +250,48 @@ async fn create_or_get_consumer(
                 "create_consumer for {} failed, retrying get_consumer: {}",
                 consumer_name, create_err
             );
-            stream
-                .get_consumer(consumer_name)
-                .await
-                .map_err(|get_err| anyhow::anyhow!("create failed: {create_err}; get failed: {get_err}"))
+            stream.get_consumer(consumer_name).await.map_err(|get_err| {
+                anyhow::anyhow!("create failed: {create_err}; get failed: {get_err}")
+            })
         }
+    }
+}
+
+fn consumer_config_matches(
+    current: &jetstream::consumer::Config,
+    desired: &PullConfig,
+    subjects: &[String],
+) -> bool {
+    current.durable_name == desired.durable_name
+        && normalized_subjects(current.filter_subjects.as_slice()) == normalized_subjects(subjects)
+}
+
+fn normalized_subjects(subjects: &[String]) -> Vec<&str> {
+    let mut normalized: Vec<&str> = subjects
+        .iter()
+        .map(String::as_str)
+        .filter(|subject| !subject.trim().is_empty())
+        .collect();
+    normalized.sort_unstable();
+    normalized
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler");
+
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 
@@ -246,3 +304,50 @@ fn ensure_rustls_provider_installed() {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod consumer_config_tests {
+    use super::*;
+
+    #[test]
+    fn consumer_config_match_is_order_insensitive() {
+        let current = jetstream::consumer::Config {
+            durable_name: Some("zen".to_string()),
+            filter_subjects: vec!["logs.b".to_string(), "logs.a".to_string()],
+            ..Default::default()
+        };
+
+        let desired = PullConfig {
+            durable_name: Some("zen".to_string()),
+            filter_subjects: vec!["logs.a".to_string(), "logs.b".to_string()],
+            ..Default::default()
+        };
+
+        assert!(consumer_config_matches(
+            &current,
+            &desired,
+            &desired.filter_subjects
+        ));
+    }
+
+    #[test]
+    fn consumer_config_match_detects_filter_changes() {
+        let current = jetstream::consumer::Config {
+            durable_name: Some("zen".to_string()),
+            filter_subjects: vec!["logs.a".to_string()],
+            ..Default::default()
+        };
+
+        let desired = PullConfig {
+            durable_name: Some("zen".to_string()),
+            filter_subjects: vec!["logs.b".to_string()],
+            ..Default::default()
+        };
+
+        assert!(!consumer_config_matches(
+            &current,
+            &desired,
+            &desired.filter_subjects
+        ));
+    }
+}
