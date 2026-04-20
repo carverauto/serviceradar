@@ -544,6 +544,7 @@ dbEventWriter:
     storageClassName: ""
 datasvc:
   replicaCount: 1
+  jetstreamReplicas: 1
   data:
     enabled: true
     size: 5Gi

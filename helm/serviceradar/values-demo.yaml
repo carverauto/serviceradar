@@ -311,6 +311,7 @@ zen:
 
 datasvc:
   replicaCount: 3
+  jetstreamReplicas: 3
   data:
     enabled: false
 

@@ -48,9 +48,13 @@ func (c *Config) Validate() error {
 	c.setDefaultObjectBucket()
 	c.setDefaultBucketOptions()
 	c.setDefaultObjectLimits()
+	c.setDefaultJetStreamReplicas()
 
 	if c.BucketHistory > math.MaxUint8 {
 		return fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, c.BucketHistory)
+	}
+	if c.JetStreamReplicas < 1 || c.JetStreamReplicas > 5 {
+		return fmt.Errorf("%w: got %d", errJetStreamReplicasInvalid, c.JetStreamReplicas)
 	}
 
 	return nil
@@ -216,5 +220,11 @@ func (c *Config) setDefaultObjectLimits() {
 	}
 	if c.ObjectStoreBytes == 0 {
 		c.ObjectStoreBytes = defaultObjectStoreBytes
+	}
+}
+
+func (c *Config) setDefaultJetStreamReplicas() {
+	if c.JetStreamReplicas == 0 {
+		c.JetStreamReplicas = 1
 	}
 }
