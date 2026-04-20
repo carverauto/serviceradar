@@ -34,15 +34,15 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   def handle_info({:command_progress, data}, state) do
-    maybe_ingest_mtr_result(data)
     persist_progress(data, state.actor)
+    safe_maybe_ingest_mtr_result(data)
     AgentReleaseManager.handle_command_progress(data, actor: state.actor)
     {:noreply, state}
   end
 
   def handle_info({:command_result, data}, state) do
-    maybe_ingest_mtr_result(data)
     persist_result(data, state.actor)
+    safe_maybe_ingest_mtr_result(data)
     AgentReleaseManager.handle_command_result(data, actor: state.actor)
     {:noreply, state}
   end
@@ -163,6 +163,30 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   defp maybe_ingest_mtr_result(_data), do: :ok
+
+  defp safe_maybe_ingest_mtr_result(data) do
+    maybe_ingest_mtr_result(data)
+  rescue
+    exception ->
+      Logger.warning(
+        "AgentCommandStatusHandler: failed to ingest MTR command update",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        reason: Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      :ok
+  catch
+    kind, reason ->
+      Logger.warning(
+        "AgentCommandStatusHandler: failed to ingest MTR command update",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        reason: Exception.format(kind, reason, __STACKTRACE__)
+      )
+
+      :ok
+  end
 
   defp ingest_mtr_result(data, payload, trace) do
     target = first_target(payload, trace)
@@ -311,17 +335,19 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp persist_bulk_target_updates(_command_id, []), do: :ok
 
   defp persist_bulk_target_updates(command_id, updates) when is_list(updates) do
+    command_id_text = normalize_command_id(command_id)
+
     rows =
       updates
       |> Enum.map(&bulk_target_update_row/1)
       |> Enum.reject(&is_nil/1)
 
-    if rows != [] do
+    if rows != [] and not is_nil(command_id_text) do
       case Repo.query(
              """
              WITH updates AS (
                SELECT
-                 $1::uuid AS command_id,
+                 $1::text AS command_id,
                  x.target::text AS target,
                  x.status::text AS status,
                  x.error::text AS error,
@@ -354,7 +380,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
                updated_at
              )
              SELECT
-               command_id,
+               command_id::uuid,
                target,
                status,
                error,
@@ -375,7 +401,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
                completed_at = COALESCE(EXCLUDED.completed_at, platform.mtr_bulk_job_targets.completed_at),
                updated_at = now() AT TIME ZONE 'utc'
              """,
-             [command_id, Jason.encode!(rows)]
+             [command_id_text, Jason.encode!(rows)]
            ) do
         {:ok, _result} ->
           :ok
@@ -423,6 +449,21 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       value
     else
       "queued"
+    end
+  end
+
+  defp normalize_command_id(nil), do: nil
+
+  defp normalize_command_id(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, uuid} ->
+        uuid
+
+      :error ->
+        case Ecto.UUID.load(command_id) do
+          {:ok, uuid} -> uuid
+          :error -> nil
+        end
     end
   end
 
