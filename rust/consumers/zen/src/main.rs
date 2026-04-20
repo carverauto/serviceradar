@@ -99,6 +99,12 @@ async fn main() -> Result<()> {
             if needs_update {
                 let mut updated_config = info.config.clone();
                 updated_config.subjects = current_subjects;
+                updated_config.num_replicas = cfg.stream_replicas;
+                js.update_stream(updated_config).await?;
+                js.get_stream(&cfg.stream_name).await?
+            } else if info.config.num_replicas != cfg.stream_replicas {
+                let mut updated_config = info.config.clone();
+                updated_config.num_replicas = cfg.stream_replicas;
                 js.update_stream(updated_config).await?;
                 js.get_stream(&cfg.stream_name).await?
             } else {
@@ -111,6 +117,7 @@ async fn main() -> Result<()> {
                 name: cfg.stream_name.clone(),
                 subjects: required_subjects.clone(),
                 storage: StorageType::File,
+                num_replicas: cfg.stream_replicas,
                 ..Default::default()
             };
             js.get_or_create_stream(sc).await?

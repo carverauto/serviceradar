@@ -38,6 +38,7 @@ data:
     nats_url = "tls://serviceradar-nats:4222"
     nats_subject = {{ default "logs.syslog" $tcpCollector.subject | quote }}
     nats_stream = "events"
+    nats_stream_replicas = {{ default (default 1 .Values.logCollector.streamReplicas) $tcpCollector.streamReplicas }}
     nats_timeout = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
     nats_tls_cert = "/etc/serviceradar/certs/log-collector.pem"

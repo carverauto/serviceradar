@@ -30,9 +30,11 @@ cnpg:
 
 logCollector:
   replicaCount: 3
+  streamReplicas: 3
   tcpCollector:
     enabled: true
     replicaCount: 3
+    streamReplicas: 3
   data:
     enabled: false
   probes:
@@ -310,6 +312,7 @@ dbEventWriter:
 
 zen:
   replicaCount: 3
+  streamReplicas: 3
   data:
     enabled: false
 
@@ -348,6 +351,7 @@ prometheusRules:
 
 trapd:
   replicaCount: 3
+  streamReplicas: 3
   externalService:
     enabled: true
     annotations:
@@ -366,6 +370,9 @@ flowgger:
 flowCollector:
   enabled: true
   replicaCount: 3
+  streamReplicas: 3
+  config:
+    stream_replicas: 3
   data:
     enabled: false
   service:
