@@ -64,10 +64,17 @@ natsCreds:
   system: ""
   operator: ""
 nats:
+  replicas: 1
+  clusterName: "serviceradar"
+  jetstream:
+    maxMemoryStore: 1G
+    maxFileStore: 10G
   persistence:
     size: 30Gi
+    storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
+  runtimeLayoutVersion: "4"
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
     enabled: false
@@ -100,9 +107,16 @@ prometheusRules:
     slowQueryLogThresholdMs: 500
 
 core:
+  replicas: 1
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
   clusterStrategy: "dns"
+  clusterWebService: "serviceradar-web-ng-headless"
+  clusterWebDnsQuery: ""
+  clusterWebNodeBasename: "serviceradar_web_ng"
+  clusterGatewayService: "serviceradar-agent-gateway-headless"
+  clusterGatewayDnsQuery: ""
+  clusterGatewayNodeBasename: "serviceradar_agent_gateway"
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
@@ -415,6 +429,9 @@ geoipMmdb:
   size: 1Gi
   storageClassName: ""
 webNg:
+  replicas: 1
+  database:
+    poolSize: 10
   host: ""
   publicUrl: ""
   godViewEnabled: "true"
@@ -454,11 +471,13 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
+    backend: "file"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
+    jetstreamReplicas: 1
 agent:
   enabled: true
   agentId: "k8s-agent"
@@ -488,6 +507,7 @@ agentGateway:
   gatewayId: "gateway-platform"
   partitionId: "default"
   domain: "default"
+  publicHostname: ""
   capabilities: "icmp,tcp,http,grpc"
   clusterStrategy: "dns"
   clusterCoreService: "serviceradar-core-elx-headless"
@@ -511,13 +531,52 @@ agentGateway:
       cpu: "200m"
       memory: "512Mi"
 dbEventWriter:
+  replicaCount: 1
+  cnpgMaxConnections: 32
   # Enable database migrations on startup (creates otel_traces, logs, etc. tables)
   enableMigrations: true
   # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
   configSource: file
   kvBootstrap:
     enabled: true
+  data:
+    enabled: true
+    size: 5Gi
+    storageClassName: ""
+datasvc:
+  replicaCount: 1
+  # Replica count for datasvc-owned JetStream streams (KV/object metadata).
+  jetstreamReplicas: 1
+  # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
+  bucketMaxBytes: 5368709120
+  # Reserved capacity for the object metadata stream (OBJ_serviceradar-objects).
+  objectMaxBytes: 536870912
+  # Object-store budget exposed to datasvc config; keep this aligned with the
+  # object stream reservation unless you intentionally want a tighter logical limit.
+  objectStoreBytes: 2147483648
+  data:
+    enabled: true
+    size: 5Gi
+    storageClassName: ""
+zen:
+  replicaCount: 1
+  # zen shares the JetStream durable consumers used for event normalization.
+  streamReplicas: 1
+  data:
+    enabled: true
+    size: 5Gi
+    storageClassName: ""
 logCollector:
+  replicaCount: 1
+  # Shared "events" stream replica count for OTEL/syslog writers.
+  streamReplicas: 1
+  # Reserved capacity for the shared "events" stream.
+  streamMaxBytes: 2147483648
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
   probes:
     liveness:
       initialDelaySeconds: 30
@@ -564,6 +623,9 @@ logCollector:
         protocol: UDP
   tcpCollector:
     enabled: false
+    replicaCount: 1
+    # TCP syslog also publishes into the shared "events" stream.
+    streamReplicas: 1
     listen: "0.0.0.0:514"
     format: "rfc3164"
     framing: "line"
@@ -599,6 +661,9 @@ logCollector:
         memory: "512Mi"
         cpu: "500m"
 trapd:
+  replicaCount: 1
+  # trapd publishes into the shared "events" stream.
+  streamReplicas: 1
   # External service configuration for SNMP trap ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
@@ -615,10 +680,16 @@ trapd:
         protocol: UDP
 flowCollector:
   enabled: false
+  replicaCount: 1
+  # flow-collector publishes raw flow subjects into the shared "events" stream.
+  streamReplicas: 1
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
+    # Reserved capacity for the shared "events" stream when flow collectors reconcile it.
+    stream_max_bytes: 10737418240
+    stream_replicas: 1
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
@@ -666,6 +737,7 @@ flowCollector:
       cpu: "500m"
 bmpCollector:
   enabled: false
+  replicaCount: 1
   image:
     repository: registry.carverauto.dev/serviceradar/arancini
     pullPolicy: IfNotPresent
@@ -684,7 +756,10 @@ bmpCollector:
     streamName: "ARANCINI_CAUSAL"
     subjectPrefix: "arancini.updates"
     streamSubjects: []
+    # Dedicated BMP/Arancini stream reservation.
     streamMaxBytes: 10737418240
+    # Replica count for the dedicated ARANCINI_CAUSAL stream.
+    streamReplicas: 1
     publishTimeoutMs: 5000
   data:
     enabled: true

@@ -823,12 +823,25 @@ if config_env() == :prod do
       _ -> false
     end
 
-  local_mailer =
+  local_mailer_requested =
     case System.get_env("SERVICERADAR_LOCAL_MAILER") do
       "true" -> true
       "1" -> true
       "yes" -> true
       _ -> false
+    end
+
+  local_mailer =
+    if local_mailer_requested and cluster_enabled do
+      require Logger
+
+      Logger.warning(
+        "SERVICERADAR_LOCAL_MAILER is disabled because clustered web-ng replicas cannot share local Swoosh storage safely"
+      )
+
+      false
+    else
+      local_mailer_requested
     end
 
   # Security mode for edge onboarding: "mtls" for docker deployments, "spire" for k8s
@@ -884,7 +897,44 @@ if config_env() == :prod do
   gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
   agent_release_public_key = System.get_env("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY")
   onboarding_token_private_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY")
-  onboarding_token_public_key = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY")
+  onboarding_token_public_key_env = System.get_env("SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY")
+
+  decode_ed25519_key = fn raw_key ->
+    raw_key = String.trim(raw_key)
+
+    decoders = [
+      fn -> Base.decode64(raw_key) end,
+      fn -> Base.url_decode64(raw_key, padding: false) end,
+      fn -> Base.decode16(raw_key, case: :mixed) end
+    ]
+
+    Enum.reduce_while(decoders, {:error, :invalid_key}, fn decoder, _acc ->
+      case decoder.() do
+        {:ok, decoded} -> {:halt, {:ok, decoded}}
+        :error -> {:cont, {:error, :invalid_key}}
+      end
+    end)
+  end
+
+  onboarding_token_public_key =
+    cond do
+      is_binary(onboarding_token_public_key_env) and
+          String.trim(onboarding_token_public_key_env) != "" ->
+        String.trim(onboarding_token_public_key_env)
+
+      is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" ->
+        with {:ok, key_bytes} <- decode_ed25519_key.(onboarding_token_private_key),
+             seed when byte_size(seed) in [32, 64] <-
+               if(byte_size(key_bytes) == 64, do: binary_part(key_bytes, 0, 32), else: key_bytes),
+             {public_key, _private_key} <- :crypto.generate_key(:eddsa, :ed25519, seed) do
+          Base.encode64(public_key)
+        else
+          _ -> nil
+        end
+
+      true ->
+        nil
+    end
 
   # Configure ServiceRadar.Repo from serviceradar_core
   config :serviceradar_core, ServiceRadar.Repo,
@@ -921,11 +971,15 @@ if config_env() == :prod do
   end
 
   if is_binary(onboarding_token_private_key) and String.trim(onboarding_token_private_key) != "" do
-    config :serviceradar_web_ng, :onboarding_token_private_key, String.trim(onboarding_token_private_key)
+    config :serviceradar_web_ng,
+           :onboarding_token_private_key,
+           String.trim(onboarding_token_private_key)
   end
 
   if is_binary(onboarding_token_public_key) and String.trim(onboarding_token_public_key) != "" do
-    config :serviceradar_web_ng, :onboarding_token_public_key, String.trim(onboarding_token_public_key)
+    config :serviceradar_web_ng,
+           :onboarding_token_public_key,
+           String.trim(onboarding_token_public_key)
   end
 
   nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")
@@ -989,7 +1043,8 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do
@@ -1068,14 +1123,20 @@ if config_env() == :prod do
   mail_from_email = System.get_env("SERVICERADAR_MAIL_FROM_EMAIL") || "noreply@serviceradar.cloud"
 
   smtp_relay_auth =
-    case "SMTP_RELAY_AUTH" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_AUTH"
+         |> System.get_env("if_available")
+         |> String.trim()
+         |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
     end
 
   smtp_relay_tls =
-    case "SMTP_RELAY_TLS" |> System.get_env("if_available") |> String.trim() |> String.downcase() do
+    case "SMTP_RELAY_TLS"
+         |> System.get_env("if_available")
+         |> String.trim()
+         |> String.downcase() do
       "always" -> :always
       "never" -> :never
       _ -> :if_available
@@ -1086,7 +1147,11 @@ if config_env() == :prod do
   mailer_adapter =
     case String.trim(mailer_adapter_env || "") do
       "" ->
-        Local
+        if local_mailer do
+          Local
+        else
+          Swoosh.Adapters.Test
+        end
 
       "local" ->
         Local

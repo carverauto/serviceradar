@@ -34,6 +34,7 @@ struct NATSConfig {
     url: String,
     subject: String,
     stream: String,
+    stream_replicas: usize,
     partition: String,
     timeout: Duration,
     tls_cert: Option<PathBuf>,
@@ -66,6 +67,9 @@ impl NATSOutput {
         let stream = cfg
             .lookup("output.nats_stream")
             .map_or("events".into(), |v| v.as_str().unwrap().to_owned());
+        let stream_replicas = cfg
+            .lookup("output.nats_stream_replicas")
+            .map_or(1, |v| v.as_integer().unwrap() as usize);
         let partition = cfg
             .lookup("output.partition")
             .map_or("default".into(), |v| v.as_str().unwrap().to_owned());
@@ -118,6 +122,7 @@ impl NATSOutput {
                 url,
                 subject,
                 stream,
+                stream_replicas,
                 partition,
                 timeout,
                 tls_cert,
@@ -164,14 +169,36 @@ impl NATSWorker {
         let client = options.connect(&self.cfg.url).await?;
         let js = jetstream::new(client.clone());
 
-        // Ensure the target stream exists.
-        let stream_config = jetstream::stream::Config {
-            name: self.cfg.stream.clone(),
-            subjects: vec![self.cfg.subject.clone()],
-            storage: StorageType::File,
-            ..Default::default()
-        };
-        let _ = js.get_or_create_stream(stream_config).await?;
+        match js.get_stream(&self.cfg.stream).await {
+            Ok(mut stream) => {
+                let info = stream.info().await?;
+                let mut updated_config = info.config.clone();
+                let mut changed = false;
+
+                if !updated_config.subjects.contains(&self.cfg.subject) {
+                    updated_config.subjects.push(self.cfg.subject.clone());
+                    changed = true;
+                }
+                if updated_config.num_replicas != self.cfg.stream_replicas {
+                    updated_config.num_replicas = self.cfg.stream_replicas;
+                    changed = true;
+                }
+
+                if changed {
+                    let _ = js.update_stream(updated_config).await?;
+                }
+            }
+            Err(_) => {
+                let stream_config = jetstream::stream::Config {
+                    name: self.cfg.stream.clone(),
+                    subjects: vec![self.cfg.subject.clone()],
+                    storage: StorageType::File,
+                    num_replicas: self.cfg.stream_replicas,
+                    ..Default::default()
+                };
+                let _ = js.get_or_create_stream(stream_config).await?;
+            }
+        }
 
         Ok((client, js))
     }

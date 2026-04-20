@@ -2,12 +2,15 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $requireClientCert := default false $cnpg.requireClientCert -}}
+{{- $writer := default (dict) .Values.dbEventWriter -}}
+{{- $writerData := default (dict) (get $writer "data") -}}
+{{- $writerDataEnabled := ne false (get $writerData "enabled") -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-db-event-writer
 spec:
-  replicas: 1
+  replicas: {{ get $writer "replicaCount" | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-db-event-writer
@@ -18,6 +21,7 @@ spec:
         app.kubernetes.io/part-of: serviceradar
       annotations:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
@@ -174,8 +178,12 @@ spec:
         secret:
           secretName: {{ $cnpgClusterName }}-ca
       - name: db-event-writer-data
+        {{- if $writerDataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
@@ -194,6 +202,7 @@ spec:
   - name: grpc
     port: 50041
     targetPort: grpc
+{{- if $writerDataEnabled }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -204,7 +213,11 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      storage: {{ get $writerData "size" | default "5Gi" | quote }}
+  {{- if get $writerData "storageClassName" }}
+  storageClassName: {{ get $writerData "storageClassName" | quote }}
+  {{- end }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount

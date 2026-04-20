@@ -89,25 +89,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def handle_info(:refresh, socket) do
     cluster_info = load_cluster_info()
-
     now_ms = System.system_time(:millisecond)
-
-    pruned_gateways_cache =
-      socket.assigns.gateways_cache
-      |> Enum.reject(fn {_id, gw} ->
-        last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
-
-        delta_ms =
-          if is_integer(last_ms) do
-            max(now_ms - last_ms, 0)
-          end
-
-        not is_integer(delta_ms) or delta_ms > @stale_threshold_ms
-      end)
-      |> Map.new()
-
-    refreshed_gateways_cache =
-      merge_gateways_cache(pruned_gateways_cache, load_initial_gateways_cache())
+    refreshed_gateways_cache = reconcile_gateways_cache(socket.assigns.gateways_cache)
 
     pruned_agents_cache =
       socket.assigns.agents_cache
@@ -137,7 +120,14 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   def handle_info({:node_down, _node}, socket) do
     cluster_info = load_cluster_info()
-    {:noreply, assign(socket, :cluster_info, cluster_info)}
+    gateways_cache = reconcile_gateways_cache(socket.assigns.gateways_cache)
+    gateways = compute_gateways(gateways_cache)
+
+    {:noreply,
+     socket
+     |> assign(:cluster_info, cluster_info)
+     |> assign(:gateways_cache, gateways_cache)
+     |> assign(:gateways, gateways)}
   end
 
   def handle_info({:gateway_registered, gateway_info}, socket) do
@@ -148,17 +138,11 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       {:noreply, socket}
     else
       Logger.debug("[InfrastructureLive] Received gateway_registered: #{gateway_id}")
+      gateway = normalize_gateway_entry(gateway_info, gateway_id)
+      instance_key = gateway_instance_key(gateway)
 
       updated_cache =
-        Map.put(socket.assigns.gateways_cache, gateway_id, %{
-          gateway_id: gateway_id,
-          node: gateway_info[:node] || Node.self(),
-          partition: gateway_info[:partition] || "default",
-          domain: gateway_info[:domain] || "default",
-          status: gateway_info[:status] || :available,
-          registered_at: gateway_info[:registered_at] || DateTime.utc_now(),
-          last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now()
-        })
+        Map.put(socket.assigns.gateways_cache, instance_key, gateway)
 
       gateways = compute_gateways(updated_cache)
 
@@ -169,8 +153,22 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     end
   end
 
+  def handle_info({:gateway_unregistered, gateway_id, node}, socket) do
+    updated_cache = Map.delete(socket.assigns.gateways_cache, gateway_instance_key(gateway_id, node))
+    gateways = compute_gateways(updated_cache)
+
+    {:noreply,
+     socket
+     |> assign(:gateways_cache, updated_cache)
+     |> assign(:gateways, gateways)}
+  end
+
   def handle_info({:gateway_unregistered, gateway_id}, socket) do
-    updated_cache = Map.delete(socket.assigns.gateways_cache, gateway_id)
+    updated_cache =
+      socket.assigns.gateways_cache
+      |> Enum.reject(fn {_instance_key, gateway} -> gateway_id_from(gateway) == gateway_id end)
+      |> Map.new()
+
     gateways = compute_gateways(updated_cache)
 
     {:noreply,
@@ -210,10 +208,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def handle_event("refresh", _params, socket) do
     cluster_info = load_cluster_info()
-
-    refreshed_gateways_cache =
-      merge_gateways_cache(socket.assigns.gateways_cache, load_initial_gateways_cache())
-
+    refreshed_gateways_cache = reconcile_gateways_cache(socket.assigns.gateways_cache)
     gateways = compute_gateways(refreshed_gateways_cache)
 
     connected_agents = compute_connected_agents(socket.assigns.agents_cache)
@@ -720,8 +715,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
       gateway_id ->
         incoming = normalize_gateway_entry(gateway, gateway_id)
+        instance_key = gateway_instance_key(incoming)
 
-        Map.update(acc, gateway_id, incoming, fn existing ->
+        Map.update(acc, instance_key, incoming, fn existing ->
           prefer_gateway_entry(existing, incoming)
         end)
     end
@@ -734,7 +730,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   defp normalize_gateway_entry(gateway, gateway_id) do
-    %{
+    normalized = %{
       gateway_id: gateway_id,
       node: fetch_gateway_field(gateway, :node, "node", Node.self()),
       partition: fetch_gateway_field(gateway, :partition, "partition", "default"),
@@ -743,10 +739,18 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       registered_at: fetch_gateway_field(gateway, :registered_at, "registered_at", nil),
       last_heartbeat: fetch_gateway_field(gateway, :last_heartbeat, "last_heartbeat", nil)
     }
+
+    Map.put(normalized, :instance_id, gateway_instance_key(normalized))
   end
 
   defp fetch_gateway_field(gateway, atom_key, string_key, default) do
     Map.get(gateway, atom_key) || Map.get(gateway, string_key) || default
+  end
+
+  defp gateway_instance_key(%{gateway_id: gateway_id, node: node}), do: gateway_instance_key(gateway_id, node)
+
+  defp gateway_instance_key(gateway_id, node) when is_binary(gateway_id) do
+    "#{gateway_id}@#{node}"
   end
 
   # Load initial agents from the AgentTracker on mount
@@ -810,7 +814,30 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       |> Map.put(:full_name, node_str)
       |> Map.put(:short_name, node_str |> String.split("@") |> List.first())
     end)
-    |> Enum.sort_by(& &1.gateway_id)
+    |> Enum.sort_by(&{&1.gateway_id, &1.short_name, to_string(&1.node)})
+  end
+
+  defp reconcile_gateways_cache(existing_cache) do
+    authoritative_cache = load_initial_gateways_cache()
+    online_nodes = current_cluster_nodes()
+
+    existing_cache
+    |> Enum.filter(fn {instance_key, gateway} ->
+      Map.has_key?(authoritative_cache, instance_key) or gateway_node_online?(gateway, online_nodes)
+    end)
+    |> Map.new()
+    |> merge_gateways_cache(authoritative_cache)
+  end
+
+  defp current_cluster_nodes do
+    MapSet.new([Node.self() | Node.list()], &to_string/1)
+  end
+
+  defp gateway_node_online?(gateway, online_nodes) do
+    gateway
+    |> Map.get(:node)
+    |> to_string()
+    |> then(&MapSet.member?(online_nodes, &1))
   end
 
   defp merge_gateways_cache(existing_cache, incoming_cache) do

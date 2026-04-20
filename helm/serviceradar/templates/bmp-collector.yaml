@@ -1,7 +1,8 @@
 {{- if .Values.bmpCollector.enabled }}
 {{- $data := default (dict) .Values.bmpCollector.data -}}
 {{- $cfg := default (dict) .Values.bmpCollector.config -}}
-{{- if and ($data.enabled | default true) (not $data.existingClaim) }}
+{{- $dataEnabled := ne false (get $data "enabled") -}}
+{{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -43,6 +44,7 @@ data:
       "subject_prefix" (default "arancini.updates" $cfg.subjectPrefix)
       "stream_subjects" (default (list) $cfg.streamSubjects)
       "stream_max_bytes" (default 10737418240 $cfg.streamMaxBytes)
+      "stream_replicas" (default 1 $cfg.streamReplicas)
       "publish_timeout_ms" (default 5000 $cfg.publishTimeoutMs)
       | toPrettyJson | nindent 4 }}
 ---
@@ -53,7 +55,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ .Values.bmpCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-bmp-collector
@@ -62,6 +64,11 @@ spec:
       labels:
         app: serviceradar-bmp-collector
         app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
@@ -137,7 +144,7 @@ spec:
         {{- if $data.existingClaim }}
         persistentVolumeClaim:
           claimName: {{ $data.existingClaim | quote }}
-        {{- else if ($data.enabled | default true) }}
+        {{- else if $dataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-bmp-collector-data
         {{- else }}

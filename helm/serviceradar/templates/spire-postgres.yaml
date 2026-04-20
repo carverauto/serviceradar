@@ -32,6 +32,16 @@
 {{- if eq $appPass "" }}
   {{- $appPass = randAlphaNum 32 }}
 {{- end }}
+{{- $defaultExtensionsSQL := list
+      "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+      "CREATE EXTENSION IF NOT EXISTS age;"
+      "CREATE EXTENSION IF NOT EXISTS postgis;"
+      "CREATE EXTENSION IF NOT EXISTS vector;"
+      (printf "GRANT USAGE ON SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+  -}}
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
   {{- $imageRepo := default "registry.carverauto.dev/serviceradar/serviceradar-cnpg" $pg.image }}
@@ -52,7 +62,7 @@
 {{- end }}
 {{- $extensionsSQL := $pg.extensionsSQL }}
 {{- if not $extensionsSQL }}
-  {{- $extensionsSQL = list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;" "CREATE EXTENSION IF NOT EXISTS postgis;" "CREATE EXTENSION IF NOT EXISTS vector;" }}
+  {{- $extensionsSQL = $defaultExtensionsSQL }}
 {{- end }}
 {{- $postgresqlParameters := $pg.postgresqlParameters }}
 ---

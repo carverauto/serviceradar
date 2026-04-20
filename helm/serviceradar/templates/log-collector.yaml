@@ -1,6 +1,11 @@
 {{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
 {{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
 {{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
+{{- $logCollectorData := .Values.logCollector.data | default dict -}}
+{{- $logCollectorDataEnabled := true -}}
+{{- if hasKey $logCollectorData "enabled" -}}
+{{- $logCollectorDataEnabled = $logCollectorData.enabled -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -32,6 +37,7 @@ data:
     nats_url = "tls://serviceradar-nats:4222"
     nats_subject = "logs.syslog"
     nats_stream = "events"
+    nats_stream_replicas = {{ default 1 .Values.logCollector.streamReplicas }}
     nats_timeout = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
     nats_tls_cert = "/etc/serviceradar/certs/log-collector.pem"
@@ -59,8 +65,9 @@ data:
     logs_subject = "logs.otel"
     stream = "events"
     timeout_secs = 30
-    max_bytes = 2147483648
+    max_bytes = {{ printf "%d" (int64 (default 2147483648 .Values.logCollector.streamMaxBytes)) }}
     max_age_secs = 1800
+    stream_replicas = {{ default 1 .Values.logCollector.streamReplicas }}
 {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
     creds_file = "/etc/serviceradar/creds/platform.creds"
 {{- end }}
@@ -73,6 +80,7 @@ data:
     [grpc_tls]
     cert_file = "/etc/serviceradar/certs/log-collector.pem"
     key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+{{- if and $logCollectorDataEnabled (not $logCollectorData.existingClaim) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -83,7 +91,11 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: {{ default "1Gi" $logCollectorData.size | quote }}
+  {{- if $logCollectorData.storageClassName }}
+  storageClassName: {{ $logCollectorData.storageClassName | quote }}
+  {{- end }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -92,7 +104,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
+  replicas: {{ .Values.logCollector.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-log-collector
@@ -101,8 +113,9 @@ spec:
       labels:
         app: serviceradar-log-collector
         app.kubernetes.io/part-of: serviceradar
-      {{- if .Values.global.forceRolloutOnUpgrade }}
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
@@ -224,8 +237,15 @@ spec:
           secretName: serviceradar-nats-creds
       {{- end }}
       - name: log-collector-data
+        {{- if $logCollectorData.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $logCollectorData.existingClaim | quote }}
+        {{- else if $logCollectorDataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-log-collector-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       - name: logs
         emptyDir: {}
       {{- if .Values.spire.enabled }}

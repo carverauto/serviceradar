@@ -58,6 +58,14 @@ imagePullSecrets:
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
 
+{{/*
+Pod-template annotations that force cert consumers to roll when the managed
+runtime cert layout version changes.
+*/}}
+{{- define "serviceradar.runtimeCertRollAnnotations" -}}
+serviceradar.io/runtime-cert-layout-version: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
+{{- end -}}
+
 {{- define "serviceradar.kvEnv" -}}
 {{- $vals := .Values -}}
 {{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}

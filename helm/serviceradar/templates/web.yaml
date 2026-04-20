@@ -4,6 +4,8 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
+{{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
 {{- $agentReleasePublicKey := default "" $webNg.agentReleasePublicKey -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
@@ -60,7 +62,7 @@ kind: Deployment
 metadata:
   name: serviceradar-web-ng
 spec:
-  replicas: 1
+  replicas: {{ default 1 $webNg.replicas }}
   selector:
     matchLabels:
       app: serviceradar-web-ng
@@ -70,6 +72,7 @@ spec:
         app: serviceradar-web-ng
         app.kubernetes.io/part-of: serviceradar
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
         {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
@@ -84,9 +87,9 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      {{- if or $pluginStorage.enabled $migrationsEnabled }}
+      {{- if or $pluginStorageFileBackend $migrationsEnabled }}
       initContainers:
-      {{- if $pluginStorage.enabled }}
+      {{- if $pluginStorageFileBackend }}
       - name: init-plugin-storage
         image: busybox:1.36
         imagePullPolicy: IfNotPresent
@@ -246,6 +249,11 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cluster-cookie
+        - name: SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: edge-onboarding-key
         - name: DATASVC_ENABLED
           value: "true"
         - name: SECRET_KEY_BASE
@@ -253,16 +261,24 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: web-ng-secret-key-base
+        - name: POOL_SIZE
+          value: {{ default 10 (default (dict) $webNg.database).poolSize | quote }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
-          value: "filesystem"
+          value: {{ $pluginStorageBackend | quote }}
+        {{- if $pluginStorageFileBackend }}
         - name: PLUGIN_STORAGE_PATH
           value: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+        {{- end }}
         - name: PLUGIN_STORAGE_SIGNING_SECRET
           valueFrom:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: plugin-storage-signing-secret
+        {{- if $pluginStorage.jetstreamReplicas }}
+        - name: PLUGIN_STORAGE_JS_REPLICAS
+          value: {{ $pluginStorage.jetstreamReplicas | quote }}
+        {{- end }}
         {{- end }}
         - name: SERVICERADAR_API_KEY
           valueFrom:
@@ -361,7 +377,7 @@ spec:
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
-        {{- if $pluginStorage.enabled }}
+        {{- if $pluginStorageFileBackend }}
         - name: plugin-packages
           mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
         {{- end }}
@@ -406,7 +422,7 @@ spec:
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
-      {{- if $pluginStorage.enabled }}
+      {{- if $pluginStorageFileBackend }}
       - name: plugin-packages
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-web-ng-plugins" $pluginStorage.existingClaim | quote }}

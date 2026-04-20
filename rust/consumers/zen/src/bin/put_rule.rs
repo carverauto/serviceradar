@@ -3,6 +3,7 @@ use clap::Parser;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Once;
 
 use async_nats::jetstream::kv::Config as KvConfig;
 use async_nats::jetstream::{self};
@@ -94,6 +95,7 @@ async fn connect_nats(cfg: &Config) -> Result<jetstream::Context> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    ensure_rustls_provider_installed();
     let cli = Cli::parse();
     let cfg = Config::from_file(&cli.config)?;
     let js = connect_nats(&cfg).await?;
@@ -128,4 +130,11 @@ async fn main() -> Result<()> {
     store.put(key, data.into()).await?;
     println!("Inserted rule {} for subject {}", rule_key, cli.subject);
     Ok(())
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }

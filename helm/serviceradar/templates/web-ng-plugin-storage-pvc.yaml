@@ -1,6 +1,7 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
-{{- if and ($pluginStorage.enabled) (not $pluginStorage.existingClaim) }}
+{{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
+{{- if and ($pluginStorage.enabled) (eq $pluginStorageBackend "file") (not $pluginStorage.existingClaim) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

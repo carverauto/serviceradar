@@ -1,9 +1,12 @@
+{{- $zen := default (dict) .Values.zen -}}
+{{- $zenData := default (dict) (get $zen "data") -}}
+{{- $zenDataEnabled := ne false (get $zenData "enabled") -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-zen
 spec:
-  replicas: 1
+  replicas: {{ get $zen "replicaCount" | default 1 }}
   selector:
     matchLabels:
       app: serviceradar-zen
@@ -13,8 +16,9 @@ spec:
       labels:
         app: serviceradar-zen
         app.kubernetes.io/part-of: serviceradar
-      {{- if .Values.global.forceRolloutOnUpgrade }}
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
@@ -110,8 +114,12 @@ spec:
           secretName: serviceradar-nats-creds
       {{- end }}
       - name: zen-data
+        {{- if $zenDataEnabled }}
         persistentVolumeClaim:
           claimName: serviceradar-zen-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:
@@ -130,6 +138,7 @@ spec:
   - name: grpc
     port: 50040
     targetPort: grpc
+{{- if $zenDataEnabled }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -140,7 +149,12 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      storage: {{ get $zenData "size" | default "5Gi" | quote }}
+  {{- if get $zenData "storageClassName" }}
+  storageClassName: {{ get $zenData "storageClassName" | quote }}
+  {{- end }}
+{{- end }}
+---
 ---
 apiVersion: v1
 kind: ServiceAccount

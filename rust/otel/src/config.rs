@@ -63,6 +63,8 @@ pub struct NATSConfigTOML {
     pub max_bytes: i64,
     #[serde(default = "default_max_age_secs")]
     pub max_age_secs: u64,
+    #[serde(default = "default_stream_replicas")]
+    pub stream_replicas: usize,
     pub tls: Option<NATSTLSConfig>,
 }
 
@@ -168,6 +170,7 @@ impl Config {
                 timeout: Duration::from_secs(nats.timeout_secs),
                 max_bytes: nats.max_bytes,
                 max_age: Duration::from_secs(nats.max_age_secs),
+                stream_replicas: nats.stream_replicas,
                 tls_cert,
                 tls_key,
                 tls_ca,
@@ -195,6 +198,7 @@ impl Config {
                 timeout_secs: 30,
                 max_bytes: default_max_bytes(),
                 max_age_secs: default_max_age_secs(),
+                stream_replicas: default_stream_replicas(),
                 tls: Some(NATSTLSConfig {
                     cert_file: "/path/to/nats-client.crt".to_string(),
                     key_file: "/path/to/nats-client.key".to_string(),
@@ -240,6 +244,10 @@ fn default_max_bytes() -> i64 {
 
 fn default_max_age_secs() -> u64 {
     30 * 60 // 30 minutes
+}
+
+fn default_stream_replicas() -> usize {
+    1
 }
 
 fn default_metrics_bind_address() -> String {
@@ -446,6 +454,7 @@ key_file = "/grpc.key"
                 timeout_secs: 45,
                 max_bytes: default_max_bytes(),
                 max_age_secs: default_max_age_secs(),
+                stream_replicas: default_stream_replicas(),
                 tls: Some(NATSTLSConfig {
                     cert_file: "/cert.pem".to_string(),
                     key_file: "/key.pem".to_string(),

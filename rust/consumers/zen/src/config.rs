@@ -155,6 +155,8 @@ pub struct Config {
     #[serde(default)]
     pub domain: Option<String>,
     pub stream_name: String,
+    #[serde(default = "default_stream_replicas")]
+    pub stream_replicas: usize,
     pub consumer_name: String,
     #[serde(default)]
     pub subjects: Vec<String>,
@@ -183,6 +185,10 @@ fn default_kv_bucket() -> String {
     "serviceradar-datasvc".to_string()
 }
 
+fn default_stream_replicas() -> usize {
+    1
+}
+
 impl Config {
     #[cfg(test)]
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
@@ -195,6 +201,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         ensure!(!self.nats_url.is_empty(), "nats_url is required");
         ensure!(!self.stream_name.is_empty(), "stream_name is required");
+        ensure!(self.stream_replicas > 0, "stream_replicas must be > 0");
         ensure!(!self.consumer_name.is_empty(), "consumer_name is required");
         ensure!(
             !(self.decision_keys.is_empty() && self.decision_groups.is_empty()),
@@ -428,6 +435,7 @@ mod tests {
             nats_url: String::new(),
             domain: None,
             stream_name: String::new(),
+            stream_replicas: 1,
             consumer_name: String::new(),
             subjects: Vec::new(),
             subject_prefix: None,
@@ -451,6 +459,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             domain: None,
             stream_name: "events".to_string(),
+            stream_replicas: 1,
             consumer_name: "zen-consumer".to_string(),
             subjects: vec!["logs.syslog".to_string()],
             subject_prefix: None,
@@ -479,6 +488,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             domain: None,
             stream_name: "events".to_string(),
+            stream_replicas: 1,
             consumer_name: "zen-consumer".to_string(),
             subjects: vec!["logs.syslog".to_string()],
             subject_prefix: None,
@@ -537,6 +547,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             domain: None,
             stream_name: "test-stream".to_string(),
+            stream_replicas: 1,
             consumer_name: "test-consumer".to_string(),
             subjects: vec!["platform.logs.syslog".to_string()],
             subject_prefix: Some("platform".to_string()),

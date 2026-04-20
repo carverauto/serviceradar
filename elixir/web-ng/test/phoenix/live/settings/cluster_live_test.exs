@@ -102,4 +102,82 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
     assert refreshed_html =~ "linux/amd64"
     assert refreshed_html =~ "agent-refresh-host"
   end
+
+  test "renders gateway replicas as distinct instances when they share a logical gateway id", %{
+    conn: conn
+  } do
+    {:ok, view, html} = live(conn, ~p"/settings/cluster")
+
+    refute html =~ "3 instance(s) across 1 logical gateway(s)"
+
+    send(
+      view.pid,
+      {:gateway_registered,
+       %{
+         gateway_id: "gateway-platform",
+         partition: "default",
+         node: :"serviceradar_agent_gateway@10.42.199.12",
+         status: :available,
+         last_heartbeat: DateTime.utc_now()
+       }}
+    )
+
+    send(
+      view.pid,
+      {:gateway_registered,
+       %{
+         gateway_id: "gateway-platform",
+         partition: "default",
+         node: :"serviceradar_agent_gateway@10.42.199.45",
+         status: :available,
+         last_heartbeat: DateTime.utc_now()
+       }}
+    )
+
+    send(
+      view.pid,
+      {:gateway_registered,
+       %{
+         gateway_id: "gateway-platform",
+         partition: "default",
+         node: :"serviceradar_agent_gateway@10.42.202.248",
+         status: :available,
+         last_heartbeat: DateTime.utc_now()
+       }}
+    )
+
+    updated_html = render(view)
+
+    assert updated_html =~ "3 instance(s) across 1 logical gateway(s)"
+    assert updated_html =~ "gateway-platform"
+    assert updated_html =~ "serviceradar_agent_gateway@10.42.199.12"
+    assert updated_html =~ "serviceradar_agent_gateway@10.42.199.45"
+    assert updated_html =~ "serviceradar_agent_gateway@10.42.202.248"
+  end
+
+  test "periodic refresh drops gateway instances that are no longer authoritative", %{conn: conn} do
+    gateway_id = "gateway-refresh-#{System.unique_integer([:positive])}"
+
+    {:ok, view, _html} = live(conn, ~p"/settings/cluster")
+
+    send(
+      view.pid,
+      {:gateway_registered,
+       %{
+         gateway_id: gateway_id,
+         partition: "default",
+         node: :"serviceradar_agent_gateway@10.42.199.12",
+         status: :available,
+         last_heartbeat: DateTime.utc_now()
+       }}
+    )
+
+    stale_html = render(view)
+    assert stale_html =~ gateway_id
+
+    send(view.pid, :refresh)
+    refreshed_html = render(view)
+
+    refute refreshed_html =~ gateway_id
+  end
 end
