@@ -202,7 +202,7 @@ func TestConfigValidateSetsDefaultObjectLimits(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 	require.EqualValues(t, defaultObjectMaxBytes, cfg.ObjectMaxBytes)
 	require.EqualValues(t, defaultObjectStoreBytes, cfg.ObjectStoreBytes)
-	require.EqualValues(t, 1, cfg.JetStreamReplicas)
+	require.Equal(t, 1, cfg.JetStreamReplicas)
 }
 
 func TestConfigValidateRejectsNegativeObjectLimits(t *testing.T) {
