@@ -12,8 +12,8 @@ github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiE
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bazelbuild/rules_go v0.60.0 h1:apGSxTTrFUyLNvX9NQmF4CbntWAO0/S5eALeVgB/6Qk=
 github.com/bazelbuild/rules_go v0.60.0/go.mod h1:CYcohJVxs4n7eftbC39GCqaEJm3E1EME+6QAkGguKoI=
-github.com/bluenviron/gortsplib/v5 v5.5.0 h1:2wlUKhlSw1ptKEVnkEuZMpQuN8Xt311Fdd/SB124JPA=
-github.com/bluenviron/gortsplib/v5 v5.5.0/go.mod h1:otcPqR836QZej/EYx7njn8vl4TLj8Ya3QAf+GBwh2cQ=
+github.com/bluenviron/gortsplib/v5 v5.5.1 h1:jZJb1dLsBMhxW1cFz/CwLhUW5diaqHf/617QyQGx4nY=
+github.com/bluenviron/gortsplib/v5 v5.5.1/go.mod h1:otcPqR836QZej/EYx7njn8vl4TLj8Ya3QAf+GBwh2cQ=
 github.com/bluenviron/mediacommon/v2 v2.8.3 h1:T6xb7ZK3eBixi/HynzhtGRCEIrazwcmGIeu0WDTVISY=
 github.com/bluenviron/mediacommon/v2 v2.8.3/go.mod h1:CsYjGgzIz8RbloQf4BHR4uReogZsB4PEKWfePVIzJv8=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
