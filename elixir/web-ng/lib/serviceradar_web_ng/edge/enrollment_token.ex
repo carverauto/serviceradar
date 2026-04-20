@@ -114,7 +114,15 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
 
   @spec cli_command(String.t(), String.t()) :: String.t()
   def cli_command(token, core_url) do
-    "/usr/local/bin/serviceradar-cli enroll --core-url #{core_url} --token #{token}"
+    command = "/usr/local/bin/serviceradar-cli enroll --core-url #{core_url} --token #{token}"
+
+    case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
+      public_key when is_binary(public_key) and public_key != "" ->
+        "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=#{public_key} #{command}"
+
+      _ ->
+        command
+    end
   end
 
   @doc """

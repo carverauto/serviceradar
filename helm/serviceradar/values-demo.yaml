@@ -30,6 +30,9 @@ cnpg:
 
 logCollector:
   replicaCount: 3
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
   data:
     enabled: false
   probes:
@@ -296,6 +299,7 @@ zenRulesBootstrap:
 
 dbEventWriter:
   replicaCount: 3
+  cnpgMaxConnections: 4
   enableMigrations: false
   data:
     enabled: false
