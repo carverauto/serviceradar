@@ -82,16 +82,6 @@ spec:
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE
           value: {{ default "serviceradar" $cnpg.database | quote }}
-        - name: CNPG_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: cnpg-superuser
-              key: username
-        - name: CNPG_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: cnpg-superuser
-              key: password
         - name: CNPG_APP_USER
           valueFrom:
             secretKeyRef:
@@ -101,6 +91,26 @@ spec:
           valueFrom:
             secretKeyRef:
               name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: username
+        - name: CNPG_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
               key: password
         - name: CNPG_SSL_MODE
           value: {{ default "verify-full" $cnpg.sslmode | quote }}
