@@ -60,7 +60,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           acknowledged_at = COALESCE(acknowledged_at, now() AT TIME ZONE 'utc'),
           message = $2,
           updated_at = now() AT TIME ZONE 'utc'
-        WHERE command_id = $1::uuid
+        WHERE command_id = $1::text::uuid
           AND status IN ('queued', 'sent')
         """,
         [command_id_text, Map.get(data, :message)],
@@ -92,7 +92,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           progress_percent = $3,
           progress_payload = $4::jsonb,
           updated_at = now() AT TIME ZONE 'utc'
-        WHERE command_id = $1::uuid
+        WHERE command_id = $1::text::uuid
           AND status IN ('queued', 'sent', 'acknowledged', 'running')
         """,
         [
@@ -123,7 +123,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           result_payload = $4::jsonb,
           failure_reason = $5,
           updated_at = now() AT TIME ZONE 'utc'
-        WHERE command_id = $1::uuid
+        WHERE command_id = $1::text::uuid
           AND status NOT IN ('completed', 'failed', 'expired', 'canceled', 'offline')
         """,
         [

@@ -784,7 +784,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
                updated_at
              )
              VALUES (
-               $1::uuid,
+               $1::text::uuid,
                $2,
                $3,
                $4,
@@ -856,7 +856,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
              message = COALESCE($6, message),
              failure_reason = COALESCE($7, failure_reason),
              updated_at = now() AT TIME ZONE 'utc'
-           WHERE command_id = $1::uuid
+           WHERE command_id = $1::text::uuid
              AND status = ANY($8::text[])
            """,
            [
