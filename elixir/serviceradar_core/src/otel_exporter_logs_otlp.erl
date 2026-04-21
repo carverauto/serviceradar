@@ -24,10 +24,10 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(DEFAULT_LOGS_PATH, "v1/logs").
--define(DEFAULT_RPC_TIMEOUT_MS, 10000).
--define(DEFAULT_RETRY_MAX_ATTEMPTS, 5).
--define(DEFAULT_RETRY_BASE_DELAY_MS, 200).
--define(DEFAULT_RETRY_MAX_DELAY_MS, 5000).
+-define(DEFAULT_RPC_TIMEOUT_MS, 30000).
+-define(DEFAULT_RETRY_MAX_ATTEMPTS, 3).
+-define(DEFAULT_RETRY_BASE_DELAY_MS, 500).
+-define(DEFAULT_RETRY_MAX_DELAY_MS, 10000).
 -define(RESTART_COOLDOWN_MS, 120000).
 -define(ENSURE_COOLDOWN_MS, 10000).
 
@@ -38,11 +38,19 @@
                 headers :: otel_exporter_otlp:headers(),
                 compression :: otel_exporter_otlp:compression() | undefined,
                 grpc_metadata :: map() | undefined,
-                endpoints :: [otel_exporter_otlp:endpoint_map()]}).
+                endpoints :: [otel_exporter_otlp:endpoint_map()],
+                rpc_timeout_ms :: pos_integer(),
+                retry_max_attempts :: pos_integer(),
+                retry_base_delay_ms :: pos_integer(),
+                retry_max_delay_ms :: pos_integer()}).
 
 %% @doc Initialize the exporter based on the provided configuration.
 init(Opts) ->
     Opts1 = merge_with_environment(Opts),
+    TimeoutMs = maps:get(rpc_timeout_ms, Opts, ?DEFAULT_RPC_TIMEOUT_MS),
+    MaxAttempts = maps:get(retry_max_attempts, Opts, ?DEFAULT_RETRY_MAX_ATTEMPTS),
+    BaseDelay = maps:get(retry_base_delay_ms, Opts, ?DEFAULT_RETRY_BASE_DELAY_MS),
+    MaxDelay = maps:get(retry_max_delay_ms, Opts, ?DEFAULT_RETRY_MAX_DELAY_MS),
     case otel_exporter_otlp:init(Opts1) of
         {ok, #{channel := Channel,
                channel_pid := ChannelPid,
@@ -57,7 +65,11 @@ init(Opts) ->
                         headers=Headers,
                         compression=Compression,
                         grpc_metadata=Metadata,
-                        protocol=grpc}};
+                        protocol=grpc,
+                        rpc_timeout_ms=TimeoutMs,
+                        retry_max_attempts=MaxAttempts,
+                        retry_base_delay_ms=BaseDelay,
+                        retry_max_delay_ms=MaxDelay}};
         {ok, #{httpc_profile := HttpcProfile,
                endpoints := Endpoints,
                headers := Headers,
@@ -67,7 +79,11 @@ init(Opts) ->
                         endpoints=Endpoints,
                         headers=Headers,
                         compression=Compression,
-                        protocol=http_protobuf}};
+                        protocol=http_protobuf,
+                        rpc_timeout_ms=TimeoutMs,
+                        retry_max_attempts=MaxAttempts,
+                        retry_base_delay_ms=BaseDelay,
+                        retry_max_delay_ms=MaxDelay}};
         {ok, #{httpc_profile := HttpcProfile,
                endpoints := Endpoints,
                headers := Headers,
@@ -77,7 +93,11 @@ init(Opts) ->
                         endpoints=Endpoints,
                         headers=Headers,
                         compression=Compression,
-                        protocol=http_json}}
+                        protocol=http_json,
+                        rpc_timeout_ms=TimeoutMs,
+                        retry_max_attempts=MaxAttempts,
+                        retry_base_delay_ms=BaseDelay,
+                        retry_max_delay_ms=MaxDelay}}
     end.
 
 %% @doc Export OTLP log data to the configured endpoints.
@@ -115,11 +135,24 @@ export(Logs, Resource, #state{protocol=grpc,
                               grpc_metadata=Metadata,
                               channel=Channel,
                               endpoints=Endpoints,
-                              compression=Compression}) ->
+                              compression=Compression,
+                              rpc_timeout_ms=TimeoutMs,
+                              retry_max_attempts=MaxAttempts,
+                              retry_base_delay_ms=BaseDelay,
+                              retry_max_delay_ms=MaxDelay}) ->
     {Batch, HandlerConfig} = normalize_logs_arg(Logs),
     RequestMap0 = otel_otlp_logs:to_proto(normalize_log_batch(Batch), Resource, HandlerConfig),
     RequestMap = normalize_request_map(RequestMap0),
-    export_grpc_with_retry(opentelemetry_logs_service, Metadata, RequestMap, Channel, Endpoints, Compression);
+    export_grpc_with_retry(opentelemetry_logs_service,
+                           Metadata,
+                           RequestMap,
+                           Channel,
+                           Endpoints,
+                           Compression,
+                           MaxAttempts,
+                           BaseDelay,
+                           MaxDelay,
+                           TimeoutMs);
 export(_Logs, _Resource, _State) ->
     {error, unimplemented}.
 
@@ -236,22 +269,6 @@ shutdown(#state{channel=undefined}) ->
 shutdown(#state{channel=Channel}) ->
     maybe_stop_channel(Channel),
     ok.
-
-%% Retry wrapper around grpcbox unary export.
-%% We intentionally implement this here (instead of relying on upstream exporter)
-%% because upstream currently surfaces transient errors (timeout/unavailable)
-%% without backoff, which makes rollouts noisy and can drop data.
-export_grpc_with_retry(GrpcServiceModule, Metadata, RequestMap, Channel, Endpoints, Compression) ->
-    export_grpc_with_retry(GrpcServiceModule,
-                           Metadata,
-                           RequestMap,
-                           Channel,
-                           Endpoints,
-                           Compression,
-                           ?DEFAULT_RETRY_MAX_ATTEMPTS,
-                           ?DEFAULT_RETRY_BASE_DELAY_MS,
-                           ?DEFAULT_RETRY_MAX_DELAY_MS,
-                           ?DEFAULT_RPC_TIMEOUT_MS).
 
 export_grpc_with_retry(_GrpcServiceModule, _Metadata, _RequestMap, _Channel, _Endpoints, _Compression,
                        Attempts, _BaseDelay, _MaxDelay, _TimeoutMs)

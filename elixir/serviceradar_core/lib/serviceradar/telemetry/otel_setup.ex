@@ -160,9 +160,17 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
         :ok
 
       true ->
+        exporter_opts = %{
+          protocol: :grpc,
+          rpc_timeout_ms: positive_int_env("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 30_000),
+          retry_max_attempts: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS", 3),
+          retry_base_delay_ms: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_BASE_DELAY_MS", 500),
+          retry_max_delay_ms: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_MAX_DELAY_MS", 10_000)
+        }
+
         handler_config = %{
           config: %{
-            exporter: {:opentelemetry_exporter, %{protocol: :grpc}}
+            exporter: {:opentelemetry_exporter, exporter_opts}
           },
           level: :info
         }
@@ -196,5 +204,21 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
   defp missing_files(files) when is_list(files) do
     Enum.reject(files, fn {f, _label} -> File.exists?(f) end)
+  end
+
+  defp positive_int_env(env_name, default) do
+    case System.get_env(env_name) do
+      nil ->
+        default
+
+      "" ->
+        default
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} when int > 0 -> int
+          _ -> default
+        end
+    end
   end
 end

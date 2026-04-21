@@ -26,12 +26,17 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
     @impl true
     def init(opts) do
-      {:ok, %{test_pid: opts[:test_pid]}}
+      {:ok,
+       %{
+         test_pid: opts[:test_pid],
+         ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false)
+       }}
     end
 
     @impl true
     def handle_call({:send_command, command, context}, _from, state) do
       send(state.test_pid, {:send_command, command, context})
+      maybe_ack_before_reply(command, state)
       {:reply, {:ok, command.command_id}, state}
     end
 
@@ -40,6 +45,17 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       send(state.test_pid, {:push_config, response})
       {:reply, :ok, state}
     end
+
+    defp maybe_ack_before_reply(command, %{ack_before_reply?: true}) do
+      send(
+        StatusHandler,
+        {:command_ack, %{command_id: command.command_id, message: "ack"}}
+      )
+
+      Process.sleep(25)
+    end
+
+    defp maybe_ack_before_reply(_command, _state), do: :ok
   end
 
   setup_all do
@@ -109,6 +125,29 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       command = wait_for_status(command_id, :completed, actor)
       assert command.message == "done"
       assert command.result_payload == %{"ok" => true}
+    end
+
+    test "dispatch tolerates ack before sent status is persisted", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      ensure_status_handler_started()
+
+      {_pid, _metadata} =
+        start_control_session(
+          agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["mtr"]},
+          ack_before_reply?: true
+        )
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["1.1.1.1"],
+                 context: %{"mtr_policy_id" => "policy-ack-race"}
+               )
+
+      command = wait_for_status(command_id, :acknowledged, actor)
+      assert command.message == "ack"
     end
 
     test "blocks mtr dispatches beyond the agent concurrency limit", %{
@@ -477,9 +516,13 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
   end
 
-  defp start_control_session(agent_id, test_pid, metadata) do
+  defp start_control_session(agent_id, test_pid, metadata, opts \\ []) do
     name = ProcessRegistry.via({:agent_control, agent_id}, metadata)
-    {:ok, pid} = TestControlSession.start_link(name: name, test_pid: test_pid)
+
+    {:ok, pid} =
+      TestControlSession.start_link(
+        [name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?])
+      )
 
     on_exit(fn ->
       if Process.alive?(pid) do
