@@ -152,9 +152,9 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
         :ok
 
       not Code.ensure_loaded?(:otel_exporter_logs_otlp) or
-          not function_exported?(:otel_exporter_logs_otlp, :export, 3) ->
+          not function_exported?(:otel_exporter_logs_otlp, :export, 4) ->
         Logger.warning(
-          "[OtelSetup] OTLP log exporter not available (missing otel_exporter_logs_otlp:export/3); skipping OTLP log handler registration"
+          "[OtelSetup] OTLP log exporter not available (missing otel_exporter_logs_otlp:export/4); skipping OTLP log handler registration"
         )
 
         :ok
@@ -170,7 +170,7 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
         handler_config = %{
           config: %{
-            exporter: {:opentelemetry_exporter, exporter_opts}
+            exporter: {:otel_exporter_logs_otlp, exporter_opts}
           },
           level: :info
         }
