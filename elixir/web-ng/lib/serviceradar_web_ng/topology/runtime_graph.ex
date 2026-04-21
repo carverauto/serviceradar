@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   require Logger
 
-  @default_refresh_ms 5_000
+  @default_refresh_ms 30_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
 

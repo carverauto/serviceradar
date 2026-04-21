@@ -2,6 +2,9 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgDatabase := default (dict) $webNg.database -}}
+{{- $webNgObanQueues := default (dict) $webNg.obanQueues -}}
+{{- $webNgGodView := default (dict) $webNg.godView -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
@@ -262,7 +265,41 @@ spec:
               name: {{ $secrets | quote }}
               key: web-ng-secret-key-base
         - name: POOL_SIZE
-          value: {{ default 10 (default (dict) $webNg.database).poolSize | quote }}
+          value: {{ default 10 $webNgDatabase.poolSize | quote }}
+        - name: DATABASE_QUEUE_TARGET_MS
+          value: {{ default 2000 $webNgDatabase.queueTargetMs | quote }}
+        - name: DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 2000 $webNgDatabase.queueIntervalMs | quote }}
+        - name: DATABASE_TIMEOUT_MS
+          value: {{ default 120000 $webNgDatabase.timeoutMs | quote }}
+        - name: DATABASE_POOL_TIMEOUT_MS
+          value: {{ default 120000 $webNgDatabase.poolTimeoutMs | quote }}
+        - name: SERVICERADAR_WEB_NG_OBAN_ENABLED
+          value: {{ default true $webNg.obanEnabled | quote }}
+        - name: WEB_NG_OBAN_QUEUE_DEFAULT
+          value: {{ default 2 $webNgObanQueues.default | quote }}
+        - name: WEB_NG_OBAN_QUEUE_ALERTS
+          value: {{ default 1 $webNgObanQueues.alerts | quote }}
+        - name: WEB_NG_OBAN_QUEUE_SERVICE_CHECKS
+          value: {{ default 1 $webNgObanQueues.serviceChecks | quote }}
+        - name: WEB_NG_OBAN_QUEUE_NOTIFICATIONS
+          value: {{ default 1 $webNgObanQueues.notifications | quote }}
+        - name: WEB_NG_OBAN_QUEUE_ONBOARDING
+          value: {{ default 1 $webNgObanQueues.onboarding | quote }}
+        - name: WEB_NG_OBAN_QUEUE_EVENTS
+          value: {{ default 1 $webNgObanQueues.events | quote }}
+        - name: WEB_NG_OBAN_QUEUE_SWEEPS
+          value: {{ default 1 $webNgObanQueues.sweeps | quote }}
+        - name: WEB_NG_OBAN_QUEUE_EDGE
+          value: {{ default 1 $webNgObanQueues.edge | quote }}
+        - name: WEB_NG_OBAN_QUEUE_INTEGRATIONS
+          value: {{ default 1 $webNgObanQueues.integrations | quote }}
+        - name: WEB_NG_OBAN_QUEUE_MAINTENANCE
+          value: {{ default 0 $webNgObanQueues.maintenance | quote }}
+        - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS
+          value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
+        - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH
+          value: {{ default true $webNgGodView.runtimeGraphAutoRefresh | quote }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
           value: {{ $pluginStorageBackend | quote }}

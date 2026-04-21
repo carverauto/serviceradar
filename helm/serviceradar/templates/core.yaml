@@ -15,6 +15,8 @@
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
+{{- $controlDatabase := default (dict) $coreVals.controlDatabase -}}
+{{- $obanQueues := default (dict) $coreVals.obanQueues -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
@@ -171,6 +173,42 @@ spec:
           value: {{ default 120000 $database.timeoutMs | quote }}
         - name: DATABASE_POOL_TIMEOUT_MS
           value: {{ default 120000 $database.poolTimeoutMs | quote }}
+        - name: CONTROL_REPO_ENABLED
+          value: {{ default true $controlDatabase.enabled | quote }}
+        - name: CONTROL_REPO_POOL_SIZE
+          value: {{ default 5 $controlDatabase.poolSize | quote }}
+        - name: CONTROL_DATABASE_QUEUE_TARGET_MS
+          value: {{ default 2000 $controlDatabase.queueTargetMs | quote }}
+        - name: CONTROL_DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 2000 $controlDatabase.queueIntervalMs | quote }}
+        - name: CONTROL_DATABASE_TIMEOUT_MS
+          value: {{ default 120000 $controlDatabase.timeoutMs | quote }}
+        - name: CONTROL_DATABASE_POOL_TIMEOUT_MS
+          value: {{ default 120000 $controlDatabase.poolTimeoutMs | quote }}
+        - name: OBAN_QUEUE_DEFAULT
+          value: {{ default 10 $obanQueues.default | quote }}
+        - name: OBAN_QUEUE_MAINTENANCE
+          value: {{ default 5 $obanQueues.maintenance | quote }}
+        - name: OBAN_QUEUE_MONITORING
+          value: {{ default 5 $obanQueues.monitoring | quote }}
+        - name: OBAN_QUEUE_ALERTS
+          value: {{ default 5 $obanQueues.alerts | quote }}
+        - name: OBAN_QUEUE_SERVICE_CHECKS
+          value: {{ default 10 $obanQueues.serviceChecks | quote }}
+        - name: OBAN_QUEUE_NOTIFICATIONS
+          value: {{ default 5 $obanQueues.notifications | quote }}
+        - name: OBAN_QUEUE_ONBOARDING
+          value: {{ default 3 $obanQueues.onboarding | quote }}
+        - name: OBAN_QUEUE_EVENTS
+          value: {{ default 10 $obanQueues.events | quote }}
+        - name: OBAN_QUEUE_SWEEPS
+          value: {{ default 20 $obanQueues.sweeps | quote }}
+        - name: OBAN_QUEUE_EDGE
+          value: {{ default 10 $obanQueues.edge | quote }}
+        - name: OBAN_QUEUE_INTEGRATIONS
+          value: {{ default 5 $obanQueues.integrations | quote }}
+        - name: OBAN_QUEUE_NATS_ACCOUNTS
+          value: {{ default 3 $obanQueues.natsAccounts | quote }}
         - name: SYNC_INGESTOR_BATCH_CONCURRENCY
           value: {{ default 2 $syncIngestor.batchConcurrency | quote }}
         - name: SYNC_INGESTOR_COALESCE_MS

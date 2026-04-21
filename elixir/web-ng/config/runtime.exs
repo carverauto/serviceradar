@@ -375,6 +375,18 @@ plugin_storage_overrides =
   )
   |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
 
+god_view_runtime_graph_refresh_ms =
+  case to_int.(System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS", "30000")) do
+    value when is_integer(value) and value > 0 -> value
+    _ -> 30_000
+  end
+
+god_view_runtime_graph_auto_refresh =
+  case to_bool.(System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH", "true")) do
+    nil -> true
+    value -> value
+  end
+
 config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
@@ -390,6 +402,10 @@ config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
 config :serviceradar_web_ng,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
+config :serviceradar_web_ng,
+  god_view_runtime_graph_refresh_ms: god_view_runtime_graph_refresh_ms,
+  god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh
 
 if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,
@@ -626,48 +642,63 @@ if config_env() != :test do
   oban_enabled =
     System.get_env("SERVICERADAR_WEB_NG_OBAN_ENABLED", "true") in ~w(true 1 yes)
 
-  # Oban queue limits (plugins are configured in config.exs via Oban.Plugins.Cron)
-  oban_default_queue_limit =
-    "OBAN_DEFAULT_QUEUE_LIMIT" |> System.get_env("10") |> String.to_integer()
+  parse_queue_limit = fn env_names, default ->
+    env_names
+    |> List.wrap()
+    |> Enum.find_value(fn env_name ->
+      case System.get_env(env_name) do
+        nil -> nil
+        "" -> nil
+        value -> value
+      end
+    end)
+    |> case do
+      nil ->
+        default
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} when int >= 0 -> int
+          _ -> default
+        end
+    end
+  end
+
+  maybe_queue = fn queues, queue, limit ->
+    if limit > 0 do
+      Keyword.put(queues, queue, limit)
+    else
+      queues
+    end
+  end
 
   # web-ng should not execute external/network maintenance jobs (GeoLite/ipinfo downloads,
   # enrichment refresh, threat intel refresh, etc.). core-elx owns those.
   oban_maintenance_queue_limit =
-    "OBAN_MAINTENANCE_QUEUE_LIMIT"
-    |> System.get_env("0")
-    |> String.to_integer()
-    |> then(fn
-      n when is_integer(n) and n > 0 -> n
-      _ -> nil
-    end)
+    parse_queue_limit.(["WEB_NG_OBAN_QUEUE_MAINTENANCE", "OBAN_MAINTENANCE_QUEUE_LIMIT"], 0)
 
   oban_node = System.get_env("OBAN_NODE")
 
-  # web-ng should NOT run scheduled jobs - core-elx is the Oban coordinator
-  # web-ng only processes jobs, it doesn't schedule them
+  # web-ng does not run scheduled jobs or acquire the Oban peer lock; core-elx remains
+  # the scheduler leader. It can still process runtime jobs within explicit budgets.
   queues =
-    then(
-      [
-        default: oban_default_queue_limit,
-        # Omitting a queue entirely prevents this node from processing jobs in it.
-        # Oban does not accept 0 as a queue limit.
-        alerts: 5,
-        service_checks: 10,
-        notifications: 5,
-        onboarding: 3,
-        events: 10,
-        sweeps: 20,
-        edge: 10,
-        integrations: 5
-      ],
-      fn q ->
-        if is_integer(oban_maintenance_queue_limit) do
-          Keyword.put(q, :maintenance, oban_maintenance_queue_limit)
-        else
-          q
-        end
-      end
+    []
+    |> maybe_queue.(
+      :default,
+      parse_queue_limit.(["WEB_NG_OBAN_QUEUE_DEFAULT", "OBAN_DEFAULT_QUEUE_LIMIT"], 10)
     )
+    |> maybe_queue.(:alerts, parse_queue_limit.("WEB_NG_OBAN_QUEUE_ALERTS", 5))
+    |> maybe_queue.(
+      :service_checks,
+      parse_queue_limit.("WEB_NG_OBAN_QUEUE_SERVICE_CHECKS", 10)
+    )
+    |> maybe_queue.(:notifications, parse_queue_limit.("WEB_NG_OBAN_QUEUE_NOTIFICATIONS", 5))
+    |> maybe_queue.(:onboarding, parse_queue_limit.("WEB_NG_OBAN_QUEUE_ONBOARDING", 3))
+    |> maybe_queue.(:events, parse_queue_limit.("WEB_NG_OBAN_QUEUE_EVENTS", 10))
+    |> maybe_queue.(:sweeps, parse_queue_limit.("WEB_NG_OBAN_QUEUE_SWEEPS", 20))
+    |> maybe_queue.(:edge, parse_queue_limit.("WEB_NG_OBAN_QUEUE_EDGE", 10))
+    |> maybe_queue.(:integrations, parse_queue_limit.("WEB_NG_OBAN_QUEUE_INTEGRATIONS", 5))
+    |> maybe_queue.(:maintenance, oban_maintenance_queue_limit)
 
   oban_config = [
     repo: ServiceRadar.Repo,
@@ -941,6 +972,10 @@ if config_env() == :prod do
     url: repo_url,
     ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    queue_target: String.to_integer(System.get_env("DATABASE_QUEUE_TARGET_MS") || "2000"),
+    queue_interval: String.to_integer(System.get_env("DATABASE_QUEUE_INTERVAL_MS") || "2000"),
+    timeout: String.to_integer(System.get_env("DATABASE_TIMEOUT_MS") || "120000"),
+    pool_timeout: String.to_integer(System.get_env("DATABASE_POOL_TIMEOUT_MS") || "120000"),
     socket_options: maybe_ipv6,
     parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
     types: ServiceRadar.PostgresTypes
@@ -1043,8 +1078,7 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket:
-      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do

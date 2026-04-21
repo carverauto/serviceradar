@@ -35,6 +35,8 @@
     "username": "serviceradar",
     "password": "serviceradar",
     "ssl_mode": "verify-full",
+    "max_connections": 8,
+    "min_connections": 0,
     "tls": {
       "ca_file": "/etc/serviceradar/certs/root.pem",
       "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",

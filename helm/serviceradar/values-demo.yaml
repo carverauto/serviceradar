@@ -183,6 +183,25 @@ webNg:
   replicas: 3
   database:
     poolSize: 8
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
+  obanEnabled: true
+  obanQueues:
+    default: 1
+    alerts: 1
+    serviceChecks: 1
+    notifications: 1
+    onboarding: 1
+    events: 1
+    sweeps: 1
+    edge: 1
+    integrations: 1
+    maintenance: 0
+  godView:
+    runtimeGraphRefreshMs: 30000
+    runtimeGraphAutoRefresh: true
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
@@ -251,6 +270,22 @@ core:
   clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
   database:
     poolSize: 10
+  controlDatabase:
+    enabled: true
+    poolSize: 3
+  obanQueues:
+    default: 2
+    maintenance: 1
+    monitoring: 1
+    alerts: 1
+    serviceChecks: 2
+    notifications: 1
+    onboarding: 1
+    events: 2
+    sweeps: 2
+    edge: 2
+    integrations: 1
+    natsAccounts: 1
   # MTR automation rollout profiles (copy/paste into mtrAutomation):
   # baseline_only:
   #   enabled: true

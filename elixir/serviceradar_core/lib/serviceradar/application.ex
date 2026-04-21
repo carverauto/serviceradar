@@ -65,6 +65,7 @@ defmodule ServiceRadar.Application do
 
         # Database (can be disabled for standalone tests)
         repo_child(),
+        control_repo_child(),
 
         # Startup migrations (core-elx only, after repo)
         startup_migrations_child(),
@@ -155,6 +156,12 @@ defmodule ServiceRadar.Application do
   defp repo_child do
     if repo_enabled?() do
       ServiceRadar.Repo
+    end
+  end
+
+  defp control_repo_child do
+    if control_repo_enabled?() do
+      ServiceRadar.ControlRepo
     end
   end
 
@@ -277,6 +284,11 @@ defmodule ServiceRadar.Application do
 
   defp repo_enabled? do
     Application.get_env(:serviceradar_core, :repo_enabled, true) != false
+  end
+
+  defp control_repo_enabled? do
+    repo_enabled?() &&
+      Application.get_env(:serviceradar_core, :control_repo_enabled, false) != false
   end
 
   defp datasvc_enabled? do

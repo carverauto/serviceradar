@@ -5,10 +5,9 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   use GenServer
 
-  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
-  alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.ControlRepo
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrPubSub
@@ -49,97 +48,95 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp persist_ack(%{command_id: command_id} = data, actor) do
-    case AgentCommand.get_by_id(command_id, actor: actor) do
-      {:ok, command} ->
-        if command.status in [:queued, :sent] do
-          AgentCommand.acknowledge(command, %{message: Map.get(data, :message)}, actor: actor)
-        end
+  defp persist_ack(%{command_id: command_id} = data, _actor) do
+    command_id_text = normalize_command_id(command_id)
 
-      {:error, %NotFound{}} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("AgentCommandStatusHandler: failed to load command ack",
-          command_id: command_id,
-          reason: inspect(reason)
-        )
+    if command_id_text do
+      control_query(
+        """
+        UPDATE platform.agent_commands
+        SET
+          status = 'acknowledged',
+          acknowledged_at = COALESCE(acknowledged_at, now() AT TIME ZONE 'utc'),
+          message = $2,
+          updated_at = now() AT TIME ZONE 'utc'
+        WHERE command_id = $1::uuid
+          AND status IN ('queued', 'sent')
+        """,
+        [command_id_text, Map.get(data, :message)],
+        "acknowledge command",
+        command_id_text
+      )
     end
   end
 
-  defp persist_progress(%{command_id: command_id} = data, actor) do
-    case AgentCommand.get_by_id(command_id, actor: actor) do
-      {:ok, command} ->
-        params = %{
-          message: Map.get(data, :message),
-          progress_percent: Map.get(data, :progress_percent),
-          progress_payload: Map.get(data, :payload)
-        }
+  defp persist_progress(%{command_id: command_id} = data, _actor) do
+    command_id_text = normalize_command_id(command_id)
 
-        cond do
-          command.status in [:queued, :sent, :acknowledged] ->
-            AgentCommand.start(command, params, actor: actor)
-
-          command.status == :running ->
-            AgentCommand.update_progress(command, params, actor: actor)
-
-          true ->
-            :ok
-        end
-
-      {:error, %NotFound{}} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("AgentCommandStatusHandler: failed to load command progress",
-          command_id: command_id,
-          reason: inspect(reason)
-        )
+    if command_id_text do
+      control_query(
+        """
+        UPDATE platform.agent_commands
+        SET
+          status = CASE
+            WHEN status IN ('queued', 'sent', 'acknowledged') THEN 'running'
+            ELSE status
+          END,
+          started_at = CASE
+            WHEN status IN ('queued', 'sent', 'acknowledged')
+              THEN COALESCE(started_at, now() AT TIME ZONE 'utc')
+            ELSE started_at
+          END,
+          last_progress_at = now() AT TIME ZONE 'utc',
+          message = $2,
+          progress_percent = $3,
+          progress_payload = $4::jsonb,
+          updated_at = now() AT TIME ZONE 'utc'
+        WHERE command_id = $1::uuid
+          AND status IN ('queued', 'sent', 'acknowledged', 'running')
+        """,
+        [
+          command_id_text,
+          Map.get(data, :message),
+          Map.get(data, :progress_percent),
+          json_param(Map.get(data, :payload))
+        ],
+        "persist command progress",
+        command_id_text
+      )
     end
   end
 
-  defp persist_result(%{command_id: command_id} = data, actor) do
-    case AgentCommand.get_by_id(command_id, actor: actor) do
-      {:ok, command} ->
-        handle_result(command, data, actor)
+  defp persist_result(%{command_id: command_id} = data, _actor) do
+    command_id_text = normalize_command_id(command_id)
 
-      {:error, %NotFound{}} ->
-        :ok
+    if command_id_text do
+      success? = Map.get(data, :success) == true
 
-      {:error, reason} ->
-        Logger.warning("AgentCommandStatusHandler: failed to load command result",
-          command_id: command_id,
-          reason: inspect(reason)
-        )
+      control_query(
+        """
+        UPDATE platform.agent_commands
+        SET
+          status = $2,
+          completed_at = COALESCE(completed_at, now() AT TIME ZONE 'utc'),
+          message = $3,
+          result_payload = $4::jsonb,
+          failure_reason = $5,
+          updated_at = now() AT TIME ZONE 'utc'
+        WHERE command_id = $1::uuid
+          AND status NOT IN ('completed', 'failed', 'expired', 'canceled', 'offline')
+        """,
+        [
+          command_id_text,
+          if(success?, do: "completed", else: "failed"),
+          Map.get(data, :message),
+          json_param(Map.get(data, :payload)),
+          if(success?, do: nil, else: Map.get(data, :failure_reason) || "command_failed")
+        ],
+        "persist command result",
+        command_id_text
+      )
     end
-  end
-
-  defp handle_result(command, data, actor) do
-    if terminal_status?(command.status) do
-      :ok
-    else
-      if Map.get(data, :success) do
-        AgentCommand.complete(
-          command,
-          %{message: Map.get(data, :message), result_payload: Map.get(data, :payload)},
-          actor: actor
-        )
-      else
-        AgentCommand.fail(
-          command,
-          %{
-            message: Map.get(data, :message),
-            result_payload: Map.get(data, :payload),
-            failure_reason: Map.get(data, :failure_reason) || "command_failed"
-          },
-          actor: actor
-        )
-      end
-    end
-  end
-
-  defp terminal_status?(status) do
-    status in [:completed, :failed, :expired, :canceled, :offline]
   end
 
   defp maybe_ingest_mtr_result(data) when is_map(data) do
@@ -343,7 +340,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       |> Enum.reject(&is_nil/1)
 
     if rows != [] and not is_nil(command_id_text) do
-      case Repo.query(
+      case control_repo().query(
              """
              WITH updates AS (
                SELECT
@@ -466,6 +463,32 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         end
     end
   end
+
+  defp control_query(sql, params, action, command_id) do
+    case control_repo().query(sql, params) do
+      {:ok, _result} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("AgentCommandStatusHandler: failed to #{action}",
+          command_id: command_id,
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp control_repo do
+    if Process.whereis(ControlRepo) do
+      ControlRepo
+    else
+      Repo
+    end
+  end
+
+  defp json_param(nil), do: nil
+  defp json_param(value), do: Jason.encode!(value)
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->

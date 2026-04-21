@@ -150,6 +150,7 @@ queue_target = if queue_target, do: parse_int.(queue_target)
 queue_interval = if queue_interval, do: parse_int.(queue_interval)
 ownership_timeout = if ownership_timeout, do: parse_int.(ownership_timeout)
 search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+default_test_pool_size = min(System.schedulers_online() * 2, 8)
 
 repo_config =
   if db_url do
@@ -157,7 +158,7 @@ repo_config =
       [
         url: db_url,
         pool: Sandbox,
-        pool_size: pool_size || System.schedulers_online() * 2
+        pool_size: pool_size || default_test_pool_size
       ]
       |> then(fn opts ->
         if queue_target, do: Keyword.put(opts, :queue_target, queue_target), else: opts
@@ -195,7 +196,7 @@ repo_config =
       hostname: "localhost",
       database: "serviceradar_test#{System.get_env("MIX_TEST_PARTITION")}",
       pool: Sandbox,
-      pool_size: System.schedulers_online() * 2
+      pool_size: default_test_pool_size
     ]
   end
 
@@ -248,6 +249,7 @@ config :serviceradar_core,
   service_heartbeat_enabled: false,
   spiffe_cert_monitor_enabled: false,
   status_handler_enabled: false,
+  control_repo_enabled: false,
   seeders_enabled: false,
   log_promotion_consumer_enabled: false
 

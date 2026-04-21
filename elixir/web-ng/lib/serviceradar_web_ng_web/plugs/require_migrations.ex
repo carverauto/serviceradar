@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
           conn
           |> put_resp_content_type("text/plain")
           |> put_resp_header("retry-after", "5")
-          |> send_resp(503, "ServiceRadar is starting up. Database migrations are still running.")
+          |> send_resp(503, response_message(reason))
           |> halt()
       end
     else
@@ -61,10 +61,22 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
     end
   end
 
+  defp response_message(:pending_migrations) do
+    "ServiceRadar is starting up. Database migrations are still running."
+  end
+
+  defp response_message({:repo_unavailable, _reason}) do
+    "ServiceRadar is temporarily unavailable. Database connectivity is degraded."
+  end
+
+  defp response_message(_reason) do
+    "ServiceRadar is temporarily unavailable. Database connectivity is degraded."
+  end
+
   defp migrations_ready? do
     case Process.whereis(ServiceRadar.Repo) do
       nil ->
-        {:error, :repo_down}
+        {:error, {:repo_unavailable, :repo_down}}
 
       _pid ->
         migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
@@ -84,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
           if pending, do: {:error, :pending_migrations}, else: :ok
         rescue
           error in [DBConnection.ConnectionError, Postgrex.Error] ->
-            {:error, error}
+            {:error, {:repo_unavailable, error}}
         end
     end
   end

@@ -4,6 +4,7 @@ import Config
 # This file is executed at runtime, not compile time.
 
 alias Cluster.Strategy.DNSPoll
+alias Cluster.Strategy.Kubernetes.DNS
 alias Geolix.Adapter.MMDB2
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
@@ -239,6 +240,67 @@ if config_env() == :prod do
         else: opts
     end)
 
+  control_repo_pool_size =
+    parse_int.(System.get_env("CONTROL_REPO_POOL_SIZE") || "5") || 5
+
+  control_repo_queue_target =
+    "CONTROL_DATABASE_QUEUE_TARGET_MS"
+    |> System.get_env()
+    |> case do
+      nil -> queue_target
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  control_repo_queue_interval =
+    "CONTROL_DATABASE_QUEUE_INTERVAL_MS"
+    |> System.get_env()
+    |> case do
+      nil -> queue_interval
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  control_repo_timeout =
+    "CONTROL_DATABASE_TIMEOUT_MS"
+    |> System.get_env()
+    |> case do
+      nil -> database_timeout
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  control_repo_pool_timeout =
+    "CONTROL_DATABASE_POOL_TIMEOUT_MS"
+    |> System.get_env()
+    |> case do
+      nil -> database_pool_timeout
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  control_repo_opts =
+    repo_opts
+    |> Keyword.put(:pool_size, control_repo_pool_size)
+    |> then(fn opts ->
+      if control_repo_queue_target,
+        do: Keyword.put(opts, :queue_target, control_repo_queue_target),
+        else: opts
+    end)
+    |> then(fn opts ->
+      if control_repo_queue_interval,
+        do: Keyword.put(opts, :queue_interval, control_repo_queue_interval),
+        else: opts
+    end)
+    |> then(fn opts ->
+      if control_repo_timeout, do: Keyword.put(opts, :timeout, control_repo_timeout), else: opts
+    end)
+    |> then(fn opts ->
+      if control_repo_pool_timeout,
+        do: Keyword.put(opts, :pool_timeout, control_repo_pool_timeout),
+        else: opts
+    end)
+
   sweep_srql_page_limit =
     "SWEEP_SRQL_PAGE_LIMIT"
     |> System.get_env()
@@ -318,17 +380,6 @@ if config_env() == :prod do
       end
     end)
 
-  config :serviceradar_core, ServiceRadar.Repo, repo_opts
-  config :serviceradar_core, :age_graph_name, age_graph_name
-  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
-
-  config :serviceradar_core, :spiffe,
-    mode: spiffe_mode,
-    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
-    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: spiffe_socket,
-    trust_bundle_path: spiffe_bundle_path
-
   # Cluster configuration
   hosted_cluster_contract =
     case System.get_env("SERVICERADAR_HOSTED_CLUSTER_CONTRACT") do
@@ -388,7 +439,7 @@ if config_env() == :prod do
               ]
             ],
             serviceradar_web: [
-              strategy: Cluster.Strategy.Kubernetes.DNS,
+              strategy: DNS,
               config: [
                 service: web_service,
                 application_name: web_node_basename,
@@ -397,7 +448,7 @@ if config_env() == :prod do
               ]
             ],
             serviceradar_gateway: [
-              strategy: Cluster.Strategy.Kubernetes.DNS,
+              strategy: DNS,
               config: [
                 service: gateway_service,
                 application_name: gateway_node_basename,
@@ -508,6 +559,21 @@ if config_env() == :prod do
       []
     end
 
+  config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
+  config :serviceradar_core, ServiceRadar.Repo, repo_opts
+  config :serviceradar_core, :age_graph_name, age_graph_name
+  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
+
+  config :serviceradar_core, :spiffe,
+    mode: spiffe_mode,
+    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
+    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
+    workload_api_socket: spiffe_socket,
+    trust_bundle_path: spiffe_bundle_path
+
+  config :serviceradar_core,
+    control_repo_enabled: System.get_env("CONTROL_REPO_ENABLED", "true") in ~w(true 1 yes)
+
   if topologies != [] do
     config :libcluster, topologies: topologies
   end
@@ -590,6 +656,8 @@ if config_env() == :prod do
     prefix: System.get_env("OBAN_SCHEMA", "platform"),
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
+      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "5"),
+      monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
       notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
