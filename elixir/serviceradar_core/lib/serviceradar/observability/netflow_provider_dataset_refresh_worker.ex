@@ -88,6 +88,10 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
             Logger.info("Cloud-provider CIDR dataset refreshed", rows: length(rows))
             schedule_next(reschedule_seconds)
 
+          :unchanged ->
+            Logger.info("Cloud-provider CIDR dataset unchanged", rows: length(rows))
+            schedule_next(reschedule_seconds)
+
           {:error, reason} ->
             Logger.warning("Cloud-provider CIDR dataset promotion failed",
               reason: inspect(reason)
@@ -190,8 +194,35 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   defp promote_snapshot(source_url, payload, rows, etag) do
     snapshot_id = Ecto.UUID.dump!(Ecto.UUID.generate())
+    source_sha256 = sha256(payload)
+    record_count = length(rows)
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
+    if active_snapshot_current?(source_sha256, record_count) do
+      :unchanged
+    else
+      do_promote_snapshot(snapshot_id, source_url, source_sha256, payload, rows, etag, now)
+    end
+  end
+
+  defp active_snapshot_current?(source_sha256, record_count) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT COUNT(*)
+        FROM platform.netflow_provider_dataset_snapshots
+        WHERE is_active = TRUE
+          AND source_sha256 = $1
+          AND record_count = $2
+        """,
+        [source_sha256, record_count],
+        timeout: @db_timeout_ms
+      )
+
+    count > 0
+  end
+
+  defp do_promote_snapshot(snapshot_id, source_url, source_sha256, _payload, rows, etag, now) do
     fn ->
       {1, _} =
         Repo.insert_all(
@@ -201,7 +232,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
               id: snapshot_id,
               source_url: source_url,
               source_etag: etag,
-              source_sha256: sha256(payload),
+              source_sha256: source_sha256,
               fetched_at: now,
               promoted_at: nil,
               is_active: false,

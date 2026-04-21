@@ -41,6 +41,14 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
 
     %{id: active_id, record_count: 2} = active_provider_snapshot!()
     assert provider_prefix_count(active_id) == 2
+    assert provider_snapshot_count() == 1
+
+    assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
+
+    %{id: unchanged_active_id, record_count: 2} = active_provider_snapshot!()
+    assert unchanged_active_id == active_id
+    assert provider_prefix_count(unchanged_active_id) == 2
+    assert provider_snapshot_count() == 1
 
     with_worker_env(NetflowProviderDatasetRefreshWorker,
       source_url: "http://127.0.0.1:9/provider.json",
@@ -78,6 +86,14 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
 
     %{id: active_id, record_count: 2} = active_oui_snapshot!()
     assert oui_prefix_count(active_id) == 2
+    assert oui_snapshot_count() == 1
+
+    assert :ok = NetflowOuiDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
+
+    %{id: unchanged_active_id, record_count: 2} = active_oui_snapshot!()
+    assert unchanged_active_id == active_id
+    assert oui_prefix_count(unchanged_active_id) == 2
+    assert oui_snapshot_count() == 1
 
     with_worker_env(NetflowOuiDatasetRefreshWorker,
       source_url: "http://127.0.0.1:9/oui.csv",
@@ -149,12 +165,26 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     count
   end
 
+  defp provider_snapshot_count do
+    %{rows: [[count]]} =
+      Repo.query!("SELECT COUNT(*) FROM platform.netflow_provider_dataset_snapshots", [])
+
+    count
+  end
+
   defp oui_prefix_count(snapshot_id) do
     %{rows: [[count]]} =
       Repo.query!(
         "SELECT COUNT(*) FROM platform.netflow_oui_prefixes WHERE snapshot_id = $1",
         [snapshot_id]
       )
+
+    count
+  end
+
+  defp oui_snapshot_count do
+    %{rows: [[count]]} =
+      Repo.query!("SELECT COUNT(*) FROM platform.netflow_oui_dataset_snapshots", [])
 
     count
   end
