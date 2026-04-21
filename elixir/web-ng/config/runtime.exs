@@ -5,6 +5,22 @@ alias Swoosh.Adapters.Local
 
 require Logger
 
+parse_int_env = fn env_name, default ->
+  case System.get_env(env_name) do
+    nil ->
+      default
+
+    "" ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {int, ""} when int > 0 -> int
+        _ -> default
+      end
+  end
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -34,16 +50,20 @@ otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
+  otel_rpc_timeout_ms = parse_int_env.("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 30_000)
+  otel_retry_max_attempts = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS", 3)
+  otel_retry_base_delay_ms = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_BASE_DELAY_MS", 500)
+  otel_retry_max_delay_ms = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_MAX_DELAY_MS", 10_000)
 
   config :opentelemetry,
     span_processor: :batch,
     traces_exporter:
       {:serviceradar_otel_exporter_traces_otlp,
        %{
-         rpc_timeout_ms: 10_000,
-         retry_max_attempts: 5,
-         retry_base_delay_ms: 200,
-         retry_max_delay_ms: 5_000
+         rpc_timeout_ms: otel_rpc_timeout_ms,
+         retry_max_attempts: otel_retry_max_attempts,
+         retry_base_delay_ms: otel_retry_base_delay_ms,
+         retry_max_delay_ms: otel_retry_max_delay_ms
        }}
 
   # Log exporter uses the same endpoint/protocol/TLS as traces
@@ -679,6 +699,12 @@ if config_env() != :test do
 
   oban_node = System.get_env("OBAN_NODE")
 
+  oban_notifier =
+    case System.get_env("WEB_NG_OBAN_NOTIFIER", "postgres") |> String.downcase() do
+      value when value in ["pg", "process_group", "process-groups"] -> Oban.Notifiers.PG
+      _ -> Oban.Notifiers.Postgres
+    end
+
   # web-ng does not run scheduled jobs or acquire the Oban peer lock; core-elx remains
   # the scheduler leader. It can still process runtime jobs within explicit budgets.
   queues =
@@ -704,6 +730,7 @@ if config_env() != :test do
     repo: ServiceRadar.Repo,
     prefix: "platform",
     queues: queues,
+    notifier: oban_notifier,
     plugins: [
       {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
       # No Cron plugin - core-elx handles all scheduled jobs

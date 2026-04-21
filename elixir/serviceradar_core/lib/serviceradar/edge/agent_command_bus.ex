@@ -828,17 +828,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp mark_sent(command, attrs, ash_opts) do
-    if control_repo_available?() do
-      update_command_status(
-        command,
-        "sent",
-        [partition_id: Keyword.get(attrs, :partition_id), sent_at: DateTime.utc_now()],
-        from: ["queued"]
-      )
-    else
-      AgentCommand.mark_sent(command, attrs, ash_opts)
-    end
+  defp mark_sent(command, attrs, _ash_opts) do
+    update_command_status(
+      command,
+      "sent",
+      [partition_id: Keyword.get(attrs, :partition_id), sent_at: DateTime.utc_now()],
+      from: ["queued"]
+    )
   end
 
   defp update_command_status(command, status, attrs, opts) do

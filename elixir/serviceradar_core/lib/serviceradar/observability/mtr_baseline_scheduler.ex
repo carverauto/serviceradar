@@ -30,10 +30,20 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
 
   @impl GenServer
   def handle_info(:run_baseline_tick, state) do
-    run_tick()
+    safe_run_tick()
     state = maybe_prune_stale_edges(state)
     Process.send_after(self(), :run_baseline_tick, state.tick_ms)
     {:noreply, state}
+  end
+
+  defp safe_run_tick do
+    run_tick()
+  rescue
+    exception ->
+      Logger.error("MTR baseline scheduler tick failed: #{Exception.message(exception)}")
+  catch
+    kind, reason ->
+      Logger.error("MTR baseline scheduler tick failed: #{inspect({kind, reason})}")
   end
 
   defp run_tick do

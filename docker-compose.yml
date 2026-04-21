@@ -377,6 +377,9 @@ services:
       - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
+      - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
+      - OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS=${OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS:-3}
+      - OTEL_BSP_EXPORT_TIMEOUT_MILLIS=${OTEL_BSP_EXPORT_TIMEOUT_MILLIS:-60000}
       - OTEL_CERT_DIR=/etc/serviceradar/certs
       - OTEL_CERT_NAME=core
       - OTEL_SERVICE_NAME=serviceradar-core-elx
@@ -539,6 +542,9 @@ services:
     environment:
       - CONFIG_PATH=/etc/serviceradar/agent.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    # MTR/traceroute diagnostics run inside the agent container and require raw sockets.
+    cap_add:
+      - NET_RAW
     depends_on:
       datasvc:
         condition: service_healthy
@@ -579,6 +585,9 @@ services:
       - RELEASE_DISTRIBUTION=sname
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
+      - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
+      - OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS=${OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS:-3}
+      - OTEL_BSP_EXPORT_TIMEOUT_MILLIS=${OTEL_BSP_EXPORT_TIMEOUT_MILLIS:-60000}
       - OTEL_CERT_DIR=/etc/serviceradar/certs
       - OTEL_CERT_NAME=gateway
       - OTEL_SERVICE_NAME=serviceradar-agent-gateway
@@ -639,9 +648,16 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Optional network-ingest collectors are disabled in the default compose stack.
+  # Enable all with `docker compose --profile network-ingest up -d`, or enable
+  # individual collectors with `--profile snmp-traps`, `--profile flows`, or
+  # `--profile bmp`.
   trapd:
     image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
+    profiles:
+      - network-ingest
+      - snmp-traps
     ports:
       - "162:162/udp"
       - "50043:50043"
@@ -667,6 +683,9 @@ services:
   flow-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
     container_name: serviceradar-flow-collector-mtls
+    profiles:
+      - network-ingest
+      - flows
     build:
       context: .
       dockerfile: rust/flow-collector/Dockerfile
@@ -693,6 +712,9 @@ services:
   bmp-collector:
     image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
     container_name: serviceradar-bmp-collector-mtls
+    profiles:
+      - network-ingest
+      - bmp
     ports:
       - "11019:11019"
     volumes:
@@ -813,6 +835,7 @@ services:
       - WEB_NG_OBAN_QUEUE_EDGE=${WEB_NG_OBAN_QUEUE_EDGE:-1}
       - WEB_NG_OBAN_QUEUE_INTEGRATIONS=${WEB_NG_OBAN_QUEUE_INTEGRATIONS:-1}
       - WEB_NG_OBAN_QUEUE_MAINTENANCE=${WEB_NG_OBAN_QUEUE_MAINTENANCE:-0}
+      - WEB_NG_OBAN_NOTIFIER=${WEB_NG_OBAN_NOTIFIER:-pg}
       - SERVICERADAR_GOD_VIEW_ENABLED=true
       - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS:-30000}
       - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH:-true}
@@ -866,6 +889,9 @@ services:
       - DATASVC_SERVER_NAME=datasvc.serviceradar
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
+      - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
+      - OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS=${OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS:-3}
+      - OTEL_BSP_EXPORT_TIMEOUT_MILLIS=${OTEL_BSP_EXPORT_TIMEOUT_MILLIS:-60000}
       - OTEL_CERT_DIR=/etc/serviceradar/certs
       - OTEL_CERT_NAME=web
       - OTEL_SERVICE_NAME=serviceradar-web-ng

@@ -48,16 +48,20 @@ otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
+  otel_rpc_timeout_ms = parse_int_env.("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 30_000)
+  otel_retry_max_attempts = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS", 3)
+  otel_retry_base_delay_ms = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_BASE_DELAY_MS", 500)
+  otel_retry_max_delay_ms = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_MAX_DELAY_MS", 10_000)
 
   config :opentelemetry,
     span_processor: :batch,
     traces_exporter:
       {:serviceradar_otel_exporter_traces_otlp,
        %{
-         rpc_timeout_ms: 10_000,
-         retry_max_attempts: 5,
-         retry_base_delay_ms: 200,
-         retry_max_delay_ms: 5_000
+         rpc_timeout_ms: otel_rpc_timeout_ms,
+         retry_max_attempts: otel_retry_max_attempts,
+         retry_base_delay_ms: otel_retry_base_delay_ms,
+         retry_max_delay_ms: otel_retry_max_delay_ms
        }}
 
   # Log exporter uses the same endpoint/protocol/TLS as traces
