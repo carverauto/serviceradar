@@ -132,6 +132,7 @@ fi
 # Ensure the rules data directory exists and is populated with any mounted rules
 DATA_DIR="${DATA_DIR:-/var/lib/serviceradar/data}"
 RULE_SOURCE_DIR="${RULE_SOURCE_DIR:-/etc/serviceradar/rules}"
+RULES_INSTALLED_MARKER="${RULES_INSTALLED_MARKER:-$DATA_DIR/.rules_installed}"
 
 if [ ! -d "$DATA_DIR" ]; then
     echo "Creating data directory at $DATA_DIR"
@@ -149,16 +150,22 @@ if [ -d "$RULE_SOURCE_DIR" ]; then
     done
 fi
 
-# Check if this is the first startup by looking for a marker file
-RULES_INSTALLED_MARKER="/var/lib/serviceradar/.rules_installed"
+mark_rules_installed() {
+    if touch "$RULES_INSTALLED_MARKER" 2>/dev/null; then
+        return 0
+    fi
+
+    echo "⚠️  Warning: could not persist rules marker at $RULES_INSTALLED_MARKER; continuing anyway..." >&2
+    return 0
+}
 
 if [ ! -f "$RULES_INSTALLED_MARKER" ]; then
     echo "First startup detected - installing initial zen rules..."
     
     # Install initial rules
     if /usr/local/bin/zen-install-rules.sh; then
-        # Create marker file to indicate rules have been installed
-        touch "$RULES_INSTALLED_MARKER"
+        # Persist a marker when possible so future restarts can skip reinstall.
+        mark_rules_installed
         echo "✅ Initial rules installation completed"
     else
         echo "⚠️  Warning: Initial rules installation failed, continuing anyway..."

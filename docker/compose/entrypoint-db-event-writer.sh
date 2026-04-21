@@ -56,6 +56,8 @@ CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
 CNPG_CA_FILE_VALUE="${CNPG_CA_FILE:-$CNPG_CERT_DIR_VALUE/root.pem}"
 CNPG_CERT_FILE_VALUE="${CNPG_CERT_FILE:-$CNPG_CERT_DIR_VALUE/cnpg-client.pem}"
 CNPG_KEY_FILE_VALUE="${CNPG_KEY_FILE:-$CNPG_CERT_DIR_VALUE/cnpg-client-key.pem}"
+CNPG_MAX_CONNECTIONS_VALUE="${DB_EVENT_WRITER_CNPG_MAX_CONNECTIONS:-${CNPG_MAX_CONNECTIONS:-8}}"
+CNPG_MIN_CONNECTIONS_VALUE="${DB_EVENT_WRITER_CNPG_MIN_CONNECTIONS:-${CNPG_MIN_CONNECTIONS:-0}}"
 
 # Wait for dependencies to be ready
 if [ -n "${WAIT_FOR_NATS:-}" ]; then
@@ -244,6 +246,16 @@ else
 fi
     ;;
 esac
+
+write_config_json \
+   --argjson max_connections "${CNPG_MAX_CONNECTIONS_VALUE:-8}" \
+   --argjson min_connections "${CNPG_MIN_CONNECTIONS_VALUE:-0}" \
+   '
+   .cnpg = (.cnpg // {})
+   | .cnpg.max_connections = ($max_connections | tonumber)
+   | .cnpg.min_connections = ($min_connections | tonumber)
+   '
+echo "✅ Ensured CNPG pool limits (max_connections=$CNPG_MAX_CONNECTIONS_VALUE min_connections=$CNPG_MIN_CONNECTIONS_VALUE)"
 
 echo "Starting ServiceRadar DB Event Writer with config: $WORKING_CONFIG_PATH"
 

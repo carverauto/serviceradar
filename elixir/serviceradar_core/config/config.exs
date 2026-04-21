@@ -61,6 +61,9 @@ config :serviceradar_core,
 config :serviceradar_core,
   cluster_enabled: false
 
+config :serviceradar_core,
+  control_repo_enabled: false
+
 # Register Ash domains
 config :serviceradar_core,
   ecto_repos: [ServiceRadar.Repo],

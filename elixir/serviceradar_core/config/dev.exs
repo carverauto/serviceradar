@@ -34,6 +34,15 @@ if database_url do
         [verify: :verify_none]
     end
 
+  config :serviceradar_core, ServiceRadar.ControlRepo,
+    url: database_url,
+    ssl: ssl_opts,
+    stacktrace: true,
+    show_sensitive_data_on_connection_error: true,
+    pool_size: 5,
+    parameters: [search_path: search_path],
+    types: ServiceRadar.PostgresTypes
+
   config :serviceradar_core, ServiceRadar.Repo,
     url: database_url,
     ssl: ssl_opts,
@@ -43,6 +52,17 @@ if database_url do
     parameters: [search_path: search_path],
     types: ServiceRadar.PostgresTypes
 else
+  config :serviceradar_core, ServiceRadar.ControlRepo,
+    username: "postgres",
+    password: "postgres",
+    hostname: "localhost",
+    database: "serviceradar_dev",
+    stacktrace: true,
+    show_sensitive_data_on_connection_error: true,
+    pool_size: 5,
+    parameters: [search_path: search_path],
+    types: ServiceRadar.PostgresTypes
+
   config :serviceradar_core, ServiceRadar.Repo,
     username: "postgres",
     password: "postgres",
@@ -65,6 +85,8 @@ config :serviceradar_core, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron, crontab: []}
   ]
+
+config :serviceradar_core, control_repo_enabled: true
 
 # Enable cluster in dev for testing
 config :serviceradar_core,

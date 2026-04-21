@@ -136,6 +136,26 @@ core:
     queueIntervalMs: 2000
     timeoutMs: 120000
     poolTimeoutMs: 120000
+  controlDatabase:
+    enabled: true
+    poolSize: 5
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
+  obanQueues:
+    default: 10
+    maintenance: 5
+    monitoring: 5
+    alerts: 5
+    serviceChecks: 10
+    notifications: 5
+    onboarding: 3
+    events: 10
+    sweeps: 20
+    edge: 10
+    integrations: 5
+    natsAccounts: 3
   syncIngestor:
     batchConcurrency: 2
     coalesceMs: 250
@@ -432,6 +452,25 @@ webNg:
   replicas: 1
   database:
     poolSize: 10
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
+  obanEnabled: true
+  obanQueues:
+    default: 2
+    alerts: 1
+    serviceChecks: 1
+    notifications: 1
+    onboarding: 1
+    events: 1
+    sweeps: 1
+    edge: 1
+    integrations: 1
+    maintenance: 0
+  godView:
+    runtimeGraphRefreshMs: 30000
+    runtimeGraphAutoRefresh: true
   host: ""
   publicUrl: ""
   godViewEnabled: "true"

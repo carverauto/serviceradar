@@ -3,17 +3,15 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   Dispatches on-demand agent commands over the control stream.
   """
 
-  import Ash.Expr
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RelaySourceResolver
+  alias ServiceRadar.ControlRepo
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
 
-  require Ash.Query
   require Logger
 
   @default_ttl_seconds 60
@@ -46,7 +44,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
     with :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
-         {:ok, command} <- AgentCommand.create_command(command_attrs, ash_opts) do
+         {:ok, command} <- create_command(command_attrs, ash_opts) do
       _ = AgentCommandCleanupWorker.ensure_scheduled()
 
       dispatch_created_command(command, %{
@@ -124,7 +122,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         end)
 
       if rows != [] do
-        Repo.insert_all("mtr_bulk_job_targets", rows,
+        control_repo().insert_all("mtr_bulk_job_targets", rows,
           prefix: "platform",
           on_conflict: :nothing,
           conflict_target: [:command_id, :target]
@@ -132,11 +130,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       end
     else
       :error ->
-        Logger.warning("Failed to persist bulk MTR queued target rows due to invalid command UUID",
+        Logger.warning(
+          "Failed to persist bulk MTR queued target rows due to invalid command UUID",
           command_id: inspect(command_id)
         )
 
-      _ -> :ok
+      _ ->
+        :ok
     end
   end
 
@@ -164,7 +164,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     case GenServer.call(pid, {:send_command, command_request, command_context}, @send_timeout) do
       {:ok, _} ->
-        _ = AgentCommand.mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
+        _ = mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
         {:ok, command.id}
 
       {:error, reason} ->
@@ -326,28 +326,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
 
-  defp ensure_dispatch_capacity(agent_id, "mtr.run", _source, ash_opts) do
+  defp ensure_dispatch_capacity(agent_id, "mtr.run", _source, _ash_opts) do
     now = DateTime.utc_now()
 
-    query =
-      AgentCommand
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(
-        expr(
-          agent_id == ^agent_id and command_type == "mtr.run" and
-            status in ^@active_mtr_statuses and
-            (is_nil(expires_at) or expires_at > ^now) and
-            fragment("(? ->> 'trigger_mode') IS NULL", context)
-        )
-      )
-      |> Ash.Query.limit(@max_concurrent_on_demand_mtr)
-      |> Ash.Query.select([:id])
-
-    case Ash.read(query, ash_opts) do
-      {:ok, commands} when length(commands) >= @max_concurrent_on_demand_mtr ->
+    case count_active_commands(
+           agent_id,
+           "mtr.run",
+           @max_concurrent_on_demand_mtr,
+           now,
+           "AND (context ->> 'trigger_mode') IS NULL"
+         ) do
+      {:ok, count} when count >= @max_concurrent_on_demand_mtr ->
         {:error, {:agent_busy, :too_many_concurrent_mtr_traces}}
 
-      {:ok, _commands} ->
+      {:ok, _count} ->
         :ok
 
       {:error, reason} ->
@@ -360,27 +352,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp ensure_dispatch_capacity(agent_id, "mtr.bulk_run", _source, ash_opts) do
+  defp ensure_dispatch_capacity(agent_id, "mtr.bulk_run", _source, _ash_opts) do
     now = DateTime.utc_now()
 
-    query =
-      AgentCommand
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(
-        expr(
-          agent_id == ^agent_id and command_type == "mtr.bulk_run" and
-            status in ^@active_mtr_statuses and
-            (is_nil(expires_at) or expires_at > ^now)
-        )
-      )
-      |> Ash.Query.limit(@max_concurrent_bulk_mtr_jobs)
-      |> Ash.Query.select([:id])
-
-    case Ash.read(query, ash_opts) do
-      {:ok, commands} when length(commands) >= @max_concurrent_bulk_mtr_jobs ->
+    case count_active_commands(agent_id, "mtr.bulk_run", @max_concurrent_bulk_mtr_jobs, now) do
+      {:ok, count} when count >= @max_concurrent_bulk_mtr_jobs ->
         {:error, {:agent_busy, :bulk_mtr_job_running}}
 
-      {:ok, _commands} ->
+      {:ok, _count} ->
         :ok
 
       {:error, reason} ->
@@ -394,6 +373,29 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp ensure_dispatch_capacity(_agent_id, _command_type, _source, _ash_opts), do: :ok
+
+  defp count_active_commands(agent_id, command_type, limit, now, extra_filter \\ "") do
+    sql = """
+    SELECT count(*)::integer
+    FROM (
+      SELECT 1
+      FROM platform.agent_commands
+      WHERE agent_id = $1
+        AND command_type = $2
+        AND status = ANY($3::text[])
+        AND (expires_at IS NULL OR expires_at > $4)
+        #{extra_filter}
+      LIMIT $5
+    ) active
+    """
+
+    statuses = Enum.map(@active_mtr_statuses, &Atom.to_string/1)
+
+    case control_repo().query(sql, [agent_id, command_type, statuses, now, limit]) do
+      {:ok, %{rows: [[count]]}} -> {:ok, count}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp normalize_source(:automation), do: :automation
   defp normalize_source("automation"), do: :automation
@@ -679,25 +681,51 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp mark_failed(command, reason, ash_opts) do
-    AgentCommand.fail(
-      command,
-      [
-        message: failure_message(reason),
-        failure_reason: failure_reason(reason)
-      ],
-      ash_opts
-    )
+    if control_repo_available?() do
+      update_command_status(
+        command,
+        "failed",
+        [
+          message: failure_message(reason),
+          failure_reason: failure_reason(reason),
+          completed_at: DateTime.utc_now()
+        ],
+        from: ["queued", "sent", "acknowledged", "running"]
+      )
+    else
+      AgentCommand.fail(
+        command,
+        [
+          message: failure_message(reason),
+          failure_reason: failure_reason(reason)
+        ],
+        ash_opts
+      )
+    end
   end
 
   defp mark_offline(command, reason, ash_opts) do
-    AgentCommand.mark_offline(
-      command,
-      [
-        message: failure_message(reason),
-        failure_reason: failure_reason(reason)
-      ],
-      ash_opts
-    )
+    if control_repo_available?() do
+      update_command_status(
+        command,
+        "offline",
+        [
+          message: failure_message(reason),
+          failure_reason: failure_reason(reason),
+          completed_at: DateTime.utc_now()
+        ],
+        from: ["queued", "sent"]
+      )
+    else
+      AgentCommand.mark_offline(
+        command,
+        [
+          message: failure_message(reason),
+          failure_reason: failure_reason(reason)
+        ],
+        ash_opts
+      )
+    end
   end
 
   defp failure_reason({:agent_offline, _}), do: "agent_offline"
@@ -729,6 +757,137 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       |> String.downcase()
 
     if value in ["fast", "balanced", "deep"], do: value, else: "fast"
+  end
+
+  defp create_command(attrs, ash_opts) do
+    if control_repo_available?() do
+      command_id = Ecto.UUID.generate()
+      ttl_seconds = Map.get(attrs, :ttl_seconds) || 60
+
+      expires_at =
+        Map.get(attrs, :expires_at) || DateTime.add(DateTime.utc_now(), ttl_seconds, :second)
+
+      case control_repo().query(
+             """
+             INSERT INTO platform.agent_commands (
+               command_id,
+               command_type,
+               agent_id,
+               partition_id,
+               status,
+               payload,
+               context,
+               ttl_seconds,
+               expires_at,
+               requested_by,
+               inserted_at,
+               updated_at
+             )
+             VALUES (
+               $1::uuid,
+               $2,
+               $3,
+               $4,
+               'queued',
+               $5::jsonb,
+               $6::jsonb,
+               $7,
+               $8,
+               $9,
+               now() AT TIME ZONE 'utc',
+               now() AT TIME ZONE 'utc'
+             )
+             RETURNING command_id::text
+             """,
+             [
+               command_id,
+               Map.fetch!(attrs, :command_type),
+               Map.fetch!(attrs, :agent_id),
+               Map.get(attrs, :partition_id) || "default",
+               json_param(Map.get(attrs, :payload)),
+               json_param(Map.get(attrs, :context) || %{}),
+               ttl_seconds,
+               expires_at,
+               Map.get(attrs, :requested_by)
+             ]
+           ) do
+        {:ok, %{rows: [[id]]}} ->
+          {:ok,
+           %{
+             id: id,
+             command_type: Map.fetch!(attrs, :command_type),
+             agent_id: Map.fetch!(attrs, :agent_id),
+             partition_id: Map.get(attrs, :partition_id) || "default"
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      AgentCommand.create_command(attrs, ash_opts)
+    end
+  end
+
+  defp mark_sent(command, attrs, ash_opts) do
+    if control_repo_available?() do
+      update_command_status(
+        command,
+        "sent",
+        [partition_id: Keyword.get(attrs, :partition_id), sent_at: DateTime.utc_now()],
+        from: ["queued"]
+      )
+    else
+      AgentCommand.mark_sent(command, attrs, ash_opts)
+    end
+  end
+
+  defp update_command_status(command, status, attrs, opts) do
+    command_id = command_id(command)
+    from_statuses = Keyword.fetch!(opts, :from)
+
+    case control_repo().query(
+           """
+           UPDATE platform.agent_commands
+           SET
+             status = $2,
+             partition_id = COALESCE($3, partition_id),
+             sent_at = COALESCE($4, sent_at),
+             completed_at = COALESCE($5, completed_at),
+             message = COALESCE($6, message),
+             failure_reason = COALESCE($7, failure_reason),
+             updated_at = now() AT TIME ZONE 'utc'
+           WHERE command_id = $1::uuid
+             AND status = ANY($8::text[])
+           """,
+           [
+             command_id,
+             status,
+             Keyword.get(attrs, :partition_id),
+             Keyword.get(attrs, :sent_at),
+             Keyword.get(attrs, :completed_at),
+             Keyword.get(attrs, :message),
+             Keyword.get(attrs, :failure_reason),
+             from_statuses
+           ]
+         ) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp command_id(%{id: id}), do: id
+
+  defp json_param(nil), do: nil
+  defp json_param(value), do: Jason.encode!(value)
+
+  defp control_repo_available?, do: Process.whereis(ControlRepo) != nil
+
+  defp control_repo do
+    if Process.whereis(ControlRepo) do
+      ControlRepo
+    else
+      Repo
+    end
   end
 
   defp normalize_optional_string(nil), do: nil

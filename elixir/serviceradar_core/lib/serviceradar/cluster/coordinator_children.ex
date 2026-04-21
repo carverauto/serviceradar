@@ -143,31 +143,49 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   end
 
   defp ip_enrichment_scheduler_child do
-    ServiceRadar.Observability.IpEnrichmentScheduler
+    if enabled?("IP_ENRICHMENT_SCHEDULER_ENABLED", :ip_enrichment_scheduler_enabled, true) do
+      ServiceRadar.Observability.IpEnrichmentScheduler
+    end
   end
 
   defp geolite_mmdb_scheduler_child do
-    ServiceRadar.Observability.GeoLiteMmdbScheduler
+    if enabled?("GEOLITE_MMDB_SCHEDULER_ENABLED", :geolite_mmdb_scheduler_enabled, true) do
+      ServiceRadar.Observability.GeoLiteMmdbScheduler
+    end
   end
 
   defp ipinfo_mmdb_scheduler_child do
-    ServiceRadar.Observability.IpinfoMmdbScheduler
+    if enabled?("IPINFO_MMDB_SCHEDULER_ENABLED", :ipinfo_mmdb_scheduler_enabled, true) do
+      ServiceRadar.Observability.IpinfoMmdbScheduler
+    end
   end
 
   defp netflow_enrichment_dataset_scheduler_child do
-    ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
+    if enabled?(
+         "NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED",
+         :netflow_enrichment_dataset_scheduler_enabled,
+         true
+       ) do
+      ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler
+    end
   end
 
   defp netflow_security_scheduler_child do
-    ServiceRadar.Observability.NetflowSecurityScheduler
+    if enabled?("NETFLOW_SECURITY_SCHEDULER_ENABLED", :netflow_security_scheduler_enabled, true) do
+      ServiceRadar.Observability.NetflowSecurityScheduler
+    end
   end
 
   defp netflow_cache_scheduler_child do
-    ServiceRadar.Observability.NetflowCacheScheduler
+    if enabled?("NETFLOW_CACHE_SCHEDULER_ENABLED", :netflow_cache_scheduler_enabled, true) do
+      ServiceRadar.Observability.NetflowCacheScheduler
+    end
   end
 
   defp armis_northbound_scheduler_child do
-    ServiceRadar.Integrations.ArmisNorthboundScheduler
+    if enabled?("ARMIS_NORTHBOUND_SCHEDULER_ENABLED", :armis_northbound_scheduler_enabled, true) do
+      ServiceRadar.Integrations.ArmisNorthboundScheduler
+    end
   end
 
   defp mtr_baseline_scheduler_child do
@@ -189,11 +207,19 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   end
 
   defp topology_state_scheduler_child do
-    ServiceRadar.NetworkDiscovery.TopologyStateScheduler
+    if enabled?("TOPOLOGY_STATE_SCHEDULER_ENABLED", :topology_state_scheduler_enabled, true) do
+      ServiceRadar.NetworkDiscovery.TopologyStateScheduler
+    end
   end
 
   defp plugin_target_policy_scheduler_child do
-    ServiceRadar.Plugins.PluginTargetPolicyScheduler
+    if enabled?(
+         "PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED",
+         :plugin_target_policy_scheduler_enabled,
+         true
+       ) do
+      ServiceRadar.Plugins.PluginTargetPolicyScheduler
+    end
   end
 
   defp log_promotion_consumer_child do

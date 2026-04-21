@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   @default_events_recent_limit 50
   @default_metrics_limit 100
   @refresh_interval_ms to_timeout(second: 30)
+  @analytics_query_timeout_ms 15_000
+  @analytics_max_concurrency 2
 
   @impl true
   def mount(_params, _session, socket) do
@@ -44,12 +46,18 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   @impl true
   def handle_params(_params, _uri, socket) do
-    {:noreply, load_analytics(socket)}
+    send(self(), :load_analytics)
+    {:noreply, assign(socket, :loading, true)}
   end
 
   @impl true
   def handle_info(:refresh_data, socket) do
     schedule_refresh()
+    send(self(), :load_analytics)
+    {:noreply, assign(socket, :loading, true)}
+  end
+
+  def handle_info(:load_analytics, socket) do
     {:noreply, load_analytics(socket)}
   end
 
@@ -142,29 +150,24 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
 
-    # Run CAGG/DB lookups in parallel (these were previously sequential)
-    initial_tasks = [
-      Task.async(fn -> {:hourly_stats, get_hourly_metrics_stats(scope)} end),
-      Task.async(fn -> {:event_stats, get_hourly_event_stats(scope)} end),
-      Task.async(fn -> {:service_counts, get_service_counts()} end),
-      Task.async(fn -> {:logs_severity, Stats.logs_severity(scope: scope)} end),
-      Task.async(fn -> {:traces_summary, Stats.traces_summary_with_computed(scope: scope)} end),
-      Task.async(fn -> {:trace_rollup_status, Stats.trace_rollup_status()} end)
-    ]
-
     initial =
-      initial_tasks
-      |> Task.await_many(15_000)
-      |> Map.new()
+      run_named_tasks([
+        {:hourly_stats, fn -> get_hourly_metrics_stats(scope) end},
+        {:event_stats, fn -> get_hourly_event_stats(scope) end},
+        {:service_counts, &get_service_counts/0},
+        {:logs_severity, fn -> Stats.logs_severity(scope: scope) end},
+        {:traces_summary, fn -> Stats.traces_summary_with_computed(scope: scope) end},
+        {:trace_rollup_status, &Stats.trace_rollup_status/0}
+      ])
 
-    hourly_stats = initial.hourly_stats
-    event_stats = initial.event_stats
-    service_counts = initial.service_counts
+    hourly_stats = Map.get(initial, :hourly_stats)
+    event_stats = Map.get(initial, :event_stats)
+    service_counts = Map.get(initial, :service_counts)
 
     # Check if logs severity CAGG returned real data
     logs_severity_cagg =
-      case initial.logs_severity do
-        %{total: total} when total > 0 -> initial.logs_severity
+      case Map.get(initial, :logs_severity) do
+        %{total: total} = logs_severity when total > 0 -> logs_severity
         _ -> nil
       end
 
@@ -240,15 +243,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     results =
       queries
-      |> Task.async_stream(
-        fn {key, query} -> {key, srql_module.query(query, %{scope: scope})} end,
-        ordered: false,
-        timeout: 30_000
-      )
-      |> Enum.reduce(%{}, fn
-        {:ok, {key, result}}, acc -> Map.put(acc, key, result)
-        {:exit, reason}, acc -> Map.put(acc, :error, "query task exit: #{inspect(reason)}")
+      |> Enum.map(fn {key, query} ->
+        {key, fn -> srql_module.query(query, %{scope: scope}) end}
       end)
+      |> run_named_tasks()
 
     results =
       if hourly_stats do
@@ -308,6 +306,36 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> assign(:refreshed_at, DateTime.utc_now())
     |> assign(:error, error)
     |> assign(:loading, false)
+  end
+
+  defp run_named_tasks(tasks) when is_list(tasks) do
+    tasks
+    |> Task.async_stream(
+      fn {key, fun} -> {key, safe_named_task(key, fun)} end,
+      ordered: false,
+      timeout: @analytics_query_timeout_ms,
+      max_concurrency: @analytics_max_concurrency,
+      on_timeout: :kill_task
+    )
+    |> Enum.reduce(%{}, fn
+      {:ok, {key, result}}, acc ->
+        Map.put(acc, key, result)
+
+      {:exit, reason}, acc ->
+        Map.put(acc, :error, "query task exit: #{inspect(reason)}")
+    end)
+  end
+
+  defp safe_named_task(key, fun) do
+    fun.()
+  rescue
+    error ->
+      Logger.warning("analytics_task_failed key=#{key} reason=#{inspect(error)}")
+      nil
+  catch
+    kind, reason ->
+      Logger.warning("analytics_task_failed key=#{key} reason=#{inspect({kind, reason})}")
+      nil
   end
 
   defp build_assigns(results) do
