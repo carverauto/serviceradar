@@ -398,7 +398,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
                completed_at = COALESCE(EXCLUDED.completed_at, platform.mtr_bulk_job_targets.completed_at),
                updated_at = now() AT TIME ZONE 'utc'
              """,
-             [command_id_text, Jason.encode!(rows)]
+             [command_id_text, rows]
            ) do
         {:ok, _result} ->
           :ok
@@ -488,7 +488,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   defp json_param(nil), do: nil
-  defp json_param(value), do: Jason.encode!(value)
+  defp json_param(value), do: value
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->

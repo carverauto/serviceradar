@@ -169,9 +169,7 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
         }
 
         handler_config = %{
-          config: %{
-            exporter: {:otel_exporter_logs_otlp, exporter_opts}
-          },
+          exporter: {:otel_exporter_logs_otlp, exporter_opts},
           level: :info
         }
 
