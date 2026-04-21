@@ -33,7 +33,7 @@ config :serviceradar_core, Oban,
     edge: 10,
     integrations: 5,
     nats_accounts: 3,
-    maintenance: 5,
+    maintenance: 2,
     monitoring: 5
   ],
   plugins: [
@@ -47,6 +47,10 @@ config :serviceradar_core, Oban,
 
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
+config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
+  reschedule_seconds: 86_400,
+  cache_ttl_seconds: 86_400
 
 # Plugin blob storage download configuration (used to generate signed download URLs)
 config :serviceradar_core, :plugin_storage,

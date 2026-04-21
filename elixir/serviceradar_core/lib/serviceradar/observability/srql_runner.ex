@@ -133,12 +133,20 @@ defmodule ServiceRadar.Observability.SRQLRunner do
 
   defp decode_param(_, _opts), do: {:error, :invalid_srql_param}
 
+  # 60s default: SRQL aggregations over TimescaleDB hypertables can be slow;
+  # DBConnection's 15s default causes spurious disconnects under load.
+  @default_query_timeout_ms 60_000
+
   defp run_sql(sql, params, opts) do
-    query_fn = Keyword.get(opts, :query_fn, &default_query/2)
+    timeout = Keyword.get(opts, :timeout, @default_query_timeout_ms)
+
+    query_fn =
+      Keyword.get(opts, :query_fn, fn s, p ->
+        Ecto.Adapters.SQL.query(Repo, s, p, timeout: timeout)
+      end)
+
     query_fn.(sql, params)
   end
-
-  defp default_query(sql, params), do: Ecto.Adapters.SQL.query(Repo, sql, params)
 
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do
     limit = get_in(translation, ["pagination", "limit"])
