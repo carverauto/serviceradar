@@ -152,6 +152,32 @@ if config_env() == :prod do
 
   mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
 
+  netflow_security_refresh_reschedule_seconds =
+    "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
+    |> System.get_env()
+    |> case do
+      nil -> 86_400
+      "" -> 86_400
+      _ -> max(parse_int_env.("NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS", 86_400), 86_400)
+    end
+
+  netflow_security_refresh_cache_ttl_seconds =
+    "NETFLOW_SECURITY_REFRESH_CACHE_TTL_SECONDS"
+    |> System.get_env()
+    |> case do
+      nil ->
+        netflow_security_refresh_reschedule_seconds
+
+      "" ->
+        netflow_security_refresh_reschedule_seconds
+
+      _ ->
+        parse_int_env.(
+          "NETFLOW_SECURITY_REFRESH_CACHE_TTL_SECONDS",
+          netflow_security_refresh_reschedule_seconds
+        )
+    end
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -560,6 +586,11 @@ if config_env() == :prod do
     end
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
+
+  config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
+    reschedule_seconds: netflow_security_refresh_reschedule_seconds,
+    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds
+
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
@@ -656,7 +687,7 @@ if config_env() == :prod do
     prefix: System.get_env("OBAN_SCHEMA", "platform"),
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
-      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "5"),
+      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),

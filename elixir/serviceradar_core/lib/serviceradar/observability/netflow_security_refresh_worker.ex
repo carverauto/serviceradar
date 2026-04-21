@@ -26,8 +26,9 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   @default_scan_window_token "last_5m"
   @default_limit 200
-  @default_reschedule_seconds 300
-  @default_cache_ttl_seconds 900
+  @default_reschedule_seconds 86_400
+  @min_reschedule_seconds 86_400
+  @default_cache_ttl_seconds 86_400
 
   @doc """
   Schedules the refresh job if not already scheduled.
@@ -60,7 +61,12 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
-    reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+
+    reschedule_seconds =
+      config
+      |> Keyword.get(:reschedule_seconds, @default_reschedule_seconds)
+      |> normalize_reschedule_seconds()
+
     cache_ttl_seconds = Keyword.get(config, :cache_ttl_seconds, @default_cache_ttl_seconds)
 
     now = DateTime.utc_now()
@@ -74,17 +80,23 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       end
 
     if is_nil(settings) do
-      ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 30)))
+      ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds))
       :ok
     else
       maybe_refresh_threat(settings, actor, now, cache_expires_at, limit)
       maybe_refresh_port_scan(settings, actor, now, cache_expires_at, limit)
       maybe_refresh_anomalies(settings, actor, now, cache_expires_at, limit)
 
-      ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 30)))
+      ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds))
       :ok
     end
   end
+
+  defp normalize_reschedule_seconds(seconds) when is_integer(seconds) and seconds > 0 do
+    max(seconds, @min_reschedule_seconds)
+  end
+
+  defp normalize_reschedule_seconds(_), do: @default_reschedule_seconds
 
   defp maybe_refresh_threat(
          %NetflowSettings{threat_intel_enabled: true} = settings,
@@ -344,7 +356,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     GROUP BY ips.ip
     """
 
-    case Ecto.Adapters.SQL.query(Repo, sql, [ips]) do
+    case Ecto.Adapters.SQL.query(Repo, sql, [ips], timeout: 60_000) do
       {:ok, %Postgrex.Result{rows: rows}} ->
         Enum.map(rows, &threat_match_row/1)
 

@@ -39,12 +39,42 @@ read_secret_env = fn env_name, file_env_name ->
   end
 end
 
+netflow_security_refresh_reschedule_seconds =
+  "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
+  |> System.get_env()
+  |> case do
+    nil -> 86_400
+    "" -> 86_400
+    _ -> max(parse_int_env.("NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS", 86_400), 86_400)
+  end
+
+netflow_security_refresh_cache_ttl_seconds =
+  "NETFLOW_SECURITY_REFRESH_CACHE_TTL_SECONDS"
+  |> System.get_env()
+  |> case do
+    nil ->
+      netflow_security_refresh_reschedule_seconds
+
+    "" ->
+      netflow_security_refresh_reschedule_seconds
+
+    _ ->
+      parse_int_env.(
+        "NETFLOW_SECURITY_REFRESH_CACHE_TTL_SECONDS",
+        netflow_security_refresh_reschedule_seconds
+      )
+  end
+
 # =============================================================================
 # OpenTelemetry Configuration
 # =============================================================================
 # All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
 # start, so the opentelemetry SDK picks up these values at boot.
 otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
+  reschedule_seconds: netflow_security_refresh_reschedule_seconds,
+  cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds
 
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
