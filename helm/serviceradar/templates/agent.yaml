@@ -46,7 +46,11 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       securityContext:
         fsGroup: 1001
+        {{- if $agentAllowNetRaw }}
+        runAsNonRoot: false
+        {{- else }}
         runAsNonRoot: true
+        {{- end }}
         seccompProfile:
           type: RuntimeDefault
       initContainers:

@@ -338,14 +338,16 @@ services:
       - MTR_AUTOMATION_BASELINE_ENABLED=${MTR_AUTOMATION_BASELINE_ENABLED:-true}
       - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-false}
       - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-false}
-      # Keep major subsystems enabled by default. These flags are operational escape
-      # hatches, not the primary workload-isolation mechanism.
-      - IP_ENRICHMENT_SCHEDULER_ENABLED=${IP_ENRICHMENT_SCHEDULER_ENABLED:-true}
-      - GEOLITE_MMDB_SCHEDULER_ENABLED=${GEOLITE_MMDB_SCHEDULER_ENABLED:-true}
-      - IPINFO_MMDB_SCHEDULER_ENABLED=${IPINFO_MMDB_SCHEDULER_ENABLED:-true}
-      - NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED=${NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED:-true}
-      - NETFLOW_SECURITY_SCHEDULER_ENABLED=${NETFLOW_SECURITY_SCHEDULER_ENABLED:-true}
-      - NETFLOW_CACHE_SCHEDULER_ENABLED=${NETFLOW_CACHE_SCHEDULER_ENABLED:-true}
+      # NetFlow/IP enrichment maintenance jobs are intentionally opt-in for the
+      # default Docker stack. They are useful in full telemetry deployments but
+      # expensive on a single embedded Postgres instance, especially with no flow
+      # collection configured. Helm/demo keeps these enabled unless overridden.
+      - IP_ENRICHMENT_SCHEDULER_ENABLED=${IP_ENRICHMENT_SCHEDULER_ENABLED:-false}
+      - GEOLITE_MMDB_SCHEDULER_ENABLED=${GEOLITE_MMDB_SCHEDULER_ENABLED:-false}
+      - IPINFO_MMDB_SCHEDULER_ENABLED=${IPINFO_MMDB_SCHEDULER_ENABLED:-false}
+      - NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED=${NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED:-false}
+      - NETFLOW_SECURITY_SCHEDULER_ENABLED=${NETFLOW_SECURITY_SCHEDULER_ENABLED:-false}
+      - NETFLOW_CACHE_SCHEDULER_ENABLED=${NETFLOW_CACHE_SCHEDULER_ENABLED:-false}
       - ARMIS_NORTHBOUND_SCHEDULER_ENABLED=${ARMIS_NORTHBOUND_SCHEDULER_ENABLED:-true}
       - PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED=${PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED:-true}
       - TOPOLOGY_STATE_SCHEDULER_ENABLED=${TOPOLOGY_STATE_SCHEDULER_ENABLED:-true}
@@ -543,6 +545,9 @@ services:
       - CONFIG_PATH=/etc/serviceradar/agent.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
     # MTR/traceroute diagnostics run inside the agent container and require raw sockets.
+    # Docker does not make added capabilities effective for our non-root image user, so
+    # run this container as root and explicitly retain NET_RAW for ICMP/MTR sockets.
+    user: "0:0"
     cap_add:
       - NET_RAW
     depends_on:

@@ -70,7 +70,7 @@ agentGateway:
 agent:
   enabled: true
   hostNetwork: false
-  allowNetRaw: false
+  allowNetRaw: true
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"

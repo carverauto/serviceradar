@@ -18,6 +18,7 @@
 
 -export([init/1,
          export/3,
+         export/4,
          shutdown/1,
          merge_with_environment/1]).
 
@@ -154,6 +155,11 @@ export(Logs, Resource, #state{protocol=grpc,
                            MaxDelay,
                            TimeoutMs);
 export(_Logs, _Resource, _State) ->
+    {error, unimplemented}.
+
+export(logs, Logs, Resource, State) ->
+    export(Logs, Resource, State);
+export(_Kind, _Logs, _Resource, _State) ->
     {error, unimplemented}.
 
 normalize_logs_arg({Batch, HandlerConfig}) when is_map(Batch), is_map(HandlerConfig) ->

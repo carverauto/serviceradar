@@ -241,8 +241,9 @@ Usage: {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10
 {{- define "serviceradar.networkContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  runAsUser: 0
+  runAsNonRoot: false
   capabilities:
-    drop: ["ALL"]
     add: ["NET_RAW"]
 {{- end -}}
 

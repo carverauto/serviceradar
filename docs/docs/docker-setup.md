@@ -141,6 +141,26 @@ export DEVICE_ENRICHMENT_RULES_DIR_HOST=/tmp/serviceradar-empty-rules
 docker compose up -d --force-recreate core-elx
 ```
 
+## Optional NetFlow and IP Enrichment Jobs
+
+Docker Compose disables the heavyweight NetFlow/IP enrichment maintenance
+schedulers by default. This keeps a fresh single-node stack responsive for
+diagnostics, MTR, device management, and normal UI use when no flow collection is
+configured.
+
+Enable these only when the Docker host has enough Postgres headroom and you are
+actually collecting flows:
+
+```bash
+export IP_ENRICHMENT_SCHEDULER_ENABLED=true
+export GEOLITE_MMDB_SCHEDULER_ENABLED=true
+export IPINFO_MMDB_SCHEDULER_ENABLED=true
+export NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED=true
+export NETFLOW_SECURITY_SCHEDULER_ENABLED=true
+export NETFLOW_CACHE_SCHEDULER_ENABLED=true
+docker compose up -d --force-recreate core-elx
+```
+
 ## Troubleshooting
 
 - **Web UI not reachable**: Ensure Caddy is running (`docker compose ps`) and check its logs (`docker compose logs caddy`).
