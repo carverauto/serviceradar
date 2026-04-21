@@ -106,7 +106,7 @@ export(Logs, Resource, #state{protocol=http_protobuf,
             error;
         Address ->
             {Batch, HandlerConfig} = normalize_logs_arg(Logs),
-            RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+            RequestMap0 = otel_otlp_logs:to_proto(normalize_log_batch(Batch), Resource, HandlerConfig),
             RequestMap = normalize_request_map(RequestMap0),
             Body = opentelemetry_exporter_logs_service_pb:encode_msg(RequestMap, export_logs_service_request),
             otel_exporter_otlp:export_http(Address, Headers, Body, Compression, SSLOptions, HttpcProfile)
@@ -117,7 +117,7 @@ export(Logs, Resource, #state{protocol=grpc,
                               endpoints=Endpoints,
                               compression=Compression}) ->
     {Batch, HandlerConfig} = normalize_logs_arg(Logs),
-    RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+    RequestMap0 = otel_otlp_logs:to_proto(normalize_log_batch(Batch), Resource, HandlerConfig),
     RequestMap = normalize_request_map(RequestMap0),
     export_grpc_with_retry(opentelemetry_logs_service, Metadata, RequestMap, Channel, Endpoints, Compression);
 export(_Logs, _Resource, _State) ->
@@ -132,6 +132,51 @@ normalize_logs_arg(Batch) when is_map(Batch) ->
     {Batch, #{}};
 normalize_logs_arg(_Other) ->
     {#{}, #{}}.
+
+%% `otel_otlp_logs:format_msg/3` treats every Erlang list as a string. That is
+%% unsafe for structured logger reports, because OTP and libraries such as Oban
+%% commonly emit `{report, KeywordList}` messages. Passing those through
+%% unchanged makes `otel_otlp_logs` call `re:replace/4` on a keyword list and the
+%% exporter logs another structured report, creating noisy recursive failures.
+normalize_log_batch(Batch) when is_map(Batch) ->
+    maps:map(fun
+                 (_Scope, Logs) when is_list(Logs) ->
+                     [normalize_log_event(Log) || Log <- Logs];
+                 (_Scope, Other) ->
+                     Other
+             end, Batch);
+normalize_log_batch(Batch) ->
+    Batch.
+
+normalize_log_event(#{msg := {report, Report}, meta := Meta0}=Log) ->
+    {ReportBody, Meta} = normalize_report(Report, Meta0),
+    Log#{msg := {string, ReportBody}, meta := Meta};
+normalize_log_event(Log) ->
+    Log.
+
+normalize_report(Report, Meta) ->
+    case report_to_metadata(Report) of
+        [] ->
+            {format_report(Report), Meta};
+        Attributes ->
+            {format_report(Report), maps:merge(maps:from_list(Attributes), Meta)}
+    end.
+
+report_to_metadata(Report) when is_map(Report) ->
+    maps:to_list(Report);
+report_to_metadata(Report) when is_list(Report) ->
+    case lists:all(fun
+                       ({Key, _Value}) when is_atom(Key); is_binary(Key); is_list(Key) -> true;
+                       (_) -> false
+                   end, Report) of
+        true -> Report;
+        false -> []
+    end;
+report_to_metadata(_Report) ->
+    [].
+
+format_report(Report) ->
+    unicode:characters_to_binary(io_lib:format("~0tp", [Report])).
 
 %% `otel_otlp_common:to_any_value/1` encodes Erlang lists as arrays, which is
 %% usually correct but breaks log bodies because formatted logger messages are
