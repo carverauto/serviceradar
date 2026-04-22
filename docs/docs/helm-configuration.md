@@ -223,6 +223,10 @@ Operational notes:
 - Transaction pooling requires clients to avoid named prepared statements. The
   chart sets `DATABASE_PREPARE=unnamed` for `core` and `web-ng` when those
   workloads are routed through the pooler.
+- CNPG PgBouncer presents the PostgreSQL server certificate. When `verify-full`
+  is enabled, the chart connects to the pooler service but sets
+  `CNPG_TLS_SERVER_NAME` to the direct CNPG RW service name for routed Elixir
+  workloads so hostname verification remains strict.
 - PgBouncer is deployed as an HA access layer by default with three Pooler pods
   and preferred pod anti-affinity. Set `cnpg.pooler.ha.podAntiAffinity.type=required`
   only when the cluster has enough nodes to satisfy strict placement.

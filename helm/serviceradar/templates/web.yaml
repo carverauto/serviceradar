@@ -359,6 +359,8 @@ spec:
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         {{- if and (default false $cnpgPooler.enabled) (default false (get $cnpgPoolerRoute "webNg")) }}
+        - name: CNPG_TLS_SERVER_NAME
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: DATABASE_PREPARE
           value: "unnamed"
         - name: WEB_NG_OBAN_NOTIFIER
