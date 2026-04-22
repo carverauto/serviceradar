@@ -1,0 +1,104 @@
+{
+  "uid": "serviceradar-ingestion-edge",
+  "title": "ServiceRadar Ingestion and Edge Fleet",
+  "tags": ["serviceradar", "ingestion", "edge"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {"text": "Prometheus", "value": "prometheus"}},
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": "label_values(kube_pod_info, namespace)",
+        "current": {"text": "demo", "value": "demo"},
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "ServiceRadar Pods",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "count(kube_pod_info{namespace=\"$namespace\", pod=~\"serviceradar-.*\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "ServiceRadar Containers Ready",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(kube_pod_container_status_ready{namespace=\"$namespace\", pod=~\"serviceradar-.*\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Collector Packages",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(serviceradar_tenant_usage_collectors_count{namespace=\"$namespace\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Managed Devices",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(serviceradar_tenant_usage_managed_devices_count{namespace=\"$namespace\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "ServiceRadar Pod Readiness",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (pod) (kube_pod_container_status_ready{namespace=\"$namespace\", pod=~\"serviceradar-.*\"})", "legendFormat": "{{pod}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Collector Package Mix",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (collector_type) (serviceradar_tenant_usage_collectors_count{namespace=\"$namespace\"})", "legendFormat": "{{collector_type}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "NATS Monitoring Endpoint Presence",
+      "description": "NATS exposes JSON monitoring on 8222 today, not Prometheus /metrics. This panel shows pod readiness until a NATS exporter is added.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (pod) (kube_pod_container_status_ready{namespace=\"$namespace\", pod=~\"serviceradar-nats-.*\"})", "legendFormat": "{{pod}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Ingestion Workload Restarts",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"serviceradar-(flow-collector|log-collector|trapd|bmp-collector|db-event-writer|nats).*\"}[15m]))",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "uid": "serviceradar-control-plane",
+  "title": "ServiceRadar Control Plane",
+  "tags": ["serviceradar", "control-plane", "web-ng"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {"text": "Prometheus", "value": "prometheus"}},
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": "label_values(up, namespace)",
+        "current": {"text": "demo", "value": "demo"},
+        "refresh": 1
+      },
+      {
+        "name": "pod",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": "label_values(up{namespace=\"$namespace\", service=\"serviceradar-web-ng\"}, pod)",
+        "includeAll": true,
+        "current": {"text": "All", "value": "$__all"},
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Web-NG Scrape Up",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(up{namespace=\"$namespace\", service=\"serviceradar-web-ng\", pod=~\"$pod\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Agents Registered",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(serviceradar_cluster_agents_count{namespace=\"$namespace\", pod=~\"$pod\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Gateways Registered",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(serviceradar_cluster_gateways_count{namespace=\"$namespace\", pod=~\"$pod\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Collector Packages",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(serviceradar_tenant_usage_collectors_count{namespace=\"$namespace\", pod=~\"$pod\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Web-NG Cluster Membership",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max by (pod) (serviceradar_cluster_nodes_count{namespace=\"$namespace\", pod=~\"$pod\"})", "legendFormat": "{{pod}} nodes"},
+        {"refId": "B", "expr": "max by (pod) (serviceradar_cluster_agents_count{namespace=\"$namespace\", pod=~\"$pod\"})", "legendFormat": "{{pod}} agents"},
+        {"refId": "C", "expr": "max by (pod) (serviceradar_cluster_gateways_count{namespace=\"$namespace\", pod=~\"$pod\"})", "legendFormat": "{{pod}} gateways"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Runtime Restarts",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"serviceradar-(web-ng|core|agent-gateway)-.*\"}[15m]))", "legendFormat": "{{pod}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Managed Devices",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max by (pod) (serviceradar_tenant_usage_managed_devices_count{namespace=\"$namespace\", pod=~\"$pod\"})", "legendFormat": "{{pod}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Collector Packages by Type",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (collector_type) (serviceradar_tenant_usage_collectors_count{namespace=\"$namespace\", pod=~\"$pod\"})", "legendFormat": "{{collector_type}}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    }
+  ]
+}

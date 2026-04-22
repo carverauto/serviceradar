@@ -9,6 +9,9 @@ metadata:
   name: serviceradar-cnpg-rules
   labels:
     app.kubernetes.io/part-of: serviceradar
+    {{- with $cfg.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   groups:
     - name: cnpg-observability
