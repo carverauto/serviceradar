@@ -375,3 +375,7 @@ that opt into cnpg.pooler.route.<workload>.
 {{- define "serviceradar.gatewayApiBackendTrafficPolicyName" -}}
 {{- printf "%s-edge-policy" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{- define "serviceradar.gatewayApiStreamingBackendTrafficPolicyName" -}}
+{{- printf "%s-camera-stream-policy" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
