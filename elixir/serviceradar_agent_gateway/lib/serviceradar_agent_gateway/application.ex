@@ -30,6 +30,7 @@ defmodule ServiceRadarAgentGateway.Application do
   - `GATEWAY_ID` - Unique identifier for this gateway
   - `GATEWAY_DOMAIN` - The domain this gateway handles
   - `GATEWAY_GRPC_PORT` - gRPC port for receiving agent pushes (default: 50052)
+  - `GATEWAY_METRICS_PORT` - HTTP port for Prometheus metrics (default: 9090)
   - `GATEWAY_CAPABILITIES` - Comma-separated list of capabilities (icmp, tcp, http, etc.)
   - `CLUSTER_HOSTS` - Comma-separated list of cluster nodes to join
 
@@ -134,22 +135,26 @@ defmodule ServiceRadarAgentGateway.Application do
 
     gateway_children =
       [
-        ServiceRadarAgentGateway.AgentRegistryProxy,
-        ServiceRadarAgentGateway.StatusBuffer,
-        ServiceRadarAgentGateway.CameraMediaSessionTracker,
+        ServiceRadarAgentGateway.Telemetry
+      ] ++
+        metrics_children() ++
+        [
+          ServiceRadarAgentGateway.AgentRegistryProxy,
+          ServiceRadarAgentGateway.StatusBuffer,
+          ServiceRadarAgentGateway.CameraMediaSessionTracker,
 
-        # gRPC server that receives status pushes from Go agents
-        {GRPC.Server.Supervisor,
-         endpoint: ServiceRadarAgentGateway.Endpoint,
-         port: grpc_port,
-         start_server: true,
-         adapter_opts: build_adapter_opts(grpc_ssl_opts)},
-        ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
+          # gRPC server that receives status pushes from Go agents
+          {GRPC.Server.Supervisor,
+           endpoint: ServiceRadarAgentGateway.Endpoint,
+           port: grpc_port,
+           start_server: true,
+           adapter_opts: build_adapter_opts(grpc_ssl_opts)},
+          ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
 
-        # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
-        # In the new push-only architecture, agents push status to the gateway.
-        # The gateway never initiates connections to agents.
-      ] ++ registration_children
+          # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
+          # In the new push-only architecture, agents push status to the gateway.
+          # The gateway never initiates connections to agents.
+        ] ++ registration_children
 
     children = core_children ++ gateway_children
 
@@ -200,6 +205,16 @@ defmodule ServiceRadarAgentGateway.Application do
   defp parse_port(value) when is_integer(value), do: {value, ""}
   defp parse_port(value) when is_binary(value), do: Integer.parse(value)
   defp parse_port(_value), do: :error
+
+  defp metrics_children do
+    opts = Application.get_env(:serviceradar_agent_gateway, :metrics, [])
+
+    if Keyword.get(opts, :enabled, true) do
+      [{ServiceRadarAgentGateway.MetricsRouter, opts}]
+    else
+      []
+    end
+  end
 
   @doc false
   def edge_server_ssl_opts! do

@@ -360,6 +360,10 @@ that opt into cnpg.pooler.route.<workload>.
 {{- printf "%s-edge-route" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "serviceradar.gatewayApiStreamingRouteName" -}}
+{{- printf "%s-camera-stream-route" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "serviceradar.gatewayApiRedirectRouteName" -}}
 {{- printf "%s-edge-http-redirect" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

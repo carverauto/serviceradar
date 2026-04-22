@@ -1309,6 +1309,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "23.0ms"
   end
 
+  test "shows MTR tab on default device details when diagnostics exist", %{conn: conn} do
+    uid = "test-device-mtr-tab-visible-#{System.unique_integer([:positive])}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "mtr-tab-visible-host",
+        ip: "10.42.0.35",
+        is_available: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    Repo.insert_all("mtr_traces", [
+      %{
+        id: Ecto.UUID.generate(),
+        time: now,
+        agent_id: "agent-mtr-tab-visible",
+        device_id: uid,
+        target: "10.42.0.35",
+        target_ip: "10.42.0.35",
+        target_reached: true,
+        total_hops: 3,
+        protocol: "icmp",
+        ip_version: 4,
+        created_at: now
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    assert has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='mtr']")
+
+    html =
+      view
+      |> element("button[phx-click='switch_tab'][phx-value-tab='mtr']")
+      |> render_click()
+
+    assert html =~ "Reachability"
+    assert html =~ "100.0%"
+    assert html =~ "Reached"
+  end
+
   test "loads MTR data when patching the same device to the mtr tab", %{conn: conn} do
     uid = "test-device-mtr-patch-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)

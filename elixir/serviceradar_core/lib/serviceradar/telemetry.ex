@@ -124,8 +124,7 @@ defmodule ServiceRadar.Telemetry do
       ServiceRadar.Telemetry.emit_cluster_event(:node_connected, %{node: :"gateway@10.0.0.1"}, %{})
   """
   @spec emit_cluster_event(atom(), map(), map()) :: :ok
-  def emit_cluster_event(event, metadata \\ %{}, measurements \\ %{})
-      when event in @cluster_events do
+  def emit_cluster_event(event, metadata \\ %{}, measurements \\ %{}) when event in @cluster_events do
     emit(@prefix ++ [:cluster, event], measurements, enrich_metadata(metadata))
   end
 
@@ -133,8 +132,7 @@ defmodule ServiceRadar.Telemetry do
   Emits a gateway-related telemetry event.
   """
   @spec emit_gateway_event(atom(), map(), map()) :: :ok
-  def emit_gateway_event(event, metadata \\ %{}, measurements \\ %{})
-      when event in @gateway_events do
+  def emit_gateway_event(event, metadata \\ %{}, measurements \\ %{}) when event in @gateway_events do
     emit(@prefix ++ [:gateway, event], measurements, enrich_metadata(metadata))
   end
 
@@ -150,8 +148,7 @@ defmodule ServiceRadar.Telemetry do
   Emits a registry-related telemetry event.
   """
   @spec emit_registry_event(atom(), map(), map()) :: :ok
-  def emit_registry_event(event, metadata \\ %{}, measurements \\ %{})
-      when event in @registry_events do
+  def emit_registry_event(event, metadata \\ %{}, measurements \\ %{}) when event in @registry_events do
     emit(@prefix ++ [:registry, event], measurements, enrich_metadata(metadata))
   end
 
@@ -240,6 +237,7 @@ defmodule ServiceRadar.Telemetry do
       distribution("serviceradar.gateway.task.duration",
         tags: [:partition_id, :task_type],
         unit: {:native, :millisecond},
+        reporter_options: [buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]],
         description: "Duration of gateway tasks"
       ),
 
@@ -259,6 +257,7 @@ defmodule ServiceRadar.Telemetry do
       distribution("serviceradar.agent.check.duration",
         tags: [:check_type],
         unit: {:native, :millisecond},
+        reporter_options: [buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]],
         description: "Duration of agent checks"
       ),
       counter("serviceradar.agent.check.success.count",
@@ -278,6 +277,7 @@ defmodule ServiceRadar.Telemetry do
       distribution("serviceradar.registry.lookup.duration",
         tags: [:registry],
         unit: {:native, :microsecond},
+        reporter_options: [buckets: [10, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000]],
         description: "Duration of registry lookups"
       ),
       last_value("serviceradar.registry.processes.count",

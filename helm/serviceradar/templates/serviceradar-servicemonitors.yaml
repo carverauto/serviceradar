@@ -17,6 +17,16 @@
 {{- if hasKey $webTarget "enabled" -}}
 {{- $webEnabled = $webTarget.enabled -}}
 {{- end -}}
+{{- $coreTarget := default (dict) (get $targets "core") -}}
+{{- $coreEnabled := true -}}
+{{- if hasKey $coreTarget "enabled" -}}
+{{- $coreEnabled = $coreTarget.enabled -}}
+{{- end -}}
+{{- $agentGatewayTarget := default (dict) (get $targets "agentGateway") -}}
+{{- $agentGatewayEnabled := true -}}
+{{- if hasKey $agentGatewayTarget "enabled" -}}
+{{- $agentGatewayEnabled = $agentGatewayTarget.enabled -}}
+{{- end -}}
 {{- $flowTarget := default (dict) (get $targets "flowCollector") -}}
 {{- $flowTargetEnabled := true -}}
 {{- if hasKey $flowTarget "enabled" -}}
@@ -43,6 +53,56 @@ spec:
   endpoints:
     - port: http
       path: {{ default "/metrics" $webTarget.path | quote }}
+      interval: {{ $interval | quote }}
+      scrapeTimeout: {{ $scrapeTimeout | quote }}
+{{- end }}
+{{- if and $obsEnabled $serviceMonitorsEnabled $coreEnabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: core
+    {{- with $serviceMonitors.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: serviceradar-core
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace | quote }}
+  endpoints:
+    - port: metrics
+      path: {{ default "/metrics" $coreTarget.path | quote }}
+      interval: {{ $interval | quote }}
+      scrapeTimeout: {{ $scrapeTimeout | quote }}
+{{- end }}
+{{- if and $obsEnabled $serviceMonitorsEnabled $agentGatewayEnabled .Values.agentGateway.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: agent-gateway
+    {{- with $serviceMonitors.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: serviceradar-agent-gateway
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace | quote }}
+  endpoints:
+    - port: metrics
+      path: {{ default "/metrics" $agentGatewayTarget.path | quote }}
       interval: {{ $interval | quote }}
       scrapeTimeout: {{ $scrapeTimeout | quote }}
 {{- end }}

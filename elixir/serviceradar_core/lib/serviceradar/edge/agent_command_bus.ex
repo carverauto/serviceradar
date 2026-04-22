@@ -324,6 +324,18 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
 
+  @doc """
+  Lists agents with an active control stream that can receive commands.
+
+  This intentionally differs from `ServiceRadar.AgentRegistry.find_agents/0`,
+  which also includes status-only agents that are visible to the platform but
+  cannot receive command-bus requests such as MTR runs.
+  """
+  @spec list_online_agents() :: [map()]
+  def list_online_agents do
+    list_online_sessions()
+  end
+
   defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
 
   defp ensure_dispatch_capacity(agent_id, "mtr.run", _source, _ash_opts) do
