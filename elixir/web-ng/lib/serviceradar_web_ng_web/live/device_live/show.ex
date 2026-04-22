@@ -3191,12 +3191,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </div>
           </div>
           
-    <!-- Tabs Navigation (show if sysmon, interfaces, or flows are present) -->
+    <!-- Tabs Navigation -->
           <div
-            :if={
-              (@sysmon_presence or @has_ifaces or @has_flows or @active_tab == "mtr") and
-                is_map(@device_row)
-            }
+            :if={is_map(@device_row)}
             class="tabs tabs-box"
           >
             <button
@@ -3245,7 +3242,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
           
     <!-- Details Tab Content -->
-          <div :if={@active_tab == "details" or not (@sysmon_presence or @has_ifaces or @has_flows)}>
+          <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
