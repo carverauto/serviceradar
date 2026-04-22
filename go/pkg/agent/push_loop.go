@@ -367,7 +367,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 
 	// Start config polling in a separate goroutine
 	go p.configPollLoop(runCtx)
-	go p.controlStreamLoop(runCtx)
+	go p.superviseControlStreamLoop(runCtx)
 	go p.monitorReleaseActivation(runCtx)
 
 	// Use a resettable timer so updated intervals take effect

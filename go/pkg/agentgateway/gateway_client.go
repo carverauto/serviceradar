@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -57,6 +58,8 @@ const (
 	maxReconnectDelay     = 60 * time.Second
 	defaultPushTimeout    = 30 * time.Second
 	defaultConfigTimeout  = 30 * time.Second
+	defaultKeepaliveTime  = 30 * time.Second
+	defaultKeepaliveTTL   = 10 * time.Second
 )
 
 // GatewayClient manages the connection to the agent-gateway and pushes status updates.
@@ -178,7 +181,13 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 
 // buildDialOptions constructs gRPC dial options based on security configuration.
 func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption, srgrpc.SecurityProvider, error) {
-	var opts []grpc.DialOption
+	opts := []grpc.DialOption{
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                defaultKeepaliveTime,
+			Timeout:             defaultKeepaliveTTL,
+			PermitWithoutStream: true,
+		}),
+	}
 
 	if g.security != nil && g.security.Mode != "" && g.security.Mode != models.SecurityModeNone {
 		// Create security provider using the standard pattern

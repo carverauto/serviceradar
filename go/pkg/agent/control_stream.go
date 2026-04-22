@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -161,6 +162,38 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 			return
 		case <-time.After(controlStreamReconnectDelay):
 			continue
+		}
+	}
+}
+
+func (p *PushLoop) superviseControlStreamLoop(ctx context.Context) {
+	for {
+		panicked := false
+
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					panicked = true
+					p.logger.Error().
+						Interface("panic", recovered).
+						Bytes("stack", debug.Stack()).
+						Msg("Control stream loop panicked; restarting")
+				}
+			}()
+
+			p.controlStreamLoop(ctx)
+		}()
+
+		if !panicked || ctx.Err() != nil {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.stopCh:
+			return
+		case <-time.After(controlStreamReconnectDelay):
 		}
 	}
 }
