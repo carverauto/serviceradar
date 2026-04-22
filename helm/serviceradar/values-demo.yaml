@@ -34,6 +34,7 @@ cnpg:
       podMonitor:
         enabled: true
     parameters:
+      ignore_startup_parameters: "search_path"
       max_client_conn: "2000"
       default_pool_size: "40"
       reserve_pool_size: "10"

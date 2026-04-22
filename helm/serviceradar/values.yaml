@@ -460,6 +460,7 @@ cnpg:
       webNg: true
       dbEventWriter: false
     parameters:
+      ignore_startup_parameters: "search_path"
       max_client_conn: "1000"
       default_pool_size: "25"
       reserve_pool_size: "5"

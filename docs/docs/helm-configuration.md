@@ -213,6 +213,7 @@ cnpg:
       webNg: true
       dbEventWriter: false
     parameters:
+      ignore_startup_parameters: "search_path"
       max_client_conn: "2000"
       default_pool_size: "40"
       reserve_pool_size: "10"
@@ -227,6 +228,9 @@ Operational notes:
   is enabled, the chart connects to the pooler service but sets
   `CNPG_TLS_SERVER_NAME` to the direct CNPG RW service name for routed Elixir
   workloads so hostname verification remains strict.
+- Ecto sends `search_path` as a PostgreSQL startup parameter. The pooler defaults
+  include `ignore_startup_parameters=search_path`; keep the database role
+  search path configured server-side for routed workloads.
 - PgBouncer is deployed as an HA access layer by default with three Pooler pods
   and preferred pod anti-affinity. Set `cnpg.pooler.ha.podAntiAffinity.type=required`
   only when the cluster has enough nodes to satisfy strict placement.
