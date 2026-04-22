@@ -1073,6 +1073,9 @@ gatewayApi:
       - /api/query
       - /api
       - /
+    # Streaming endpoints must not inherit BackendTrafficPolicy request buffering.
+    streamingPathPrefixes:
+      - /v1/camera-relay-sessions
   backendTrafficPolicy:
     enabled: false
     requestTimeout: ""
