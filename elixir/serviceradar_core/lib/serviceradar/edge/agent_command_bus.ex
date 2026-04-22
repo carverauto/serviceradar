@@ -874,7 +874,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp command_id(%{id: id}), do: id
 
   defp json_param(nil), do: nil
-  defp json_param(value), do: Jason.encode!(value)
+  defp json_param(value), do: value
 
   defp control_repo_available?, do: Process.whereis(ControlRepo) != nil
 
