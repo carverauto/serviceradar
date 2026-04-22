@@ -292,10 +292,12 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket:
+    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 config :serviceradar_core,
-  mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+  mapper_topology_edge_stale_minutes:
+    parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
 if config_env() == :prod do
   cloak_key =
@@ -367,9 +369,12 @@ if config_env() == :prod do
     env: :prod,
     cloak_key: cloak_key,
     repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
+    control_repo_enabled: System.get_env("CONTROL_REPO_ENABLED", "true") in ~w(true 1 yes),
     vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
-    registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
-    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
+    registries_enabled:
+      System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
+    run_startup_migrations:
+      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
@@ -468,6 +473,22 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
+  parse_optional_int_env = fn env_name ->
+    case System.get_env(env_name) do
+      nil ->
+        nil
+
+      "" ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} -> int
+          _ -> raise "invalid integer for #{env_name}: #{inspect(value)}"
+        end
+    end
+  end
+
   repo_url =
     cond do
       database_url ->
@@ -482,6 +503,74 @@ if config_env() == :prod do
         For example: ecto://USER:PASS@HOST/DATABASE
         """
     end
+
+  pool_size = parse_int_env.("POOL_SIZE", 10)
+  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+
+  database_timeout = parse_optional_int_env.("DATABASE_TIMEOUT_MS")
+  database_pool_timeout = parse_optional_int_env.("DATABASE_POOL_TIMEOUT_MS")
+  queue_target = parse_optional_int_env.("DATABASE_QUEUE_TARGET_MS")
+  queue_interval = parse_optional_int_env.("DATABASE_QUEUE_INTERVAL_MS")
+
+  repo_opts =
+    [
+      url: repo_url,
+      ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
+      pool_size: pool_size,
+      socket_options: maybe_ipv6,
+      parameters: [search_path: search_path],
+      types: ServiceRadar.PostgresTypes
+    ]
+    |> then(fn opts ->
+      if queue_target, do: Keyword.put(opts, :queue_target, queue_target), else: opts
+    end)
+    |> then(fn opts ->
+      if queue_interval, do: Keyword.put(opts, :queue_interval, queue_interval), else: opts
+    end)
+    |> then(fn opts ->
+      if database_timeout, do: Keyword.put(opts, :timeout, database_timeout), else: opts
+    end)
+    |> then(fn opts ->
+      if database_pool_timeout,
+        do: Keyword.put(opts, :pool_timeout, database_pool_timeout),
+        else: opts
+    end)
+
+  control_repo_pool_size = parse_int_env.("CONTROL_REPO_POOL_SIZE", 5)
+
+  control_repo_queue_target =
+    parse_optional_int_env.("CONTROL_DATABASE_QUEUE_TARGET_MS") || queue_target
+
+  control_repo_queue_interval =
+    parse_optional_int_env.("CONTROL_DATABASE_QUEUE_INTERVAL_MS") || queue_interval
+
+  control_repo_timeout =
+    parse_optional_int_env.("CONTROL_DATABASE_TIMEOUT_MS") || database_timeout
+
+  control_repo_pool_timeout =
+    parse_optional_int_env.("CONTROL_DATABASE_POOL_TIMEOUT_MS") || database_pool_timeout
+
+  control_repo_opts =
+    repo_opts
+    |> Keyword.put(:pool_size, control_repo_pool_size)
+    |> then(fn opts ->
+      if control_repo_queue_target,
+        do: Keyword.put(opts, :queue_target, control_repo_queue_target),
+        else: opts
+    end)
+    |> then(fn opts ->
+      if control_repo_queue_interval,
+        do: Keyword.put(opts, :queue_interval, control_repo_queue_interval),
+        else: opts
+    end)
+    |> then(fn opts ->
+      if control_repo_timeout, do: Keyword.put(opts, :timeout, control_repo_timeout), else: opts
+    end)
+    |> then(fn opts ->
+      if control_repo_pool_timeout,
+        do: Keyword.put(opts, :pool_timeout, control_repo_pool_timeout),
+        else: opts
+    end)
 
   oban_enabled = System.get_env("SERVICERADAR_CORE_OBAN_ENABLED", "true") in ~w(true 1 yes)
   oban_node = System.get_env("OBAN_NODE")
@@ -541,7 +630,8 @@ if config_env() == :prod do
     {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
-    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
+    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker,
+     queue: :maintenance}
   ]
 
   add_cron_entries = fn config, entries ->
@@ -577,11 +667,8 @@ if config_env() == :prod do
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
 
-  config :serviceradar_core, ServiceRadar.Repo,
-    url: repo_url,
-    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    socket_options: maybe_ipv6
+  config :serviceradar_core, ServiceRadar.Repo, repo_opts
+  config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
 
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
