@@ -9,6 +9,11 @@ config :logger, :console,
 config :serviceradar_agent_gateway,
   namespace: ServiceRadarAgentGateway
 
+config :serviceradar_agent_gateway, :metrics,
+  enabled: true,
+  ip: {0, 0, 0, 0},
+  port: 9090
+
 config :serviceradar_core,
   ash_domains: [
     ServiceRadar.Identity,

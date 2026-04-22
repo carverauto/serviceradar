@@ -11,6 +11,8 @@
 {{- end -}}
 {{- $pgbouncer := default (dict) (get $rules "pgbouncer") -}}
 {{- $webNg := default (dict) (get $rules "webNg") -}}
+{{- $core := default (dict) (get $rules "core") -}}
+{{- $agentGateway := default (dict) (get $rules "agentGateway") -}}
 {{- if and $obsEnabled $rulesEnabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -34,6 +36,22 @@ spec:
           annotations:
             summary: "ServiceRadar web-ng metrics target is down"
             description: "Prometheus cannot scrape web-ng /metrics in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarCoreMetricsTargetDown
+          expr: up{namespace="{{ .Release.Namespace }}", service="serviceradar-core"} == 0
+          for: {{ default "5m" $core.scrapeDownFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar core metrics target is down"
+            description: "Prometheus cannot scrape core-elx /metrics in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarAgentGatewayMetricsTargetDown
+          expr: up{namespace="{{ .Release.Namespace }}", service="serviceradar-agent-gateway-metrics"} == 0
+          for: {{ default "5m" $agentGateway.scrapeDownFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar agent-gateway metrics target is down"
+            description: "Prometheus cannot scrape agent-gateway /metrics in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarCNPGMetricsTargetDown
           expr: up{namespace="{{ .Release.Namespace }}", job=~".*/cnpg"} == 0
           for: 5m

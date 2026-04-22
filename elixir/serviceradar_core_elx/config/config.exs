@@ -40,6 +40,11 @@ config :serviceradar_core,
     ServiceRadar.Spatial
   ]
 
+config :serviceradar_core_elx, :metrics,
+  enabled: true,
+  ip: {0, 0, 0, 0},
+  port: 9090
+
 config :serviceradar_core_elx,
   namespace: ServiceRadarCoreElx
 
