@@ -138,7 +138,7 @@ core:
     poolTimeoutMs: 120000
   controlDatabase:
     enabled: true
-    poolSize: 5
+    poolSize: 10
     queueTargetMs: 2000
     queueIntervalMs: 2000
     timeoutMs: 120000
