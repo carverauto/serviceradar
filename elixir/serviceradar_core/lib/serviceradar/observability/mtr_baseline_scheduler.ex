@@ -187,7 +187,14 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
     SELECT status, inserted_at, completed_at, expires_at
     FROM platform.agent_commands
     WHERE command_type = 'mtr.bulk_run'
-      AND context ->> 'mtr_policy_id' = $1
+      AND (
+        CASE
+          WHEN jsonb_typeof(context) = 'object' THEN context ->> 'mtr_policy_id'
+          WHEN jsonb_typeof(context) = 'string' AND left(context #>> '{}', 1) = '{' THEN
+            (context #>> '{}')::jsonb ->> 'mtr_policy_id'
+          ELSE NULL
+        END
+      ) = $1
     ORDER BY inserted_at DESC
     LIMIT 1
     """

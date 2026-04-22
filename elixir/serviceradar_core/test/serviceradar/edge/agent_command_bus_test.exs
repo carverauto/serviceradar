@@ -241,6 +241,16 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       command = wait_for_status(command_id, :sent, actor)
 
+      assert {:ok, %{rows: [["object", "object"]]}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT jsonb_typeof(payload), jsonb_typeof(context)
+                 FROM platform.agent_commands
+                 WHERE command_id = $1
+                 """,
+                 [command.id]
+               )
+
       assert {:ok, %{rows: rows}} =
                ServiceRadar.Repo.query(
                  """
