@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.22
+
+Docker Compose diagnostics and telemetry hardening, database workload isolation, and MTR automation fixes needed to keep fresh stacks responsive while running the full default control plane.
+
+## Whats New
+
+**1.2.22**
+- Fixed Docker Compose agent enrollment, MTR command dispatch/progress handling, and ICMP capability wiring so fresh compose installs can run diagnostics without empty agent selectors or stuck acknowledged jobs.
+- Isolated control-plane database workloads and added runtime pool controls for `core-elx`, `web-ng`, and agent gateway paths so long-running analytics, topology, NetFlow, trace summary, and maintenance work do not starve user-facing requests.
+- Reduced avoidable database pressure by skipping unchanged NetFlow reference refreshes, lowering heavy maintenance concurrency, adding query timeouts, and making NetFlow enrichment workloads feature-gated for compose environments.
+- Made SNMP trap, flow, and BMP collectors opt-in compose profiles instead of default services, while preserving the Kubernetes/demo defaults and documenting how Docker users enable those collectors when needed.
+- Hardened OTLP log/trace export and structured log handling so exporter failures and non-binary log messages do not flood compose logs or crash telemetry paths.
+- Fixed MTR baseline cadence for bulk jobs by storing JSONB payload/context objects correctly and reading legacy double-encoded rows, preventing profiles configured for 300 seconds from dispatching every scheduler tick.
+- Improved device details and analytics runtime behavior by deferring expensive fan-out work and clarifying migration/DB readiness messaging when pools are degraded for reasons other than schema migrations.
+
 # ServiceRadar v1.2.21
 
 Demo high-availability hardening, Armis northbound operator controls, device-details performance work, and the bulk MTR status fix needed to keep diagnostics jobs moving cleanly in production.
