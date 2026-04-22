@@ -2,7 +2,7 @@
 # Base image comes from GitHub Actions Runner from actions/runner project.
 # 2026-03-13: GitHub has deprecated runner v2.330.0; refresh to the current
 # upstream image before rebuilding/pushing ghcr.io/carverauto/arc-runner.
-FROM ghcr.io/actions/actions-runner@sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4
+FROM ghcr.io/actions/actions-runner@sha256:91a87fc7ecea714252b01a1a3f0c64d0f8fe6a05fd466a631b9a51f88f4c7aca
 
 USER root
 RUN set -eux; \
