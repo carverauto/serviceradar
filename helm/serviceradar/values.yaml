@@ -119,6 +119,12 @@ observability:
         webNg:
           enabled: true
           path: /metrics
+        core:
+          enabled: true
+          path: /metrics
+        agentGateway:
+          enabled: true
+          path: /metrics
         flowCollector:
           enabled: true
           path: /metrics
@@ -132,6 +138,10 @@ observability:
         scrapeDownFor: 5m
         restartWindow: 15m
         restartWarning: 1
+      core:
+        scrapeDownFor: 5m
+      agentGateway:
+        scrapeDownFor: 5m
   grafana:
     dashboards:
       enabled: true
@@ -625,6 +635,7 @@ agentGateway:
   service:
     port: 50052
     artifactPort: 50053
+    metricsPort: 9090
     type: LoadBalancer
     nodePort: null
     artifactNodePort: null

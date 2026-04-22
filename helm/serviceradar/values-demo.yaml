@@ -421,6 +421,12 @@ observability:
         webNg:
           enabled: true
           path: /metrics
+        core:
+          enabled: true
+          path: /metrics
+        agentGateway:
+          enabled: true
+          path: /metrics
         flowCollector:
           enabled: false
           path: /metrics
@@ -431,6 +437,10 @@ observability:
       pgbouncer:
         clientsWaitingWarning: 1
         maxWaitSecondsWarning: 5
+      core:
+        scrapeDownFor: 5m
+      agentGateway:
+        scrapeDownFor: 5m
       webNg:
         scrapeDownFor: 5m
         restartWindow: 15m
