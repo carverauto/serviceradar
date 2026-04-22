@@ -430,6 +430,40 @@ cnpg:
   # Helm reuses existing secrets and does not rotate CNPG credentials on upgrade.
   # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
+  pooler:
+    # CNPG-managed PgBouncer pooler. Disabled by default to preserve existing
+    # direct-to-CNPG behavior unless operators explicitly opt in.
+    enabled: false
+    # Defaults to <cnpg.clusterName>-pooler-rw when empty.
+    name: ""
+    # Override generated service DNS only when using an externally managed pooler.
+    host: ""
+    type: rw
+    poolMode: transaction
+    instances: 3
+    ha:
+      podAntiAffinity:
+        enabled: true
+        # Use "required" for strict multi-node spreading. The default remains
+        # preferred so single-node development clusters can still schedule.
+        type: preferred
+        weight: 100
+        topologyKey: kubernetes.io/hostname
+    monitoring:
+      podMonitor:
+        enabled: false
+        interval: 30s
+        scrapeTimeout: 10s
+        labels: {}
+    route:
+      core: true
+      webNg: true
+      dbEventWriter: false
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "25"
+      reserve_pool_size: "5"
+      reserve_pool_timeout: "5"
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
   clientCertName: cnpg-client.pem

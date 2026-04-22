@@ -3,8 +3,9 @@
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
-{{- $pg := default (dict) .Values.spire.postgres -}}
-{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $cnpgPooler := default (dict) $cnpg.pooler -}}
+{{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
@@ -235,9 +236,15 @@ spec:
         - name: DEVICE_ENRICHMENT_RULES_DIR
           value: {{ $deviceEnrichmentRulesDir | quote }}
         - name: CNPG_HOST
-          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
+          value: {{ include "serviceradar.cnpgWorkloadHost" (dict "root" . "workload" "core") | quote }}
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
+        {{- if and (default false $cnpgPooler.enabled) (default false (get $cnpgPoolerRoute "core")) }}
+        - name: DATABASE_PREPARE
+          value: "unnamed"
+        - name: OBAN_NOTIFIER
+          value: "pg"
+        {{- end }}
         - name: CNPG_DATABASE
           value: {{ default "serviceradar" $cnpg.database | quote }}
         - name: CNPG_USERNAME

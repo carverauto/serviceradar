@@ -44,6 +44,7 @@ The chart deploys the following components:
 | Datasvc | KV store service | - |
 | NATS | JetStream messaging | 4222 |
 | CNPG | App database cluster | 5432 |
+| CNPG PgBouncer Pooler | Optional CNPG-managed connection pooler | 5432 |
 | OTEL | Telemetry collector | - |
 
 ### Edge Agents
@@ -84,6 +85,12 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.calicoLogDenied.enabled` | Render Calico policy to log denied egress | `false` |
 | `networkPolicy.calicoLogDenied.selector` | Calico selector for matching pods | `app.kubernetes.io/part-of == 'serviceradar'` |
 | `networkPolicy.calicoLogDenied.order` | Calico policy order (lower is higher priority) | `1000` |
+| `cnpg.pooler.enabled` | Deploy a CNPG-managed PgBouncer pooler | `false` |
+| `cnpg.pooler.instances` | PgBouncer pooler pod count | `3` |
+| `cnpg.pooler.ha.podAntiAffinity.type` | Pooler pod spreading mode, `preferred` or `required` | `preferred` |
+| `cnpg.pooler.monitoring.podMonitor.enabled` | Create a Prometheus Operator PodMonitor for PgBouncer metrics | `false` |
+| `cnpg.pooler.route.core` | Route core runtime database traffic through the pooler when enabled | `true` |
+| `cnpg.pooler.route.webNg` | Route web-ng runtime database traffic through the pooler when enabled | `true` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `false` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |

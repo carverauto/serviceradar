@@ -1,0 +1,63 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $pooler := default (dict) $cnpg.pooler -}}
+{{- if and (default true $cnpg.enabled) (default false $pooler.enabled) }}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $poolerName := include "serviceradar.cnpgPoolerName" . -}}
+{{- $ha := default (dict) $pooler.ha -}}
+{{- $podAntiAffinity := default (dict) $ha.podAntiAffinity -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ $poolerName | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-pooler
+    app.kubernetes.io/name: {{ $poolerName | quote }}
+spec:
+  cluster:
+    name: {{ $clusterName | quote }}
+  instances: {{ default 3 $pooler.instances }}
+  type: {{ default "rw" $pooler.type | quote }}
+  {{- if default true $podAntiAffinity.enabled }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: cnpg-pooler
+        serviceradar.io/cnpg-pooler: {{ $poolerName | quote }}
+    spec:
+      containers: []
+      affinity:
+        podAntiAffinity:
+          {{- if eq (default "preferred" $podAntiAffinity.type) "required" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: serviceradar.io/cnpg-pooler
+                    operator: In
+                    values:
+                      - {{ $poolerName | quote }}
+              topologyKey: {{ default "kubernetes.io/hostname" $podAntiAffinity.topologyKey | quote }}
+          {{- else }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ default 100 $podAntiAffinity.weight }}
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: serviceradar.io/cnpg-pooler
+                      operator: In
+                      values:
+                        - {{ $poolerName | quote }}
+                topologyKey: {{ default "kubernetes.io/hostname" $podAntiAffinity.topologyKey | quote }}
+          {{- end }}
+  {{- end }}
+  pgbouncer:
+    poolMode: {{ default "transaction" $pooler.poolMode | quote }}
+    {{- with $pooler.parameters }}
+    parameters:
+      {{- range $key, $value := . }}
+      {{ $key | quote }}: {{ $value | quote }}
+      {{- end }}
+    {{- end }}
+{{- end }}

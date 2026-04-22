@@ -27,6 +27,17 @@ natsCreds:
 
 cnpg:
   storageClass: local-path-big
+  pooler:
+    enabled: true
+    instances: 3
+    monitoring:
+      podMonitor:
+        enabled: true
+    parameters:
+      max_client_conn: "2000"
+      default_pool_size: "40"
+      reserve_pool_size: "10"
+      reserve_pool_timeout: "5"
 
 logCollector:
   replicaCount: 3

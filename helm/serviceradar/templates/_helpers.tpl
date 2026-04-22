@@ -298,6 +298,52 @@ Uses lookup to get current secret value, falls back to random if not found.
 {{- end -}}
 {{- end -}}
 
+{{/*
+CNPG cluster and connection endpoint helpers.
+
+The direct host is used for migrations, bootstrap, DDL, and any client that is
+not transaction-pooler safe. The pooler host is used only by workload templates
+that opt into cnpg.pooler.route.<workload>.
+*/}}
+{{- define "serviceradar.cnpgClusterName" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- default "cnpg" $cnpg.clusterName -}}
+{{- end -}}
+
+{{- define "serviceradar.cnpgDirectHost" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- default (printf "%s-rw.%s.svc.cluster.local" $clusterName .Release.Namespace) $cnpg.host -}}
+{{- end -}}
+
+{{- define "serviceradar.cnpgPoolerName" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $pooler := default (dict) $cnpg.pooler -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- default (printf "%s-pooler-rw" $clusterName) $pooler.name -}}
+{{- end -}}
+
+{{- define "serviceradar.cnpgPoolerHost" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $pooler := default (dict) $cnpg.pooler -}}
+{{- $poolerName := include "serviceradar.cnpgPoolerName" . -}}
+{{- default (printf "%s.%s.svc.cluster.local" $poolerName .Release.Namespace) $pooler.host -}}
+{{- end -}}
+
+{{- define "serviceradar.cnpgWorkloadHost" -}}
+{{- $root := .root -}}
+{{- $workload := .workload -}}
+{{- $cnpg := default (dict) $root.Values.cnpg -}}
+{{- $pooler := default (dict) $cnpg.pooler -}}
+{{- $route := default (dict) $pooler.route -}}
+{{- $routeWorkload := default false (get $route $workload) -}}
+{{- if and (default false $pooler.enabled) $routeWorkload -}}
+{{- include "serviceradar.cnpgPoolerHost" $root -}}
+{{- else -}}
+{{- include "serviceradar.cnpgDirectHost" $root -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.gatewayApiEnvoyProxyName" -}}
 {{- printf "%s-%s-edge" (include "serviceradar.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

@@ -700,7 +700,7 @@ if config_env() != :test do
   oban_node = System.get_env("OBAN_NODE")
 
   oban_notifier =
-    case System.get_env("WEB_NG_OBAN_NOTIFIER", "postgres") |> String.downcase() do
+    case "WEB_NG_OBAN_NOTIFIER" |> System.get_env("postgres") |> String.downcase() do
       value when value in ["pg", "process_group", "process-groups"] -> Oban.Notifiers.PG
       _ -> Oban.Notifiers.Postgres
     end
@@ -995,17 +995,28 @@ if config_env() == :prod do
     end
 
   # Configure ServiceRadar.Repo from serviceradar_core
-  config :serviceradar_core, ServiceRadar.Repo,
-    url: repo_url,
-    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    queue_target: String.to_integer(System.get_env("DATABASE_QUEUE_TARGET_MS") || "2000"),
-    queue_interval: String.to_integer(System.get_env("DATABASE_QUEUE_INTERVAL_MS") || "2000"),
-    timeout: String.to_integer(System.get_env("DATABASE_TIMEOUT_MS") || "120000"),
-    pool_timeout: String.to_integer(System.get_env("DATABASE_POOL_TIMEOUT_MS") || "120000"),
-    socket_options: maybe_ipv6,
-    parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
-    types: ServiceRadar.PostgresTypes
+  repo_config =
+    [
+      url: repo_url,
+      ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
+      pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+      queue_target: String.to_integer(System.get_env("DATABASE_QUEUE_TARGET_MS") || "2000"),
+      queue_interval: String.to_integer(System.get_env("DATABASE_QUEUE_INTERVAL_MS") || "2000"),
+      timeout: String.to_integer(System.get_env("DATABASE_TIMEOUT_MS") || "120000"),
+      pool_timeout: String.to_integer(System.get_env("DATABASE_POOL_TIMEOUT_MS") || "120000"),
+      socket_options: maybe_ipv6,
+      parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+      types: ServiceRadar.PostgresTypes
+    ]
+
+  repo_config =
+    case System.get_env("DATABASE_PREPARE", "") do
+      "unnamed" -> Keyword.put(repo_config, :prepare, :unnamed)
+      "named" -> Keyword.put(repo_config, :prepare, :named)
+      _ -> repo_config
+    end
+
+  config :serviceradar_core, ServiceRadar.Repo, repo_config
 
   # Guardian JWT signing secret (same as token_signing_secret for consistency)
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
