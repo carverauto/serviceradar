@@ -75,6 +75,8 @@ spec:
           containerPort: 4369
         - name: dist
           containerPort: 9100
+        - name: metrics
+          containerPort: 9090
         env:
         - name: LANG
           value: "C.UTF-8"
@@ -439,6 +441,8 @@ metadata:
   name: serviceradar-core
   labels:
     app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-core
+    app.kubernetes.io/component: core
 spec:
   selector:
     app: serviceradar-core

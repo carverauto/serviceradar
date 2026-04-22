@@ -50,26 +50,41 @@ defmodule ServiceRadarCoreElx.Application do
     #
     # AshOban scheduler is started when :start_ash_oban_scheduler = true
 
-    children = [
-      ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
-      ServiceRadarCoreElx.CameraRelay.PipelineManager,
-      ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
-      ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
-      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.BoomboxSidecarSupervisor},
-      ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
-      {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
-      {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
-      ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
-      ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
-      ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
-      ServiceRadarCoreElx.CameraMediaSessionTracker,
-      {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
-      ServiceRadarCoreElx.CameraMediaIngressSupervisor
-    ]
+    children =
+      [
+        ServiceRadarCoreElx.Telemetry
+      ] ++
+        metrics_children() ++
+        [
+          ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
+          ServiceRadarCoreElx.CameraRelay.PipelineManager,
+          ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
+          ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
+          {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.BoomboxSidecarSupervisor},
+          ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
+          {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
+          {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
+          ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
+          ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
+          ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
+          ServiceRadarCoreElx.CameraMediaSessionTracker,
+          {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
+          ServiceRadarCoreElx.CameraMediaIngressSupervisor
+        ]
 
     Logger.info("Core-ELX initialized - serviceradar_core handles cluster infrastructure")
 
     opts = [strategy: :one_for_one, name: ServiceRadarCoreElx.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp metrics_children do
+    opts = Application.get_env(:serviceradar_core_elx, :metrics, [])
+
+    if Keyword.get(opts, :enabled, true) do
+      [{ServiceRadarCoreElx.MetricsRouter, opts}]
+    else
+      []
+    end
   end
 end

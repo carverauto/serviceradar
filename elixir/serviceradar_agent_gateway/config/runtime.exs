@@ -280,6 +280,11 @@ config :serviceradar_core,
 config :swoosh, :api_client, false
 config :swoosh, local: false
 
+config :serviceradar_agent_gateway, :metrics,
+  enabled: System.get_env("GATEWAY_METRICS_ENABLED", "true") in ~w(true 1 yes),
+  ip: {0, 0, 0, 0},
+  port: parse_int_env.("GATEWAY_METRICS_PORT", 9090)
+
 # =============================================================================
 # Telemetry Configuration
 # =============================================================================

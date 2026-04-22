@@ -88,6 +88,24 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
   end
 
+  describe "online command agents" do
+    test "lists only active control-stream sessions", %{agent_id: agent_id} do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr"]
+        })
+
+      agents = AgentCommandBus.list_online_agents()
+
+      assert Enum.any?(agents, fn agent ->
+               agent.agent_id == agent_id and
+                 agent.partition_id == "default" and
+                 "mtr" in agent.capabilities
+             end)
+    end
+  end
+
   describe "command status updates" do
     test "ack, progress, and result persist lifecycle", %{agent_id: agent_id, actor: actor} do
       ensure_status_handler_started()

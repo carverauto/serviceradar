@@ -8,8 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -814,9 +814,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
-  defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
+  defp save_profile(:new_profile, _profile, attrs, scope),
+    do: MtrPolicy.create_policy(attrs, scope: scope)
 
-  defp save_profile(:edit_profile, profile, attrs, scope), do: MtrPolicy.update_policy(profile, attrs, scope: scope)
+  defp save_profile(:edit_profile, profile, attrs, scope),
+    do: MtrPolicy.update_policy(profile, attrs, scope: scope)
 
   defp save_profile(_, _profile, _attrs, _scope), do: {:error, :invalid_form_state}
 
@@ -874,8 +876,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "name" => fallback(profile.name, defaults["name"]),
       "enabled" => truthy(profile.enabled),
       @selector_query_key => selector_query(profile),
-      @selector_limit_key => fallback(Map.get(selector, @selector_limit_key), defaults[@selector_limit_key]),
-      "preferred_agent_id" => fallback(Map.get(selector, @selector_agent_id_key), defaults["preferred_agent_id"]),
+      @selector_limit_key =>
+        fallback(Map.get(selector, @selector_limit_key), defaults[@selector_limit_key]),
+      "preferred_agent_id" =>
+        fallback(Map.get(selector, @selector_agent_id_key), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
       "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
       @selector_execution_profile_key =>
@@ -883,15 +887,20 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           Map.get(selector, @selector_execution_profile_key),
           defaults[@selector_execution_profile_key]
         ),
-      "baseline_interval_sec" => fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
-      "baseline_canary_vantages" => fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
+      "baseline_interval_sec" =>
+        fallback(profile.baseline_interval_sec, defaults["baseline_interval_sec"]),
+      "baseline_canary_vantages" =>
+        fallback(profile.baseline_canary_vantages, defaults["baseline_canary_vantages"]),
       "incident_fanout_max_agents" =>
         fallback(profile.incident_fanout_max_agents, defaults["incident_fanout_max_agents"]),
-      "incident_cooldown_sec" => fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
+      "incident_cooldown_sec" =>
+        fallback(profile.incident_cooldown_sec, defaults["incident_cooldown_sec"]),
       "recovery_capture" => truthy(profile.recovery_capture),
       "consensus_mode" => fallback(profile.consensus_mode, defaults["consensus_mode"]),
-      "consensus_threshold" => fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
-      "consensus_min_agents" => fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
+      "consensus_threshold" =>
+        fallback(profile.consensus_threshold, defaults["consensus_threshold"]),
+      "consensus_min_agents" =>
+        fallback(profile.consensus_min_agents, defaults["consensus_min_agents"])
     }
   end
 
@@ -905,17 +914,35 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     Map.get(selector, @selector_agent_id_key)
   end
 
-  defp bulk_interval_guidance(_scope, preferred_agent_id, _execution_profile, _target_count, _configured_interval)
+  defp bulk_interval_guidance(
+         _scope,
+         preferred_agent_id,
+         _execution_profile,
+         _target_count,
+         _configured_interval
+       )
        when preferred_agent_id in [nil, ""] do
     nil
   end
 
-  defp bulk_interval_guidance(_scope, _preferred_agent_id, _execution_profile, target_count, _configured_interval)
+  defp bulk_interval_guidance(
+         _scope,
+         _preferred_agent_id,
+         _execution_profile,
+         target_count,
+         _configured_interval
+       )
        when not is_integer(target_count) or target_count <= 0 do
     nil
   end
 
-  defp bulk_interval_guidance(scope, preferred_agent_id, execution_profile, target_count, configured_interval) do
+  defp bulk_interval_guidance(
+         scope,
+         preferred_agent_id,
+         execution_profile,
+         target_count,
+         configured_interval
+       ) do
     configured_interval = parse_int(configured_interval, 300, 30)
     execution_profile = normalize_bulk_execution_profile(execution_profile)
 
@@ -1182,7 +1209,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp list_connected_agents do
-    AgentRegistry.find_agents()
+    AgentCommandBus.list_online_agents()
   rescue
     _ -> []
   end

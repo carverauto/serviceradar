@@ -376,6 +376,11 @@ if config_env() == :prod do
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
+  config :serviceradar_core_elx, :metrics,
+    enabled: System.get_env("SERVICERADAR_CORE_METRICS_ENABLED", "true") in ~w(true 1 yes),
+    ip: {0, 0, 0, 0},
+    port: parse_int_env.("SERVICERADAR_CORE_METRICS_PORT", 9090)
+
   if plugin_storage_overrides != [] do
     config :serviceradar_core,
            :plugin_storage,

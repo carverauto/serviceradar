@@ -62,6 +62,9 @@ spec:
         - name: artifacts
           containerPort: {{ default 50053 $gateway.service.artifactPort }}
           protocol: TCP
+        - name: metrics
+          containerPort: {{ default 9090 $gateway.service.metricsPort }}
+          protocol: TCP
         env:
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
@@ -75,6 +78,8 @@ spec:
           value: {{ default 50052 $gateway.service.port | quote }}
         - name: GATEWAY_ARTIFACT_PORT
           value: {{ default 50053 $gateway.service.artifactPort | quote }}
+        - name: GATEWAY_METRICS_PORT
+          value: {{ default 9090 $gateway.service.metricsPort | quote }}
         - name: GATEWAY_CAPABILITIES
           value: {{ default "icmp,tcp,http,grpc" $gateway.capabilities | quote }}
         - name: CLUSTER_ENABLED
@@ -230,4 +235,21 @@ spec:
   - name: artifacts
     port: {{ default 50053 $gateway.service.artifactPort }}
     targetPort: artifacts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent-gateway-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-agent-gateway
+    app.kubernetes.io/component: agent-gateway
+spec:
+  selector:
+    app: serviceradar-agent-gateway
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: {{ default 9090 $gateway.service.metricsPort }}
+    targetPort: metrics
 {{- end }}
