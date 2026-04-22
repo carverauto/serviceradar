@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayStreamController do
   alias ServiceRadarWebNGWeb.Api.CameraRelaySessionController
   alias ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler
 
+  @default_browser_stream_timeout_ms to_timeout(day: 1)
+
   def connect(conn, %{"id" => relay_session_id}) do
     scope = conn.assigns[:current_scope]
 
@@ -28,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayStreamController do
       |> WebSockAdapter.upgrade(
         CameraRelayStreamHandler,
         [relay_session_id: normalized_id, scope: scope],
-        timeout: 60_000
+        timeout: browser_stream_timeout_ms()
       )
       |> halt()
     else
@@ -74,6 +76,17 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayStreamController do
       :ok
     else
       {:error, :relay_session_inactive}
+    end
+  end
+
+  defp browser_stream_timeout_ms do
+    case Application.get_env(
+           :serviceradar_web_ng,
+           :camera_relay_browser_stream_timeout_ms,
+           @default_browser_stream_timeout_ms
+         ) do
+      timeout_ms when is_integer(timeout_ms) and timeout_ms > 0 -> timeout_ms
+      _other -> @default_browser_stream_timeout_ms
     end
   end
 end

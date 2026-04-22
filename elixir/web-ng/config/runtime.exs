@@ -407,6 +407,12 @@ god_view_runtime_graph_auto_refresh =
     value -> value
   end
 
+camera_relay_browser_stream_timeout_ms =
+  case to_int.(System.get_env("CAMERA_RELAY_BROWSER_STREAM_TIMEOUT_MS", "86400000")) do
+    value when is_integer(value) and value > 0 -> value
+    _other -> 86_400_000
+  end
+
 config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
@@ -418,6 +424,9 @@ config :serviceradar_web_ng,
        to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
 
 config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
+
+config :serviceradar_web_ng,
+  camera_relay_browser_stream_timeout_ms: camera_relay_browser_stream_timeout_ms
 
 config :serviceradar_web_ng,
   device_enrichment_rules_dir:
