@@ -320,7 +320,7 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "debian_testing_slim",
-    digest = "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
+    digest = "sha256:49786174be6fac52e4de9619e4d159ef8b5dbb5e79d843e60eb47d6568ef9838",
     image = "docker.io/library/debian:testing-slim",
     platforms = [
         "linux/amd64",
