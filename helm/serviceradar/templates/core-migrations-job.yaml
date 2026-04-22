@@ -1,8 +1,7 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
-{{- $pg := default (dict) .Values.spire.postgres -}}
-{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
@@ -77,7 +76,7 @@ spec:
         - name: SERVICERADAR_MIGRATION_ONLY
           value: "true"
         - name: CNPG_HOST
-          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE

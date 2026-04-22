@@ -185,6 +185,55 @@ networkPolicy:
     order: 1000
 ```
 
+## CNPG PgBouncer Pooler
+
+Kubernetes installs can enable a CNPG-managed PgBouncer pooler through the Helm
+chart. This deploys a `postgresql.cnpg.io/v1` `Pooler` resource and routes
+PgBouncer-safe runtime database clients through the generated pooler service.
+Schema migrations, bootstrap jobs, and other DDL/admin paths continue to use the
+direct CNPG RW service.
+
+Example:
+
+```yaml
+cnpg:
+  pooler:
+    enabled: true
+    instances: 3
+    poolMode: transaction
+    ha:
+      podAntiAffinity:
+        enabled: true
+        type: preferred
+    monitoring:
+      podMonitor:
+        enabled: true
+    route:
+      core: true
+      webNg: true
+      dbEventWriter: false
+    parameters:
+      max_client_conn: "2000"
+      default_pool_size: "40"
+      reserve_pool_size: "10"
+```
+
+Operational notes:
+
+- Transaction pooling requires clients to avoid named prepared statements. The
+  chart sets `DATABASE_PREPARE=unnamed` for `core` and `web-ng` when those
+  workloads are routed through the pooler.
+- PgBouncer is deployed as an HA access layer by default with three Pooler pods
+  and preferred pod anti-affinity. Set `cnpg.pooler.ha.podAntiAffinity.type=required`
+  only when the cluster has enough nodes to satisfy strict placement.
+- Enable `cnpg.pooler.monitoring.podMonitor.enabled=true` when Prometheus
+  Operator is installed. The scraper targets the CNPG PgBouncer exporter on port
+  `metrics` and exposes the `cnpg_pgbouncer_` metric family.
+- Keep migrations and bootstrap direct to `cnpg-rw`; PgBouncer transaction
+  pooling is not appropriate for DDL, extension setup, or migration locks.
+- Keep `db-event-writer` direct unless you have validated the Go database client
+  and ingest workload against the pooler configuration.
+
 ## Deployment Provisioning
 
 ServiceRadar does not provision per-customer workloads from inside the Helm chart.

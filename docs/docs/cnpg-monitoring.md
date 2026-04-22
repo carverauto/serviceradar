@@ -118,6 +118,39 @@ ORDER BY blocked DESC;
 
 Any sustained growth indicates the pgx pool is undersized or a migration locked a hypertable.
 
+## PgBouncer Pooler Checks
+
+When `cnpg.pooler.enabled=true`, the Helm chart deploys a CNPG `Pooler` resource
+for PgBouncer. Demo also enables `cnpg.pooler.monitoring.podMonitor.enabled=true`
+so Prometheus Operator scrapes every PgBouncer pod. Verify that the pooler exists
+and has ready replicas:
+
+```bash
+kubectl get pooler -n <namespace>
+kubectl get pods -n <namespace> -l cnpg.io/poolerName=cnpg-pooler-rw
+kubectl get svc -n <namespace> cnpg-pooler-rw
+kubectl get podmonitor -n <namespace> cnpg-pooler-rw-pgbouncer
+```
+
+Inspect pool saturation through the CNPG PgBouncer exporter metrics. The CNPG
+operator exposes metrics with the `cnpg_pgbouncer_` prefix from each pooler pod:
+
+```bash
+kubectl port-forward -n <namespace> deploy/cnpg-pooler-rw 9127:9127
+curl -s http://127.0.0.1:9127/metrics | rg 'cnpg_pgbouncer_(pools|lists|stats)'
+```
+
+Watch for sustained client waiters, server connections at the configured pool
+limit, or high client connection counts. Those symptoms mean the pooler is
+protecting Postgres backends but application/database budgets still need tuning.
+For HA, the ServiceRadar chart defaults to three Pooler pods with preferred
+same-pooler pod anti-affinity. Production multi-node clusters can make this
+strict with `cnpg.pooler.ha.podAntiAffinity.type=required`.
+
+Migration and bootstrap jobs should still connect to `cnpg-rw.<namespace>.svc.cluster.local`
+directly. Do not troubleshoot DDL or extension setup through the transaction
+pooler.
+
 ## Demo Slow-Query Triage Runbook
 
 Use this flow for issue triage in `demo` when web-ng pages degrade.

@@ -1,6 +1,5 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
-{{- $pg := default (dict) .Values.spire.postgres -}}
-{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $requireClientCert := default false $cnpg.requireClientCert -}}
 {{- $writer := default (dict) .Values.dbEventWriter -}}
 {{- $writerData := default (dict) (get $writer "data") -}}
@@ -76,7 +75,7 @@ spec:
         - name: WAIT_FOR_CNPG
           value: "true"
         - name: CNPG_HOST
-          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE

@@ -4,7 +4,7 @@
 {{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
 {{- if and (default true $cnpg.enabled) (not $spiffeCnpgManaged) }}
 {{- $ns := .Release.Namespace -}}
-{{- $clusterName := default "cnpg" $cnpg.clusterName -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
 {{- $existingAppCreds := (lookup "v1" "Secret" $ns $appSecretName) -}}

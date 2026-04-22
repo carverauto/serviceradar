@@ -8,6 +8,7 @@ The Helm chart SHALL support deploying a CNPG-managed PgBouncer pooler for the S
 - **WHEN** `helm template serviceradar ./helm/serviceradar` is rendered
 - **THEN** the rendered manifests include a `postgresql.cnpg.io/v1` `Pooler` bound to the configured CNPG cluster
 - **AND** the Pooler exposes a stable service name that application workloads can use as a PostgreSQL host
+- **AND** the Pooler can run multiple replicas with same-pooler pod anti-affinity for HA placement
 
 #### Scenario: Pooler resource is omitted when disabled
 - **GIVEN** Helm values set `cnpg.pooler.enabled=false`
@@ -57,6 +58,12 @@ ServiceRadar SHALL document and expose operational checks for PgBouncer health, 
 - **GIVEN** PgBouncer pooler support is enabled in Kubernetes
 - **WHEN** an operator follows the documented verification steps
 - **THEN** they can identify the Pooler resource, generated service, Ready replicas, and PgBouncer pool health
+
+#### Scenario: Prometheus scrapes pooler metrics
+- **GIVEN** Helm values enable `cnpg.pooler.monitoring.podMonitor.enabled`
+- **WHEN** the chart is rendered
+- **THEN** a `monitoring.coreos.com/v1` `PodMonitor` selects Pooler pods by `cnpg.io/poolerName`
+- **AND** Prometheus can scrape PgBouncer exporter metrics with the `cnpg_pgbouncer_` prefix
 
 #### Scenario: Pool saturation is observable
 - **GIVEN** application database traffic is routed through PgBouncer

@@ -222,6 +222,13 @@ if config_env() == :prod do
       value -> parse_int.(value)
     end
 
+  database_prepare =
+    case System.get_env("DATABASE_PREPARE", "") do
+      "unnamed" -> :unnamed
+      "named" -> :named
+      _ -> nil
+    end
+
   repo_opts = [
     url: database_url,
     ssl: ssl_opts,
@@ -264,6 +271,9 @@ if config_env() == :prod do
       if database_pool_timeout,
         do: Keyword.put(opts, :pool_timeout, database_pool_timeout),
         else: opts
+    end)
+    |> then(fn opts ->
+      if database_prepare, do: Keyword.put(opts, :prepare, database_prepare), else: opts
     end)
 
   control_repo_pool_size =
@@ -680,11 +690,18 @@ if config_env() == :prod do
   cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
   nats_creds_file = System.get_env("NATS_CREDS_FILE")
 
+  oban_notifier =
+    case "OBAN_NOTIFIER" |> System.get_env("postgres") |> String.downcase() do
+      value when value in ["pg", "process_group", "process-groups"] -> Oban.Notifiers.PG
+      _ -> Oban.Notifiers.Postgres
+    end
+
   # Oban configuration
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
     prefix: System.get_env("OBAN_SCHEMA", "platform"),
+    notifier: oban_notifier,
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
