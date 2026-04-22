@@ -1,0 +1,83 @@
+{{- $obs := default (dict) .Values.observability -}}
+{{- $prom := default (dict) (get $obs "prometheus") -}}
+{{- $rules := default (dict) (get $prom "rules") -}}
+{{- $obsEnabled := false -}}
+{{- if hasKey $obs "enabled" -}}
+{{- $obsEnabled = $obs.enabled -}}
+{{- end -}}
+{{- $rulesEnabled := true -}}
+{{- if hasKey $rules "enabled" -}}
+{{- $rulesEnabled = $rules.enabled -}}
+{{- end -}}
+{{- $pgbouncer := default (dict) (get $rules "pgbouncer") -}}
+{{- $webNg := default (dict) (get $rules "webNg") -}}
+{{- if and $obsEnabled $rulesEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: serviceradar-platform-rules
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: observability
+    {{- with $rules.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: serviceradar.scrape
+      rules:
+        - alert: ServiceRadarWebNgMetricsTargetDown
+          expr: up{namespace="{{ .Release.Namespace }}", service="serviceradar-web-ng"} == 0
+          for: {{ default "5m" $webNg.scrapeDownFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar web-ng metrics target is down"
+            description: "Prometheus cannot scrape web-ng /metrics in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarCNPGMetricsTargetDown
+          expr: up{namespace="{{ .Release.Namespace }}", job=~".*/cnpg"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar CNPG metrics target is down"
+            description: "CloudNativePG metrics are unavailable for at least one CNPG pod in namespace {{ .Release.Namespace }}."
+        {{- if and .Values.cnpg .Values.cnpg.pooler .Values.cnpg.pooler.enabled }}
+        - alert: ServiceRadarPgBouncerMetricsTargetDown
+          expr: up{namespace="{{ .Release.Namespace }}", job=~".*pgbouncer.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ServiceRadar PgBouncer metrics target is down"
+            description: "Prometheus cannot scrape at least one ServiceRadar PgBouncer Pooler pod in namespace {{ .Release.Namespace }}."
+        {{- end }}
+    - name: serviceradar.database
+      rules:
+        {{- if and .Values.cnpg .Values.cnpg.pooler .Values.cnpg.pooler.enabled }}
+        - alert: ServiceRadarPgBouncerClientsWaiting
+          expr: sum(cnpg_pgbouncer_pools_cl_waiting{namespace="{{ .Release.Namespace }}"}) > {{ default 1 $pgbouncer.clientsWaitingWarning }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar PgBouncer clients waiting"
+            description: "PgBouncer has clients waiting for server connections in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarPgBouncerMaxWaitHigh
+          expr: max(cnpg_pgbouncer_pools_maxwait{namespace="{{ .Release.Namespace }}"}) > {{ default 5 $pgbouncer.maxWaitSecondsWarning }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar PgBouncer maxwait is elevated"
+            description: "PgBouncer max client wait has exceeded the configured threshold in namespace {{ .Release.Namespace }}."
+        {{- end }}
+        - alert: ServiceRadarWebNgRestarts
+          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}", pod=~"serviceradar-web-ng-.*"}[{{ default "15m" $webNg.restartWindow }}])) > {{ default 1 $webNg.restartWarning }}
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar web-ng pods are restarting"
+            description: "web-ng restarted more than the configured threshold in namespace {{ .Release.Namespace }}."
+{{- end }}

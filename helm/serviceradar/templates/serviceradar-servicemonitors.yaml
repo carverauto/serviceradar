@@ -1,0 +1,73 @@
+{{- $obs := default (dict) .Values.observability -}}
+{{- $prom := default (dict) (get $obs "prometheus") -}}
+{{- $serviceMonitors := default (dict) (get $prom "serviceMonitors") -}}
+{{- $targets := default (dict) (get $serviceMonitors "targets") -}}
+{{- $obsEnabled := false -}}
+{{- if hasKey $obs "enabled" -}}
+{{- $obsEnabled = $obs.enabled -}}
+{{- end -}}
+{{- $serviceMonitorsEnabled := true -}}
+{{- if hasKey $serviceMonitors "enabled" -}}
+{{- $serviceMonitorsEnabled = $serviceMonitors.enabled -}}
+{{- end -}}
+{{- $interval := default "30s" $serviceMonitors.interval -}}
+{{- $scrapeTimeout := default "10s" $serviceMonitors.scrapeTimeout -}}
+{{- $webTarget := default (dict) (get $targets "webNg") -}}
+{{- $webEnabled := true -}}
+{{- if hasKey $webTarget "enabled" -}}
+{{- $webEnabled = $webTarget.enabled -}}
+{{- end -}}
+{{- $flowTarget := default (dict) (get $targets "flowCollector") -}}
+{{- $flowTargetEnabled := true -}}
+{{- if hasKey $flowTarget "enabled" -}}
+{{- $flowTargetEnabled = $flowTarget.enabled -}}
+{{- end -}}
+{{- if and $obsEnabled $serviceMonitorsEnabled $webEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: serviceradar-web-ng
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: web-ng
+    {{- with $serviceMonitors.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: serviceradar-web-ng
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace | quote }}
+  endpoints:
+    - port: http
+      path: {{ default "/metrics" $webTarget.path | quote }}
+      interval: {{ $interval | quote }}
+      scrapeTimeout: {{ $scrapeTimeout | quote }}
+{{- end }}
+{{- if and $obsEnabled $serviceMonitorsEnabled $flowTargetEnabled .Values.flowCollector.enabled .Values.flowCollector.service.ports.metrics.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: serviceradar-flow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector
+    {{- with $serviceMonitors.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: serviceradar-flow-collector
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace | quote }}
+  endpoints:
+    - port: metrics
+      path: {{ default "/metrics" $flowTarget.path | quote }}
+      interval: {{ $interval | quote }}
+      scrapeTimeout: {{ $scrapeTimeout | quote }}
+{{- end }}

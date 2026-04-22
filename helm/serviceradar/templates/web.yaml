@@ -507,6 +507,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: serviceradar-web-ng
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-web-ng
+    app.kubernetes.io/component: web-ng
 spec:
   selector:
     app: serviceradar-web-ng
