@@ -21,9 +21,11 @@
 {{- $route := default (dict) $gatewayApi.route -}}
 {{- $pathPrefixes := default (list "/api/query" "/api" "/") $route.pathPrefixes -}}
 {{- $streamingPathPrefixes := default (list "/v1/camera-relay-sessions") $route.streamingPathPrefixes -}}
+{{- $streamingTimeouts := default (dict) $route.streamingTimeouts -}}
 {{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
 {{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
+{{- $streamingBtp := default (dict) $btp.streaming -}}
 {{- if and (not $managedMode) (not $attachMode) }}
 {{- fail "gatewayApi.mode must be either managed or attach" }}
 {{- end }}
@@ -229,6 +231,36 @@ spec:
       backendRefs:
         - name: {{ $serviceName | quote }}
           port: {{ $servicePort }}
+      {{- if or $streamingTimeouts.request $streamingTimeouts.backendRequest }}
+      timeouts:
+        {{- if $streamingTimeouts.request }}
+        request: {{ $streamingTimeouts.request }}
+        {{- end }}
+        {{- if $streamingTimeouts.backendRequest }}
+        backendRequest: {{ $streamingTimeouts.backendRequest }}
+        {{- end }}
+      {{- end }}
+{{- end }}
+{{- if and $btp.enabled (gt (len $streamingPathPrefixes) 0) }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "serviceradar.gatewayApiStreamingBackendTrafficPolicyName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "serviceradar.gatewayApiStreamingRouteName" . }}
+  httpUpgrade:
+    - type: websocket
+  timeout:
+    http:
+      requestTimeout: {{ default "0s" $streamingBtp.requestTimeout }}
+      maxStreamDuration: {{ default "0s" $streamingBtp.maxStreamDuration }}
 {{- end }}
 {{- if and $httpEnabled $httpRedirectToHttps }}
 ---

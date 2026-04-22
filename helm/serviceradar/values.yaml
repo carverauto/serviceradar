@@ -1075,11 +1075,20 @@ gatewayApi:
       - /
     # Streaming endpoints must not inherit BackendTrafficPolicy request buffering.
     streamingPathPrefixes:
+      - /live/websocket
+      - /socket/websocket
+      - /v1/stream
       - /v1/camera-relay-sessions
+    streamingTimeouts:
+      request: 0s
+      backendRequest: 0s
   backendTrafficPolicy:
     enabled: false
     requestTimeout: ""
     requestBufferLimit: ""
+    streaming:
+      requestTimeout: 0s
+      maxStreamDuration: 0s
 networkPolicy:
   enabled: false
   podSelectorMatchAll: false
