@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.23
+
+Camera relay stability fixes for Envoy/Gateway API deployments and agent control stream reconnect hardening needed to keep browser streams available after gateway rollouts and edge connection churn.
+
+## Whats New
+
+**1.2.23**
+- Kept the active camera relay viewer mounted across device-detail refreshes so periodic camera metadata updates no longer reset WebCodecs playback every minute.
+- Added Gateway API streaming timeout policy for camera/WebSocket routes so Envoy does not apply buffered request semantics to long-lived relay streams.
+- Hardened agent control streams with gRPC keepalives and supervised reconnects so online agents remain command-capable for camera relay and diagnostics work after transient disconnects.
+
 # ServiceRadar v1.2.22
 
 Docker Compose diagnostics and telemetry hardening, database workload isolation, and MTR automation fixes needed to keep fresh stacks responsive while running the full default control plane.
