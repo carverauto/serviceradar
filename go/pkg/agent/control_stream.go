@@ -107,9 +107,18 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 		default:
 		}
 
-		if !p.isEnrolled() || !p.gateway.IsConnected() {
+		if !p.isEnrolled() {
 			time.Sleep(time.Second)
 			continue
+		}
+
+		if !p.gateway.IsConnected() {
+			p.logger.Warn().Msg("Control stream unavailable; reconnecting to gateway")
+
+			if err := p.gateway.ReconnectWithBackoff(ctx); err != nil {
+				p.logger.Warn().Err(err).Msg("Control stream gateway reconnect failed")
+				continue
+			}
 		}
 
 		stream, err := p.gateway.ControlStream(ctx)
@@ -138,6 +147,10 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 		if err := p.handleControlStream(ctx, stream, sender); err != nil {
 			if !errors.Is(err, io.EOF) {
 				p.logger.Warn().Err(err).Msg("Control stream ended with error")
+			}
+
+			if err := p.gateway.Disconnect(); err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to reset gateway connection after control stream ended")
 			}
 		}
 
