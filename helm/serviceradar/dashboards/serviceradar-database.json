@@ -1,0 +1,123 @@
+{
+  "uid": "serviceradar-database",
+  "title": "ServiceRadar Database and PgBouncer",
+  "tags": ["serviceradar", "cnpg", "pgbouncer"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {"text": "Prometheus", "value": "prometheus"}},
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": "label_values(cnpg_collector_up, namespace)",
+        "current": {"text": "demo", "value": "demo"},
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "CNPG Pods Up",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(cnpg_collector_up{namespace=\"$namespace\"})"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "PgBouncer Pods Up",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "count(up{namespace=\"$namespace\", job=~\".*pgbouncer.*\"} == 1)"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Database Size",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(cnpg_pg_database_size_bytes{namespace=\"$namespace\", datname=\"serviceradar\"})"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Deadlocks 1h",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(increase(cnpg_pg_stat_database_deadlocks{namespace=\"$namespace\", datname=\"serviceradar\"}[1h]))"}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "CNPG Backend Pressure",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(cnpg_backends_total{namespace=\"$namespace\"})", "legendFormat": "total backends"},
+        {"refId": "B", "expr": "sum(cnpg_backends_waiting_total{namespace=\"$namespace\"})", "legendFormat": "waiting backends"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "PgBouncer Client Pressure",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(cnpg_pgbouncer_pools_cl_active{namespace=\"$namespace\"})", "legendFormat": "active clients"},
+        {"refId": "B", "expr": "sum(cnpg_pgbouncer_pools_cl_waiting{namespace=\"$namespace\"})", "legendFormat": "waiting clients"},
+        {"refId": "C", "expr": "sum(cnpg_pgbouncer_lists_used_clients{namespace=\"$namespace\"})", "legendFormat": "used clients"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "PgBouncer Server Pool",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(cnpg_pgbouncer_pools_sv_active{namespace=\"$namespace\"})", "legendFormat": "server active"},
+        {"refId": "B", "expr": "sum(cnpg_pgbouncer_pools_sv_idle{namespace=\"$namespace\"})", "legendFormat": "server idle"},
+        {"refId": "C", "expr": "sum(cnpg_pgbouncer_pools_sv_login{namespace=\"$namespace\"})", "legendFormat": "server login"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "PgBouncer Wait Time",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(cnpg_pgbouncer_pools_maxwait{namespace=\"$namespace\"})", "legendFormat": "maxwait seconds"},
+        {"refId": "B", "expr": "max(cnpg_pgbouncer_stats_avg_wait_time{namespace=\"$namespace\"}) / 1000000", "legendFormat": "avg wait seconds"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Database Transactions",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(cnpg_pg_stat_database_xact_commit{namespace=\"$namespace\", datname=\"serviceradar\"}[5m]))", "legendFormat": "commits/sec"},
+        {"refId": "B", "expr": "sum(rate(cnpg_pg_stat_database_xact_rollback{namespace=\"$namespace\", datname=\"serviceradar\"}[5m]))", "legendFormat": "rollbacks/sec"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    }
+  ]
+}

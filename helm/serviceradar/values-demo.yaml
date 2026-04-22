@@ -404,8 +404,44 @@ prometheusRules:
   cnpg:
     enabled: true
     clusterName: cnpg
+    labels:
+      release: kube-prom
     backendsWaitingWarning: 5
     slowQueryLogThresholdMs: 500
+
+observability:
+  enabled: true
+  prometheus:
+    serviceMonitors:
+      enabled: true
+      interval: 30s
+      scrapeTimeout: 10s
+      labels: {}
+      targets:
+        webNg:
+          enabled: true
+          path: /metrics
+        flowCollector:
+          enabled: false
+          path: /metrics
+    rules:
+      enabled: true
+      labels:
+        release: kube-prom
+      pgbouncer:
+        clientsWaitingWarning: 1
+        maxWaitSecondsWarning: 5
+      webNg:
+        scrapeDownFor: 5m
+        restartWindow: 15m
+        restartWarning: 1
+  grafana:
+    dashboards:
+      enabled: true
+      labels:
+        grafana_dashboard: "1"
+      annotations: {}
+      folder: ServiceRadar
 
 trapd:
   replicaCount: 3

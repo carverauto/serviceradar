@@ -36,6 +36,8 @@ metadata:
   name: serviceradar-flow-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-flow-collector
+    app.kubernetes.io/component: flow-collector
 spec:
   replicas: {{ .Values.flowCollector.replicaCount | default 1 }}
   selector:

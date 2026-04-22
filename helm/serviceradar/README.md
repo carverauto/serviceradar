@@ -91,10 +91,48 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `cnpg.pooler.monitoring.podMonitor.enabled` | Create a Prometheus Operator PodMonitor for PgBouncer metrics | `false` |
 | `cnpg.pooler.route.core` | Route core runtime database traffic through the pooler when enabled | `true` |
 | `cnpg.pooler.route.webNg` | Route web-ng runtime database traffic through the pooler when enabled | `true` |
+| `observability.enabled` | Render the ServiceRadar Prometheus/Grafana observability bundle | `false` |
+| `observability.prometheus.serviceMonitors.enabled` | Create Prometheus Operator ServiceMonitors for scrapeable ServiceRadar services | `true` |
+| `observability.prometheus.serviceMonitors.targets.webNg.enabled` | Scrape web-ng `/metrics` through the `serviceradar-web-ng` service | `true` |
+| `observability.prometheus.rules.enabled` | Create ServiceRadar PrometheusRule groups for scrape, database, and PgBouncer health | `true` |
+| `observability.prometheus.rules.labels` | Extra labels for Prometheus rule discovery, for example `release: kube-prom` | `{}` |
+| `observability.grafana.dashboards.enabled` | Create Grafana dashboard ConfigMaps for the ServiceRadar dashboard folder | `true` |
+| `observability.grafana.dashboards.labels` | Grafana sidecar discovery labels for dashboard ConfigMaps | `grafana_dashboard: "1"` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `false` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
 | `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Set this explicitly when the agent gateway is exposed on a different host than the web ingress. Otherwise it defaults to `ingress.host:50052` when set, or the in-cluster service. | `""` |
+
+### ServiceRadar Observability Bundle
+
+The `observability` values tree provisions Prometheus Operator resources and Grafana dashboards for Kubernetes installs. It intentionally renders scrape targets only for endpoints that are known to expose Prometheus format. At the moment this includes web-ng `/metrics`, CNPG PodMonitor metrics, and the CNPG PgBouncer Pooler PodMonitor when the pooler is enabled. Core currently advertises a `metrics` service port in the chart but does not listen on that port in demo, so it is not scraped by default until that exporter is implemented.
+
+The bundled Grafana dashboards are stored under `helm/serviceradar/dashboards/` and are published as ConfigMaps with configurable sidecar labels. kube-prometheus-stack defaults work with:
+
+```yaml
+observability:
+  enabled: true
+  prometheus:
+    rules:
+      labels:
+        release: kube-prom
+  grafana:
+    dashboards:
+      labels:
+        grafana_dashboard: "1"
+```
+
+Initial scrape inventory:
+
+| Component | Prometheus coverage | Notes |
+|-----------|---------------------|-------|
+| web-ng | `ServiceMonitor/serviceradar-web-ng` | Scrapes `/metrics` on the existing HTTP service. |
+| CNPG | CNPG-managed `PodMonitor` | Enabled through the CNPG cluster monitoring flag. |
+| PgBouncer | `cnpg.pooler.monitoring.podMonitor.enabled` | Scrapes CloudNativePG Pooler metrics on port `metrics`. |
+| flow-collector | Optional `ServiceMonitor` | Rendered only when `flowCollector.service.ports.metrics.enabled=true`. Disabled in demo until the metrics listener is enabled. |
+| core-elx | Not scraped by default | The chart has a `metrics` service port, but demo currently has no listener on port 9090. |
+| NATS | Not scraped by default | NATS exposes JSON monitoring on 8222; add a NATS Prometheus exporter before scraping it as Prometheus metrics. |
+| log-collector, trapd, BMP collector, db-event-writer, datasvc, zen, agent, agent-gateway | Not scraped by default | No confirmed Prometheus metrics endpoint is exposed by the chart today. Add exporters before enabling scrape targets. |
 
 ### HA And JetStream Sizing
 
