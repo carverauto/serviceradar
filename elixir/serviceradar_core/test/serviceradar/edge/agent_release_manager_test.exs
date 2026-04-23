@@ -245,6 +245,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       |> Ash.read_one!(actor: actor)
 
     assert target.status == :pending
+    assert target.command_id == nil
+    assert target.last_status_message == "waiting for agent control stream"
+    assert target.last_error == "agent control stream is offline for #{agent_id}"
 
     {_pid, _metadata} = start_control_session(agent_id, self())
 

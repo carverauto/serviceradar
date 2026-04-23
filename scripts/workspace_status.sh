@@ -18,6 +18,10 @@ function remove_url_credentials() {
 
 function emit_agent_release_public_key() {
   local key="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}"
+  local key_file="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY_FILE:-.bazel-agent-release-public-key}"
+  if [[ -z "${key}" && -f "${key_file}" ]]; then
+    key="$(tr -d '\r\n' < "${key_file}")"
+  fi
   if [[ -n "${key}" ]]; then
     echo "STABLE_AGENT_RELEASE_PUBLIC_KEY ${key}"
   fi
