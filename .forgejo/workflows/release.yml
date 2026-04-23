@@ -237,7 +237,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Derive managed agent release public key
-        if: ${{ env.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY != '' }}
         env:
           SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
         run: |
@@ -247,6 +246,7 @@ jobs:
             echo "derived managed agent release public key is empty" >&2
             exit 1
           fi
+          printf '%s\n' "${public_key}" > .bazel-agent-release-public-key
           echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
 
       - name: Generate release notes from CHANGELOG
@@ -331,6 +331,9 @@ jobs:
             echo "No Kubernetes service account token and no runner-provided Vault signing env; cannot sign OCI images." >&2
             exit 1
           fi
+
+      - name: Verify managed agent release key stamp
+        run: ./scripts/verify-agent-release-key-stamp.sh --config=remote -c opt
 
       - name: Publish container images
         env:

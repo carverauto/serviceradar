@@ -204,12 +204,28 @@ jobs:
             exit 1
           fi
 
+      - name: Derive managed agent release public key
+        env:
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          public_key="$(go run ./tools/go/derive_agent_release_public_key)"
+          if [[ -z "${public_key}" ]]; then
+            echo "derived managed agent release public key is empty" >&2
+            exit 1
+          fi
+          printf '%s\n' "${public_key}" > .bazel-agent-release-public-key
+          echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
+
       - name: Build (no publish)
         run: |
           bazel build \
             --config=remote \
             -c opt \
             //:images
+
+      - name: Verify managed agent release key stamp
+        run: ./scripts/verify-agent-release-key-stamp.sh --config=remote -c opt
 
       - name: Publish images
         env:
