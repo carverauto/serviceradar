@@ -313,11 +313,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
           actor
         )
 
-      {:error, {:agent_offline, _agent_id}} ->
-        :pending
+      {:error, {:agent_offline, agent_id}} ->
+        mark_target_waiting_for_control_stream(target, actor, {:agent_offline, agent_id})
 
       {:error, :agent_offline} ->
-        :pending
+        mark_target_waiting_for_control_stream(target, actor, :agent_offline)
 
       {:error, reason} ->
         mark_target_status(
@@ -327,6 +327,21 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
           actor
         )
     end
+  end
+
+  defp mark_target_waiting_for_control_stream(target, actor, reason) do
+    _ =
+      mark_target_status(
+        target,
+        :pending,
+        %{
+          last_status_message: "waiting for agent control stream",
+          last_error: normalize_reason(reason)
+        },
+        actor
+      )
+
+    :pending
   end
 
   defp dispatch_release_command(target, rollout, release, artifact, agent, actor) do
@@ -772,6 +787,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp normalize_reason(:artifact_not_mirrored),
     do: "release artifact is not mirrored into internal storage"
+
+  defp normalize_reason({:agent_offline, agent_id}),
+    do: "agent control stream is offline for #{agent_id}"
+
+  defp normalize_reason(:agent_offline), do: "agent control stream is offline"
 
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)

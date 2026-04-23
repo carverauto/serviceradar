@@ -78,7 +78,40 @@ func TestStageAgentReleaseRejectsInvalidSignature(t *testing.T) {
 	}
 }
 
-func TestStageAgentReleaseIgnoresEnvironmentVerificationKeyOverride(t *testing.T) {
+func TestStageAgentReleaseUsesEnvironmentVerificationKeyFallback(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+
+	originalKey := ReleaseSigningPublicKey
+	ReleaseSigningPublicKey = ""
+	t.Setenv("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(publicKey))
+	t.Cleanup(func() {
+		ReleaseSigningPublicKey = originalKey
+	})
+
+	payload := signedReleasePayloadWithSigner(t, binaryData, releaseArtifactPayload{
+		URL:    server.URL + "/serviceradar-agent",
+		SHA256: digestHex(binaryData),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+	}, privateKey)
+
+	_, err = stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if err != nil {
+		t.Fatalf("expected env verification key fallback to verify release, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseEmbeddedVerificationKeyWinsOverEnvironment(t *testing.T) {
 	binaryData := []byte("binary")
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()

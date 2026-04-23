@@ -52,6 +52,7 @@ const (
 	releaseDefaultEntrypoint         = "serviceradar-agent"
 	releaseArtifactFormatTarGz       = "tar.gz"
 	releaseArtifactMaxBytes    int64 = 256 * 1024 * 1024
+	releasePublicKeyEnv              = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 )
 
 var (
@@ -365,6 +366,9 @@ func verifyReleaseManifestSignature(manifestJSON []byte, signature string) error
 
 func releaseVerificationKey() (ed25519.PublicKey, error) {
 	keyValue := strings.TrimSpace(ReleaseSigningPublicKey)
+	if keyValue == "" {
+		keyValue = strings.TrimSpace(os.Getenv(releasePublicKeyEnv))
+	}
 	if keyValue == "" {
 		return nil, errReleaseVerificationKeyUnset
 	}
