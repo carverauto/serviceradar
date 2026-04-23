@@ -836,6 +836,7 @@ flowCollector:
     annotations: {}
     loadBalancerIP: ""
     externalTrafficPolicy: Cluster
+    sessionAffinity: None
     ports:
       netflow:
         enabled: true

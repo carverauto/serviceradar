@@ -125,10 +125,10 @@ defmodule ServiceRadar.Graph do
   defp query_age(repo, graph, cypher, mode) do
     graph
     |> candidate_sqls(cypher, mode)
-    |> Enum.reduce_while(nil, fn sql, _last_error ->
+    |> Enum.reduce_while(nil, fn sql, first_error ->
       case repo.query(sql, [], prepare: :unnamed) do
         {:ok, _} = result -> {:halt, result}
-        {:error, reason} -> {:cont, {:error, reason}}
+        {:error, reason} -> {:cont, first_error || {:error, reason}}
       end
     end)
     |> case do
@@ -156,12 +156,10 @@ defmodule ServiceRadar.Graph do
   defp quoted_cypher(cypher, :single), do: sql_literal(cypher)
 
   defp candidate_sqls(graph, cypher, mode) do
-    # Some AGE builds oscillate between accepting dollar-quoted and single-quoted
-    # cstring forms across connections. Try a short alternating sequence and
-    # return the first success.
-    [:dollar, :single, :dollar, :single]
-    |> Enum.map(&cypher_sql(graph, cypher, mode, &1))
-    |> Enum.uniq()
+    # AGE requires a dollar-quoted Cypher literal in normal deployments. Retry
+    # that form before falling back to single-quoted compatibility mode so
+    # transient DB errors don't get masked by a deterministic syntax error.
+    Enum.map([:dollar, :dollar, :single], &cypher_sql(graph, cypher, mode, &1))
   end
 
   # Parse agtype text results into Elixir values

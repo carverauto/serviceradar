@@ -41,6 +41,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @default_rdns_timeout_ms 250
   @default_ipinfo_timeout_ms 800
   @default_reschedule_seconds 300
+  @default_stale_executing_minutes 60
 
   @doc """
   Schedules enrichment refresh if not already scheduled.
@@ -48,6 +49,8 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
+      reap_stale_executing_jobs()
+
       if check_existing_job() do
         {:ok, :already_scheduled}
       else
@@ -67,6 +70,53 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
       )
 
     Repo.exists?(query, prefix: ObanSupport.prefix())
+  end
+
+  defp reap_stale_executing_jobs do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    stale_minutes =
+      Keyword.get(config, :stale_executing_minutes, @default_stale_executing_minutes)
+
+    cutoff = DateTime.add(DateTime.utc_now(), -max(stale_minutes, 1) * 60, :second)
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state == "executing",
+        where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff
+      )
+
+    case Repo.update_all(
+           query,
+           [
+             set: [
+               state: "available",
+               attempted_at: nil,
+               attempted_by: [],
+               scheduled_at: DateTime.utc_now()
+             ]
+           ],
+           prefix: ObanSupport.prefix()
+         ) do
+      {0, _} ->
+        :ok
+
+      {count, _} ->
+        Logger.warning("IpEnrichmentRefreshWorker: rescued stale executing jobs",
+          count: count,
+          stale_executing_minutes: stale_minutes
+        )
+
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning("IpEnrichmentRefreshWorker: failed to reap stale executing jobs",
+        reason: inspect(error)
+      )
+
+      :ok
   end
 
   @impl Oban.Worker

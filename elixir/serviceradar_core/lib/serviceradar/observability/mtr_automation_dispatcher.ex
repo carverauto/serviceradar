@@ -511,7 +511,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp device_to_target_ctx(device) do
     target_ip = blank_to_nil(device.ip)
-    target = blank_to_nil(device.hostname) || target_ip
+    target = target_ip || blank_to_nil(device.hostname)
     device_uid = blank_to_nil(device.uid)
 
     %{
@@ -526,7 +526,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   defp row_to_target_ctx(row) when is_map(row) do
     target_ip = row_value(row, ["ip", "target_ip"])
-    target = blank_to_nil(Map.get(row, "hostname")) || target_ip
+    target = target_ip || blank_to_nil(Map.get(row, "hostname"))
     device_uid = row_value(row, ["uid", "device_uid", "id"])
     partition_id = normalize_partition(row_value(row, ["partition_id", "partition"]))
     gateway_id = blank_to_nil(Map.get(row, "gateway_id"))

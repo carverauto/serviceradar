@@ -37,6 +37,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_netflow_window "last_1h"
   @default_netflow_limit 50
   @max_netflow_limit 200
+  @netflow_sankey_query_limit 200
+  @netflow_sankey_max_edges 40
+  @netflow_sankey_max_sources 10
+  @netflow_sankey_max_mids 8
+  @netflow_sankey_max_dests 10
   @default_netflow_stack_mode "ports"
 
   @impl true
@@ -725,21 +730,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     dst_port = to_int(netflow_port(flow, :dst))
 
     %{
-      mapbox: read_mapbox(user),
-      src_rdns: read_rdns(user, src_ip),
-      dst_rdns: read_rdns(user, dst_ip),
-      src_geo: read_geo(user, src_ip),
-      dst_geo: read_geo(user, dst_ip),
-      src_ipinfo: read_ipinfo(user, src_ip),
-      dst_ipinfo: read_ipinfo(user, dst_ip),
-      src_threat: read_threat(user, src_ip),
-      dst_threat: read_threat(user, dst_ip),
-      src_port_scan: read_port_scan(user, src_ip),
-      dst_port_anomaly: read_port_anomaly(user, dst_port)
+      mapbox: safe_netflow_context_value(:mapbox, fn -> read_mapbox(user) end),
+      src_rdns: safe_netflow_context_value(:src_rdns, fn -> read_rdns(user, src_ip) end),
+      dst_rdns: safe_netflow_context_value(:dst_rdns, fn -> read_rdns(user, dst_ip) end),
+      src_geo: safe_netflow_context_value(:src_geo, fn -> read_geo(user, src_ip) end),
+      dst_geo: safe_netflow_context_value(:dst_geo, fn -> read_geo(user, dst_ip) end),
+      src_ipinfo: safe_netflow_context_value(:src_ipinfo, fn -> read_ipinfo(user, src_ip) end),
+      dst_ipinfo: safe_netflow_context_value(:dst_ipinfo, fn -> read_ipinfo(user, dst_ip) end),
+      src_threat: safe_netflow_context_value(:src_threat, fn -> read_threat(user, src_ip) end),
+      dst_threat: safe_netflow_context_value(:dst_threat, fn -> read_threat(user, dst_ip) end),
+      src_port_scan: safe_netflow_context_value(:src_port_scan, fn -> read_port_scan(user, src_ip) end),
+      dst_port_anomaly: safe_netflow_context_value(:dst_port_anomaly, fn -> read_port_anomaly(user, dst_port) end)
     }
   end
 
   defp load_netflow_context(_flow, _scope), do: %{}
+
+  defp safe_netflow_context_value(key, fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    error ->
+      Logger.debug("Failed to load netflow context value",
+        key: key,
+        reason: inspect(error)
+      )
+
+      nil
+  catch
+    kind, reason ->
+      Logger.debug("Failed to load netflow context value",
+        key: key,
+        reason: inspect({kind, reason})
+      )
+
+      nil
+  end
 
   defp read_rdns(nil, _ip), do: nil
 
@@ -1971,7 +1996,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3 lg:col-span-2">
           <div class="flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">
-              Traffic Sankey (Top Edges)
+              Traffic Sankey (Top 40 Edges)
             </div>
             <div class="text-[10px] font-mono text-base-content/60">
               src:/{@sankey_prefix} -> port -> dst:/{@sankey_prefix}
@@ -4683,8 +4708,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
                 <%= if @mapbox && @mapbox.enabled &&
                       is_binary(Map.get(@mapbox, :access_token)) &&
-                      String.trim(Map.get(@mapbox, :access_token)) != "" &&
-                      @map_markers != [] do %>
+                      String.trim(Map.get(@mapbox, :access_token)) != "" do %>
                   <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
                     <div
                       id={netflow_map_dom_id(@flow)}
@@ -4703,9 +4727,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                     </div>
                   </div>
+                  <div class="mt-1 text-xs text-base-content/60">
+                    <%= if @map_markers != [] do %>
+                      Tip: click markers for details.
+                    <% else %>
+                      No GeoIP coordinates available for this flow yet (showing default map).
+                    <% end %>
+                  </div>
                 <% else %>
                   <div class="mt-2 text-sm text-base-content/60">
-                    Mapbox is disabled or no GeoIP coordinates are available for this flow.
+                    Mapbox is disabled or missing an access token.
                   </div>
                 <% end %>
               </div>
@@ -7812,7 +7843,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # SRQL doesn't guarantee support for expression-style group-by like `src_cidr:24` across all backends.
     # To keep Sankey reliable, always group by raw endpoint IPs in SRQL and CIDR-collapse in Elixir.
     ip_query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:200|
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{@netflow_sankey_query_limit}|
 
     rows = srql_stats_rows(srql_module, ip_query, scope, "IP")
 
@@ -7825,7 +7856,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
           e.bytes <= 0
       end)
-      |> Enum.take(200)
+      |> aggregate_netflow_sankey_edges()
+      |> focus_netflow_sankey_edges()
 
     sources = sum_edges_by(edges, :src)
     mids = sum_edges_by(edges, :mid)
@@ -7833,13 +7865,47 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     %{
       edges: edges,
-      sources: sources |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(12),
-      mids: mids |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(12),
-      dests: dests |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(12)
+      sources: sources |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_sources),
+      mids: mids |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_mids),
+      dests: dests |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_dests)
     }
   rescue
     _ ->
       empty_netflow_sankey()
+  end
+
+  defp aggregate_netflow_sankey_edges(edges) when is_list(edges) do
+    edges
+    |> Enum.reduce(%{}, fn edge, acc ->
+      key = {edge.src, edge.mid, edge.port, edge.dst}
+
+      Map.update(acc, key, edge, fn existing ->
+        %{existing | bytes: existing.bytes + edge.bytes}
+      end)
+    end)
+    |> Map.values()
+    |> Enum.sort_by(& &1.bytes, :desc)
+  end
+
+  defp focus_netflow_sankey_edges(edges) when is_list(edges) do
+    top_sources = top_sankey_keys(edges, :src, @netflow_sankey_max_sources)
+    top_mids = top_sankey_keys(edges, :mid, @netflow_sankey_max_mids)
+    top_dests = top_sankey_keys(edges, :dst, @netflow_sankey_max_dests)
+
+    edges
+    |> Enum.filter(fn edge ->
+      MapSet.member?(top_sources, edge.src) and MapSet.member?(top_mids, edge.mid) and
+        MapSet.member?(top_dests, edge.dst)
+    end)
+    |> Enum.take(@netflow_sankey_max_edges)
+  end
+
+  defp top_sankey_keys(edges, key, limit) when is_list(edges) and is_atom(key) do
+    edges
+    |> sum_edges_by(key)
+    |> Enum.sort_by(fn {_value, bytes} -> -bytes end)
+    |> Enum.take(limit)
+    |> MapSet.new(fn {value, _bytes} -> value end)
   end
 
   defp srql_stats_rows(srql_module, query, scope, label) when is_binary(query) and is_binary(label) do

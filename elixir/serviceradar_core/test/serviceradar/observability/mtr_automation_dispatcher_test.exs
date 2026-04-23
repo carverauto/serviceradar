@@ -92,7 +92,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
 
       assert targets == [
                %{
-                 target: "edge-01",
+                 target: "192.0.2.10",
                  target_ip: "192.0.2.10",
                  target_device_uid: "dev-1",
                  partition_id: "p1",
@@ -159,7 +159,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
 
       assert targets == [
                %{
-                 target: "edge-01",
+                 target: "192.0.2.10",
                  target_ip: "192.0.2.10",
                  target_device_uid: "dev-1",
                  partition_id: "p1",
@@ -167,7 +167,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
                  target_key: "device:dev-1"
                },
                %{
-                 target: "edge-02",
+                 target: "192.0.2.11",
                  target_ip: "192.0.2.11",
                  target_device_uid: "p2-dev-2",
                  partition_id: "p2",

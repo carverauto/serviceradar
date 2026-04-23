@@ -13,6 +13,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentReleaseManager
+  alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
@@ -21,6 +22,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   require Ash.Query
   require Logger
+
+  @terminal_release_target_statuses [:healthy, :failed, :rolled_back, :canceled]
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -381,8 +384,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:ok, agents} ->
         agents
         |> Enum.reject(&(&1.uid == agent_id))
-        |> Enum.filter(&(canonicalize_agent_uid(&1.uid) == canonical_agent_id))
-        |> Enum.filter(&matching_source?(&1, source_ip))
+        |> Enum.filter(fn agent ->
+          canonicalize_agent_uid(agent.uid) == canonical_agent_id or
+            matching_source?(agent, source_ip)
+        end)
         |> Enum.each(&mark_agent_superseded(&1, agent_id, actor))
 
       {:error, reason} ->
@@ -403,7 +408,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     case agent
          |> Ash.Changeset.for_update(:mark_unavailable, %{reason: reason})
          |> Ash.update(actor: actor) do
-      {:ok, _updated} ->
+      {:ok, updated} ->
+        cancel_superseded_release_targets(agent.uid, replacement_agent_id, actor)
+        mark_superseded_release_state(updated, actor)
+
         Logger.info(
           "Marked superseded agent #{agent.uid} unavailable in favor of #{replacement_agent_id}"
         )
@@ -416,6 +424,49 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         )
 
         :ok
+    end
+  end
+
+  defp mark_superseded_release_state(agent, actor) do
+    _ =
+      agent
+      |> Ash.Changeset.for_update(:update_release_status, %{
+        release_rollout_state: :canceled,
+        last_update_at: DateTime.utc_now(),
+        last_update_error: "agent_superseded"
+      })
+      |> Ash.update(actor: actor)
+
+    :ok
+  end
+
+  defp cancel_superseded_release_targets(agent_id, replacement_agent_id, actor) do
+    AgentReleaseTarget
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(
+      expr(agent_id == ^agent_id and status not in ^@terminal_release_target_statuses)
+    )
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, targets} ->
+        Enum.each(targets, fn target ->
+          _ =
+            AgentReleaseTarget.set_status(
+              target,
+              %{
+                status: :canceled,
+                last_status_message: "superseded by #{replacement_agent_id}",
+                last_error: "agent_superseded",
+                completed_at: DateTime.utc_now()
+              },
+              actor: actor
+            )
+        end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to cancel release targets for superseded agent #{agent_id}: #{inspect(reason)}"
+        )
     end
   end
 
