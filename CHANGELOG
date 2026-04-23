@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.24
+
+Managed agent release verification and rollout recovery fixes needed to restore package-managed upgrades for agents that missed the embedded release verification key.
+
+## Whats New
+
+**1.2.24**
+- Added an agent-side fallback to read `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` when an older or locally installed binary has no embedded release verification key, allowing package-managed agents with the environment override to verify signed managed releases.
+- Hardened release and OCI image workflows so the managed agent release public key is derived from the signing secret, stamped into Bazel workspace status, verified in the release-style agent binary, and fails CI instead of silently publishing unstamped artifacts.
+- Improved managed rollout recovery when an agent has no active control stream by keeping the target pending with an actionable waiting status and reconciling pending releases when agents reconnect or report status.
+
 # ServiceRadar v1.2.23
 
 Camera relay stability fixes for Envoy/Gateway API deployments and agent control stream reconnect hardening needed to keep browser streams available after gateway rollouts and edge connection churn.
