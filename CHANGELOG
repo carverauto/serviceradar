@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.25
+
+Agent reenrollment cleanup, automated MTR/IP enrichment hardening, and flow observability fixes needed to keep stale agents from blocking rollouts while making diagnostics and device-level flow drilldowns behave predictably.
+
+## Whats New
+
+**1.2.25**
+- Hardened package-managed agent release activation to accept valid runtime-local absolute symlink targets, fixing rollout failures on hosts that had been manually repaired or installed with absolute `current` release links.
+- Marked superseded reenrolled agents unavailable and canceled their non-terminal rollout targets so renamed or replaced agents stop lingering as pending/offline rollout noise in the UI and control plane.
+- Fixed automated MTR target selection to prefer device IPs over hostnames when an IP is known, preventing baseline and manual bulk runs from failing solely because an agent host cannot resolve inventory hostnames locally.
+- Fixed the IP enrichment stale-job reap path in `core` so the scheduler no longer logs a warning every minute due to an invalid `Repo.update_all/3` call shape.
+- Improved flow observability UX by fixing device flow protocol drilldowns, reducing Sankey noise, and tightening flow-detail query handoff so device pages and observability views stay aligned.
+- Updated the demo flow collector service defaults to keep external NetFlow/IPFIX traffic pinned to a single collector replica with client IP affinity until shared template state or proper collector sharding is implemented.
+- Added AGE graph retry coverage and related graph/query resiliency fixes to reduce transient graph-backed failures in observability paths.
+
 # ServiceRadar v1.2.24
 
 Managed agent release verification and rollout recovery fixes needed to restore package-managed upgrades for agents that missed the embedded release verification key.
