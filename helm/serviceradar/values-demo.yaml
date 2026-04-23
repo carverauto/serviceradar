@@ -474,7 +474,10 @@ flowgger:
 
 flowCollector:
   enabled: true
-  replicaCount: 3
+  # IPFIX/NetFlow v9 templates are stateful per collector process. Keep the
+  # external UDP ingress single-replica until collector-side exporter sharding
+  # or shared template state is implemented.
+  replicaCount: 1
   # flow-collector also reconciles the shared events stream.
   streamReplicas: 3
   config:
@@ -489,6 +492,10 @@ flowCollector:
       metallb.universe.tf/address-pool: k3s-pool
     loadBalancerIP: "23.138.124.25"
     externalTrafficPolicy: Local
+    sessionAffinity: ClientIP
+    sessionAffinityConfig:
+      clientIP:
+        timeoutSeconds: 10800
     ports:
       netflow:
         enabled: true

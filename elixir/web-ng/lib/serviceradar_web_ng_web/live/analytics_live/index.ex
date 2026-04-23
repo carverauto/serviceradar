@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
      |> assign(:page_title, "Analytics")
      |> assign(:srql, srql)
      |> assign(:loading, true)
+     |> assign(:refreshing, false)
+     |> assign(:analytics_loaded?, false)
      |> assign(:error, nil)
      |> assign(:refreshed_at, nil)
      |> assign(:stats, %{})
@@ -47,14 +49,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   @impl true
   def handle_params(_params, _uri, socket) do
     send(self(), :load_analytics)
-    {:noreply, assign(socket, :loading, true)}
+    {:noreply, mark_analytics_loading(socket)}
   end
 
   @impl true
   def handle_info(:refresh_data, socket) do
     schedule_refresh()
     send(self(), :load_analytics)
-    {:noreply, assign(socket, :loading, true)}
+    {:noreply, mark_analytics_loading(socket)}
   end
 
   def handle_info(:load_analytics, socket) do
@@ -68,6 +70,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp schedule_refresh do
     Process.send_after(self(), :refresh_data, @refresh_interval_ms)
+  end
+
+  defp mark_analytics_loading(socket) do
+    if Map.get(socket.assigns, :analytics_loaded?, false) do
+      assign(socket, :refreshing, true)
+    else
+      assign(socket, :loading, true)
+    end
   end
 
   # Query the continuous aggregation for efficient pre-computed stats
@@ -306,6 +316,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> assign(:refreshed_at, DateTime.utc_now())
     |> assign(:error, error)
     |> assign(:loading, false)
+    |> assign(:refreshing, false)
+    |> assign(:analytics_loaded?, true)
   end
 
   defp run_named_tasks(tasks) when is_list(tasks) do
@@ -949,7 +961,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
-          <span :if={@loading} class="loading loading-spinner loading-xs" />
+          <span :if={@loading or @refreshing} class="loading loading-spinner loading-xs" />
           <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
             Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
           </span>

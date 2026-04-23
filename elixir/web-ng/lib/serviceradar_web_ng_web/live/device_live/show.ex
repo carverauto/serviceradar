@@ -1411,7 +1411,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   @allowed_flow_filter_fields ~w(
     src_endpoint_ip dst_endpoint_ip dst_endpoint_port protocol_name
-    protocol_group direction_label dst_service_label app sampler_address
+    protocol_group protocol_num proto direction_label dst_service_label app sampler_address
     src_port dst_port
   )
 
@@ -2025,7 +2025,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tasks = [
       Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
       Task.async(fn ->
-        {:protocols, load_device_flow_top_n(srql_mod, scope, base, "protocol_name")}
+        {:protocols, load_device_flow_protocols(srql_mod, scope, base)}
       end),
       Task.async(fn ->
         {:talkers, load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")}
@@ -2081,7 +2081,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     facets = %{
       protocols:
         Enum.map(protocols, fn row ->
-          %{label: row[:name] || "unknown", value: row[:bytes] || 0}
+          %{
+            label: row[:name] || "unknown",
+            value: row[:bytes] || 0,
+            filter_value: row[:filter_value] || row[:name] || "unknown"
+          }
         end),
       directions:
         Enum.map(directions, fn row ->
@@ -2133,6 +2137,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       %{
         name: flow_stat_field(p, group_field),
+        bytes: flow_stat_number(p, "bytes_total")
+      }
+    end)
+  end
+
+  defp load_device_flow_protocols(srql_mod, scope, base) do
+    query =
+      ~s|#{base} stats:"sum(bytes_total) as bytes_total by protocol_num, protocol_name" sort:bytes_total:desc limit:5|
+
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(fn row ->
+      p = row_payload(row)
+      protocol_num = flow_stat_field(p, "protocol_num")
+      protocol_name = flow_stat_field(p, "protocol_name")
+
+      %{
+        name: protocol_label(protocol_num, protocol_name),
+        filter_value: protocol_filter_value(protocol_num, protocol_name),
         bytes: flow_stat_number(p, "bytes_total")
       }
     end)
@@ -2196,9 +2219,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp encode_top_n(rows) do
     rows
     |> Enum.take(5)
-    |> Enum.map(fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end)
+    |> Enum.map(fn row ->
+      %{
+        label: row[:name] || "unknown",
+        value: row[:bytes] || 0,
+        filter_value: row[:filter_value] || row[:name] || "unknown"
+      }
+    end)
     |> Jason.encode!()
   end
+
+  defp protocol_label(protocol_num, protocol_name) do
+    case parse_protocol_num(protocol_num) do
+      1 -> "ICMP"
+      6 -> "TCP"
+      17 -> "UDP"
+      47 -> "GRE"
+      50 -> "ESP"
+      51 -> "AH"
+      58 -> "ICMPv6"
+      89 -> "OSPF"
+      132 -> "SCTP"
+      n when is_integer(n) -> normalized_protocol_name(protocol_name) || "proto #{n}"
+      nil -> normalized_protocol_name(protocol_name) || "unknown"
+    end
+  end
+
+  defp protocol_filter_value(protocol_num, protocol_name) do
+    case parse_protocol_num(protocol_num) do
+      n when is_integer(n) -> Integer.to_string(n)
+      nil -> normalized_protocol_name(protocol_name) || "unknown"
+    end
+  end
+
+  defp parse_protocol_num(n) when is_integer(n), do: n
+
+  defp parse_protocol_num(n) when is_binary(n) do
+    case Integer.parse(String.trim(n)) do
+      {value, ""} -> value
+      _ -> nil
+    end
+  end
+
+  defp parse_protocol_num(_), do: nil
+
+  defp normalized_protocol_name(name) when is_binary(name) do
+    name = String.trim(name)
+    if name == "", do: nil, else: String.upcase(name)
+  end
+
+  defp normalized_protocol_name(_), do: nil
 
   defp flow_stat_field(payload, key) when is_map(payload) do
     Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))
@@ -4864,7 +4934,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           title="Top Protocols"
           icon="hero-signal"
           items_json={@top_protocols_json}
-          filter_field="protocol_name"
+          filter_field="proto"
         />
       </div>
 
@@ -4901,7 +4971,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <.facet_group
             :if={@facets.protocols != []}
             label="Protocol"
-            field="protocol_name"
+            field="proto"
             items={@facets.protocols}
             active_facets={@active_facets}
           />
@@ -5066,7 +5136,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       <td class="text-right">
                         <.link
                           navigate={
-                            ~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => flow_drilldown_query(flow)}}"
+                            ~p"/observability/flows?#{%{"open" => "first", "q" => flow_drilldown_query(flow)}}"
                           }
                           class="btn btn-ghost btn-xs"
                         >
@@ -5137,7 +5207,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           class="w-full text-left group"
           phx-click="topn_filter"
           phx-value-field={@filter_field}
-          phx-value-value={item["label"]}
+          phx-value-value={item["filter_value"] || item["label"]}
         >
           <div class="flex items-center justify-between text-xs">
             <span class="font-mono truncate max-w-[60%] group-hover:text-primary transition-colors">
@@ -5179,7 +5249,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         type="button"
         phx-click="facet_toggle"
         phx-value-field={@field}
-        phx-value-value={item.label}
+        phx-value-value={Map.get(item, :filter_value) || item.label}
         class={[
           "badge badge-sm cursor-pointer transition-colors",
           if(@active_value == item.label,
@@ -5363,7 +5433,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp iso2_flag_emoji(_), do: nil
 
-  defp flow_protocol(flow), do: Map.get(flow, "protocol_name") || Map.get(flow, "protocol_num") || "—"
+  defp flow_protocol(flow) do
+    protocol_label(Map.get(flow, "protocol_num"), Map.get(flow, "protocol_name"))
+  end
 
   defp flow_service_label(flow) when is_map(flow) do
     case Map.get(flow, "dst_service_label") do

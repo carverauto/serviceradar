@@ -105,7 +105,7 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 		}
 		return fmt.Errorf("read current release symlink: %w", err)
 	}
-	previousTarget, err = normalizeReleaseSymlinkTarget(previousTarget)
+	previousTarget, err = normalizeExistingReleaseSymlinkTarget(runtimeRoot, previousTarget)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {
 	if strings.TrimSpace(state.PreviousTarget) == "" {
 		return false, errReleaseActivationPreviousTargetMissing
 	}
-	previousTarget, err := normalizeReleaseSymlinkTarget(state.PreviousTarget)
+	previousTarget, err := normalizeExistingReleaseSymlinkTarget(runtimeRoot, state.PreviousTarget)
 	if err != nil {
 		return false, err
 	}
@@ -410,6 +410,26 @@ func normalizeReleaseSymlinkTarget(target string) (string, error) {
 		return "", errReleaseSymlinkTargetInvalid
 	}
 	return clean, nil
+}
+
+func normalizeExistingReleaseSymlinkTarget(runtimeRoot, target string) (string, error) {
+	if filepath.IsAbs(target) {
+		root, err := filepath.Abs(resolveReleaseRuntimeRoot(runtimeRoot))
+		if err != nil {
+			return "", errReleaseSymlinkTargetInvalid
+		}
+		targetAbs, err := filepath.Abs(target)
+		if err != nil {
+			return "", errReleaseSymlinkTargetInvalid
+		}
+		rel, err := filepath.Rel(root, targetAbs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return "", errReleaseSymlinkTargetInvalid
+		}
+		target = rel
+	}
+
+	return normalizeReleaseSymlinkTarget(target)
 }
 
 func writeJSONAtomically(path string, value interface{}) error {

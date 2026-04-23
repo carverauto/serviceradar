@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
+  require Logger
 
   @default_limit 100
   @max_limit 200
@@ -2818,31 +2819,53 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       )
 
     src_device_uid =
-      lookup_device_uid_by_ip_or_mac(srql_module, scope, src_ip, src_mac)
+      safe_flow_context_value(:src_device_uid, fn ->
+        lookup_device_uid_by_ip_or_mac(srql_module, scope, src_ip, src_mac)
+      end)
 
     dst_device_uid =
-      lookup_device_uid_by_ip_or_mac(srql_module, scope, dst_ip, dst_mac)
+      safe_flow_context_value(:dst_device_uid, fn ->
+        lookup_device_uid_by_ip_or_mac(srql_module, scope, dst_ip, dst_mac)
+      end)
 
     %{
-      mapbox: read_mapbox(user),
-      src_rdns: read_rdns(user, src_ip),
-      dst_rdns: read_rdns(user, dst_ip),
-      src_geo: read_geo(user, src_ip),
-      dst_geo: read_geo(user, dst_ip),
-      src_ipinfo: read_ipinfo(user, src_ip),
-      dst_ipinfo: read_ipinfo(user, dst_ip),
-      src_threat: read_threat(user, src_ip),
-      dst_threat: read_threat(user, dst_ip),
-      src_port_scan: read_port_scan(user, src_ip),
-      dst_port_anomaly: read_port_anomaly(user, dst_port),
+      mapbox: safe_flow_context_value(:mapbox, fn -> read_mapbox(user) end),
+      src_rdns: safe_flow_context_value(:src_rdns, fn -> read_rdns(user, src_ip) end),
+      dst_rdns: safe_flow_context_value(:dst_rdns, fn -> read_rdns(user, dst_ip) end),
+      src_geo: safe_flow_context_value(:src_geo, fn -> read_geo(user, src_ip) end),
+      dst_geo: safe_flow_context_value(:dst_geo, fn -> read_geo(user, dst_ip) end),
+      src_ipinfo: safe_flow_context_value(:src_ipinfo, fn -> read_ipinfo(user, src_ip) end),
+      dst_ipinfo: safe_flow_context_value(:dst_ipinfo, fn -> read_ipinfo(user, dst_ip) end),
+      src_threat: safe_flow_context_value(:src_threat, fn -> read_threat(user, src_ip) end),
+      dst_threat: safe_flow_context_value(:dst_threat, fn -> read_threat(user, dst_ip) end),
+      src_port_scan: safe_flow_context_value(:src_port_scan, fn -> read_port_scan(user, src_ip) end),
+      dst_port_anomaly: safe_flow_context_value(:dst_port_anomaly, fn -> read_port_anomaly(user, dst_port) end),
       src_device_uid: src_device_uid,
       dst_device_uid: dst_device_uid
     }
-  rescue
-    _ -> %{}
   end
 
   defp load_flow_context(_flow, _scope), do: %{}
+
+  defp safe_flow_context_value(key, fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    error ->
+      Logger.debug("Failed to load flow context value",
+        key: key,
+        reason: inspect(error)
+      )
+
+      nil
+  catch
+    kind, reason ->
+      Logger.debug("Failed to load flow context value",
+        key: key,
+        reason: inspect({kind, reason})
+      )
+
+      nil
+  end
 
   defp normalize_ip(nil), do: nil
   defp normalize_ip(""), do: nil

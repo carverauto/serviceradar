@@ -203,6 +203,13 @@ spec:
   {{- with .Values.flowCollector.service.externalTrafficPolicy }}
   externalTrafficPolicy: {{ . }}
   {{- end }}
+  {{- with .Values.flowCollector.service.sessionAffinity }}
+  sessionAffinity: {{ . }}
+  {{- end }}
+  {{- with .Values.flowCollector.service.sessionAffinityConfig }}
+  sessionAffinityConfig:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- if .Values.flowCollector.service.loadBalancerIP }}
   loadBalancerIP: {{ .Values.flowCollector.service.loadBalancerIP | quote }}
   {{- end }}

@@ -234,6 +234,44 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert replacement_agent.status == :connected
       assert replacement_agent.device_uid == device_uid
     end
+
+    test "marks older renamed agent unavailable when reenrollment resolves to same device",
+         %{
+           unique_id: unique_id,
+           actor: actor
+         } do
+      old_agent_id = "agent-dusk-#{unique_id}"
+      replacement_agent_id = "agent-dusk01-#{unique_id}"
+      source_ip = "192.168.60.#{rem(unique_id, 200) + 10}"
+
+      attrs = %{
+        hostname: "dusk-#{unique_id}",
+        source_ip: source_ip,
+        partition: "default",
+        capabilities: ["sysmon"]
+      }
+
+      :ok =
+        AgentGatewaySync.upsert_agent(old_agent_id, %{host: source_ip, capabilities: ["sysmon"]})
+
+      {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(old_agent_id, attrs)
+
+      :ok =
+        AgentGatewaySync.upsert_agent(replacement_agent_id, %{
+          host: source_ip,
+          capabilities: ["sysmon"]
+        })
+
+      assert {:ok, ^device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(replacement_agent_id, attrs)
+
+      {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
+      {:ok, replacement_agent} = Agent.get_by_uid(replacement_agent_id, actor: actor)
+
+      assert old_agent.status == :unavailable
+      assert replacement_agent.status == :connected
+      assert replacement_agent.device_uid == device_uid
+    end
   end
 
   describe "upsert_agent/2" do

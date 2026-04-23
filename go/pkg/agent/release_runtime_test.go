@@ -137,6 +137,42 @@ func TestActivateStagedReleaseRejectsUnsafeCurrentTarget(t *testing.T) {
 	}
 }
 
+func TestActivateStagedReleaseAcceptsAbsoluteCurrentTargetUnderRuntimeRoot(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	seedDir := filepath.Join(runtimeRoot, releaseVersionsDirName, releaseSeedVersionDir)
+	nextDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3")
+
+	for _, dir := range []string{seedDir, nextDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.Symlink(seedDir, filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if err := ActivateStagedRelease(ReleaseActivationConfig{
+		RuntimeRoot:      runtimeRoot,
+		Version:          "1.2.3",
+		CommandID:        "cbe886a2-a3be-4f02-b8f9-46f8627cff3f",
+		CommandType:      commandTypeAgentUpdate,
+		RollbackDeadline: time.Minute,
+	}); err != nil {
+		t.Fatalf("ActivateStagedRelease() error = %v", err)
+	}
+
+	state, err := loadReleaseActivationState(runtimeRoot)
+	if err != nil {
+		t.Fatalf("loadReleaseActivationState() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected activation state")
+	}
+	if got, want := state.PreviousTarget, filepath.Join(releaseVersionsDirName, releaseSeedVersionDir); got != want {
+		t.Fatalf("previous target = %q, want %q", got, want)
+	}
+}
+
 func TestRollbackReleaseActivationRejectsUnsafePreviousTarget(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	reportPath := filepath.Join(runtimeRoot, releaseActivationState)
