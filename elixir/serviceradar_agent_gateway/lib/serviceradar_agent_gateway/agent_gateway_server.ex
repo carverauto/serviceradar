@@ -243,6 +243,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Record metrics
     record_push_metrics(agent_id, processed_count)
+    reconcile_agent_release(agent_id)
 
     %Monitoring.GatewayStatusResponse{received: true}
   end
@@ -1135,6 +1136,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     if chunk.is_final do
       validate_final_chunk!(chunk_index, pinned_total_chunks)
       record_push_metrics(agent_id, total_services)
+      reconcile_agent_release(agent_id)
 
       {:halt,
        %{
@@ -1207,7 +1209,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     case ControlStreamSession.register(session, agent_id, partition_id, capabilities) do
       :ok ->
         Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")
-        _ = core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
+        reconcile_agent_release(agent_id)
 
         session
 
@@ -1224,4 +1226,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp control_session_pid({:ready, session}), do: session
   defp control_session_pid({:awaiting_hello, _}), do: nil
+
+  defp reconcile_agent_release(agent_id) do
+    _ = core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
+    :ok
+  end
 end
