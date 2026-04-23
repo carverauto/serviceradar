@@ -1074,9 +1074,9 @@ http_file(
 
 http_file(
     name = "alpine_libcap2_apk",
-    sha256 = "38e69c9b966e0db15915c107a01c46cb6f0758fe0ef92001d40fc3987e06b74d",
+    sha256 = "8ec50cd7887f19c6936dd25a48796c5aa60dec019809b7813f9173aecabd1b43",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libcap2-2.70-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libcap2-2.78-r0.apk",
     ],
 )
 
