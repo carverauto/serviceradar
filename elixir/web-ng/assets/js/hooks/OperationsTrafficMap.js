@@ -1,5 +1,5 @@
 import {COORDINATE_SYSTEM, Deck, OrthographicView} from "@deck.gl/core"
-import {ArcLayer, LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {ArcLayer, LineLayer, PolygonLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
 const BASE_GRID_LINES = buildGridLines()
@@ -278,11 +278,15 @@ export default {
     this.mapView = "topology_traffic"
     this.time = 0
     this._tick = this._tick.bind(this)
+    this._resizeDeck = this._resizeDeck.bind(this)
     this._onMapViewChange = this._onMapViewChange.bind(this)
     this._onExternalMapViewChange = this._onExternalMapViewChange.bind(this)
     document.addEventListener("change", this._onMapViewChange)
     window.addEventListener("serviceradar:dashboard-map-view", this._onExternalMapViewChange)
     this._initDeck()
+    this.resizeObserver = new ResizeObserver(this._resizeDeck)
+    this.resizeObserver.observe(this.el.parentElement || this.el)
+    this._resizeDeck()
     this._syncData()
     this._tick()
   },
@@ -294,6 +298,7 @@ export default {
   destroyed() {
     document.removeEventListener("change", this._onMapViewChange)
     window.removeEventListener("serviceradar:dashboard-map-view", this._onExternalMapViewChange)
+    this.resizeObserver?.disconnect()
     if (this.frame) cancelAnimationFrame(this.frame)
     this.deck?.finalize()
     this.deck = null
@@ -315,8 +320,12 @@ export default {
   },
 
   _initDeck() {
+    const {width, height} = this._deckSize()
+
     this.deck = new Deck({
       canvas: this.el,
+      width,
+      height,
       views: new OrthographicView({id: "ops-traffic-view", flipY: false}),
       initialViewState: {
         target: [0, 0, 0],
@@ -334,6 +343,21 @@ export default {
       getTooltip: () => null,
       layers: this._layers(),
     })
+  },
+
+  _deckSize() {
+    const parent = this.el.parentElement || this.el
+    return {
+      width: Math.max(320, Math.floor(parent.clientWidth || this.el.clientWidth || 0)),
+      height: Math.max(180, Math.floor(parent.clientHeight || this.el.clientHeight || 0)),
+    }
+  },
+
+  _resizeDeck() {
+    if (!this.deck) return
+    const {width, height} = this._deckSize()
+    this.deck.setProps({width, height})
+    this.deck.redraw(true)
   },
 
   _syncData() {
@@ -369,6 +393,16 @@ export default {
         : `${this.topologyLinks.length} topology links / ${this.links.length} flow paths`
 
     return [
+      new PolygonLayer({
+        id: "ops-map-background",
+        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        data: [{polygon: [[-180, -90], [180, -90], [180, 90], [-180, 90]]}],
+        getPolygon: (d) => d.polygon,
+        getFillColor: [2, 8, 23, 255],
+        stroked: false,
+        filled: true,
+        pickable: false,
+      }),
       new LineLayer({
         id: "ops-map-grid",
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
