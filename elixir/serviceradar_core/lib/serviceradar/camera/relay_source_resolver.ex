@@ -32,7 +32,8 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
        |> put_if_missing(:source_url, sanitize_source_url(source_url))
        |> put_if_missing(:rtsp_transport, field(profile, :rtsp_transport))
        |> put_if_missing(:codec_hint, field(profile, :codec_hint))
-       |> put_if_missing(:container_hint, field(profile, :container_hint))}
+       |> put_if_missing(:container_hint, field(profile, :container_hint))
+       |> put_if_missing(:insecure_skip_verify, insecure_skip_verify(profile))}
     end
   end
 
@@ -93,6 +94,29 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   defp field(nil, _key), do: nil
   defp field(value, key) when is_map(value), do: Map.get(value, key)
   defp field(_value, _key), do: nil
+
+  defp insecure_skip_verify(profile) do
+    if truthy?(field(profile, :insecure_skip_verify)) or
+         truthy?(metadata_value(profile, "insecure_skip_verify")) or
+         truthy?(profile |> field(:camera_source) |> metadata_value("insecure_skip_verify")) do
+      true
+    end
+  end
+
+  defp metadata_value(value, key) do
+    value
+    |> field(:metadata)
+    |> case do
+      metadata when is_map(metadata) -> Map.get(metadata, key) || Map.get(metadata, :insecure_skip_verify)
+      _metadata -> nil
+    end
+  end
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?("1"), do: true
+  defp truthy?(1), do: true
+  defp truthy?(_value), do: false
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(nil), do: false

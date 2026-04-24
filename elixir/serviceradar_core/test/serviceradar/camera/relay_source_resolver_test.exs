@@ -38,6 +38,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolverTest do
            rtsp_transport: "tcp",
            codec_hint: "h264",
            container_hint: "annexb",
+           metadata: %{"insecure_skip_verify" => true},
            camera_source: %{source_url: "rtsp://camera.local/fallback"}
          }}
       end
@@ -56,6 +57,36 @@ defmodule ServiceRadar.Camera.RelaySourceResolverTest do
       assert payload.rtsp_transport == "tcp"
       assert payload.codec_hint == "h264"
       assert payload.container_hint == "annexb"
+      assert payload.insecure_skip_verify == true
+    end
+
+    test "fills insecure TLS option from camera source metadata" do
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+
+      fetcher = fn ^camera_source_id, ^stream_profile_id ->
+        {:ok,
+         %{
+           source_url_override: nil,
+           camera_source: %{
+             source_url: "rtsps://camera.local/fallback",
+             metadata: %{"insecure_skip_verify" => "true"}
+           }
+         }}
+      end
+
+      assert {:ok, payload} =
+               RelaySourceResolver.resolve_start_payload(
+                 %{
+                   relay_session_id: "relay-1",
+                   camera_source_id: camera_source_id,
+                   stream_profile_id: stream_profile_id
+                 },
+                 camera_profile_fetcher: fetcher
+               )
+
+      assert payload.source_url == "rtsps://camera.local/fallback"
+      assert payload.insecure_skip_verify == true
     end
 
     test "sanitizes enableSrtp when filling source fields from inventory fetcher" do
