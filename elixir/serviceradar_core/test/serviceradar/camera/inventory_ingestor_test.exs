@@ -3,6 +3,24 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
 
   alias ServiceRadar.Camera.InventoryIngestor
 
+  describe "merge_local_relay_metadata/2" do
+    test "preserves local relay metadata when incoming plugin metadata omits it" do
+      assert %{"source" => "protect-bootstrap", "insecure_skip_verify" => true} =
+               InventoryIngestor.merge_local_relay_metadata(
+                 %{"insecure_skip_verify" => true},
+                 %{"source" => "protect-bootstrap"}
+               )
+    end
+
+    test "keeps incoming relay metadata when the plugin provides it" do
+      assert %{"insecure_skip_verify" => false} =
+               InventoryIngestor.merge_local_relay_metadata(
+                 %{"insecure_skip_verify" => true},
+                 %{"insecure_skip_verify" => false}
+               )
+    end
+  end
+
   test "upserts normalized sources and profiles from plugin camera descriptors" do
     parent = self()
 
