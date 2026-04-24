@@ -1001,11 +1001,39 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     |> Enum.join(", ")
   end
 
-  defp topology_plane(%{metadata: metadata}) when is_map(metadata) do
-    Map.get(metadata, "topology_plane") || Map.get(metadata, :topology_plane) || "topology"
+  defp topology_plane(%{metadata: metadata} = link) when is_map(metadata) do
+    Map.get(metadata, "topology_plane") || Map.get(metadata, :topology_plane) || topology_plane_from_evidence(link)
   end
 
-  defp topology_plane(_), do: "topology"
+  defp topology_plane(link), do: topology_plane_from_evidence(link)
+
+  defp topology_plane_from_evidence(%{} = link) do
+    evidence_class =
+      link
+      |> map_value_any([:evidence_class, "evidence_class"])
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    relation_type =
+      link
+      |> map_value_any([:relation_type, "relation_type"])
+      |> to_string()
+      |> String.trim()
+      |> String.upcase()
+
+    cond do
+      relation_type == "LOGICAL_PEER" or evidence_class == "direct-logical" -> "logical"
+      relation_type == "HOSTED_ON" or evidence_class == "hosted-virtual" -> "hosted"
+      relation_type in ["ATTACHED_TO", "OBSERVED_TO"] -> "attachment"
+      evidence_class in ["endpoint-attachment", "observed-only"] -> "attachment"
+      relation_type == "CONNECTS_TO" -> "backbone"
+      evidence_class in ["direct", "direct-physical"] -> "backbone"
+      true -> "topology"
+    end
+  end
+
+  defp topology_plane_from_evidence(_), do: "topology"
 
   defp dashboard_backbone_link?(%{topology_plane: plane}), do: plane in ["backbone", "logical"]
   defp dashboard_backbone_link?(_link), do: false
@@ -1044,6 +1072,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp topology_color(_link, bps), do: if(to_int(bps) > 0, do: [56, 189, 248, 190], else: [71, 85, 105, 130])
+
+  defp map_value_any(%{} = map, keys) when is_list(keys) do
+    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+  end
+
+  defp map_value_any(_map, _keys), do: nil
 
   defp flow_color(idx, magnitude) do
     opacity = 130 + min(round(:math.log10(max(magnitude, 10)) * 12), 95)
