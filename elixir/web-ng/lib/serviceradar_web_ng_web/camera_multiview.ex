@@ -81,10 +81,12 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   def format_error(reason), do: inspect(reason)
 
   defp open_tile(candidate, scope) do
+    opts = maybe_put_insecure_skip_verify([scope: scope], candidate)
+
     case relay_session_manager().request_open(
            candidate.camera_source_id,
            candidate.stream_profile_id,
-           scope: scope
+           opts
          ) do
       {:ok, session} ->
         Map.put(candidate, :session, session)
@@ -116,6 +118,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
           label: camera_label(source),
           detail: profile_label(profile),
           source_status: Map.get(source, :availability_status),
+          insecure_skip_verify: insecure_skip_verify?(profile) or insecure_skip_verify?(source),
           session: nil,
           error: nil
         }
@@ -191,4 +194,30 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(nil), do: false
   defp present?(_value), do: true
+
+  defp maybe_put_insecure_skip_verify(opts, %{insecure_skip_verify: true}) do
+    Keyword.put(opts, :insecure_skip_verify, true)
+  end
+
+  defp maybe_put_insecure_skip_verify(opts, _candidate), do: opts
+
+  defp insecure_skip_verify?(value) do
+    truthy?(Map.get(value, :insecure_skip_verify)) or
+      truthy?(metadata_value(value, "insecure_skip_verify"))
+  end
+
+  defp metadata_value(value, key) do
+    value
+    |> Map.get(:metadata)
+    |> case do
+      metadata when is_map(metadata) -> Map.get(metadata, key) || Map.get(metadata, :insecure_skip_verify)
+      _metadata -> nil
+    end
+  end
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?("1"), do: true
+  defp truthy?(1), do: true
+  defp truthy?(_value), do: false
 end
