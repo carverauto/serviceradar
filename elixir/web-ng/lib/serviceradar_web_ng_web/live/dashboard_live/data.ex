@@ -453,6 +453,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         link
         |> Map.put(:sparkline, sparkline)
         |> Map.put(:sparkline_label, "SNMP interface rate")
+        |> apply_sparkline_rate()
       end)
     else
       links
@@ -535,6 +536,29 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     |> Enum.sort_by(& &1.time)
     |> Enum.take(-36)
   end
+
+  defp apply_sparkline_rate(%{flow_bps: flow_bps, sparkline: sparkline} = link) do
+    latest_bps =
+      sparkline
+      |> List.last()
+      |> case do
+        %{value: value} -> to_int(value)
+        _ -> 0
+      end
+
+    if to_int(flow_bps) > 0 or latest_bps <= 0 do
+      link
+    else
+      link
+      |> Map.put(:flow_bps, latest_bps)
+      |> Map.put(:magnitude, latest_bps)
+      |> Map.put(:utilization_pct, utilization_pct(latest_bps, Map.get(link, :capacity_bps)))
+      |> Map.put(:telemetry_source, "snmp")
+      |> Map.put(:color, topology_color(link, latest_bps))
+    end
+  end
+
+  defp apply_sparkline_rate(link), do: link
 
   defp counter_rate_points(rows) do
     rows
