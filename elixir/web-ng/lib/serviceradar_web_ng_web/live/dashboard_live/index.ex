@@ -422,26 +422,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp camera_tiles(tiles, preview_tiles) do
     remaining = max(4 - length(preview_tiles), 0)
+    preview_ids = preview_tiles |> Enum.map(&camera_tile_id/1) |> MapSet.new()
 
     tiles
     |> List.wrap()
+    |> Enum.reject(&(camera_tile_id(&1) in preview_ids))
     |> Enum.take(remaining)
-    |> then(fn visible ->
-      visible ++ fallback_camera_tiles(length(visible), remaining)
-    end)
-    |> Enum.take(remaining)
-  end
-
-  defp fallback_camera_tiles(_visible_count, 0), do: []
-
-  defp fallback_camera_tiles(visible_count, remaining) do
-    for idx <- (visible_count + 1)..remaining//1 do
-      %{label: "Camera #{idx}", status: "feed unavailable"}
-    end
   end
 
   defp camera_tile_href(%{id: id}) when is_binary(id) and id != "", do: ~p"/cameras/#{id}"
   defp camera_tile_href(_tile), do: ~p"/cameras"
+
+  defp camera_tile_id(%{camera_source_id: id}) when is_binary(id), do: id
+  defp camera_tile_id(%{id: id}) when is_binary(id), do: id
+  defp camera_tile_id(_tile), do: nil
 
   defp maybe_start_camera_previews(socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.view") do
