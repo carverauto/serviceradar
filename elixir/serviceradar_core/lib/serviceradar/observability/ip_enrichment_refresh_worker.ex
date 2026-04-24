@@ -19,6 +19,8 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Oban.Engine
+  alias Oban.Job
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
@@ -46,7 +48,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @doc """
   Schedules enrichment refresh if not already scheduled.
   """
-  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  @spec ensure_scheduled() :: {:ok, Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
       reap_stale_executing_jobs()
@@ -63,7 +65,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
   defp check_existing_job do
     query =
-      from(j in Oban.Job,
+      from(j in Job,
         where: j.worker == ^to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
@@ -81,30 +83,23 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     cutoff = DateTime.add(DateTime.utc_now(), -max(stale_minutes, 1) * 60, :second)
 
     query =
-      from(j in Oban.Job,
+      from(j in Job,
         where: j.worker == ^to_string(__MODULE__),
         where: j.state == "executing",
         where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff
       )
 
-    case Repo.update_all(
-           query,
-           [
-             set: [
-               state: "available",
-               attempted_at: nil,
-               attempted_by: [],
-               scheduled_at: DateTime.utc_now()
-             ]
-           ],
-           prefix: ObanSupport.prefix()
+    case Engine.rescue_jobs(Oban.config(Oban), query,
+           rescue_after: to_timeout(minute: max(stale_minutes, 1))
          ) do
-      {0, _} ->
+      {:ok, []} ->
         :ok
 
-      {count, _} ->
+      {:ok, jobs} ->
         Logger.warning("IpEnrichmentRefreshWorker: rescued stale executing jobs",
-          count: count,
+          count: length(jobs),
+          rescued_count: Enum.count(jobs, &(&1.state == "available")),
+          discarded_count: Enum.count(jobs, &(&1.state == "discarded")),
           stale_executing_minutes: stale_minutes
         )
 
