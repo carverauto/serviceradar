@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   attr(:current_path, :string, default: nil, doc: "Current route path for shell navigation state")
   attr(:shell, :atom, default: :auto, doc: "Application shell variant")
+  attr(:page_title, :string, default: nil, doc: "Title shown in the operations shell topbar")
 
   slot(:inner_block, required: true)
 
@@ -52,7 +53,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     current_scope = assigns[:current_scope]
     signed_in? = is_map(current_scope) and not is_nil(Map.get(current_scope, :user))
     current_path = assigns[:current_path] || Map.get(assigns.srql, :page_path)
-    assigns = assign(assigns, signed_in?: signed_in?, current_path: current_path)
+    page_title = assigns[:page_title] || operations_page_title(current_path)
+    assigns = assign(assigns, signed_in?: signed_in?, current_path: current_path, page_title: page_title)
 
     cond do
       assigns.shell == :operations -> operations_app(assigns)
@@ -350,7 +352,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               <span class="h-7 w-px bg-slate-700"></span>
             </div>
             <h1 class="sr-ops-page-title">
-              {assigns[:page_title] || "Unified Operations Dashboard"}
+              {@page_title}
             </h1>
           </div>
 
@@ -457,6 +459,29 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp ops_nav_active?(_, _), do: false
+
+  defp operations_page_title("/dashboard"), do: "Unified Operations Dashboard"
+  defp operations_page_title("/cameras"), do: "Camera Multiview"
+  defp operations_page_title("/topology"), do: "Topology"
+  defp operations_page_title("/events"), do: "Events"
+  defp operations_page_title("/alerts"), do: "Alerts"
+  defp operations_page_title("/observability"), do: "Observability"
+  defp operations_page_title("/observability/flows"), do: "Network Flows"
+  defp operations_page_title("/spatial"), do: "FieldSurvey"
+
+  defp operations_page_title(path) when is_binary(path) do
+    cond do
+      String.starts_with?(path, "/cameras/") -> "Camera Feed"
+      String.starts_with?(path, "/devices") -> "Devices"
+      String.starts_with?(path, "/services") -> "Services"
+      String.starts_with?(path, "/diagnostics") -> "Diagnostics"
+      String.starts_with?(path, "/settings") -> "Settings"
+      String.starts_with?(path, "/observability") -> "Observability"
+      true -> "ServiceRadar"
+    end
+  end
+
+  defp operations_page_title(_), do: "ServiceRadar"
 
   attr(:href, :string, required: true)
   attr(:label, :string, required: true)
