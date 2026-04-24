@@ -328,3 +328,98 @@ The database SHALL support 95th percentile bandwidth calculation over the contin
 - **THEN** the result represents the bandwidth value below which 95% of all 5-minute samples fall
 - **AND** this matches the industry-standard burstable billing calculation
 
+### Requirement: Flow enrichment fields SHALL be persisted at ingestion time
+The ingestion pipeline SHALL normalize and persist canonical flow enrichment fields in CNPG when flow records are stored, including protocol label mapping, decoded TCP flag labels, destination service label metadata, directionality classification, and endpoint MAC vendor attribution.
+
+#### Scenario: Protocol and TCP enrichment persisted on write
+- **GIVEN** an ingested flow record with `protocol_num = 6` and `tcp_flags = 18`
+- **WHEN** the record is written to CNPG
+- **THEN** persisted enrichment fields include canonical protocol label `tcp`
+- **AND** include decoded TCP flag labels `SYN` and `ACK`
+- **AND** retain raw protocol number and raw tcp flag bitmask values
+
+#### Scenario: Unknown mappings persist deterministic fallback
+- **GIVEN** an ingested flow record with unknown protocol/service mappings
+- **WHEN** the record is written to CNPG
+- **THEN** persisted enrichment fields use deterministic unknown labels
+- **AND** include enrichment source metadata marking those values as unknown
+
+#### Scenario: OUI vendor enrichment persisted on write
+- **GIVEN** an ingested flow record with source or destination MAC addresses
+- **AND** an active IEEE OUI snapshot contains matching prefixes
+- **WHEN** the record is written to CNPG
+- **THEN** persisted enrichment fields include endpoint MAC vendor labels
+- **AND** enrichment source is recorded as OUI dataset driven
+
+### Requirement: Provider-hosting classification SHALL be persisted from cloud CIDR dataset
+The ingestion pipeline SHALL classify flow endpoints against the active cloud-provider CIDR dataset and persist provider-hosting enrichment fields for flow detail consumption.
+
+#### Scenario: Flow endpoint matches provider CIDR
+- **GIVEN** an active provider CIDR snapshot contains a range covering a flow source IP
+- **WHEN** the flow is ingested
+- **THEN** the persisted flow enrichment includes provider-hosting classification and provider identity
+- **AND** enrichment source is recorded as dataset-driven
+
+#### Scenario: No provider match falls back to unknown
+- **GIVEN** a flow endpoint IP does not match any active provider CIDR range
+- **WHEN** the flow is ingested
+- **THEN** provider-hosting classification is persisted as unknown
+- **AND** ingestion continues without failure
+
+### Requirement: CNPG SHALL store provider and OUI enrichment datasets in platform schema
+CNPG SHALL store cloud-provider CIDR snapshots and IEEE OUI snapshots in platform-schema tables with active snapshot metadata so ingestion can resolve provider and MAC vendor enrichment without in-memory-only datasets.
+
+#### Scenario: Provider and OUI snapshots persisted in platform schema
+- **GIVEN** refresh jobs complete successfully
+- **WHEN** snapshots are promoted
+- **THEN** active provider CIDR and active OUI snapshot metadata are persisted in `platform` schema tables
+- **AND** ingestion lookups read from those active snapshots
+
+### Requirement: CNPG major upgrades use controlled migration workflows
+ServiceRadar MUST NOT attempt unsupported direct reuse of Postgres data
+directories across CNPG major versions. Supported upgrade paths MUST use a
+controlled migration workflow appropriate to the deployment environment.
+
+#### Scenario: Docker Compose blocks direct PG16-on-PG18 reuse
+- **GIVEN** a Docker Compose deployment with a PG16 CNPG data directory
+- **WHEN** the deployment is reconfigured to use the PG18 CNPG image
+- **THEN** the system refuses to boot PG18 directly on the PG16 data directory
+- **AND** it requires the operator to run the supported Compose migration workflow first
+
+### Requirement: CNPG upgrade workflows preserve application role access
+Controlled CNPG major-upgrade workflows MUST preserve the application role
+access model that ServiceRadar relies on after the upgrade completes.
+
+#### Scenario: Application roles remain usable after Compose migration
+- **GIVEN** a supported Compose PG16-to-PG18 migration has completed
+- **WHEN** ServiceRadar services connect to the migrated PG18 CNPG cluster
+- **THEN** the configured superuser, `serviceradar`, and `spire` roles can authenticate as expected
+- **AND** the application database retains the required `platform, ag_catalog` search_path behavior
+
+### Requirement: Demo CNPG provides repeatable slow-query observability
+The CNPG deployment in the `demo` namespace SHALL provide a repeatable slow-query observability path that supports detection, triage, and regression tracking of web-ng latency incidents.
+
+#### Scenario: Operators can collect top slow-query evidence
+- **GIVEN** operators investigate slow pages reported by web-ng
+- **WHEN** they follow the documented demo triage workflow
+- **THEN** they can retrieve top slow-query evidence from CNPG observability mechanisms
+- **AND** they can correlate findings with application time windows.
+
+### Requirement: Demo slow-query logging thresholds are configurable and documented
+The CNPG deployment in `demo` SHALL enforce configurable query-duration logging thresholds and SHALL document tuning guidance to balance detection quality with log volume.
+
+#### Scenario: Threshold tuning avoids excessive log noise
+- **GIVEN** query-duration logging is enabled in demo
+- **WHEN** operators adjust the configured threshold
+- **THEN** slow-query events remain visible for triage
+- **AND** log volume stays within acceptable operational limits.
+
+### Requirement: Slow-query metrics are available for alerting in demo
+The system SHALL expose low-cardinality slow-query metrics derived from existing telemetry/log data so operators can monitor latency trends and configure alerts in `demo`.
+
+#### Scenario: Slow-query metrics are queryable
+- **GIVEN** slow-query telemetry is flowing in demo
+- **WHEN** operators query slow-query metrics
+- **THEN** they can view latency distribution and slow-query rates over time
+- **AND** metric labels remain low cardinality and suitable for alerting.
+

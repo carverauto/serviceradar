@@ -24,7 +24,7 @@ The system SHALL store device inventory in a schema aligned with OCSF v1.7.0 Dev
 - **THEN** all core OCSF fields SHALL be populated from available metadata
 
 #### Scenario: Device with minimal identification
-- **GIVEN** a device discovered via network sweep with only IP address
+- **GIVEN** a device discovered via integration ingestion (non-sweep) with only IP address
 - **WHEN** the device is processed by DIRE
 - **THEN** the device SHALL have `uid`, `ip`, and `type_id` (0=Unknown) populated
 - **AND** other fields SHALL be NULL until enriched
@@ -131,7 +131,7 @@ The system SHALL track device lifecycle timestamps:
 - `modified_time` (TIMESTAMPTZ): When device record was last modified
 
 #### Scenario: New device discovery
-- **GIVEN** a new device discovered via network sweep
+- **GIVEN** a new device discovered via sync integration ingestion or manual inventory entry (non-sweep)
 - **WHEN** the device is processed by DIRE
 - **THEN** `first_seen_time`, `created_time`, and `last_seen_time` SHALL be set to the discovery timestamp
 - **AND** `modified_time` SHALL be set to the current timestamp
@@ -216,7 +216,7 @@ The system SHALL use DIRE's existing `device_identifiers` table for identity res
 - **AND** the `ocsf_devices` record SHALL be created/updated with that `uid`
 
 #### Scenario: New device without strong identifier
-- **GIVEN** a device discovered via network sweep with only IP address
+- **GIVEN** a device discovered via manual inventory entry or integration ingestion (non-sweep) with only IP address
 - **WHEN** the device is processed by DIRE
 - **THEN** DIRE SHALL generate a new `uid` and register it in `device_identifiers`
 - **AND** the `ocsf_devices` record SHALL be created with that `uid` and `type_id = 0` (Unknown)
@@ -480,4 +480,188 @@ The device details experience SHALL expose discovered stream metadata (protocol,
 - **WHEN** a user opens the device details view
 - **THEN** the UI SHALL show stream entries and freshness timestamps
 - **AND** it SHALL indicate when credentials are required but not configured
+
+### Requirement: Vendor-Scoped Enrichment Rule Matching
+The system SHALL only apply vendor-specific device enrichment rules when the input payload contains evidence that is scoped to that vendor.
+
+#### Scenario: Aruba switch does not match Ubiquiti rule
+- **GIVEN** a device payload with Aruba fingerprint signals and no Ubiquiti-specific evidence
+- **WHEN** enrichment rules are evaluated
+- **THEN** Ubiquiti-specific rules SHALL NOT match
+- **AND** the resulting classification SHALL NOT set `vendor_name` to `Ubiquiti`
+
+#### Scenario: Ubiquiti classification still works with explicit evidence
+- **GIVEN** a device payload that includes Ubiquiti-specific evidence required by a Ubiquiti rule
+- **WHEN** enrichment rules are evaluated
+- **THEN** the matching Ubiquiti rule SHALL classify the device with `vendor_name=Ubiquiti`
+- **AND** vendor/type output SHALL remain consistent with existing Ubiquiti router/switch/AP expectations
+
+### Requirement: Aruba Switch Classification Guardrail
+The system SHALL classify Aruba switch fingerprints as Aruba switch devices when Aruba-specific evidence is present and no higher-priority vendor-specific rule applies.
+
+#### Scenario: Aruba switch fingerprint classification
+- **GIVEN** a device payload with Aruba switch fingerprint signals
+- **WHEN** enrichment rules are evaluated
+- **THEN** the winning rule SHALL set `vendor_name=Aruba`
+- **AND** the winning rule SHALL set `type=Switch` and `type_id=10`
+
+### Requirement: Protect plugin-discovered camera enrichment
+The system SHALL persist UniFi Protect plugin-discovered camera and stream metadata as device enrichment tied to canonical device identity.
+
+#### Scenario: Protect stream metadata attached to canonical device
+- **GIVEN** a plugin result containing valid Protect `camera_descriptors` payloads and identity hints
+- **WHEN** ingestion resolves the canonical device
+- **THEN** the Protect camera and stream metadata SHALL be stored as enrichment for that device
+- **AND** previous observations from the same plugin source SHALL be updated atomically
+
+### Requirement: Protect metadata exposed in device views
+The device details experience SHALL expose UniFi Protect-discovered camera stream metadata sourced from enrichment records.
+
+#### Scenario: Device details shows discovered Protect stream entries
+- **GIVEN** a device with current Protect camera enrichment data
+- **WHEN** a user opens the device details view
+- **THEN** the UI SHALL show stream entries and freshness timestamps
+- **AND** it SHALL indicate when controller-managed credentials or session bootstrap are required
+
+### Requirement: Management Device Relationship
+
+The system SHALL support a `management_device_id` field on devices to indicate that a device is reachable for management operations (e.g., SNMP polling) through another device rather than directly at its own IP address.
+
+#### Scenario: Device created from discovered interface IP has management device set
+- **GIVEN** the mapper discovers interfaces on device `sr:parent` at IP `192.168.1.1`
+- **AND** an interface on that device has IP `203.0.113.5`
+- **WHEN** DIRE creates a new device record for `203.0.113.5`
+- **THEN** the new device SHALL have `management_device_id` set to `sr:parent`
+
+#### Scenario: Device without management device retains direct reachability
+- **GIVEN** a device with `management_device_id = nil`
+- **WHEN** the system determines how to reach the device
+- **THEN** the device's own `ip` field SHALL be used
+
+### Requirement: SNMP identity fields are persisted and surfaced
+The system SHALL persist SNMP identity metadata (`snmp_name`, `snmp_owner`, `snmp_location`, `snmp_description`) from normalized discovery signals and surface them in device details.
+
+#### Scenario: SNMP identity metadata appears in device details
+- **GIVEN** a discovered device with SNMP identity fields present
+- **WHEN** a user opens device details
+- **THEN** the UI SHALL display the SNMP identity fields with empty values rendered as not available
+
+### Requirement: Inventory fallback uses SNMP fingerprint when enrichment is missing
+The inventory UI SHALL use SNMP fingerprint-based fallback display for vendor/type/model when explicit enrichment output is unavailable.
+
+#### Scenario: Type fallback from SNMP signals
+- **GIVEN** a device has no explicit enrichment rule match
+- **AND** the SNMP fingerprint indicates routing behavior and known vendor/model clues
+- **WHEN** the device is rendered in inventory views
+- **THEN** the UI SHALL show a fallback vendor/type/model derived from fingerprint mapping
+- **AND** indicate that the displayed values are fallback-derived
+
+### Requirement: Device Soft Delete Tombstones
+The system SHALL support soft deletion of devices by recording a tombstone timestamp and deletion metadata instead of removing the record immediately.
+
+#### Scenario: Soft delete records tombstone metadata
+- **GIVEN** an admin or operator deletes a device
+- **WHEN** the delete action is processed
+- **THEN** the device SHALL remain in `ocsf_devices`
+- **AND** `deleted_at` SHALL be set
+- **AND** `deleted_by` SHALL record the deleting actor (if available)
+- **AND** `deleted_reason` SHALL be stored when provided
+
+### Requirement: Inventory Filters Exclude Deleted Devices By Default
+The system SHALL exclude tombstoned devices from default inventory reads unless explicitly requested.
+
+#### Scenario: Default reads hide deleted devices
+- **GIVEN** a device with `deleted_at` set
+- **WHEN** a default device list read is executed
+- **THEN** the deleted device SHALL NOT be included
+
+#### Scenario: Include deleted devices on demand
+- **GIVEN** a device with `deleted_at` set
+- **WHEN** a device list read is executed with `include_deleted = true`
+- **THEN** the deleted device SHALL be included
+
+### Requirement: Restore Soft-Deleted Devices
+The system SHALL support restoring soft-deleted devices by clearing tombstone metadata.
+
+#### Scenario: Restore clears tombstone metadata
+- **GIVEN** a device with `deleted_at` set
+- **WHEN** an admin or operator restores the device
+- **THEN** `deleted_at` SHALL be cleared
+- **AND** `deleted_by` and `deleted_reason` SHALL be cleared
+- **AND** the device SHALL appear in default inventory reads
+
+#### Scenario: Discovery restores a deleted device
+- **GIVEN** a device with `deleted_at` set
+- **WHEN** a sweep or integration discovery result matches the device identity
+- **THEN** the device SHALL be restored automatically
+- **AND** availability/last_seen metadata SHALL be updated from the discovery result
+
+### Requirement: Device Deletion Authorization
+Only admin and operator roles SHALL be permitted to delete devices.
+
+#### Scenario: Viewer cannot delete device
+- **GIVEN** a viewer attempts to delete a device
+- **WHEN** the delete action is processed
+- **THEN** the operation SHALL be rejected
+
+### Requirement: Bulk Device Deletion
+The system SHALL support bulk soft deletion for a list of device IDs.
+
+#### Scenario: Bulk delete tombstones multiple devices
+- **GIVEN** an admin selects multiple devices
+- **WHEN** they perform a bulk delete
+- **THEN** each selected device SHALL be soft deleted with tombstone metadata
+
+### Requirement: Rule-Driven Vendor and Type Enrichment
+The system SHALL derive device `vendor_name`, `model`, `type`, and `type_id` through configurable enrichment rules that evaluate SNMP and mapper metadata.
+
+#### Scenario: Ubiquiti router disambiguation using sysDescr/sysName
+- **GIVEN** a device with ambiguous `sys_object_id` but `sys_descr` or `sys_name` indicating `UDM`
+- **WHEN** enrichment rules are applied
+- **THEN** `vendor_name` SHALL be set to `Ubiquiti`
+- **AND** `type`/`type_id` SHALL be set to `Router`/`12`
+
+#### Scenario: Ubiquiti switch disambiguation using sysName
+- **GIVEN** a device with `sys_object_id` shared across platforms and `sys_name` containing `USW`
+- **WHEN** enrichment rules are applied
+- **THEN** `vendor_name` SHALL be set to `Ubiquiti`
+- **AND** `type`/`type_id` SHALL be set to `Switch`/`10`
+
+#### Scenario: Ubiquiti AP classification using sysDescr/sysName
+- **GIVEN** a device with `sys_descr` or `sys_name` containing `U6` or `UAP`
+- **WHEN** enrichment rules are applied
+- **THEN** `vendor_name` SHALL be set to `Ubiquiti`
+- **AND** `type` SHALL be set to an AP classification value
+
+### Requirement: Classification Provenance Visibility in Inventory
+The system SHALL store and expose enrichment provenance fields for each device classification decision.
+
+#### Scenario: Provenance fields present after enrichment
+- **WHEN** a rule classifies a device
+- **THEN** `ocsf_devices.metadata` SHALL contain rule provenance fields
+- **AND** API/UI reads of device inventory SHALL expose those provenance values
+
+#### Scenario: Classification updated by higher-priority rule
+- **GIVEN** an existing classified device
+- **WHEN** a higher-priority matching rule is introduced and ingestion reprocesses the device
+- **THEN** classification fields SHALL be updated to the new decision
+- **AND** provenance SHALL reference the new winning rule
+
+### Requirement: Camera stream inventory uses normalized platform tables
+The system SHALL store camera source identifiers and stream profile metadata in dedicated `platform` schema tables linked to canonical device identity rather than relying only on opaque metadata fields in `ocsf_devices`.
+
+#### Scenario: Protect plugin discovers a camera and stream profiles
+- **GIVEN** camera discovery identifies a canonical device and one or more vendor stream profiles
+- **WHEN** the discovery payload is ingested
+- **THEN** the canonical device SHALL remain represented in `ocsf_devices`
+- **AND** camera-specific source and stream profile records SHALL be created or updated in dedicated related tables
+
+### Requirement: Camera inventory tracks edge affinity and freshness
+The camera inventory model SHALL track which edge agent or gateway can originate a camera stream session and SHALL retain freshness metadata for discovered camera profiles.
+
+#### Scenario: Camera profile becomes stale
+- **GIVEN** a camera stream profile was last observed by discovery at an earlier timestamp
+- **WHEN** that profile is no longer refreshed within the configured freshness window
+- **THEN** the system SHALL mark the profile stale
+- **AND** viewer workflows SHALL be able to surface that state before attempting live playback
 

@@ -42,28 +42,20 @@ Each tenant account SHALL:
 - Have unique credentials (NKey or JWT)
 - Be limited to publishing/subscribing to their prefixed subjects
 - Support leaf node connections from customer networks
+- Reject signed imports, exports, subject mappings, or user permission overrides that escape the tenant or approved platform scope
+- Use finite JetStream resource limits instead of unlimited default quotas
 
-#### Scenario: Tenant account creation
+#### Scenario: Cross-tenant authority widening is rejected
+- **GIVEN** a caller requests a signed account JWT or user credential override for tenant `acme-corp`
+- **WHEN** the request includes publish, subscribe, import, export, or mapping subjects outside `acme-corp` or approved platform subjects
+- **THEN** the signing request SHALL be rejected
+- **AND** no JWT with widened cross-tenant authority is returned
 
-- **GIVEN** an enterprise tenant "acme-corp" requires collector deployment
-- **WHEN** the operator provisions NATS access for the tenant
-- **THEN** a NATS account "acme-corp" SHALL be created
-- **AND** the account SHALL have publish permissions for "acme-corp.>"
-- **AND** the account SHALL have subscribe permissions for "acme-corp.>"
-
-#### Scenario: Account isolation enforcement
-
-- **GIVEN** tenant "acme-corp" has a NATS account
-- **WHEN** a client authenticates with "acme-corp" credentials
-- **AND** the client attempts to publish to "xyz-inc.logs.syslog"
-- **THEN** the publish SHALL be rejected with a permissions error
-
-#### Scenario: Leaf node connection
-
-- **GIVEN** a customer deploys a NATS leaf node with "acme-corp" credentials
-- **WHEN** a collector publishes to "acme-corp.logs.otel"
-- **THEN** the message SHALL route through the leaf node to the platform cluster
-- **AND** the message SHALL be available to platform consumers
+#### Scenario: New account receives bounded JetStream quotas
+- **GIVEN** the platform signs a new tenant account without explicit JetStream quota overrides
+- **WHEN** the account JWT is created
+- **THEN** the JetStream limits in the account claims SHALL be finite
+- **AND** the account SHALL NOT receive unlimited memory, disk, stream, or consumer quotas by default
 
 ### Requirement: JetStream Tenant Streams
 

@@ -584,15 +584,24 @@ The device interface metrics view SHALL render SNMP interface traffic as timeser
 - **THEN** the chart SHALL display per-second rates computed from consecutive counter deltas
 
 ### Requirement: Device details interface tab uses SRQL
-The device details UI SHALL fetch interfaces via SRQL `in:interfaces` and only display the Interfaces tab when SRQL returns interface rows.
+The device details UI SHALL fetch interfaces via SRQL `in:interfaces`. The Interfaces tab SHALL be visible when SRQL returns interface rows OR when the device has at least one network discovery job targeting it. When SRQL returns no interface rows and the tab is visible, the UI SHALL present an empty-state that includes discovery diagnostics (last run timestamp and status) and a link to the relevant discovery job settings.
 
-#### Scenario: Interfaces tab visible
+#### Scenario: Interfaces tab visible with data
 - **GIVEN** SRQL returns interface observations for the device
 - **WHEN** the device details page loads
 - **THEN** the Interfaces tab is visible and renders the SRQL interface rows
 
-#### Scenario: Interfaces tab hidden
+#### Scenario: Interfaces tab visible without data
 - **GIVEN** SRQL returns no interface observations for the device
+- **AND** the device has a discovery job targeting it
+- **WHEN** the device details page loads
+- **THEN** the Interfaces tab is visible
+- **AND** the UI shows an empty-state message including last discovery run timestamp and status
+- **AND** the UI provides a link to the discovery job edit page
+
+#### Scenario: Interfaces tab hidden for non-discovery devices
+- **GIVEN** SRQL returns no interface observations for the device
+- **AND** the device has no discovery job targeting it
 - **WHEN** the device details page loads
 - **THEN** the Interfaces tab is hidden
 
@@ -935,4 +944,357 @@ The camera viewer UI SHALL show an explicit unsupported-browser state when no ad
 - **THEN** the UI SHALL show that playback is unsupported in the current browser
 - **AND** SHALL continue to display relay session status and termination details
 - **AND** SHALL NOT render an ambiguous blank viewer surface
+
+### Requirement: Bulk MTR Submission Workflow
+The web UI SHALL provide a bulk MTR submission workflow that lets operators launch a large target set from one selected agent.
+
+#### Scenario: Operator launches a bulk MTR job
+- **WHEN** the operator opens MTR diagnostics and submits a large target list with a selected source agent
+- **THEN** the UI creates one bulk MTR job
+- **AND** the UI shows the new job in the diagnostics view with aggregate counts and lifecycle status
+
+### Requirement: Bulk MTR Job Progress View
+The web UI SHALL expose bulk MTR job progress with explicit queued, running, completed, failed, canceled, and total target counts plus per-target drill-down.
+
+#### Scenario: Operator monitors a running bulk job
+- **WHEN** a bulk MTR job is draining on an agent
+- **THEN** the diagnostics UI updates aggregate counts and job status as target states change
+- **AND** the operator can inspect individual target outcomes from the same workflow
+
+### Requirement: Terminal Bulk Jobs Render As Terminal
+The web UI SHALL render bulk MTR jobs according to their terminal state and SHALL NOT continue offering active-job controls after the job is terminal.
+
+#### Scenario: Failed job no longer shows active actions
+- **WHEN** a bulk MTR job reaches a failed or otherwise terminal outcome
+- **THEN** the UI renders the job as terminal
+- **AND** active-only actions such as cancel are no longer shown
+
+### Requirement: Recurring Bulk MTR Interval Guidance
+The web UI SHALL warn operators when a configured recurring bulk MTR cadence is tighter than measured execution time or recommended minimum interval.
+
+#### Scenario: Operator configures an interval that is too aggressive
+- **WHEN** a recurring bulk MTR configuration uses an interval shorter than the measured first-run baseline or recommended minimum
+- **THEN** the UI warns that overlap or backlog is likely
+- **AND** the UI presents the measured baseline and recommended interval
+
+### Requirement: Analytics page hides SRQL search input
+The web-ng analytics page SHALL not render the SRQL search input in the top navigation.
+
+#### Scenario: Analytics page header
+- **GIVEN** an authenticated user viewing the analytics page
+- **WHEN** the page renders
+- **THEN** the top navigation does not show the SRQL search input
+
+### Requirement: Deterministic Topology Coordinate Stability
+The topology UI pipeline SHALL preserve node coordinates across updates that do not change topology revision.
+
+#### Scenario: Overlay-only update keeps coordinates stable
+- **GIVEN** topology revision is unchanged
+- **WHEN** a new overlay/classification update is applied
+- **THEN** node coordinates SHALL remain stable
+- **AND** only visual state layers SHALL change
+
+### Requirement: Infrastructure-Anchored Layered Layout
+The topology UI layout pipeline SHALL use deterministic infrastructure-aware anchoring and layered placement instead of degree-only concentric-ring placement for high-fanout topologies.
+
+#### Scenario: High-fanout topology avoids single-ring hairball
+- **GIVEN** a topology where one infrastructure node has high endpoint fanout
+- **WHEN** coordinates are computed
+- **THEN** infrastructure/root tiers SHALL be placed in deterministic anchor layers
+- **AND** endpoints SHALL be distributed in lower layers instead of a single dense ring around one root
+
+#### Scenario: Deterministic anchor selection
+- **GIVEN** identical topology structure and node role/weight inputs
+- **WHEN** layout is computed multiple times
+- **THEN** anchor selection SHALL be identical across runs
+- **AND** resulting coordinates SHALL remain deterministic
+
+### Requirement: Bounded Layout Computation Budget
+Topology layout recomputation SHALL run within bounded compute budgets and SHALL avoid unnecessary full-layout work for non-structural updates.
+
+#### Scenario: Non-structural update avoids full recompute
+- **GIVEN** an update changes only non-structural state
+- **WHEN** the topology pipeline processes the update
+- **THEN** the system SHALL skip full layout recomputation
+- **AND** remain within configured latency budgets
+
+#### Scenario: Layout hot path avoids unnecessary heavy graph analytics
+- **GIVEN** a standard binary-link topology snapshot
+- **WHEN** layout coordinates are computed
+- **THEN** coordinate placement SHALL NOT depend on per-snapshot betweenness centrality computation
+- **AND** SHALL use the optimized primary geometry path defined for binary topology links
+
+### Requirement: Typed Telemetry Fast Path for Snapshot Encoding
+The topology snapshot encoding pipeline SHALL consume typed telemetry values and SHALL NOT use per-edge JSON parsing fallback in the runtime hot path.
+
+#### Scenario: Typed edge telemetry is mandatory in runtime hot path
+- **GIVEN** edge telemetry includes typed numeric `flow_pps`, `flow_bps`, and `capacity_bps` values
+- **WHEN** snapshot encoding runs
+- **THEN** the encoder SHALL use typed numeric fields as the source of truth
+- **AND** the runtime hot path SHALL NOT parse JSON metadata to derive telemetry values
+
+### Requirement: Dedicated NetFlow Visualize Page
+The system SHALL provide a dedicated `/netflow` route in `web-ng` for NetFlow analytics with a two-panel layout: a left options panel and a right visualization panel.
+
+#### Scenario: User navigates to the NetFlow Visualize page
+- **WHEN** a user navigates to `/netflow`
+- **THEN** the page renders the left options panel and right visualization surface
+
+### Requirement: Legacy Entry Points Redirect
+The system SHALL preserve NetFlow bookmarks by redirecting legacy entry points to `/netflow` while preserving the SRQL query parameter `q` when present.
+
+#### Scenario: Observability netflows tab redirects to /netflow
+- **GIVEN** a user opens `/observability?tab=netflows&q=in:flows+time:last_1h`
+- **WHEN** the route is handled
+- **THEN** the user is redirected to `/netflow?q=in:flows+time:last_1h`
+
+#### Scenario: /netflows redirects to /netflow
+- **WHEN** a user opens `/netflows?q=in:flows+time:last_1h`
+- **THEN** the user is redirected to `/netflow?q=in:flows+time:last_1h`
+
+### Requirement: Shareable URL State For Visualize Options
+The system SHALL encode Visualize page options into the URL as a versioned, compressed payload.
+
+#### Scenario: URL state round-trip
+- **GIVEN** the URL contains `nf=v1-<payload>`
+- **WHEN** the Visualize page loads
+- **THEN** the Visualize page uses the decoded options to render
+- **AND** encoding the options produces the same `nf` value (deterministic)
+
+### Requirement: NetFlow Visualize dimension picker includes exporter/interface dimensions
+
+The NetFlow Visualize dimension picker SHALL include exporter and interface metadata dimensions when available from SRQL.
+
+#### Scenario: User selects an interface dimension
+- **GIVEN** the user is on `/netflow`
+- **WHEN** they add `in_if_name` to the dimensions list
+- **THEN** the selected chart uses SRQL series/group-by based on `in_if_name`
+
+### Requirement: Dimension Selector For NetFlow Visualize
+The system SHALL allow selecting and ordering dimensions for `/netflow` Visualize.
+
+#### Scenario: User selects dimensions
+- **WHEN** a user selects dimensions (e.g. `protocol_group`, `dst_port`)
+- **THEN** the chart groups by the selected dimension(s) according to the chart type
+
+### Requirement: Ranking Mode For Top-N Series
+The system SHALL support ranking modes for selecting top-N series: `avg`, `max`, and `last`.
+
+#### Scenario: User switches ranking mode
+- **GIVEN** a time-series chart with multiple series
+- **WHEN** the user changes ranking mode from `avg` to `max`
+- **THEN** the top-N series selection updates accordingly
+
+### Requirement: IP Truncation Control
+The system SHALL support IP truncation controls for IP dimensions.
+
+#### Scenario: User truncates source IPs
+- **WHEN** a user selects `src_ip` and sets truncation to `/24`
+- **THEN** the visualization groups source addresses by their `/24` CIDR prefix
+
+### Requirement: MTR Diagnostics Page
+The web UI SHALL provide a dedicated MTR diagnostics page at `/diagnostics/mtr` listing recent traces with drill-down to hop-by-hop detail, path comparison, and on-demand trace execution.
+
+#### Scenario: Operator views MTR diagnostics
+- **WHEN** the operator navigates to `/diagnostics/mtr`
+- **THEN** a table of recent MTR traces is displayed with target, source agent, hop count, reachability, and timestamp
+- **AND** the operator can filter by target, agent, and time range
+- **AND** selecting a trace shows hop-by-hop detail with latency, loss, ASN, MPLS labels
+
+### Requirement: God View MTR Overlay Layer
+The God View topology visualization SHALL include an MTR path overlay layer that renders MTR-discovered network paths as animated directional edges with latency and loss visual encoding.
+
+#### Scenario: MTR overlay toggled on
+- **WHEN** the operator enables the MTR overlay in God View layer controls
+- **THEN** `MTR_PATH` edges from `platform_graph` are rendered as animated directional arcs
+- **AND** edge color encodes latency (green → yellow → red gradient)
+- **AND** edge thickness encodes loss percentage
+
+### Requirement: Device Detail MTR Tab
+The device detail page SHALL include an MTR tab showing traces involving the device and providing on-demand trace execution.
+
+#### Scenario: Operator views device MTR history
+- **WHEN** the operator opens the MTR tab on a device detail page
+- **THEN** traces where the device IP is source, target, or intermediate hop are listed
+- **AND** a "Run MTR" action triggers an ad-hoc trace via ControlStream
+
+### Requirement: Camera viewers prefer WebRTC when advertised
+The UI SHALL prefer WebRTC playback for camera relay sessions when the relay advertises a WebRTC transport and the browser can use it.
+
+#### Scenario: Browser uses WebRTC on the device page
+- **GIVEN** a device detail page with an active camera relay session
+- **AND** the relay session advertises WebRTC playback
+- **WHEN** the browser supports the advertised WebRTC path
+- **THEN** the viewer SHALL initialize using WebRTC
+
+#### Scenario: Browser uses WebRTC in God-View
+- **GIVEN** God-View opens one or more active camera relay viewers
+- **AND** those relay sessions advertise WebRTC playback
+- **WHEN** the browser supports the advertised WebRTC path
+- **THEN** each viewer SHALL prefer WebRTC playback
+
+### Requirement: Camera viewers surface fallback and negotiation state
+The UI SHALL make WebRTC negotiation and fallback behavior explicit so operators can distinguish successful WebRTC playback, fallback to websocket playback, and viewer initialization failures.
+
+#### Scenario: Viewer falls back from WebRTC to websocket
+- **GIVEN** a relay session advertises both WebRTC and websocket playback
+- **AND** WebRTC negotiation fails for the current browser or network path
+- **WHEN** the viewer falls back to websocket playback
+- **THEN** the UI SHALL indicate that fallback occurred
+- **AND** SHALL continue to display relay session state and termination details
+
+#### Scenario: No viewer transport can be established
+- **GIVEN** a relay session is active
+- **AND** neither WebRTC nor websocket playback can be established
+- **WHEN** the viewer initializes
+- **THEN** the UI SHALL show an explicit failure state
+- **AND** SHALL NOT render an ambiguous blank viewer surface
+
+### Requirement: Flow detail UI SHALL render persisted enrichment fields
+Flow detail views in web-ng SHALL render protocol, TCP flag, service, directionality, provider-hosting context, and MAC vendor context from persisted enriched flow fields returned by SRQL/API. The UI SHALL NOT recompute these enrichments from raw protocol/port/byte/MAC fields when persisted values are present.
+
+#### Scenario: Persisted enrichment fields drive rendering
+- **GIVEN** a flow detail response includes persisted `protocol_label`, `tcp_flag_labels`, `dst_service_label`, `directionality_class`, `provider_class`, and MAC vendor labels
+- **WHEN** an operator opens flow details in `/flows`
+- **THEN** the UI renders those persisted fields directly
+- **AND** does not invoke fallback runtime mapping for those attributes
+
+#### Scenario: Device drill-in uses same persisted enrichment values
+- **GIVEN** the same flow is opened from device details drill-in
+- **WHEN** flow details render
+- **THEN** protocol/service/tcp-flag/direction/provider/MAC-vendor labels match `/flows` exactly
+
+### Requirement: Flow detail UI SHALL expose enrichment provenance
+The flow detail UI SHALL display enrichment provenance metadata where available so operators can distinguish authoritative mappings from heuristic or unknown results.
+
+#### Scenario: Authoritative provider mapping shown
+- **GIVEN** a flow detail includes `provider_class = hosting` and `provider_source = cloud_provider_db`
+- **WHEN** the operator views flow details
+- **THEN** the UI displays hosting/provider context
+- **AND** indicates the source as dataset-driven
+
+#### Scenario: Unknown mapping shown explicitly
+- **GIVEN** a flow detail includes unknown service or provider mapping
+- **WHEN** flow details render
+- **THEN** the UI shows an explicit unknown state
+- **AND** raw values (such as destination port and protocol number) remain visible
+
+#### Scenario: OUI-driven MAC vendor mapping shown
+- **GIVEN** a flow detail includes source or destination MAC vendor labels with `vendor_source = ieee_oui`
+- **WHEN** the operator views endpoint details
+- **THEN** the UI displays MAC vendor names for available endpoints
+- **AND** indicates that vendor attribution came from the IEEE OUI dataset
+
+### Requirement: Device Detail Delete Action
+The web-ng UI SHALL provide a delete action on the device detail page for admin and operator roles, with confirmation.
+
+#### Scenario: Delete device from detail page
+- **GIVEN** an admin or operator views a device detail page
+- **WHEN** they click Delete and confirm
+- **THEN** the device SHALL be soft deleted
+- **AND** the UI SHALL navigate away or show a deleted state
+
+### Requirement: Device Restore Action
+The web-ng UI SHALL provide a restore action for deleted devices on the device detail page.
+
+#### Scenario: Restore device from detail page
+- **GIVEN** an admin or operator views a deleted device detail page
+- **WHEN** they click Restore and confirm
+- **THEN** the device SHALL be restored
+- **AND** the UI SHALL return to the active device state
+
+### Requirement: Show Deleted Devices Toggle
+The web-ng UI SHALL provide an option to show deleted devices in the inventory list.
+
+#### Scenario: Toggle shows deleted devices
+- **GIVEN** the inventory list page
+- **WHEN** the user enables “Show deleted devices”
+- **THEN** tombstoned devices SHALL be included in the list
+- **AND** deleted rows SHALL display a visual deleted indicator
+
+### Requirement: Inventory Cleanup Settings
+The web-ng UI SHALL expose a Network settings tab for inventory cleanup and device retention.
+
+#### Scenario: Configure retention window
+- **GIVEN** an admin user on Settings → Network
+- **WHEN** they open the Inventory Cleanup tab
+- **THEN** they can set the device deletion retention window in days
+- **AND** the value is saved for the reaper job
+
+#### Scenario: Configure reaper schedule
+- **GIVEN** an admin user on Settings → Network
+- **WHEN** they update the cleanup schedule
+- **THEN** the reaper job SHALL use the configured schedule
+
+#### Scenario: Run cleanup manually
+- **GIVEN** an admin user on Settings → Network
+- **WHEN** they click “Run cleanup now”
+- **THEN** the reaper job SHALL execute immediately
+
+### Requirement: Device Enrichment Rules Management UI
+The web-ng Settings UI SHALL provide a Device Enrichment Rules management surface for operators.
+
+#### Scenario: List effective rules
+- **WHEN** an authorized operator navigates to Settings -> Inventory -> Device Enrichment Rules
+- **THEN** the UI SHALL display effective rules with source (`builtin` or `filesystem`), enabled state, and priority
+
+#### Scenario: Create and save a custom rule
+- **WHEN** an authorized operator creates a new rule with match conditions and output mappings
+- **THEN** the backend SHALL validate the rule schema
+- **AND** on success the rule SHALL be persisted to the configured rules path
+
+#### Scenario: Validation failure blocks save
+- **WHEN** an operator attempts to save an invalid rule
+- **THEN** the UI SHALL show structured validation errors
+- **AND** the rule SHALL NOT be activated
+
+### Requirement: Rule Simulation and Preview
+The UI SHALL support simulation of enrichment rules against sample payload input before activation.
+
+#### Scenario: Preview winning rule for sample payload
+- **WHEN** an operator submits a sample payload containing SNMP metadata fields
+- **THEN** the UI SHALL display the winning rule, resulting vendor/type outputs, and confidence/reason
+
+#### Scenario: No-match preview
+- **WHEN** a sample payload matches no enabled rule
+- **THEN** the UI SHALL display fallback behavior and indicate no winning rule
+
+### Requirement: Rule Import and Export
+The UI SHALL support import and export of enrichment rules as YAML.
+
+#### Scenario: Export current rules
+- **WHEN** an operator exports rules
+- **THEN** the system SHALL provide YAML representing the active effective rule set
+
+#### Scenario: Import rule bundle
+- **WHEN** an operator imports a YAML bundle
+- **THEN** the system SHALL validate all rules before applying any change
+- **AND** on success SHALL update the managed filesystem rules set
+
+### Requirement: God-View camera nodes can open live viewers
+The God-View topology experience SHALL allow operators to open a live viewer from a camera-capable endpoint node when camera stream inventory is available.
+
+#### Scenario: Open live viewer from one camera node
+- **GIVEN** the topology payload includes an endpoint node with camera stream metadata
+- **WHEN** an operator selects that node and requests live view
+- **THEN** the UI SHALL request an authorized relay session for that camera
+- **AND** SHALL render the returned live viewer surface inline or in the associated camera panel
+
+### Requirement: Camera cluster selection opens a tiled viewer
+The God-View topology experience SHALL support opening a bounded tiled viewer for a selected cluster or set of camera-capable nodes.
+
+#### Scenario: Open multiple camera tiles from a selection
+- **GIVEN** an operator selects multiple camera-capable nodes in the topology view
+- **WHEN** they request live view for the selection
+- **THEN** the UI SHALL open a tiled viewer grid for the selected cameras
+- **AND** SHALL cap or defer additional tiles beyond the supported live-view limit
+
+### Requirement: Viewer errors are operator-visible
+The UI SHALL distinguish unavailable camera streams from loading states so operators can tell whether a stream is still connecting, requires credentials, or failed to start.
+
+#### Scenario: Relay session fails for one camera tile
+- **GIVEN** a tiled viewer containing multiple selected cameras
+- **WHEN** one relay session fails to start
+- **THEN** the failed tile SHALL show an explicit unavailable or error state
+- **AND** other healthy tiles SHALL continue rendering
 
