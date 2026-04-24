@@ -31,6 +31,7 @@ pub(crate) fn encode_snapshot_impl(
     edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
     edge_meta: Vec<(String, String, String)>,
     edge_directional: Vec<(u32, u32, u64, u64)>,
+    edge_details: Vec<String>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
     healthy_bitmap_bytes: u32,
@@ -62,6 +63,7 @@ pub(crate) fn encode_snapshot_impl(
     let mut edge_topology_class = Vec::<Option<String>>::with_capacity(total_rows);
     let mut edge_protocol = Vec::<Option<String>>::with_capacity(total_rows);
     let mut edge_evidence_class = Vec::<Option<String>>::with_capacity(total_rows);
+    let mut edge_details_json = Vec::<Option<String>>::with_capacity(total_rows);
 
     for (x, y, state, label, pps, oper_up, details) in nodes {
         row_type.push(0);
@@ -86,6 +88,7 @@ pub(crate) fn encode_snapshot_impl(
         edge_topology_class.push(None);
         edge_protocol.push(None);
         edge_evidence_class.push(None);
+        edge_details_json.push(None);
     }
 
     for (idx, (source, target, pps, flow_bps, capacity_bps, label, telemetry_eligible)) in
@@ -101,6 +104,10 @@ pub(crate) fn encode_snapshot_impl(
                     "unknown".to_string(),
                 )
             });
+        let details = edge_details
+            .get(idx)
+            .cloned()
+            .unwrap_or_else(|| "{}".to_string());
 
         row_type.push(1);
         node_x.push(None);
@@ -124,6 +131,7 @@ pub(crate) fn encode_snapshot_impl(
         edge_topology_class.push(Some(topology_class));
         edge_protocol.push(Some(protocol));
         edge_evidence_class.push(Some(evidence_class));
+        edge_details_json.push(Some(details));
     }
 
     let mut metadata = HashMap::new();
@@ -186,6 +194,7 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("edge_topology_class", DataType::Utf8, true),
             Field::new("edge_protocol", DataType::Utf8, true),
             Field::new("edge_evidence_class", DataType::Utf8, true),
+            Field::new("edge_details", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
         ],
@@ -220,6 +229,7 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(StringArray::from(edge_topology_class)),
             Arc::new(StringArray::from(edge_protocol)),
             Arc::new(StringArray::from(edge_evidence_class)),
+            Arc::new(StringArray::from(edge_details_json)),
             Arc::new(UInt32Array::from(schema_version_col)),
             Arc::new(UInt64Array::from(revision_col)),
         ],

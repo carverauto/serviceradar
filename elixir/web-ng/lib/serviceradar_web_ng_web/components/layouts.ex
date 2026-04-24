@@ -41,6 +41,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     doc: "Hide auto breadcrumb when page has custom one"
   )
 
+  attr(:current_path, :string, default: nil, doc: "Current route path for shell navigation state")
+  attr(:shell, :atom, default: :auto, doc: "Application shell variant")
+
   slot(:inner_block, required: true)
 
   def app(assigns) do
@@ -48,9 +51,18 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     assigns = assign_new(assigns, :hide_breadcrumb, fn -> false end)
     current_scope = assigns[:current_scope]
     signed_in? = is_map(current_scope) and not is_nil(Map.get(current_scope, :user))
-    current_path = Map.get(assigns.srql, :page_path)
+    current_path = assigns[:current_path] || Map.get(assigns.srql, :page_path)
     assigns = assign(assigns, signed_in?: signed_in?, current_path: current_path)
 
+    cond do
+      assigns.shell == :operations -> operations_app(assigns)
+      assigns.shell == :standard -> standard_app(assigns)
+      signed_in? -> operations_app(assigns)
+      true -> standard_app(assigns)
+    end
+  end
+
+  defp standard_app(assigns) do
     ~H"""
     <div class="drawer lg:drawer-open">
       <input id="sr-sidebar" type="checkbox" class="drawer-toggle" />
@@ -139,6 +151,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             </.link>
 
             <ul class="menu menu-sm">
+              <li>
+                <.sidebar_link
+                  href={~p"/dashboard"}
+                  label="Dashboard"
+                  icon="hero-home"
+                  active={@current_path == "/dashboard"}
+                />
+              </li>
               <li>
                 <.sidebar_link
                   href={~p"/analytics"}
@@ -274,6 +294,129 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     """
   end
 
+  defp operations_app(assigns) do
+    nav_items = [
+      %{href: "/dashboard", label: "Dashboard", icon: "hero-home"},
+      %{href: "/devices", label: "Devices", icon: "hero-server-stack"},
+      %{href: "/topology", label: "Topology", icon: "hero-share"},
+      %{href: "/observability/flows", label: "Flows", icon: "hero-arrow-path"},
+      %{href: "/events", label: "Events", icon: "hero-document-text"},
+      %{href: "/cameras", label: "Cameras", icon: "hero-video-camera"},
+      %{href: "/spatial", label: "FieldSurvey", icon: "hero-wifi"},
+      %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
+      %{href: "/settings/cluster", label: "Settings", icon: "hero-cog-6-tooth"}
+    ]
+
+    assigns = assign(assigns, :nav_items, nav_items)
+
+    ~H"""
+    <div class="sr-ops-shell">
+      <aside :if={@signed_in?} class="sr-ops-sidebar" aria-label="Primary navigation">
+        <nav class="sr-ops-nav">
+          <.link
+            :for={item <- @nav_items}
+            href={item.href}
+            title={item.label}
+            aria-label={item.label}
+            aria-current={ops_nav_active?(@current_path, item.href) && "page"}
+            class={[
+              "sr-ops-nav-button",
+              ops_nav_active?(@current_path, item.href) && "is-active"
+            ]}
+          >
+            <.icon name={item.icon} class="size-5" />
+          </.link>
+        </nav>
+
+        <div class="sr-ops-nav mt-auto">
+          <.link
+            href={~p"/users/log-out"}
+            method="delete"
+            class="sr-ops-nav-button"
+            title="Log out"
+            aria-label="Log out"
+          >
+            <.icon name="hero-arrow-right-on-rectangle" class="size-5" />
+          </.link>
+        </div>
+      </aside>
+
+      <div class="sr-ops-main">
+        <header class="sr-ops-topbar">
+          <div class="sr-ops-topbar-title">
+            <div class="sr-ops-topbar-brand">
+              <img src={~p"/images/logo.svg"} alt="" class="size-7" width="28" height="28" />
+              <span class="text-lg font-semibold text-white">ServiceRadar</span>
+              <span class="h-7 w-px bg-slate-700"></span>
+            </div>
+            <h1 class="sr-ops-page-title">
+              {assigns[:page_title] || "Unified Operations Dashboard"}
+            </h1>
+          </div>
+
+          <div class="sr-ops-topbar-actions">
+            <.theme_toggle />
+            <.link
+              href={~p"/events"}
+              class="sr-ops-topbar-icon relative"
+              aria-label="Events"
+              title="Events"
+            >
+              <.icon name="hero-bell" class="size-5" />
+              <span class="sr-ops-notification-dot">0</span>
+            </.link>
+            <.link
+              href={~p"/settings/profile"}
+              class="sr-ops-avatar"
+              aria-label="Account"
+              title={@current_scope && @current_scope.user && @current_scope.user.email}
+            >
+              <span>
+                {user_initials(@current_scope && @current_scope.user && @current_scope.user.email)}
+              </span>
+            </.link>
+          </div>
+        </header>
+
+        <div :if={Map.get(@srql, :enabled, false)} class="sr-ops-querybar">
+          <.srql_query_bar
+            query={Map.get(@srql, :query)}
+            draft={Map.get(@srql, :draft)}
+            loading={Map.get(@srql, :loading, false)}
+            builder_available={Map.get(@srql, :builder_available, false)}
+            builder_open={Map.get(@srql, :builder_open, false)}
+            builder_supported={Map.get(@srql, :builder_supported, true)}
+            builder_sync={Map.get(@srql, :builder_sync, true)}
+            builder={Map.get(@srql, :builder, %{})}
+          />
+        </div>
+
+        <div
+          :if={Map.get(@srql, :builder_open, false) or Map.get(@srql, :error)}
+          class="sr-ops-querybuilder"
+        >
+          <div :if={Map.get(@srql, :error)} class="sr-ops-query-error">
+            {Map.get(@srql, :error)}
+          </div>
+
+          <.srql_query_builder
+            :if={Map.get(@srql, :builder_open, false)}
+            supported={Map.get(@srql, :builder_supported, true)}
+            sync={Map.get(@srql, :builder_sync, true)}
+            builder={Map.get(@srql, :builder, %{})}
+          />
+        </div>
+
+        <main class="sr-ops-content">
+          {render_slot(@inner_block)}
+        </main>
+
+        <.flash_group flash={@flash} />
+      </div>
+    </div>
+    """
+  end
+
   defp user_initials(email) when is_binary(email) do
     email
     |> String.split("@")
@@ -292,6 +435,28 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp format_role(role) when is_binary(role), do: role
+
+  defp ops_nav_active?(current_path, href) when is_binary(current_path) and is_binary(href) do
+    cond do
+      current_path == href ->
+        true
+
+      href == "/dashboard" ->
+        false
+
+      href == "/observability" ->
+        current_path in ["/observability", "/logs", "/alerts"] or
+          String.starts_with?(current_path, "/observability/bmp") or
+          String.starts_with?(current_path, "/observability/bgp") or
+          String.starts_with?(current_path, "/logs/") or
+          String.starts_with?(current_path, "/alerts/")
+
+      true ->
+        String.starts_with?(current_path, href)
+    end
+  end
+
+  defp ops_nav_active?(_, _), do: false
 
   attr(:href, :string, required: true)
   attr(:label, :string, required: true)

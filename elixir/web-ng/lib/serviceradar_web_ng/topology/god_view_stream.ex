@@ -59,6 +59,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @max_cluster_camera_tile_candidates 12
   @unplaced_device_query_limit 96
   @unplaced_device_visible_limit 16
+  @edge_sparkline_interface_limit 96
+  @edge_sparkline_metrics ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
   @unplaced_device_type_ids [1, 6, 9, 10, 12, 15, 99]
   @proximity_collision_iterations 8
   @proximity_collision_min_distance 34.0
@@ -211,6 +213,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         }
       end)
 
+    edge_details =
+      Enum.map(snapshot.edges, fn edge ->
+        edge |> edge_details_json() |> normalize_details_json()
+      end)
+
     {:ok,
      Native.encode_snapshot(%{
        schema_version: snapshot.schema_version,
@@ -219,6 +226,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
        edges: edges,
        edge_meta: edge_meta,
        edge_directional: edge_directional,
+       edge_details: edge_details,
        root_bitmap_bytes: byte_size(root),
        affected_bitmap_bytes: byte_size(affected),
        healthy_bitmap_bytes: byte_size(healthy),
@@ -244,6 +252,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         quarantine_unresolved_endpoint_identities(nodes, edges, pipeline_stats)
 
       edges = retain_renderable_edges(nodes, edges)
+      edges = attach_interface_sparklines(edges)
       nodes = retain_renderable_nodes(nodes, edges)
       {:ok, indexed_edges} = index_edges(nodes, edges)
       pipeline_stats = rendered_pipeline_stats(pipeline_stats, nodes, edges)
@@ -4454,6 +4463,179 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp edge_identity_key(edge), do: :erlang.term_to_binary(edge)
+
+  defp attach_interface_sparklines(edges) when is_list(edges) do
+    if relation_exists?("platform.timeseries_metrics") do
+      pairs =
+        edges
+        |> Enum.flat_map(&edge_interface_pairs/1)
+        |> Enum.uniq()
+        |> Enum.take(@edge_sparkline_interface_limit)
+
+      sparkline_by_pair = interface_sparkline_map(pairs)
+
+      Enum.map(edges, fn edge ->
+        source_key = interface_pair_key(Map.get(edge, :source), Map.get(edge, :local_if_index_ab))
+        target_key = interface_pair_key(Map.get(edge, :target), Map.get(edge, :local_if_index_ba))
+
+        sparkline =
+          Map.get(sparkline_by_pair, source_key) ||
+            Map.get(sparkline_by_pair, target_key) ||
+            []
+
+        edge
+        |> Map.put(:interface_sparkline, sparkline)
+        |> Map.put(:interface_sparkline_label, "Recent SNMP interface rate")
+      end)
+    else
+      edges
+    end
+  rescue
+    _ -> edges
+  end
+
+  defp attach_interface_sparklines(edges), do: edges
+
+  defp edge_interface_pairs(edge) when is_map(edge) do
+    Enum.reject(
+      [
+        interface_pair_key(Map.get(edge, :source), Map.get(edge, :local_if_index_ab)),
+        interface_pair_key(Map.get(edge, :target), Map.get(edge, :local_if_index_ba))
+      ],
+      &is_nil/1
+    )
+  end
+
+  defp edge_interface_pairs(_edge), do: []
+
+  defp interface_pair_key(device_id, if_index) when is_binary(device_id) and is_integer(if_index) do
+    if String.starts_with?(device_id, "sr:") and if_index >= 0 do
+      {device_id, if_index}
+    end
+  end
+
+  defp interface_pair_key(_device_id, _if_index), do: nil
+
+  defp interface_sparkline_map([]), do: %{}
+
+  defp interface_sparkline_map(pairs) do
+    {device_ids, if_indexes} = Enum.unzip(pairs)
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    sql = """
+    WITH wanted(device_id, if_index) AS (
+      SELECT * FROM unnest($2::text[], $3::int[])
+    )
+    SELECT
+      m.device_id,
+      m.if_index,
+      m.metric_name,
+      time_bucket('15 minutes'::interval, m.timestamp) AS bucket,
+      MAX(m.value)::float8 AS value
+    FROM platform.timeseries_metrics m
+    INNER JOIN wanted w ON w.device_id = m.device_id AND w.if_index = m.if_index
+    WHERE m.timestamp >= $1
+      AND m.metric_name = ANY($4::text[])
+    GROUP BY m.device_id, m.if_index, m.metric_name, bucket
+    ORDER BY m.device_id, m.if_index, m.metric_name, bucket
+    """
+
+    case Repo.query(sql, [cutoff, device_ids, if_indexes, @edge_sparkline_metrics]) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
+        |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp build_interface_sparkline(rows) do
+    rows
+    |> Enum.group_by(fn [_device_id, _if_index, metric_name, _bucket, _value] -> metric_name end)
+    |> Enum.flat_map(fn {_metric_name, metric_rows} -> counter_rate_points(metric_rows) end)
+    |> Enum.group_by(& &1.bucket, & &1.value)
+    |> Enum.map(fn {bucket, values} ->
+      %{
+        time: bucket,
+        value: values |> Enum.sum() |> Float.round(2)
+      }
+    end)
+    |> Enum.sort_by(& &1.time)
+    |> Enum.take(-36)
+  end
+
+  defp counter_rate_points(rows) do
+    rows
+    |> Enum.sort_by(fn [_device_id, _if_index, _metric_name, bucket, _value] -> unix_ms(bucket) end)
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn
+      [
+        [_device_id, _if_index, _metric_name, prev_bucket, prev_value],
+        [_device_id2, _if_index2, _metric_name2, bucket, value]
+      ] ->
+        seconds = max((unix_ms(bucket) - unix_ms(prev_bucket)) / 1000, 1)
+        delta = to_float(value) - to_float(prev_value)
+
+        if delta >= 0 do
+          [%{bucket: bucket_label(bucket), value: delta * 8 / seconds}]
+        else
+          []
+        end
+
+      _ ->
+        []
+    end)
+  end
+
+  defp edge_details_json(edge) when is_map(edge) do
+    %{
+      source_id: Map.get(edge, :source),
+      target_id: Map.get(edge, :target),
+      source_interface: Map.get(edge, :local_if_name_ab) || Map.get(edge, :local_if_name),
+      source_if_index: Map.get(edge, :local_if_index_ab) || Map.get(edge, :local_if_index),
+      target_interface: Map.get(edge, :local_if_name_ba) || Map.get(edge, :neighbor_if_name),
+      target_if_index: Map.get(edge, :local_if_index_ba) || Map.get(edge, :neighbor_if_index),
+      telemetry_source: Map.get(edge, :telemetry_source),
+      telemetry_observed_at: Map.get(edge, :telemetry_observed_at),
+      interface_sparkline: Map.get(edge, :interface_sparkline, []),
+      interface_sparkline_label: Map.get(edge, :interface_sparkline_label)
+    }
+  end
+
+  defp edge_details_json(_edge), do: %{}
+
+  defp relation_exists?(relation_name) do
+    case Repo.query("SELECT to_regclass($1) IS NOT NULL", [relation_name]) do
+      {:ok, %{rows: [[true]]}} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp unix_ms(%DateTime{} = value), do: DateTime.to_unix(value, :millisecond)
+  defp unix_ms(%NaiveDateTime{} = value), do: value |> DateTime.from_naive!("Etc/UTC") |> unix_ms()
+  defp unix_ms(_value), do: 0
+
+  defp bucket_label(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp bucket_label(%NaiveDateTime{} = value), do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+  defp bucket_label(value), do: to_string(value || "")
+
+  defp to_float(value) when is_float(value), do: value
+  defp to_float(value) when is_integer(value), do: value * 1.0
+
+  defp to_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _} -> parsed
+      :error -> 0.0
+    end
+  end
+
+  defp to_float(_value), do: 0.0
 
   defp rendered_pipeline_stats(pipeline_stats, nodes, edges)
        when is_map(pipeline_stats) and is_list(nodes) and is_list(edges) do

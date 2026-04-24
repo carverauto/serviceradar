@@ -190,6 +190,67 @@ CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
 - **Port 4000 already in use**: Kill any stale beam processes with `pkill -f beam.smp`
 - **binary_to_existing_atom error**: Ensure you've run `mix compile --force` after updates
 
+## Web-NG Dashboard Visual Testing Loop
+
+Use this when iterating on screenshot-driven dashboard or shell design work in `elixir/web-ng/`.
+
+1. Keep the reference image in a local ignored path such as `tmp/dashboard-reference.png`. Do not commit screenshot references unless explicitly requested.
+2. Build static assets after JS/CSS changes:
+
+```bash
+cd elixir/web-ng/assets
+npm run build:js
+npm run build:css
+```
+
+3. Start Phoenix locally with noisy background services disabled for visual testing when you need to exercise the real LiveView route:
+
+```bash
+cd elixir/web-ng
+DATASVC_ENABLED=false SERVICE_HEARTBEAT_ENABLED=false SERVICERADAR_WEB_NG_OBAN_ENABLED=false \
+  SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH=false \
+  CNPG_HOST=localhost CNPG_PORT=5455 CNPG_USERNAME=serviceradar CNPG_PASSWORD=serviceradar \
+  CNPG_DATABASE=serviceradar_web_ng_dev CNPG_SSL_MODE=disable \
+  PHX_HOST=localhost SERVICERADAR_DEV_ROUTES=true mix phx.server
+```
+
+When pointing this loop at the Kubernetes `demo` CNPG instance, keep the port-forward and password material outside the repo:
+
+```bash
+kubectl port-forward -n demo svc/cnpg-pooler-rw 5455:5432
+kubectl get secret serviceradar-db-credentials -n demo -o jsonpath='{.data.password}' | base64 -d > tmp/demo-cnpg-current-password
+chmod 600 tmp/demo-cnpg-current-password
+```
+
+Then set `CNPG_PASSWORD="$(cat ../../tmp/demo-cnpg-current-password)"` in the Phoenix command from `elixir/web-ng/` and use `CNPG_DATABASE=serviceradar`.
+
+If the local CNPG requires TLS, use the standard cert-backed command from the Local Development with Docker CNPG section instead. A repeated `Unknown CA` error means the cert bundle does not match the CNPG server; refresh the local certs before relying on the LiveView route. If Phoenix or CNPG is not needed for the current visual pass, create a temporary ignored harness under `tmp/` that loads `elixir/web-ng/priv/static/assets/css/app.css` and mirrors the rendered dashboard HTML.
+
+4. Capture browser screenshots with Playwright or Chromium against `http://localhost:4000/dashboard` after logging in. Use desktop and mobile viewports and compare against the reference:
+
+```bash
+npx playwright install chromium
+npx playwright screenshot --viewport-size=1680,945 http://localhost:4000/dashboard tmp/dashboard-desktop.png
+npx playwright screenshot --viewport-size=390,844 http://localhost:4000/dashboard tmp/dashboard-mobile.png
+```
+
+If using the ignored Playwright harness under `tmp/playwright-harness/`, run the repo-root spec with `NODE_PATH` so `@playwright/test` resolves from that harness:
+
+```bash
+NODE_PATH=$PWD/tmp/playwright-harness/node_modules \
+  DASHBOARD_PREVIEW_EMAIL=root@localhost \
+  DASHBOARD_PREVIEW_PASSWORD_FILE=tmp/demo-cnpg/dashboard-password \
+  tmp/playwright-harness/node_modules/.bin/playwright test tmp/live-dashboard.spec.js --reporter=line --timeout=120000
+```
+
+For a temporary local harness, capture the file URL instead:
+
+```bash
+npx playwright screenshot --viewport-size=1680,945 file://$PWD/tmp/dashboard-visual-harness.html tmp/dashboard-desktop.png
+```
+
+5. For canvas-heavy dashboard work, verify the screenshot is not blank and that the deck.gl canvas is present. A quick smoke check is to inspect `#ops-traffic-map` in the browser and confirm the canvas dimensions are non-zero.
+
 ## Web-NG Remote Dev (CNPG)
 
 Use this playbook to run `elixir/web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
