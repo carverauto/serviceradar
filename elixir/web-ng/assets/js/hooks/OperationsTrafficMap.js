@@ -325,7 +325,11 @@ export default {
       controller: {dragPan: true, scrollZoom: true, doubleClickZoom: true, touchZoom: true},
       useDevicePixels: true,
       parameters: {
-        clearColor: [0, 0, 0, 0],
+        clearColor: [2, 8, 23, 255],
+        blend: true,
+        blendFunc: [770, 771],
+        depthTest: false,
+        depthWrite: false,
       },
       getTooltip: () => null,
       layers: this._layers(),
