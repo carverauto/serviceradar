@@ -26,19 +26,30 @@ fi
 
 run_gitleaks() {
   local range="${1}"
+  local gitleaks_bin="${GITLEAKS_BIN:-}"
 
-  if command -v gitleaks >/dev/null 2>&1; then
-    gitleaks git --no-banner --redact --verbose --log-opts "${range}" .
+  if [[ -z "${gitleaks_bin}" ]]; then
+    if command -v gitleaks >/dev/null 2>&1; then
+      gitleaks_bin="$(command -v gitleaks)"
+    elif [[ -x "${HOME}/.local/bin/gitleaks" ]]; then
+      gitleaks_bin="${HOME}/.local/bin/gitleaks"
+    fi
+  fi
+
+  if [[ -n "${gitleaks_bin}" ]]; then
+    "${gitleaks_bin}" git --no-banner --redact --verbose --log-opts "${range}" .
     return
   fi
 
-  if command -v docker >/dev/null 2>&1; then
+  if [[ "${SERVICERADAR_PRE_PUSH_GITLEAKS_DOCKER:-}" == "1" ]] && command -v docker >/dev/null 2>&1; then
     docker run --rm -v "${ROOT_DIR}:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.0 \
       git --no-banner --redact --verbose --log-opts "${range}" /repo
     return
   fi
 
-  echo "Skipping local pre-push secret scan because neither gitleaks nor docker is installed." >&2
+  echo "Skipping local pre-push secret scan because gitleaks is not installed." >&2
+  echo "Install it with scripts/install-gitleaks.sh or set GITLEAKS_BIN=/path/to/gitleaks." >&2
+  echo "Set SERVICERADAR_PRE_PUSH_GITLEAKS_DOCKER=1 to use the slower Docker fallback." >&2
   echo "Forgejo Actions still enforces the repository secret scan." >&2
 }
 

@@ -6,6 +6,6 @@
 
 ## 2. Verification
 - [x] 2.1 Run `go test ./go/pkg/datasvc`.
-- [ ] 2.2 Run `openspec validate harden-datasvc-object-upload-bounds --strict`.
-- [ ] 2.3 Run `openspec validate add-repo-security-review-baseline --strict`.
-- [ ] 2.4 Run `git diff --check`.
+- [x] 2.2 Run `openspec validate harden-datasvc-object-upload-bounds --strict`.
+- [x] 2.3 Run `openspec validate add-repo-security-review-baseline --strict`.
+- [x] 2.4 Run `git diff --check`.

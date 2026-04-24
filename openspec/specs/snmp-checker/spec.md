@@ -298,3 +298,43 @@ The system SHALL compute SNMP profile target counts by executing the normalized 
 - **WHEN** the target count is evaluated
 - **THEN** the count equals the number of distinct devices that have matching interfaces
 
+### Requirement: SNMP Polling via Management Device Fallback
+
+The SNMP compiler SHALL use a device's management device IP as the polling host when `management_device_id` is set, so that devices discovered behind firewalls or NAT can still be polled via their parent device.
+
+#### Scenario: Device with management device uses parent IP for polling
+- **GIVEN** device `sr:child` has `ip = 203.0.113.5` and `management_device_id = sr:parent`
+- **AND** device `sr:parent` has `ip = 192.168.1.1`
+- **WHEN** the SNMP compiler builds the polling target for `sr:child`
+- **THEN** the target `host` field SHALL be `192.168.1.1` (the management device's IP)
+- **AND** the target OIDs SHALL still reference `sr:child`'s configured interfaces
+
+#### Scenario: Device without management device uses its own IP
+- **GIVEN** device `sr:standalone` has `ip = 10.0.0.1` and `management_device_id = nil`
+- **WHEN** the SNMP compiler builds the polling target for `sr:standalone`
+- **THEN** the target `host` field SHALL be `10.0.0.1`
+
+### Requirement: SNMP fingerprint payload for discovery
+The mapper SNMP discovery pipeline SHALL emit a normalized `snmp_fingerprint` payload per discovered device containing stable system, bridge, and VLAN signals when available.
+
+#### Scenario: Populate system identity signals
+- **GIVEN** an SNMP device responds to `sysName`, `sysDescr`, `sysObjectID`, `sysContact`, `sysLocation`, and `ipForwarding`
+- **WHEN** mapper discovery processes the device
+- **THEN** the published device payload SHALL include those values under `snmp_fingerprint.system`
+
+#### Scenario: Partial fingerprint when bridge tables are absent
+- **GIVEN** an SNMP device does not expose BRIDGE-MIB or Q-BRIDGE-MIB tables
+- **WHEN** mapper discovery processes the device
+- **THEN** mapper SHALL still publish a device payload with available system signals
+- **AND** bridge/VLAN fingerprint sections SHALL be omitted or marked unavailable without failing discovery
+
+### Requirement: SNMP fingerprint extraction is bounded and resilient
+SNMP fingerprint extraction SHALL use bounded polling timeouts and robust type conversion so malformed or unsupported PDUs do not abort device discovery.
+
+#### Scenario: Unexpected PDU type in system field
+- **GIVEN** a system OID response has an unexpected PDU type
+- **WHEN** mapper extracts fingerprint fields
+- **THEN** mapper SHALL record a field-level extraction error
+- **AND** continue extracting remaining fields
+- **AND** publish the device with partial fingerprint data
+

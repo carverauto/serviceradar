@@ -123,7 +123,7 @@ Gateway registry entries SHALL include tenant identifiers and SHALL be used for 
 - **AND** scheduling/routing queries only consider gateways for the same tenant
 
 ### Requirement: Platform SPIFFE mTLS for internal gRPC
-Platform services that communicate with datasvc via gRPC (web-ng, core-elx) SHALL support SPIFFE SVID-based mTLS inside Kubernetes clusters. Datasvc SHALL validate SPIFFE identities for those clients. When SPIFFE Workload API mode is enabled, Elixir services SHALL fetch X.509 SVIDs via the SPIRE agent socket. When SPIFFE is disabled, those services SHALL use file-based mTLS configuration so Docker Compose and non-SPIFFE environments remain functional.
+Platform services, bootstrap tooling, and shipped runtime daemons that communicate over internal gRPC SHALL use authenticated transport and SHALL NOT silently fall back to plaintext when security configuration is omitted or explicitly set to insecure modes. Datasvc SHALL validate SPIFFE identities for platform services. When SPIFFE Workload API mode is enabled, Elixir and Rust services SHALL fetch X.509 SVIDs via the SPIRE agent socket. When SPIFFE is disabled for platform services, those services SHALL use file-based mTLS configuration so Docker Compose and non-SPIFFE environments remain functional.
 
 #### Scenario: SPIFFE-enabled web-ng connects to datasvc
 - **GIVEN** SPIFFE is enabled for the cluster
@@ -145,13 +145,25 @@ Platform services that communicate with datasvc via gRPC (web-ng, core-elx) SHAL
 - **THEN** web-ng uses file-based mTLS certificates configured via environment variables
 - **AND** the connection succeeds without SPIFFE dependencies
 
+#### Scenario: Bootstrap tooling rejects missing transport security
+- **GIVEN** bootstrap tooling needs to register a configuration template with core over gRPC
+- **WHEN** `CORE_SEC_MODE` is empty or `none`
+- **THEN** the tooling SHALL reject the registration attempt before dialing core
+- **AND** it SHALL NOT fall back to plaintext transport
+
+#### Scenario: Flowgger rejects insecure gRPC sidecar transport
+- **GIVEN** `rust/flowgger` is configured with `grpc.listen_addr`
+- **WHEN** `grpc.mode` is `none` or `grpc.mode = "mtls"` is configured without the required certificate paths
+- **THEN** the gRPC sidecar configuration SHALL be rejected
+- **AND** flowgger SHALL NOT serve the health sidecar over plaintext
+
 ### Requirement: Helm deploys agent-gateway with edge mTLS
-Helm installs SHALL deploy serviceradar-agent-gateway when enabled in values. The workload SHALL serve edge-facing gRPC over tenant-issued mTLS certificates. The gateway SHALL NOT use SPIFFE identities. Deployments that disable the gateway SHALL not render gateway workloads.
+Helm installs SHALL deploy `serviceradar-agent-gateway` when enabled in values. The workload SHALL serve edge-facing gRPC and gateway-served edge artifact delivery over tenant-issued mTLS certificates only. The gateway SHALL NOT use SPIFFE identities. Deployments that disable the gateway SHALL not render gateway workloads. If the edge-facing certificate bundle is unavailable, the gateway SHALL fail startup rather than serving plaintext edge listeners.
 
 #### Scenario: Agent-gateway is deployed by Helm
 - **GIVEN** a Helm install with agent-gateway enabled
 - **WHEN** the chart is rendered and applied
-- **THEN** a serviceradar-agent-gateway Deployment and Service are created
+- **THEN** a `serviceradar-agent-gateway` Deployment and Service are created
 - **AND** the gateway pod reaches Ready state
 
 #### Scenario: Gateway workload omits SPIRE socket
@@ -160,13 +172,19 @@ Helm installs SHALL deploy serviceradar-agent-gateway when enabled in values. Th
 - **THEN** the SPIRE agent socket is not mounted
 - **AND** the gateway serves edge gRPC using tenant-issued mTLS only
 
+#### Scenario: Gateway startup fails without edge certificates
+- **GIVEN** the agent-gateway workload starts without the required edge-facing certificate files
+- **WHEN** the application initializes the edge gRPC and artifact listeners
+- **THEN** startup fails closed
+- **AND** the gateway does not serve plaintext listeners for edge traffic
+
 #### Scenario: Gateway disabled removes workloads
 - **GIVEN** a Helm install with agent-gateway disabled
 - **WHEN** the chart is rendered
-- **THEN** no serviceradar-agent-gateway Deployment or Service is created
+- **THEN** no `serviceradar-agent-gateway` Deployment or Service is created
 
 ### Requirement: Agent-gateway uses tenant CA for edge mTLS
-The agent-gateway SHALL use tenant-issued mTLS certificates for edge agent connections and MUST reject edge connections that are not signed by the expected tenant CA. The gateway's internal control-plane communication SHALL use ERTS where applicable and does not require SPIFFE.
+The agent-gateway SHALL use tenant-issued mTLS certificates for edge agent connections and MUST reject edge connections that are not signed by the expected tenant CA. The gateway's internal control-plane communication SHALL use ERTS where applicable and does not require SPIFFE. Gateway-issued edge certificate bundles SHALL be staged using secure temporary paths so private-key material is not written to predictable shared temp locations during issuance.
 
 #### Scenario: Gateway uses tenant CA for edge mTLS
 - **GIVEN** an edge agent presents a certificate signed by the tenant CA
@@ -179,20 +197,26 @@ The agent-gateway SHALL use tenant-issued mTLS certificates for edge agent conne
 - **WHEN** the agent connects to the gateway
 - **THEN** the gateway rejects the connection
 
+#### Scenario: Gateway-issued bundle staging uses secure temp paths
+- **GIVEN** the gateway issues an edge mTLS bundle for onboarding
+- **WHEN** it stages the private key, CSR, and certificate before assembling the bundle
+- **THEN** the staging paths are created with secure exclusive temp handling
+- **AND** private-key material is removed during cleanup
+
 ### Requirement: Results ingestion uses gRPC/ERTS routing
-The system SHALL ingest sync and sweep results through the gRPC/ERTS results pipeline, with agent-gateway forwarding results directly to core without requiring NATS for ingestion.
+The system SHALL ingest sync and sweep results through the standard gRPC results pipeline. The agent-gateway SHALL accept results via the existing `PushStatus` and `StreamStatus` methods and SHALL forward results to core without introducing sync-specific routing, handlers, or gateway-only behaviors.
 
-#### Scenario: Sync results ingestion via gRPC
-- **GIVEN** an agent streams sync results through the gateway
-- **WHEN** the gateway forwards the results to core
-- **THEN** core SHALL enqueue the sync payload through the results ingestion pipeline
-- **AND** the ingest SHALL succeed without NATS dependencies
+#### Scenario: Sync results ingestion via gRPC stream
+- **GIVEN** an agent emits sync results that exceed single-message limits
+- **WHEN** the agent streams the results via `StreamStatus`
+- **THEN** the agent-gateway forwards the chunked payload to core through the standard results pipeline
+- **AND** no sync-specific handler or routing branch is applied in the gateway
 
-#### Scenario: Sweep results ingestion via gRPC
-- **GIVEN** an agent streams sweep results through the gateway
-- **WHEN** the gateway forwards the results to core
-- **THEN** core SHALL ingest sweep data and update device inventory
-- **AND** the ingest SHALL succeed without NATS dependencies
+#### Scenario: Status and results use standard methods
+- **GIVEN** an agent emits regular status updates and smaller results payloads
+- **WHEN** the agent calls `PushStatus`
+- **THEN** the agent-gateway forwards the payload to core using the normal status/results routing
+- **AND** the same routing logic applies regardless of whether the result is `sync` or `sweep`
 
 ### Requirement: Results routing is explicit by result type
 The core results pipeline SHALL route sync and sweep results by type using dedicated handlers instead of relying on generic status handling.
@@ -578,4 +602,178 @@ The gateway camera relay session state SHALL preserve the upstream relay lease e
 - **WHEN** the gateway updates its local relay session
 - **THEN** the gateway SHALL persist the upstream lease expiry on the session
 - **AND** downstream viewers and agents SHALL observe the upstream relay lease state rather than a gateway-local replacement
+
+### Requirement: Camera media uses gRPC at the edge and ERTS inside the platform
+Live camera media transport SHALL use the dedicated camera media gRPC service only on the edge-facing `agent -> serviceradar-agent-gateway` hop. After `serviceradar-agent-gateway` terminates edge gRPC and authenticates the session, platform-internal camera media forwarding to `serviceradar_core_elx` SHALL use ERTS-native messaging.
+
+#### Scenario: Gateway forwards media to core without an internal gRPC hop
+- **GIVEN** an authenticated agent uploads camera media to `serviceradar-agent-gateway`
+- **WHEN** the gateway forwards that session into the platform
+- **THEN** the gateway SHALL use an ERTS-native ingress boundary in `serviceradar_core_elx`
+- **AND** the gateway SHALL NOT open a second gRPC media channel to `serviceradar_core_elx`
+
+### Requirement: Camera relay ingress is session-scoped inside the platform
+The platform SHALL allocate a session-scoped ingress target for each live camera relay so high-rate media chunks can be forwarded without per-chunk distributed RPC negotiation.
+
+#### Scenario: Gateway reuses an ingress target for a relay session
+- **GIVEN** `serviceradar-agent-gateway` has opened a camera relay session with `serviceradar_core_elx`
+- **WHEN** subsequent media chunks or heartbeats arrive for that relay session
+- **THEN** the gateway SHALL reuse the previously allocated ingress target for the session
+- **AND** per-chunk routing SHALL NOT require fresh service discovery or a new gRPC connection
+
+### Requirement: External DNS authority is explicitly scoped
+The shipped `k8s/external-dns` deployment SHALL limit DNS publication authority to the ServiceRadar namespaces and resources that are explicitly intended for external record management.
+
+#### Scenario: Default external-dns render
+- **WHEN** the external-dns base manifests are rendered as shipped
+- **THEN** the controller only watches the explicit ServiceRadar namespaces configured by the repository
+- **AND** it does not publish records for unannotated Services or Ingresses
+
+#### Scenario: Explicit DNS publication
+- **WHEN** a Service or Ingress in an allowed namespace carries the external-dns hostname annotation
+- **THEN** the controller remains eligible to publish records for that resource within the configured managed zones
+
+### Requirement: Release artifact mirroring validates every fetch hop
+The platform SHALL mirror release artifacts only from outbound destinations that satisfy the release fetch policy on every HTTP hop, including redirects. Mirroring SHALL reject redirects that resolve to disallowed, private, loopback, link-local, or non-HTTPS destinations.
+
+#### Scenario: Redirect target is revalidated before mirroring continues
+- **GIVEN** a signed release manifest references an HTTPS artifact URL on an allowed public host
+- **AND** that host responds with a redirect
+- **WHEN** core mirrors the artifact
+- **THEN** the redirect target is normalized and revalidated through the release fetch policy before any follow-up request
+- **AND** mirroring fails closed if the redirect target is disallowed
+
+#### Scenario: URL without a path still mirrors safely
+- **GIVEN** a valid artifact URL whose parsed path is empty
+- **WHEN** core derives the mirrored object name
+- **THEN** it uses a safe fallback basename
+- **AND** mirroring does not crash on path extraction
+
+### Requirement: Release artifact mirroring enforces bounded downloads
+The platform SHALL enforce the mirrored artifact byte limit while streaming the download, and SHALL abort the fetch as soon as the artifact exceeds the configured limit instead of buffering the full response in memory.
+
+#### Scenario: Oversize artifact is rejected during streaming
+- **GIVEN** a mirrored artifact response exceeds the configured maximum mirror size
+- **WHEN** core streams the artifact download
+- **THEN** the transfer is aborted once the limit is exceeded
+- **AND** the artifact is not uploaded into internal storage
+
+### Requirement: Edge-site setup bundles treat site metadata as data
+Generated edge-site NATS leaf setup artifacts SHALL shell-escape edge-site names and other interpolated site metadata before embedding them into operator-run shell content.
+
+#### Scenario: Edge-site name containing shell metacharacters does not execute
+- **GIVEN** an edge site name contains shell metacharacters such as `$()`, backticks, or quotes
+- **WHEN** the platform generates the NATS leaf setup script or related shell-facing bundle content
+- **THEN** the resulting script treats the site name as literal text
+- **AND** no command substitution or injected shell syntax is introduced
+
+### Requirement: Default demo Kubernetes base omits host SPIRE socket mounts
+The default `k8s/demo/base` deployment path SHALL NOT mount host SPIRE Workload API sockets into workloads unless SPIRE is explicitly enabled through a dedicated opt-in path.
+
+#### Scenario: Default demo base render
+- **WHEN** the default demo base is rendered without the optional SPIRE resources
+- **THEN** workloads in the base do not include `hostPath` mounts for `/run/spire/sockets`
+- **AND** their runtime environment does not require a SPIRE workload socket to start
+
+#### Scenario: SPIRE opt-in render
+- **WHEN** an operator explicitly enables the SPIRE-specific demo path
+- **THEN** only the SPIRE-enabled workloads receive the required socket mounts and SPIRE-specific runtime wiring
+
+### Requirement: Demo overlays keep datasvc internal by default
+The shipped `k8s/demo/prod` and `k8s/demo/staging` overlays SHALL keep datasvc internal-only by default and SHALL NOT publish datasvc gRPC through an external service unless the operator explicitly opts in.
+
+#### Scenario: Default prod overlay render
+- **WHEN** the prod demo overlay is rendered as shipped
+- **THEN** no external `LoadBalancer` or equivalent public-facing Service for datasvc is included by default
+
+#### Scenario: Default staging overlay render
+- **WHEN** the staging demo overlay is rendered as shipped
+- **THEN** no external `LoadBalancer` or equivalent public-facing Service for datasvc is included by default
+
+### Requirement: Agent release downloads preserve the initial trusted origin
+The agent SHALL download release artifacts only from the initial trusted HTTPS origin selected for that release fetch. The agent MAY follow redirects only when the redirect target preserves the original scheme, host, and effective port. The agent SHALL reject redirects that change origin.
+
+#### Scenario: Same-origin HTTPS redirect is allowed
+- **GIVEN** the agent begins a release download from `https://releases.example.com/downloads/v1.2.3/agent`
+- **AND** that endpoint redirects to `https://releases.example.com/artifacts/v1.2.3/agent`
+- **WHEN** the agent follows the redirect
+- **THEN** the redirect is accepted
+- **AND** the agent continues verification of the signed manifest and artifact digest before staging the release
+
+#### Scenario: Cross-origin redirect from a signed artifact URL is rejected
+- **GIVEN** the agent begins a release download from a signed artifact URL on `https://releases.example.com`
+- **AND** that endpoint redirects to `https://objects.example-cdn.com/agent`
+- **WHEN** the agent evaluates the redirect
+- **THEN** the redirect is rejected
+- **AND** the release download fails closed
+
+#### Scenario: Gateway-served artifact delivery cannot leave the gateway origin
+- **GIVEN** the agent begins a managed release download through the gateway artifact transport on `https://gateway.example.internal`
+- **AND** the gateway response attempts to redirect the download to `https://downloads.example.net/agent`
+- **WHEN** the agent evaluates the redirect
+- **THEN** the redirect is rejected
+- **AND** the agent does not continue the release download outside the gateway origin
+
+### Requirement: Browser camera egress stays platform-local
+The system SHALL deliver WebRTC camera playback from platform-local services, and browsers SHALL NOT negotiate media sessions directly with edge agents or customer cameras.
+
+#### Scenario: Browser opens a live camera view
+- **GIVEN** an operator opens a live camera view in the browser
+- **WHEN** the viewer requests WebRTC playback
+- **THEN** the browser SHALL negotiate the session against platform-local signaling/media endpoints
+- **AND** SHALL NOT contact the agent or camera directly
+
+### Requirement: WebRTC viewer egress does not change edge uplink transport
+The system SHALL keep the existing agent-originated media uplink architecture when adding WebRTC browser egress.
+
+#### Scenario: WebRTC viewer attaches to an existing relay
+- **GIVEN** an agent-originated camera uplink is already active for a relay session
+- **WHEN** a browser viewer attaches using WebRTC
+- **THEN** the agent-to-gateway and gateway-to-core ingest path SHALL remain unchanged
+- **AND** only the browser-facing egress path SHALL differ
+
+### Requirement: Gateways serve mirrored agent release artifacts
+The edge architecture SHALL allow `agent-gateway` to serve mirrored agent release artifacts from internal object storage to authorized edge agents over HTTPS.
+
+#### Scenario: Gateway serves a mirrored artifact
+- **GIVEN** the control plane has mirrored a rollout artifact into internal object storage
+- **AND** an authorized agent has an active rollout target for that artifact
+- **WHEN** the agent requests the artifact from `agent-gateway`
+- **THEN** the gateway retrieves the object from internal storage and serves it over HTTPS
+- **AND** the gateway does not need direct artifact bytes embedded in the control command stream
+
+#### Scenario: Internal artifact storage supports repo-hosted source of truth
+- **GIVEN** the operator uses GitHub, Forgejo, or Harbor as the source of truth for published releases
+- **WHEN** a release is imported into ServiceRadar
+- **THEN** the control plane mirrors the release artifacts into internal storage
+- **AND** gateways serve the mirrored copy to agents even if the agents cannot reach the original repository host
+
+### Requirement: Edge camera media flows are agent-initiated
+Live camera media flows SHALL be initiated from the edge agent toward `serviceradar-agent-gateway` and the platform. The platform SHALL NOT depend on inbound connectivity from the customer network or direct camera reachability for live viewing.
+
+#### Scenario: Platform cannot route directly to the camera
+- **GIVEN** a customer camera is behind private addressing or NAT
+- **WHEN** an operator starts a live view session
+- **THEN** the platform SHALL request the assigned agent to start the camera source session
+- **AND** the agent SHALL initiate the media uplink toward the platform
+- **AND** live viewing SHALL NOT require opening a platform-to-camera connection
+
+### Requirement: Agent-gateway forwards camera media under edge identity
+`serviceradar-agent-gateway` SHALL authenticate the edge agent for camera media sessions and forward those sessions only within the authenticated deployment scope.
+
+#### Scenario: Authenticated camera media uplink
+- **GIVEN** an enrolled agent starts a camera media session
+- **WHEN** the uplink reaches `serviceradar-agent-gateway`
+- **THEN** the gateway SHALL bind the session to the authenticated agent identity
+- **AND** SHALL forward the session to the platform relay
+- **AND** SHALL reject media uplinks from unauthenticated edge identities
+
+### Requirement: Camera media transport is separate from monitoring status services
+The system SHALL use a dedicated camera media service for live-view control and media uplink rather than carrying live camera transport over the generic monitoring status/results service.
+
+#### Scenario: Live camera session starts
+- **GIVEN** an operator requests a live camera session
+- **WHEN** the platform coordinates the edge uplink
+- **THEN** the agent, gateway, and platform SHALL use the camera media service for relay control and media transport
+- **AND** the generic monitoring status/results service SHALL remain unchanged for health and plugin payload ingestion
 

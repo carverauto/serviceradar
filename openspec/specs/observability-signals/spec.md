@@ -428,3 +428,138 @@ Camera relay operational surfaces SHALL remain under the Camera Relays top-level
 - **THEN** the UI SHALL resolve that request under the Camera Relays top-level observability pane
 - **AND** the worker management subsection SHALL be selected on load
 
+### Requirement: Event-derived alerts SHALL be incident-grouped
+The system SHALL treat repeated event-derived alerts as incident updates when incoming events resolve to the same incident fingerprint and the existing incident is still active.
+
+#### Scenario: Repeated Falco critical detections collapse into one incident
+- **GIVEN** critical Falco-promoted events that share the same configured incident grouping fields
+- **WHEN** multiple matching events arrive while the incident is still active
+- **THEN** the system SHALL keep a single active alert incident for that fingerprint
+- **AND** duplicate events SHALL update the active incident instead of creating new alert rows
+
+#### Scenario: A new incident is created after the previous incident is no longer active
+- **GIVEN** an earlier event-derived incident has been resolved or aged out of its suppression window
+- **WHEN** a matching event arrives again
+- **THEN** the system SHALL create a new alert incident
+- **AND** the new incident SHALL remain linked to the triggering event
+
+### Requirement: Duplicate event bursts SHALL NOT trigger repeated immediate notification attempts
+The system SHALL suppress repeated immediate notification attempts for duplicate event-derived alerts while an incident remains active and inside its cooldown window.
+
+#### Scenario: Duplicate events arrive while outbound notification is unavailable
+- **GIVEN** an active event-derived incident with an initial notification attempt already recorded
+- **AND** outbound webhook notification is unavailable
+- **WHEN** duplicate matching events arrive inside the cooldown window
+- **THEN** the system SHALL NOT perform a new immediate notification attempt for each duplicate event
+- **AND** it SHALL NOT emit one warning log per duplicate event for the same incident burst
+
+#### Scenario: Sustained incident is re-notified after the configured interval
+- **GIVEN** an active incident with `renotify_seconds` configured
+- **WHEN** the incident remains active beyond the renotify interval
+- **THEN** the system SHALL attempt a repeat notification at the configured interval
+- **AND** duplicate events before that interval SHALL remain suppressed for immediate notification
+
+### Requirement: Incident suppression SHALL preserve observability provenance
+The system SHALL preserve source-event provenance when duplicate events are suppressed into an existing incident.
+
+#### Scenario: Duplicate event updates incident audit data
+- **GIVEN** an active event-derived incident
+- **WHEN** a duplicate matching event is associated with that incident
+- **THEN** the incident SHALL record updated occurrence metadata including at least occurrence count and last-seen time
+- **AND** operators SHALL be able to inspect the grouping context that caused the event to be suppressed into that incident
+
+### Requirement: Logs time filtering uses observed timestamps when available
+The system SHALL evaluate log time filters and ordering against an effective timestamp that prefers `observed_timestamp` when present and falls back to the event `timestamp`.
+
+#### Scenario: Syslog without timezone appears in recent results
+- **GIVEN** a syslog log record with an event `timestamp` that lacks timezone context and an `observed_timestamp` set at ingest
+- **WHEN** a user queries `in:logs time:last_24h sort:timestamp:desc`
+- **THEN** the log SHALL be included based on the observed timestamp
+- **AND** the stored event timestamp SHALL remain unchanged in the result payload
+
+### Requirement: External Causal Signal Normalization
+The system SHALL normalize external SIEM and BMP/BGP routing events into a common causal signal envelope with source provenance and replay-safe identity.
+
+#### Scenario: BMP event normalized for causal evaluation
+- **GIVEN** a BMP routing event is received from the external BMP collector path
+- **WHEN** the event enters the observability pipeline
+- **THEN** the system SHALL normalize it into the causal envelope with signal type, severity, source, and event identity fields
+- **AND** the normalized event SHALL be eligible for topology causal overlay evaluation
+
+#### Scenario: SIEM alert normalized with provenance
+- **GIVEN** a SIEM alert event is received from an external source
+- **WHEN** the event is normalized
+- **THEN** the causal envelope SHALL include source provenance, detection timestamp, and normalized severity
+
+### Requirement: BMP Causal Ingestion Path
+BMP routing events SHALL enter ServiceRadar through `BMP collector (risotto) -> NATS JetStream -> Elixir Broadway consumer` and SHALL NOT require agent-originated gRPC payloads.
+
+#### Scenario: BMP event consumed through JetStream and Broadway
+- **GIVEN** risotto publishes a BMP routing event to JetStream
+- **WHEN** the Broadway consumer processes the event
+- **THEN** the event SHALL be persisted/forwarded through the causal signal pipeline
+- **AND** causal overlay updates SHALL proceed without requiring agent stream delivery
+
+#### Scenario: Agent stream remains scoped to agent-originated payloads
+- **GIVEN** an agent gRPC stream is connected
+- **WHEN** external BMP events are processed
+- **THEN** the system SHALL process BMP events through the JetStream/Broadway path
+- **AND** the agent stream contract SHALL remain unchanged for agent-originated data
+
+### Requirement: Routing Signal Persistence Fidelity
+The observability pipeline SHALL persist BMP routing signals in a way that preserves raw payload fidelity while storing normalized causal envelope fields for query and overlay use.
+
+#### Scenario: Routing event persists normalized and raw forms
+- **GIVEN** a BMP routing event is consumed by Broadway
+- **WHEN** the event is persisted
+- **THEN** the system SHALL store normalized causal fields used by overlays and queries
+- **AND** the system SHALL preserve raw routing payload data for replay/remapping
+
+#### Scenario: OCSF projection remains optional
+- **GIVEN** a routing event does not map cleanly to a single OCSF activity class
+- **WHEN** the event is normalized and persisted
+- **THEN** the system SHALL preserve the event in canonical causal form without dropping routing detail
+- **AND** optional OCSF projection fields MAY be emitted where semantically suitable
+
+### Requirement: Routing Correlation Keys
+Normalized BMP causal events SHALL include routing correlation keys needed to join with topology and causal overlays.
+
+#### Scenario: Event carries topology-joinable keys
+- **GIVEN** a BMP event includes peer/router context
+- **WHEN** the event is normalized
+- **THEN** the normalized envelope SHALL include stable source identity and routing correlation fields
+- **AND** those fields SHALL be sufficient for downstream topology/causal association workflows
+
+### Requirement: Grouped Causal Context Support
+The observability pipeline SHALL support grouped causal contexts so normalized events can be evaluated against routing/security propagation domains.
+
+#### Scenario: Event evaluated in grouped context
+- **GIVEN** a normalized causal event references one or more grouped contexts
+- **WHEN** causal evaluation executes
+- **THEN** propagation SHALL be evaluated within the referenced contexts
+- **AND** resulting classifications SHALL be emitted for overlay consumption
+
+#### Scenario: Conflicting grouped signal domains resolve deterministically
+- **GIVEN** a normalized causal event references multiple signal domains with different precedence
+- **WHEN** grouped causal evaluation executes
+- **THEN** precedence resolution SHALL be deterministic
+- **AND** the chosen primary domain/context SHALL be included in explainability metadata
+
+### Requirement: Causal Explainability Metadata
+The system SHALL emit explainability metadata for propagated causal outcomes.
+
+#### Scenario: Propagated state includes evidence metadata
+- **GIVEN** a node state is marked affected due to propagation
+- **WHEN** overlay state is emitted
+- **THEN** metadata SHALL include source signal references and propagation context identifiers
+- **AND** operators SHALL be able to inspect why the state was assigned
+
+### Requirement: Grouped Evaluation Guardrails
+Grouped causal evaluation SHALL enforce bounded context handling to preserve predictable latency under burst input.
+
+#### Scenario: Context set is bounded under burst input
+- **GIVEN** an event carries context references exceeding configured limits
+- **WHEN** normalization/evaluation executes
+- **THEN** contexts SHALL be truncated to configured bounds
+- **AND** guardrail metadata SHALL indicate truncation and applied limits
+

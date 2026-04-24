@@ -5,6 +5,6 @@
 
 ## 2. Validation
 - [x] 2.1 Run `cd rust/flowgger && cargo test`.
-- [ ] 2.2 Run `openspec validate harden-rust-flowgger-grpc-transport-defaults --strict`.
-- [ ] 2.3 Run `openspec validate add-repo-security-review-baseline --strict`.
-- [ ] 2.4 Run `git diff --check`.
+- [x] 2.2 Run `openspec validate harden-rust-flowgger-grpc-transport-defaults --strict`.
+- [x] 2.3 Run `openspec validate add-repo-security-review-baseline --strict`.
+- [x] 2.4 Run `git diff --check`.
