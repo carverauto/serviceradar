@@ -105,6 +105,7 @@ export const godViewRenderingGraphDataMethods = {
           topologyClassCounts: edge.topologyClassCounts || null,
           protocol: String(edge.protocol || ""),
           evidenceClass: String(edge.evidenceClass || ""),
+          details: edge.details && typeof edge.details === "object" ? edge.details : {},
           edgeCount: Number(edge.weight || 1),
           interactionKey: `${effective.shape}:${rawEdgeId}`,
         }
@@ -236,6 +237,7 @@ export const godViewRenderingGraphDataMethods = {
         labels: new Set(),
         protocols: new Set(),
         evidenceClasses: new Set(),
+        detailsList: [],
       }
 
       const edgeWeight = Math.max(1, Number(edge.weight || edge.edgeCount || 1))
@@ -259,6 +261,7 @@ export const godViewRenderingGraphDataMethods = {
       if (edge.label) current.labels.add(String(edge.label))
       if (edge.protocol) current.protocols.add(String(edge.protocol))
       if (edge.evidenceClass) current.evidenceClasses.add(String(edge.evidenceClass))
+      if (edge.details && typeof edge.details === "object") current.detailsList.push(edge.details)
       acc.set(key, current)
     }
 
@@ -270,10 +273,16 @@ export const godViewRenderingGraphDataMethods = {
         .filter(([, count]) => Number(count || 0) > 0)
         .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
       const dominantClass = classBuckets.length === 1 ? classBuckets[0][0] : ""
-      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, ...plainEdge} = edge
+      const detailCandidates = Array.isArray(edge.detailsList) ? edge.detailsList : []
+      const details =
+        detailCandidates.find((candidate) => Array.isArray(candidate.interface_sparkline) && candidate.interface_sparkline.length > 1) ||
+        detailCandidates[0] ||
+        {}
+      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, detailsList: _detailsList, ...plainEdge} = edge
 
       return {
         ...plainEdge,
+        details,
         label: labels[0] || edge.label,
         topologyClass: dominantClass,
         protocol: protocols.length === 1 ? protocols[0] : "",

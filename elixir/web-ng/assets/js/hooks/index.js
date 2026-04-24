@@ -1,8 +1,10 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
+import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
+import OperationsTrafficMap from "./OperationsTrafficMap"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
@@ -25,9 +27,11 @@ import BandwidthGauge from "./charts/BandwidthGauge"
 export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
+  DashboardMapViewSelect,
   JdmEditorHook,
   LocalTime,
   MapboxFlowMap,
+  OperationsTrafficMap,
   SRQLTimeCookie,
   SpatialSurveyMap,
   NetflowSankeyChart,

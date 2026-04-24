@@ -149,6 +149,32 @@ describe("rendering_tooltip_methods", () => {
     expect(tooltip.html).toContain("No strong physical, logical, or hosted placement evidence")
   })
 
+  it("renders interface sparkline details for hovered topology edges", () => {
+    const ctx = buildContext()
+    ctx.getNodeTooltip = godViewRenderingTooltipMethods.getNodeTooltip.bind(ctx)
+
+    const tooltip = ctx.getNodeTooltip({
+      layer: {id: "god-view-edges-crust"},
+      object: {
+        connectionLabel: "LINK",
+        flowPps: 42,
+        capacityBps: 1_000_000,
+        details: {
+          source_interface: "xe-0/0/0",
+          target_interface: "xe-0/0/1",
+          telemetry_source: "snmp",
+          interface_sparkline_label: "Recent SNMP interface rate",
+          interface_sparkline: [{value: 1000}, {value: 2400}, {value: 1800}],
+        },
+      },
+    })
+
+    expect(tooltip.html).toContain("Interfaces: xe-0/0/0 -> xe-0/0/1")
+    expect(tooltip.html).toContain("Telemetry: snmp")
+    expect(tooltip.html).toContain("Recent SNMP interface rate")
+    expect(tooltip.html).toContain("<polyline")
+  })
+
   it("handleHover updates cursor to pointer over nodes and grab otherwise", () => {
     const ctx = buildContext()
     ctx.handleHover = godViewRenderingTooltipMethods.handleHover.bind(ctx)

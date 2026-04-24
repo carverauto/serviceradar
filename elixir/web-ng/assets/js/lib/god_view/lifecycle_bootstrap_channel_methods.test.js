@@ -71,6 +71,7 @@ describe("lifecycle_bootstrap_channel_methods", () => {
 
     try {
       const state = {
+        el: {dataset: {url: "/topology/snapshot/latest"}},
         summary: {textContent: ""},
         pushEvent: vi.fn(),
         snapshotBootstrapPromise: null,
@@ -78,7 +79,6 @@ describe("lifecycle_bootstrap_channel_methods", () => {
       }
       const ctx = createStateBackedContext(state, {})
       Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelMethods), {
-        el: {dataset: {url: "/topology/snapshot/latest"}},
         handleSnapshot: vi.fn(async () => {}),
       })
 
