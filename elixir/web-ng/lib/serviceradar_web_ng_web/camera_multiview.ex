@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   end
 
   def refresh_tile_session(scope, tile) when is_map(tile) do
-    case get_in(tile, [:session, :id]) do
+    case session_id(tile) do
       session_id when is_binary(session_id) ->
         case fetch_session(scope, session_id) do
           {:ok, nil} -> Map.put(tile, :session, nil)
