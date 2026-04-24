@@ -99,7 +99,11 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   end
 
   defp candidate_from_source(%{id: source_id, stream_profiles: profiles} = source) when is_list(profiles) do
-    profile = Enum.find(profiles, &relay_eligible?/1)
+    profile =
+      profiles
+      |> Enum.filter(&relay_eligible?/1)
+      |> Enum.sort_by(&profile_preference/1)
+      |> List.first()
 
     cond do
       is_nil(profile) ->
@@ -129,6 +133,26 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
 
   defp relay_eligible?(%{relay_eligible: false}), do: false
   defp relay_eligible?(_profile), do: true
+
+  defp profile_preference(profile) do
+    label =
+      [
+        Map.get(profile, :profile_name),
+        Map.get(profile, :vendor_profile_id)
+      ]
+      |> first_present()
+      |> to_string()
+      |> String.downcase()
+
+    cond do
+      String.contains?(label, "low") -> 0
+      String.contains?(label, "medium") -> 1
+      String.contains?(label, "main") -> 2
+      String.contains?(label, "high") -> 3
+      String.contains?(label, "package") -> 4
+      true -> 5
+    end
+  end
 
   defp assigned_for_relay?(source) do
     present?(Map.get(source, :assigned_agent_id)) and present?(Map.get(source, :assigned_gateway_id))
