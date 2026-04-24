@@ -149,6 +149,39 @@ function formatBytes(value) {
   return `${bytes.toFixed(0)} B`
 }
 
+function svgPoint(point) {
+  return `${Math.round(Number(point[0] || 0) * 10) / 10} ${Math.round(Number(point[1] || 0) * 10) / 10}`
+}
+
+function svgPathForLink(link, idx) {
+  const [x1, y1] = link.from
+  const [x2, y2] = link.to
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const distance = Math.max(1, Math.hypot(dx, dy))
+  const curve = Math.min(14, Math.max(3, distance * 0.075)) * (idx % 2 === 0 ? 1 : -1)
+  const cx = (x1 + x2) / 2 - (dy / distance) * curve
+  const cy = (y1 + y2) / 2 + (dx / distance) * curve
+
+  return `M ${svgPoint(link.from)} Q ${Math.round(cx * 10) / 10} ${Math.round(cy * 10) / 10} ${svgPoint(link.to)}`
+}
+
+function rgbaCss(color, alphaMultiplier = 1) {
+  const rgba = scaledColor(color, alphaMultiplier)
+  return `rgba(${rgba[0]}, ${rgba[1]}, ${rgba[2]}, ${Math.max(0.18, Math.min(1, rgba[3] / 255))})`
+}
+
+function strokeWidthFor(link) {
+  return Math.round((0.8 + Math.min(4.8, Math.log10(Math.max(10, link.magnitude || link.flowBps || link.bytes || 10)) / 1.25)) * 10) / 10
+}
+
+function topVisualLinks(links, limit) {
+  return [...links]
+    .filter((link) => Number(link.magnitude || link.flowBps || link.bytes || 0) > 0)
+    .sort((a, b) => Number(b.magnitude || b.flowBps || b.bytes || 0) - Number(a.magnitude || a.flowBps || a.bytes || 0))
+    .slice(0, limit)
+}
+
 function sparklineSvg(points, fallbackLabel) {
   if (!Array.isArray(points) || points.length < 2) return ""
 
@@ -284,6 +317,7 @@ export default {
     document.addEventListener("change", this._onMapViewChange)
     window.addEventListener("serviceradar:dashboard-map-view", this._onExternalMapViewChange)
     this._initDeck()
+    this._ensureSvgOverlay()
     this.resizeObserver = new ResizeObserver(this._resizeDeck)
     this.resizeObserver.observe(this.el.parentElement || this.el)
     this._resizeDeck()
@@ -300,6 +334,7 @@ export default {
     window.removeEventListener("serviceradar:dashboard-map-view", this._onExternalMapViewChange)
     this.resizeObserver?.disconnect()
     if (this.frame) cancelAnimationFrame(this.frame)
+    this.svgOverlay?.remove()
     this.deck?.finalize()
     this.deck = null
   },
@@ -364,12 +399,107 @@ export default {
     this.deck.redraw(true)
   },
 
+  _ensureSvgOverlay() {
+    const parent = this.el.parentElement
+    if (!parent) return null
+
+    this.svgOverlay = parent.querySelector(".sr-ops-traffic-overlay")
+    if (!this.svgOverlay) {
+      this.svgOverlay = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+      this.svgOverlay.classList.add("sr-ops-traffic-overlay")
+      this.svgOverlay.setAttribute("viewBox", "-180 -90 360 180")
+      this.svgOverlay.setAttribute("preserveAspectRatio", "xMidYMid meet")
+      this.svgOverlay.setAttribute("aria-hidden", "true")
+      parent.appendChild(this.svgOverlay)
+    }
+
+    return this.svgOverlay
+  },
+
+  _renderSvgOverlay() {
+    const svg = this._ensureSvgOverlay()
+    if (!svg) return
+
+    const visualLinks =
+      this.mapView === "netflow" ? topVisualLinks(this.links, 32) : topVisualLinks(this.topologyLinks, 18)
+    const overlayLinks = this.mapView === "topology_traffic" ? topVisualLinks(this.overlays, 8) : []
+
+    if (visualLinks.length === 0 && overlayLinks.length === 0) {
+      svg.replaceChildren()
+      return
+    }
+
+    const fragment = document.createDocumentFragment()
+    const linkGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
+    const particleGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
+    const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
+    const linksForNodes = this.mapView === "netflow" ? visualLinks.slice(0, 16) : visualLinks.slice(0, 10)
+
+    linkGroup.setAttribute("class", "sr-ops-traffic-overlay-links")
+    particleGroup.setAttribute("class", "sr-ops-traffic-overlay-particles")
+    nodeGroup.setAttribute("class", "sr-ops-traffic-overlay-nodes")
+
+    visualLinks.forEach((link, idx) => {
+      const pathData = svgPathForLink(link, idx)
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+
+      path.setAttribute("d", pathData)
+      path.setAttribute("class", "sr-ops-traffic-path")
+      path.setAttribute("stroke", rgbaCss(link.color, this.mapView === "netflow" && link.geoMapped === false ? 0.58 : 1))
+      path.setAttribute("stroke-width", strokeWidthFor(link))
+      path.style.setProperty("--traffic-delay", `${(idx % 7) * -0.38}s`)
+      linkGroup.appendChild(path)
+
+      if (idx < 16) {
+        const particle = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+        const motion = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion")
+
+        particle.setAttribute("r", String(Math.min(2.4, Math.max(1.2, strokeWidthFor(link) * 0.42))))
+        particle.setAttribute("fill", rgbaCss(link.color, 1.2))
+        particle.setAttribute("class", "sr-ops-traffic-particle")
+        motion.setAttribute("dur", `${Math.max(2.4, 5.8 - Math.min(2.6, Math.log10(Math.max(10, link.magnitude || 10)) * 0.24))}s`)
+        motion.setAttribute("begin", `${(idx % 6) * 0.22}s`)
+        motion.setAttribute("repeatCount", "indefinite")
+        motion.setAttribute("path", pathData)
+        particle.appendChild(motion)
+        particleGroup.appendChild(particle)
+      }
+    })
+
+    overlayLinks.forEach((link, idx) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+
+      path.setAttribute("d", svgPathForLink(link, idx))
+      path.setAttribute("class", "sr-ops-mtr-overlay-path")
+      linkGroup.appendChild(path)
+    })
+
+    linksForNodes.forEach((link) => {
+      for (const point of [link.from, link.to]) {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+
+        node.setAttribute("cx", point[0])
+        node.setAttribute("cy", point[1])
+        node.setAttribute("r", this.mapView === "netflow" ? "1.7" : "1.35")
+        node.setAttribute("fill", rgbaCss(link.color, 1.25))
+        node.setAttribute("class", "sr-ops-traffic-node")
+        nodeGroup.appendChild(node)
+      }
+    })
+
+    fragment.appendChild(linkGroup)
+    fragment.appendChild(particleGroup)
+    fragment.appendChild(nodeGroup)
+    svg.replaceChildren(fragment)
+  },
+
   _syncData() {
     this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "topology_traffic"
     this.topologyLinks = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.topologyLinks, [])) : []
     this.links = normalizeTrafficLinks(parseJson(this.el.dataset.links, []), this.mapView)
     this.overlays = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.mtrOverlays, [])) : []
     this.deck?.setProps({layers: this._layers()})
+    this._renderSvgOverlay()
   },
 
   _tick() {

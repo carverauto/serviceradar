@@ -595,6 +595,55 @@
   stroke-width: 0.8;
 }
 
+.sr-ops-traffic-overlay {
+  position: absolute;
+  z-index: 5;
+  inset: 0.5rem 0.75rem;
+  width: calc(100% - 1.5rem);
+  height: calc(100% - 1rem);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.sr-ops-traffic-path,
+.sr-ops-mtr-overlay-path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sr-ops-traffic-path {
+  filter: drop-shadow(0 0 7px rgba(14, 165, 233, 0.38));
+  opacity: 0.74;
+  stroke-dasharray: 7 13;
+  animation: sr-ops-traffic-flow 3.4s linear infinite;
+  animation-delay: var(--traffic-delay, 0s);
+}
+
+.sr-ops-mtr-overlay-path {
+  stroke: rgba(251, 191, 36, 0.74);
+  stroke-width: 1.6;
+  stroke-dasharray: 3 6;
+  filter: drop-shadow(0 0 7px rgba(251, 191, 36, 0.32));
+}
+
+.sr-ops-traffic-particle {
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.72));
+  opacity: 0.9;
+}
+
+.sr-ops-traffic-node {
+  filter: drop-shadow(0 0 5px rgba(125, 211, 252, 0.56));
+  opacity: 0.86;
+}
+
+@keyframes sr-ops-traffic-flow {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
 .sr-ops-map-controls {
   position: absolute;
   z-index: 7;
