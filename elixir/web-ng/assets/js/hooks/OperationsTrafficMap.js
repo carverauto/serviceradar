@@ -325,7 +325,7 @@ export default {
       controller: {dragPan: true, scrollZoom: true, doubleClickZoom: true, touchZoom: true},
       useDevicePixels: true,
       parameters: {
-        clearColor: [2, 8, 23, 255],
+        clearColor: [0.008, 0.031, 0.09, 1],
         blend: true,
         blendFunc: [770, 771],
         depthTest: false,
