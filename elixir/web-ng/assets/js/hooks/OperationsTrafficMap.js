@@ -1,5 +1,5 @@
 import {COORDINATE_SYSTEM, Deck, OrthographicView} from "@deck.gl/core"
-import {ArcLayer, LineLayer, PolygonLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {ArcLayer, LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
 const BASE_GRID_LINES = buildGridLines()
@@ -325,7 +325,7 @@ export default {
       controller: {dragPan: true, scrollZoom: true, doubleClickZoom: true, touchZoom: true},
       useDevicePixels: true,
       parameters: {
-        clearColor: [0.008, 0.031, 0.09, 1],
+        clearColor: [0, 0, 0, 0],
       },
       getTooltip: () => null,
       layers: this._layers(),
@@ -365,16 +365,6 @@ export default {
         : `${this.topologyLinks.length} topology links / ${this.links.length} flow paths`
 
     return [
-      new PolygonLayer({
-        id: "ops-map-background",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: [{polygon: [[-180, -90], [180, -90], [180, 90], [-180, 90]]}],
-        getPolygon: (d) => d.polygon,
-        getFillColor: [2, 8, 23, 255],
-        stroked: false,
-        filled: true,
-        pickable: false,
-      }),
       new LineLayer({
         id: "ops-map-grid",
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
@@ -390,8 +380,8 @@ export default {
         data: this.topologyLinks,
         getSourcePosition: (d) => d.from,
         getTargetPosition: (d) => d.to,
-        getColor: (d) => d.color,
-        getWidth: (d) => 0.75 + Math.min(3, Math.log10(Math.max(10, d.magnitude || 10)) / 1.7),
+        getColor: (d) => scaledColor(d.color, d.magnitude > 0 ? 1.3 : 0.9),
+        getWidth: (d) => 1.45 + Math.min(5, Math.log10(Math.max(10, d.magnitude || 10)) / 1.15),
         widthUnits: "pixels",
         pickable: false,
       }),
@@ -401,9 +391,9 @@ export default {
         data: this.links,
         getSourcePosition: (d) => d.from,
         getTargetPosition: (d) => d.to,
-        getSourceColor: (d) => scaledColor(d.color, d.geoMapped === false ? 0.62 : 0.92),
-        getTargetColor: (d) => scaledColor(d.color, d.geoMapped === false ? 0.62 : 0.92),
-        getWidth: (d) => 0.85 + Math.min(4.5, Math.log10(Math.max(10, d.magnitude)) / 1.25),
+        getSourceColor: (d) => scaledColor(d.color, d.geoMapped === false ? 0.7 : 1.12),
+        getTargetColor: (d) => scaledColor(d.color, d.geoMapped === false ? 0.7 : 1.12),
+        getWidth: (d) => 1.2 + Math.min(5.5, Math.log10(Math.max(10, d.magnitude)) / 1.08),
         greatCircle: false,
         pickable: false,
       }),
