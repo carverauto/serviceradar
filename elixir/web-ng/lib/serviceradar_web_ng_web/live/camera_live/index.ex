@@ -147,8 +147,30 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       opened > 0 ->
         "#{opened} of #{count} viewports are backed by active relay sessions."
 
+      tiles != [] ->
+        relay_failure_notice(tiles)
+
       true ->
         "No relay-capable cameras were available from the current camera inventory."
+    end
+  end
+
+  defp relay_failure_notice(tiles) do
+    errors =
+      tiles
+      |> Enum.map(&Map.get(&1, :error))
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+      |> Enum.uniq()
+
+    case errors do
+      [] ->
+        "Relay-capable cameras are available, but no relay sessions opened."
+
+      [error] ->
+        "Relay-capable cameras are available, but no relay sessions opened: #{error}."
+
+      errors ->
+        "Relay-capable cameras are available, but no relay sessions opened: #{Enum.join(errors, "; ")}."
     end
   end
 

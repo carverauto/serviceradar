@@ -501,6 +501,18 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def lookup_control_session_entries(_agent_id), do: []
 
+  def resolve_control_gateway_node(agent_id, preferred_gateway_node \\ nil)
+
+  def resolve_control_gateway_node(agent_id, preferred_gateway_node) when is_binary(agent_id) do
+    case lookup_control_session(agent_id, preferred_gateway_node) do
+      {:ok, _pid, metadata} -> {:ok, gateway_node_from_metadata(metadata)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_agent_id}
+
   defp pick_control_session(entries, agent_id, required_gateway_node) do
     entries
     |> Enum.uniq_by(fn {pid, metadata} -> {pid, gateway_node_from_metadata(metadata)} end)

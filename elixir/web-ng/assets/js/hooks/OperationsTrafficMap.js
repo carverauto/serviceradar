@@ -1,8 +1,15 @@
-import {COORDINATE_SYSTEM, Deck, OrthographicView} from "@deck.gl/core"
-import {ArcLayer, LineLayer, PolygonLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {geoEquirectangular, geoPath} from "d3-geo"
+import countries110m from "world-atlas/countries-110m.json"
+import {feature} from "topojson-client"
 
 const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
-const BASE_GRID_LINES = buildGridLines()
+const WORLD_COUNTRIES = feature(countries110m, countries110m.objects.countries)
+const WORLD_MAP_PATHS = buildWorldMapPaths()
+const TOPOLOGY_VIEWBOX = "-170 -70 340 140"
+const NETFLOW_WORLD_VIEWBOX = "-180 -86 360 172"
+const COUNTRY_NAMES = typeof Intl !== "undefined" && Intl.DisplayNames
+  ? new Intl.DisplayNames(["en"], {type: "region"})
+  : null
 
 function parseJson(value, fallback) {
   try {
@@ -13,13 +20,14 @@ function parseJson(value, fallback) {
   }
 }
 
-function buildGridLines() {
-  const lines = []
+function buildWorldMapPaths() {
+  const projection = geoEquirectangular()
+    .scale(180 / Math.PI)
+    .translate([0, 0])
+    .precision(0.1)
+  const path = geoPath(projection)
 
-  for (let x = -150; x <= 150; x += 30) lines.push({from: [x, -58], to: [x, 58]})
-  for (let y = -45; y <= 45; y += 15) lines.push({from: [-176, y], to: [176, y]})
-
-  return lines
+  return WORLD_COUNTRIES.features.map((country) => path(country)).filter(Boolean)
 }
 
 function normalizePoint(value) {
@@ -41,6 +49,19 @@ function scaledColor(color, alphaMultiplier = 1) {
   const rgba = Array.isArray(color) ? color : [56, 189, 248, 180]
   const alpha = Math.max(45, Math.min(255, Math.round(Number(rgba[3] ?? 180) * alphaMultiplier)))
   return [Number(rgba[0] ?? 56), Number(rgba[1] ?? 189), Number(rgba[2] ?? 248), alpha]
+}
+
+function netflowLinkColor(link, magnitude) {
+  const flowCount = Number(link?.flow_count || 0)
+  const sourceLocal = Boolean(link?.source_local_anchor)
+  const targetLocal = Boolean(link?.target_local_anchor)
+
+  if (magnitude >= 1_000_000_000 || flowCount >= 50) return [251, 146, 60, 235]
+  if (magnitude >= 100_000_000 || flowCount >= 15) return [167, 139, 250, 230]
+  if (sourceLocal && targetLocal) return [45, 212, 191, 230]
+  if (sourceLocal || targetLocal) return [56, 189, 248, 230]
+
+  return [148, 163, 184, 185]
 }
 
 function normalizeLinks(rawLinks) {
@@ -65,6 +86,8 @@ function normalizeLinks(rawLinks) {
         telemetrySource: link?.telemetry_source,
         localInterface: link?.local_if_name,
         neighborInterface: link?.neighbor_if_name,
+        topologyPlane: link?.topology_plane,
+        evidenceClass: link?.evidence_class,
         flowBps: Number(link?.flow_bps || 0),
         capacityBps: Number(link?.capacity_bps || 0),
         utilizationPct: Number(link?.utilization_pct || 0),
@@ -80,6 +103,72 @@ function normalizeLinks(rawLinks) {
     .filter((link) => link.from[0] !== link.to[0] || link.from[1] !== link.to[1])
 }
 
+function topologySchematicLinks(links) {
+  if (!Array.isArray(links) || links.length === 0) return []
+
+  const nodeStats = new Map()
+  const touch = (label, weight) => {
+    if (!label) return
+    const current = nodeStats.get(label) || {label, degree: 0, weight: 0}
+    current.degree += 1
+    current.weight += weight
+    nodeStats.set(label, current)
+  }
+
+  for (const link of links) {
+    const weight = visualMagnitude(link)
+    touch(link.sourceLabel, weight)
+    touch(link.targetLabel, weight)
+  }
+
+  const nodes = [...nodeStats.values()].sort((a, b) => b.degree - a.degree || b.weight - a.weight || a.label.localeCompare(b.label))
+  const hubs = nodes.slice(0, Math.min(5, Math.max(2, Math.ceil(nodes.length / 4))))
+  const hubLabels = new Set(hubs.map((node) => node.label))
+  const positions = new Map()
+  const hubSpacing = hubs.length > 1 ? 160 / (hubs.length - 1) : 0
+
+  hubs.forEach((node, idx) => {
+    positions.set(node.label, [-80 + idx * hubSpacing, idx % 2 === 0 ? -5 : 8])
+  })
+
+  const leavesByHub = new Map(hubs.map((node) => [node.label, []]))
+  const nearestHubFor = (label) => {
+    const candidate = links.find((link) => {
+      return (link.sourceLabel === label && hubLabels.has(link.targetLabel)) || (link.targetLabel === label && hubLabels.has(link.sourceLabel))
+    })
+
+    if (candidate) return hubLabels.has(candidate.sourceLabel) ? candidate.sourceLabel : candidate.targetLabel
+
+    return hubs[0]?.label
+  }
+
+  for (const node of nodes) {
+    if (hubLabels.has(node.label)) continue
+    const hub = nearestHubFor(node.label)
+    if (!hub) continue
+    leavesByHub.get(hub)?.push(node)
+  }
+
+  for (const [hub, leaves] of leavesByHub.entries()) {
+    const [hubX, hubY] = positions.get(hub)
+    leaves
+      .sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label))
+      .forEach((node, idx) => {
+        const side = idx % 2 === 0 ? 1 : -1
+        const ring = Math.floor(idx / 2)
+        const x = Math.max(-158, Math.min(158, hubX + side * (34 + ring * 24)))
+        const y = Math.max(-58, Math.min(58, hubY + (ring % 2 === 0 ? 34 : -34)))
+        positions.set(node.label, [x, y])
+      })
+  }
+
+  return links.map((link) => ({
+    ...link,
+    from: positions.get(link.sourceLabel) || link.from,
+    to: positions.get(link.targetLabel) || link.to,
+  }))
+}
+
 function normalizeTrafficLinks(rawLinks, mapView) {
   return rawLinks
     .map((link, idx) => {
@@ -90,7 +179,8 @@ function normalizeTrafficLinks(rawLinks, mapView) {
       const from = useGeo ? fallbackPoint(link?.geo_from, topologyFrom) : normalizePoint(topologyFrom)
       const to = useGeo ? fallbackPoint(link?.geo_to, topologyTo) : normalizePoint(topologyTo)
       const magnitude = Math.max(0, Number(link?.magnitude || link?.bytes || link?.packets || 0))
-      const color = scaledColor(Array.isArray(link?.color) ? link.color : [56, 189, 248, 180], useGeo && !geoMapped ? 0.45 : 1)
+      const baseColor = useGeo ? netflowLinkColor(link, magnitude) : Array.isArray(link?.color) ? link.color : [56, 189, 248, 180]
+      const color = scaledColor(baseColor, useGeo && !geoMapped ? 0.45 : 1)
       const sourceGeoLabel = link?.source_geo_label || null
       const targetGeoLabel = link?.target_geo_label || null
 
@@ -106,6 +196,10 @@ function normalizeTrafficLinks(rawLinks, mapView) {
         targetIp: link?.target_label,
         sourceGeoLabel,
         targetGeoLabel,
+        sourceAnchorLabel: link?.source_anchor_label,
+        targetAnchorLabel: link?.target_anchor_label,
+        sourceLocalAnchor: Boolean(link?.source_local_anchor),
+        targetLocalAnchor: Boolean(link?.target_local_anchor),
         geoMapped,
         bytes: Number(link?.bytes || 0),
         packets: Number(link?.packets || 0),
@@ -120,6 +214,7 @@ function normalizeTrafficLinks(rawLinks, mapView) {
         laneOffset: (idx % 5) - 2,
       }
     })
+    .filter((link) => mapView !== "netflow" || link.geoMapped)
     .filter((link) => link.from[0] !== link.to[0] || link.from[1] !== link.to[1])
 }
 
@@ -131,15 +226,6 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
 }
 
-function formatRate(value) {
-  const bps = Number(value || 0)
-  if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(1)} Gbps`
-  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
-  if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} Kbps`
-  if (bps > 0) return `${bps.toFixed(0)} bps`
-  return "No rate"
-}
-
 function formatBytes(value) {
   const bytes = Number(value || 0)
   if (bytes >= 1_000_000_000_000) return `${(bytes / 1_000_000_000_000).toFixed(1)} TB`
@@ -149,21 +235,307 @@ function formatBytes(value) {
   return `${bytes.toFixed(0)} B`
 }
 
-function svgPoint(point) {
-  return `${Math.round(Number(point[0] || 0) * 10) / 10} ${Math.round(Number(point[1] || 0) * 10) / 10}`
+function formatRate(value) {
+  const bps = Number(value || 0)
+  if (bps >= 1_000_000_000_000) return `${(bps / 1_000_000_000_000).toFixed(1)} Tbps`
+  if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(1)} Gbps`
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
+  if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} Kbps`
+  return `${bps.toFixed(0)} bps`
 }
 
-function svgPathForLink(link, idx) {
-  const [x1, y1] = link.from
-  const [x2, y2] = link.to
+function flowEndpointLabel(label, ip, fallback) {
+  const value = String(label || ip || fallback || "").trim()
+  return value || "Unknown"
+}
+
+function shortNodeLabel(value) {
+  const label = String(value || "")
+  const clean = label
+    .replace(/^sr:/, "")
+    .replace(/^device:/, "")
+    .replace(/^ip:/, "")
+
+  if (clean.length <= 22) return clean
+
+  return `${clean.slice(0, 19)}...`
+}
+
+function isIpLike(value) {
+  const label = String(value || "").trim()
+  return (label.includes(".") || label.includes(":")) && /^[0-9a-f:.]+$/i.test(label)
+}
+
+function countryIpLabel(value) {
+  const [country, ip] = String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+
+  if (/^[a-z]{2}$/i.test(country || "") && isIpLike(ip)) {
+    const countryCode = country.toUpperCase()
+
+    return {
+      country: countryCode,
+      countryName: countryDisplayName(countryCode),
+      ip,
+    }
+  }
+
+  return null
+}
+
+function countryDisplayName(countryCode) {
+  try {
+    const name = COUNTRY_NAMES?.of(countryCode)
+    if (name && name !== countryCode) return name
+  } catch (_e) {
+    // Fall back to the region code when the browser cannot resolve it.
+  }
+
+  return countryCode
+}
+
+function compactCityLabel(city) {
+  const clean = String(city || "").trim()
+  if (clean.length <= 13) return clean
+
+  const [firstWord] = clean.split(/\s+/)
+  if (firstWord && firstWord.length >= 5 && firstWord.length <= 13) return firstWord
+
+  return `${clean.slice(0, 12)}...`
+}
+
+function shortEndpointLabel(value) {
+  const label = String(value || "").trim()
+  if (!label) return ""
+  const countryIp = countryIpLabel(label)
+  if (countryIp) return compactCityLabel(countryIp.countryName)
+  if (label.length <= 18) return label
+
+  const [city, region] = label.split(",").map((part) => part.trim())
+  if (city && region) {
+    return `${compactCityLabel(city)}, ${region.slice(0, 3)}`
+  }
+
+  return `${label.slice(0, 15)}...`
+}
+
+function networkClusterLabel(labels) {
+  const names = labels
+    .map((label) => compactCityLabel(String(label || "").split(",")[0]))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+
+  if (names.length === 2 && names.every((name) => name.length <= 11)) {
+    return `${names[0]} / ${names[1]}`
+  }
+
+  if (names.length === 3 && names.every((name) => name.length <= 8)) {
+    return names.join(" / ")
+  }
+
+  return `${labels.length} networks`
+}
+
+function projectedSvgPoint(point, mapView) {
+  const x = Number(point[0] || 0)
+  const y = Number(point[1] || 0)
+
+  if (mapView === "netflow") return [x, -y]
+
+  return [x, y]
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function rounded(value) {
+  return Math.round(value * 10) / 10
+}
+
+function parseViewBox(value) {
+  const parts = String(value || "")
+    .split(/\s+/)
+    .map(Number)
+
+  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) return null
+
+  return {
+    x: parts[0],
+    y: parts[1],
+    width: parts[2],
+    height: parts[3],
+  }
+}
+
+function formatViewBox(box) {
+  return `${rounded(box.x)} ${rounded(box.y)} ${rounded(box.width)} ${rounded(box.height)}`
+}
+
+function constrainedNetflowViewBox(box) {
+  const width = clamp(box.width, 28, 360)
+  const height = clamp(box.height, 16, 172)
+  const x = clamp(box.x, -180, 180 - width)
+  const y = clamp(box.y, -86, 86 - height)
+
+  return {x, y, width, height}
+}
+
+function scaledViewBox(viewBox, factor, focalPoint = null) {
+  const box = parseViewBox(viewBox)
+  if (!box) return null
+
+  const width = box.width * factor
+  const height = box.height * factor
+  const anchorX = focalPoint?.x ?? box.x + box.width / 2
+  const anchorY = focalPoint?.y ?? box.y + box.height / 2
+  const ratioX = focalPoint?.ratioX ?? 0.5
+  const ratioY = focalPoint?.ratioY ?? 0.5
+
+  return constrainedNetflowViewBox({
+    x: anchorX - ratioX * width,
+    y: anchorY - ratioY * height,
+    width,
+    height,
+  })
+}
+
+function netflowZoomScale(zoomWidth) {
+  return clamp((zoomWidth || 272) / 272, 0.11, 1)
+}
+
+function netflowLabelStyle(zoomWidth, local) {
+  const scale = netflowZoomScale(zoomWidth)
+  const fontSize = local ? clamp(3.05 * scale, 2.35, 3.05) : clamp(2.45 * scale, 1.85, 2.45)
+
+  return {
+    fontSize,
+    strokeWidth: fontSize * 0.28,
+    collisionX: local ? Math.max(8.6, fontSize * 8.9) : Math.max(6.8, fontSize * 7.8),
+    collisionY: Math.max(3, fontSize * 2.5),
+  }
+}
+
+function netflowGeometryStyle(zoomWidth) {
+  const scale = netflowZoomScale(zoomWidth)
+
+  return {
+    scale,
+    localNodeRadius: 2.15 * scale,
+    externalNodeRadius: 0.55 * scale,
+    haloExtraWidth: 2.4 * scale,
+    arrowSize: Math.max(0.9, 1.85 * scale),
+  }
+}
+
+function reservedNetflowLegendArea(endpoint, box) {
+  if (endpoint.local || !box) return false
+
+  const reserveRight = box.x + box.width * 0.24
+  const reserveBottom = box.y + box.height * 0.72
+
+  return endpoint.x < reserveRight && endpoint.y < reserveBottom
+}
+
+function translatedViewBox(viewBox, deltaX, deltaY) {
+  const box = parseViewBox(viewBox)
+  if (!box) return null
+
+  return constrainedNetflowViewBox({
+    ...box,
+    x: box.x + deltaX,
+    y: box.y + deltaY,
+  })
+}
+
+function viewBoxForMap(mapView, links = []) {
+  if (mapView !== "netflow") return TOPOLOGY_VIEWBOX
+
+  const points = links
+    .flatMap((link) => [link.from, link.to])
+    .map((point) => projectedSvgPoint(point, "netflow"))
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+
+  if (points.length < 2) return NETFLOW_WORLD_VIEWBOX
+
+  const xs = points.map(([x]) => x)
+  const ys = points.map(([, y]) => y)
+  let minX = Math.min(...xs) - 24
+  let maxX = Math.max(...xs) + 24
+  let minY = Math.min(...ys) - 18
+  let maxY = Math.max(...ys) + 18
+
+  const minWidth = 118
+  const minHeight = 64
+  const width = maxX - minX
+  const height = maxY - minY
+
+  if (width < minWidth) {
+    const center = (minX + maxX) / 2
+    minX = center - minWidth / 2
+    maxX = center + minWidth / 2
+  }
+
+  if (height < minHeight) {
+    const center = (minY + maxY) / 2
+    minY = center - minHeight / 2
+    maxY = center + minHeight / 2
+  }
+
+  minX = clamp(minX, -180, 180 - minWidth)
+  maxX = clamp(maxX, minX + minWidth, 180)
+  minY = clamp(minY, -86, 86 - minHeight)
+  maxY = clamp(maxY, minY + minHeight, 86)
+
+  return `${rounded(minX)} ${rounded(minY)} ${rounded(maxX - minX)} ${rounded(maxY - minY)}`
+}
+
+function svgPathForLink(link, idx, mapView) {
+  const {from, control, to} = linkCurvePoints(link, idx, mapView)
+  return `M ${rounded(from[0])} ${rounded(from[1])} Q ${rounded(control[0])} ${rounded(control[1])} ${rounded(to[0])} ${rounded(to[1])}`
+}
+
+function linkCurvePoints(link, idx, mapView) {
+  const [x1, y1] = projectedSvgPoint(link.from, mapView)
+  const [x2, y2] = projectedSvgPoint(link.to, mapView)
   const dx = x2 - x1
   const dy = y2 - y1
   const distance = Math.max(1, Math.hypot(dx, dy))
-  const curve = Math.min(14, Math.max(3, distance * 0.075)) * (idx % 2 === 0 ? 1 : -1)
+  const curveScale = mapView === "netflow"
+    ? Math.min(24, Math.max(5, distance * 0.12))
+    : Math.min(14, Math.max(3, distance * 0.075))
+  const curve = curveScale * (idx % 2 === 0 ? 1 : -1)
   const cx = (x1 + x2) / 2 - (dy / distance) * curve
   const cy = (y1 + y2) / 2 + (dx / distance) * curve
 
-  return `M ${svgPoint(link.from)} Q ${Math.round(cx * 10) / 10} ${Math.round(cy * 10) / 10} ${svgPoint(link.to)}`
+  return {from: [x1, y1], control: [cx, cy], to: [x2, y2]}
+}
+
+function quadraticPoint(from, control, to, t) {
+  const inverse = 1 - t
+
+  return [
+    inverse * inverse * from[0] + 2 * inverse * t * control[0] + t * t * to[0],
+    inverse * inverse * from[1] + 2 * inverse * t * control[1] + t * t * to[1],
+  ]
+}
+
+function quadraticTangentAngle(from, control, to, t) {
+  const inverse = 1 - t
+  const dx = 2 * inverse * (control[0] - from[0]) + 2 * t * (to[0] - control[0])
+  const dy = 2 * inverse * (control[1] - from[1]) + 2 * t * (to[1] - control[1])
+
+  return Math.atan2(dy, dx) * (180 / Math.PI)
+}
+
+function linkArrowGeometry(link, idx, mapView, size = 1.25) {
+  const {from, control, to} = linkCurvePoints(link, idx, mapView)
+  const point = quadraticPoint(from, control, to, 0.78)
+  const angle = quadraticTangentAngle(from, control, to, 0.78)
+  const d = `M ${rounded(-size * 0.55)} ${rounded(-size * 0.52)} L ${rounded(size * 0.8)} 0 L ${rounded(-size * 0.55)} ${rounded(size * 0.52)} Z`
+
+  return {d, transform: `translate(${rounded(point[0])} ${rounded(point[1])}) rotate(${rounded(angle)})`}
 }
 
 function rgbaCss(color, alphaMultiplier = 1) {
@@ -171,124 +543,87 @@ function rgbaCss(color, alphaMultiplier = 1) {
   return `rgba(${rgba[0]}, ${rgba[1]}, ${rgba[2]}, ${Math.max(0.18, Math.min(1, rgba[3] / 255))})`
 }
 
-function strokeWidthFor(link) {
-  return Math.round((0.8 + Math.min(4.8, Math.log10(Math.max(10, link.magnitude || link.flowBps || link.bytes || 10)) / 1.25)) * 10) / 10
+function strokeWidthFor(link, mapView = "topology_traffic") {
+  const magnitude = Math.log10(Math.max(10, visualMagnitude(link)))
+  const width = mapView === "netflow" ? 0.62 + Math.min(1.75, magnitude / 3.2) : 0.82 + Math.min(3.25, magnitude / 1.55)
+
+  return Math.round(width * 10) / 10
 }
 
-function topVisualLinks(links, limit) {
+function visualMagnitude(link) {
+  const value = Number(link?.magnitude || link?.flowBps || link?.bytes || link?.packets || 0)
+  return Number.isFinite(value) ? value : 0
+}
+
+function netflowPathClass(link) {
+  const magnitude = visualMagnitude(link)
+  const flowCount = Number(link?.flowCount || 0)
+
+  if (magnitude >= 1_000_000_000 || flowCount >= 50) return "is-netflow-hot"
+  if (magnitude >= 100_000_000 || flowCount >= 15) return "is-netflow-busy"
+  if (link?.sourceLocalAnchor && link?.targetLocalAnchor) return "is-netflow-local"
+  if (link?.sourceLocalAnchor || link?.targetLocalAnchor) return "is-netflow-edge"
+
+  return "is-netflow-external"
+}
+
+function topVisualLinks(links, limit, {includeIdle = false} = {}) {
   return [...links]
-    .filter((link) => Number(link.magnitude || link.flowBps || link.bytes || 0) > 0)
-    .sort((a, b) => Number(b.magnitude || b.flowBps || b.bytes || 0) - Number(a.magnitude || a.flowBps || a.bytes || 0))
+    .filter((link) => includeIdle || visualMagnitude(link) > 0)
+    .sort((a, b) => visualMagnitude(b) - visualMagnitude(a))
     .slice(0, limit)
 }
 
-function sparklineSvg(points, fallbackLabel) {
-  if (!Array.isArray(points) || points.length < 2) return ""
-
-  const values = points.map((point) => Math.max(0, Number(point?.value ?? point ?? 0)))
-  const maxValue = Math.max(...values)
-  if (!Number.isFinite(maxValue) || maxValue <= 0) return ""
-  const label = points.find((point) => point?.label)?.label || fallbackLabel || "Recent interface rate"
-
-  const width = 148
-  const height = 34
-  const step = width / Math.max(values.length - 1, 1)
-  const polyline = values
-    .map((value, idx) => {
-      const x = Math.round(idx * step * 10) / 10
-      const y = Math.round((height - (value / maxValue) * (height - 4) - 2) * 10) / 10
-      return `${x},${y}`
-    })
-    .join(" ")
-
-  return `
-    <div class="sr-ops-map-tooltip-spark">
-      <span>${escapeHtml(label)}</span>
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interface rate sparkline">
-        <polyline points="${polyline}" />
-      </svg>
-    </div>
-  `
-}
-
-function tooltipFor(object, layer) {
-  if (!object) return null
-
-  const title = [object.sourceLabel, object.targetLabel].filter(Boolean).join(" -> ") || object.sourceLabel || object.id || "Traffic path"
-  const details = []
-
-  if (object.protocol) details.push(["Protocol", object.protocol])
-  if (object.telemetrySource) details.push(["Telemetry", object.telemetrySource])
-  if (object.sourceIp && object.sourceIp !== object.sourceLabel) details.push(["Source IP", object.sourceIp])
-  if (object.targetIp && object.targetIp !== object.targetLabel) details.push(["Destination IP", object.targetIp])
-  if (object.sourceGeoLabel && object.sourceGeoLabel !== object.sourceLabel) details.push(["Source Geo", object.sourceGeoLabel])
-  if (object.targetGeoLabel && object.targetGeoLabel !== object.targetLabel) details.push(["Destination Geo", object.targetGeoLabel])
-  if (object.geoMapped === false) details.push(["GeoIP", "not enriched"])
-  if (object.localInterface || object.neighborInterface) {
-    details.push(["Interfaces", [object.localInterface, object.neighborInterface].filter(Boolean).join(" -> ")])
-  }
-  if (object.bytes > 0) details.push(["Bytes", formatBytes(object.bytes)])
-  if (object.flowCount > 0) details.push(["Flows", object.flowCount.toLocaleString()])
-  if (object.flowBps > 0 || layer?.id === "ops-topology-links") details.push(["Current rate", formatRate(object.flowBps)])
-  if (object.capacityBps > 0) details.push(["Capacity", formatRate(object.capacityBps)])
-  if (object.utilizationPct > 0) details.push(["Utilization", `${object.utilizationPct.toFixed(1)}%`])
-
-  return {
-    html: `
-      <div class="sr-ops-map-tooltip">
-        <strong>${escapeHtml(title)}</strong>
-        ${details.map(([label, value]) => `<span><em>${escapeHtml(label)}</em>${escapeHtml(value)}</span>`).join("")}
-        ${sparklineSvg(object.sparkline, object.sparklineLabel)}
-      </div>
-    `,
-    style: {
-      backgroundColor: "rgba(2, 8, 23, 0.94)",
-      border: "1px solid rgba(56, 189, 248, 0.38)",
-      borderRadius: "6px",
-      color: "#e2e8f0",
-      fontFamily: "Inter, ui-sans-serif, system-ui",
-      fontSize: "12px",
-      maxWidth: "320px",
-      padding: "10px 12px",
-    },
-  }
-}
-
-function endpointNodes(links) {
+function endpointNodes(links, mapView = "topology_traffic") {
   const byKey = new Map()
 
   for (const link of links) {
     const endpoints = [
       {
         point: link.from,
-        label: link.sourceLabel,
+        label: mapView === "netflow" && link.sourceLocalAnchor ? link.sourceAnchorLabel || link.sourceLabel : link.sourceLabel,
         ip: link.sourceIp,
         geoLabel: link.sourceGeoLabel,
         color: link.color,
         magnitude: link.magnitude,
+        localAnchor: Boolean(link.sourceLocalAnchor),
+        anchorLabel: link.sourceAnchorLabel,
       },
       {
         point: link.to,
-        label: link.targetLabel,
+        label: mapView === "netflow" && link.targetLocalAnchor ? link.targetAnchorLabel || link.targetLabel : link.targetLabel,
         ip: link.targetIp,
         geoLabel: link.targetGeoLabel,
         color: link.color,
         magnitude: link.magnitude,
+        localAnchor: Boolean(link.targetLocalAnchor),
+        anchorLabel: link.targetAnchorLabel,
       },
     ]
 
     for (const endpoint of endpoints) {
       const point = endpoint.point
-      const key = `${point[0].toFixed(2)},${point[1].toFixed(2)}`
+      const key = mapView === "netflow" && endpoint.localAnchor && endpoint.anchorLabel
+        ? `local:${endpoint.anchorLabel}`
+        : `${point[0].toFixed(2)},${point[1].toFixed(2)}`
+      const nodeColor = mapView === "netflow"
+        ? endpoint.localAnchor
+          ? [45, 212, 191, 245]
+          : [148, 163, 184, 92]
+        : endpoint.color
 
       if (!byKey.has(key)) {
         byKey.set(key, {
           id: key,
           position: [point[0], point[1], 0],
-          color: endpoint.color,
+          color: nodeColor,
           sourceLabel: endpoint.label || endpoint.ip || key,
           sourceIp: endpoint.ip,
           sourceGeoLabel: endpoint.geoLabel,
+          localAnchor: endpoint.localAnchor,
+          anchorLabel: endpoint.anchorLabel,
+          longitude: point[0],
+          latitude: point[1],
           magnitude: endpoint.magnitude || 0,
           count: 1,
         })
@@ -296,6 +631,10 @@ function endpointNodes(links) {
         const existing = byKey.get(key)
         existing.magnitude += endpoint.magnitude || 0
         existing.count += 1
+        if (endpoint.localAnchor) {
+          existing.localAnchor = true
+          existing.color = [45, 212, 191, 245]
+        }
       }
     }
   }
@@ -309,20 +648,39 @@ export default {
     this.topologyLinks = []
     this.overlays = []
     this.mapView = "topology_traffic"
-    this.time = 0
-    this._tick = this._tick.bind(this)
-    this._resizeDeck = this._resizeDeck.bind(this)
+    this.autoViewBox = NETFLOW_WORLD_VIEWBOX
+    this.currentViewBox = null
+    this.viewBoxSignature = null
+    this.dragState = null
+    this.suppressNextClick = false
+    this._resizeMap = this._resizeMap.bind(this)
     this._onMapViewChange = this._onMapViewChange.bind(this)
     this._onExternalMapViewChange = this._onExternalMapViewChange.bind(this)
+    this._onMapWheel = this._onMapWheel.bind(this)
+    this._onMapPointerDown = this._onMapPointerDown.bind(this)
+    this._onMapPointerMove = this._onMapPointerMove.bind(this)
+    this._onMapPointerUp = this._onMapPointerUp.bind(this)
+    this._onSvgOverlayClick = this._onSvgOverlayClick.bind(this)
+    this._onClusterLabelClick = this._onClusterLabelClick.bind(this)
+    this._zoomIn = this._zoomIn.bind(this)
+    this._zoomOut = this._zoomOut.bind(this)
+    this._resetViewBox = this._resetViewBox.bind(this)
+    this._fitWorld = this._fitWorld.bind(this)
+    this._blockMapGesture = this._blockMapGesture.bind(this)
     document.addEventListener("change", this._onMapViewChange)
     window.addEventListener("serviceradar:dashboard-map-view", this._onExternalMapViewChange)
-    this._initDeck()
+    this.el.addEventListener("wheel", this._onMapWheel, {passive: false})
+    this.el.addEventListener("touchmove", this._blockMapGesture, {passive: false})
+    window.addEventListener("pointermove", this._onMapPointerMove)
+    window.addEventListener("pointerup", this._onMapPointerUp)
+    window.addEventListener("pointercancel", this._onMapPointerUp)
+    this._ensureWorldMapBackground()
     this._ensureSvgOverlay()
-    this.resizeObserver = new ResizeObserver(this._resizeDeck)
+    this._ensureInteractionControls()
+    this.resizeObserver = new ResizeObserver(this._resizeMap)
     this.resizeObserver.observe(this.el.parentElement || this.el)
-    this._resizeDeck()
+    this._resizeMap()
     this._syncData()
-    this._tick()
   },
 
   updated() {
@@ -332,11 +690,124 @@ export default {
   destroyed() {
     document.removeEventListener("change", this._onMapViewChange)
     window.removeEventListener("serviceradar:dashboard-map-view", this._onExternalMapViewChange)
+    this.el.removeEventListener("wheel", this._onMapWheel)
+    this.el.removeEventListener("touchmove", this._blockMapGesture)
+    window.removeEventListener("pointermove", this._onMapPointerMove)
+    window.removeEventListener("pointerup", this._onMapPointerUp)
+    window.removeEventListener("pointercancel", this._onMapPointerUp)
+    this.svgOverlay?.removeEventListener("click", this._onSvgOverlayClick)
+    this.svgOverlay?.removeEventListener("wheel", this._onMapWheel)
+    this.svgOverlay?.removeEventListener("pointerdown", this._onMapPointerDown)
     this.resizeObserver?.disconnect()
-    if (this.frame) cancelAnimationFrame(this.frame)
+    this.interactionControls?.remove()
+    this.anchorDetails?.remove()
     this.svgOverlay?.remove()
-    this.deck?.finalize()
-    this.deck = null
+    this.worldMapBackground?.remove()
+  },
+
+  _blockMapGesture(event) {
+    event.preventDefault()
+    event.stopPropagation()
+  },
+
+  _onMapWheel(event) {
+    if (this.mapView !== "netflow") return this._blockMapGesture(event)
+
+    event.preventDefault()
+    event.stopPropagation()
+    this._scaleCurrentViewBox(event.deltaY < 0 ? 0.9 : 1.12, event)
+  },
+
+  _pointForClientEvent(event) {
+    const box = parseViewBox(this.currentViewBox || this.autoViewBox)
+    const parent = this.svgOverlay || this.el.parentElement || this.el
+    const rect = parent.getBoundingClientRect()
+
+    if (!box || rect.width <= 0 || rect.height <= 0) return null
+
+    const viewRatio = box.width / box.height
+    const rectRatio = rect.width / rect.height
+    let activeLeft = rect.left
+    let activeTop = rect.top
+    let activeWidth = rect.width
+    let activeHeight = rect.height
+
+    if (rectRatio > viewRatio) {
+      activeWidth = rect.height * viewRatio
+      activeLeft = rect.left + (rect.width - activeWidth) / 2
+    } else if (rectRatio < viewRatio) {
+      activeHeight = rect.width / viewRatio
+      activeTop = rect.top + (rect.height - activeHeight) / 2
+    }
+
+    const localX = clamp(event.clientX - activeLeft, 0, activeWidth)
+    const localY = clamp(event.clientY - activeTop, 0, activeHeight)
+    const ratioX = activeWidth > 0 ? localX / activeWidth : 0.5
+    const ratioY = activeHeight > 0 ? localY / activeHeight : 0.5
+
+    return {
+      x: box.x + ratioX * box.width,
+      y: box.y + ratioY * box.height,
+      ratioX,
+      ratioY,
+    }
+  },
+
+  _onMapPointerDown(event) {
+    if (this.mapView !== "netflow" || event.button > 0) return
+    if (event.target?.closest?.(".sr-ops-traffic-node.is-local-anchor")) return
+    if (event.target?.closest?.(".sr-ops-traffic-node.is-external-geo, .sr-ops-traffic-label.is-clickable-endpoint, .sr-ops-traffic-endpoint-hit")) return
+    if (event.target?.closest?.(".sr-ops-traffic-link-hit")) return
+    if (event.target?.closest?.(".sr-ops-traffic-label.is-cluster-label, .sr-ops-traffic-cluster-hit")) return
+    if (event.target?.closest?.(".sr-ops-map-interaction-controls")) return
+
+    const box = parseViewBox(this.currentViewBox || this.autoViewBox)
+    if (!box) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    this.dragState = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startBox: box,
+      dragged: false,
+    }
+    this.svgOverlay?.setPointerCapture?.(event.pointerId)
+    this.el.parentElement?.classList.add("is-netflow-panning")
+  },
+
+  _onMapPointerMove(event) {
+    if (!this.dragState || this.mapView !== "netflow") return
+    if (event.pointerId !== this.dragState.pointerId) return
+
+    const rect = (this.svgOverlay || this.el.parentElement || this.el).getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    const deltaClientX = event.clientX - this.dragState.startClientX
+    const deltaClientY = event.clientY - this.dragState.startClientY
+
+    if (Math.abs(deltaClientX) > 3 || Math.abs(deltaClientY) > 3) this.dragState.dragged = true
+
+    const deltaX = -(deltaClientX / rect.width) * this.dragState.startBox.width
+    const deltaY = -(deltaClientY / rect.height) * this.dragState.startBox.height
+    const next = translatedViewBox(formatViewBox(this.dragState.startBox), deltaX, deltaY)
+    if (!next) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    this.currentViewBox = formatViewBox(next)
+    this._setMapViewBox(this.currentViewBox)
+  },
+
+  _onMapPointerUp(event) {
+    if (!this.dragState) return
+    if (event.pointerId !== this.dragState.pointerId) return
+
+    this.suppressNextClick = this.dragState.dragged
+    this.dragState = null
+    this.svgOverlay?.releasePointerCapture?.(event.pointerId)
+    this.el.parentElement?.classList.remove("is-netflow-panning")
   },
 
   _onMapViewChange(event) {
@@ -354,49 +825,8 @@ export default {
     this._syncData()
   },
 
-  _initDeck() {
-    const {width, height} = this._deckSize()
-
-    this.deck = new Deck({
-      canvas: this.el,
-      width,
-      height,
-      views: new OrthographicView({
-        id: "ops-traffic-view",
-        flipY: false,
-        clear: true,
-        clearColor: [2, 8, 23, 255],
-      }),
-      initialViewState: {
-        target: [0, 0, 0],
-        zoom: 1.34,
-      },
-      controller: {dragPan: true, scrollZoom: true, doubleClickZoom: true, touchZoom: true},
-      useDevicePixels: true,
-      parameters: {
-        blend: true,
-        blendFunc: [770, 771],
-        depthTest: false,
-        depthWrite: false,
-      },
-      getTooltip: () => null,
-      layers: this._layers(),
-    })
-  },
-
-  _deckSize() {
-    const parent = this.el.parentElement || this.el
-    return {
-      width: Math.max(320, Math.floor(parent.clientWidth || this.el.clientWidth || 0)),
-      height: Math.max(180, Math.floor(parent.clientHeight || this.el.clientHeight || 0)),
-    }
-  },
-
-  _resizeDeck() {
-    if (!this.deck) return
-    const {width, height} = this._deckSize()
-    this.deck.setProps({width, height})
-    this.deck.redraw(true)
+  _resizeMap() {
+    this._syncData()
   },
 
   _ensureSvgOverlay() {
@@ -407,57 +837,390 @@ export default {
     if (!this.svgOverlay) {
       this.svgOverlay = document.createElementNS("http://www.w3.org/2000/svg", "svg")
       this.svgOverlay.classList.add("sr-ops-traffic-overlay")
-      this.svgOverlay.setAttribute("viewBox", "-180 -90 360 180")
       this.svgOverlay.setAttribute("preserveAspectRatio", "xMidYMid meet")
       this.svgOverlay.setAttribute("aria-hidden", "true")
       parent.appendChild(this.svgOverlay)
     }
 
+    if (!this.svgOverlay.dataset.clickBound) {
+      this.svgOverlay.addEventListener("click", this._onSvgOverlayClick)
+      this.svgOverlay.addEventListener("wheel", this._onMapWheel, {passive: false})
+      this.svgOverlay.addEventListener("pointerdown", this._onMapPointerDown)
+      this.svgOverlay.dataset.clickBound = "true"
+    }
+
+    this.svgOverlay.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, 26)))
+
     return this.svgOverlay
+  },
+
+  _ensureWorldMapBackground() {
+    const parent = this.el.parentElement
+    if (!parent) return null
+
+    this.worldMapBackground = parent.querySelector(".sr-ops-world-map-background")
+    if (!this.worldMapBackground) {
+      this.worldMapBackground = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+      this.worldMapBackground.classList.add("sr-ops-world-map-background")
+      this.worldMapBackground.setAttribute("preserveAspectRatio", "xMidYMid meet")
+      this.worldMapBackground.setAttribute("aria-hidden", "true")
+
+      const ocean = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+      ocean.setAttribute("class", "sr-ops-world-map-ocean")
+      ocean.setAttribute("x", "-180")
+      ocean.setAttribute("y", "-90")
+      ocean.setAttribute("width", "360")
+      ocean.setAttribute("height", "180")
+
+      const group = document.createElementNS("http://www.w3.org/2000/svg", "g")
+      group.setAttribute("class", "sr-ops-world-map-countries")
+
+      for (const d of WORLD_MAP_PATHS) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+        path.setAttribute("d", d)
+        group.appendChild(path)
+      }
+
+      this.worldMapBackground.appendChild(ocean)
+      this.worldMapBackground.appendChild(group)
+      parent.insertBefore(this.worldMapBackground, this.el)
+    }
+
+    this.worldMapBackground.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, 26)))
+
+    return this.worldMapBackground
+  },
+
+  _ensureInteractionControls() {
+    const parent = this.el.parentElement
+    if (!parent || this.interactionControls) return
+
+    this.interactionControls = document.createElement("div")
+    this.interactionControls.className = "sr-ops-map-interaction-controls"
+    this.interactionControls.innerHTML = `
+      <button type="button" class="sr-ops-map-control-button" data-action="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="sr-ops-map-control-button" data-action="zoom-out" aria-label="Zoom out">-</button>
+      <button type="button" class="sr-ops-map-control-button" data-action="reset" aria-label="Reset map extent">Reset</button>
+      <button type="button" class="sr-ops-map-control-button" data-action="world" aria-label="Show world extent">World</button>
+    `
+    this.interactionControls.querySelector('[data-action="zoom-in"]')?.addEventListener("click", this._zoomIn)
+    this.interactionControls.querySelector('[data-action="zoom-out"]')?.addEventListener("click", this._zoomOut)
+    this.interactionControls.querySelector('[data-action="reset"]')?.addEventListener("click", this._resetViewBox)
+    this.interactionControls.querySelector('[data-action="world"]')?.addEventListener("click", this._fitWorld)
+    parent.appendChild(this.interactionControls)
+  },
+
+  _setMapViewBox(viewBox) {
+    if (!viewBox) return
+    this.svgOverlay?.setAttribute("viewBox", viewBox)
+    this.worldMapBackground?.setAttribute("viewBox", viewBox)
+
+    const box = parseViewBox(viewBox)
+    this.el.parentElement?.classList.toggle("is-netflow-zoomed", this.mapView === "netflow" && Boolean(box) && box.width < 180)
+  },
+
+  _syncViewBoxForLinks(links) {
+    const autoViewBox = viewBoxForMap(this.mapView, links)
+    const signature = links.map((link) => `${link.id}:${link.from.join(",")}:${link.to.join(",")}`).join("|")
+
+    if (!this.currentViewBox || this.viewBoxSignature !== signature || this.mapView !== "netflow") {
+      this.currentViewBox = autoViewBox
+    }
+
+    this.autoViewBox = autoViewBox
+    this.viewBoxSignature = signature
+    this._setMapViewBox(this.currentViewBox)
+  },
+
+  _scaleCurrentViewBox(factor, event = null) {
+    if (this.mapView !== "netflow") return
+
+    const focalPoint = event ? this._pointForClientEvent(event) : null
+    const next = scaledViewBox(this.currentViewBox || this.autoViewBox, factor, focalPoint)
+    if (!next) return
+    this.currentViewBox = formatViewBox(next)
+    this._setMapViewBox(this.currentViewBox)
+    this._renderSvgOverlay()
+  },
+
+  _zoomIn() {
+    this._scaleCurrentViewBox(0.82)
+  },
+
+  _zoomOut() {
+    this._scaleCurrentViewBox(1.22)
+  },
+
+  _resetViewBox() {
+    this.currentViewBox = this.autoViewBox
+    this._setMapViewBox(this.currentViewBox)
+    this.anchorDetails?.remove()
+    this.anchorDetails = null
+    this._renderSvgOverlay()
+  },
+
+  _fitWorld() {
+    if (this.mapView !== "netflow") return
+
+    this.currentViewBox = NETFLOW_WORLD_VIEWBOX
+    this._setMapViewBox(this.currentViewBox)
+    this.anchorDetails?.remove()
+    this.anchorDetails = null
+    this._renderSvgOverlay()
+  },
+
+  _onSvgOverlayClick(event) {
+    if (this.suppressNextClick) {
+      this.suppressNextClick = false
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+
+    const flow = event.target?.closest?.(".sr-ops-traffic-link-hit")
+    const cluster = event.target?.closest?.(".sr-ops-traffic-label.is-cluster-label, .sr-ops-traffic-cluster-hit")
+    const node = event.target?.closest?.(".sr-ops-traffic-node.is-local-anchor, .sr-ops-traffic-node.is-external-geo, .sr-ops-traffic-label.is-clickable-endpoint")
+      || event.target?.closest?.(".sr-ops-traffic-endpoint-hit")
+
+    if (!node && !cluster && !flow) {
+      this.anchorDetails?.remove()
+      this.anchorDetails = null
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    if (cluster) {
+      this._showClusterDetails(cluster)
+      return
+    }
+    if (flow) {
+      this._showFlowDetails(flow)
+      return
+    }
+
+    this._showAnchorDetails(node)
+  },
+
+  _onClusterLabelClick(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    this._showClusterDetails(event.currentTarget)
+  },
+
+  _showClusterDetails(labelNode) {
+    const parent = this.el.parentElement
+    if (!parent) return
+
+    const parentRect = parent.getBoundingClientRect()
+    const nodeRect = labelNode.getBoundingClientRect()
+    const labels = String(labelNode.dataset.networkLabels || "")
+      .split("|")
+      .filter(Boolean)
+    const totalBytes = Number(labelNode.dataset.totalBytes || 0)
+    const flowCount = Number(labelNode.dataset.flowCount || 0)
+
+    if (!this.anchorDetails) {
+      this.anchorDetails = document.createElement("div")
+      parent.appendChild(this.anchorDetails)
+    }
+    this.anchorDetails.className = "sr-ops-anchor-details"
+
+    this.anchorDetails.innerHTML = `
+      <strong>${labels.length.toLocaleString()} networks</strong>
+      ${labels.slice(0, 6).map((label) => `<span><em>Network</em><b>${escapeHtml(label)}</b></span>`).join("")}
+      ${labels.length > 6 ? `<span><em>More</em><b>${(labels.length - 6).toLocaleString()}</b></span>` : ""}
+      <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
+      <span><em>Traffic</em><b>${formatBytes(totalBytes)}</b></span>
+    `
+    this.anchorDetails.style.left = `${Math.min(parentRect.width - 240, Math.max(12, nodeRect.left - parentRect.left + 12))}px`
+    this.anchorDetails.style.top = `${Math.min(parentRect.height - 150, Math.max(12, nodeRect.top - parentRect.top + 12))}px`
+  },
+
+  _showAnchorDetails(node) {
+    const parent = this.el.parentElement
+    if (!parent) return
+
+    const parentRect = parent.getBoundingClientRect()
+    const nodeRect = node.getBoundingClientRect()
+    const totalBytes = Number(node.dataset.totalBytes || 0)
+    const flowCount = Number(node.dataset.flowCount || 0)
+    const kind = node.dataset.endpointKind || "network"
+    const label = node.dataset.anchorLabel || (kind === "external" ? "External endpoint" : "Network")
+    const endpointIp = node.dataset.endpointIp
+    const endpointCountry = node.dataset.endpointCountry
+    const fullLabel = node.dataset.fullLabel
+    const coords = [node.dataset.latitude, node.dataset.longitude].filter(Boolean).join(", ")
+
+    if (!this.anchorDetails) {
+      this.anchorDetails = document.createElement("div")
+      parent.appendChild(this.anchorDetails)
+    }
+    this.anchorDetails.className = "sr-ops-anchor-details"
+
+    this.anchorDetails.innerHTML = `
+      <strong>${escapeHtml(label)}</strong>
+      <span><em>Type</em><b>${kind === "external" ? "Geo endpoint" : "Network"}</b></span>
+      ${endpointCountry ? `<span><em>Country</em><b>${escapeHtml(endpointCountry)}</b></span>` : ""}
+      ${endpointIp ? `<span><em>Address</em><b>${escapeHtml(endpointIp)}</b></span>` : ""}
+      ${fullLabel && fullLabel !== label && !endpointIp ? `<span><em>Label</em><b>${escapeHtml(fullLabel)}</b></span>` : ""}
+      <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
+      <span><em>Traffic</em><b>${formatBytes(totalBytes)}</b></span>
+      ${coords ? `<span><em>Coordinates</em><b>${escapeHtml(coords)}</b></span>` : ""}
+    `
+    const detailsWidth = Math.max(220, this.anchorDetails.offsetWidth || 0)
+    const detailsHeight = Math.max(112, this.anchorDetails.offsetHeight || 0)
+    this.anchorDetails.style.left = `${Math.min(parentRect.width - detailsWidth - 12, Math.max(12, nodeRect.left - parentRect.left + 12))}px`
+    this.anchorDetails.style.top = `${Math.min(parentRect.height - detailsHeight - 12, Math.max(12, nodeRect.top - parentRect.top + 12))}px`
+  },
+
+  _showFlowDetails(flowNode) {
+    const parent = this.el.parentElement
+    if (!parent) return
+
+    const parentRect = parent.getBoundingClientRect()
+    const nodeRect = flowNode.getBoundingClientRect()
+    const source = flowNode.dataset.sourceLabel || "Unknown source"
+    const target = flowNode.dataset.targetLabel || "Unknown target"
+    const bytes = Number(flowNode.dataset.bytes || 0)
+    const packets = Number(flowNode.dataset.packets || 0)
+    const flowCount = Number(flowNode.dataset.flowCount || 0)
+    const rate = Number(flowNode.dataset.flowBps || 0)
+
+    if (!this.anchorDetails) {
+      this.anchorDetails = document.createElement("div")
+      parent.appendChild(this.anchorDetails)
+    }
+    this.anchorDetails.className = "sr-ops-anchor-details is-flow-details"
+
+    this.anchorDetails.innerHTML = `
+      <strong>Flow path</strong>
+      <span class="is-endpoint-row"><em>Source</em><b>${escapeHtml(source)}</b></span>
+      <span class="is-endpoint-row"><em>Destination</em><b>${escapeHtml(target)}</b></span>
+      <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
+      <span><em>Traffic</em><b>${formatBytes(bytes)}</b></span>
+      ${packets > 0 ? `<span><em>Packets</em><b>${packets.toLocaleString()}</b></span>` : ""}
+      ${rate > 0 ? `<span><em>Rate</em><b>${formatRate(rate)}</b></span>` : ""}
+    `
+    this.anchorDetails.style.left = `${Math.min(parentRect.width - 300, Math.max(12, nodeRect.left - parentRect.left + nodeRect.width * 0.45))}px`
+    this.anchorDetails.style.top = `${Math.min(parentRect.height - 218, Math.max(12, nodeRect.top - parentRect.top + nodeRect.height * 0.35))}px`
   },
 
   _renderSvgOverlay() {
     const svg = this._ensureSvgOverlay()
     if (!svg) return
 
-    const visualLinks =
-      this.mapView === "netflow" ? topVisualLinks(this.links, 32) : topVisualLinks(this.topologyLinks, 18)
-    const overlayLinks = this.mapView === "topology_traffic" ? topVisualLinks(this.overlays, 8) : []
+    let visualLinks = []
+    let overlayLinks = []
+
+    if (this.mapView === "netflow") {
+      visualLinks = topVisualLinks(this.links, 26)
+    } else {
+      const rawTopologyLinks = topVisualLinks(this.topologyLinks, 24, {includeIdle: true}).map((link) => ({
+        ...link,
+        overlayKind: "topology",
+      }))
+      const rawOverlayLinks = topVisualLinks(this.overlays, 2).map((link) => ({
+        ...link,
+        overlayKind: "mtr",
+      }))
+      const schematicLinks = topologySchematicLinks([...rawTopologyLinks, ...rawOverlayLinks])
+
+      visualLinks = schematicLinks.filter((link) => link.overlayKind === "topology")
+      overlayLinks = schematicLinks.filter((link) => link.overlayKind === "mtr")
+    }
+
+    this._syncViewBoxForLinks(visualLinks)
 
     if (visualLinks.length === 0 && overlayLinks.length === 0) {
       svg.replaceChildren()
       return
     }
 
+    const currentBox = parseViewBox(this.currentViewBox || this.autoViewBox)
+    const zoomWidth = currentBox?.width || 360
+    const geometryStyle = this.mapView === "netflow" ? netflowGeometryStyle(zoomWidth) : null
     const fragment = document.createDocumentFragment()
     const linkGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
     const particleGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
     const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
-    const linksForNodes = this.mapView === "netflow" ? visualLinks.slice(0, 16) : visualLinks.slice(0, 10)
+    const labelGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
+    const linksForNodes = this.mapView === "netflow" ? visualLinks.slice(0, 16) : visualLinks.slice(0, 18)
 
     linkGroup.setAttribute("class", "sr-ops-traffic-overlay-links")
     particleGroup.setAttribute("class", "sr-ops-traffic-overlay-particles")
     nodeGroup.setAttribute("class", "sr-ops-traffic-overlay-nodes")
+    labelGroup.setAttribute("class", "sr-ops-traffic-overlay-labels")
 
     visualLinks.forEach((link, idx) => {
-      const pathData = svgPathForLink(link, idx)
+      const pathData = svgPathForLink(link, idx, this.mapView)
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+      const baseStrokeWidth = this.mapView === "topology_traffic" && visualMagnitude(link) <= 0 ? 1.15 : strokeWidthFor(link, this.mapView)
+      const strokeWidth = this.mapView === "netflow" ? baseStrokeWidth * geometryStyle.scale : baseStrokeWidth
+
+      if (this.mapView === "netflow") {
+        const halo = document.createElementNS("http://www.w3.org/2000/svg", "path")
+        halo.setAttribute("d", pathData)
+        halo.setAttribute("class", `sr-ops-traffic-path-halo ${netflowPathClass(link)}`)
+        halo.setAttribute("stroke", rgbaCss(link.color, 0.8))
+        halo.setAttribute("stroke-width", String(strokeWidth + geometryStyle.haloExtraWidth))
+        linkGroup.appendChild(halo)
+      }
+
+      if (this.mapView === "netflow") {
+        const hit = document.createElementNS("http://www.w3.org/2000/svg", "path")
+        const source = flowEndpointLabel(link.sourceAnchorLabel || link.sourceGeoLabel || link.sourceLabel, link.sourceIp, "Source")
+        const target = flowEndpointLabel(link.targetAnchorLabel || link.targetGeoLabel || link.targetLabel, link.targetIp, "Destination")
+
+        hit.setAttribute("d", pathData)
+        hit.setAttribute("class", "sr-ops-traffic-link-hit")
+        hit.setAttribute("stroke-width", String(Math.max(7, strokeWidth + geometryStyle.haloExtraWidth + 3)))
+        hit.setAttribute("role", "button")
+        hit.setAttribute("tabindex", "0")
+        hit.setAttribute("aria-label", `${source} to ${target} flow`)
+        hit.dataset.sourceLabel = source
+        hit.dataset.targetLabel = target
+        hit.dataset.bytes = String(link.bytes || link.magnitude || 0)
+        hit.dataset.packets = String(link.packets || 0)
+        hit.dataset.flowCount = String(link.flowCount || 0)
+        hit.dataset.flowBps = String(link.flowBps || 0)
+        linkGroup.appendChild(hit)
+      }
 
       path.setAttribute("d", pathData)
       path.setAttribute("class", "sr-ops-traffic-path")
-      path.setAttribute("stroke", rgbaCss(link.color, this.mapView === "netflow" && link.geoMapped === false ? 0.58 : 1))
-      path.setAttribute("stroke-width", strokeWidthFor(link))
+      path.classList.add(this.mapView === "netflow" ? "is-netflow" : "is-topology")
+      if (this.mapView === "netflow") path.classList.add(netflowPathClass(link))
+      path.setAttribute("stroke", rgbaCss(link.color, this.mapView === "netflow" ? 1.08 : 0.88))
+      path.setAttribute("stroke-width", String(strokeWidth))
+      path.dataset.opsTrafficPath = "true"
+      if (this.mapView === "topology_traffic" && visualMagnitude(link) <= 0) {
+        path.classList.add("is-idle")
+      }
       path.style.setProperty("--traffic-delay", `${(idx % 7) * -0.38}s`)
       linkGroup.appendChild(path)
 
-      if (idx < 16) {
+      if (this.mapView === "netflow") {
+        const arrow = document.createElementNS("http://www.w3.org/2000/svg", "path")
+        const arrowGeometry = linkArrowGeometry(link, idx, this.mapView, geometryStyle.arrowSize)
+
+        arrow.setAttribute("d", arrowGeometry.d)
+        arrow.setAttribute("transform", arrowGeometry.transform)
+        arrow.setAttribute("class", `sr-ops-traffic-arrow ${netflowPathClass(link)}`)
+        arrow.setAttribute("fill", rgbaCss(link.color, 1.08))
+        arrow.setAttribute("stroke", "rgba(2, 8, 23, 0.72)")
+        arrow.setAttribute("stroke-width", String(Math.max(0.18, geometryStyle.arrowSize * 0.18)))
+        linkGroup.appendChild(arrow)
+      }
+
+      if (this.mapView !== "netflow" && idx < 10 && visualMagnitude(link) > 0) {
         const particle = document.createElementNS("http://www.w3.org/2000/svg", "circle")
         const motion = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion")
 
-        particle.setAttribute("r", String(Math.min(2.4, Math.max(1.2, strokeWidthFor(link) * 0.42))))
+        particle.setAttribute("r", String(this.mapView === "netflow" ? 0.7 : Math.min(1.85, Math.max(1, strokeWidthFor(link) * 0.38))))
         particle.setAttribute("fill", rgbaCss(link.color, 1.2))
         particle.setAttribute("class", "sr-ops-traffic-particle")
-        motion.setAttribute("dur", `${Math.max(2.4, 5.8 - Math.min(2.6, Math.log10(Math.max(10, link.magnitude || 10)) * 0.24))}s`)
+        motion.setAttribute("dur", `${Math.max(2.4, 5.8 - Math.min(2.6, Math.log10(Math.max(10, visualMagnitude(link) || 10)) * 0.24))}s`)
         motion.setAttribute("begin", `${(idx % 6) * 0.22}s`)
         motion.setAttribute("repeatCount", "indefinite")
         motion.setAttribute("path", pathData)
@@ -469,156 +1232,282 @@ export default {
     overlayLinks.forEach((link, idx) => {
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
 
-      path.setAttribute("d", svgPathForLink(link, idx))
+      path.setAttribute("d", svgPathForLink(link, idx, this.mapView))
       path.setAttribute("class", "sr-ops-mtr-overlay-path")
       linkGroup.appendChild(path)
     })
 
-    linksForNodes.forEach((link) => {
-      for (const point of [link.from, link.to]) {
-        const node = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+    const nodeData = endpointNodes(linksForNodes, this.mapView)
 
-        node.setAttribute("cx", point[0])
-        node.setAttribute("cy", point[1])
-        node.setAttribute("r", this.mapView === "netflow" ? "1.7" : "1.35")
-        node.setAttribute("fill", rgbaCss(link.color, 1.25))
-        node.setAttribute("class", "sr-ops-traffic-node")
-        nodeGroup.appendChild(node)
+    nodeData.forEach((endpoint) => {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+      const point = endpoint.position
+      const [cx, cy] = projectedSvgPoint(point, this.mapView)
+      const isExternalNetflow = this.mapView === "netflow" && !endpoint.localAnchor
+      const radius = this.mapView === "netflow"
+        ? endpoint.localAnchor
+          ? geometryStyle.localNodeRadius
+          : geometryStyle.externalNodeRadius
+        : 2.4
+
+      node.setAttribute("cx", cx)
+      node.setAttribute("cy", cy)
+      node.setAttribute("r", String(radius))
+      node.setAttribute("fill", isExternalNetflow ? "rgba(148, 163, 184, 0.45)" : rgbaCss(endpoint.color, 1.25))
+      node.setAttribute("class", "sr-ops-traffic-node")
+      node.classList.add(endpoint.localAnchor ? "is-local-anchor" : "is-external-geo")
+      if (this.mapView === "netflow") {
+        node.setAttribute("role", "button")
+        node.setAttribute("tabindex", "0")
+        node.setAttribute("aria-label", `${endpoint.anchorLabel || endpoint.sourceGeoLabel || endpoint.sourceLabel} ${endpoint.localAnchor ? "network" : "geo endpoint"}`)
+        node.dataset.endpointKind = endpoint.localAnchor ? "network" : "external"
+        node.dataset.anchorLabel = endpoint.anchorLabel || endpoint.sourceGeoLabel || endpoint.sourceLabel || (endpoint.localAnchor ? "Network" : "External endpoint")
+        node.dataset.totalBytes = String(endpoint.magnitude || 0)
+        node.dataset.flowCount = String(endpoint.count || 0)
+        node.dataset.latitude = String(Math.round(Number(endpoint.latitude || 0) * 10_000) / 10_000)
+        node.dataset.longitude = String(Math.round(Number(endpoint.longitude || 0) * 10_000) / 10_000)
       }
+      nodeGroup.appendChild(node)
     })
+
+    const renderedLabels = new Set()
+    const renderedLabelBoxes = []
+    const labelOffsets = [
+      [4, -3.4],
+      [4, 5.8],
+      [-4, -3.4],
+      [-4, 5.8],
+      [6, 0],
+      [-6, 0],
+    ]
+
+    if (this.mapView === "topology_traffic") {
+      nodeData.forEach((endpoint) => {
+        const point = endpoint.position
+        const label = endpoint.sourceLabel
+        if (!label || renderedLabels.has(label) || renderedLabels.size >= 9) return
+        renderedLabels.add(label)
+        const [x, y] = projectedSvgPoint(point, this.mapView)
+        const [dx, dy] = labelOffsets[renderedLabels.size % labelOffsets.length]
+        const labelX = x + dx
+        const labelY = y + dy
+        const collides = renderedLabelBoxes.some((box) => Math.abs(box.x - labelX) < 24 && Math.abs(box.y - labelY) < 9)
+
+        if (collides) return
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text")
+
+        text.setAttribute("x", labelX)
+        text.setAttribute("y", labelY)
+        if (dx < 0) text.setAttribute("text-anchor", "end")
+        text.setAttribute("class", "sr-ops-traffic-label")
+        text.textContent = shortNodeLabel(label)
+        labelGroup.appendChild(text)
+        renderedLabelBoxes.push({x: labelX, y: labelY})
+      })
+    } else if (this.mapView === "netflow") {
+      const endpointsByKey = new Map()
+      const externalLabelLimit = zoomWidth < 45 ? 10 : zoomWidth < 90 ? 8 : zoomWidth < 150 ? 6 : 5
+      const networkLabelLimit = zoomWidth < 160 ? 5 : 3
+      const labelLimit = networkLabelLimit + externalLabelLimit
+
+      visualLinks.forEach((link) => {
+        ;[
+          {
+            point: link.from,
+            label: link.sourceLocalAnchor ? link.sourceAnchorLabel || link.sourceLabel : link.sourceGeoLabel || link.sourceLabel,
+            local: link.sourceLocalAnchor,
+            magnitude: visualMagnitude(link),
+            count: 1,
+          },
+          {
+            point: link.to,
+            label: link.targetLocalAnchor ? link.targetAnchorLabel || link.targetLabel : link.targetGeoLabel || link.targetLabel,
+            local: link.targetLocalAnchor,
+            magnitude: visualMagnitude(link),
+            count: 1,
+          },
+        ].forEach((endpoint) => {
+          const [x, y] = projectedSvgPoint(endpoint.point, this.mapView)
+          const fullLabel = String(endpoint.label || "").trim()
+          const label = shortEndpointLabel(fullLabel)
+          if (!label) return
+
+          const key = endpoint.local ? `network:${label}` : `geo:${label}:${Math.round(x * 4) / 4}:${Math.round(y * 4) / 4}`
+          const existing = endpointsByKey.get(key)
+          if (existing) {
+            existing.magnitude += endpoint.magnitude || 0
+            existing.count += 1
+          } else {
+            endpointsByKey.set(key, {...endpoint, fullLabel, label, x, y, count: 1})
+          }
+        })
+      })
+
+      const candidateEndpoints = [...endpointsByKey.values()]
+        .sort((a, b) => Number(b.local) - Number(a.local) || b.magnitude - a.magnitude)
+        .filter((endpoint) => endpoint.local || externalLabelLimit > 0)
+        .slice(0, Math.max(8, labelLimit * 2))
+      const clusteredNetworkKeys = new Set()
+      const clusteredNetworks = candidateEndpoints.filter((endpoint) => endpoint.local)
+      const clusterRadius = Math.max(2.8, zoomWidth * 0.018)
+
+      if (clusteredNetworks.length > 1) {
+        const clusters = []
+
+        clusteredNetworks.forEach((endpoint) => {
+          const cluster = clusters.find((item) => item.some((candidate) => Math.hypot(candidate.x - endpoint.x, candidate.y - endpoint.y) <= clusterRadius))
+          if (cluster) {
+            cluster.push(endpoint)
+          } else {
+            clusters.push([endpoint])
+          }
+        })
+
+        clusters
+          .filter((cluster) => cluster.length > 1)
+          .forEach((cluster) => {
+            const x = cluster.reduce((sum, endpoint) => sum + endpoint.x, 0) / cluster.length
+            const y = cluster.reduce((sum, endpoint) => sum + endpoint.y, 0) / cluster.length
+            const labelStyle = netflowLabelStyle(zoomWidth, true)
+            const labelX = x + 3.8
+            const labelY = y - 4.2
+            const hit = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text")
+            const networkLabels = cluster.map((endpoint) => endpoint.label).sort((a, b) => a.localeCompare(b))
+            const displayLabel = networkClusterLabel(networkLabels)
+            const totalBytes = cluster.reduce((sum, endpoint) => sum + Number(endpoint.magnitude || 0), 0)
+            const flowCount = cluster.reduce((sum, endpoint) => sum + Number(endpoint.count || 0), 0)
+            const pillWidth = Math.max(labelStyle.fontSize * (displayLabel.length * 0.68 + 1.8), labelStyle.collisionX * 0.8)
+            const pillHeight = Math.max(labelStyle.fontSize * 2.55, labelStyle.collisionY * 1.3)
+
+            cluster.forEach((endpoint) => clusteredNetworkKeys.add(`network:${endpoint.label}`))
+            renderedLabels.add(`network-cluster:${labelX}:${labelY}`)
+            hit.setAttribute("x", String(labelX - pillWidth * 0.18))
+            hit.setAttribute("y", String(labelY - pillHeight * 0.72))
+            hit.setAttribute("width", String(pillWidth))
+            hit.setAttribute("height", String(pillHeight))
+            hit.setAttribute("rx", String(Math.max(labelStyle.fontSize * 0.8, 0.8)))
+            hit.setAttribute("class", "sr-ops-traffic-cluster-hit")
+            hit.setAttribute("role", "button")
+            hit.setAttribute("tabindex", "0")
+            hit.setAttribute("aria-label", `${displayLabel} clustered networks`)
+            hit.dataset.networkLabels = networkLabels.join("|")
+            hit.dataset.totalBytes = String(totalBytes)
+            hit.dataset.flowCount = String(flowCount)
+            hit.addEventListener("click", this._onClusterLabelClick)
+            labelGroup.appendChild(hit)
+            text.setAttribute("x", labelX)
+            text.setAttribute("y", labelY)
+            text.setAttribute("class", "sr-ops-traffic-label is-network-label is-cluster-label")
+            text.setAttribute("role", "button")
+            text.setAttribute("tabindex", "0")
+            text.setAttribute("aria-label", `${displayLabel} clustered networks`)
+            text.dataset.networkLabels = networkLabels.join("|")
+            text.dataset.totalBytes = String(totalBytes)
+            text.dataset.flowCount = String(flowCount)
+            text.addEventListener("click", this._onClusterLabelClick)
+            text.style.fontSize = `${labelStyle.fontSize}px`
+            text.style.strokeWidth = `${labelStyle.strokeWidth}px`
+            text.textContent = displayLabel
+            labelGroup.appendChild(text)
+            renderedLabelBoxes.push({x: labelX, y: labelY, collisionX: Math.max(labelStyle.collisionX, pillWidth * 0.68), collisionY: labelStyle.collisionY})
+          })
+      }
+
+      candidateEndpoints
+        .forEach((endpoint, idx) => {
+          const label = shortEndpointLabel(endpoint.label)
+          if (!label) return
+
+          const x = endpoint.x
+          const y = endpoint.y
+          const key = endpoint.local ? `network:${label}` : `geo:${label}:${Math.round(x * 4) / 4}:${Math.round(y * 4) / 4}`
+          if (clusteredNetworkKeys.has(key)) return
+          if (renderedLabels.has(key) || renderedLabels.size >= labelLimit) return
+          if (reservedNetflowLegendArea(endpoint, currentBox)) return
+          if (endpoint.local && [...renderedLabels].filter((item) => item.startsWith("network:")).length >= networkLabelLimit) return
+          if (!endpoint.local && [...renderedLabels].filter((item) => item.startsWith("geo:")).length >= externalLabelLimit) return
+
+          const [dx, dy] = labelOffsets[idx % labelOffsets.length]
+          const labelX = x + dx
+          const labelY = y + dy
+          const labelStyle = netflowLabelStyle(zoomWidth, endpoint.local)
+          const collides = renderedLabelBoxes.some(
+            (box) => Math.abs(box.x - labelX) < Math.max(box.collisionX, labelStyle.collisionX) && Math.abs(box.y - labelY) < Math.max(box.collisionY, labelStyle.collisionY),
+          )
+          if (collides && !endpoint.local && currentBox?.width > 90) return
+
+          renderedLabels.add(key)
+
+          const hit = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+          const text = document.createElementNS("http://www.w3.org/2000/svg", "text")
+          const hitWidth = Math.max(labelStyle.fontSize * label.length * 0.86, labelStyle.collisionX * 0.68)
+          const hitHeight = Math.max(labelStyle.fontSize * 2.5, labelStyle.collisionY * 1.12)
+
+          hit.setAttribute("x", String(dx < 0 ? labelX - hitWidth : labelX - labelStyle.fontSize * 0.45))
+          hit.setAttribute("y", String(labelY - hitHeight * 0.72))
+          hit.setAttribute("width", String(hitWidth))
+          hit.setAttribute("height", String(hitHeight))
+          hit.setAttribute("rx", String(Math.max(labelStyle.fontSize * 0.62, 0.6)))
+          hit.setAttribute("class", `sr-ops-traffic-endpoint-hit ${endpoint.local ? "is-network-endpoint" : "is-external-endpoint"}`)
+          hit.setAttribute("role", "button")
+          hit.setAttribute("tabindex", "0")
+          hit.setAttribute("aria-label", `${label} ${endpoint.local ? "network" : "geo endpoint"}`)
+          hit.dataset.endpointKind = endpoint.local ? "network" : "external"
+          hit.dataset.anchorLabel = label
+          hit.dataset.fullLabel = endpoint.fullLabel || label
+          hit.dataset.totalBytes = String(endpoint.magnitude || 0)
+          hit.dataset.flowCount = String(endpoint.count || 0)
+          hit.dataset.latitude = String(Math.round(Number(endpoint.point?.[1] || 0) * 10_000) / 10_000)
+          hit.dataset.longitude = String(Math.round(Number(endpoint.point?.[0] || 0) * 10_000) / 10_000)
+          const countryIp = countryIpLabel(endpoint.fullLabel)
+          if (countryIp) {
+            hit.dataset.endpointCountry = countryIp.countryName
+            hit.dataset.endpointIp = countryIp.ip
+          }
+          labelGroup.appendChild(hit)
+
+          text.setAttribute("x", labelX)
+          text.setAttribute("y", labelY)
+          if (dx < 0) text.setAttribute("text-anchor", "end")
+          text.setAttribute("class", endpoint.local ? "sr-ops-traffic-label is-network-label is-clickable-endpoint" : "sr-ops-traffic-label is-external-label is-clickable-endpoint")
+          text.setAttribute("role", "button")
+          text.setAttribute("tabindex", "0")
+          text.setAttribute("aria-label", `${label} ${endpoint.local ? "network" : "geo endpoint"}`)
+          text.dataset.endpointKind = endpoint.local ? "network" : "external"
+          text.dataset.anchorLabel = label
+          text.dataset.fullLabel = endpoint.fullLabel || label
+          text.dataset.totalBytes = String(endpoint.magnitude || 0)
+          text.dataset.flowCount = String(endpoint.count || 0)
+          text.dataset.latitude = String(Math.round(Number(endpoint.point?.[1] || 0) * 10_000) / 10_000)
+          text.dataset.longitude = String(Math.round(Number(endpoint.point?.[0] || 0) * 10_000) / 10_000)
+          if (countryIp) {
+            text.dataset.endpointCountry = countryIp.countryName
+            text.dataset.endpointIp = countryIp.ip
+          }
+          text.style.fontSize = `${labelStyle.fontSize}px`
+          text.style.strokeWidth = `${labelStyle.strokeWidth}px`
+          text.textContent = label
+          labelGroup.appendChild(text)
+          renderedLabelBoxes.push({x: labelX, y: labelY, collisionX: labelStyle.collisionX, collisionY: labelStyle.collisionY})
+        })
+    }
 
     fragment.appendChild(linkGroup)
     fragment.appendChild(particleGroup)
     fragment.appendChild(nodeGroup)
+    fragment.appendChild(labelGroup)
     svg.replaceChildren(fragment)
   },
 
   _syncData() {
     this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "topology_traffic"
+    this._ensureWorldMapBackground()
+    this.el.parentElement?.classList.toggle("is-netflow-view", this.mapView === "netflow")
     this.topologyLinks = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.topologyLinks, [])) : []
     this.links = normalizeTrafficLinks(parseJson(this.el.dataset.links, []), this.mapView)
     this.overlays = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.mtrOverlays, [])) : []
-    this.deck?.setProps({layers: this._layers()})
     this._renderSvgOverlay()
-  },
-
-  _tick() {
-    this.time += 0.016
-    if (this.deck && (this.links.length > 0 || this.topologyLinks.length > 0 || this.overlays.length > 0)) {
-      this.deck.setProps({layers: this._layers()})
-    }
-    this.frame = requestAnimationFrame(this._tick)
-  },
-
-  _layers() {
-    const nodes = this.mapView === "netflow" ? endpointNodes(this.links) : []
-    const labeledNodes =
-      this.mapView === "netflow"
-        ? nodes
-            .filter((node) => node.sourceLabel)
-            .sort((a, b) => b.magnitude - a.magnitude)
-            .slice(0, 18)
-        : []
-    const label =
-      this.mapView === "netflow"
-        ? this.links.length > 0
-          ? `${this.links.length} flow paths`
-          : "No NetFlow paths"
-        : `${this.topologyLinks.length} topology links / ${this.links.length} flow paths`
-
-    return [
-      new PolygonLayer({
-        id: "ops-map-background",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: [{polygon: [[-180, -90], [180, -90], [180, 90], [-180, 90]]}],
-        getPolygon: (d) => d.polygon,
-        getFillColor: [2, 8, 23, 255],
-        stroked: false,
-        filled: true,
-        pickable: false,
-      }),
-      new LineLayer({
-        id: "ops-map-grid",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: BASE_GRID_LINES,
-        getSourcePosition: (d) => d.from,
-        getTargetPosition: (d) => d.to,
-        getColor: [30, 58, 95, 42],
-        getWidth: 1,
-      }),
-      new LineLayer({
-        id: "ops-topology-links",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: this.topologyLinks,
-        getSourcePosition: (d) => d.from,
-        getTargetPosition: (d) => d.to,
-        getColor: (d) => scaledColor(d.color, d.magnitude > 0 ? 1.3 : 0.9),
-        getWidth: (d) => 1.45 + Math.min(5, Math.log10(Math.max(10, d.magnitude || 10)) / 1.15),
-        widthUnits: "pixels",
-        pickable: false,
-      }),
-      new ArcLayer({
-        id: "ops-flow-arcs",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: this.links,
-        getSourcePosition: (d) => d.from,
-        getTargetPosition: (d) => d.to,
-        getSourceColor: (d) => scaledColor(d.color, d.geoMapped === false ? 0.7 : 1.12),
-        getTargetColor: (d) => scaledColor(d.color, d.geoMapped === false ? 0.7 : 1.12),
-        getWidth: (d) => 1.2 + Math.min(5.5, Math.log10(Math.max(10, d.magnitude)) / 1.08),
-        greatCircle: false,
-        pickable: false,
-      }),
-      new LineLayer({
-        id: "ops-mtr-overlays",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: this.overlays,
-        getSourcePosition: (d) => d.from,
-        getTargetPosition: (d) => d.to,
-        getColor: [251, 191, 36, 180],
-        getWidth: 2,
-        pickable: false,
-      }),
-      new ScatterplotLayer({
-        id: "ops-map-nodes",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: nodes,
-        getPosition: (d) => d.position,
-        getRadius: (d) => 4 + Math.min(8, Math.log10(Math.max(10, d.magnitude || 10)) * 0.55),
-        radiusUnits: "pixels",
-        stroked: true,
-        filled: true,
-        getFillColor: [15, 23, 42, 225],
-        getLineColor: (d) => d.color,
-        lineWidthMinPixels: 2,
-        pickable: false,
-      }),
-      new TextLayer({
-        id: "ops-map-node-labels",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: labeledNodes,
-        getPosition: (d) => [d.position[0] + 2.5, d.position[1] - 2.5, 0],
-        getText: (d) => d.sourceLabel,
-        getColor: [203, 213, 225, 230],
-        getSize: 10,
-        sizeUnits: "pixels",
-        getTextAnchor: "start",
-        getAlignmentBaseline: "center",
-        background: true,
-        getBackgroundColor: [2, 8, 23, 170],
-        backgroundPadding: [3, 2],
-        pickable: false,
-      }),
-      new TextLayer({
-        id: "ops-map-label",
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        data: [{position: [-168, 54, 0], label}],
-        getPosition: (d) => d.position,
-        getText: (d) => d.label,
-        getColor: [148, 163, 184, 210],
-        getSize: 12,
-        sizeUnits: "pixels",
-      }),
-    ]
   },
 }
