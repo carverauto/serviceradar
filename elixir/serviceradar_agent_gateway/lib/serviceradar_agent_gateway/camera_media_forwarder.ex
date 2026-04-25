@@ -138,17 +138,31 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   end
 
   defp select_core_node do
-    Node.list()
+    nodes = Node.list()
+
+    nodes
     |> Enum.find(fn node ->
       case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
         pid when is_pid(pid) -> true
         _ -> false
       end
     end)
+    |> Kernel.||(Enum.find(nodes, &core_node?/1))
     |> case do
       nil -> raise ArgumentError, "no core-elx node available for camera media ingress"
       node -> node
     end
+  end
+
+  defp core_node?(node) when is_atom(node) do
+    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
+  end
+
+  defp core_node?(_node), do: false
+
+  defp core_node_basename do
+    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
+      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename, "serviceradar_core")
   end
 
   defp ingress_module(opts) do

@@ -828,12 +828,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # must be forwarded to core-elx nodes via RPC.
     remote_nodes = Node.list()
 
-    # Only look for nodes with ClusterHealth (core coordinator process).
-    # We do NOT fall back to Repo-based detection because the gateway should
-    # never be selected as a core node target.
+    # Prefer nodes with ClusterHealth (core coordinator process), then fall back
+    # to the configured core node basename. The basename fallback still avoids
+    # selecting gateway/web nodes when the coordinator lock is temporarily absent.
     coordinators = find_nodes_with_process(remote_nodes, ServiceRadar.ClusterHealth)
+    core_nodes = if coordinators == [], do: named_core_nodes(remote_nodes), else: coordinators
 
-    if coordinators == [] and remote_nodes != [] do
+    if core_nodes == [] and remote_nodes != [] do
       Logger.warning(
         "No core-elx nodes found with ClusterHealth. " <>
           "Config compilation and other DB operations will fail until core is available. " <>
@@ -841,7 +842,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       )
     end
 
-    coordinators
+    core_nodes
   end
 
   defp find_nodes_with_process(nodes, process_name) do
@@ -862,6 +863,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           false
       end
     end)
+  end
+
+  defp named_core_nodes(nodes) do
+    Enum.filter(nodes, &core_node?/1)
+  end
+
+  defp core_node?(node) when is_atom(node) do
+    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
+  end
+
+  defp core_node?(_node), do: false
+
+  defp core_node_basename do
+    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
+      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename, "serviceradar_core")
   end
 
   # Extract component identity from the gRPC stream's mTLS certificate
