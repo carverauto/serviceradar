@@ -208,6 +208,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
                stream_profile_id: "main",
                lease_token: "lease-agent-limit-2"
              })
+
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :saturation_denied],
+      %{relay_boundary: "agent_gateway", relay_session_id: "relay-agent-limit-2"}
+    )
   end
 
   test "enforces the per-gateway relay session limit across agents" do
@@ -261,7 +266,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
       [
         [:serviceradar, :camera_relay, :session, :opened],
         [:serviceradar, :camera_relay, :session, :closing],
-        [:serviceradar, :camera_relay, :session, :closed]
+        [:serviceradar, :camera_relay, :session, :closed],
+        [:serviceradar, :camera_relay, :session, :saturation_denied]
       ],
       &__MODULE__.handle_telemetry_event/4,
       test_pid

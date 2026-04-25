@@ -197,6 +197,51 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device.ip == "10.42.#{rem(unique_id, 255)}.20"
     end
 
+    test "adopts existing active-IP device when reenrollment IP is already owned", %{
+      unique_id: unique_id
+    } do
+      agent_id = "agent-active-ip-conflict-#{unique_id}"
+      conflict_owner_agent_id = "agent-active-ip-owner-#{unique_id}"
+      original_ip = "10.88.#{rem(unique_id, 200)}.10"
+      conflict_ip = "10.88.#{rem(unique_id, 200)}.20"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(conflict_owner_agent_id, %{
+          host: conflict_ip,
+          capabilities: ["sysmon"]
+        })
+
+      {:ok, conflict_device_uid} =
+        AgentGatewaySync.ensure_device_for_agent(conflict_owner_agent_id, %{
+          hostname: "existing-active-ip-owner-#{unique_id}",
+          source_ip: conflict_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      :ok =
+        AgentGatewaySync.upsert_agent(agent_id, %{host: original_ip, capabilities: ["sysmon"]})
+
+      {:ok, original_device_uid} =
+        AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+          hostname: "agent-active-ip-original-#{unique_id}",
+          source_ip: original_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      assert {:ok, adopted_device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "agent-active-ip-adopted-#{unique_id}",
+                 source_ip: conflict_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      assert adopted_device_uid == conflict_device_uid
+      refute adopted_device_uid == original_device_uid
+    end
+
     test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
          %{
            unique_id: unique_id,
