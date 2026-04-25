@@ -99,7 +99,9 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
                lease_token,
                opts
              ),
-             dispatch_opts(opts, requester),
+             opts
+             |> dispatch_opts(requester)
+             |> Keyword.put(:required_gateway_node, source.assigned_gateway_id),
              requester
            ) do
         {:ok, command_id} ->
@@ -167,7 +169,9 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       case dispatch_close.(
              updated_session.agent_id,
              %{relay_session_id: updated_session.id, reason: close_reason},
-             dispatch_opts(opts, requester),
+             opts
+             |> dispatch_opts(requester)
+             |> Keyword.put(:required_gateway_node, updated_session.gateway_id),
              requester
            ) do
         {:ok, _command_id} ->

@@ -28,7 +28,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
   @impl true
   def handle_call({:touch_agent, agent_id, metadata}, _from, state) do
-    case ProcessRegistry.update_value({:agent, agent_id}, fn existing ->
+    case ProcessRegistry.update_value({:agent, agent_id, node()}, fn existing ->
            existing
            |> Map.merge(metadata)
            |> Map.put(:last_heartbeat, DateTime.utc_now())
