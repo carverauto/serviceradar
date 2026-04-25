@@ -132,15 +132,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         # Create or update the device record
         case upsert_device_for_agent(device_uid, agent_id, attrs, actor) do
           :ok ->
-            # Register agent_id as a strong identifier so DIRE can resolve
-            # subsequent enrollments (even from different IPs) to this device
-            ids = IdentityReconciler.extract_strong_identifiers(device_update)
-            IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
+            complete_agent_device_sync(device_uid, agent_id, attrs, device_update, actor)
 
-            # Link the agent to the device
-            link_agent_to_device(agent_id, device_uid, actor)
-            retire_superseded_agents(agent_id, device_uid, attrs, actor)
-            {:ok, device_uid}
+          {:ok, adopted_device_uid} ->
+            complete_agent_device_sync(adopted_device_uid, agent_id, attrs, device_update, actor)
 
           {:error, reason} ->
             Logger.warning("Failed to upsert device for agent #{agent_id}: #{inspect(reason)}")
@@ -153,6 +148,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
         {:error, reason}
     end
+  end
+
+  defp complete_agent_device_sync(device_uid, agent_id, attrs, device_update, actor) do
+    # Register agent_id as a strong identifier so DIRE can resolve
+    # subsequent enrollments (even from different IPs) to this device
+    ids = IdentityReconciler.extract_strong_identifiers(device_update)
+    IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
+
+    # Link the agent to the device
+    link_agent_to_device(agent_id, device_uid, actor)
+    retire_superseded_agents(agent_id, device_uid, attrs, actor)
+    {:ok, device_uid}
   end
 
   defp resolve_device_id_for_agent(device_update, actor) do
@@ -280,7 +287,48 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ok
 
       {:error, reason} ->
-        {:error, reason}
+        maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now)
+    end
+  end
+
+  defp maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now) do
+    if active_ip_unique_conflict?(reason) and present_string?(source_ip) do
+      case fetch_active_device_by_ip(source_ip, actor) do
+        {:ok, %Device{} = existing_device} ->
+          Logger.info(
+            "Adopting existing device #{existing_device.uid} for agent #{device_context.agent_id} after active IP conflict on #{source_ip}"
+          )
+
+          case update_existing_device_for_agent(
+                 existing_device,
+                 device_context.agent_id,
+                 %{
+                   hostname: device_context.hostname,
+                   source_ip: source_ip
+                 },
+                 device_context.capabilities,
+                 actor,
+                 now
+               ) do
+            :ok -> {:ok, existing_device.uid}
+            {:error, update_reason} -> {:error, update_reason}
+          end
+
+        {:error, lookup_reason} ->
+          if not_found_error?(lookup_reason), do: {:error, reason}, else: {:error, lookup_reason}
+      end
+    else
+      {:error, reason}
+    end
+  end
+
+  defp fetch_active_device_by_ip(source_ip, actor) do
+    case Device.get_by_ip(source_ip, false, actor: actor) do
+      {:ok, %Device{} = device} -> {:ok, device}
+      {:ok, [device | _]} -> {:ok, device}
+      {:ok, []} -> {:error, %NotFound{}}
+      {:ok, nil} -> {:error, %NotFound{}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -316,14 +364,41 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ok
 
       {:error, %Invalid{} = error} ->
-        if stale_record_error?(error) do
-          force_gateway_sync_update(device.uid, update_attrs, actor)
-        else
-          {:error, error}
+        cond do
+          stale_record_error?(error) ->
+            force_gateway_sync_update(device.uid, update_attrs, actor)
+
+          active_ip_unique_conflict?(error) ->
+            maybe_adopt_existing_active_ip_device(
+              error,
+              source_ip,
+              %{
+                agent_id: agent_id,
+                hostname: hostname,
+                source_ip: source_ip,
+                capabilities: capabilities
+              },
+              actor,
+              now
+            )
+
+          true ->
+            {:error, error}
         end
 
       {:error, reason} ->
-        {:error, reason}
+        maybe_adopt_existing_active_ip_device(
+          reason,
+          source_ip,
+          %{
+            agent_id: agent_id,
+            hostname: hostname,
+            source_ip: source_ip,
+            capabilities: capabilities
+          },
+          actor,
+          now
+        )
     end
   end
 
@@ -622,6 +697,15 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp stale_record_error?(_), do: false
+
+  defp active_ip_unique_conflict?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?("ocsf_devices_unique_active_ip_idx")
+  end
+
+  defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_string?(_value), do: false
 
   defp force_gateway_sync_update(device_uid, update_attrs, actor) do
     query =
