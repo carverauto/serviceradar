@@ -29,13 +29,19 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       {:ok,
        %{
          test_pid: opts[:test_pid],
-         ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false)
+         ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false),
+         marker: Keyword.get(opts, :marker)
        }}
     end
 
     @impl true
     def handle_call({:send_command, command, context}, _from, state) do
-      send(state.test_pid, {:send_command, command, context})
+      if state.marker do
+        send(state.test_pid, {:send_command, state.marker, command, context})
+      else
+        send(state.test_pid, {:send_command, command, context})
+      end
+
       maybe_ack_before_reply(command, state)
       {:reply, {:ok, command.command_id}, state}
     end
@@ -489,6 +495,44 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert context.source_url == "rtsp://camera.local/stream/main"
     end
 
+    test "prefers the assigned gateway control stream", %{agent_id: agent_id} do
+      start_control_session(
+        agent_id,
+        self(),
+        %{partition_id: "default", gateway_node: "gateway-a"},
+        registry_key: {:agent_control, agent_id, :gateway_a},
+        marker: :gateway_a
+      )
+
+      start_control_session(
+        agent_id,
+        self(),
+        %{partition_id: "default", gateway_node: "gateway-b"},
+        registry_key: {:agent_control, agent_id, :gateway_b},
+        marker: :gateway_b
+      )
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.start_camera_relay(
+                 agent_id,
+                 %{
+                   relay_session_id: "relay-gateway",
+                   camera_source_id: "camera-gateway",
+                   stream_profile_id: "low",
+                   lease_token: "lease-gateway",
+                   source_url: "rtsp://camera.local/stream/low"
+                 },
+                 required_gateway_node: "gateway-b"
+               )
+
+      assert_receive {:send_command, :gateway_b, %Monitoring.CommandRequest{} = command,
+                      _context},
+                     1_000
+
+      assert command.command_type == "camera.open_relay"
+      refute_received {:send_command, :gateway_a, _, _}
+    end
+
     test "resolves source_url from camera inventory before dispatch", %{agent_id: agent_id} do
       {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
       camera_source_id = Ecto.UUID.generate()
@@ -555,11 +599,12 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp start_control_session(agent_id, test_pid, metadata, opts \\ []) do
-    name = ProcessRegistry.via({:agent_control, agent_id}, metadata)
+    registry_key = Keyword.get(opts, :registry_key, {:agent_control, agent_id})
+    name = ProcessRegistry.via(registry_key, metadata)
 
     {:ok, pid} =
       TestControlSession.start_link(
-        [name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?])
+        [name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?, :marker])
       )
 
     on_exit(fn ->

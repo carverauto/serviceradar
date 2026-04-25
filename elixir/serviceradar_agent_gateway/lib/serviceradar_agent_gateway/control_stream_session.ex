@@ -66,7 +66,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       gateway_node: state.gateway_node
     }
 
-    key = {:agent_control, agent_id}
+    key = {:agent_control, agent_id, node()}
 
     :ok = register_session(key, metadata)
 
@@ -152,6 +152,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp register_session(key, metadata) do
+    unregister_legacy_session_key(key)
+
     case ProcessRegistry.register(key, metadata) do
       {:ok, _pid} ->
         :ok
@@ -168,6 +170,12 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         end
     end
   end
+
+  defp unregister_legacy_session_key({:agent_control, agent_id, _node}) do
+    ProcessRegistry.unregister({:agent_control, agent_id})
+  end
+
+  defp unregister_legacy_session_key(_key), do: :ok
 
   @spec send_stream_reply(GRPC.Server.Stream.t(), struct()) ::
           {:ok, GRPC.Server.Stream.t()} | {:error, term()}

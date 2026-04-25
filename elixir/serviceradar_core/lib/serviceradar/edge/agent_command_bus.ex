@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     source = normalize_source(Keyword.get(opts, :source, :on_demand))
     partition_id = resolve_partition(opts, required_partition)
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+    required_gateway_node = resolve_required_gateway_node(opts, context)
     payload_json = encode_payload(payload)
     payload_map = normalize_payload(payload)
 
@@ -55,6 +56,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         created_at: created_at,
         required_partition: required_partition,
         required_capability: required_capability,
+        required_gateway_node: required_gateway_node,
         context: context,
         ash_opts: ash_opts
       })
@@ -73,7 +75,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         ctx.created_at
       )
 
-    case lookup_control_session(ctx.agent_id) do
+    case lookup_control_session(ctx.agent_id, ctx.required_gateway_node) do
       {:ok, pid, metadata} ->
         dispatch_to_session(
           command,
@@ -474,29 +476,49 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
-  defp lookup_control_session(agent_id) do
+  defp lookup_control_session(agent_id, required_gateway_node \\ nil) do
     if registry_available?() do
-      lookup_registered_session(agent_id)
+      lookup_registered_session(agent_id, required_gateway_node)
     else
       {:error, :registry_unavailable}
     end
   end
 
-  defp lookup_registered_session(agent_id) do
-    case ProcessRegistry.lookup({:agent_control, agent_id}) do
-      [{pid, metadata}] when is_pid(pid) ->
-        ensure_session_alive(pid, metadata, agent_id)
+  defp lookup_registered_session(agent_id, required_gateway_node) do
+    agent_id
+    |> lookup_control_session_entries()
+    |> pick_control_session(agent_id, required_gateway_node)
+  end
 
-      [] ->
-        {:error, {:agent_offline, agent_id}}
+  @doc false
+  def lookup_control_session_entries(agent_id) when is_binary(agent_id) do
+    if registry_available?() do
+      ProcessRegistry.lookup_agent_control(agent_id)
+    else
+      []
     end
   end
 
-  defp ensure_session_alive(pid, metadata, agent_id) do
-    if process_alive?(pid) do
-      {:ok, pid, metadata}
-    else
-      {:error, {:agent_offline, agent_id}}
+  def lookup_control_session_entries(_agent_id), do: []
+
+  defp pick_control_session(entries, agent_id, required_gateway_node) do
+    entries
+    |> Enum.uniq_by(fn {pid, metadata} -> {pid, gateway_node_from_metadata(metadata)} end)
+    |> Enum.filter(fn {pid, _metadata} -> is_pid(pid) and process_alive?(pid) end)
+    |> Enum.sort_by(fn {_pid, metadata} ->
+      control_session_preference(metadata, required_gateway_node)
+    end)
+    |> case do
+      [{pid, metadata} | _] -> {:ok, pid, metadata}
+      [] -> {:error, {:agent_offline, agent_id}}
+    end
+  end
+
+  defp control_session_preference(metadata, required_gateway_node) do
+    cond do
+      is_nil(required_gateway_node) -> 1
+      gateway_node_from_metadata(metadata) == required_gateway_node -> 0
+      true -> 2
     end
   end
 
@@ -620,6 +642,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp normalize_capability(value) when is_binary(value), do: String.trim(value)
   defp normalize_capability(value), do: to_string(value)
 
+  defp resolve_required_gateway_node(opts, context) do
+    Enum.find_value(
+      [
+        Keyword.get(opts, :required_gateway_node),
+        Keyword.get(opts, :gateway_node),
+        Map.get(context, :required_gateway_node),
+        Map.get(context, "required_gateway_node"),
+        Map.get(context, :gateway_node),
+        Map.get(context, "gateway_node")
+      ],
+      &normalize_optional_string/1
+    )
+  end
+
   defp normalize_context(context) when is_map(context), do: context
   defp normalize_context(context) when is_list(context), do: Map.new(context)
   defp normalize_context(_), do: %{}
@@ -683,6 +719,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp partition_from_metadata(metadata) do
     Map.get(metadata, :partition_id) || Map.get(metadata, "partition_id") || "default"
+  end
+
+  defp gateway_node_from_metadata(metadata) do
+    Map.get(metadata, :gateway_node) || Map.get(metadata, "gateway_node")
   end
 
   defp capabilities_from_metadata(metadata) do

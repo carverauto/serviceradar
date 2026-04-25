@@ -320,6 +320,23 @@ defmodule ServiceRadar.ProcessRegistry do
   end
 
   @doc """
+  Looks up active control-stream sessions for an agent.
+
+  Newer gateway nodes register control streams with a node-scoped key so
+  reconnects on one gateway do not evict a live stream on another gateway while
+  Horde is converging. The legacy two-tuple key is still read for compatibility.
+  """
+  @spec lookup_agent_control(String.t()) :: [{pid(), map()}]
+  def lookup_agent_control(agent_id) when is_binary(agent_id) do
+    match_spec = [
+      {{{:agent_control, agent_id, :"$1"}, :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]},
+      {{{:agent_control, agent_id}, :"$1", :"$2"}, [], [{{:"$1", :"$2"}}]}
+    ]
+
+    Horde.Registry.select(@registry_name, match_spec)
+  end
+
+  @doc """
   Updates heartbeat for an agent.
   """
   @spec agent_heartbeat(String.t(), node()) :: :ok | :error
