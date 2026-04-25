@@ -164,23 +164,32 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     dispatch_close = Keyword.get(opts, :dispatch_close, &dispatch_close_command/4)
     close_reason = Keyword.get(opts, :reason, "viewer disconnected")
 
-    with {:ok, session} <- resolve_session(session_or_id, session_fetcher),
-         {:ok, updated_session} <- mark_closing.(session, close_reason, write_actor) do
-      case dispatch_close.(
-             updated_session.agent_id,
-             %{relay_session_id: updated_session.id, reason: close_reason},
-             opts
-             |> dispatch_opts(requester)
-             |> Keyword.put(:required_gateway_node, updated_session.gateway_id),
-             requester
-           ) do
-        {:ok, _command_id} ->
-          load_session_result(updated_session, session_loader)
+    with {:ok, session} <- resolve_session(session_or_id, session_fetcher) do
+      case close_transition_mode(session) do
+        :skip ->
+          load_session_result(session, session_loader)
 
-        {:error, reason} = error ->
-          _ = mark_failed.(updated_session, reason, write_actor)
-          maybe_record_session_failure(updated_session, nil, reason, "request_close")
-          error
+        :dispatch ->
+          with {:ok, updated_session, should_dispatch?} <-
+                 mark_session_closing_safely(
+                   session,
+                   close_reason,
+                   write_actor,
+                   mark_closing,
+                   session_loader
+                 ) do
+            maybe_dispatch_close(
+              updated_session,
+              should_dispatch?,
+              close_reason,
+              opts,
+              requester,
+              dispatch_close,
+              mark_failed,
+              write_actor,
+              session_loader
+            )
+          end
       end
     end
   end
@@ -252,6 +261,78 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     RelaySession.request_close(session, %{close_reason: close_reason}, ash_opts)
   end
 
+  defp mark_session_closing_safely(session, close_reason, actor, mark_closing, session_loader) do
+    mark_closing.(session, close_reason, actor)
+  rescue
+    error ->
+      recover_mark_closing_transition(session, error, session_loader)
+  else
+    {:ok, updated_session} -> {:ok, updated_session, true}
+    {:error, reason} -> recover_mark_closing_transition(session, reason, session_loader)
+    other -> other
+  end
+
+  defp recover_mark_closing_transition(%{id: session_id}, reason, session_loader)
+       when is_binary(session_id) do
+    case session_loader.(session_id) do
+      {:ok, %{status: status} = session}
+      when status in [:closing, "closing", :closed, "closed", :failed, "failed"] ->
+        Logger.warning(
+          "Recovered camera relay request_close transition for #{session_id} after #{inspect_close_error(reason)}"
+        )
+
+        {:ok, session, false}
+
+      _other ->
+        {:error, reason}
+    end
+  end
+
+  defp recover_mark_closing_transition(_session, reason, _session_loader), do: {:error, reason}
+
+  defp maybe_dispatch_close(
+         updated_session,
+         false,
+         _close_reason,
+         _opts,
+         _requester,
+         _dispatch_close,
+         _mark_failed,
+         _write_actor,
+         session_loader
+       ) do
+    load_session_result(updated_session, session_loader)
+  end
+
+  defp maybe_dispatch_close(
+         updated_session,
+         true,
+         close_reason,
+         opts,
+         requester,
+         dispatch_close,
+         mark_failed,
+         write_actor,
+         session_loader
+       ) do
+    case dispatch_close.(
+           updated_session.agent_id,
+           %{relay_session_id: updated_session.id, reason: close_reason},
+           opts
+           |> dispatch_opts(requester)
+           |> Keyword.put(:required_gateway_node, updated_session.gateway_id),
+           requester
+         ) do
+      {:ok, _command_id} ->
+        load_session_result(updated_session, session_loader)
+
+      {:error, reason} = error ->
+        _ = mark_failed.(updated_session, reason, write_actor)
+        maybe_record_session_failure(updated_session, nil, reason, "request_close")
+        error
+    end
+  end
+
   defp mark_session_failed(session, reason, _actor, ash_opts) do
     RelaySession.fail_session(
       session,
@@ -316,6 +397,11 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp resolve_session(%{id: id}, fetcher) when is_binary(id), do: fetcher.(id)
   defp resolve_session(session_id, fetcher) when is_binary(session_id), do: fetcher.(session_id)
   defp resolve_session(_session_or_id, _fetcher), do: {:error, :invalid_session}
+
+  defp close_transition_mode(%{status: status})
+       when status in [:closing, "closing", :closed, "closed", :failed, "failed"], do: :skip
+
+  defp close_transition_mode(_session), do: :dispatch
 
   defp load_session_result(%{id: session_id} = fallback_session, session_loader)
        when is_binary(session_id) do
@@ -401,6 +487,14 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
+
+  defp inspect_close_error(%{__struct__: module}) do
+    module
+    |> inspect()
+    |> String.trim_leading("Elixir.")
+  end
+
+  defp inspect_close_error(reason), do: inspect(reason)
 
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(nil), do: true
