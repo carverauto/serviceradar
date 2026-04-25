@@ -10,6 +10,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
 
+  require Logger
+
   @default_idle_close_ms 5_000
 
   def start_link(opts \\ []) do
@@ -194,24 +196,44 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
     reason = "viewer idle timeout"
     closer_opts = Keyword.put(state.session_closer_opts, :reason, reason)
 
-    case state.session_closer.request_close(relay_session_id, closer_opts) do
-      {:ok, session} ->
-        :ok =
-          session_tracker(state).mark_closing(relay_session_id, %{
-            close_reason: Map.get(session, :close_reason) || reason,
-            viewer_count: 0
-          })
+    try do
+      case state.session_closer.request_close(relay_session_id, closer_opts) do
+        {:ok, session} ->
+          :ok =
+            session_tracker(state).mark_closing(relay_session_id, %{
+              close_reason: Map.get(session, :close_reason) || reason,
+              viewer_count: 0
+            })
+
+          :ok
+
+        {:error, :not_found} ->
+          :ok
+
+        {:error, {:invalid_status, _status}} ->
+          :ok
+
+        {:error, _reason} ->
+          :ok
+      end
+    rescue
+      error ->
+        Logger.warning("Ignored camera relay idle close failure for #{relay_session_id}: #{format_close_error(error)}")
 
         :ok
+    catch
+      kind, reason ->
+        Logger.warning("Ignored camera relay idle close failure for #{relay_session_id}: #{kind}: #{inspect(reason)}")
 
-      {:error, :not_found} ->
-        :ok
-
-      {:error, {:invalid_status, _status}} ->
-        :ok
-
-      {:error, _reason} ->
         :ok
     end
   end
+
+  defp format_close_error(%{__struct__: module}) do
+    module
+    |> inspect()
+    |> String.trim_leading("Elixir.")
+  end
+
+  defp format_close_error(error), do: Exception.message(error)
 end

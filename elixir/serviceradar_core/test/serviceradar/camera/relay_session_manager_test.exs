@@ -330,7 +330,8 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     relay_session_id = Ecto.UUID.generate()
 
     session_fetcher = fn ^relay_session_id ->
-      {:ok, %{id: relay_session_id, agent_id: "agent-2", status: :opening}}
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :opening}}
     end
 
     mark_closing = fn session, reason, _actor ->
@@ -350,6 +351,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
        %{
          id: relay_session_id,
          agent_id: "agent-2",
+         gateway_id: "gateway-2",
          status: :closing,
          termination_kind: "manual_stop"
        }}
@@ -372,5 +374,73 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert payload.relay_session_id == relay_session_id
     assert payload.reason == "viewer disconnected"
     assert session.termination_kind == "manual_stop"
+  end
+
+  test "treats close as idempotent when the relay session is already closing" do
+    parent = self()
+    relay_session_id = Ecto.UUID.generate()
+
+    session_fetcher = fn ^relay_session_id ->
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :closing}}
+    end
+
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :closing}}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_close(relay_session_id,
+               session_fetcher: session_fetcher,
+               mark_closing: fn _session, _reason, _actor ->
+                 flunk("mark_closing should not run")
+               end,
+               dispatch_close: fn _agent_id, _payload, _opts, _actor ->
+                 flunk("dispatch_close should not run")
+               end,
+               session_loader: session_loader
+             )
+
+    assert session.status == :closing
+    assert_receive {:session_load, ^relay_session_id}
+  end
+
+  test "recovers close transition races when another process already moved the session to closing" do
+    parent = self()
+    relay_session_id = Ecto.UUID.generate()
+
+    session_fetcher = fn ^relay_session_id ->
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :active}}
+    end
+
+    mark_closing = fn _session, _reason, _actor ->
+      raise KeyError,
+        key: :field,
+        term: [required_message: "is required", no_password_message: nil]
+    end
+
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :closing}}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_close(relay_session_id,
+               session_fetcher: session_fetcher,
+               mark_closing: mark_closing,
+               dispatch_close: fn _agent_id, _payload, _opts, _actor ->
+                 flunk("dispatch_close should not run after recovering a close race")
+               end,
+               session_loader: session_loader
+             )
+
+    assert session.status == :closing
+    assert_receive {:session_load, ^relay_session_id}
   end
 end
