@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
       session_id when is_binary(session_id) ->
         case fetch_session(scope, session_id) do
           {:ok, nil} -> Map.put(tile, :session, nil)
-          {:ok, session} -> Map.put(tile, :session, session)
+          {:ok, session} -> refresh_or_retry_session(scope, tile, session)
           {:error, reason} -> Map.put(tile, :error, format_error(reason))
         end
 
@@ -73,6 +73,8 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
 
   def session_id(%{session: %{id: session_id}}) when is_binary(session_id), do: session_id
   def session_id(_tile), do: nil
+
+  def format_error({:agent_offline, agent_id}) when is_binary(agent_id), do: "Assigned agent #{agent_id} is offline"
 
   def format_error({:agent_offline, _agent_id}), do: "Assigned agent is offline"
   def format_error(:forbidden), do: "Not authorized for camera relay access"
@@ -95,6 +97,24 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
         candidate
         |> Map.put(:session, nil)
         |> Map.put(:error, format_error(reason))
+    end
+  end
+
+  defp refresh_or_retry_session(scope, tile, session) do
+    cond do
+      stale_pending_session?(session) and not Map.get(tile, :relay_retry_attempted, false) ->
+        tile
+        |> Map.put(:session, nil)
+        |> Map.put(:relay_retry_attempted, true)
+        |> open_tile(scope)
+
+      stale_pending_session?(session) ->
+        tile
+        |> Map.put(:session, nil)
+        |> Map.put(:error, "Relay opening timed out")
+
+      true ->
+        Map.put(tile, :session, session)
     end
   end
 
@@ -224,6 +244,23 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   end
 
   defp maybe_put_insecure_skip_verify(opts, _candidate), do: opts
+
+  defp stale_pending_session?(%{status: status, media_ingest_id: media_ingest_id} = session)
+       when status in [:requested, :opening, "requested", "opening"] do
+    not present?(media_ingest_id) and older_than?(Map.get(session, :updated_at), 45)
+  end
+
+  defp stale_pending_session?(_session), do: false
+
+  defp older_than?(%NaiveDateTime{} = value, seconds) do
+    NaiveDateTime.diff(NaiveDateTime.utc_now(), value, :second) > seconds
+  end
+
+  defp older_than?(%DateTime{} = value, seconds) do
+    DateTime.diff(DateTime.utc_now(), value, :second) > seconds
+  end
+
+  defp older_than?(_value, _seconds), do: false
 
   defp insecure_skip_verify?(value) do
     truthy?(Map.get(value, :insecure_skip_verify)) or

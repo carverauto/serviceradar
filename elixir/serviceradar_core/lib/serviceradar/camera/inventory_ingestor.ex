@@ -605,7 +605,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           {:ok, devices} ->
             devices
             |> Enum.reject(&(&1.uid == device_uid))
-            |> resolve_camera_ip_conflict(ip, actor)
+            |> resolve_camera_ip_conflict(ip, attrs, actor)
 
           {:error, reason} ->
             {:error, reason}
@@ -627,10 +627,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp list_devices_by_ip(_ip, _actor), do: {:ok, []}
 
-  defp resolve_camera_ip_conflict([], _ip, _actor), do: {:ok, nil}
+  defp resolve_camera_ip_conflict([], _ip, _attrs, _actor), do: {:ok, nil}
 
-  defp resolve_camera_ip_conflict(devices, ip, actor) when is_list(devices) do
-    case Enum.filter(devices, &claimable_camera_ip_conflict?(&1, actor)) do
+  defp resolve_camera_ip_conflict(devices, ip, attrs, actor) when is_list(devices) do
+    case Enum.filter(devices, &claimable_camera_ip_conflict?(&1, attrs, actor)) do
       [] ->
         device =
           Enum.max_by(devices, &camera_ip_conflict_score/1, fn -> nil end)
@@ -645,11 +645,45 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp claimable_camera_ip_conflict?(%Device{} = device, actor) do
+  defp claimable_camera_ip_conflict?(%Device{type: "camera"} = device, attrs, _actor) do
+    same_camera_identity?(device, attrs)
+  end
+
+  defp claimable_camera_ip_conflict?(%Device{} = device, _attrs, actor) do
     not IdentityReconciler.service_device_id?(device.uid) and
-      device.type != "camera" and
       not device_has_strong_identifiers?(device.uid, actor)
   end
+
+  defp same_camera_identity?(%Device{} = device, attrs) when is_map(attrs) do
+    same_present_value?(camera_vendor_camera_id(device), camera_vendor_camera_id(attrs)) or
+      same_present_value?(normalize_mac(device.mac), normalize_mac(Map.get(attrs, :mac)))
+  end
+
+  defp same_camera_identity?(_device, _attrs), do: false
+
+  defp same_present_value?(left, right) do
+    not blank?(left) and not blank?(right) and left == right
+  end
+
+  defp camera_vendor_camera_id(%Device{} = device) do
+    device.metadata
+    |> metadata_map()
+    |> map_value(["camera_vendor_camera_id"])
+    |> normalize_identifier_component()
+  end
+
+  defp camera_vendor_camera_id(attrs) when is_map(attrs) do
+    attrs
+    |> Map.get(:metadata)
+    |> metadata_map()
+    |> map_value(["camera_vendor_camera_id"])
+    |> normalize_identifier_component()
+  end
+
+  defp camera_vendor_camera_id(_value), do: nil
+
+  defp metadata_map(value) when is_map(value), do: value
+  defp metadata_map(_value), do: %{}
 
   defp camera_ip_conflict_score(%Device{} = device) do
     {

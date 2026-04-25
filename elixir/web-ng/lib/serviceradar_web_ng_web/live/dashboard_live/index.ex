@@ -53,51 +53,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <section class="sr-ops-grid-primary">
           <.panel title={map_panel_title(@map_view)} class="lg:col-span-7">
             <:actions>
-              <.link href={~p"/topology"} class="sr-ops-button">Open Topology</.link>
+              <.link href={~p"/topology"} class="sr-ops-button">Full Topology</.link>
             </:actions>
 
             <div class="sr-ops-map-shell">
-              <svg
-                class="sr-ops-world-map"
-                viewBox="-180 -90 360 180"
-                preserveAspectRatio="xMidYMid meet"
-                aria-hidden="true"
-              >
-                <g>
-                  <path d="M-168 -51 L-138 -58 L-104 -50 L-82 -28 L-93 -8 L-124 3 L-152 -14 Z" />
-                  <path d="M-116 5 L-78 8 L-63 28 L-72 59 L-91 72 L-105 43 Z" />
-                  <path d="M-26 -36 L18 -39 L49 -25 L41 -4 L11 3 L-7 19 L-31 9 L-42 -17 Z" />
-                  <path d="M14 2 L36 12 L48 40 L38 72 L16 61 L7 32 Z" />
-                  <path d="M45 -42 L94 -48 L139 -36 L163 -13 L141 8 L94 12 L67 -2 L39 -14 Z" />
-                  <path d="M96 16 L128 10 L155 25 L151 47 L119 43 L101 31 Z" />
-                  <path d="M-52 61 L-35 58 L-19 64 L-28 75 L-50 73 Z" />
-                </g>
-              </svg>
-
               <div class="sr-ops-map-controls">
-                <form id="traffic-map-view-form" phx-change="select_map_view">
-                  <select
-                    id="traffic-map-view-select"
-                    name="map_view"
-                    class="sr-ops-select"
-                    aria-label="Traffic map view"
-                    phx-hook="DashboardMapViewSelect"
-                    phx-change="select_map_view"
-                  >
-                    <option value="topology_traffic" selected={@map_view == "topology_traffic"}>
-                      Topology + Traffic
-                    </option>
-                    <option value="netflow" selected={@map_view == "netflow"}>NetFlow Map</option>
-                  </select>
-                </form>
-                <ul class="sr-ops-map-legend">
-                  <li><span class="bg-sky-400"></span>Core</li>
-                  <li><span class="bg-teal-400"></span>Distribution</li>
-                  <li><span class="bg-emerald-400"></span>Access</li>
-                  <li><span class="bg-violet-400"></span>Wireless AP</li>
-                  <li><span class="bg-amber-400"></span>Camera</li>
-                  <li><span class="border border-slate-300"></span>Site</li>
+                <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
+                  <li><span class="bg-teal-400"></span>Network cluster</li>
+                  <li><span class="bg-sky-400"></span>Private/public flow</li>
+                  <li><span class="bg-violet-400"></span>Busy flow</li>
+                  <li><span class="bg-orange-400"></span>High volume flow</li>
+                  <li><span class="bg-slate-400/60"></span>External-only flow</li>
                 </ul>
+                <span class="sr-ops-map-window">{@traffic_links_window_label}</span>
               </div>
 
               <canvas
@@ -154,7 +122,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 aria-label="Events over time"
               >
                 <g class="sr-ops-events-grid">
-                  <line :for={y <- [42, 82, 122, 162]} x1="36" x2="616" y1={y} y2={y} />
+                  <line
+                    :for={label <- event_axis_labels(@security_trend)}
+                    class="sr-ops-events-x-grid"
+                    x1={label.x}
+                    x2={label.x}
+                    y1="26"
+                    y2="180"
+                  />
+                  <line
+                    :for={tick <- event_y_axis_ticks(@security_trend_max)}
+                    x1="36"
+                    x2="616"
+                    y1={tick.y}
+                    y2={tick.y}
+                  />
+                  <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
                 </g>
                 <path
                   class="sr-ops-events-area-low"
@@ -177,6 +160,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   points={event_line_points(@security_trend, @security_trend_max)}
                 />
                 <g class="sr-ops-events-axis">
+                  <text
+                    :for={tick <- event_y_axis_ticks(@security_trend_max)}
+                    class="sr-ops-events-y-label"
+                    x="30"
+                    y={tick.y + 4}
+                  >
+                    {tick.text}
+                  </text>
                   <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
                     {label.text}
                   </text>
@@ -226,36 +217,40 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 View All Cameras
               </.link>
             </:actions>
-            <div class="sr-ops-camera-empty" data-testid="camera-operations-empty">
-              <div class="sr-ops-camera-stats">
-                <.small_stat
-                  label="Online"
+            <div class="sr-ops-camera-operations" data-testid="camera-operations">
+              <div class="sr-ops-camera-status-list">
+                <.camera_status_row
+                  label="Available"
                   value={to_string(@camera_summary.online)}
                   icon="hero-video-camera"
+                  tone="success"
                 />
-                <.small_stat
+                <.camera_status_row
                   label="Offline"
                   value={to_string(@camera_summary.offline)}
                   icon="hero-video-camera-slash"
+                  tone="error"
                 />
-                <.small_stat
+                <.camera_status_row
                   label="Recording"
                   value={to_string(@camera_summary.recording)}
                   icon="hero-camera"
+                  tone="info"
                 />
-                <.small_stat label="Total Cameras" value={to_string(@camera_summary.total)} />
+                <.camera_status_row
+                  label="Total Cameras"
+                  value={to_string(@camera_summary.total)}
+                  icon="hero-squares-2x2"
+                  tone="neutral"
+                />
               </div>
-              <div class="sr-ops-camera-grid">
+              <div class="sr-ops-camera-wall">
                 <.link
                   :for={tile <- @camera_preview_tiles}
                   href={~p"/cameras/#{tile.camera_source_id}"}
                   class="sr-ops-camera-tile sr-ops-camera-tile-live"
                   aria-label={"Open #{tile.label}"}
                 >
-                  <div class="sr-ops-camera-tile-header">
-                    <span>{tile.label}</span>
-                    <small>{tile.detail}</small>
-                  </div>
                   <CameraRelayComponents.relay_player
                     :if={tile.session}
                     session={tile.session}
@@ -265,6 +260,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                     <.icon name="hero-video-camera-slash" class="size-6" />
                     <span>{tile.error || "Relay unavailable"}</span>
                   </div>
+                  <div class="sr-ops-camera-tile-caption">
+                    <span>
+                      <i class={camera_status_dot_class(tile.source_status)}></i>{tile.label}
+                    </span>
+                    <small>{camera_preview_detail(tile)}</small>
+                  </div>
                 </.link>
                 <.link
                   :for={tile <- camera_tiles(@camera_summary.tiles, @camera_preview_tiles)}
@@ -272,9 +273,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   class="sr-ops-camera-tile"
                   aria-label={"Open #{tile.label}"}
                 >
-                  <.icon name="hero-video-camera" class="size-7 text-slate-500" />
-                  <span>{tile.label}</span>
-                  <small>{tile.status}</small>
+                  <div class="sr-ops-camera-thumbnail" aria-hidden="true">
+                    <.icon name="hero-video-camera" class="size-7" />
+                  </div>
+                  <div class="sr-ops-camera-tile-caption">
+                    <span><i class={camera_status_dot_class(tile.status)}></i>{tile.label}</span>
+                    <small>{camera_status_label(tile.status)}</small>
+                  </div>
                 </.link>
               </div>
             </div>
@@ -284,20 +289,48 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <section class="sr-ops-grid-bottom">
           <.panel title="Observability Metrics" class="lg:col-span-4">
             <div class="sr-ops-metric-grid">
-              <div :for={metric <- @observability_metrics} class="sr-ops-metric-card">
+              <div
+                :for={metric <- @observability_metrics}
+                class={[
+                  "sr-ops-metric-card",
+                  "tone-#{metric.tone}",
+                  if(metric.available, do: nil, else: "is-empty")
+                ]}
+              >
                 <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-                <small>{metric.scale}</small>
-                <div class="sr-ops-metric-empty-line"></div>
+                <div class="sr-ops-metric-value-row">
+                  <strong>{metric.value}</strong>
+                  <small :if={metric.scale != ""}>{metric.scale}</small>
+                </div>
+                <div class="sr-ops-metric-sparkline-wrap">
+                  <span class="sr-ops-metric-axis sr-ops-metric-axis-top">{metric.axis_max}</span>
+                  <span class="sr-ops-metric-axis sr-ops-metric-axis-mid">{metric.axis_mid}</span>
+                  <span class="sr-ops-metric-axis sr-ops-metric-axis-bottom">{metric.axis_min}</span>
+                  <.sparkline
+                    values={metric.sparkline}
+                    tone={metric.tone}
+                    class="sr-ops-metric-sparkline"
+                  />
+                </div>
               </div>
             </div>
           </.panel>
 
           <.panel title="Top Vulnerable Assets" class="lg:col-span-3">
-            <div class="sr-ops-feed-empty" data-testid="vulnerable-assets-empty">
-              <.icon name="hero-shield-exclamation" class="size-8 text-amber-400" />
-              <p>Vulnerability tracking is not connected</p>
-              <span>No fabricated risk counts are displayed.</span>
+            <div class="sr-ops-feed-empty is-asset-feed" data-testid="vulnerable-assets-empty">
+              <div class="sr-ops-empty-feed-shell" aria-hidden="true">
+                <div class="sr-ops-empty-feed-header">
+                  <span>Asset</span>
+                  <span>Risk</span>
+                  <span>Status</span>
+                </div>
+                <span :for={_ <- 1..5} class="sr-ops-empty-feed-row"></span>
+              </div>
+              <div class="sr-ops-empty-feed-message">
+                <.icon name="hero-shield-exclamation" class="size-7 text-amber-400" />
+                <p>Vulnerability tracking is not connected</p>
+                <span>No fabricated risk counts are displayed.</span>
+              </div>
             </div>
           </.panel>
 
@@ -307,10 +340,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 View All Alerts
               </.link>
             </:actions>
-            <div :if={@alert_feed == []} class="sr-ops-feed-empty" data-testid="alerts-feed-empty">
-              <.icon name="hero-bell-alert" class="size-8 text-rose-400" />
-              <p>No recent alerts</p>
-              <span>Live alerts from the existing alert stream will appear here.</span>
+            <div
+              :if={@alert_feed == []}
+              class="sr-ops-feed-empty is-alert-feed"
+              data-testid="alerts-feed-empty"
+            >
+              <div class="sr-ops-empty-feed-shell" aria-hidden="true">
+                <div class="sr-ops-empty-feed-header">
+                  <span>Time</span>
+                  <span>Alert</span>
+                  <span>Status</span>
+                </div>
+                <span :for={_ <- 1..5} class="sr-ops-empty-feed-row"></span>
+              </div>
+              <div class="sr-ops-empty-feed-message">
+                <.icon name="hero-bell-alert" class="size-7 text-rose-400" />
+                <p>No recent alerts</p>
+                <span>Live alerts from the existing alert stream will appear here.</span>
+              </div>
             </div>
             <div :if={@alert_feed != []} class="sr-ops-alert-feed" data-testid="alerts-feed">
               <.link
@@ -376,7 +423,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <strong>{@card.value}</strong>
         <span>{@card.detail}</span>
       </div>
-      <div class="sr-ops-kpi-sparkline" aria-hidden="true"></div>
+      <.sparkline values={@card.sparkline} tone={@card.tone} class="sr-ops-kpi-sparkline" />
     </article>
     """
   end
@@ -414,6 +461,63 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     """
   end
 
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:icon, :string, required: true)
+  attr(:tone, :string, default: "neutral")
+
+  defp camera_status_row(assigns) do
+    ~H"""
+    <div class={["sr-ops-camera-status-row", "tone-#{@tone}"]}>
+      <span>
+        <.icon name={@icon} class="size-4" />
+        {@label}
+      </span>
+      <strong>{@value}</strong>
+    </div>
+    """
+  end
+
+  attr(:values, :list, default: [])
+  attr(:tone, :string, default: "neutral")
+  attr(:class, :string, default: "")
+
+  defp sparkline(assigns) do
+    assigns =
+      assigns
+      |> assign(:spark_values, sparkline_values(assigns.values))
+      |> assign(:line_path, sparkline_line_path(assigns.values))
+      |> assign(:area_path, sparkline_area_path(assigns.values))
+
+    ~H"""
+    <svg
+      class={["sr-ops-sparkline", "tone-#{@tone}", @class]}
+      viewBox="0 0 100 32"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <line
+        :if={@spark_values == []}
+        class="sr-ops-sparkline-baseline"
+        x1="0"
+        x2="100"
+        y1="24"
+        y2="24"
+      />
+      <g class="sr-ops-sparkline-grid" aria-hidden="true">
+        <line x1="0" x2="100" y1="8" y2="8" />
+        <line x1="0" x2="100" y1="16" y2="16" />
+        <line x1="0" x2="100" y1="24" y2="24" />
+        <line x1="25" x2="25" y1="5" y2="29" />
+        <line x1="50" x2="50" y1="5" y2="29" />
+        <line x1="75" x2="75" y1="5" y2="29" />
+      </g>
+      <path :if={@spark_values != []} class="sr-ops-sparkline-area" d={@area_path} />
+      <path :if={@spark_values != []} class="sr-ops-sparkline-line" d={@line_path} />
+    </svg>
+    """
+  end
+
   defp assign_dashboard(socket, dashboard_assigns) when is_map(dashboard_assigns) do
     Enum.reduce(dashboard_assigns, socket, fn {key, value}, acc ->
       assign(acc, key, value)
@@ -422,13 +526,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp camera_tiles(tiles, preview_tiles) do
     remaining = max(4 - length(preview_tiles), 0)
-    preview_ids = preview_tiles |> Enum.map(&camera_tile_id/1) |> MapSet.new()
+    preview_ids = MapSet.new(preview_tiles, &camera_tile_id/1)
 
-    tiles
-    |> List.wrap()
-    |> Enum.reject(&(camera_tile_id(&1) in preview_ids))
-    |> Enum.take(remaining)
+    visible_tiles =
+      tiles
+      |> List.wrap()
+      |> Enum.reject(&(camera_tile_id(&1) in preview_ids))
+      |> Enum.take(remaining)
+
+    visible_tiles ++ camera_placeholder_tiles(remaining - length(visible_tiles))
   end
+
+  defp camera_placeholder_tiles(count) when count > 0 do
+    Enum.map(1..count, fn index ->
+      %{id: nil, label: "No preview", status: "empty", slot: index}
+    end)
+  end
+
+  defp camera_placeholder_tiles(_count), do: []
 
   defp camera_tile_href(%{id: id}) when is_binary(id) and id != "", do: ~p"/cameras/#{id}"
   defp camera_tile_href(_tile), do: ~p"/cameras"
@@ -436,6 +551,36 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp camera_tile_id(%{camera_source_id: id}) when is_binary(id), do: id
   defp camera_tile_id(%{id: id}) when is_binary(id), do: id
   defp camera_tile_id(_tile), do: nil
+
+  defp camera_status_label(value) do
+    case value |> to_string() |> String.trim() |> String.downcase() do
+      status when status in ["available", "online", "active", "healthy"] -> "Online"
+      status when status in ["offline", "unavailable", "failed", "error"] -> "Offline"
+      "empty" -> "No relay"
+      "" -> "Unknown"
+      status -> String.capitalize(status)
+    end
+  end
+
+  defp camera_preview_detail(%{session: session, detail: detail}) when not is_nil(session), do: detail
+
+  defp camera_preview_detail(%{error: error}) when is_binary(error) and error != "" do
+    cond do
+      String.contains?(error, "Assigned agent") and String.contains?(error, "offline") -> "Agent offline"
+      String.contains?(error, "No relay-capable") -> "No relay profile"
+      true -> error
+    end
+  end
+
+  defp camera_preview_detail(_tile), do: "No relay"
+
+  defp camera_status_dot_class(value) do
+    case camera_status_label(value) do
+      "Online" -> "is-online"
+      "Offline" -> "is-offline"
+      _ -> "is-unknown"
+    end
+  end
 
   defp maybe_start_camera_previews(socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.view") do
@@ -468,11 +613,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end
   end
 
-  defp normalize_map_view("netflow"), do: "netflow"
-  defp normalize_map_view(_), do: "topology_traffic"
+  defp normalize_map_view(_), do: "netflow"
 
-  defp map_panel_title("netflow"), do: "NetFlow Map"
-  defp map_panel_title(_), do: "Topology & Traffic"
+  defp map_panel_title(_), do: "NetFlow Map"
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 
@@ -494,6 +637,34 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       {x, _y} = event_xy(idx, count, 0, 1)
       %{x: x, text: point.label}
     end)
+  end
+
+  defp event_y_axis_ticks(max_total) do
+    max_total = max(to_int(max_total), 0)
+
+    max_total
+    |> event_tick_values()
+    |> Enum.map(fn value ->
+      {_x, y} = event_xy(0, 1, value, max(max_total, 1))
+      %{y: y, text: event_tick_label(value)}
+    end)
+  end
+
+  defp event_tick_values(0), do: [0]
+
+  defp event_tick_values(max_total) do
+    Enum.uniq([max_total, round(max_total * 0.75), round(max_total * 0.5), round(max_total * 0.25), 0])
+  end
+
+  defp event_tick_label(value) when value >= 1_000_000, do: "#{event_tick_decimal(value / 1_000_000)}M"
+  defp event_tick_label(value) when value >= 1_000, do: "#{event_tick_decimal(value / 1_000)}K"
+  defp event_tick_label(value), do: Integer.to_string(value)
+
+  defp event_tick_decimal(value) do
+    value
+    |> Float.round(1)
+    |> :erlang.float_to_binary(decimals: 1)
+    |> String.trim_trailing(".0")
   end
 
   defp event_layer_index(:low), do: 0
@@ -543,7 +714,66 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {x, y}
   end
 
-  defp map_empty?("netflow", _topology_links, traffic_links), do: traffic_links == []
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: round(value)
+  defp to_int(_value), do: 0
+
+  defp sparkline_values(values) do
+    values
+    |> List.wrap()
+    |> Enum.map(&sparkline_value/1)
+    |> Enum.filter(&is_number/1)
+  end
+
+  defp sparkline_value(%{value: value}), do: sparkline_value(value)
+  defp sparkline_value(value) when is_integer(value), do: value * 1.0
+  defp sparkline_value(value) when is_float(value), do: value
+  defp sparkline_value(_), do: nil
+
+  defp sparkline_line_path(values) do
+    values
+    |> sparkline_coordinates()
+    |> case do
+      [] -> ""
+      [{x, y} | rest] -> "M #{x} #{y} " <> Enum.map_join(rest, " ", fn {px, py} -> "L #{px} #{py}" end)
+    end
+  end
+
+  defp sparkline_area_path(values) do
+    case sparkline_coordinates(values) do
+      [] ->
+        ""
+
+      [{x, y} | rest] ->
+        top = "M #{x} #{y} " <> Enum.map_join(rest, " ", fn {px, py} -> "L #{px} #{py}" end)
+        "#{top} L 100 32 L 0 32 Z"
+    end
+  end
+
+  defp sparkline_coordinates(values) do
+    values = sparkline_values(values)
+    count = length(values)
+
+    if count == 0 do
+      []
+    else
+      min_value = Enum.min(values)
+      max_value = Enum.max(values)
+      range = max(max_value - min_value, 1.0)
+
+      values
+      |> Enum.with_index()
+      |> Enum.map(fn {value, idx} ->
+        x = Float.round(idx * 100 / max(count - 1, 1), 2)
+        y = Float.round(28 - (value - min_value) / range * 22, 2)
+        {x, y}
+      end)
+    end
+  end
+
+  defp map_empty?("netflow", _topology_links, traffic_links) do
+    not Enum.any?(traffic_links, &Map.get(&1, :geo_mapped, false))
+  end
 
   defp map_empty?(_map_view, topology_links, traffic_links), do: topology_links == [] and traffic_links == []
 
@@ -553,7 +783,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp map_empty_title(_map_view, _state), do: "No topology or flow data"
 
   defp map_empty_detail("netflow", _state),
-    do: "Recent flow conversations will appear here when NetFlow, IPFIX, or sFlow records exist."
+    do: "Recent flow conversations need GeoIP enrichment or private-network anchors before they can be mapped."
 
   defp map_empty_detail(_map_view, :configured_empty),
     do: "Collector configuration exists, but no recent flow summaries were found."

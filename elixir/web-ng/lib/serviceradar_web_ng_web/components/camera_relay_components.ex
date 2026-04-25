@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
       data-webrtc-playback-transport={relay_webrtc_playback_transport(@session)}
       data-webrtc-signaling-path={relay_webrtc_signaling_path(@session)}
       data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@session)}
+      data-playback-state={relay_playback_state(@session)}
       class={["sr-camera-relay-player", @class]}
     >
       <div class="sr-camera-relay-frame">

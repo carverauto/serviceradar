@@ -73,16 +73,35 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
     dispatch_open = Keyword.get(opts, :dispatch_open, &dispatch_open_command/4)
 
+    control_gateway_resolver =
+      Keyword.get(
+        opts,
+        :control_gateway_resolver,
+        &AgentCommandBus.resolve_control_gateway_node/2
+      )
+
+    source_gateway_updater =
+      Keyword.get(opts, :source_gateway_updater, fn source, gateway_id, actor_or_scope ->
+        update_source_gateway(source, gateway_id, actor_or_scope, write_ash_opts)
+      end)
+
     with {:ok, source} <- source_fetcher.(camera_source_id),
          {:ok, _profile} <- profile_fetcher.(camera_source_id, stream_profile_id),
          :ok <- validate_source_assignment(source),
+         {:ok, source, gateway_id} <-
+           resolve_current_source_gateway(
+             source,
+             control_gateway_resolver,
+             source_gateway_updater,
+             write_actor
+           ),
          {:ok, session} <-
            session_creator.(
              %{
                camera_source_id: camera_source_id,
                stream_profile_id: stream_profile_id,
                agent_id: source.assigned_agent_id,
-               gateway_id: source.assigned_gateway_id,
+               gateway_id: gateway_id,
                lease_expires_at: lease_expiry(opts),
                requested_by: requested_by_id(requester)
              },
@@ -101,7 +120,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
              ),
              opts
              |> dispatch_opts(requester)
-             |> Keyword.put(:required_gateway_node, source.assigned_gateway_id),
+             |> Keyword.put(:required_gateway_node, gateway_id),
              requester
            ) do
         {:ok, command_id} ->
@@ -425,6 +444,47 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       true ->
         :ok
     end
+  end
+
+  defp resolve_current_source_gateway(source, resolver, updater, actor) do
+    assigned_agent_id = Map.get(source, :assigned_agent_id)
+    assigned_gateway_id = Map.get(source, :assigned_gateway_id)
+
+    case resolver.(assigned_agent_id, assigned_gateway_id) do
+      {:ok, gateway_id} when is_binary(gateway_id) and gateway_id != "" ->
+        source =
+          maybe_update_source_gateway(source, assigned_gateway_id, gateway_id, updater, actor)
+
+        {:ok, source, gateway_id}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _other ->
+        {:ok, source, assigned_gateway_id}
+    end
+  end
+
+  defp maybe_update_source_gateway(source, gateway_id, gateway_id, _updater, _actor), do: source
+
+  defp maybe_update_source_gateway(source, _old_gateway_id, new_gateway_id, updater, actor) do
+    case updater.(source, new_gateway_id, actor) do
+      {:ok, updated_source} ->
+        updated_source
+
+      _ ->
+        Map.put(source, :assigned_gateway_id, new_gateway_id)
+    end
+  rescue
+    _ -> Map.put(source, :assigned_gateway_id, new_gateway_id)
+  end
+
+  defp update_source_gateway(%Source{} = source, gateway_id, _actor, ash_opts) do
+    Source.update_source(source, %{assigned_gateway_id: gateway_id}, ash_opts)
+  end
+
+  defp update_source_gateway(source, gateway_id, _actor, _ash_opts) when is_map(source) do
+    {:ok, Map.put(source, :assigned_gateway_id, gateway_id)}
   end
 
   defp dispatch_opts(opts, actor) do

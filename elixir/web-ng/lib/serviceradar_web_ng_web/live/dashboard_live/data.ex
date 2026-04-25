@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @mtr_overlay_limit 80
   @topology_link_limit 160
   @topology_sparkline_interface_limit 80
+  @dashboard_sparkline_limit 48
+  @netflow_map_window_minutes 15
   @snmp_traffic_metrics ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
 
   @spec empty(keyword()) :: map()
@@ -41,10 +43,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           empty_camera_summary(),
           empty_survey_summary(),
           empty_alert_summary(),
-          empty_event_summary()
+          empty_event_summary(),
+          empty_sparklines()
         ),
-      map_stats: map_stats(empty_device_summary(), empty_flow_summary(), empty_mtr_summary(), []),
-      map_view: "topology_traffic",
+      map_stats: map_stats(empty_flow_summary(), empty_mtr_summary(), []),
+      map_view: "netflow",
+      traffic_links_window_label: netflow_map_window_label(),
       topology_links: [],
       topology_links_json: "[]",
       traffic_links: [],
@@ -54,7 +58,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       map_empty_title: "Checking traffic sources",
       map_empty_detail: "Dashboard data will load after the LiveView connects.",
       observability_metrics:
-        observability_metrics(empty_flow_summary(), empty_mtr_summary(), empty_trace_summary(), empty_services_summary()),
+        observability_metrics(
+          empty_flow_summary(),
+          empty_mtr_summary(),
+          empty_trace_summary(),
+          empty_services_summary(),
+          empty_sparklines()
+        ),
       security_trend: [],
       security_trend_max: 0,
       security_summary: empty_event_summary(),
@@ -84,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     event_summary = Stats.events_summary(time: time_window)
     trace_summary = trace_summary(srql_module, scope, time_window)
     security_trend = security_trend(time_window)
+    sparklines = dashboard_sparklines(time_window, security_trend, mtr_overlays)
 
     module_states =
       module_states(
@@ -110,10 +121,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           camera_summary,
           survey_summary,
           alert_summary,
-          event_summary
+          event_summary,
+          sparklines
         ),
-      map_stats: map_stats(device_summary, flow_summary, mtr_summary, topology_links),
-      map_view: "topology_traffic",
+      map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
+      map_view: "netflow",
+      traffic_links_window_label: netflow_map_window_label(),
       topology_links: topology_links,
       topology_links_json: Jason.encode!(topology_links),
       traffic_links: traffic_links,
@@ -122,7 +135,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       mtr_overlays_json: Jason.encode!(mtr_overlays),
       map_empty_title: map_empty_title(module_states.netflow),
       map_empty_detail: map_empty_detail(module_states.netflow),
-      observability_metrics: observability_metrics(flow_summary, mtr_summary, trace_summary, services_summary),
+      observability_metrics:
+        observability_metrics(flow_summary, mtr_summary, trace_summary, services_summary, sparklines),
       security_trend: security_trend,
       security_trend_max: max_trend_total(security_trend),
       security_summary: event_summary,
@@ -228,13 +242,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp traffic_links(time_window) do
-    cutoff = cutoff_for_time_window(time_window)
+    cutoff = netflow_map_cutoff(time_window)
 
     Enum.find_value(
-      [
-        {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"},
-        {"platform.ocsf_network_activity", "ocsf_network_activity", "time"}
-      ],
+      traffic_link_sources(time_window),
       [],
       fn {relation_ref, relation, time_column} ->
         if relation_exists?(relation_ref) do
@@ -247,40 +258,98 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> []
   end
 
+  defp traffic_link_sources(time_window) when time_window in ["last_1h", "last_6h"] do
+    [
+      {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
+      {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
+    ]
+  end
+
+  defp traffic_link_sources(_time_window) do
+    [
+      {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
+      {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
+    ]
+  end
+
   defp traffic_links_from_relation(relation, time_column, cutoff) do
     flow_count_expr = flow_count_expr(relation)
     has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
+    has_anchor? = netflow_location_anchors_available?()
+    anchor_partition_filter = anchor_partition_filter(relation)
 
-    geo_select =
-      if has_geo? do
-        """
-          src_geo.latitude AS src_latitude,
-          src_geo.longitude AS src_longitude,
-          src_geo.city AS src_city,
-          src_geo.country_iso2 AS src_country,
-          dst_geo.latitude AS dst_latitude,
-          dst_geo.longitude AS dst_longitude,
-          dst_geo.city AS dst_city,
-          dst_geo.country_iso2 AS dst_country
-        """
-      else
-        """
-          NULL::float8 AS src_latitude,
-          NULL::float8 AS src_longitude,
-          NULL::text AS src_city,
-          NULL::text AS src_country,
-          NULL::float8 AS dst_latitude,
-          NULL::float8 AS dst_longitude,
-          NULL::text AS dst_city,
-          NULL::text AS dst_country
-        """
-      end
+    src_geo_lat = if has_geo?, do: "src_geo.latitude", else: "NULL::float8"
+    src_geo_lon = if has_geo?, do: "src_geo.longitude", else: "NULL::float8"
+    src_geo_city = if has_geo?, do: "src_geo.city", else: "NULL::text"
+    src_geo_country = if has_geo?, do: "src_geo.country_iso2", else: "NULL::text"
+    dst_geo_lat = if has_geo?, do: "dst_geo.latitude", else: "NULL::float8"
+    dst_geo_lon = if has_geo?, do: "dst_geo.longitude", else: "NULL::float8"
+    dst_geo_city = if has_geo?, do: "dst_geo.city", else: "NULL::text"
+    dst_geo_country = if has_geo?, do: "dst_geo.country_iso2", else: "NULL::text"
+
+    src_lat = anchored_expr(has_anchor?, "src_anchor.latitude", src_geo_lat)
+    src_lon = anchored_expr(has_anchor?, "src_anchor.longitude", src_geo_lon)
+    src_city = anchored_label_expr(has_anchor?, "src_anchor", src_geo_city)
+    src_country = anchored_country_expr(has_anchor?, "src_anchor", src_geo_country)
+    dst_lat = anchored_expr(has_anchor?, "dst_anchor.latitude", dst_geo_lat)
+    dst_lon = anchored_expr(has_anchor?, "dst_anchor.longitude", dst_geo_lon)
+    dst_city = anchored_label_expr(has_anchor?, "dst_anchor", dst_geo_city)
+    dst_country = anchored_country_expr(has_anchor?, "dst_anchor", dst_geo_country)
+    src_anchor_label = anchor_label_select_expr(has_anchor?, "src_anchor")
+    dst_anchor_label = anchor_label_select_expr(has_anchor?, "dst_anchor")
+    src_local_anchor = local_anchor_select_expr(has_anchor?, "src_anchor")
+    dst_local_anchor = local_anchor_select_expr(has_anchor?, "dst_anchor")
+
+    geo_select = """
+      #{src_lat} AS src_latitude,
+      #{src_lon} AS src_longitude,
+      #{src_city} AS src_city,
+      #{src_country} AS src_country,
+      #{src_anchor_label} AS src_anchor_label,
+      #{src_local_anchor} AS src_local_anchor,
+      #{dst_lat} AS dst_latitude,
+      #{dst_lon} AS dst_longitude,
+      #{dst_city} AS dst_city,
+      #{dst_country} AS dst_country,
+      #{dst_anchor_label} AS dst_anchor_label,
+      #{dst_local_anchor} AS dst_local_anchor
+    """
 
     geo_join =
       if has_geo? do
         """
         LEFT JOIN platform.ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')
         LEFT JOIN platform.ip_geo_enrichment_cache dst_geo ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '')
+        """
+      else
+        ""
+      end
+
+    anchor_join =
+      if has_anchor? do
+        """
+        LEFT JOIN LATERAL (
+          SELECT c.location_label, c.label, c.latitude, c.longitude
+          FROM platform.netflow_local_cidrs c
+          WHERE c.enabled
+            AND c.latitude IS NOT NULL
+            AND c.longitude IS NOT NULL
+            AND #{endpoint_inet_expr("f.src_endpoint_ip")} <<= c.cidr
+            AND #{anchor_partition_filter}
+          ORDER BY masklen(c.cidr) DESC, c.updated_at DESC NULLS LAST
+          LIMIT 1
+        ) src_anchor ON true
+        LEFT JOIN LATERAL (
+          SELECT c.location_label, c.label, c.latitude, c.longitude
+          FROM platform.netflow_local_cidrs c
+          WHERE c.enabled
+            AND c.latitude IS NOT NULL
+            AND c.longitude IS NOT NULL
+            AND #{endpoint_inet_expr("f.dst_endpoint_ip")} <<= c.cidr
+            AND #{anchor_partition_filter}
+          ORDER BY masklen(c.cidr) DESC, c.updated_at DESC NULLS LAST
+          LIMIT 1
+        ) dst_anchor ON true
         """
       else
         ""
@@ -296,11 +365,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       #{geo_select}
     FROM #{relation} f
     #{geo_join}
+    #{anchor_join}
     WHERE f.#{time_column} >= $1
       AND f.src_endpoint_ip IS NOT NULL
       AND f.dst_endpoint_ip IS NOT NULL
       AND f.src_endpoint_ip <> f.dst_endpoint_ip
-    GROUP BY src, dst, src_latitude, src_longitude, src_city, src_country, dst_latitude, dst_longitude, dst_city, dst_country
+    GROUP BY src, dst, src_latitude, src_longitude, src_city, src_country, src_anchor_label, src_local_anchor, dst_latitude, dst_longitude, dst_city, dst_country, dst_anchor_label, dst_local_anchor
     ORDER BY bytes_total DESC
     LIMIT $2
     """
@@ -319,10 +389,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
                           src_lon,
                           src_city,
                           src_country,
+                          src_anchor_label,
+                          src_local_anchor,
                           dst_lat,
                           dst_lon,
                           dst_city,
-                          dst_country
+                          dst_country,
+                          dst_anchor_label,
+                          dst_local_anchor
                         ], idx} ->
           magnitude = to_int(bytes)
           topology_from = point_for(src)
@@ -338,10 +412,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             topology_to: topology_to,
             geo_from: geo_from,
             geo_to: geo_to,
+            geo_mapped: not is_nil(geo_from) and not is_nil(geo_to),
             source_label: src,
             target_label: dst,
             source_geo_label: geo_label(src_city, src_country, src),
             target_geo_label: geo_label(dst_city, dst_country, dst),
+            source_anchor_label: src_anchor_label,
+            target_anchor_label: dst_anchor_label,
+            source_local_anchor: src_local_anchor == true,
+            target_local_anchor: dst_local_anchor == true,
             magnitude: magnitude,
             bytes: magnitude,
             packets: to_int(packets),
@@ -389,6 +468,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp normalize_topology_link({%{} = link, idx}) do
     source = link.local_device_id || link.local_device_ip
     target = link.neighbor_device_id || link.neighbor_mgmt_addr || link.neighbor_system_name
+    source_label = topology_endpoint_label(link.local_device_id, link.local_device_ip, nil)
+    target_label = topology_endpoint_label(link.neighbor_device_id, link.neighbor_mgmt_addr, link.neighbor_system_name)
 
     if present?(source) and present?(target) and source != target do
       bps =
@@ -406,8 +487,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         id: "topology-#{idx}",
         from: point_for(source),
         to: point_for(target),
-        source_label: source,
-        target_label: target,
+        source_id: source,
+        target_id: target,
+        source_label: source_label,
+        target_label: target_label,
         local_if_index: link.local_if_index || link.local_if_index_ab,
         neighbor_if_index: link.neighbor_if_index || link.local_if_index_ba,
         local_if_name: link.local_if_name || link.local_if_name_ab,
@@ -428,6 +511,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp normalize_topology_link(_), do: nil
+
+  defp topology_endpoint_label(id, ip, name) do
+    cond do
+      present?(name) -> name
+      present?(ip) -> ip
+      present?(id) -> compact_identifier(id)
+      true -> "unknown"
+    end
+  end
+
+  defp compact_identifier(value) do
+    value
+    |> to_string()
+    |> String.replace_prefix("sr:", "")
+    |> String.replace_prefix("device:", "")
+    |> String.slice(0, 12)
+  end
 
   defp attach_interface_sparklines(links, _cutoff, _bucket) when links == [], do: links
 
@@ -465,8 +565,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp topology_interface_pairs(link) do
     Enum.reject(
       [
-        interface_pair_key(link.source_label, link.local_if_index),
-        interface_pair_key(link.target_label, link.neighbor_if_index)
+        interface_pair_key(Map.get(link, :source_id) || link.source_label, link.local_if_index),
+        interface_pair_key(Map.get(link, :target_id) || link.target_label, link.neighbor_if_index)
       ],
       &is_nil/1
     )
@@ -705,7 +805,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             total: total,
             online: online,
             offline: max(total - online, 0),
-            recording: online,
+            recording: active_camera_relay_count(),
             tiles: sources |> Enum.take(4) |> Enum.map(&camera_tile/1)
           }
 
@@ -717,6 +817,28 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     end
   rescue
     _ -> empty_camera_summary()
+  end
+
+  defp active_camera_relay_count do
+    if relation_exists?("platform.camera_relay_sessions") do
+      sql = """
+      SELECT COUNT(DISTINCT camera_source_id)::bigint
+      FROM platform.camera_relay_sessions
+      WHERE status = 'active'
+        AND media_ingest_id IS NOT NULL
+        AND media_ingest_id <> ''
+        AND (lease_expires_at IS NULL OR lease_expires_at > now())
+      """
+
+      case Repo.query(sql, []) do
+        {:ok, %{rows: [[count]]}} -> to_int(count)
+        _ -> 0
+      end
+    else
+      0
+    end
+  rescue
+    _ -> 0
   end
 
   defp survey_summary(_scope) do
@@ -790,6 +912,299 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     end
   rescue
     _ -> []
+  end
+
+  defp dashboard_sparklines(time_window, security_trend, mtr_overlays) do
+    %{
+      assets: device_activity_sparkline(time_window),
+      threats: security_trend |> Enum.map(&(&1.high + &1.critical)) |> sparkline_tail(),
+      network_health: service_availability_sparkline(time_window),
+      camera: camera_activity_sparkline(time_window),
+      survey: survey_sample_sparkline(time_window),
+      throughput: flow_traffic_sparkline(time_window, :bps),
+      service_health: service_availability_sparkline(time_window),
+      latency: trace_sparkline(time_window, :latency_ms, mtr_overlays),
+      packet_loss: mtr_overlay_sparkline(mtr_overlays, :loss_pct)
+    }
+  rescue
+    _ -> empty_sparklines()
+  end
+
+  defp empty_sparklines do
+    %{
+      assets: [],
+      threats: [],
+      network_health: [],
+      camera: [],
+      survey: [],
+      throughput: [],
+      service_health: [],
+      latency: [],
+      packet_loss: []
+    }
+  end
+
+  defp flow_traffic_sparkline(time_window, metric) do
+    cutoff = cutoff_for_time_window(time_window)
+
+    Enum.find_value(flow_sparkline_sources(time_window), [], fn {relation_ref, relation, time_column, bucket_seconds} ->
+      if relation_exists?(relation_ref) do
+        values = flow_traffic_sparkline_from_relation(relation, time_column, cutoff, bucket_seconds, metric)
+        if values != [], do: values
+      end
+    end)
+  rescue
+    _ -> []
+  end
+
+  defp flow_sparkline_sources(time_window) when time_window in ["last_7d", "last_30d"] do
+    [
+      {"platform.flow_traffic_1h", "platform.flow_traffic_1h", "bucket", 3600},
+      {"platform.ocsf_network_activity_5m_traffic", "platform.ocsf_network_activity_5m_traffic", "bucket", 300},
+      {"platform.ocsf_network_activity", "platform.ocsf_network_activity", "time", bucket_seconds_for(time_window)}
+    ]
+  end
+
+  defp flow_sparkline_sources(time_window) do
+    [
+      {"platform.ocsf_network_activity_5m_traffic", "platform.ocsf_network_activity_5m_traffic", "bucket", 300},
+      {"platform.flow_traffic_1h", "platform.flow_traffic_1h", "bucket", 3600},
+      {"platform.ocsf_network_activity", "platform.ocsf_network_activity", "time", bucket_seconds_for(time_window)}
+    ]
+  end
+
+  defp flow_traffic_sparkline_from_relation(
+         "platform.ocsf_network_activity" = relation,
+         time_column,
+         cutoff,
+         seconds,
+         metric
+       ) do
+    bucket_interval = bucket_interval_literal(sparkline_bucket_for_from_seconds(seconds))
+
+    sql = """
+    SELECT
+      time_bucket(#{bucket_interval}, #{time_column}) AS bucket,
+      COALESCE(SUM(bytes_total), 0)::float8 AS bytes_total,
+      COALESCE(SUM(packets_total), 0)::float8 AS packets_total,
+      COUNT(*)::float8 AS flow_count
+    FROM #{relation}
+    WHERE #{time_column} >= $1
+    GROUP BY 1
+    ORDER BY 1 ASC
+    LIMIT $2
+    """
+
+    sparkline_query_values(sql, [cutoff, @dashboard_sparkline_limit * 2], metric, seconds)
+  end
+
+  defp flow_traffic_sparkline_from_relation(relation, time_column, cutoff, seconds, metric) do
+    sql = """
+    SELECT
+      #{time_column} AS bucket,
+      COALESCE(SUM(bytes_total), 0)::float8 AS bytes_total,
+      COALESCE(SUM(packets_total), 0)::float8 AS packets_total,
+      COALESCE(SUM(flow_count), 0)::float8 AS flow_count
+    FROM #{relation}
+    WHERE #{time_column} >= $1
+    GROUP BY 1
+    ORDER BY 1 ASC
+    LIMIT $2
+    """
+
+    sparkline_query_values(sql, [cutoff, @dashboard_sparkline_limit * 2], metric, seconds)
+  end
+
+  defp sparkline_query_values(sql, params, metric, seconds) do
+    case Repo.query(sql, params) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn [_bucket, bytes, packets, flows] ->
+          case metric do
+            :bps -> to_float(bytes) * 8 / max(seconds, 1)
+            :pps -> to_float(packets) / max(seconds, 1)
+            :flows -> to_float(flows)
+            _ -> to_float(bytes)
+          end
+        end)
+        |> sparkline_tail()
+
+      _ ->
+        []
+    end
+  end
+
+  defp service_availability_sparkline(time_window) do
+    if relation_exists?("platform.services_availability_5m") do
+      sql = """
+      SELECT
+        bucket,
+        CASE
+          WHEN COALESCE(SUM(total_count), 0) = 0 THEN 0.0
+          ELSE COALESCE(SUM(available_count), 0)::float8 / COALESCE(SUM(total_count), 0)::float8 * 100.0
+        END AS availability_pct
+      FROM platform.services_availability_5m
+      WHERE bucket >= $1
+      GROUP BY bucket
+      ORDER BY bucket ASC
+      LIMIT $2
+      """
+
+      one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp trace_sparkline(time_window, metric, mtr_overlays) do
+    rollup_values =
+      if relation_exists?("platform.traces_stats_5m") do
+        trace_rollup_sparkline(time_window, metric)
+      else
+        []
+      end
+
+    if rollup_values == [] and metric == :latency_ms do
+      mtr_overlay_sparkline(mtr_overlays, :avg_latency_ms)
+    else
+      rollup_values
+    end
+  rescue
+    _ -> []
+  end
+
+  defp trace_rollup_sparkline(time_window, :latency_ms) do
+    sql = """
+    SELECT bucket, COALESCE(AVG(avg_duration_ms), 0)::float8
+    FROM platform.traces_stats_5m
+    WHERE bucket >= $1
+    GROUP BY bucket
+    ORDER BY bucket ASC
+    LIMIT $2
+    """
+
+    one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+  end
+
+  defp trace_rollup_sparkline(time_window, :success_pct) do
+    sql = """
+    SELECT
+      bucket,
+      CASE
+        WHEN COALESCE(SUM(total_count), 0) = 0 THEN 100.0
+        ELSE (1.0 - COALESCE(SUM(error_count), 0)::float8 / COALESCE(SUM(total_count), 0)::float8) * 100.0
+      END AS success_pct
+    FROM platform.traces_stats_5m
+    WHERE bucket >= $1
+    GROUP BY bucket
+    ORDER BY bucket ASC
+    LIMIT $2
+    """
+
+    one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+  end
+
+  defp trace_rollup_sparkline(_time_window, _metric), do: []
+
+  defp device_activity_sparkline(time_window) do
+    if relation_exists?("platform.ocsf_devices") do
+      sql = """
+      SELECT
+        time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, last_seen_time) AS bucket,
+        COUNT(*) FILTER (WHERE COALESCE(is_available, false) = true)::float8 AS value
+      FROM platform.ocsf_devices
+      WHERE deleted_at IS NULL
+        AND last_seen_time >= $1
+      GROUP BY 1
+      ORDER BY 1 ASC
+      LIMIT $2
+      """
+
+      one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp camera_activity_sparkline(time_window) do
+    if relation_exists?("platform.camera_sources") do
+      sql = """
+      SELECT
+        time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, COALESCE(last_activity_at, last_event_at, updated_at)) AS bucket,
+        COUNT(*) FILTER (WHERE availability_status IN ('available', 'online', 'active', 'healthy'))::float8 AS value
+      FROM platform.camera_sources
+      WHERE COALESCE(last_activity_at, last_event_at, updated_at) >= $1
+      GROUP BY 1
+      ORDER BY 1 ASC
+      LIMIT $2
+      """
+
+      one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp survey_sample_sparkline(time_window) do
+    if relation_exists?("platform.survey_samples") do
+      sql = """
+      SELECT
+        time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, timestamp) AS bucket,
+        COUNT(*)::float8 AS value
+      FROM platform.survey_samples
+      WHERE timestamp >= $1
+      GROUP BY 1
+      ORDER BY 1 ASC
+      LIMIT $2
+      """
+
+      one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp one_value_sparkline(sql, params) do
+    case Repo.query(sql, params) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn [_bucket, value] -> to_float(value) end)
+        |> sparkline_tail()
+
+      _ ->
+        []
+    end
+  end
+
+  defp mtr_overlay_sparkline([], _metric), do: []
+
+  defp mtr_overlay_sparkline(overlays, :avg_latency_ms) do
+    overlays
+    |> Enum.map(fn overlay -> to_float(overlay.avg_us) / 1000 end)
+    |> sparkline_tail()
+  end
+
+  defp mtr_overlay_sparkline(overlays, :loss_pct) do
+    overlays
+    |> Enum.map(&to_float(&1.loss_pct))
+    |> sparkline_tail()
+  end
+
+  defp mtr_overlay_sparkline(_overlays, _metric), do: []
+
+  defp sparkline_tail(values) do
+    values
+    |> Enum.map(&to_float/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.take(-@dashboard_sparkline_limit)
   end
 
   defp alert_feed(time_window) do
@@ -874,81 +1289,153 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     |> Enum.map(&elem(&1, 0))
   end
 
-  defp kpi_cards(device, services, flows, camera, survey, alerts, events) do
+  defp kpi_cards(device, services, flows, camera, survey, alerts, events, sparklines) do
     [
       %{
         title: "Total Assets",
-        value: format_count(device.total),
+        value: format_compact_count(device.total),
         detail: "#{format_count(device.available)} available",
         icon: "hero-server-stack",
-        tone: "success"
+        tone: "success",
+        sparkline: Map.get(sparklines, :assets, [])
       },
       %{
         title: "Threat Level",
         value: threat_level(alerts, events),
-        detail: "#{format_count(alerts.pending + alerts.escalated)} active alerts",
+        detail: threat_detail(alerts, events),
         icon: "hero-shield-exclamation",
-        tone: threat_tone(alerts, events)
+        tone: threat_tone(alerts, events),
+        sparkline: Map.get(sparklines, :threats, [])
       },
       %{
         title: "Network Health",
         value: network_health_value(services, flows),
         detail: network_health_detail(services, flows),
         icon: "hero-heart",
-        tone: network_health_tone(services)
+        tone: network_health_tone(services),
+        sparkline: Map.get(sparklines, :network_health, [])
       },
       %{
         title: "Camera Fleet",
-        value: format_count(camera.total),
-        detail: "#{format_count(camera.online)} online",
+        value: format_compact_count(camera.total),
+        detail: "#{format_count(camera.online)} available",
         icon: "hero-video-camera",
-        tone: "info"
+        tone: "info",
+        sparkline: Map.get(sparklines, :camera, [])
       },
       %{
         title: "Wi-Fi Coverage",
         value: survey_value(survey),
         detail: survey_detail(survey),
         icon: "hero-wifi",
-        tone: "violet"
+        tone: "violet",
+        sparkline: Map.get(sparklines, :survey, [])
       }
     ]
   end
 
-  defp map_stats(device, flows, mtr, topology_links) do
-    router_capacity = router_backbone_capacity(topology_links)
+  defp map_stats(_flows, _mtr, traffic_links) do
+    link_count = length(List.wrap(traffic_links))
+    window_bytes = traffic_links |> Enum.map(&to_int(Map.get(&1, :bytes, Map.get(&1, "bytes", 0)))) |> Enum.sum()
+
+    window_flows =
+      traffic_links |> Enum.map(&to_int(Map.get(&1, :flow_count, Map.get(&1, "flow_count", 0)))) |> Enum.sum()
+
+    geo_mapped = Enum.count(traffic_links, &Map.get(&1, :geo_mapped, Map.get(&1, "geo_mapped", false)))
+    geo_pct = if link_count > 0, do: geo_mapped * 100 / link_count, else: 0
 
     [
-      %{label: "Total Sites", value: format_count(device.total)},
-      %{label: "Active Router Links", value: format_count(router_capacity.active_links)},
-      %{label: "Router Utilization", value: "#{format_percent(router_capacity.utilization_pct)}%"},
-      %{label: "Traffic", value: format_bytes(flows.bytes_total)},
-      %{label: "MTR Paths", value: format_count(mtr.path_count)}
+      %{label: "Window", value: netflow_map_window_label()},
+      %{label: "Conversations", value: format_count(link_count)},
+      %{label: "Flow Records", value: format_count(window_flows)},
+      %{label: "Traffic", value: format_bytes(window_bytes)},
+      %{label: "Geo Mapped", value: "#{format_percent(geo_pct)}%"}
     ]
   end
 
-  defp observability_metrics(flows, mtr, traces, services) do
+  defp observability_metrics(flows, mtr, traces, services, sparklines) do
+    mtr_available? = to_int(mtr.path_count) > 0
+    flows_available? = to_int(flows.flow_count) > 0 or to_int(flows.bytes_total) > 0
+    service_available? = to_int(services.total) > 0 or to_int(traces.total) > 0
+
     [
       %{
         label: "Latency (Avg)",
-        value: metric_value(mtr.avg_latency_ms, "No MTR"),
-        scale: "ms",
-        tone: metric_tone(mtr.avg_latency_ms, 150)
+        value: if(mtr_available?, do: format_float(mtr.avg_latency_ms), else: "No MTR"),
+        scale: if(mtr_available?, do: "ms", else: ""),
+        available: mtr_available?,
+        tone: metric_tone(mtr.avg_latency_ms, 150),
+        sparkline: Map.get(sparklines, :latency, []),
+        axis_min: "0",
+        axis_mid: "75",
+        axis_max: "150"
       },
       %{
         label: "Packet Loss",
-        value: metric_value(mtr.avg_loss_pct, "No MTR"),
-        scale: "%",
-        tone: metric_tone(mtr.avg_loss_pct, 1)
+        value: if(mtr_available?, do: format_float(mtr.avg_loss_pct), else: "No MTR"),
+        scale: if(mtr_available?, do: "%", else: ""),
+        available: mtr_available?,
+        tone: metric_tone(mtr.avg_loss_pct, 1),
+        sparkline: Map.get(sparklines, :packet_loss, []),
+        axis_min: "0%",
+        axis_mid: packet_loss_axis_mid(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
+        axis_max: packet_loss_axis_max(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct)
       },
-      %{label: "Throughput", value: format_rate(flows.bps), scale: "bps", tone: "info"},
+      %{
+        label: "Throughput",
+        value: if(flows_available?, do: format_rate(flows.bps), else: "No data"),
+        scale: if(flows_available?, do: "bps", else: ""),
+        available: flows_available?,
+        tone: "info",
+        sparkline: Map.get(sparklines, :throughput, []),
+        axis_min: "0",
+        axis_mid: "5G",
+        axis_max: "10G"
+      },
       %{
         label: "Service Health",
-        value: service_health_metric(services, traces),
-        scale: "%",
-        tone: network_health_tone(services)
+        value: if(service_available?, do: service_health_metric(services, traces), else: "No data"),
+        scale: if(service_available?, do: "%", else: ""),
+        available: service_available?,
+        tone: network_health_tone(services),
+        sparkline: Map.get(sparklines, :service_health, []),
+        axis_min: "90%",
+        axis_mid: "95%",
+        axis_max: "100%"
       }
     ]
   end
+
+  defp packet_loss_axis_max(values, current) do
+    max_value = axis_max_value(values, current)
+
+    cond do
+      max_value > 50 -> "100%"
+      max_value > 10 -> "50%"
+      max_value > 1 -> "10%"
+      true -> "1%"
+    end
+  end
+
+  defp packet_loss_axis_mid(values, current) do
+    case packet_loss_axis_max(values, current) do
+      "100%" -> "50%"
+      "50%" -> "25%"
+      "10%" -> "5%"
+      _ -> "0.5%"
+    end
+  end
+
+  defp axis_max_value(values, current) do
+    values
+    |> Enum.map(&sparkline_numeric_value/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.concat([to_float(current)])
+    |> Enum.max(fn -> 0.0 end)
+  end
+
+  defp sparkline_numeric_value(%{value: value}), do: to_float(value)
+  defp sparkline_numeric_value(value), do: to_float(value)
 
   defp empty_device_summary, do: %{total: 0, available: 0, unavailable: 0}
   defp empty_services_summary, do: %{total: 0, available: 0, unavailable: 0, availability_pct: 0.0}
@@ -969,6 +1456,83 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     end
   end
 
+  defp netflow_location_anchors_available? do
+    relation_exists?("platform.netflow_local_cidrs") and
+      column_exists?("platform.netflow_local_cidrs", "latitude") and
+      column_exists?("platform.netflow_local_cidrs", "longitude") and
+      column_exists?("platform.netflow_local_cidrs", "location_label")
+  end
+
+  defp anchor_partition_filter(relation) do
+    if column_exists?(qualified_relation_name(relation), "partition") do
+      "(c.partition IS NULL OR c.partition = f.partition)"
+    else
+      "TRUE"
+    end
+  end
+
+  defp qualified_relation_name("platform." <> _ = relation), do: relation
+  defp qualified_relation_name(relation), do: "platform.#{relation}"
+
+  defp endpoint_inet_expr(column) do
+    """
+    (CASE
+      WHEN NULLIF(#{column}, '') ~ '^[0-9A-Fa-f:.]+$'
+      THEN NULLIF(#{column}, '')::inet
+      ELSE NULL::inet
+    END)
+    """
+  end
+
+  defp column_exists?(relation_name, column_name) do
+    case String.split(relation_name, ".", parts: 2) do
+      [schema, table] ->
+        sql = """
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = $1
+            AND table_name = $2
+            AND column_name = $3
+        )
+        """
+
+        case Repo.query(sql, [schema, table, column_name]) do
+          {:ok, %{rows: [[true]]}} -> true
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp anchored_expr(true, anchor_expr, fallback_expr), do: "COALESCE(#{anchor_expr}, #{fallback_expr})"
+  defp anchored_expr(false, _anchor_expr, fallback_expr), do: fallback_expr
+
+  defp anchored_label_expr(true, anchor_alias, fallback_expr),
+    do: "COALESCE(#{anchor_alias}.location_label, #{anchor_alias}.label, #{fallback_expr})"
+
+  defp anchored_label_expr(false, _anchor_alias, fallback_expr), do: fallback_expr
+
+  defp anchored_country_expr(true, anchor_alias, fallback_expr) do
+    """
+    CASE
+      WHEN #{anchor_alias}.latitude IS NOT NULL AND #{anchor_alias}.longitude IS NOT NULL
+      THEN NULL::text
+      ELSE #{fallback_expr}
+    END
+    """
+  end
+
+  defp anchored_country_expr(false, _anchor_alias, fallback_expr), do: fallback_expr
+
+  defp anchor_label_select_expr(true, anchor_alias), do: "#{anchor_alias}.location_label"
+  defp anchor_label_select_expr(false, _anchor_alias), do: "NULL::text"
+
+  defp local_anchor_select_expr(true, anchor_alias), do: "(#{anchor_alias}.location_label IS NOT NULL)"
+  defp local_anchor_select_expr(false, _anchor_alias), do: "FALSE"
+
   defp flow_count_expr("ocsf_network_activity"), do: "COUNT(*)"
   defp flow_count_expr(_relation), do: "SUM(flow_count)"
 
@@ -979,12 +1543,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp cutoff_for_time_window("last_30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
   defp cutoff_for_time_window(_), do: cutoff_for_time_window(@default_time_window)
 
+  defp netflow_map_cutoff(_time_window), do: DateTime.add(DateTime.utc_now(), -@netflow_map_window_minutes, :minute)
+
+  defp netflow_map_window_label, do: "Last #{@netflow_map_window_minutes} min"
+
   defp sparkline_bucket_for("last_1h"), do: "1 minute"
   defp sparkline_bucket_for("last_6h"), do: "5 minutes"
   defp sparkline_bucket_for("last_24h"), do: "15 minutes"
   defp sparkline_bucket_for("last_7d"), do: "1 hour"
   defp sparkline_bucket_for("last_30d"), do: "6 hours"
   defp sparkline_bucket_for(_), do: sparkline_bucket_for(@default_time_window)
+
+  defp bucket_seconds_for("last_1h"), do: 60
+  defp bucket_seconds_for("last_6h"), do: 300
+  defp bucket_seconds_for("last_24h"), do: 900
+  defp bucket_seconds_for("last_7d"), do: 3600
+  defp bucket_seconds_for("last_30d"), do: 21_600
+  defp bucket_seconds_for(_), do: bucket_seconds_for(@default_time_window)
+
+  defp sparkline_bucket_for_from_seconds(60), do: "1 minute"
+  defp sparkline_bucket_for_from_seconds(300), do: "5 minutes"
+  defp sparkline_bucket_for_from_seconds(900), do: "15 minutes"
+  defp sparkline_bucket_for_from_seconds(3600), do: "1 hour"
+  defp sparkline_bucket_for_from_seconds(21_600), do: "6 hours"
+  defp sparkline_bucket_for_from_seconds(_), do: sparkline_bucket_for(@default_time_window)
 
   defp bucket_interval_literal("1 minute"), do: "'1 minute'::interval"
   defp bucket_interval_literal("5 minutes"), do: "'5 minutes'::interval"
@@ -1062,27 +1644,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp dashboard_backbone_link?(%{topology_plane: plane}), do: plane in ["backbone", "logical"]
   defp dashboard_backbone_link?(_link), do: false
 
-  defp router_backbone_capacity(links) when is_list(links) do
-    active_links =
-      Enum.filter(links, fn link -> to_int(Map.get(link, :flow_bps)) > 0 end)
-
-    capacity_links =
-      Enum.filter(active_links, fn link -> to_int(Map.get(link, :capacity_bps)) > 0 end)
-
-    capacity_bps = Enum.reduce(capacity_links, 0, &(to_int(Map.get(&1, :capacity_bps)) + &2))
-    usage_bps = Enum.reduce(active_links, 0, &(to_int(Map.get(&1, :flow_bps)) + &2))
-    usage_with_capacity_bps = Enum.reduce(capacity_links, 0, &(to_int(Map.get(&1, :flow_bps)) + &2))
-
-    %{
-      active_links: length(active_links),
-      capacity_bps: capacity_bps,
-      usage_bps: usage_bps,
-      utilization_pct: utilization_pct(usage_with_capacity_bps, capacity_bps)
-    }
-  end
-
-  defp router_backbone_capacity(_links), do: %{active_links: 0, capacity_bps: 0, usage_bps: 0, utilization_pct: 0.0}
-
   defp utilization_pct(_bps, 0), do: 0.0
   defp utilization_pct(bps, capacity_bps), do: Float.round(min(to_int(bps) / capacity_bps * 100, 100.0), 2)
 
@@ -1106,11 +1667,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp flow_color(idx, magnitude) do
     opacity = 130 + min(round(:math.log10(max(magnitude, 10)) * 12), 95)
 
-    case rem(idx, 4) do
+    case rem(idx, 3) do
       0 -> [56, 189, 248, opacity]
       1 -> [45, 212, 191, opacity]
-      2 -> [34, 197, 94, opacity]
-      _ -> [168, 85, 247, opacity]
+      _ -> [96, 165, 250, opacity]
     end
   end
 
@@ -1139,6 +1699,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       escalated > 0 or fatal > 0 or critical > 0 -> "High"
       pending > 0 or high > 0 -> "Elevated"
       true -> "Normal"
+    end
+  end
+
+  defp threat_detail(%{pending: pending, escalated: escalated}, %{critical: critical, fatal: fatal, high: high}) do
+    active_alerts = pending + escalated
+    severe_events = fatal + critical
+
+    cond do
+      escalated > 0 -> "#{format_count(escalated)} escalated alerts"
+      severe_events > 0 -> "#{format_count(severe_events)} critical events"
+      pending > 0 -> "#{format_count(pending)} pending alerts"
+      high > 0 -> "#{format_count(high)} high severity events"
+      active_alerts > 0 -> "#{format_count(active_alerts)} active alerts"
+      true -> "0 active alerts"
     end
   end
 
@@ -1177,9 +1751,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp survey_detail(%{sample_count: samples, avg_rssi: rssi}),
     do: "#{format_count(samples)} samples, #{format_float(rssi)} dBm avg"
-
-  defp metric_value(value, fallback) when value == 0, do: fallback
-  defp metric_value(value, _fallback), do: format_float(value)
 
   defp metric_tone(value, threshold) when value > threshold, do: "error"
   defp metric_tone(_, _), do: "success"
@@ -1255,7 +1826,27 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp to_float(_), do: 0.0
 
-  defp format_count(value), do: value |> to_int() |> Integer.to_string()
+  defp format_count(value), do: value |> to_int() |> Integer.to_string() |> delimit_integer_string()
+
+  defp format_compact_count(value) do
+    count = to_int(value)
+
+    cond do
+      count >= 1_000_000 -> "#{format_float(count / 1_000_000)}M"
+      count >= 10_000 -> "#{format_float(count / 1_000)}k"
+      true -> format_count(count)
+    end
+  end
+
+  defp delimit_integer_string(value) do
+    value
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(",", &Enum.join/1)
+    |> String.reverse()
+  end
+
   defp format_percent(value), do: value |> to_float() |> Float.round(1) |> :erlang.float_to_binary(decimals: 1)
   defp format_float(value), do: value |> to_float() |> Float.round(1) |> :erlang.float_to_binary(decimals: 1)
 
