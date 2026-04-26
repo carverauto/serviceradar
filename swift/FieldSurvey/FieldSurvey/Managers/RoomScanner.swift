@@ -49,8 +49,10 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     
     // MARK: - RoomCaptureSessionDelegate
     
-    public func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
-        publishCurrentRoom(room)
+    nonisolated public func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
+        Task { @MainActor [weak self] in
+            self?.publishCurrentRoom(room)
+        }
     }
 
     private func publishCurrentRoom(_ room: CapturedRoom) {
@@ -83,17 +85,21 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     
     // MARK: - RoomCaptureViewDelegate
     
-    public func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
+    nonisolated public func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
         if let error = error {
-            logger.error("Capture processing error: \(error.localizedDescription)")
-            
-            // Auto-recover from tracking failures (e.g. moving too fast, poor lighting)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if self.isScanning, let view = self.currentView {
-                    self.logger.info("Auto-recovering RoomPlan session after tracking failure...")
-                    view.captureSession.stop()
-                    let configuration = RoomCaptureSession.Configuration()
-                    view.captureSession.run(configuration: configuration)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                logger.error("Capture processing error: \(error.localizedDescription)")
+
+                // Auto-recover from tracking failures (e.g. moving too fast, poor lighting).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    if isScanning, let view = currentView {
+                        logger.info("Auto-recovering RoomPlan session after tracking failure...")
+                        view.captureSession.stop()
+                        let configuration = RoomCaptureSession.Configuration()
+                        view.captureSession.run(configuration: configuration)
+                    }
                 }
             }
             return false
@@ -101,25 +107,28 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         return true
     }
     
-    public func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
-        if let error = error {
-            logger.error("Final processing error: \(error.localizedDescription)")
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if self.isScanning, let view = self.currentView {
-                    self.logger.info("Auto-recovering RoomPlan session after final processing failure...")
-                    view.captureSession.stop()
-                    let configuration = RoomCaptureSession.Configuration()
-                    view.captureSession.run(configuration: configuration)
+    nonisolated public func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            if let error = error {
+                logger.error("Final processing error: \(error.localizedDescription)")
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    if isScanning, let view = currentView {
+                        logger.info("Auto-recovering RoomPlan session after final processing failure...")
+                        view.captureSession.stop()
+                        let configuration = RoomCaptureSession.Configuration()
+                        view.captureSession.run(configuration: configuration)
+                    }
                 }
+                return
             }
-            return
-        }
-        
-        DispatchQueue.main.async {
-            self.finalResult = processedResult
-            self.logger.info("Room scan completed. Captured \(processedResult.walls.count) walls and \(processedResult.objects.count) objects.")
-            
+
+            finalResult = processedResult
+            logger.info("Room scan completed. Captured \(processedResult.walls.count) walls and \(processedResult.objects.count) objects.")
+
             // Automatically export and upload the USDZ mesh payload for the God-View backend
             Task {
                 do {
