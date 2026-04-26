@@ -18,6 +18,7 @@ public enum FieldSurveyBackendStream: String {
 public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
     private let task: URLSessionWebSocketTask
     private let logger: Logger
+    public let url: URL
 
     public init?(
         baseURL: String,
@@ -36,11 +37,16 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
             return nil
         }
 
-        var request = URLRequest(url: url)
-        if !authToken.isEmpty {
-            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        let trimmedAuthToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAuthToken.isEmpty, trimmedAuthToken != "OFFLINE_MODE" else {
+            return nil
         }
 
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue("Bearer \(trimmedAuthToken)", forHTTPHeaderField: "Authorization")
+
+        self.url = url
         self.task = urlSession.webSocketTask(with: request)
         self.logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "FieldSurveyBackendArrowSink")
         self.task.resume()
