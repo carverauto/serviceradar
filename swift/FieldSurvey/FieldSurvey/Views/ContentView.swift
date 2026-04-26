@@ -13,6 +13,7 @@ public struct SurveyView: View {
     @ObservedObject public var wifiScanner: RealWiFiScanner
     @ObservedObject public var sessionStore: SurveySessionStore
     @ObservedObject private var settings = SettingsManager.shared
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var sidekickRelay = SidekickRelay()
     private let resumeSnapshot: SurveySessionSnapshot?
@@ -386,9 +387,11 @@ public struct SurveyView: View {
             UIApplication.shared.isIdleTimerDisabled = false
             wifiScanner.stopScanning(clearData: false)
             SubnetScanner.shared.stopScanning()
-            if pipelineControlActive {
-                stopStreamingPipeline()
-            }
+            stopSidekickForLifecycle()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background else { return }
+            stopSidekickForLifecycle()
         }
         .onChange(of: settings.rfScanningEnabled) { _, enabled in
             applyRFState(enabled)
@@ -443,6 +446,15 @@ public struct SurveyView: View {
         if settings.rfScanningEnabled {
             wifiScanner.startScanning()
         }
+    }
+
+    private func stopSidekickForLifecycle() {
+        guard isStreaming || isSidekickPreviewing else { return }
+        checkpointSession(includeMesh: true, showStatus: false)
+        wifiScanner.stopPoseStreaming()
+        sidekickRelay.stop()
+        isStreaming = false
+        isSidekickPreviewing = false
     }
 
     private func applyRFState(_ enabled: Bool) {

@@ -94,6 +94,7 @@ public final class SidekickRelay: ObservableObject {
     private var lastSpectrumCountPublishTime: TimeInterval = 0
     private var lastPreviewIngestTime: TimeInterval = 0
     private var latestSpectrumScoresByChannel: [String: SidekickSpectrumChannelScore] = [:]
+    private var relayGeneration = 0
 
     public init() {}
 
@@ -103,6 +104,8 @@ public final class SidekickRelay: ObservableObject {
         forwardToBackend: Bool = true
     ) {
         stop()
+        relayGeneration += 1
+        let generation = relayGeneration
         status = .connecting
         rfBatchCount = 0
         spectrumBatchCount = 0
@@ -139,12 +142,13 @@ public final class SidekickRelay: ObservableObject {
             rfSink = nil
         }
 
-        let bootstrapTask = Task { [weak self, rfSink] in
+        let bootstrapTask = Task { [weak self, rfSink, generation] in
             do {
                 let (sidekickClient, statusResponse) = try await Self.firstReachableSidekick(
                     baseURLs: sidekickBaseURLs,
                     apiToken: sidekickAuthToken
                 )
+                try Task.checkCancellation()
                 let radioConfigs = Self.radioConfigurations(
                     from: settings.sidekickRadioConfig,
                     status: statusResponse,
@@ -152,14 +156,17 @@ public final class SidekickRelay: ObservableObject {
                 )
 
                 await MainActor.run {
+                    guard self?.isCurrentGeneration(generation) == true else { return }
                     self?.status = .streaming(
                         radios: radioConfigs.count,
                         spectrum: settings.sidekickSpectrumEnabled
                     )
                 }
+                guard await self?.isCurrentGeneration(generation) == true else { return }
 
                 for radioConfig in radioConfigs {
                     self?.startRadioRelay(
+                        generation: generation,
                         sidekickClient: sidekickClient,
                         backendSink: rfSink,
                         wifiScanner: wifiScanner,
@@ -170,6 +177,7 @@ public final class SidekickRelay: ObservableObject {
 
                 if settings.sidekickSpectrumEnabled {
                     self?.startSpectrumRelay(
+                        generation: generation,
                         sidekickClient: sidekickClient,
                         sessionID: sessionID,
                         sidekickID: sidekickID,
@@ -178,6 +186,7 @@ public final class SidekickRelay: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
+                    guard self?.isCurrentGeneration(generation) == true else { return }
                     self?.lastError = "Sidekick setup: \(error.localizedDescription)"
                     self?.status = .failed(self?.lastError ?? error.localizedDescription)
                 }
@@ -207,6 +216,7 @@ public final class SidekickRelay: ObservableObject {
     }
 
     public func stop() {
+        relayGeneration += 1
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         sinks.forEach { $0.close() }
@@ -217,6 +227,7 @@ public final class SidekickRelay: ObservableObject {
     }
 
     private func startRadioRelay(
+        generation: Int,
         sidekickClient: SidekickClient,
         backendSink: FieldSurveyBackendArrowSink?,
         wifiScanner: RealWiFiScanner?,
@@ -227,6 +238,7 @@ public final class SidekickRelay: ObservableObject {
             var attempt = 0
 
             while !Task.isCancelled {
+                guard await self?.isCurrentGeneration(generation) == true else { return }
                 do {
                     if let frequencyMHz = radioConfig.frequencyMHz {
                         _ = try await sidekickClient.prepareMonitor(
@@ -254,6 +266,7 @@ public final class SidekickRelay: ObservableObject {
                         self?.ingestPreviewBatch(batch.payload, wifiScanner: wifiScanner)
                         attempt = 0
                         await MainActor.run {
+                            guard self?.isCurrentGeneration(generation) == true else { return }
                             self?.lastError = nil
                             self?.spectrumWarning = nil
                             self?.recordRFBatch()
@@ -264,6 +277,7 @@ public final class SidekickRelay: ObservableObject {
                 } catch {
                     attempt += 1
                     await MainActor.run {
+                        guard self?.isCurrentGeneration(generation) == true else { return }
                         if attempt >= 3 {
                             self?.lastError = nil
                             self?.spectrumWarning = "RF \(radioConfig.interfaceName) reconnecting: \(error.localizedDescription)"
@@ -294,6 +308,7 @@ public final class SidekickRelay: ObservableObject {
     }
 
     private func startSpectrumRelay(
+        generation: Int,
         sidekickClient: SidekickClient,
         sessionID: String,
         sidekickID: String,
@@ -322,6 +337,7 @@ public final class SidekickRelay: ObservableObject {
             var attempt = 0
 
             while !Task.isCancelled {
+                guard await self?.isCurrentGeneration(generation) == true else { return }
                 do {
                     if let spectrumSink {
                         let stream = sidekickClient.spectrumBatches(
@@ -340,6 +356,7 @@ public final class SidekickRelay: ObservableObject {
                             try await spectrumSink.send(batch.payload)
                             attempt = 0
                             await MainActor.run {
+                                guard self?.isCurrentGeneration(generation) == true else { return }
                                 self?.spectrumWarning = nil
                                 self?.recordSpectrumBatch()
                             }
@@ -360,6 +377,7 @@ public final class SidekickRelay: ObservableObject {
                             try Task.checkCancellation()
                             attempt = 0
                             await MainActor.run {
+                                guard self?.isCurrentGeneration(generation) == true else { return }
                                 self?.spectrumWarning = nil
                                 self?.recordSpectrumSummary(summary)
                             }
@@ -370,6 +388,7 @@ public final class SidekickRelay: ObservableObject {
                 } catch {
                     attempt += 1
                     await MainActor.run {
+                        guard self?.isCurrentGeneration(generation) == true else { return }
                         if attempt >= 3 {
                             self?.spectrumWarning = "Spectrum reconnecting: \(error.localizedDescription)"
                         }
@@ -489,6 +508,10 @@ public final class SidekickRelay: ObservableObject {
             return 1_000
         }
         return 250
+    }
+
+    private func isCurrentGeneration(_ generation: Int) -> Bool {
+        relayGeneration == generation
     }
 }
 

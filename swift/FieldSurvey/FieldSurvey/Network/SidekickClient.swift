@@ -886,6 +886,9 @@ public final class SidekickClient: @unchecked Sendable {
                         payload: messageData
                     ))
                 case .string(let text):
+                    if try handleStreamControlText(text, continuation: continuation) {
+                        return
+                    }
                     throw SidekickClientError.sidekickStreamError(text)
                 @unknown default:
                     throw SidekickClientError.invalidWebSocketMessage
@@ -898,7 +901,7 @@ public final class SidekickClient: @unchecked Sendable {
                     continuation: continuation
                 )
             } catch {
-                continuation.finish(throwing: error)
+                finishStream(continuation, error: error)
             }
         }
     }
@@ -916,6 +919,9 @@ public final class SidekickClient: @unchecked Sendable {
                 case .data(let messageData):
                     continuation.yield(SidekickSpectrumBatch(sdrID: sdrID, payload: messageData))
                 case .string(let text):
+                    if try handleStreamControlText(text, continuation: continuation) {
+                        return
+                    }
                     throw SidekickClientError.sidekickStreamError(text)
                 @unknown default:
                     throw SidekickClientError.invalidWebSocketMessage
@@ -923,7 +929,7 @@ public final class SidekickClient: @unchecked Sendable {
 
                 self.receiveNextSpectrumBatch(task: task, sdrID: sdrID, continuation: continuation)
             } catch {
-                continuation.finish(throwing: error)
+                finishStream(continuation, error: error)
             }
         }
     }
@@ -961,8 +967,49 @@ public final class SidekickClient: @unchecked Sendable {
                 continuation.yield(summary)
                 self.receiveNextSpectrumSummary(task: task, continuation: continuation)
             } catch {
-                continuation.finish(throwing: error)
+                finishStream(continuation, error: error)
             }
         }
+    }
+
+    private func handleStreamControlText<Element>(
+        _ text: String,
+        continuation: AsyncThrowingStream<Element, Error>.Continuation
+    ) throws -> Bool {
+        let messageData = Data(text.utf8)
+        guard let control = try? jsonDecoder.decode(SidekickStreamControlMessage.self, from: messageData) else {
+            return false
+        }
+
+        if let error = control.error {
+            throw SidekickClientError.sidekickStreamError(error)
+        }
+
+        if control.event == "capture_stopped" {
+            continuation.finish()
+            return true
+        }
+
+        return false
+    }
+
+    private func finishStream<Element>(
+        _ continuation: AsyncThrowingStream<Element, Error>.Continuation,
+        error: Error
+    ) {
+        if isCancellation(error) {
+            continuation.finish()
+        } else {
+            continuation.finish(throwing: error)
+        }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 }
