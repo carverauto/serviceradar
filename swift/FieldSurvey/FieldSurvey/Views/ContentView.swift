@@ -803,8 +803,7 @@ public struct LoginView: View {
                 .disabled(isAuthenticating || username.isEmpty || password.isEmpty || serverURL.isEmpty)
                 
                 Button(action: {
-                    settings.apiURL = "offline"
-                    settings.authToken = "OFFLINE_MODE"
+                    settings.setOfflineMode()
                 }) {
                     Text("Work Offline")
                         .fontWeight(.semibold)
