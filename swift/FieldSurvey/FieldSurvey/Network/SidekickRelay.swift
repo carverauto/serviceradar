@@ -16,6 +16,18 @@ public enum FieldSurveyBackendStream: String {
 }
 
 private actor FieldSurveyBackendSendQueue {
+    func ping(task: URLSessionWebSocketTask) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            task.sendPing { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
     func send(_ payload: Data, task: URLSessionWebSocketTask) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             task.send(.data(payload)) { error in
@@ -65,6 +77,24 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         self.task = urlSession.webSocketTask(with: request)
         self.logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "FieldSurveyBackendArrowSink")
         self.task.resume()
+    }
+
+    public func connect(timeoutSeconds: TimeInterval = 8) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { [sendQueue, task] in
+                try await sendQueue.ping(task: task)
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(timeoutSeconds, 1) * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+
+            guard let result = try await group.next() else {
+                throw URLError(.cannotConnectToHost)
+            }
+            group.cancelAll()
+            return result
+        }
     }
 
     public func send(_ payload: Data) async throws {
@@ -207,12 +237,33 @@ public final class SidekickRelay: ObservableObject {
             }
             rfSink = sink
             sinks.append(sink)
+            backendWarning = "Backend upload connecting"
         } else {
             rfSink = nil
         }
 
         let bootstrapTask = Task { [weak self, rfSink, generation] in
             do {
+                var activeRFSink = rfSink
+                if let rfSink {
+                    do {
+                        try await rfSink.connect()
+                        await MainActor.run {
+                            guard self?.isCurrentGeneration(generation) == true else { return }
+                            if self?.backendWarning?.hasPrefix("Backend upload") == true {
+                                self?.backendWarning = nil
+                            }
+                        }
+                    } catch {
+                        rfSink.close()
+                        activeRFSink = nil
+                        await MainActor.run {
+                            guard self?.isCurrentGeneration(generation) == true else { return }
+                            self?.backendWarning = "Backend upload unavailable; recording locally: \(error.localizedDescription)"
+                        }
+                    }
+                }
+
                 let (sidekickClient, statusResponse) = try await Self.firstReachableSidekick(
                     baseURLs: sidekickBaseURLs,
                     apiToken: sidekickAuthToken
@@ -237,7 +288,7 @@ public final class SidekickRelay: ObservableObject {
                     self?.startRadioRelay(
                         generation: generation,
                         sidekickClient: sidekickClient,
-                        backendSink: rfSink,
+                        backendSink: activeRFSink,
                         wifiScanner: wifiScanner,
                         sidekickID: sidekickID,
                         radioConfig: radioConfig
