@@ -93,9 +93,31 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
                [session_id]
              )
 
+    assert %{rows: [[rf_features]]} =
+             Repo.query!(
+               """
+               SELECT rf_features::text
+               FROM platform.survey_rf_observations
+               WHERE session_id = $1
+               """,
+               [session_id]
+             )
+
+    assert rf_features =~ "["
+
     assert %{rows: [[1]]} =
              Repo.query!(
                "SELECT COUNT(*) FROM platform.survey_pose_samples WHERE session_id = $1",
+               [session_id]
+             )
+
+    assert %{rows: [["POINT Z (1.25 0.5 -2)", -122.0, 45.0]]} =
+             Repo.query!(
+               """
+               SELECT ST_AsText(position), ST_X(location::geometry), ST_Y(location::geometry)
+               FROM platform.survey_pose_samples
+               WHERE session_id = $1
+               """,
                [session_id]
              )
 
@@ -105,6 +127,18 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
                [session_id]
              )
 
+    assert %{rows: [[power_features]]} =
+             Repo.query!(
+               """
+               SELECT power_features::text
+               FROM platform.survey_spectrum_observations
+               WHERE session_id = $1
+               """,
+               [session_id]
+             )
+
+    assert power_features =~ "["
+
     assert %{
              rows: [
                [
@@ -113,13 +147,25 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
                  offset_nanos,
                  x,
                  z,
-                 tracking_quality
+                 tracking_quality,
+                 position_wkt,
+                 longitude,
+                 rf_feature_vector
                ]
              ]
            } =
              Repo.query!(
                """
-               SELECT bssid, scanner_device_id, pose_offset_nanos, x, z, tracking_quality
+               SELECT
+                 bssid,
+                 scanner_device_id,
+                 pose_offset_nanos,
+                 x,
+                 z,
+                 tracking_quality,
+                 ST_AsText(position),
+                 ST_X(location::geometry),
+                 rf_features::text
                FROM platform.survey_rf_pose_matches
                WHERE session_id = $1
                """,
@@ -130,5 +176,8 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
     assert x == 1.25
     assert z == -2.0
     assert tracking_quality == "normal"
+    assert position_wkt == "POINT Z (1.25 0.5 -2)"
+    assert longitude == -122.0
+    assert rf_feature_vector =~ "["
   end
 end

@@ -69,6 +69,13 @@ The survey data contract SHALL preserve raw Sidekick RF observations and iPhone 
 - **THEN** stored pose records preserve session ID, scanner device ID, wall-clock timestamp, monotonic timestamp, transform/position, and tracking quality
 - **AND** backend fusion can associate RF observations to poses by session and timestamp.
 
+#### Scenario: Backend storage remains spatial/vector-queryable
+- **GIVEN** ServiceRadar decodes Arrow IPC RF, pose, and spectrum batches
+- **WHEN** records are persisted for a survey session
+- **THEN** RF and spectrum rows SHALL include pgvector feature columns for similarity/search/indexing
+- **AND** pose rows SHALL include PostGIS local 3D position geometry and GPS geography when GPS coordinates are present
+- **AND** fused RF/pose review queries SHALL expose those vector and spatial fields rather than requiring clients to reparse Arrow IPC blobs.
+
 ### Requirement: Kismet remains optional
 The Sidekick product path SHALL NOT require Kismet to be installed or running.
 

@@ -3,6 +3,9 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
   use Ecto.Migration
 
   def up do
+    execute "CREATE EXTENSION IF NOT EXISTS postgis;"
+    execute "CREATE EXTENSION IF NOT EXISTS vector;"
+
     create table(:survey_rf_observations, primary_key: false, prefix: "platform") do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()")
       add :session_id, :text, null: false
@@ -26,10 +29,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
       add :captured_at_unix_nanos, :bigint, null: false
       add :captured_at_monotonic_nanos, :bigint
       add :parser_confidence, :float, null: false, default: 0.0
+      add :rf_features, :vector
       add :inserted_at, :timestamptz, null: false
     end
 
     execute "ALTER TABLE platform.survey_rf_observations ADD PRIMARY KEY (captured_at, id);"
+    execute "ALTER TABLE platform.survey_rf_observations ALTER COLUMN rf_features TYPE vector(8);"
 
     execute("SELECT create_hypertable('platform.survey_rf_observations', 'captured_at', if_not_exists => TRUE);")
 
@@ -47,6 +52,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
              prefix: "platform",
              name: :survey_rf_observations_radio_time_idx
            )
+
+    execute """
+    CREATE INDEX survey_rf_observations_rf_features_idx
+    ON platform.survey_rf_observations
+    USING hnsw (rf_features vector_cosine_ops)
+    WHERE rf_features IS NOT NULL;
+    """
 
     create table(:survey_pose_samples, primary_key: false, prefix: "platform") do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()")
@@ -75,6 +87,24 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
 
     execute "ALTER TABLE platform.survey_pose_samples ADD PRIMARY KEY (captured_at, id);"
 
+    execute """
+    ALTER TABLE platform.survey_pose_samples
+    ADD COLUMN position geometry(PointZ, 0)
+    GENERATED ALWAYS AS (ST_SetSRID(ST_MakePoint(x, y, z), 0)) STORED;
+    """
+
+    execute """
+    ALTER TABLE platform.survey_pose_samples
+    ADD COLUMN location geography(Point, 4326)
+    GENERATED ALWAYS AS (
+      CASE
+        WHEN latitude IS NOT NULL AND longitude IS NOT NULL
+        THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
+        ELSE NULL
+      END
+    ) STORED;
+    """
+
     execute("SELECT create_hypertable('platform.survey_pose_samples', 'captured_at', if_not_exists => TRUE);")
 
     create index(:survey_pose_samples, [:session_id, :captured_at],
@@ -86,6 +116,19 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
              prefix: "platform",
              name: :survey_pose_samples_scanner_time_idx
            )
+
+    execute """
+    CREATE INDEX survey_pose_samples_position_gist_idx
+    ON platform.survey_pose_samples
+    USING gist (position);
+    """
+
+    execute """
+    CREATE INDEX survey_pose_samples_location_gist_idx
+    ON platform.survey_pose_samples
+    USING gist (location)
+    WHERE location IS NOT NULL;
+    """
 
     create table(:survey_spectrum_observations, primary_key: false, prefix: "platform") do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()")
@@ -106,10 +149,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
       add :bin_width_hz, :float, null: false
       add :sample_count, :integer, null: false
       add :power_bins_dbm, {:array, :float}, null: false
+      add :power_features, :vector
       add :inserted_at, :timestamptz, null: false
     end
 
     execute "ALTER TABLE platform.survey_spectrum_observations ADD PRIMARY KEY (captured_at, id);"
+    execute "ALTER TABLE platform.survey_spectrum_observations ALTER COLUMN power_features TYPE vector(8);"
 
     execute("SELECT create_hypertable('platform.survey_spectrum_observations', 'captured_at', if_not_exists => TRUE);")
 
@@ -122,6 +167,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
              prefix: "platform",
              name: :survey_spectrum_observations_sdr_time_idx
            )
+
+    execute """
+    CREATE INDEX survey_spectrum_observations_power_features_idx
+    ON platform.survey_spectrum_observations
+    USING hnsw (power_features vector_cosine_ops)
+    WHERE power_features IS NOT NULL;
+    """
 
     execute """
     CREATE VIEW platform.survey_rf_pose_matches AS
@@ -161,7 +213,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateFieldSurveyRawIngestTables do
       pose.longitude,
       pose.altitude,
       pose.accuracy_m,
-      pose.tracking_quality
+      pose.tracking_quality,
+      pose.position,
+      pose.location,
+      rf.rf_features
     FROM platform.survey_rf_observations rf
     LEFT JOIN LATERAL (
       SELECT pose.*
