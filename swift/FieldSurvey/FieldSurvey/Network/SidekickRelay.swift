@@ -241,13 +241,14 @@ public final class SidekickRelay: ObservableObject {
                 guard await self?.isCurrentGeneration(generation) == true else { return }
                 do {
                     if let frequencyMHz = radioConfig.frequencyMHz {
-                        _ = try await sidekickClient.prepareMonitor(
+                        let execution = try await sidekickClient.prepareMonitor(
                             SidekickMonitorPrepareRequest(
                                 interfaceName: radioConfig.interfaceName,
                                 frequencyMHz: frequencyMHz,
                                 dryRun: false
                             )
                         )
+                        try Self.validateMonitorPrepare(execution.result)
                     }
 
                     let stream = sidekickClient.observationBatches(
@@ -420,7 +421,10 @@ public final class SidekickRelay: ObservableObject {
                     radio.name != uplinkInterface
             }
             .sorted { lhs, rhs in
-                (lhs.usb?.speedMbps ?? 0) > (rhs.usb?.speedMbps ?? 0)
+                if Self.supportsFiveGHz(lhs) != Self.supportsFiveGHz(rhs) {
+                    return Self.supportsFiveGHz(lhs)
+                }
+                return (lhs.usb?.speedMbps ?? 0) > (rhs.usb?.speedMbps ?? 0)
             }
 
         return surveyRadios
@@ -428,7 +432,11 @@ public final class SidekickRelay: ObservableObject {
             .map { index, radio in
                 SidekickRadioConfiguration(
                     interfaceName: radio.name,
-                    frequenciesMHz: Self.autoFrequenciesMHz(forRadioAt: index, radioCount: surveyRadios.count),
+                    frequenciesMHz: Self.autoFrequenciesMHz(
+                        forRadioAt: index,
+                        radioCount: surveyRadios.count,
+                        radio: radio
+                    ),
                     hopIntervalMS: Self.autoHopIntervalMS(for: radio)
                 )
             }
@@ -495,12 +503,62 @@ public final class SidekickRelay: ObservableObject {
         return UInt64(seconds) * 1_000_000_000
     }
 
-    private static func autoFrequenciesMHz(forRadioAt index: Int, radioCount: Int) -> [Int] {
+    private static func autoFrequenciesMHz(
+        forRadioAt index: Int,
+        radioCount: Int,
+        radio: SidekickRadioInterface
+    ) -> [Int] {
         if radioCount <= 1 {
-            return twoGHzSurveyFrequenciesMHz + fiveGHzSurveyFrequenciesMHz
+            return supportedSurveyFrequencies(for: radio)
         }
 
-        return index == 0 ? fiveGHzSurveyFrequenciesMHz : twoGHzSurveyFrequenciesMHz
+        return index == 0
+            ? supportedSurveyFrequencies(for: radio, preferredBand: .fiveGHz)
+            : supportedSurveyFrequencies(for: radio, preferredBand: .twoGHz)
+    }
+
+    private enum SurveyBand {
+        case twoGHz
+        case fiveGHz
+    }
+
+    private static func supportedSurveyFrequencies(
+        for radio: SidekickRadioInterface,
+        preferredBand: SurveyBand? = nil
+    ) -> [Int] {
+        let supported = radio.supportedFrequenciesMHz ?? []
+        let twoGHz = filterSupported(twoGHzSurveyFrequenciesMHz, supportedBy: supported)
+        let fiveGHz = filterSupported(fiveGHzSurveyFrequenciesMHz, supportedBy: supported)
+
+        switch preferredBand {
+        case .twoGHz:
+            return twoGHz.isEmpty ? twoGHzSurveyFrequenciesMHz : twoGHz
+        case .fiveGHz:
+            return fiveGHz.isEmpty ? fiveGHzSurveyFrequenciesMHz : fiveGHz
+        case nil:
+            if supported.isEmpty {
+                return twoGHzSurveyFrequenciesMHz + fiveGHzSurveyFrequenciesMHz
+            }
+            if !fiveGHz.isEmpty && twoGHz.isEmpty {
+                return fiveGHz
+            }
+            if !twoGHz.isEmpty && fiveGHz.isEmpty {
+                return twoGHz
+            }
+            return twoGHz + fiveGHz
+        }
+    }
+
+    private static func supportsFiveGHz(_ radio: SidekickRadioInterface) -> Bool {
+        guard let frequencies = radio.supportedFrequenciesMHz, !frequencies.isEmpty else {
+            return true
+        }
+        return frequencies.contains { $0 >= 5_000 && $0 < 6_000 }
+    }
+
+    private static func filterSupported(_ frequencies: [Int], supportedBy supported: [Int]) -> [Int] {
+        guard !supported.isEmpty else { return frequencies }
+        return frequencies.filter { supported.contains($0) }
     }
 
     private static func autoHopIntervalMS(for radio: SidekickRadioInterface) -> Int {
@@ -508,6 +566,16 @@ public final class SidekickRelay: ObservableObject {
             return 1_000
         }
         return 250
+    }
+
+    private static func validateMonitorPrepare(_ execution: SidekickMonitorPrepareExecution) throws {
+        guard let failedExecution = execution.executions.first(where: { !$0.success }) else { return }
+        let command = ([failedExecution.command.program] + failedExecution.command.args).joined(separator: " ")
+        let detail = failedExecution.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if detail.isEmpty {
+            throw SidekickClientError.sidekickStreamError("monitor setup failed: \(command)")
+        }
+        throw SidekickClientError.sidekickStreamError("monitor setup failed: \(command): \(detail)")
     }
 
     private func isCurrentGeneration(_ generation: Int) -> Bool {

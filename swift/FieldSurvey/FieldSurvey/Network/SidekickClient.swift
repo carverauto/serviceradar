@@ -84,6 +84,7 @@ public struct SidekickRadioInterface: Codable, Equatable, Identifiable {
     public let macAddress: String?
     public let operstate: String?
     public let supportedModes: [String]
+    public let supportedFrequenciesMHz: [Int]?
     public let monitorSupported: Bool?
     public let usb: SidekickUSBDeviceInfo?
 
@@ -94,6 +95,7 @@ public struct SidekickRadioInterface: Codable, Equatable, Identifiable {
         case macAddress = "mac_address"
         case operstate
         case supportedModes = "supported_modes"
+        case supportedFrequenciesMHz = "supported_frequencies_mhz"
         case monitorSupported = "monitor_supported"
         case usb
     }
