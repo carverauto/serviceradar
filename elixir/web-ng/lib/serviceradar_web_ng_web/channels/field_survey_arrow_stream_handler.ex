@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   """
   @behaviour WebSock
 
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.Native
 
   require Logger
@@ -27,9 +28,11 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
        bulk_insert_rf: Keyword.get(options, :bulk_insert_rf, &bulk_insert_rf/2),
        bulk_insert_pose: Keyword.get(options, :bulk_insert_pose, &bulk_insert_pose/2),
        bulk_insert_spectrum: Keyword.get(options, :bulk_insert_spectrum, &bulk_insert_spectrum/2),
+       archive_frame: Keyword.get(options, :archive_frame, &archive_frame/2),
        message_count: 0,
        bytes_received: 0,
-       rows_received: 0
+       rows_received: 0,
+       frames_archived: 0
      }}
   end
 
@@ -42,8 +45,13 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
     }
 
     case ingest_frame(data, new_state) do
-      {:ok, row_count} -> {:ok, %{new_state | rows_received: new_state.rows_received + row_count}}
-      {:error, reason} -> log_ingest_error(reason, new_state)
+      {:ok, row_count} ->
+        archived_state = archive_ingested_frame(data, row_count, :ok, nil, new_state)
+        {:ok, %{archived_state | rows_received: archived_state.rows_received + row_count}}
+
+      {:error, reason} ->
+        archived_state = archive_ingested_frame(data, 0, :error, inspect(reason), new_state)
+        log_ingest_error(reason, archived_state)
     end
   end
 
@@ -63,10 +71,40 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   @impl true
   def terminate(reason, state) do
     Logger.info(
-      "FieldSurvey #{state.stream_type} stream closed [session: #{state.session_id}, reason: #{inspect(reason)}, msgs: #{state.message_count}, bytes: #{state.bytes_received}, rows: #{state.rows_received}]"
+      "FieldSurvey #{state.stream_type} stream closed [session: #{state.session_id}, reason: #{inspect(reason)}, msgs: #{state.message_count}, bytes: #{state.bytes_received}, rows: #{state.rows_received}, archived_frames: #{state.frames_archived}]"
     )
 
     :ok
+  end
+
+  defp archive_ingested_frame(data, row_count, decode_status, decode_error, state) do
+    metadata = %{
+      session_id: state.session_id,
+      user_id: state.user_id,
+      stream_type: state.stream_type,
+      frame_index: state.message_count,
+      byte_size: byte_size(data),
+      row_count: row_count,
+      decode_status: decode_status,
+      decode_error: decode_error
+    }
+
+    if state.archive_frame.(data, metadata) do
+      %{state | frames_archived: state.frames_archived + 1}
+    else
+      Logger.warning(
+        "FieldSurvey #{state.stream_type} Arrow IPC frame archive failed [session: #{state.session_id}, frame: #{state.message_count}]"
+      )
+
+      state
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "FieldSurvey #{state.stream_type} Arrow IPC frame archive raised [session: #{state.session_id}, frame: #{state.message_count}]: #{inspect(error)}"
+      )
+
+      state
   end
 
   defp ingest_frame(data, %{stream_type: :rf_observations, session_id: session_id} = state) do
@@ -176,6 +214,34 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
     })
     |> Ash.run_action!(domain: ServiceRadar.Spatial)
   end
+
+  defp archive_frame(data, metadata) do
+    now = DateTime.utc_now()
+
+    entry = %{
+      session_id: metadata.session_id,
+      user_id: to_string(metadata.user_id),
+      stream_type: Atom.to_string(metadata.stream_type),
+      frame_index: metadata.frame_index,
+      byte_size: metadata.byte_size,
+      row_count: metadata.row_count,
+      decode_status: Atom.to_string(metadata.decode_status),
+      decode_error: truncate_error(metadata.decode_error),
+      payload_sha256: :crypto.hash(:sha256, data),
+      payload: data,
+      received_at: now,
+      inserted_at: now
+    }
+
+    case Repo.insert_all("survey_arrow_ipc_frames", [entry], prefix: "platform") do
+      {1, _} -> true
+      _ -> false
+    end
+  end
+
+  defp truncate_error(nil), do: nil
+  defp truncate_error(error) when byte_size(error) <= 2_000, do: error
+  defp truncate_error(error), do: binary_part(error, 0, 2_000)
 
   defp log_ingest_error(reason, state) do
     Logger.error(

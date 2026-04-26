@@ -39,6 +39,7 @@
 - [x] 4.2 Query backend RF/pose fusion data for a session and return 2D heatmap-ready points.
 - [x] 4.3 Render a ServiceRadar survey heatmap comparable to the target screenshot.
 - [x] 4.4 Store Sidekick RF and spectrum summaries with pgvector feature columns and iPhone pose samples with PostGIS geometry/geography columns for queryable backend review.
+- [x] 4.5 Archive original FieldSurvey Arrow IPC RF/pose/spectrum frames for replay/debug while keeping typed pgvector/PostGIS tables as the hot query path.
 
 ## 5. Verification
 - [ ] 5.1 Run FieldSurvey iPhone build and install.

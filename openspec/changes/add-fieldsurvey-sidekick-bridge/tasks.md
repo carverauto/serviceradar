@@ -30,6 +30,7 @@
 - [x] 4.4 Add a timestamp-keyed RF/pose fusion view for backend heatmap queries.
 - [x] 4.5 Add Rust NIF decoder coverage for raw RF, pose, and spectrum Arrow IPC batches.
 - [x] 4.6 Add backend/API tests for raw RF Arrow batches, pose batches, spectrum batches, and timestamp-keyed fusion.
+- [x] 4.7 Archive original Arrow IPC RF, pose, and spectrum frames with decode status and payload hashes for replay/debug.
 
 ## 5. Packaging and Docs
 - [x] 5.1 Add Bazel/container packaging or a documented systemd install path for the Pi daemon.
