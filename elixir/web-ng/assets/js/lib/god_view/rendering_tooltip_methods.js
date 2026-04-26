@@ -21,6 +21,44 @@ function tooltipStyle() {
   }
 }
 
+function formatRate(value) {
+  const bps = Number(value || 0)
+  if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(1)} Gbps`
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
+  if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} Kbps`
+  if (bps > 0) return `${bps.toFixed(0)} bps`
+  return "No rate"
+}
+
+function sparklineSvg(points, label, escapeHtml) {
+  if (!Array.isArray(points) || points.length < 2) return ""
+
+  const values = points.map((point) => Math.max(0, Number(point?.value ?? point ?? 0)))
+  const maxValue = Math.max(...values)
+  if (!Number.isFinite(maxValue) || maxValue <= 0) return ""
+
+  const width = 168
+  const height = 38
+  const step = width / Math.max(values.length - 1, 1)
+  const polyline = values
+    .map((value, idx) => {
+      const x = Math.round(idx * step * 10) / 10
+      const y = Math.round((height - (value / maxValue) * (height - 4) - 2) * 10) / 10
+      return `${x},${y}`
+    })
+    .join(" ")
+
+  return `
+    <div class="mt-2 border-t border-base-content/10 pt-2">
+      <div class="mb-1 text-[10px] uppercase tracking-wide opacity-70">${escapeHtml(label || "Recent interface rate")}</div>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interface rate sparkline" style="width: 100%; height: 38px;">
+        <polyline points="${polyline}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>
+      </svg>
+      <div class="text-[10px] opacity-70">Peak ${escapeHtml(formatRate(maxValue))}</div>
+    </div>
+  `
+}
+
 export const godViewRenderingTooltipMethods = {
   displayNodeLabel(object, details = {}) {
     const label = typeof object?.label === "string" ? object.label.trim() : ""
@@ -38,7 +76,25 @@ export const godViewRenderingTooltipMethods = {
     if (!object) return null
     if (layer?.id === "god-view-edges-mantle" || layer?.id === "god-view-edges-crust") {
       const connection = object.connectionLabel || "LINK"
-      return {text: `${connection}\n${this.formatPps(object.flowPps || 0)}\n${this.formatCapacity(object.capacityBps || 0)}`}
+      const details = object.details && typeof object.details === "object" ? object.details : {}
+      const interfaces = [details.source_interface, details.target_interface].filter(Boolean).join(" -> ")
+      const sparkline = sparklineSvg(
+        details.interface_sparkline,
+        details.interface_sparkline_label,
+        this.escapeHtml.bind(this),
+      )
+
+      return {
+        html: [
+          `<div class="font-semibold">${this.escapeHtml(connection)}</div>`,
+          `<div>${this.escapeHtml(this.formatPps(object.flowPps || 0))}</div>`,
+          `<div>${this.escapeHtml(this.formatCapacity(object.capacityBps || 0))}</div>`,
+          interfaces ? `<div>Interfaces: ${this.escapeHtml(interfaces)}</div>` : "",
+          details.telemetry_source ? `<div>Telemetry: ${this.escapeHtml(details.telemetry_source)}</div>` : "",
+          sparkline,
+        ].filter(Boolean).join(""),
+        style: tooltipStyle(),
+      }
     }
     if (layer?.id === "god-view-mtr-paths") {
       return this.getMtrPathTooltip(object)

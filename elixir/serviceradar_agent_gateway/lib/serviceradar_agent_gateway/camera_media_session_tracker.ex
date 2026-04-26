@@ -15,7 +15,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   require Logger
 
   @default_lease_seconds 30
-  @default_max_sessions_per_agent 4
+  @default_max_sessions_per_agent 16
   @default_max_sessions_per_gateway 32
 
   @type session :: %{
@@ -437,15 +437,27 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   end
 
   defp maybe_record_gateway_saturation_denial(session, extra_metadata) do
-    session
-    |> gateway_session_metadata()
-    |> Map.merge(extra_metadata)
-    |> Map.put_new(:reason, "relay_saturation_denied")
-    |> RelayHealthEventRouter.record_gateway_saturation_denial()
-    |> case do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Failed to record relay gateway saturation event: #{inspect(reason)}")
+    if core_repo_enabled?() do
+      session
+      |> gateway_session_metadata()
+      |> Map.merge(extra_metadata)
+      |> Map.put_new(:reason, "relay_saturation_denied")
+      |> RelayHealthEventRouter.record_gateway_saturation_denial()
+      |> case do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to record relay gateway saturation event: #{inspect(reason)}")
+      end
+    else
+      emit_session_event(:saturation_denied, session, extra_metadata)
     end
+  end
+
+  defp core_repo_enabled? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false and
+      is_pid(Process.whereis(ServiceRadar.Repo))
   end
 
   defp gateway_session_metadata(session) do

@@ -46,6 +46,14 @@ describe("lifecycle_stream_decode_methods", () => {
           edge_topology_class: makeColumn([null, "backbone"]),
           edge_protocol: makeColumn([null, "snmp-l2"]),
           edge_evidence_class: makeColumn([null, "direct"]),
+          edge_details: makeColumn([
+            null,
+            JSON.stringify({
+              source_interface: "xe-0/0/0",
+              target_interface: "xe-0/0/1",
+              interface_sparkline: [{value: 1000}, {value: 2000}],
+            }),
+          ]),
         },
         2,
       ),
@@ -65,6 +73,8 @@ describe("lifecycle_stream_decode_methods", () => {
     expect(decoded.edges[0].topologyClass).toEqual("backbone")
     expect(decoded.edges[0].protocol).toEqual("snmp-l2")
     expect(decoded.edges[0].evidenceClass).toEqual("direct")
+    expect(decoded.edges[0].details.source_interface).toEqual("xe-0/0/0")
+    expect(decoded.edges[0].details.interface_sparkline).toHaveLength(2)
   })
 
   it("preserves backend edge rows and directional fields without client-side reshaping", () => {

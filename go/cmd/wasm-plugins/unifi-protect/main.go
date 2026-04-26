@@ -35,11 +35,12 @@ type EndpointResult struct {
 }
 
 type StreamInfo struct {
-	ID       string `json:"id"`
-	Protocol string `json:"protocol"`
-	URL      string `json:"url"`
-	AuthMode string `json:"auth_mode"`
-	Source   string `json:"source"`
+	ID                 string `json:"id"`
+	Protocol           string `json:"protocol"`
+	URL                string `json:"url"`
+	AuthMode           string `json:"auth_mode"`
+	Source             string `json:"source"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
 }
 
 type CameraDescriptor struct {
@@ -607,11 +608,12 @@ func buildProtectStreams(cfg Config, cameras []ProtectCamera) []StreamInfo {
 				streamID = firstNonEmpty(channel.ID, camera.ID)
 			}
 			streams = append(streams, StreamInfo{
-				ID:       streamID,
-				Protocol: "rtsp",
-				URL:      url,
-				AuthMode: "controller_alias",
-				Source:   "protect-bootstrap",
+				ID:                 streamID,
+				Protocol:           "rtsp",
+				URL:                url,
+				AuthMode:           "controller_alias",
+				Source:             "protect-bootstrap",
+				InsecureSkipVerify: cfg.InsecureSkipVerify,
 			})
 		}
 	}
@@ -649,11 +651,12 @@ func buildProtectCameraDescriptors(
 				"mac": strings.TrimSpace(camera.MAC),
 			},
 			Metadata: map[string]interface{}{
-				"controller_host":  cfg.Host,
-				"plugin_id":        "unifi-protect-camera",
-				"camera_state":     camera.State,
-				"firmware_version": camera.FirmwareVersion,
-				"is_connected":     camera.IsConnected,
+				"controller_host":      cfg.Host,
+				"plugin_id":            "unifi-protect-camera",
+				"camera_state":         camera.State,
+				"firmware_version":     camera.FirmwareVersion,
+				"is_connected":         camera.IsConnected,
+				"insecure_skip_verify": cfg.InsecureSkipVerify,
 			},
 		}
 		if cameraHost != "" {
@@ -685,13 +688,14 @@ func buildProtectCameraDescriptors(
 				RTSPTransport:     "tcp",
 				CodecHint:         "h264",
 				Metadata: map[string]interface{}{
-					"source":      "protect-bootstrap",
-					"width":       channel.Width,
-					"height":      channel.Height,
-					"fps":         channel.FPS,
-					"bitrate":     channel.Bitrate,
-					"rtsp_alias":  channel.RTSPAlias,
-					"rtsps_alias": channel.RTSPSAlias,
+					"source":               "protect-bootstrap",
+					"width":                channel.Width,
+					"height":               channel.Height,
+					"fps":                  channel.FPS,
+					"bitrate":              channel.Bitrate,
+					"rtsp_alias":           channel.RTSPAlias,
+					"rtsps_alias":          channel.RTSPSAlias,
+					"insecure_skip_verify": cfg.InsecureSkipVerify,
 				},
 			})
 		}

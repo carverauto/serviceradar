@@ -10,7 +10,15 @@ defmodule ServiceRadar.Observability.NetflowLocalCidr do
 
   @netflow_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                          permission: "settings.netflow.manage"}
-  @netflow_local_cidr_fields [:partition, :label, :cidr, :enabled]
+  @netflow_local_cidr_fields [
+    :partition,
+    :label,
+    :cidr,
+    :enabled,
+    :location_label,
+    :latitude,
+    :longitude
+  ]
 
   postgres do
     table "netflow_local_cidrs"
@@ -84,6 +92,27 @@ defmodule ServiceRadar.Observability.NetflowLocalCidr do
       public? true
       allow_nil? false
       default true
+    end
+
+    attribute :location_label, :string do
+      public? true
+      allow_nil? true
+
+      description "Optional physical site label used when anchoring private NetFlow endpoints on maps"
+    end
+
+    attribute :latitude, :float do
+      public? true
+      allow_nil? true
+      constraints min: -90.0, max: 90.0
+      description "Optional latitude for private endpoint map anchoring"
+    end
+
+    attribute :longitude, :float do
+      public? true
+      allow_nil? true
+      constraints min: -180.0, max: 180.0
+      description "Optional longitude for private endpoint map anchoring"
     end
 
     timestamps()

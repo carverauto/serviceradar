@@ -59,6 +59,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                source_fetcher: source_fetcher,
                profile_fetcher: profile_fetcher,
                session_creator: session_creator,
+               control_gateway_resolver: current_gateway_resolver(),
                dispatch_open: dispatch_open,
                mark_opening: mark_opening,
                session_loader: session_loader,
@@ -85,6 +86,73 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert session.id == session_id
     assert byte_size(lease_token) == 32
     assert %DateTime{} = lease_expires_at
+  end
+
+  test "self-heals stale camera gateway assignment before opening relay session" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+
+    source_fetcher = fn ^camera_source_id ->
+      {:ok,
+       %{id: camera_source_id, assigned_agent_id: "agent-1", assigned_gateway_id: "gateway-old"}}
+    end
+
+    profile_fetcher = fn ^camera_source_id, ^stream_profile_id ->
+      {:ok, %{id: stream_profile_id, camera_source_id: camera_source_id}}
+    end
+
+    session_creator = fn attrs, _actor ->
+      send(parent, {:session_create, attrs})
+      {:ok, Map.put(attrs, :id, Ecto.UUID.generate())}
+    end
+
+    source_gateway_updater = fn source, gateway_id, _actor ->
+      send(parent, {:source_gateway_update, source.id, gateway_id})
+      {:ok, Map.put(source, :assigned_gateway_id, gateway_id)}
+    end
+
+    dispatch_open = fn agent_id, _payload, opts, _actor ->
+      send(parent, {:dispatch_open, agent_id, opts})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: source_fetcher,
+               profile_fetcher: profile_fetcher,
+               session_creator: session_creator,
+               source_gateway_updater: source_gateway_updater,
+               control_gateway_resolver: fn "agent-1", "gateway-old" ->
+                 {:ok, "gateway-current"}
+               end,
+               dispatch_open: dispatch_open,
+               mark_opening: fn session, command_id, lease_token, lease_expires_at, _actor ->
+                 {:ok,
+                  Map.merge(session, %{
+                    command_id: command_id,
+                    lease_token: lease_token,
+                    lease_expires_at: lease_expires_at,
+                    status: :opening
+                  })}
+               end,
+               session_loader: fn session_id ->
+                 {:ok,
+                  %{
+                    id: session_id,
+                    agent_id: "agent-1",
+                    gateway_id: "gateway-current",
+                    status: :opening
+                  }}
+               end
+             )
+
+    assert session.gateway_id == "gateway-current"
+    assert_receive {:source_gateway_update, ^camera_source_id, "gateway-current"}
+    assert_receive {:session_create, create_attrs}
+    assert create_attrs.gateway_id == "gateway-current"
+    assert_receive {:dispatch_open, "agent-1", opts}
+    assert opts[:required_gateway_node] == "gateway-current"
   end
 
   test "returns a friendly error when the source is not assigned to an agent" do
@@ -134,6 +202,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                source_fetcher: source_fetcher,
                profile_fetcher: profile_fetcher,
                session_creator: session_creator,
+               control_gateway_resolver: current_gateway_resolver(),
                dispatch_open: fn _agent_id, _payload, _opts, _actor ->
                  {:error, :agent_offline}
                end,
@@ -141,6 +210,36 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
              )
 
     assert_receive {:mark_failed, _session_id, :agent_offline}
+  end
+
+  test "does not create relay session rows when the assigned agent has no control session" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+
+    source_fetcher = fn ^camera_source_id ->
+      {:ok,
+       %{id: camera_source_id, assigned_agent_id: "agent-1", assigned_gateway_id: "gateway-1"}}
+    end
+
+    profile_fetcher = fn ^camera_source_id, ^stream_profile_id ->
+      {:ok, %{id: stream_profile_id}}
+    end
+
+    assert {:error, {:agent_offline, "agent-1"}} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: source_fetcher,
+               profile_fetcher: profile_fetcher,
+               control_gateway_resolver: fn "agent-1", "gateway-1" ->
+                 {:error, {:agent_offline, "agent-1"}}
+               end,
+               session_creator: fn _attrs, _actor ->
+                 send(parent, :session_created)
+                 {:ok, %{id: Ecto.UUID.generate()}}
+               end
+             )
+
+    refute_received :session_created
   end
 
   test "treats mark_opening as idempotent when the session already advanced" do
@@ -192,6 +291,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                source_fetcher: source_fetcher,
                profile_fetcher: profile_fetcher,
                session_creator: session_creator,
+               control_gateway_resolver: current_gateway_resolver(),
                dispatch_open: dispatch_open,
                mark_opening: mark_opening,
                session_loader: session_loader
@@ -246,6 +346,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                source_fetcher: source_fetcher,
                profile_fetcher: profile_fetcher,
                session_creator: session_creator,
+               control_gateway_resolver: current_gateway_resolver(),
                dispatch_open: dispatch_open,
                mark_opening: mark_opening,
                scope: scope
@@ -315,6 +416,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
                source_fetcher: source_fetcher,
                profile_fetcher: profile_fetcher,
                session_creator: session_creator,
+               control_gateway_resolver: current_gateway_resolver(),
                dispatch_open: dispatch_open,
                mark_opening: mark_opening,
                session_loader: session_loader,
@@ -330,7 +432,8 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     relay_session_id = Ecto.UUID.generate()
 
     session_fetcher = fn ^relay_session_id ->
-      {:ok, %{id: relay_session_id, agent_id: "agent-2", status: :opening}}
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :opening}}
     end
 
     mark_closing = fn session, reason, _actor ->
@@ -350,6 +453,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
        %{
          id: relay_session_id,
          agent_id: "agent-2",
+         gateway_id: "gateway-2",
          status: :closing,
          termination_kind: "manual_stop"
        }}
@@ -372,5 +476,77 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert payload.relay_session_id == relay_session_id
     assert payload.reason == "viewer disconnected"
     assert session.termination_kind == "manual_stop"
+  end
+
+  test "treats close as idempotent when the relay session is already closing" do
+    parent = self()
+    relay_session_id = Ecto.UUID.generate()
+
+    session_fetcher = fn ^relay_session_id ->
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :closing}}
+    end
+
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :closing}}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_close(relay_session_id,
+               session_fetcher: session_fetcher,
+               mark_closing: fn _session, _reason, _actor ->
+                 flunk("mark_closing should not run")
+               end,
+               dispatch_close: fn _agent_id, _payload, _opts, _actor ->
+                 flunk("dispatch_close should not run")
+               end,
+               session_loader: session_loader
+             )
+
+    assert session.status == :closing
+    assert_receive {:session_load, ^relay_session_id}
+  end
+
+  test "recovers close transition races when another process already moved the session to closing" do
+    parent = self()
+    relay_session_id = Ecto.UUID.generate()
+
+    session_fetcher = fn ^relay_session_id ->
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :active}}
+    end
+
+    mark_closing = fn _session, _reason, _actor ->
+      raise KeyError,
+        key: :field,
+        term: [required_message: "is required", no_password_message: nil]
+    end
+
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{id: relay_session_id, agent_id: "agent-2", gateway_id: "gateway-2", status: :closing}}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_close(relay_session_id,
+               session_fetcher: session_fetcher,
+               mark_closing: mark_closing,
+               dispatch_close: fn _agent_id, _payload, _opts, _actor ->
+                 flunk("dispatch_close should not run after recovering a close race")
+               end,
+               session_loader: session_loader
+             )
+
+    assert session.status == :closing
+    assert_receive {:session_load, ^relay_session_id}
+  end
+
+  defp current_gateway_resolver do
+    fn _agent_id, gateway_id -> {:ok, gateway_id} end
   end
 end

@@ -3,6 +3,8 @@ import Config
 # This file is executed at runtime before the application starts.
 # It is executed in both release and dev/test modes.
 
+alias Cluster.Strategy.DNSPoll
+
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
     nil ->
@@ -24,8 +26,6 @@ end
 # =============================================================================
 # All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
 # start, so the opentelemetry SDK picks up these values at boot.
-alias Cluster.Strategy.DNSPoll
-
 otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 if otel_endpoint do
@@ -242,6 +242,15 @@ spiffe_mode =
     _ -> :filesystem
   end
 
+config :serviceradar_agent_gateway, :metrics,
+  enabled: System.get_env("GATEWAY_METRICS_ENABLED", "true") in ~w(true 1 yes),
+  ip: {0, 0, 0, 0},
+  port: parse_int_env.("GATEWAY_METRICS_PORT", 9090)
+
+config :serviceradar_agent_gateway,
+  camera_relay_max_sessions_per_agent: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_AGENT", 16),
+  camera_relay_max_sessions_per_gateway: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_GATEWAY", 32)
+
 config :serviceradar_core, Oban, false
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
@@ -276,19 +285,15 @@ config :serviceradar_core,
   # Uses the shared PubSub from serviceradar_core
   cluster_coordinator: false
 
-# Disable Swoosh API client (agent gateway does not send email).
-config :swoosh, :api_client, false
-config :swoosh, local: false
-
-config :serviceradar_agent_gateway, :metrics,
-  enabled: System.get_env("GATEWAY_METRICS_ENABLED", "true") in ~w(true 1 yes),
-  ip: {0, 0, 0, 0},
-  port: parse_int_env.("GATEWAY_METRICS_PORT", 9090)
-
 # =============================================================================
+
+# Disable Swoosh API client (agent gateway does not send email).
 # Telemetry Configuration
 # =============================================================================
 # Attach default handlers for logging cluster events
+
+config :swoosh, :api_client, false
+config :swoosh, local: false
 
 if config_env() == :prod do
   config :logger, :console,

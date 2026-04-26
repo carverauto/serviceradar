@@ -434,8 +434,6 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser, :require_authenticated_user])
 
-    # Redirect /dashboard to /analytics
-    get("/dashboard", PageController, :redirect_to_analytics)
     get("/users/settings", PageController, :redirect_to_settings_profile)
     get("/flows", PageController, :redirect_to_observability_flows)
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
@@ -444,6 +442,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
       ] do
+      live("/dashboard", DashboardLive.Index, :index)
       live("/analytics", AnalyticsLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
@@ -468,6 +467,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/observability/camera-relays", CameraRelayLive.Index, :index)
       live("/observability/camera-relays/workers", CameraAnalysisWorkerLive.Index, :index)
       live("/observability/camera-analysis-workers", CameraAnalysisWorkerLive.Index, :legacy)
+      live("/cameras", CameraLive.Index, :index)
+      live("/cameras/:camera_source_id", CameraLive.Show, :show)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
