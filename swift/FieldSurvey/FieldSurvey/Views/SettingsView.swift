@@ -1,20 +1,23 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 import RPerfClient
 
 @available(iOS 16.0, *)
 public struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var settingsManager = SettingsManager.shared
-    @ObservedObject var wifiScanner: RealWiFiScanner
     
     @State private var isTesting = false
     @State private var testResult: RPerfResult? = nil
     @State private var testError: String? = nil
-    
-    public init(wifiScanner: RealWiFiScanner) {
-        self.wifiScanner = wifiScanner
-    }
+    @State private var sidekickUplinkPassword = ""
+    @State private var isConfiguringSidekickUplink = false
+    @State private var sidekickUplinkResult: String? = nil
+    @State private var isStoppingSidekickCapture = false
+    @State private var sidekickCaptureResult: String? = nil
+    @State private var isPairingSidekick = false
+    @State private var sidekickPairingResult: String? = nil
     
     public var body: some View {
         NavigationView {
@@ -25,29 +28,7 @@ public struct SettingsView: View {
                             .font(.headline)
                             .toggleStyle(SwitchToggleStyle(tint: .green))
                         
-                        Text("Master on/off for Wi-Fi, BLE, and subnet sampling. Disable this to keep LiDAR mapping active without gathering RF telemetry.")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.vertical, 8)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Show BLE Beacons in Map", isOn: $settingsManager.showBLEBeacons)
-                            .font(.headline)
-                            .toggleStyle(SwitchToggleStyle(tint: .green))
-                        
-                        Text("When disabled, only true 802.11 Wi-Fi access points will be drawn in the AR/3D map. When enabled, BLE polyfill data is also drawn. Turn off to reduce visual clutter from laptops and phones.")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.vertical, 8)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("AI AP Detection", isOn: $settingsManager.aiObjectDetectionEnabled)
-                            .font(.headline)
-                            .toggleStyle(SwitchToggleStyle(tint: .green))
-                        
-                        Text("Runs local on-device object detection (when a bundled model is available) to highlight probable access points in AR.")
+                        Text("Master on/off for Wi-Fi, Sidekick RF, and subnet sampling. Disable this to keep LiDAR mapping active without gathering RF telemetry.")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
@@ -69,32 +50,164 @@ public struct SettingsView: View {
                             .font(.headline)
                             .toggleStyle(SwitchToggleStyle(tint: .green))
 
-                        Text("When AR tracking degrades, temporarily pauses Wi-Fi/BLE/subnet/AI background work to keep LiDAR world tracking stable, then resumes automatically.")
+                        Text("When AR tracking degrades, temporarily pauses Sidekick preview and subnet background work to keep LiDAR world tracking stable, then resumes automatically.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                Section(header: Text("FieldSurvey Sidekick")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sidekick URL")
+                            .font(.headline)
+                        TextField("http://fieldsurvey-rpi.local:17321", text: $settingsManager.sidekickURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                    }
+                    .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sidekick Token")
+                            .font(.headline)
+                        SecureField("Bearer token", text: $settingsManager.sidekickAuthToken)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button(isPairingSidekick ? "Pairing..." : "Pair Sidekick") {
+                            Task {
+                                await pairSidekick()
+                            }
+                        }
+                        .disabled(isPairingSidekick || settingsManager.sidekickAuthToken.isEmpty)
+
+                        if let sidekickPairingResult {
+                            Text(sidekickPairingResult)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Radio Plan")
+                            .font(.headline)
+                        TextField("auto or wlan1:2412|2437|2462,wlan2:5180|5200", text: $settingsManager.sidekickRadioConfig)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Text("Use auto to scan with all monitor-capable USB radios, assigning the fastest adapter to 5 GHz and the next adapter to 2.4 GHz, or set explicit interface:frequency pairs.")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
                     .padding(.vertical, 8)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("RF Polling Resolution: \(String(format: "%.1f", settingsManager.sampleRateSeconds))s")
-                            .font(.headline)
-                        
-                        Text("Determines how frequently the app polls the network hardware and constructs Arrow IPC frames. Lower values provide higher data fidelity for the God-View spatial join engine, at the cost of device battery.")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        
-                        Slider(value: $settingsManager.sampleRateSeconds, in: 0.1...5.0, step: 0.1) { editing in
-                            if !editing {
-                                // Restart scanner with new rate immediately if it was already running
-                                if wifiScanner.isScanning && settingsManager.rfScanningEnabled {
-                                    wifiScanner.stopScanning(clearData: false)
-                                    wifiScanner.startScanning()
-                                }
+                        Button(isStoppingSidekickCapture ? "Stopping Capture..." : "Stop Sidekick Capture") {
+                            Task {
+                                await stopSidekickCapture()
                             }
                         }
-                        .accentColor(.green)
+                        .disabled(isStoppingSidekickCapture)
+
+                        if let sidekickCaptureResult {
+                            Text(sidekickCaptureResult)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
                     }
                     .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Pi Wi-Fi Uplink")
+                            .font(.headline)
+                        TextField("Interface", text: $settingsManager.sidekickUplinkInterface)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("SSID", text: $settingsManager.sidekickUplinkSSID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Password", text: $sidekickUplinkPassword)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Country", text: $settingsManager.sidekickUplinkCountryCode)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+
+                        HStack {
+                            Button("Check Plan") {
+                                Task {
+                                    await configureSidekickUplink(dryRun: true)
+                                }
+                            }
+                            .disabled(isConfiguringSidekickUplink || settingsManager.sidekickUplinkSSID.isEmpty)
+
+                            Spacer()
+
+                            Button("Apply") {
+                                Task {
+                                    await configureSidekickUplink(dryRun: false)
+                                }
+                            }
+                            .disabled(isConfiguringSidekickUplink || settingsManager.sidekickUplinkSSID.isEmpty)
+                        }
+
+                        if isConfiguringSidekickUplink {
+                            ProgressView()
+                        } else if let sidekickUplinkResult {
+                            Text(sidekickUplinkResult)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(.vertical, 8)
+
+                    Toggle("Stream HackRF Spectrum", isOn: $settingsManager.sidekickSpectrumEnabled)
+                        .font(.headline)
+                        .toggleStyle(SwitchToggleStyle(tint: .green))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("HackRF Serial")
+                            .font(.headline)
+                        TextField("optional serial", text: $settingsManager.sidekickSpectrumSerialNumber)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    .padding(.vertical, 8)
+
+                    Stepper(
+                        "Spectrum Range: \(settingsManager.sidekickSpectrumMinMHz)-\(settingsManager.sidekickSpectrumMaxMHz) MHz",
+                        value: $settingsManager.sidekickSpectrumMinMHz,
+                        in: 1...7250,
+                        step: 1
+                    )
+
+                    Stepper(
+                        "Spectrum Stop: \(settingsManager.sidekickSpectrumMaxMHz) MHz",
+                        value: $settingsManager.sidekickSpectrumMaxMHz,
+                        in: 1...7250,
+                        step: 1
+                    )
+
+                    Stepper(
+                        "Bin Width: \(settingsManager.sidekickSpectrumBinWidthHz) Hz",
+                        value: $settingsManager.sidekickSpectrumBinWidthHz,
+                        in: 2_445...5_000_000,
+                        step: 10_000
+                    )
+
+                    Stepper(
+                        "LNA Gain: \(settingsManager.sidekickSpectrumLNAGainDB) dB",
+                        value: $settingsManager.sidekickSpectrumLNAGainDB,
+                        in: 0...40,
+                        step: 8
+                    )
+
+                    Stepper(
+                        "VGA Gain: \(settingsManager.sidekickSpectrumVGAGainDB) dB",
+                        value: $settingsManager.sidekickSpectrumVGAGainDB,
+                        in: 0...62,
+                        step: 2
+                    )
                 }
                 
                 Section(header: Text("Active Throughput Testing (rperf)")) {
@@ -170,6 +283,80 @@ public struct SettingsView: View {
                 self.isTesting = false
             }
         }
+    }
+
+    private func configureSidekickUplink(dryRun: Bool) async {
+        isConfiguringSidekickUplink = true
+        sidekickUplinkResult = nil
+
+        let client = SidekickClient(settings: settingsManager)
+        let request = SidekickWifiUplinkRequest(
+            interfaceName: settingsManager.sidekickUplinkInterface,
+            ssid: settingsManager.sidekickUplinkSSID,
+            psk: sidekickUplinkPassword.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank,
+            countryCode: settingsManager.sidekickUplinkCountryCode.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank,
+            dryRun: dryRun
+        )
+
+        do {
+            if dryRun {
+                let response = try await client.wifiUplinkPlan(request)
+                sidekickUplinkResult = "Plan has \(response.plan.commands.count) commands."
+            } else {
+                let response = try await client.configureWifiUplink(request)
+                let failures = response.result.executions.filter { !$0.success }
+                sidekickUplinkResult = failures.isEmpty
+                    ? "Applied uplink config for \(settingsManager.sidekickUplinkSSID)."
+                    : "Uplink command failed: \(failures.first?.stderr ?? "unknown error")"
+            }
+        } catch {
+            sidekickUplinkResult = error.localizedDescription
+        }
+
+        isConfiguringSidekickUplink = false
+    }
+
+    private func stopSidekickCapture() async {
+        isStoppingSidekickCapture = true
+        sidekickCaptureResult = nil
+
+        do {
+            let response = try await SidekickClient(settings: settingsManager).stopCapture()
+            sidekickCaptureResult = response.stopped
+                ? "Stop signal sent."
+                : "No active capture stopped."
+        } catch {
+            sidekickCaptureResult = error.localizedDescription
+        }
+
+        isStoppingSidekickCapture = false
+    }
+
+    private func pairSidekick() async {
+        isPairingSidekick = true
+        sidekickPairingResult = nil
+
+        do {
+            let response = try await SidekickClient(settings: settingsManager).claimPairing(
+                SidekickPairingClaimRequest(
+                    deviceID: settingsManager.scannerDeviceId,
+                    deviceName: UIDevice.current.name.nilIfBlank
+                )
+            )
+            settingsManager.sidekickAuthToken = response.token
+            sidekickPairingResult = "Paired \(response.deviceName ?? response.deviceID)."
+        } catch {
+            sidekickPairingResult = error.localizedDescription
+        }
+
+        isPairingSidekick = false
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 #endif

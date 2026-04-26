@@ -16,6 +16,10 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     // We act as the delegate for the RoomCaptureView wrapped in our SwiftUI view.
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "RoomScanner")
     private weak var currentView: RoomCaptureView?
+    private var lastCurrentRoomPublishTime: TimeInterval = 0
+    private var pendingCurrentRoom: CapturedRoom?
+    private var currentRoomPublishScheduled = false
+    private let currentRoomPublishMinInterval: TimeInterval = 1.0
     
     public override init() { super.init() }
     
@@ -46,8 +50,34 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     // MARK: - RoomCaptureSessionDelegate
     
     public func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
-        DispatchQueue.main.async {
-            self.currentRoom = room
+        publishCurrentRoom(room)
+    }
+
+    private func publishCurrentRoom(_ room: CapturedRoom) {
+        let now = Date().timeIntervalSince1970
+        guard now - lastCurrentRoomPublishTime >= currentRoomPublishMinInterval else {
+            pendingCurrentRoom = room
+            scheduleDeferredCurrentRoomPublish()
+            return
+        }
+
+        lastCurrentRoomPublishTime = now
+        pendingCurrentRoom = nil
+        currentRoom = room
+    }
+
+    private func scheduleDeferredCurrentRoomPublish() {
+        guard !currentRoomPublishScheduled else { return }
+        currentRoomPublishScheduled = true
+        let delay = max(0.1, currentRoomPublishMinInterval - (Date().timeIntervalSince1970 - lastCurrentRoomPublishTime))
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.currentRoomPublishScheduled = false
+            guard let pending = self.pendingCurrentRoom else { return }
+            self.pendingCurrentRoom = nil
+            self.lastCurrentRoomPublishTime = Date().timeIntervalSince1970
+            self.currentRoom = pending
         }
     }
     

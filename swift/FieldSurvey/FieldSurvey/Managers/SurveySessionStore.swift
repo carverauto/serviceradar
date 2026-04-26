@@ -19,15 +19,54 @@ public final class SurveySessionStore: ObservableObject {
     public func saveCurrentSession(
         name: String?,
         roomScanner: RoomScanner,
-        wifiScanner: RealWiFiScanner
+        wifiScanner: RealWiFiScanner,
+        spectrumSummaries: [SidekickSpectrumSummary] = []
+    ) throws -> SurveySessionRecord {
+        try saveCurrentSession(
+            id: UUID().uuidString,
+            name: name,
+            roomScanner: roomScanner,
+            wifiScanner: wifiScanner,
+            spectrumSummaries: spectrumSummaries,
+            includeMesh: true
+        )
+    }
+
+    @discardableResult
+    public func autosaveCurrentSession(
+        id: String,
+        name: String?,
+        roomScanner: RoomScanner,
+        wifiScanner: RealWiFiScanner,
+        spectrumSummaries: [SidekickSpectrumSummary] = [],
+        includeMesh: Bool = false
+    ) throws -> SurveySessionRecord {
+        try saveCurrentSession(
+            id: id,
+            name: name,
+            roomScanner: roomScanner,
+            wifiScanner: wifiScanner,
+            spectrumSummaries: spectrumSummaries,
+            includeMesh: includeMesh
+        )
+    }
+
+    private func saveCurrentSession(
+        id: String,
+        name: String?,
+        roomScanner: RoomScanner,
+        wifiScanner: RealWiFiScanner,
+        spectrumSummaries: [SidekickSpectrumSummary],
+        includeMesh: Bool
     ) throws -> SurveySessionRecord {
         try ensureDirectory()
 
         let now = Date().timeIntervalSince1970
-        let id = UUID().uuidString
+        let existingSnapshot = loadSession(id: id)
+        let existing = existingSnapshot?.record ?? sessions.first { $0.id == id }
         let fallbackName = "Survey \(Self.sessionDateFormatter.string(from: Date()))"
         let cleanName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sessionName = (cleanName?.isEmpty == false) ? cleanName! : fallbackName
+        let sessionName = (cleanName?.isEmpty == false) ? cleanName! : (existing?.name ?? fallbackName)
 
         let samples = Array(wifiScanner.accessPoints.values).sorted { $0.timestamp < $1.timestamp }
         let heatmapPoints = wifiScanner.heatmapPoints
@@ -47,7 +86,7 @@ public final class SurveySessionStore: ObservableObject {
         }
 
         let meshFilename: String?
-        if let meshURL = try? roomScanner.exportCurrentRoomToUSDZ() {
+        if includeMesh, let meshURL = try? roomScanner.exportCurrentRoomToUSDZ() {
             let targetName = "\(id).usdz"
             let targetURL = sessionsDirectoryURL().appendingPathComponent(targetName)
             if fileManager.fileExists(atPath: targetURL.path) {
@@ -56,13 +95,13 @@ public final class SurveySessionStore: ObservableObject {
             try? fileManager.copyItem(at: meshURL, to: targetURL)
             meshFilename = targetName
         } else {
-            meshFilename = nil
+            meshFilename = existing?.meshFilename
         }
 
         let record = SurveySessionRecord(
             id: id,
             name: sessionName,
-            createdAt: now,
+            createdAt: existing?.createdAt ?? now,
             updatedAt: now,
             sampleCount: samples.count,
             heatmapPointCount: heatmapPoints.count,
@@ -76,12 +115,16 @@ public final class SurveySessionStore: ObservableObject {
             samples: samples,
             heatmapPoints: heatmapPoints,
             manualLandmarks: manualLandmarks,
-            roamEvents: roamRecords
+            roamEvents: roamRecords,
+            spectrumSummaries: spectrumSummaries.isEmpty
+                ? (existingSnapshot?.spectrumSummaries ?? [])
+                : spectrumSummaries
         )
 
         let data = try encoder.encode(snapshot)
         try data.write(to: sessionFileURL(for: id), options: .atomic)
 
+        sessions.removeAll { $0.id == id }
         sessions.insert(record, at: 0)
         saveIndex()
         return record

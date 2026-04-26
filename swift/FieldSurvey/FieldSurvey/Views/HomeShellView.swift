@@ -15,6 +15,8 @@ public struct HomeDashboardView: View {
     @State private var showSessions = false
     @State private var showSubnetIntel = false
     @State private var showAPIntel = false
+    @State private var showSignalMap = false
+    @State private var resumeSnapshot: SurveySessionSnapshot?
 
     public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner, sessionStore: SurveySessionStore) {
         self.roomScanner = roomScanner
@@ -79,6 +81,15 @@ public struct HomeDashboardView: View {
                         accent: Color(red: 0.98, green: 0.34, blue: 0.78)
                     ) {
                         showSessions = true
+                    }
+
+                    HomeActionButton(
+                        title: "Signal Map",
+                        subtitle: "\(wifiScanner.heatmapPoints.count) live heat points",
+                        icon: "chart.dots.scatter",
+                        accent: Color(red: 0.35, green: 0.86, blue: 0.38)
+                    ) {
+                        showSignalMap = true
                     }
 
                     HomeActionButton(
@@ -161,23 +172,37 @@ public struct HomeDashboardView: View {
             SurveyView(
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                resumeSnapshot: resumeSnapshot
             ) {
                 showSurvey = false
+                resumeSnapshot = nil
             }
         }
         .sheet(isPresented: $showSessions) {
             SessionLibraryView(
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                onResume: { snapshot in
+                    resumeSnapshot = snapshot
+                    showSurvey = true
+                }
             )
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(wifiScanner: wifiScanner)
+            SettingsView()
         }
         .sheet(isPresented: $showAPIntel) {
             APIntelView(wifiScanner: wifiScanner)
+        }
+        .sheet(isPresented: $showSignalMap) {
+            SignalMapView(
+                title: "Live Signal Map",
+                points: wifiScanner.heatmapPoints,
+                landmarks: wifiScanner.manualAPLandmarks,
+                currentPose: wifiScanner.currentDevicePose
+            )
         }
         .sheet(isPresented: $showSubnetIntel) {
             SubnetIntelView()
@@ -201,13 +226,22 @@ public struct SessionLibraryView: View {
     @ObservedObject var wifiScanner: RealWiFiScanner
     @ObservedObject var sessionStore: SurveySessionStore
 
+    let onResume: ((SurveySessionSnapshot) -> Void)?
+
     @State private var compareMessage: String?
     @State private var loadMessage: String?
+    @State private var reviewSnapshot: SurveySessionSnapshot?
 
-    public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner, sessionStore: SurveySessionStore) {
+    public init(
+        roomScanner: RoomScanner,
+        wifiScanner: RealWiFiScanner,
+        sessionStore: SurveySessionStore,
+        onResume: ((SurveySessionSnapshot) -> Void)? = nil
+    ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
         self.sessionStore = sessionStore
+        self.onResume = onResume
     }
 
     public var body: some View {
@@ -226,15 +260,20 @@ public struct SessionLibraryView: View {
                                 .font(.caption)
                                 .foregroundColor(.gray)
 
-                            Text("Samples \(session.sampleCount) • Heat \(session.heatmapPointCount) • AP labels \(session.manualLandmarkCount)")
+                            Text(sessionSummary(session))
                                 .font(.caption2)
                                 .foregroundColor(.cyan)
 
                             HStack(spacing: 12) {
-                                Button("Load") {
+                                Button("Resume") {
                                     load(session)
                                 }
                                 .buttonStyle(.borderedProminent)
+
+                                Button("Review") {
+                                    review(session)
+                                }
+                                .buttonStyle(.bordered)
 
                                 Button("Compare") {
                                     compareWithCurrent(session)
@@ -274,6 +313,15 @@ public struct SessionLibraryView: View {
             } message: {
                 Text(loadMessage ?? "")
             }
+            .sheet(item: $reviewSnapshot) { snapshot in
+                SignalMapView(
+                    title: snapshot.record.name,
+                    points: snapshot.heatmapPoints,
+                    landmarks: snapshot.manualLandmarks,
+                    spectrumSummary: snapshot.spectrumSummaries.last,
+                    spectrumSummaries: snapshot.spectrumSummaries
+                )
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -284,7 +332,16 @@ public struct SessionLibraryView: View {
             return
         }
         wifiScanner.loadSessionSnapshot(snapshot)
-        loadMessage = "Loaded session '\(session.name)' into the current workspace."
+        onResume?(snapshot)
+        dismiss()
+    }
+
+    private func review(_ session: SurveySessionRecord) {
+        guard let snapshot = sessionStore.loadSession(id: session.id) else {
+            loadMessage = "Failed to load session snapshot."
+            return
+        }
+        reviewSnapshot = snapshot
     }
 
     private func compareWithCurrent(_ session: SurveySessionRecord) {
@@ -304,6 +361,11 @@ public struct SessionLibraryView: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: Date(timeIntervalSince1970: timestamp))
+    }
+
+    private func sessionSummary(_ session: SurveySessionRecord) -> String {
+        let spectrumCount = sessionStore.loadSession(id: session.id)?.spectrumSummaries.count ?? 0
+        return "Samples \(session.sampleCount) • Heat \(session.heatmapPointCount) • AP labels \(session.manualLandmarkCount) • Spectrum \(spectrumCount)"
     }
 }
 
@@ -521,8 +583,6 @@ public struct APIntelView: View {
                     return true
                 case .wifi:
                     return sampleCategory(sample) == .wifi
-                case .ble:
-                    return sampleCategory(sample) == .ble
                 case .mdns:
                     return sampleCategory(sample) == .mdns
                 case .manual:
@@ -582,7 +642,6 @@ public struct APIntelView: View {
     private func typeLabel(for sample: SurveySample) -> String {
         switch sampleCategory(sample) {
         case .wifi: return "Wi-Fi"
-        case .ble: return "BLE"
         case .mdns: return "mDNS"
         case .manual: return "Manual"
         }
@@ -594,9 +653,6 @@ public struct APIntelView: View {
         }
         if sample.bssid.hasPrefix("mdns-") || sample.securityType.localizedCaseInsensitiveContains("mdns") || sample.frequency == 0 {
             return .mdns
-        }
-        if sample.securityType == "BLE" {
-            return .ble
         }
         return .wifi
     }
@@ -654,7 +710,6 @@ public struct APIntelView: View {
     private enum APScope: String, CaseIterable, Identifiable {
         case all
         case wifi
-        case ble
         case mdns
         case manual
 
@@ -664,7 +719,6 @@ public struct APIntelView: View {
             switch self {
             case .all: return "All"
             case .wifi: return "Wi-Fi"
-            case .ble: return "BLE"
             case .mdns: return "mDNS"
             case .manual: return "Manual"
             }
@@ -689,7 +743,6 @@ public struct APIntelView: View {
 
     private enum APDerivedCategory {
         case wifi
-        case ble
         case mdns
         case manual
     }

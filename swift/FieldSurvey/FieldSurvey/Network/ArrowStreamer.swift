@@ -1,66 +1,14 @@
 import Foundation
 import Arrow
-import os.log
-import Combine
 
 /// A high-performance Arrow IPC streamer that builds valid RecordBatches 
 /// using the apache/arrow-swift package instead of mock byte layouts.
-@MainActor
-public class ArrowStreamer {
-    private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "ArrowStreamer")
-    
-    // Use a persistent WebSocket connection over standard TCP/443. 
-    // This guarantees compatibility with enterprise firewalls and standard Kubernetes Ingress, 
-    // while allowing us to stream Arrow IPC frames directly into Elixir Phoenix Channels or a NATS WS proxy.
-    private var webSocketTask: URLSessionWebSocketTask?
-    
+public struct ArrowStreamer: Sendable {
     public init() {}
-    
-    /// Establishes a persistent WebSocket connection to the ServiceRadar ingestion pipeline.
-    public func connect(sessionID: String) {
-        let apiURL = SettingsManager.shared.apiURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            .replacingOccurrences(of: "http://", with: "ws://")
-            .replacingOccurrences(of: "https://", with: "wss://")
-            
-        guard let url = URL(string: "\(apiURL)/v1/stream/\(sessionID)") else { return }
-        
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(SettingsManager.shared.authToken)", forHTTPHeaderField: "Authorization")
-        
-        let session = URLSession(configuration: .default)
-        webSocketTask = session.webSocketTask(with: request)
-        webSocketTask?.resume()
-        
-        logger.info("Established WebSocket connection to stream: \(url.absoluteString)")
-        
-        // Setup listener for potential server acknowledgments or backpressure signals
-        listenForMessages()
-    }
-    
-    public func disconnect() {
-        webSocketTask?.cancel(with: .normalClosure, reason: nil)
-        webSocketTask = nil
-        logger.info("WebSocket connection closed.")
-    }
-    
-    private func listenForMessages() {
-        webSocketTask?.receive { [weak self] result in
-            switch result {
-            case .failure(let error):
-                self?.logger.error("WebSocket connection error: \(error.localizedDescription)")
-            case .success(let message):
-                // Handle NATS/Phoenix ACKs if necessary
-                self?.logger.debug("Received ACK from server: \(String(describing: message))")
-                self?.listenForMessages() // recursively listen
-            }
-        }
-    }
-    
+
     /// Encodes a batch of cyber-physical RF samples into an Apache Arrow IPC payload.
     /// Uses Arrow's columnar memory layout for zero-copy deserialization by the Rust backend.
-    nonisolated public func encodeBatch(samples: [SurveySample]) throws -> Data {
+    public func encodeBatch(samples: [SurveySample]) throws -> Data {
         
         let timestampBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let scannerIdBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
@@ -70,12 +18,8 @@ public class ArrowStreamer {
         let freqBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let securityTypeBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let isSecureBuilder = try ArrowArrayBuilders.loadBoolArrayBuilder()
-        let rfVectorBuilder = try ArrowArrayBuilders.loadListArrayBuilder(
-            ArrowTypeList(ArrowType(ArrowType.ArrowFloat))
-        )
-        let bleVectorBuilder = try ArrowArrayBuilders.loadListArrayBuilder(
-            ArrowTypeList(ArrowType(ArrowType.ArrowFloat))
-        )
+        let rfVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let bleVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
@@ -95,11 +39,11 @@ public class ArrowStreamer {
             securityTypeBuilder.append(sample.securityType)
             isSecureBuilder.append(sample.isSecure)
             
-            let normalizedRF = SurveySample.normalizeRFVector(sample.rfVector).map(Float.init)
-            rfVectorBuilder.append(normalizedRF.map { $0 as Any? })
+            let normalizedRF = SurveySample.normalizeRFVector(sample.rfVector)
+            rfVectorBuilder.append(Self.vectorCSV(normalizedRF))
 
-            let normalizedBLE = SurveySample.normalizeBLEVector(sample.bleVector).map(Float.init)
-            bleVectorBuilder.append(normalizedBLE.map { $0 as Any? })
+            let normalizedBLE = SurveySample.normalizeBLEVector(sample.bleVector)
+            bleVectorBuilder.append(Self.vectorCSV(normalizedBLE))
             
             xBuilder.append(sample.x)
             yBuilder.append(sample.y)
@@ -141,39 +85,21 @@ public class ArrowStreamer {
             throw NSError(domain: "ArrowError", code: 2, userInfo: [NSLocalizedDescriptionKey: String(describing: err)])
         }
 
-        switch ArrowWriter().toMessage(batch) {
-        case .success(let dataArray):
-            var combined = Data()
-            for d in dataArray { combined.append(d) }
-            return combined
+        let writerInfo = ArrowWriter.Info(.recordbatch, schema: batch.schema, batches: [batch])
+        switch ArrowWriter().writeStreaming(writerInfo) {
+        case .success(let data):
+            return data
         case .failure(let err):
             throw NSError(domain: "ArrowError", code: 1, userInfo: [NSLocalizedDescriptionKey: String(describing: err)])
         }
     }
     
-    /// Streams the encoded Arrow IPC payload over a persistent WebSocket connection.
-    /// This provides ultra-low latency streaming natively compatible with NATS and Phoenix Channels.
-    public func streamToBackend(payload: Data, sessionID: String) {
-        guard let webSocketTask = webSocketTask else {
-            logger.error("Attempted to stream Arrow payload without an active WebSocket connection.")
-            return
-        }
-        
-        logger.info("Streaming \(payload.count) bytes to backend via WebSocket (Topic: sr.survey.\(sessionID).arrow)")
-        
-        let message = URLSessionWebSocketTask.Message.data(payload)
-        
-        webSocketTask.send(message) { [weak self] error in
-            if let error = error {
-                self?.logger.error("WebSocket Stream failed: \(error.localizedDescription)")
-            } else {
-                self?.logger.debug("Successfully pushed IPC payload over WebSocket.")
-            }
-        }
+    private static func vectorCSV(_ values: [Double]) -> String {
+        values.map { String(Float($0)) }.joined(separator: ",")
     }
     
     /// Compresses and saves the entire batch locally for offline/bulk sync later
-    nonisolated public func compressForOfflineUpload(payload: Data, filename: String) throws -> URL {
+    public func compressForOfflineUpload(payload: Data, filename: String) throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
         let fileURL = tempDir.appendingPathComponent("\(filename).arrow.lzfse")
         

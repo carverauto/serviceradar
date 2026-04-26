@@ -22,6 +22,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
           </:subtitle>
         </.header>
 
+        <div class="flex justify-end">
+          <.link navigate={~p"/spatial/field-surveys"} class="btn btn-sm btn-primary">
+            <.icon name="hero-map" class="size-4" /> FieldSurvey Review
+          </.link>
+        </div>
+
         <.ui_panel>
           <:header>
             <div class="text-sm font-semibold">FieldSurvey 3D Render</div>

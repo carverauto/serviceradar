@@ -1,6 +1,6 @@
 import XCTest
 import simd
-@testable import FieldSurveyApp
+@testable import FieldSurvey
 
 final class SurveySampleTests: XCTestCase {
     func testInitializationAndDistance() {

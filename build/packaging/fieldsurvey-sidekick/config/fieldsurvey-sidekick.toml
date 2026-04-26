@@ -1,0 +1,7 @@
+listen_addr = "0.0.0.0:17321"
+sysfs_net_path = "/sys/class/net"
+state_dir = "/var/lib/serviceradar/fieldsurvey-sidekick"
+
+# Keep empty to discover all wlan* interfaces. Set this when a lab unit has
+# stable interface names and unrelated radios that must be ignored.
+interfaces = []

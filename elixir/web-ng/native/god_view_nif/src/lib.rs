@@ -207,6 +207,27 @@ fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<crate::types::survey::S
     Ok(rows)
 }
 
+#[rustler::nif(schedule = "DirtyCpu")]
+fn decode_fieldsurvey_rf_payload(
+    binary: Binary,
+) -> NifResult<Vec<crate::types::fieldsurvey::FieldSurveyRfObservationRow>> {
+    core::arrow_serde::decode_fieldsurvey_rf_payload(binary.as_slice())
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn decode_fieldsurvey_pose_payload(
+    binary: Binary,
+) -> NifResult<Vec<crate::types::fieldsurvey::FieldSurveyPoseSampleRow>> {
+    core::arrow_serde::decode_fieldsurvey_pose_payload(binary.as_slice())
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn decode_fieldsurvey_spectrum_payload(
+    binary: Binary,
+) -> NifResult<Vec<crate::types::fieldsurvey::FieldSurveySpectrumObservationRow>> {
+    core::arrow_serde::decode_fieldsurvey_spectrum_payload(binary.as_slice())
+}
+
 #[rustler::nif]
 fn runtime_graph_new() -> ResourceArc<RuntimeGraphResource> {
     ResourceArc::new(RuntimeGraphResource {
@@ -380,12 +401,181 @@ rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native", load = on_load);
 
 #[cfg(test)]
 mod tests {
+    use crate::core::arrow_serde::{
+        decode_fieldsurvey_pose_payload, decode_fieldsurvey_rf_payload,
+        decode_fieldsurvey_spectrum_payload,
+    };
     use crate::core::layout::{build_hypergraph_projection, layout_nodes_layered};
     use crate::core::telemetry::enrich_edges_telemetry_impl;
+    use arrow_array::{
+        builder::{Float32Builder, ListBuilder},
+        ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int64Array, RecordBatch,
+        StringArray, UInt16Array, UInt32Array, UInt64Array,
+    };
+    use arrow_ipc::writer::StreamWriter;
+    use arrow_schema::{DataType, Field, Schema};
+    use std::sync::Arc;
     use std::time::Instant;
 
     fn edge(source: u16, target: u16) -> (u16, u16, u32, u64, u64, String, u8) {
         (source, target, 0, 0, 0, String::new(), 1)
+    }
+
+    fn encode_stream(batch: RecordBatch) -> Vec<u8> {
+        let schema = batch.schema();
+        let mut payload = Vec::new();
+        {
+            let mut writer = StreamWriter::try_new(&mut payload, &schema).unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+        }
+        payload
+    }
+
+    #[test]
+    fn decodes_fieldsurvey_rf_arrow_stream() {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("sidekick_id", DataType::Utf8, false),
+            Field::new("radio_id", DataType::Utf8, false),
+            Field::new("interface_name", DataType::Utf8, false),
+            Field::new("bssid", DataType::Utf8, false),
+            Field::new("ssid", DataType::Utf8, true),
+            Field::new("hidden_ssid", DataType::Boolean, false),
+            Field::new("frame_type", DataType::Utf8, false),
+            Field::new("rssi_dbm", DataType::Int16, true),
+            Field::new("noise_floor_dbm", DataType::Int16, true),
+            Field::new("snr_db", DataType::Int16, true),
+            Field::new("frequency_mhz", DataType::UInt32, false),
+            Field::new("channel", DataType::UInt16, true),
+            Field::new("channel_width_mhz", DataType::UInt16, true),
+            Field::new("captured_at_unix_nanos", DataType::Int64, false),
+            Field::new("captured_at_monotonic_nanos", DataType::UInt64, true),
+            Field::new("parser_confidence", DataType::Float32, false),
+        ]));
+        let columns: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(vec!["sidekick-1"])),
+            Arc::new(StringArray::from(vec!["wlan2"])),
+            Arc::new(StringArray::from(vec!["wlan2"])),
+            Arc::new(StringArray::from(vec!["00:11:22:33:44:55"])),
+            Arc::new(StringArray::from(vec![Some("fieldlab")])),
+            Arc::new(BooleanArray::from(vec![false])),
+            Arc::new(StringArray::from(vec!["beacon"])),
+            Arc::new(Int16Array::from(vec![Some(-64)])),
+            Arc::new(Int16Array::from(vec![Some(-97)])),
+            Arc::new(Int16Array::from(vec![Some(33)])),
+            Arc::new(UInt32Array::from(vec![5_180])),
+            Arc::new(UInt16Array::from(vec![Some(36)])),
+            Arc::new(UInt16Array::from(vec![None])),
+            Arc::new(Int64Array::from(vec![1_777_132_800_000_000_000])),
+            Arc::new(UInt64Array::from(vec![Some(9_876_543_210)])),
+            Arc::new(Float32Array::from(vec![0.9])),
+        ];
+
+        let batch = RecordBatch::try_new(schema, columns).unwrap();
+        let rows = decode_fieldsurvey_rf_payload(&encode_stream(batch)).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].sidekick_id, "sidekick-1");
+        assert_eq!(rows[0].ssid.as_deref(), Some("fieldlab"));
+        assert_eq!(rows[0].frequency_mhz, 5_180);
+        assert_eq!(rows[0].captured_at_monotonic_nanos, Some(9_876_543_210));
+    }
+
+    #[test]
+    fn decodes_fieldsurvey_pose_arrow_stream() {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("scanner_device_id", DataType::Utf8, false),
+            Field::new("captured_at_unix_nanos", DataType::Int64, false),
+            Field::new("captured_at_monotonic_nanos", DataType::UInt64, true),
+            Field::new("x", DataType::Float32, false),
+            Field::new("y", DataType::Float32, false),
+            Field::new("z", DataType::Float32, false),
+            Field::new("qx", DataType::Float32, false),
+            Field::new("qy", DataType::Float32, false),
+            Field::new("qz", DataType::Float32, false),
+            Field::new("qw", DataType::Float32, false),
+            Field::new("latitude", DataType::Float64, true),
+            Field::new("longitude", DataType::Float64, true),
+            Field::new("altitude", DataType::Float64, true),
+            Field::new("accuracy_m", DataType::Float32, true),
+            Field::new("tracking_quality", DataType::Utf8, true),
+        ]));
+        let columns: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(vec!["iphone-1"])),
+            Arc::new(Int64Array::from(vec![1_777_132_800_000_000_000])),
+            Arc::new(UInt64Array::from(vec![Some(8_765_432_100)])),
+            Arc::new(Float32Array::from(vec![1.0])),
+            Arc::new(Float32Array::from(vec![2.0])),
+            Arc::new(Float32Array::from(vec![3.0])),
+            Arc::new(Float32Array::from(vec![0.0])),
+            Arc::new(Float32Array::from(vec![0.0])),
+            Arc::new(Float32Array::from(vec![0.0])),
+            Arc::new(Float32Array::from(vec![1.0])),
+            Arc::new(Float64Array::from(vec![Some(45.0)])),
+            Arc::new(Float64Array::from(vec![Some(-93.0)])),
+            Arc::new(Float64Array::from(vec![None])),
+            Arc::new(Float32Array::from(vec![Some(0.25)])),
+            Arc::new(StringArray::from(vec![Some("normal")])),
+        ];
+
+        let batch = RecordBatch::try_new(schema, columns).unwrap();
+        let rows = decode_fieldsurvey_pose_payload(&encode_stream(batch)).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].scanner_device_id, "iphone-1");
+        assert_eq!(rows[0].captured_at_monotonic_nanos, Some(8_765_432_100));
+        assert_eq!(rows[0].qw, 1.0);
+        assert_eq!(rows[0].tracking_quality.as_deref(), Some("normal"));
+    }
+
+    #[test]
+    fn decodes_fieldsurvey_spectrum_arrow_stream() {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("sidekick_id", DataType::Utf8, false),
+            Field::new("sdr_id", DataType::Utf8, false),
+            Field::new("device_kind", DataType::Utf8, false),
+            Field::new("serial_number", DataType::Utf8, true),
+            Field::new("sweep_id", DataType::UInt64, false),
+            Field::new("started_at_unix_nanos", DataType::Int64, false),
+            Field::new("captured_at_unix_nanos", DataType::Int64, false),
+            Field::new("start_frequency_hz", DataType::UInt64, false),
+            Field::new("stop_frequency_hz", DataType::UInt64, false),
+            Field::new("bin_width_hz", DataType::Float32, false),
+            Field::new("sample_count", DataType::UInt32, false),
+            Field::new(
+                "power_bins_dbm",
+                DataType::List(Arc::new(Field::new("item", DataType::Float32, true))),
+                false,
+            ),
+        ]));
+        let mut power_bins = ListBuilder::new(Float32Builder::new());
+        power_bins.values().append_value(-74.5);
+        power_bins.values().append_value(-70.25);
+        power_bins.append(true);
+
+        let columns: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(vec!["sidekick-1"])),
+            Arc::new(StringArray::from(vec!["hackrf-0"])),
+            Arc::new(StringArray::from(vec!["hackrf"])),
+            Arc::new(StringArray::from(vec![Some("abc")])),
+            Arc::new(UInt64Array::from(vec![42])),
+            Arc::new(Int64Array::from(vec![1_777_137_380_785_750_000])),
+            Arc::new(Int64Array::from(vec![1_777_137_380_785_750_000])),
+            Arc::new(UInt64Array::from(vec![2_400_000_000])),
+            Arc::new(UInt64Array::from(vec![2_405_000_000])),
+            Arc::new(Float32Array::from(vec![1_000_000.0])),
+            Arc::new(UInt32Array::from(vec![20])),
+            Arc::new(power_bins.finish()),
+        ];
+
+        let batch = RecordBatch::try_new(schema, columns).unwrap();
+        let rows = decode_fieldsurvey_spectrum_payload(&encode_stream(batch)).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].sdr_id, "hackrf-0");
+        assert_eq!(rows[0].serial_number.as_deref(), Some("abc"));
+        assert_eq!(rows[0].start_frequency_hz, 2_400_000_000);
+        assert_eq!(rows[0].power_bins_dbm, vec![-74.5, -70.25]);
     }
 
     #[test]
