@@ -28,21 +28,25 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
           </.link>
         </div>
 
-        <.ui_panel>
+        <.ui_panel
+          class="sr-spatial-panel"
+          header_class="sr-spatial-panel-header"
+          body_class="sr-spatial-panel-body"
+        >
           <:header>
             <div class="text-sm font-semibold">FieldSurvey 3D Render</div>
           </:header>
-          <div class="relative">
+          <div class="sr-spatial-stage relative">
             <canvas
               id="spatial-survey-map"
               phx-hook="SpatialSurveyMap"
               phx-update="ignore"
               data-api-url={~p"/api/spatial/samples"}
-              class="h-[75vh] min-h-[600px] w-full rounded-lg border border-base-200 bg-base-200/20"
+              class="sr-spatial-canvas"
             >
             </canvas>
 
-            <div class="absolute bottom-4 left-4 z-20 pointer-events-auto flex gap-2 rounded bg-base-100/90 px-3 py-2 text-xs shadow-md border border-base-300">
+            <div class="sr-spatial-legend absolute bottom-4 left-4 z-20 pointer-events-auto flex gap-2 rounded px-3 py-2 text-xs shadow-md">
               <div class="flex items-center gap-1">
                 <span class="inline-block w-3 h-3 rounded-full bg-info opacity-80"></span>
                 <span>Strong Signal</span>

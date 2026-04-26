@@ -89,6 +89,36 @@ defmodule ServiceRadar.Camera.RelaySourceResolverTest do
       assert payload.insecure_skip_verify == true
     end
 
+    test "infers insecure TLS for UniFi Protect bootstrap rtsps streams" do
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+
+      fetcher = fn ^camera_source_id, ^stream_profile_id ->
+        {:ok,
+         %{
+           source_url_override: "rtsps://192.168.1.1:7441/front-door",
+           metadata: %{"source" => "protect-bootstrap"},
+           camera_source: %{
+             source_url: "rtsps://192.168.1.1:7441/front-door",
+             metadata: %{"plugin_id" => "unifi-protect-camera"}
+           }
+         }}
+      end
+
+      assert {:ok, payload} =
+               RelaySourceResolver.resolve_start_payload(
+                 %{
+                   relay_session_id: "relay-1",
+                   camera_source_id: camera_source_id,
+                   stream_profile_id: stream_profile_id
+                 },
+                 camera_profile_fetcher: fetcher
+               )
+
+      assert payload.source_url == "rtsps://192.168.1.1:7441/front-door"
+      assert payload.insecure_skip_verify == true
+    end
+
     test "sanitizes enableSrtp when filling source fields from inventory fetcher" do
       camera_source_id = Ecto.UUID.generate()
       stream_profile_id = Ecto.UUID.generate()

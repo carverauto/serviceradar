@@ -370,12 +370,14 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
           %{
             "id" => "high",
             "url" => "rtsp://protect.local/live/high?videocodec=h265",
-            "auth_mode" => "api_key"
+            "auth_mode" => "api_key",
+            "insecure_skip_verify" => true
           }
         ],
         "source" => %{
           "plugin_id" => "unifi-protect",
-          "camera_host" => "protect.local"
+          "camera_host" => "protect.local",
+          "insecure_skip_verify" => true
         }
       }
     }
@@ -386,7 +388,16 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
                "camera_id" => "protect-serial-1",
                "display_name" => "South Lot",
                "source_url" => "rtsp://protect.local/live/high?videocodec=h265",
-               "stream_profiles" => [%{"profile_name" => "high"}]
+               "stream_profiles" => [
+                 %{
+                   "profile_name" => "high",
+                   "metadata" => %{"insecure_skip_verify" => true}
+                 }
+               ],
+               "metadata" => %{
+                 "plugin_id" => "unifi-protect",
+                 "insecure_skip_verify" => true
+               }
              }
            ] = InventoryIngestor.extract_camera_descriptors(payload)
   end
