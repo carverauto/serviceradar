@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import Combine
+import MetalKit
 import SwiftUI
 import simd
 
@@ -542,28 +543,64 @@ private struct SignalMapCanvas: View {
     let pan: CGSize
 
     var body: some View {
-        Canvas { context, size in
-            let plotRect = CGRect(origin: .zero, size: size)
-                .insetBy(dx: 10, dy: 10)
+        let signalBuckets = bucketed(points: points)
 
-            drawBackground(context: context, rect: plotRect)
-            let signalBuckets = bucketed(points: points)
+        ZStack {
+            Canvas { context, size in
+                let plotRect = CGRect(origin: .zero, size: size)
+                    .insetBy(dx: 10, dy: 10)
 
-            guard let projection = SignalMapProjection(
-                signalBuckets: signalBuckets,
-                landmarks: landmarks,
-                currentPose: currentPose,
-                rect: plotRect,
-                zoom: zoom,
-                pan: pan
-            ) else {
-                return
+                drawBackground(context: context, rect: plotRect)
+
+                guard SignalMapProjection(
+                    signalBuckets: signalBuckets,
+                    landmarks: landmarks,
+                    currentPose: currentPose,
+                    rect: plotRect,
+                    zoom: zoom,
+                    pan: pan
+                ) != nil else {
+                    return
+                }
+
+                drawGrid(context: context, rect: plotRect)
             }
 
-            drawGrid(context: context, rect: plotRect)
-            drawWiFiHeatmap(context: context, projection: projection, buckets: signalBuckets)
-            drawLandmarks(context: context, projection: projection)
-            drawCurrentPose(context: context, projection: projection)
+            if !predictions.isEmpty {
+                MetalSignalHeatmapView(
+                    predictions: predictions,
+                    signalBuckets: signalBuckets,
+                    landmarks: landmarks,
+                    currentPose: currentPose,
+                    zoom: zoom,
+                    pan: pan
+                )
+            }
+
+            Canvas { context, size in
+                let plotRect = CGRect(origin: .zero, size: size)
+                    .insetBy(dx: 10, dy: 10)
+
+                guard let projection = SignalMapProjection(
+                    signalBuckets: signalBuckets,
+                    landmarks: landmarks,
+                    currentPose: currentPose,
+                    rect: plotRect,
+                    zoom: zoom,
+                    pan: pan
+                ) else {
+                    return
+                }
+
+                drawMeasuredBuckets(
+                    context: context,
+                    projection: projection,
+                    buckets: signalBuckets,
+                    opacityScale: predictions.isEmpty ? 1.0 : 0.62
+                )
+                drawLandmarks(context: context, projection: projection)
+                drawCurrentPose(context: context, projection: projection)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
@@ -600,19 +637,6 @@ private struct SignalMapCanvas: View {
         context.stroke(path, with: .color(.white.opacity(0.08)), lineWidth: 0.6)
     }
 
-    private func drawWiFiHeatmap(
-        context: GraphicsContext,
-        projection: SignalMapProjection,
-        buckets: [SignalBucket]
-    ) {
-        if predictions.isEmpty {
-            drawMeasuredBuckets(context: context, projection: projection, buckets: buckets)
-        } else {
-            drawPredictedCoverage(context: context, projection: projection, predictions: predictions)
-            drawMeasuredBuckets(context: context, projection: projection, buckets: buckets, opacityScale: 0.62)
-        }
-    }
-
     private func drawMeasuredBuckets(
         context: GraphicsContext,
         projection: SignalMapProjection,
@@ -637,31 +661,6 @@ private struct SignalMapCanvas: View {
             context.fill(
                 Path(ellipseIn: circle),
                 with: .color(SignalColor.color(for: bucket.rssi).opacity(opacity))
-            )
-        }
-    }
-
-    private func drawPredictedCoverage(
-        context: GraphicsContext,
-        projection: SignalMapProjection,
-        predictions: [SignalCoveragePrediction]
-    ) {
-        let baseSize = projection.screenSize(widthMeters: 0.68, heightMeters: 0.68)
-
-        for prediction in predictions where prediction.confidence >= 0.12 {
-            let center = projection.screenPoint(for: prediction.position)
-            let radius = min(max(max(baseSize.width, baseSize.height) * 0.48, 8), 30)
-            let circle = CGRect(
-                x: center.x - radius,
-                y: center.y - radius,
-                width: radius * 2,
-                height: radius * 2
-            )
-            let opacity = 0.18 + min(max(prediction.confidence, 0.0), 1.0) * 0.46
-
-            context.fill(
-                Path(ellipseIn: circle),
-                with: .color(SignalColor.color(for: prediction.rssi).opacity(opacity))
             )
         }
     }
@@ -752,6 +751,260 @@ private struct SignalBucket {
     let position: SIMD3<Float>
     let rssi: Double
     let count: Int
+}
+
+@available(iOS 16.0, *)
+private struct MetalSignalHeatmapView: UIViewRepresentable {
+    let predictions: [SignalCoveragePrediction]
+    let signalBuckets: [SignalBucket]
+    let landmarks: [ManualAPLandmark]
+    let currentPose: SIMD3<Float>?
+    let zoom: CGFloat
+    let pan: CGSize
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> MTKView {
+        let device = MTLCreateSystemDefaultDevice()
+        let view = MTKView(frame: .zero, device: device)
+        view.backgroundColor = .clear
+        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        view.colorPixelFormat = .bgra8Unorm
+        view.enableSetNeedsDisplay = true
+        view.framebufferOnly = true
+        view.isOpaque = false
+        view.isPaused = true
+        view.preferredFramesPerSecond = 30
+
+        if let device,
+           let renderer = MetalSignalHeatmapRenderer(device: device) {
+            context.coordinator.renderer = renderer
+            view.delegate = renderer
+        }
+
+        return view
+    }
+
+    func updateUIView(_ view: MTKView, context: Context) {
+        context.coordinator.renderer?.update(
+            predictions: predictions,
+            signalBuckets: signalBuckets,
+            landmarks: landmarks,
+            currentPose: currentPose,
+            zoom: zoom,
+            pan: pan,
+            size: view.bounds.size
+        )
+        view.setNeedsDisplay()
+    }
+
+    final class Coordinator {
+        var renderer: MetalSignalHeatmapRenderer?
+    }
+}
+
+private struct MetalHeatmapSample {
+    let center: SIMD2<Float>
+    let radius: Float
+    let alpha: Float
+    let color: SIMD4<Float>
+}
+
+private struct MetalHeatmapUniforms {
+    let viewport: SIMD2<Float>
+}
+
+private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
+    private let device: MTLDevice
+    private let commandQueue: MTLCommandQueue
+    private let pipelineState: MTLRenderPipelineState
+    private let lock = NSLock()
+    private var samples: [MetalHeatmapSample] = []
+    private var viewport = SIMD2<Float>(1, 1)
+
+    init?(device: MTLDevice) {
+        self.device = device
+        guard let commandQueue = device.makeCommandQueue(),
+              let library = try? device.makeLibrary(source: Self.shaderSource, options: nil),
+              let vertexFunction = library.makeFunction(name: "heatmapVertex"),
+              let fragmentFunction = library.makeFunction(name: "heatmapFragment") else {
+            return nil
+        }
+
+        let descriptor = MTLRenderPipelineDescriptor()
+        descriptor.vertexFunction = vertexFunction
+        descriptor.fragmentFunction = fragmentFunction
+        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        descriptor.colorAttachments[0].isBlendingEnabled = true
+        descriptor.colorAttachments[0].rgbBlendOperation = .add
+        descriptor.colorAttachments[0].alphaBlendOperation = .add
+        descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+        descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+
+        guard let pipelineState = try? device.makeRenderPipelineState(descriptor: descriptor) else {
+            return nil
+        }
+
+        self.commandQueue = commandQueue
+        self.pipelineState = pipelineState
+        super.init()
+    }
+
+    func update(
+        predictions: [SignalCoveragePrediction],
+        signalBuckets: [SignalBucket],
+        landmarks: [ManualAPLandmark],
+        currentPose: SIMD3<Float>?,
+        zoom: CGFloat,
+        pan: CGSize,
+        size: CGSize
+    ) {
+        let rect = CGRect(origin: .zero, size: size).insetBy(dx: 10, dy: 10)
+        guard size.width > 1,
+              size.height > 1,
+              let projection = SignalMapProjection(
+                signalBuckets: signalBuckets,
+                landmarks: landmarks,
+                currentPose: currentPose,
+                rect: rect,
+                zoom: zoom,
+                pan: pan
+              ) else {
+            setSamples([], viewport: SIMD2<Float>(Float(max(size.width, 1)), Float(max(size.height, 1))))
+            return
+        }
+
+        let baseSize = projection.screenSize(widthMeters: 0.68, heightMeters: 0.68)
+        let heatSamples = predictions
+            .filter { $0.confidence >= 0.12 }
+            .prefix(900)
+            .map { prediction -> MetalHeatmapSample in
+                let center = projection.screenPoint(for: prediction.position)
+                let radius = min(max(max(baseSize.width, baseSize.height) * 0.52, 8), 34)
+                let alpha = 0.16 + Float(min(max(prediction.confidence, 0.0), 1.0)) * 0.50
+                let color = SignalColor.rgba(for: prediction.rssi)
+                return MetalHeatmapSample(
+                    center: SIMD2<Float>(Float(center.x), Float(center.y)),
+                    radius: Float(radius),
+                    alpha: alpha,
+                    color: color
+                )
+            }
+
+        setSamples(Array(heatSamples), viewport: SIMD2<Float>(Float(size.width), Float(size.height)))
+    }
+
+    func draw(in view: MTKView) {
+        lock.lock()
+        let drawSamples = samples
+        let drawViewport = viewport
+        lock.unlock()
+
+        guard !drawSamples.isEmpty,
+              let drawable = view.currentDrawable,
+              let descriptor = view.currentRenderPassDescriptor,
+              let commandBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+            return
+        }
+
+        var uniforms = MetalHeatmapUniforms(viewport: drawViewport)
+        encoder.setRenderPipelineState(pipelineState)
+        drawSamples.withUnsafeBytes { sampleBuffer in
+            guard let sampleBaseAddress = sampleBuffer.baseAddress else { return }
+            encoder.setVertexBytes(sampleBaseAddress, length: sampleBuffer.count, index: 0)
+            encoder.setVertexBytes(
+                &uniforms,
+                length: MemoryLayout<MetalHeatmapUniforms>.stride,
+                index: 1
+            )
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: drawSamples.count)
+        }
+        encoder.endEncoding()
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
+    }
+
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        lock.lock()
+        let currentSamples = samples
+        lock.unlock()
+        setSamples(currentSamples, viewport: SIMD2<Float>(Float(max(size.width, 1)), Float(max(size.height, 1))))
+    }
+
+    private func setSamples(_ newSamples: [MetalHeatmapSample], viewport newViewport: SIMD2<Float>) {
+        lock.lock()
+        samples = newSamples
+        viewport = newViewport
+        lock.unlock()
+    }
+
+    private static let shaderSource = """
+    #include <metal_stdlib>
+    using namespace metal;
+
+    struct HeatmapSample {
+        float2 center;
+        float radius;
+        float alpha;
+        float4 color;
+    };
+
+    struct HeatmapUniforms {
+        float2 viewport;
+    };
+
+    struct HeatmapVertexOut {
+        float4 position [[position]];
+        float2 pixel;
+        float2 center;
+        float radius;
+        float4 color;
+    };
+
+    vertex HeatmapVertexOut heatmapVertex(
+        uint vertexID [[vertex_id]],
+        uint instanceID [[instance_id]],
+        constant HeatmapSample *samples [[buffer(0)]],
+        constant HeatmapUniforms &uniforms [[buffer(1)]]
+    ) {
+        constexpr float2 corners[6] = {
+            float2(-1.0, -1.0),
+            float2( 1.0, -1.0),
+            float2(-1.0,  1.0),
+            float2( 1.0, -1.0),
+            float2( 1.0,  1.0),
+            float2(-1.0,  1.0)
+        };
+
+        HeatmapSample sample = samples[instanceID];
+        float2 pixel = sample.center + corners[vertexID] * sample.radius;
+        float2 clip = float2(
+            (pixel.x / max(uniforms.viewport.x, 1.0)) * 2.0 - 1.0,
+            1.0 - (pixel.y / max(uniforms.viewport.y, 1.0)) * 2.0
+        );
+
+        HeatmapVertexOut out;
+        out.position = float4(clip, 0.0, 1.0);
+        out.pixel = pixel;
+        out.center = sample.center;
+        out.radius = sample.radius;
+        out.color = sample.color;
+        return out;
+    }
+
+    fragment float4 heatmapFragment(HeatmapVertexOut in [[stage_in]]) {
+        float distanceFromCenter = distance(in.pixel, in.center);
+        float normalized = saturate(1.0 - distanceFromCenter / max(in.radius, 1.0));
+        float falloff = normalized * normalized * (3.0 - 2.0 * normalized);
+        float alpha = in.alpha * falloff;
+        return float4(in.color.rgb, alpha);
+    }
+    """
 }
 
 private struct SignalAPSummary: Identifiable {
@@ -966,6 +1219,20 @@ private enum SignalColor {
             return Color(red: 1.0, green: 0.45, blue: 0.20)
         } else {
             return Color(red: 0.95, green: 0.18, blue: 0.24)
+        }
+    }
+
+    static func rgba(for rssi: Double) -> SIMD4<Float> {
+        if rssi >= -55.0 {
+            return SIMD4<Float>(0.16, 0.78, 0.46, 1.0)
+        } else if rssi >= -65.0 {
+            return SIMD4<Float>(0.43, 0.86, 0.28, 1.0)
+        } else if rssi >= -75.0 {
+            return SIMD4<Float>(1.0, 0.78, 0.22, 1.0)
+        } else if rssi >= -82.0 {
+            return SIMD4<Float>(1.0, 0.45, 0.20, 1.0)
+        } else {
+            return SIMD4<Float>(0.95, 0.18, 0.24, 1.0)
         }
     }
 }
