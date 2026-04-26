@@ -687,8 +687,8 @@ public final class SidekickClient: @unchecked Sendable {
         sidekickID: String,
         sdrID: String,
         serialNumber: String? = nil,
-        frequencyMinMHz: Int = 2400,
-        frequencyMaxMHz: Int = 2500,
+        frequencyMinMHz: Int = 5150,
+        frequencyMaxMHz: Int = 5900,
         binWidthHz: Int = 1_000_000,
         lnaGainDB: Int = 8,
         vgaGainDB: Int = 8
@@ -728,8 +728,8 @@ public final class SidekickClient: @unchecked Sendable {
         sidekickID: String,
         sdrID: String,
         serialNumber: String? = nil,
-        frequencyMinMHz: Int = 2400,
-        frequencyMaxMHz: Int = 2500,
+        frequencyMinMHz: Int = 5150,
+        frequencyMaxMHz: Int = 5900,
         binWidthHz: Int = 1_000_000,
         lnaGainDB: Int = 8,
         vgaGainDB: Int = 8

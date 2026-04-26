@@ -193,14 +193,25 @@ public class SettingsManager: ObservableObject {
             !UserDefaults.standard.bool(forKey: "sidekickSpectrumWideDefaultMigrated") &&
             (storedSpectrumMin == nil || storedSpectrumMin == 2400) &&
             (storedSpectrumMax == nil || storedSpectrumMax == 2500)
-        if shouldMigrateWideSpectrumDefault {
-            self.sidekickSpectrumMinMHz = 2400
+        let shouldMigrateFiveGHzSpectrumDefault =
+            !UserDefaults.standard.bool(forKey: "sidekickSpectrumFiveGHzDefaultMigrated") &&
+            (storedSpectrumMin == nil || storedSpectrumMin == 2400) &&
+            (storedSpectrumMax == nil || storedSpectrumMax == 2500 || storedSpectrumMax == 5900)
+        if shouldMigrateFiveGHzSpectrumDefault {
+            self.sidekickSpectrumMinMHz = 5150
+            self.sidekickSpectrumMaxMHz = 5900
+            UserDefaults.standard.set(true, forKey: "sidekickSpectrumFiveGHzDefaultMigrated")
+            UserDefaults.standard.set(true, forKey: "sidekickSpectrumWideDefaultMigrated")
+            UserDefaults.standard.set(5150, forKey: "sidekickSpectrumMinMHz")
+            UserDefaults.standard.set(5900, forKey: "sidekickSpectrumMaxMHz")
+        } else if shouldMigrateWideSpectrumDefault {
+            self.sidekickSpectrumMinMHz = 5150
             self.sidekickSpectrumMaxMHz = 5900
             UserDefaults.standard.set(true, forKey: "sidekickSpectrumWideDefaultMigrated")
-            UserDefaults.standard.set(2400, forKey: "sidekickSpectrumMinMHz")
+            UserDefaults.standard.set(5150, forKey: "sidekickSpectrumMinMHz")
             UserDefaults.standard.set(5900, forKey: "sidekickSpectrumMaxMHz")
         } else {
-            self.sidekickSpectrumMinMHz = storedSpectrumMin ?? 2400
+            self.sidekickSpectrumMinMHz = storedSpectrumMin ?? 5150
             self.sidekickSpectrumMaxMHz = storedSpectrumMax ?? 5900
         }
         self.sidekickSpectrumBinWidthHz = UserDefaults.standard.object(forKey: "sidekickSpectrumBinWidthHz") as? Int ?? 1_000_000
