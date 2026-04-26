@@ -35,8 +35,8 @@ public enum SignalCoverageInterpolator {
         guard !models.isEmpty else { return [] }
 
         let cellSize = max(preferredCellSize, 0.25)
-        let columns = min(max(Int(ceil((maxX - minX) / cellSize)), 8), 52)
-        let rows = min(max(Int(ceil((maxZ - minZ) / cellSize)), 8), 52)
+        let columns = min(max(Int(ceil((maxX - minX) / cellSize)), 8), 30)
+        let rows = min(max(Int(ceil((maxZ - minZ) / cellSize)), 8), 30)
         let stepX = (maxX - minX) / Float(columns)
         let stepZ = (maxZ - minZ) / Float(rows)
 
@@ -67,11 +67,19 @@ public enum SignalCoverageInterpolator {
     }
 
     private static func trainedModels(from points: [WiFiHeatmapPoint]) -> [GaussianProcessModel] {
-        Dictionary(grouping: points, by: \.bssid).values.compactMap { apPoints in
-            let samples = bucketedTrainingSamples(apPoints)
-            guard samples.count >= 3 else { return nil }
-            return GaussianProcessModel(samples: samples)
-        }
+        Dictionary(grouping: points, by: \.bssid).values
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return (lhs.map(\.timestamp).max() ?? 0) > (rhs.map(\.timestamp).max() ?? 0)
+                }
+                return lhs.count > rhs.count
+            }
+            .prefix(4)
+            .compactMap { apPoints in
+                let samples = bucketedTrainingSamples(apPoints)
+                guard samples.count >= 3 else { return nil }
+                return GaussianProcessModel(samples: samples)
+            }
     }
 
     private static func bucketedTrainingSamples(_ points: [WiFiHeatmapPoint]) -> [TrainingSample] {
@@ -117,7 +125,7 @@ public enum SignalCoverageInterpolator {
 
         return samples
             .sorted { $0.latestTimestamp > $1.latestTimestamp }
-            .prefix(96)
+            .prefix(64)
             .map { $0 }
     }
 
