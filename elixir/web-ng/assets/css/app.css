@@ -938,9 +938,16 @@
 .sr-ops-traffic-cluster-hit:hover,
 .sr-ops-traffic-cluster-hit:focus,
 .sr-ops-traffic-endpoint-hit:hover {
-  fill: rgba(15, 23, 42, 0.42);
-  stroke: rgba(125, 211, 252, 0.28);
-  stroke-width: 0.26px;
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+}
+
+.sr-ops-traffic-endpoint-hit:focus {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  outline: none;
 }
 
 .sr-ops-traffic-endpoint-hit:focus {
