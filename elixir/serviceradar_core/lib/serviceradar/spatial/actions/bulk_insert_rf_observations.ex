@@ -32,6 +32,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
           captured_at_unix_nanos: captured_at_unix_nanos,
           captured_at_monotonic_nanos: Map.get(observation, :captured_at_monotonic_nanos),
           parser_confidence: Map.get(observation, :parser_confidence, 0.0),
+          rf_features: rf_features(observation),
           inserted_at: inserted_at
         }
       end)
@@ -47,4 +48,41 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
     |> System.convert_time_unit(:nanosecond, :microsecond)
     |> DateTime.from_unix!(:microsecond)
   end
+
+  defp rf_features(observation) do
+    vector_literal([
+      normalize_dbm(Map.get(observation, :rssi_dbm), -128),
+      normalize_dbm(Map.get(observation, :noise_floor_dbm), -128),
+      normalize_snr(Map.get(observation, :snr_db)),
+      normalize_frequency(Map.get(observation, :frequency_mhz, 0)),
+      normalize_channel(Map.get(observation, :channel)),
+      normalize_width(Map.get(observation, :channel_width_mhz)),
+      clamp_float(Map.get(observation, :parser_confidence, 0.0), 0.0, 1.0),
+      if(Map.get(observation, :hidden_ssid, true), do: 1.0, else: 0.0)
+    ])
+  end
+
+  defp normalize_dbm(nil, default), do: default / 128.0
+  defp normalize_dbm(value, _default), do: clamp_float(value / 128.0, -1.0, 1.0)
+
+  defp normalize_snr(nil), do: 0.0
+  defp normalize_snr(value), do: clamp_float(value / 100.0, -1.0, 1.0)
+
+  defp normalize_frequency(value), do: clamp_float(value / 7_125.0, 0.0, 1.0)
+
+  defp normalize_channel(nil), do: 0.0
+  defp normalize_channel(value), do: clamp_float(value / 233.0, 0.0, 1.0)
+
+  defp normalize_width(nil), do: 0.0
+  defp normalize_width(value), do: clamp_float(value / 320.0, 0.0, 1.0)
+
+  defp clamp_float(value, min, max) when is_integer(value), do: clamp_float(value * 1.0, min, max)
+
+  defp clamp_float(value, min, max) when is_float(value) do
+    value
+    |> max(min)
+    |> min(max)
+  end
+
+  defp vector_literal(values), do: "[" <> Enum.map_join(values, ",", &to_string/1) <> "]"
 end
