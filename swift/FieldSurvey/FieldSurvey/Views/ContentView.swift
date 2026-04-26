@@ -361,7 +361,9 @@ public struct SurveyView: View {
                 spectrumSummaries: currentSpectrumSummaries,
                 sidekickStatus: sidekickRelay.status,
                 sidekickError: sidekickRelay.lastError,
-                sidekickWarning: sidekickRelay.spectrumWarning
+                sidekickWarning: sidekickRelay.displayWarning,
+                rfObservationCount: sidekickRelay.previewObservationCount,
+                rfDecodeError: sidekickRelay.previewDecodeError
             )
         }
         .alert("Mark Access Point", isPresented: $showManualAPPrompt) {
