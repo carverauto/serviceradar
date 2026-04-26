@@ -16,6 +16,7 @@ public struct SignalMapView: View {
     public let sidekickStatus: SidekickRelayStatus?
     public let sidekickError: String?
     public let sidekickWarning: String?
+    public let backendFrameCount: Int?
     public let rfObservationCount: Int?
     public let rfDecodeError: String?
 
@@ -40,6 +41,7 @@ public struct SignalMapView: View {
         sidekickStatus: SidekickRelayStatus? = nil,
         sidekickError: String? = nil,
         sidekickWarning: String? = nil,
+        backendFrameCount: Int? = nil,
         rfObservationCount: Int? = nil,
         rfDecodeError: String? = nil
     ) {
@@ -54,6 +56,7 @@ public struct SignalMapView: View {
         self.sidekickStatus = sidekickStatus
         self.sidekickError = sidekickError
         self.sidekickWarning = sidekickWarning
+        self.backendFrameCount = backendFrameCount
         self.rfObservationCount = rfObservationCount
         self.rfDecodeError = rfDecodeError
     }
@@ -171,6 +174,10 @@ public struct SignalMapView: View {
 
             if let sidekickStatus {
                 MetricPill(label: "Sidekick", value: statusLabel(sidekickStatus))
+            }
+
+            if let backendFrameCount {
+                MetricPill(label: "Backend", value: backendFrameCount > 0 ? "\(backendFrameCount) frames" : "pending")
             }
         }
         .font(.system(size: 12, weight: .semibold, design: .monospaced))
