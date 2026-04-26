@@ -27,6 +27,7 @@
     "@luma.gl/webgpu": "^9.2.2",
     "apache-arrow": "^16.1.0",
     "d3": "^7.9.0",
+    "d3-geo": "^3.1.1",
     "d3-sankey": "^0.12.3",
     "elkjs": "^0.11.1",
     "events": "^3.3.0",
@@ -37,7 +38,9 @@
     "phoenix_live_view": "^1.1.27",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "stream-browserify": "^3.0.0"
+    "stream-browserify": "^3.0.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@tailwindcss/cli": "4.1.12",

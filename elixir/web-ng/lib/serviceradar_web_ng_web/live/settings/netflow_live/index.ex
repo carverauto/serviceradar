@@ -550,6 +550,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                     <th>Partition</th>
                     <th>Label</th>
                     <th>CIDR</th>
+                    <th>Map Anchor</th>
                     <th>Status</th>
                     <th class="text-right">Actions</th>
                   </tr>
@@ -560,6 +561,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       <td class="font-mono text-xs">{cidr.partition || "*"}</td>
                       <td>{cidr.label || ""}</td>
                       <td class="font-mono text-xs">{cidr.cidr}</td>
+                      <td class="text-xs">
+                        <%= if location_anchor_configured?(cidr) do %>
+                          <div class="font-medium">
+                            {cidr.location_label || cidr.label || "Pinned site"}
+                          </div>
+                          <div class="font-mono text-base-content/60">
+                            {format_coordinate(cidr.latitude)}, {format_coordinate(cidr.longitude)}
+                          </div>
+                        <% else %>
+                          <span class="text-base-content/50">not anchored</span>
+                        <% end %>
+                      </td>
                       <td>
                         <span class={[
                           "badge badge-sm",
@@ -586,7 +599,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   <% end %>
                   <%= if Enum.empty?(@cidrs) do %>
                     <tr>
-                      <td colspan="5" class="text-sm text-base-content/60">
+                      <td colspan="6" class="text-sm text-base-content/60">
                         No CIDRs configured yet.
                       </td>
                     </tr>
@@ -765,6 +778,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       <.input field={@form[:partition]} type="text" label="Partition (optional)" />
                       <.input field={@form[:label]} type="text" label="Label (optional)" />
                       <.input field={@form[:cidr]} type="text" label="CIDR" placeholder="10.0.0.0/8" />
+                      <div class="rounded-lg border border-base-200 bg-base-200/40 p-3">
+                        <div class="text-xs font-semibold">Map Anchor (optional)</div>
+                        <div class="mt-1 text-xs text-base-content/60">
+                          Pin private/local flow endpoints to a real site on the NetFlow map.
+                        </div>
+                        <div class="mt-3 grid grid-cols-1 gap-3">
+                          <.input
+                            field={@form[:location_label]}
+                            type="text"
+                            label="Location label"
+                            placeholder="farm01 - Carver, MN"
+                          />
+                          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <.input
+                              field={@form[:latitude]}
+                              type="number"
+                              label="Latitude"
+                              step="0.000001"
+                              min="-90"
+                              max="90"
+                              placeholder="44.7633"
+                            />
+                            <.input
+                              field={@form[:longitude]}
+                              type="number"
+                              label="Longitude"
+                              step="0.000001"
+                              min="-180"
+                              max="180"
+                              placeholder="-93.6258"
+                            />
+                          </div>
+                        </div>
+                      </div>
                       <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
                     <% end %>
                   </div>
@@ -781,7 +828,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
               <div class="rounded-xl border border-base-200 bg-base-100 p-4">
                 <h2 class="text-sm font-semibold">Add CIDRs</h2>
                 <p class="text-xs text-base-content/60 mt-1">
-                  Use the button on the left to add local networks for directionality tagging.
+                  Use the button on the left to add local networks for directionality tagging and
+                  optional NetFlow map anchors.
                 </p>
               </div>
             <% end %>
@@ -936,6 +984,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   defp ipinfo_token_present?(%NetflowSettings{ipinfo_api_key_present: true}), do: true
   defp ipinfo_token_present?(%NetflowSettings{}), do: false
   defp ipinfo_token_present?(_), do: false
+
+  defp location_anchor_configured?(%{latitude: latitude, longitude: longitude}) do
+    is_number(latitude) and is_number(longitude)
+  end
+
+  defp location_anchor_configured?(_), do: false
+
+  defp format_coordinate(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 5)
+  defp format_coordinate(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_coordinate(_), do: "—"
 
   defp to_int(nil, default), do: default
   defp to_int("", default), do: default

@@ -1219,8 +1219,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     cypher = """
     MATCH (a)-[r:MTR_PATH]->(b)
     WHERE a.id IS NOT NULL AND b.id IS NOT NULL
-      AND (a:Device OR a:MtrHop)
-      AND (b:Device OR b:MtrHop)
     RETURN {
       source: a.id,
       target: b.id,

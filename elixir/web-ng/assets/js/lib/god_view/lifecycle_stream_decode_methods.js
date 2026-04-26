@@ -36,6 +36,7 @@ export const godViewLifecycleStreamDecodeMethods = {
     const edgeTopologyClass = table.getChild("edge_topology_class")
     const edgeProtocol = table.getChild("edge_protocol")
     const edgeEvidenceClass = table.getChild("edge_evidence_class")
+    const edgeDetails = table.getChild("edge_details")
 
     const nodes = []
     const edges = []
@@ -74,6 +75,16 @@ export const godViewLifecycleStreamDecodeMethods = {
       } else if (t === 1) {
         const source = Number(edgeSource?.get(i) || 0)
         const target = Number(edgeTarget?.get(i) || 0)
+        let parsedEdgeDetails = {}
+        const rawEdgeDetails = edgeDetails?.get(i)
+        if (typeof rawEdgeDetails === "string" && rawEdgeDetails.trim() !== "") {
+          try {
+            parsedEdgeDetails = JSON.parse(rawEdgeDetails)
+          } catch (_err) {
+            parsedEdgeDetails = {}
+          }
+        }
+
         edges.push({
           source,
           target,
@@ -89,6 +100,7 @@ export const godViewLifecycleStreamDecodeMethods = {
           topologyClass: this.deps.normalizeDisplayLabel(edgeTopologyClass?.get(i), "unknown"),
           protocol: this.deps.normalizeDisplayLabel(edgeProtocol?.get(i), ""),
           evidenceClass: this.deps.normalizeDisplayLabel(edgeEvidenceClass?.get(i), ""),
+          details: parsedEdgeDetails,
         })
         edgeSourceIndex.push(source)
         edgeTargetIndex.push(target)

@@ -177,12 +177,32 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   end
 
   defp core_nodes do
-    Enum.filter(Node.list(), fn node ->
-      case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-        pid when is_pid(pid) -> true
-        _ -> false
-      end
-    end)
+    nodes = Node.list()
+
+    coordinators =
+      Enum.filter(nodes, fn node ->
+        case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
+          pid when is_pid(pid) -> true
+          _ -> false
+        end
+      end)
+
+    if coordinators == [] do
+      Enum.filter(nodes, &core_node?/1)
+    else
+      coordinators
+    end
+  end
+
+  defp core_node?(node) when is_atom(node) do
+    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
+  end
+
+  defp core_node?(_node), do: false
+
+  defp core_node_basename do
+    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
+      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename, "serviceradar_core")
   end
 
   defp resolve_identity(conn) do

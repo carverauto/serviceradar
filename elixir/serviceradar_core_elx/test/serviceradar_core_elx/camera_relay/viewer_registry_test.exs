@@ -13,6 +13,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     end
   end
 
+  defmodule RaisingRelaySessionCloserStub do
+    @moduledoc false
+
+    def request_close(relay_session_id, opts) do
+      send(opts[:test_pid], {:request_close, relay_session_id, opts})
+
+      raise KeyError,
+        key: :field,
+        term: [required_message: "is required", no_password_message: nil]
+    end
+  end
+
   defmodule SessionTrackerStub do
     @moduledoc false
 
@@ -29,6 +41,20 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :camera_relay_viewer_registry_test_pid)
     end
+  end
+
+  setup_all do
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+
+    if !Process.whereis(ServiceRadar.PubSub) do
+      start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    end
+
+    if !Process.whereis(ViewerRegistry) do
+      start_supervised!(ViewerRegistry)
+    end
+
+    :ok
   end
 
   setup do
@@ -127,6 +153,27 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     assert opts[:reason] == "viewer idle timeout"
     assert opts[:test_pid] == self()
     assert_receive {:mark_closing, ^relay_session_id, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+  end
+
+  test "does not crash when idle close raises during a stale relay transition" do
+    relay_session_id = "relay-idle-close-raises-1"
+    viewer_id = "viewer-idle-close-raises-1"
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      Map.put(state, :session_closer, RaisingRelaySessionCloserStub)
+    end)
+
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+
+    assert_receive {:sync_viewer_count, ^relay_session_id, 0}
+    assert_receive {:request_close, ^relay_session_id, opts}, 500
+    assert opts[:reason] == "viewer idle timeout"
+    assert ViewerRegistry.viewer_count(relay_session_id) == 0
+    refute_receive {:mark_closing, ^relay_session_id, _attrs}, 50
   end
 
   test "cancels idle close if a viewer rejoins before timeout" do

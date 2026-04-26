@@ -3,6 +3,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   Ingests camera discovery descriptors from plugin results into normalized inventory.
   """
 
+  import Ash.Expr
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source
@@ -16,6 +18,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   require Logger
 
   @status_availability_labels %{true => "available", false => "unavailable"}
+  @local_relay_metadata_keys [{"insecure_skip_verify", :insecure_skip_verify}]
 
   @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
   def ingest(payload, status, opts \\ [])
@@ -311,11 +314,87 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp extract_details_camera_descriptors(_details), do: []
 
   defp upsert_source(attrs, actor) do
-    Source.upsert_source(attrs, actor: actor)
+    attrs
+    |> preserve_source_local_metadata(actor)
+    |> Source.upsert_source(actor: actor)
   end
 
   defp upsert_profile(attrs, actor) do
-    StreamProfile.upsert_profile(attrs, actor: actor)
+    attrs
+    |> preserve_profile_local_metadata(actor)
+    |> StreamProfile.upsert_profile(actor: actor)
+  end
+
+  defp preserve_source_local_metadata(
+         %{vendor: vendor, vendor_camera_id: vendor_camera_id} = attrs,
+         actor
+       )
+       when is_binary(vendor) and is_binary(vendor_camera_id) do
+    existing_metadata =
+      Source
+      |> Ash.Query.filter(expr(vendor == ^vendor and vendor_camera_id == ^vendor_camera_id))
+      |> Ash.read_one(actor: actor)
+      |> existing_metadata()
+
+    Map.update(
+      attrs,
+      :metadata,
+      existing_metadata || %{},
+      &merge_local_relay_metadata(existing_metadata, &1)
+    )
+  end
+
+  defp preserve_source_local_metadata(attrs, _actor), do: attrs
+
+  defp preserve_profile_local_metadata(
+         %{camera_source_id: camera_source_id, profile_name: profile_name} = attrs,
+         actor
+       )
+       when is_binary(camera_source_id) and is_binary(profile_name) do
+    existing_metadata =
+      StreamProfile
+      |> Ash.Query.filter(
+        expr(camera_source_id == ^camera_source_id and profile_name == ^profile_name)
+      )
+      |> Ash.read_one(actor: actor)
+      |> existing_metadata()
+
+    Map.update(
+      attrs,
+      :metadata,
+      existing_metadata || %{},
+      &merge_local_relay_metadata(existing_metadata, &1)
+    )
+  end
+
+  defp preserve_profile_local_metadata(attrs, _actor), do: attrs
+
+  defp existing_metadata({:ok, %{metadata: metadata}}) when is_map(metadata), do: metadata
+  defp existing_metadata(_result), do: nil
+
+  @doc false
+  def merge_local_relay_metadata(existing_metadata, incoming_metadata) do
+    incoming = if is_map(incoming_metadata), do: incoming_metadata, else: %{}
+    existing = if is_map(existing_metadata), do: existing_metadata, else: %{}
+
+    Enum.reduce(@local_relay_metadata_keys, incoming, fn {string_key, atom_key}, acc ->
+      if metadata_has_key?(acc, string_key, atom_key) do
+        acc
+      else
+        case metadata_value(existing, string_key, atom_key) do
+          nil -> acc
+          value -> Map.put(acc, string_key, value)
+        end
+      end
+    end)
+  end
+
+  defp metadata_has_key?(metadata, string_key, atom_key) do
+    Map.has_key?(metadata, string_key) or Map.has_key?(metadata, atom_key)
+  end
+
+  defp metadata_value(metadata, string_key, atom_key) do
+    Map.get(metadata, string_key) || Map.get(metadata, atom_key)
   end
 
   defp sync_device_inventory(descriptor, status, observed_at, actor) when is_map(descriptor) do
@@ -526,7 +605,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           {:ok, devices} ->
             devices
             |> Enum.reject(&(&1.uid == device_uid))
-            |> resolve_camera_ip_conflict(ip, actor)
+            |> resolve_camera_ip_conflict(ip, attrs, actor)
 
           {:error, reason} ->
             {:error, reason}
@@ -548,10 +627,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp list_devices_by_ip(_ip, _actor), do: {:ok, []}
 
-  defp resolve_camera_ip_conflict([], _ip, _actor), do: {:ok, nil}
+  defp resolve_camera_ip_conflict([], _ip, _attrs, _actor), do: {:ok, nil}
 
-  defp resolve_camera_ip_conflict(devices, ip, actor) when is_list(devices) do
-    case Enum.filter(devices, &claimable_camera_ip_conflict?(&1, actor)) do
+  defp resolve_camera_ip_conflict(devices, ip, attrs, actor) when is_list(devices) do
+    case Enum.filter(devices, &claimable_camera_ip_conflict?(&1, attrs, actor)) do
       [] ->
         device =
           Enum.max_by(devices, &camera_ip_conflict_score/1, fn -> nil end)
@@ -566,11 +645,45 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp claimable_camera_ip_conflict?(%Device{} = device, actor) do
+  defp claimable_camera_ip_conflict?(%Device{type: "camera"} = device, attrs, _actor) do
+    same_camera_identity?(device, attrs)
+  end
+
+  defp claimable_camera_ip_conflict?(%Device{} = device, _attrs, actor) do
     not IdentityReconciler.service_device_id?(device.uid) and
-      device.type != "camera" and
       not device_has_strong_identifiers?(device.uid, actor)
   end
+
+  defp same_camera_identity?(%Device{} = device, attrs) when is_map(attrs) do
+    same_present_value?(camera_vendor_camera_id(device), camera_vendor_camera_id(attrs)) or
+      same_present_value?(normalize_mac(device.mac), normalize_mac(Map.get(attrs, :mac)))
+  end
+
+  defp same_camera_identity?(_device, _attrs), do: false
+
+  defp same_present_value?(left, right) do
+    not blank?(left) and not blank?(right) and left == right
+  end
+
+  defp camera_vendor_camera_id(%Device{} = device) do
+    device.metadata
+    |> metadata_map()
+    |> map_value(["camera_vendor_camera_id"])
+    |> normalize_identifier_component()
+  end
+
+  defp camera_vendor_camera_id(attrs) when is_map(attrs) do
+    attrs
+    |> Map.get(:metadata)
+    |> metadata_map()
+    |> map_value(["camera_vendor_camera_id"])
+    |> normalize_identifier_component()
+  end
+
+  defp camera_vendor_camera_id(_value), do: nil
+
+  defp metadata_map(value) when is_map(value), do: value
+  defp metadata_map(_value), do: %{}
 
   defp camera_ip_conflict_score(%Device{} = device) do
     {
@@ -658,7 +771,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp find_inventory_peer_by_mac(mac, device_uid, actor)
        when is_binary(mac) and mac != "" and is_binary(device_uid) do
-    with {:ok, devices} <- read_inventory_peers_by_mac(mac_lookup_candidates(mac), device_uid, actor) do
+    with {:ok, devices} <-
+           read_inventory_peers_by_mac(mac_lookup_candidates(mac), device_uid, actor) do
       select_inventory_peer(devices)
     end
   rescue
@@ -687,7 +801,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp read_inventory_peers_by_mac(_mac_candidates, _device_uid, _actor), do: {:error, :invalid_mac}
+  defp read_inventory_peers_by_mac(_mac_candidates, _device_uid, _actor),
+    do: {:error, :invalid_mac}
 
   defp select_inventory_peer(devices) when is_list(devices) do
     case Enum.max_by(devices, &camera_inventory_peer_score/1, fn -> nil end) do

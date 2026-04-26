@@ -36,10 +36,31 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {...HookModules},
 })
 
-// Show progress bar on live navigation and form submits
-topbar.config({barColors: {0: "#3B82F6"}, shadowColor: "rgba(0, 0, 0, .3)"})
-window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
-window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
+// Show a thin progress bar on live navigation and form submits.
+topbar.config({
+  barThickness: 2,
+  barColors: {0: "#38BDF8", 1: "#22C55E"},
+  className: "sr-page-loading-bar",
+  shadowBlur: 0,
+  shadowColor: "transparent",
+})
+
+let topbarFallbackTimer = null
+const hideTopbar = () => {
+  if (topbarFallbackTimer) {
+    clearTimeout(topbarFallbackTimer)
+    topbarFallbackTimer = null
+  }
+
+  topbar.hide()
+}
+
+window.addEventListener("phx:page-loading-start", _info => {
+  hideTopbar()
+  topbar.show(120)
+  topbarFallbackTimer = setTimeout(() => topbar.hide(), 2500)
+})
+window.addEventListener("phx:page-loading-stop", _info => hideTopbar())
 registerGlobalWindowEvents()
 
 // connect if there are any LiveViews on the page
