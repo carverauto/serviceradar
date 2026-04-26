@@ -519,10 +519,13 @@ public struct CompositeSurveyView: UIViewRepresentable {
         }
 
         func teardownARPriorityMode() {
-            if arPriorityLoadShedActive {
-                setARPriorityLoadShed(active: false, reason: "view-dismantle")
-            } else {
-                SettingsManager.shared.setARPriorityLoadShedActive(false)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if arPriorityLoadShedActive {
+                    setARPriorityLoadShed(active: false, reason: "view-dismantle")
+                } else {
+                    SettingsManager.shared.setARPriorityLoadShedActive(false)
+                }
             }
         }
 
