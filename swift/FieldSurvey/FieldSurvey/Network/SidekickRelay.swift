@@ -81,6 +81,9 @@ public final class SidekickRelay: ObservableObject {
     @Published public private(set) var spectrumSummaries: [SidekickSpectrumSummary] = []
     @Published public private(set) var lastError: String?
     @Published public private(set) var spectrumWarning: String?
+    @Published public private(set) var backendWarning: String?
+    @Published public private(set) var previewObservationCount: Int = 0
+    @Published public private(set) var previewDecodeError: String?
 
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "SidekickRelay")
     private let observationDecoder = SidekickObservationArrowDecoder()
@@ -91,10 +94,16 @@ public final class SidekickRelay: ObservableObject {
     private var lastRFCountPublishTime: TimeInterval = 0
     private var lastSpectrumCountPublishTime: TimeInterval = 0
     private var lastPreviewIngestTime: TimeInterval = 0
+    private var pendingPreviewObservationCount = 0
+    private var lastPreviewCountPublishTime: TimeInterval = 0
     private var latestSpectrumScoresByChannel: [String: SidekickSpectrumChannelScore] = [:]
     private var relayGeneration = 0
 
     public init() {}
+
+    public var displayWarning: String? {
+        backendWarning ?? spectrumWarning
+    }
 
     public func start(
         sessionID: String,
@@ -115,8 +124,13 @@ public final class SidekickRelay: ObservableObject {
         lastRFCountPublishTime = 0
         lastSpectrumCountPublishTime = 0
         lastPreviewIngestTime = 0
+        pendingPreviewObservationCount = 0
+        lastPreviewCountPublishTime = 0
         lastError = nil
         spectrumWarning = nil
+        backendWarning = nil
+        previewObservationCount = 0
+        previewDecodeError = nil
 
         let settings = SettingsManager.shared
         let sidekickBaseURLs = SidekickClient.baseURLCandidates(from: settings.sidekickURL)
@@ -222,6 +236,7 @@ public final class SidekickRelay: ObservableObject {
         status = .idle
         lastError = nil
         spectrumWarning = nil
+        backendWarning = nil
     }
 
     private func startRadioRelay(
@@ -234,6 +249,7 @@ public final class SidekickRelay: ObservableObject {
     ) {
         let task = Task { [weak self, sidekickClient, backendSink, weak wifiScanner] in
             var attempt = 0
+            var backendPausedUntil: Date?
 
             while !Task.isCancelled {
                 guard await self?.isCurrentGeneration(generation) == true else { return }
@@ -260,13 +276,22 @@ public final class SidekickRelay: ObservableObject {
                     for try await batch in stream {
                         try Task.checkCancellation()
                         self?.ingestPreviewBatch(batch.payload, wifiScanner: wifiScanner)
-                        if let backendSink {
+                        if let backendSink,
+                           backendPausedUntil.map({ Date() >= $0 }) ?? true {
                             do {
                                 try await backendSink.send(batch.payload)
-                            } catch {
+                                backendPausedUntil = nil
                                 await MainActor.run {
                                     guard self?.isCurrentGeneration(generation) == true else { return }
-                                    self?.spectrumWarning = "Backend upload reconnecting: \(error.localizedDescription)"
+                                    if self?.backendWarning?.hasPrefix("Backend upload") == true {
+                                        self?.backendWarning = nil
+                                    }
+                                }
+                            } catch {
+                                backendPausedUntil = Date().addingTimeInterval(12)
+                                await MainActor.run {
+                                    guard self?.isCurrentGeneration(generation) == true else { return }
+                                    self?.backendWarning = "Backend upload paused: \(error.localizedDescription)"
                                 }
                             }
                         }
@@ -307,7 +332,10 @@ public final class SidekickRelay: ObservableObject {
             let observations = try observationDecoder.decode(payload)
             guard !observations.isEmpty else { return }
             wifiScanner.ingestSidekickObservations(observations)
+            recordPreviewObservations(observations.count)
+            previewDecodeError = nil
         } catch {
+            previewDecodeError = error.localizedDescription
             logger.debug("Skipped Sidekick preview decode: \(error.localizedDescription)")
         }
     }
@@ -459,6 +487,15 @@ public final class SidekickRelay: ObservableObject {
         if now - lastSpectrumCountPublishTime >= 0.5 {
             spectrumBatchCount = pendingSpectrumBatchCount
             lastSpectrumCountPublishTime = now
+        }
+    }
+
+    private func recordPreviewObservations(_ count: Int) {
+        pendingPreviewObservationCount += count
+        let now = Date().timeIntervalSince1970
+        if now - lastPreviewCountPublishTime >= 0.5 {
+            previewObservationCount = pendingPreviewObservationCount
+            lastPreviewCountPublishTime = now
         }
     }
 

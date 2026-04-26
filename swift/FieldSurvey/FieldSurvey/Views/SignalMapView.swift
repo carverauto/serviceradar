@@ -16,7 +16,10 @@ public struct SignalMapView: View {
     public let sidekickStatus: SidekickRelayStatus?
     public let sidekickError: String?
     public let sidekickWarning: String?
+    public let rfObservationCount: Int?
+    public let rfDecodeError: String?
 
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedFloorIndex: Int = 0
     @State private var mapScale: CGFloat = 1.0
     @State private var lastMapScale: CGFloat = 1.0
@@ -36,7 +39,9 @@ public struct SignalMapView: View {
         spectrumSummaries: [SidekickSpectrumSummary] = [],
         sidekickStatus: SidekickRelayStatus? = nil,
         sidekickError: String? = nil,
-        sidekickWarning: String? = nil
+        sidekickWarning: String? = nil,
+        rfObservationCount: Int? = nil,
+        rfDecodeError: String? = nil
     ) {
         self.title = title
         self.points = points
@@ -49,88 +54,101 @@ public struct SignalMapView: View {
         self.sidekickStatus = sidekickStatus
         self.sidekickError = sidekickError
         self.sidekickWarning = sidekickWarning
+        self.rfObservationCount = rfObservationCount
+        self.rfDecodeError = rfDecodeError
     }
 
     public var body: some View {
-        NavigationView {
-            VStack(spacing: 12) {
-                statusStrip
-                failureBanner
-                warningBanner
-                floorControls
-                overlayControls
-                apControls
-                if let summary = displaySpectrumSummary {
-                    SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
-                }
-
-                SignalMapCanvas(
-                    points: Array(visiblePoints.suffix(1200)),
-                    spectrumPoints: Array(visibleSpectrumPoints.suffix(1200)),
-                    landmarks: visibleLandmarks,
-                    currentPose: visibleCurrentPose,
-                    overlayMode: overlayMode,
-                    zoom: mapScale,
-                    pan: mapOffset
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .center) {
-                    if mapHasNoVisibleData {
-                        VStack(spacing: 8) {
-                            Image(systemName: "wifi.exclamationmark")
-                                .font(.system(size: 34, weight: .semibold))
-                            Text(overlayMode == .wifiCoverage ? "No Sidekick heat points yet" : "Waiting for spectrum heat points")
-                                .font(.headline)
-                            Text(overlayMode == .wifiCoverage
-                                 ? "Start Sidekick preview or backend streaming, then walk a few meters while LiDAR tracking is active."
-                                : "Keep walking while LiDAR tracking is active. HackRF summaries are attached to nearby positioned Wi-Fi samples as they arrive.")
-                                .font(.caption)
-                                .multilineTextAlignment(.center)
-                                .foregroundColor(.white.opacity(0.72))
-                                .padding(.horizontal, 28)
-                        }
-                        .padding(18)
-                        .background(Color.black.opacity(0.72))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 1)
-                        .onChanged { value in
-                            mapOffset = CGSize(
-                                width: lastMapOffset.width + value.translation.width,
-                                height: lastMapOffset.height + value.translation.height
-                            )
-                        }
-                        .onEnded { _ in
-                            lastMapOffset = mapOffset
-                        }
-                )
-                .simultaneousGesture(
-                    MagnificationGesture()
-                        .onChanged { value in
-                            mapScale = min(max(lastMapScale * value, 0.75), 8.0)
-                        }
-                        .onEnded { _ in
-                            lastMapScale = mapScale
-                        }
-                )
-
-                legend
+        VStack(spacing: 12) {
+            headerControls
+            statusStrip
+            failureBanner
+            warningBanner
+            floorControls
+            overlayControls
+            apControls
+            if let summary = displaySpectrumSummary {
+                SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
             }
-            .padding(12)
-            .background(Color(red: 0.025, green: 0.035, blue: 0.05).ignoresSafeArea())
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Reset") {
-                        resetViewport()
+
+            SignalMapCanvas(
+                points: Array(visiblePoints.suffix(500)),
+                spectrumPoints: Array(visibleSpectrumPoints.suffix(500)),
+                landmarks: visibleLandmarks,
+                currentPose: visibleCurrentPose,
+                overlayMode: overlayMode,
+                zoom: mapScale,
+                pan: mapOffset
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .center) {
+                if mapHasNoVisibleData {
+                    VStack(spacing: 8) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .font(.system(size: 34, weight: .semibold))
+                        Text(emptyMapTitle)
+                            .font(.headline)
+                        Text(emptyMapDetail)
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.white.opacity(0.72))
+                            .padding(.horizontal, 28)
                     }
+                    .padding(18)
+                    .background(Color.black.opacity(0.72))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        mapOffset = CGSize(
+                            width: lastMapOffset.width + value.translation.width,
+                            height: lastMapOffset.height + value.translation.height
+                        )
+                    }
+                    .onEnded { _ in
+                        lastMapOffset = mapOffset
+                    }
+            )
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onChanged { value in
+                        mapScale = min(max(lastMapScale * value, 0.75), 8.0)
+                    }
+                    .onEnded { _ in
+                        lastMapScale = mapScale
+                    }
+            )
+
+            legend
         }
+        .padding(12)
+        .background(Color(red: 0.025, green: 0.035, blue: 0.05).ignoresSafeArea())
         .preferredColorScheme(.dark)
+    }
+
+    private var headerControls: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.white)
+                .lineLimit(1)
+            Spacer()
+            Button {
+                resetViewport()
+            } label: {
+                Label("Reset", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                dismiss()
+            } label: {
+                Label("Done", systemImage: "xmark")
+            }
+            .buttonStyle(.borderedProminent)
+        }
     }
 
     private var statusStrip: some View {
@@ -141,6 +159,10 @@ public struct SignalMapView: View {
 
             if let rfBatchCount {
                 MetricPill(label: "RF Batches", value: "\(rfBatchCount)")
+            }
+
+            if let rfObservationCount {
+                MetricPill(label: "RF Obs", value: "\(rfObservationCount)")
             }
 
             if let spectrumBatchCount {
@@ -195,11 +217,11 @@ public struct SignalMapView: View {
 
     @ViewBuilder
     private var warningBanner: some View {
-        if failedStatusMessage == nil, sidekickError == nil, let message = sidekickWarning {
+        if failedStatusMessage == nil, sidekickError == nil, let message = rfDecodeError ?? sidekickWarning {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundColor(.yellow)
-                Text("\(message). \(sidekickWarningDetail(for: message))")
+                Text(warningText(for: message))
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.86))
                     .fixedSize(horizontal: false, vertical: true)
@@ -327,11 +349,17 @@ public struct SignalMapView: View {
         }
     }
 
-    private func sidekickWarningDetail(for message: String) -> String {
-        if message.hasPrefix("RF ") {
-            return "Other radios and spectrum capture can continue while this radio reconnects."
+    private func warningText(for message: String) -> String {
+        if rfDecodeError != nil {
+            return "RF decode warning: \(message)"
         }
-        return "Wi-Fi RF capture can continue without spectrum."
+        if message.hasPrefix("RF ") {
+            return "\(message). Other radios and spectrum capture can continue while this radio reconnects."
+        }
+        if message.hasPrefix("Backend upload") {
+            return "\(message). Local Sidekick heat points keep recording while upload retries in the background."
+        }
+        return "\(message). Wi-Fi RF capture can continue without spectrum."
     }
 
     private var detectedFloors: [SignalFloor] {
@@ -369,7 +397,10 @@ public struct SignalMapView: View {
 
     private var visibleSpectrumPoints: [SpectrumHeatmapPoint] {
         guard overlayMode == .spectrumInterference else { return [] }
-        return SpectrumHeatmapPoint.build(points: visiblePoints, summaries: spectrumSummaries)
+        return SpectrumHeatmapPoint.build(
+            points: Array(visiblePoints.suffix(500)),
+            summaries: Array(spectrumSummaries.suffix(160))
+        )
     }
 
     private var displaySpectrumSummary: SidekickSpectrumSummary? {
@@ -412,6 +443,36 @@ public struct SignalMapView: View {
             return visiblePoints.isEmpty
         case .spectrumInterference:
             return visibleSpectrumPoints.isEmpty
+        }
+    }
+
+    private var emptyMapTitle: String {
+        switch overlayMode {
+        case .wifiCoverage, .wifiConfidence:
+            if let rfObservationCount, rfObservationCount > 0 {
+                return "RF frames decoded, waiting for positioned heat points"
+            }
+            return "No Sidekick heat points yet"
+        case .spectrumInterference:
+            if !spectrumSummaries.isEmpty {
+                return "Spectrum analyzer running"
+            }
+            return "Waiting for spectrum heat points"
+        }
+    }
+
+    private var emptyMapDetail: String {
+        switch overlayMode {
+        case .wifiCoverage, .wifiConfidence:
+            if let rfObservationCount, rfObservationCount > 0 {
+                return "Keep LiDAR tracking active and move a few meters so RF samples can attach to survey positions."
+            }
+            return "Start Sidekick preview or backend streaming, then walk a few meters while LiDAR tracking is active."
+        case .spectrumInterference:
+            if !spectrumSummaries.isEmpty && visiblePoints.isEmpty {
+                return "HackRF summaries are arriving. Wi-Fi heat points are needed before interference can be placed on the map."
+            }
+            return "Keep walking while LiDAR tracking is active. HackRF summaries are attached to nearby positioned Wi-Fi samples as they arrive."
         }
     }
 
@@ -530,92 +591,70 @@ private struct SignalMapCanvas: View {
     }
 
     private func drawWiFiHeatmap(context: GraphicsContext, projection: SignalMapProjection) {
-        let predictions = SignalCoverageInterpolator.coverageGrid(
-            points: points,
-            minX: projection.minX,
-            maxX: projection.maxX,
-            minZ: projection.minZ,
-            maxZ: projection.maxZ
-        )
-        let cellSize = projection.screenSize(widthMeters: 0.48, heightMeters: 0.48)
+        let cellSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
 
-        for prediction in predictions where prediction.confidence > 0.08 {
-            let center = projection.screenPoint(for: prediction.position)
+        for bucket in bucketed(points: points) {
+            let center = projection.screenPoint(for: bucket.position)
             let rect = CGRect(
                 x: center.x - cellSize.width / 2,
                 y: center.y - cellSize.height / 2,
                 width: max(cellSize.width, 1),
                 height: max(cellSize.height, 1)
             )
-            let opacity = 0.22 + min(max(prediction.confidence, 0.0), 1.0) * 0.48
+            let opacity = min(0.78, 0.42 + Double(bucket.count) * 0.035)
             context.fill(
                 Path(roundedRect: rect, cornerRadius: 1.5),
-                with: .color(SignalColor.color(for: prediction.rssi).opacity(opacity))
+                with: .color(SignalColor.color(for: bucket.rssi).opacity(opacity))
             )
-        }
 
-        for bucket in bucketed(points: points) {
-            let center = projection.screenPoint(for: bucket.position)
             let radius: CGFloat = 3.5
-            let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+            let dotRect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
 
-            context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.75)))
-            context.stroke(Path(ellipseIn: rect), with: .color(SignalColor.color(for: bucket.rssi).opacity(0.95)), lineWidth: 1.4)
+            context.fill(Path(ellipseIn: dotRect), with: .color(.white.opacity(0.75)))
+            context.stroke(Path(ellipseIn: dotRect), with: .color(SignalColor.color(for: bucket.rssi).opacity(0.95)), lineWidth: 1.4)
         }
     }
 
     private func drawWiFiConfidence(context: GraphicsContext, projection: SignalMapProjection) {
-        let predictions = SignalCoverageInterpolator.coverageGrid(
-            points: points,
-            minX: projection.minX,
-            maxX: projection.maxX,
-            minZ: projection.minZ,
-            maxZ: projection.maxZ
-        )
-        let cellSize = projection.screenSize(widthMeters: 0.48, heightMeters: 0.48)
+        let cellSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
 
-        for prediction in predictions {
-            let center = projection.screenPoint(for: prediction.position)
+        for bucket in bucketed(points: points) {
+            let center = projection.screenPoint(for: bucket.position)
             let rect = CGRect(
                 x: center.x - cellSize.width / 2,
                 y: center.y - cellSize.height / 2,
                 width: max(cellSize.width, 1),
                 height: max(cellSize.height, 1)
             )
+            let confidence = min(1.0, Double(bucket.count) / 8.0)
 
             context.fill(
                 Path(roundedRect: rect, cornerRadius: 1.5),
-                with: .color(ConfidenceColor.color(for: prediction.confidence).opacity(0.62))
+                with: .color(ConfidenceColor.color(for: confidence).opacity(0.62))
             )
-        }
 
-        for bucket in bucketed(points: points) {
-            let center = projection.screenPoint(for: bucket.position)
             let radius: CGFloat = 3.5
-            let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-            context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.85)))
+            let dotRect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: dotRect), with: .color(.white.opacity(0.85)))
         }
     }
 
     private func drawSpectrumHeatmap(context: GraphicsContext, projection: SignalMapProjection) {
+        let cellSize = projection.screenSize(widthMeters: 0.8, heightMeters: 0.8)
+
         for bucket in bucketedSpectrum(points: spectrumPoints) {
             let center = projection.screenPoint(for: bucket.position)
-            let radius = 18 + CGFloat(bucket.score) * 18
-            let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+            let rect = CGRect(
+                x: center.x - cellSize.width / 2,
+                y: center.y - cellSize.height / 2,
+                width: max(cellSize.width, 1),
+                height: max(cellSize.height, 1)
+            )
             let color = SpectrumColor.color(forScore: bucket.score)
 
             context.fill(
-                Path(ellipseIn: rect),
-                with: .radialGradient(
-                    Gradient(colors: [
-                        color.opacity(0.70),
-                        color.opacity(0.28),
-                        .clear
-                    ]),
-                    center: center,
-                    startRadius: 1,
-                    endRadius: radius
-                )
+                Path(roundedRect: rect, cornerRadius: 1.5),
+                with: .color(color.opacity(0.42 + min(bucket.score, 1.0) * 0.36))
             )
         }
     }
@@ -684,7 +723,8 @@ private struct SignalMapCanvas: View {
             let count = Float(acc.count)
             return SignalBucket(
                 position: SIMD3<Float>(acc.x / count, acc.y / count, acc.z / count),
-                rssi: acc.rssi / Double(acc.count)
+                rssi: acc.rssi / Double(acc.count),
+                count: acc.count
             )
         }
     }
@@ -744,6 +784,7 @@ private struct SignalMapCanvas: View {
 private struct SignalBucket {
     let position: SIMD3<Float>
     let rssi: Double
+    let count: Int
 }
 
 private struct SpectrumBucket {
