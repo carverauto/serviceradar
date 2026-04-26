@@ -163,14 +163,12 @@ public struct CompositeSurveyView: UIViewRepresentable {
         private var displayLink: CADisplayLink?
         private var captureHealthTimer: Timer?
         private var apNodes: [String: SCNNode] = [:]
-        private var heatmapNodes: [String: SCNNode] = [:]
         private var roomNodes: [UUID: SCNNode] = [:]
 
         private var roomMeshNode: SCNNode?
         private var lastRoomMeshRefresh: CFTimeInterval = 0
         private var lastRoomMeshSignature: Int?
         private var lastNodeRenderTime: CFTimeInterval = 0
-        private var lastHeatmapRenderTime: CFTimeInterval = 0
         private var lastLiveFrameProcessTime: TimeInterval = 0
         private let liveFrameProcessInterval: TimeInterval = 0.20
 
@@ -728,109 +726,6 @@ public struct CompositeSurveyView: UIViewRepresentable {
             }
         }
 
-        private func updateHeatmapNodes() {
-            guard let scene = scnView?.scene, let wifiScanner else { return }
-            guard isMapView else {
-                lastHeatmapRenderTime = 0
-                for node in heatmapNodes.values {
-                    node.isHidden = true
-                }
-                return
-            }
-
-            if !SettingsManager.shared.showWiFiHeatmap {
-                lastHeatmapRenderTime = 0
-                for node in heatmapNodes.values {
-                    node.isHidden = true
-                }
-                return
-            }
-
-            let now = CACurrentMediaTime()
-            guard now - lastHeatmapRenderTime >= 0.25 else { return }
-            lastHeatmapRenderTime = now
-
-            let points = Array(wifiScanner.heatmapPoints.suffix(650))
-            if points.isEmpty {
-                for node in heatmapNodes.values {
-                    node.isHidden = true
-                }
-                return
-            }
-
-            struct Bucket {
-                var positionSum: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
-                var rssiSum: Double = 0
-                var count: Int = 0
-            }
-
-            let cellSize: Float = 0.70
-            var buckets: [String: Bucket] = [:]
-            for point in points {
-                let xi = Int((point.position.x / cellSize).rounded())
-                let zi = Int((point.position.z / cellSize).rounded())
-                let key = "\(xi)_\(zi)"
-                var bucket = buckets[key] ?? Bucket()
-                bucket.positionSum += point.position
-                bucket.rssiSum += point.rssi
-                bucket.count += 1
-                buckets[key] = bucket
-            }
-
-            var activeKeys = Set<String>()
-            for (key, bucket) in buckets {
-                guard bucket.count > 0 else { continue }
-                activeKeys.insert(key)
-
-                let avgPos = bucket.positionSum / Float(bucket.count)
-                let avgRssi = bucket.rssiSum / Double(bucket.count)
-                let strength = normalizedSignalStrength(avgRssi)
-                let color = heatmapColor(for: strength)
-                let displayPos = SIMD3<Float>(avgPos.x, avgPos.y - 1.15, avgPos.z)
-                let tileSize = CGFloat(cellSize * (1.05 + strength * 0.55))
-                let opacity = 0.18 + (strength * 0.46)
-                let materialColor = color.withAlphaComponent(CGFloat(opacity))
-
-                if let node = heatmapNodes[key], let plane = node.geometry as? SCNPlane {
-                    node.isHidden = false
-                    node.simdPosition = displayPos
-                    plane.width = tileSize
-                    plane.height = tileSize
-                    plane.firstMaterial?.diffuse.contents = materialColor
-                    plane.firstMaterial?.emission.contents = materialColor
-                } else {
-                    let plane = SCNPlane(width: tileSize, height: tileSize)
-                    plane.firstMaterial?.lightingModel = .constant
-                    plane.firstMaterial?.diffuse.contents = materialColor
-                    plane.firstMaterial?.emission.contents = materialColor
-                    plane.firstMaterial?.emission.intensity = 0.55
-                    plane.firstMaterial?.isDoubleSided = true
-                    plane.firstMaterial?.writesToDepthBuffer = false
-                    plane.firstMaterial?.blendMode = .alpha
-
-                    let node = SCNNode(geometry: plane)
-                    node.simdPosition = displayPos
-                    node.eulerAngles = SCNVector3(-Float.pi / 2.0, 0, 0)
-                    scene.rootNode.addChildNode(node)
-                    heatmapNodes[key] = node
-                }
-            }
-
-            for (key, node) in heatmapNodes where !activeKeys.contains(key) {
-                node.isHidden = true
-            }
-        }
-
-        private func normalizedSignalStrength(_ rssi: Double) -> Float {
-            let normalized = (rssi + 90.0) / 45.0
-            return Float(min(max(normalized, 0.0), 1.0))
-        }
-
-        private func heatmapColor(for strength: Float) -> UIColor {
-            let hue = CGFloat(0.66 - (0.66 * strength))
-            return UIColor(hue: hue, saturation: 0.95, brightness: 1.0, alpha: 1.0)
-        }
-
         func updateNodes() {
             guard scnView?.scene != nil else { return }
             let now = CACurrentMediaTime()
@@ -844,8 +739,6 @@ public struct CompositeSurveyView: UIViewRepresentable {
             }
             apNodes.removeAll()
 
-            updateHeatmapNodes()
-
             if !isMapView {
                 updateRoomNodes()
             }
@@ -857,12 +750,6 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 node.removeFromParentNode()
             }
             apNodes.removeAll()
-
-            for node in heatmapNodes.values {
-                node.removeAllActions()
-                node.removeFromParentNode()
-            }
-            heatmapNodes.removeAll()
         }
     }
 }

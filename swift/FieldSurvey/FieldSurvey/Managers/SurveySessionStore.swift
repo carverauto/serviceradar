@@ -10,6 +10,7 @@ public final class SurveySessionStore: ObservableObject {
     private let fileManager = FileManager.default
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private let diskWriter = SurveySessionDiskWriter()
 
     public init() {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -21,8 +22,8 @@ public final class SurveySessionStore: ObservableObject {
         roomScanner: RoomScanner,
         wifiScanner: RealWiFiScanner,
         spectrumSummaries: [SidekickSpectrumSummary] = []
-    ) throws -> SurveySessionRecord {
-        try saveCurrentSession(
+    ) async throws -> SurveySessionRecord {
+        try await saveCurrentSession(
             id: UUID().uuidString,
             name: name,
             roomScanner: roomScanner,
@@ -40,8 +41,8 @@ public final class SurveySessionStore: ObservableObject {
         wifiScanner: RealWiFiScanner,
         spectrumSummaries: [SidekickSpectrumSummary] = [],
         includeMesh: Bool = false
-    ) throws -> SurveySessionRecord {
-        try saveCurrentSession(
+    ) async throws -> SurveySessionRecord {
+        try await saveCurrentSession(
             id: id,
             name: name,
             roomScanner: roomScanner,
@@ -58,12 +59,11 @@ public final class SurveySessionStore: ObservableObject {
         wifiScanner: RealWiFiScanner,
         spectrumSummaries: [SidekickSpectrumSummary],
         includeMesh: Bool
-    ) throws -> SurveySessionRecord {
+    ) async throws -> SurveySessionRecord {
         try ensureDirectory()
 
         let now = Date().timeIntervalSince1970
-        let existingSnapshot = loadSession(id: id)
-        let existing = existingSnapshot?.record ?? sessions.first { $0.id == id }
+        let existing = sessions.first { $0.id == id }
         let fallbackName = "Survey \(Self.sessionDateFormatter.string(from: Date()))"
         let cleanName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sessionName = (cleanName?.isEmpty == false) ? cleanName! : (existing?.name ?? fallbackName)
@@ -116,17 +116,14 @@ public final class SurveySessionStore: ObservableObject {
             heatmapPoints: heatmapPoints,
             manualLandmarks: manualLandmarks,
             roamEvents: roamRecords,
-            spectrumSummaries: spectrumSummaries.isEmpty
-                ? (existingSnapshot?.spectrumSummaries ?? [])
-                : spectrumSummaries
+            spectrumSummaries: spectrumSummaries
         )
 
-        let data = try encoder.encode(snapshot)
-        try data.write(to: sessionFileURL(for: id), options: .atomic)
+        try await diskWriter.writeSnapshot(snapshot, to: sessionFileURL(for: id))
 
         sessions.removeAll { $0.id == id }
         sessions.insert(record, at: 0)
-        saveIndex()
+        await saveIndex()
         return record
     }
 
@@ -142,7 +139,7 @@ public final class SurveySessionStore: ObservableObject {
         if fileManager.fileExists(atPath: meshURL.path) {
             try? fileManager.removeItem(at: meshURL)
         }
-        saveIndex()
+        Task { await saveIndex() }
     }
 
     public func compareAgainstCurrent(
@@ -223,11 +220,9 @@ public final class SurveySessionStore: ObservableObject {
         }
     }
 
-    private func saveIndex() {
+    private func saveIndex() async {
         try? ensureDirectory()
-        if let data = try? encoder.encode(sessions.sorted { $0.createdAt > $1.createdAt }) {
-            try? data.write(to: indexFileURL(), options: .atomic)
-        }
+        try? await diskWriter.writeIndex(sessions.sorted { $0.createdAt > $1.createdAt }, to: indexFileURL())
     }
 
     private func ensureDirectory() throws {
@@ -255,5 +250,24 @@ public final class SurveySessionStore: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter
     }()
+}
+
+private actor SurveySessionDiskWriter {
+    private let encoder: JSONEncoder
+
+    init() {
+        encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    }
+
+    func writeSnapshot(_ snapshot: SurveySessionSnapshot, to url: URL) throws {
+        let data = try encoder.encode(snapshot)
+        try data.write(to: url, options: .atomic)
+    }
+
+    func writeIndex(_ sessions: [SurveySessionRecord], to url: URL) throws {
+        let data = try encoder.encode(sessions)
+        try data.write(to: url, options: .atomic)
+    }
 }
 #endif

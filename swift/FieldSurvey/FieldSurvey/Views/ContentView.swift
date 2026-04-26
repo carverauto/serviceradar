@@ -36,6 +36,8 @@ public struct SurveyView: View {
     @State private var isExportingOfflineBundle = false
     @State private var recoveredSnapshot: SurveySessionSnapshot?
     @State private var didApplyResumeSnapshot = false
+    @State private var checkpointTask: Task<Void, Never>?
+    @State private var lastAutosavedHeatmapCount = 0
     private let autosaveTimer = Timer.publish(every: 6.0, on: .main, in: .common).autoconnect()
     
     // Core Pipeline Instantiation for God-View Ingestion
@@ -84,7 +86,7 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text(isMapView ? "Signal Map" : "LiDAR / AR Mode")
+                        Text("LiDAR / AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
@@ -249,17 +251,6 @@ public struct SurveyView: View {
                                 .background(Color.black.opacity(0.7))
                                 .clipShape(Circle())
                         }
-
-                        Button(action: {
-                            isMapView.toggle()
-                        }) {
-                            Image(systemName: isMapView ? "arkit" : "map.fill")
-                                .font(.system(size: 24))
-                                .foregroundColor(isMapView ? .cyan : .white)
-                                .padding(12)
-                                .background(Color.black.opacity(0.7))
-                                .clipShape(Circle())
-                        }
                     }
                 }
                 .padding(.top, 40)
@@ -401,10 +392,10 @@ public struct SurveyView: View {
         }
         .onReceive(autosaveTimer) { _ in
             checkpointSession(includeMesh: false, showStatus: false)
-            refreshRecoveredSnapshot()
         }
         .onChange(of: wifiScanner.heatmapPoints.count) { _, count in
-            guard count > 0, count % 5 == 0 else { return }
+            guard count >= lastAutosavedHeatmapCount + 25 else { return }
+            lastAutosavedHeatmapCount = count
             checkpointSession(includeMesh: false, showStatus: false)
         }
     }
@@ -523,25 +514,34 @@ public struct SurveyView: View {
         beginAutosaveSession()
         guard let autosaveSessionID else { return }
 
-        do {
-            let record = try sessionStore.autosaveCurrentSession(
-                id: autosaveSessionID,
-                name: autosaveSessionName,
-                roomScanner: roomScanner,
-                wifiScanner: wifiScanner,
-                spectrumSummaries: sidekickRelay.spectrumSummaries,
-                includeMesh: includeMesh
-            )
-            autosaveSessionName = record.name
-            recoveredSnapshot = sessionStore.loadSession(id: autosaveSessionID)
-            if showStatus {
-                saveStatusMessage = includeMesh ? "Checkpoint saved: \(record.name)" : "Autosaved: \(record.name)"
-                clearSaveStatus(after: 2.6)
-            }
-        } catch {
-            if showStatus {
-                saveStatusMessage = "Autosave failed: \(error.localizedDescription)"
-                clearSaveStatus(after: 3.5)
+        if !includeMesh {
+            checkpointTask?.cancel()
+        }
+
+        let sessionName = autosaveSessionName
+        let spectrumSummaries = currentSpectrumSummaries
+        checkpointTask = Task { @MainActor in
+            do {
+                let record = try await sessionStore.autosaveCurrentSession(
+                    id: autosaveSessionID,
+                    name: sessionName,
+                    roomScanner: roomScanner,
+                    wifiScanner: wifiScanner,
+                    spectrumSummaries: spectrumSummaries,
+                    includeMesh: includeMesh
+                )
+                guard !Task.isCancelled else { return }
+                autosaveSessionName = record.name
+                if showStatus {
+                    saveStatusMessage = includeMesh ? "Checkpoint saved: \(record.name)" : "Autosaved: \(record.name)"
+                    clearSaveStatus(after: 2.6)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                if showStatus {
+                    saveStatusMessage = "Autosave failed: \(error.localizedDescription)"
+                    clearSaveStatus(after: 3.5)
+                }
             }
         }
     }
@@ -598,11 +598,6 @@ public struct SurveyView: View {
         autosaveSessionName = snapshot.record.name
         sessionID = snapshot.record.id
         recoveredSnapshot = snapshot
-    }
-
-    private func refreshRecoveredSnapshot() {
-        guard let autosaveSessionID else { return }
-        recoveredSnapshot = sessionStore.loadSession(id: autosaveSessionID)
     }
 
     private func clearSaveStatus(after delay: TimeInterval) {
