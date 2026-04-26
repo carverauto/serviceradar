@@ -15,8 +15,8 @@ public struct HomeDashboardView: View {
     @State private var showSessions = false
     @State private var showSubnetIntel = false
     @State private var showAPIntel = false
-    @State private var showSignalMap = false
     @State private var resumeSnapshot: SurveySessionSnapshot?
+    @State private var reviewSnapshot: SurveySessionSnapshot?
 
     public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner, sessionStore: SurveySessionStore) {
         self.roomScanner = roomScanner
@@ -84,12 +84,12 @@ public struct HomeDashboardView: View {
                     }
 
                     HomeActionButton(
-                        title: "Signal Map",
-                        subtitle: "\(wifiScanner.heatmapPoints.count) live heat points",
+                        title: "Latest Map",
+                        subtitle: latestSessionSummary,
                         icon: "chart.dots.scatter",
                         accent: Color(red: 0.35, green: 0.86, blue: 0.38)
                     ) {
-                        showSignalMap = true
+                        openLatestSignalMap()
                     }
 
                     HomeActionButton(
@@ -196,17 +196,34 @@ public struct HomeDashboardView: View {
         .sheet(isPresented: $showAPIntel) {
             APIntelView(wifiScanner: wifiScanner)
         }
-        .sheet(isPresented: $showSignalMap) {
+        .sheet(item: $reviewSnapshot) { snapshot in
             SignalMapView(
-                title: "Live Signal Map",
-                points: wifiScanner.heatmapPoints,
-                landmarks: wifiScanner.manualAPLandmarks,
-                currentPose: wifiScanner.currentDevicePose
+                title: snapshot.record.name,
+                points: snapshot.heatmapPoints,
+                landmarks: snapshot.manualLandmarks,
+                spectrumSummary: snapshot.spectrumSummaries.last,
+                spectrumSummaries: snapshot.spectrumSummaries
             )
         }
         .sheet(isPresented: $showSubnetIntel) {
             SubnetIntelView()
         }
+    }
+
+    private var latestSessionSummary: String {
+        guard let session = sessionStore.sessions.first else {
+            return "Open saved survey results"
+        }
+        return "\(session.heatmapPointCount) heat points from latest scan"
+    }
+
+    private func openLatestSignalMap() {
+        guard let session = sessionStore.sessions.first,
+              let snapshot = sessionStore.loadSession(id: session.id) else {
+            showSessions = true
+            return
+        }
+        reviewSnapshot = snapshot
     }
 
     private func openServiceRadar() {

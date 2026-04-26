@@ -18,6 +18,28 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    @Published public var backendUsername: String {
+        didSet {
+            UserDefaults.standard.set(backendUsername, forKey: "backendUsername")
+        }
+    }
+
+    @Published public var backendPassword: String {
+        didSet {
+            if backendPassword.isEmpty {
+                KeychainStore.deleteString(for: Self.backendPasswordKeychainAccount)
+            } else {
+                KeychainStore.setString(backendPassword, for: Self.backendPasswordKeychainAccount)
+            }
+        }
+    }
+
+    @Published public var backendAuthenticatedAt: TimeInterval {
+        didSet {
+            UserDefaults.standard.set(backendAuthenticatedAt, forKey: "backendAuthenticatedAt")
+        }
+    }
+
     @Published public var sidekickURL: String {
         didSet {
             UserDefaults.standard.set(sidekickURL, forKey: "sidekickURL")
@@ -124,6 +146,7 @@ public class SettingsManager: ObservableObject {
     
     private let scannerDeviceIdValue: String
     private static let offlineToken = "OFFLINE_MODE"
+    private static let backendPasswordKeychainAccount = "serviceradar-backend-password"
 
     public var scannerDeviceId: String {
         if UserDefaults.standard.string(forKey: "scannerDeviceId") != scannerDeviceIdValue {
@@ -149,6 +172,9 @@ public class SettingsManager: ObservableObject {
         
         self.apiURL = UserDefaults.standard.string(forKey: "apiURL") ?? "https://demo.serviceradar.cloud"
         self.authToken = UserDefaults.standard.string(forKey: "authToken") ?? ""
+        self.backendUsername = UserDefaults.standard.string(forKey: "backendUsername") ?? ""
+        self.backendPassword = KeychainStore.string(for: Self.backendPasswordKeychainAccount)
+        self.backendAuthenticatedAt = UserDefaults.standard.object(forKey: "backendAuthenticatedAt") as? TimeInterval ?? 0
         let storedSidekickURL = UserDefaults.standard.string(forKey: "sidekickURL")
         self.sidekickURL = storedSidekickURL == "http://192.168.1.74:17321"
             ? "http://fieldsurvey-rpi.local:17321"
@@ -199,6 +225,12 @@ public class SettingsManager: ObservableObject {
     public func setAuthenticated(apiURL: String, token: String) {
         self.apiURL = apiURL
         self.authToken = token
+        self.backendAuthenticatedAt = Date().timeIntervalSince1970
+    }
+
+    public func setAuthenticated(apiURL: String, token: String, username: String) {
+        self.backendUsername = username
+        setAuthenticated(apiURL: apiURL, token: token)
     }
 
     public func setOfflineMode() {
@@ -206,9 +238,11 @@ public class SettingsManager: ObservableObject {
             apiURL = "https://demo.serviceradar.cloud"
         }
         authToken = Self.offlineToken
+        backendAuthenticatedAt = 0
     }
 
     public func signOut() {
         authToken = ""
+        backendAuthenticatedAt = 0
     }
 }

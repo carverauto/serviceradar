@@ -18,8 +18,6 @@ public struct SettingsView: View {
     @State private var sidekickCaptureResult: String? = nil
     @State private var isPairingSidekick = false
     @State private var sidekickPairingResult: String? = nil
-    @State private var backendUsername = ""
-    @State private var backendPassword = ""
     @State private var isAuthenticatingBackend = false
     @State private var isCheckingBackend = false
     @State private var backendAuthResult: String? = nil
@@ -88,13 +86,17 @@ public struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Sign In")
                             .font(.headline)
-                        TextField("Email or username", text: $backendUsername)
+                        TextField("Email or username", text: $settingsManager.backendUsername)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.emailAddress)
-                        SecureField("Password", text: $backendPassword)
+                        SecureField("Password", text: $settingsManager.backendPassword)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+
+                        Text("The password is stored in the iOS Keychain on this phone.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
 
                         HStack {
                             Button(isAuthenticatingBackend ? "Signing In..." : "Sign In") {
@@ -104,8 +106,8 @@ public struct SettingsView: View {
                             }
                             .disabled(
                                 isAuthenticatingBackend ||
-                                    backendUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                    backendPassword.isEmpty ||
+                                    settingsManager.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                    settingsManager.backendPassword.isEmpty ||
                                     settingsManager.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             )
 
@@ -496,8 +498,8 @@ public struct SettingsView: View {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = formEncoded([
             "grant_type": "password",
-            "username": backendUsername.trimmingCharacters(in: .whitespacesAndNewlines),
-            "password": backendPassword,
+            "username": settingsManager.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": settingsManager.backendPassword,
             "scope": "read write"
         ]).data(using: .utf8)
 
@@ -516,8 +518,11 @@ public struct SettingsView: View {
             }
 
             let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
-            settingsManager.setAuthenticated(apiURL: cleanedURL, token: tokenResponse.accessToken)
-            backendPassword = ""
+            settingsManager.setAuthenticated(
+                apiURL: cleanedURL,
+                token: tokenResponse.accessToken,
+                username: settingsManager.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
             backendAuthResult = "Signed in. Backend upload is enabled."
         } catch {
             backendAuthResult = "Login failed: \(error.localizedDescription)"
