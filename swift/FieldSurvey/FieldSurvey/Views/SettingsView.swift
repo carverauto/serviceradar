@@ -289,15 +289,15 @@ public struct SettingsView: View {
                     )
 
                     HStack {
-                        Button("2.4 + 5 GHz") {
-                            settingsManager.sidekickSpectrumMinMHz = 2400
+                        Button("5 GHz") {
+                            settingsManager.sidekickSpectrumMinMHz = 5150
                             settingsManager.sidekickSpectrumMaxMHz = 5900
                         }
 
                         Spacer()
 
-                        Button("5 GHz") {
-                            settingsManager.sidekickSpectrumMinMHz = 5150
+                        Button("2.4 + 5 GHz") {
+                            settingsManager.sidekickSpectrumMinMHz = 2400
                             settingsManager.sidekickSpectrumMaxMHz = 5900
                         }
 
