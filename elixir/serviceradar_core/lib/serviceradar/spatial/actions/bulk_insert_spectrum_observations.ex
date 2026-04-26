@@ -4,40 +4,90 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSpectrumObservations do
   """
   alias ServiceRadar.Repo
 
+  @max_rows_per_batch 2_000
+
   def run(input, _opts, _context) do
     session_id = Ash.ActionInput.get_argument(input, :session_id)
     observations = Ash.ActionInput.get_argument(input, :observations)
     inserted_at = DateTime.utc_now()
 
-    entries =
-      Enum.map(observations, fn observation ->
-        started_at_unix_nanos = Map.fetch!(observation, :started_at_unix_nanos)
-        captured_at_unix_nanos = Map.fetch!(observation, :captured_at_unix_nanos)
-
-        %{
-          session_id: session_id,
-          sidekick_id: Map.get(observation, :sidekick_id, "unknown"),
-          sdr_id: Map.get(observation, :sdr_id, "unknown"),
-          device_kind: Map.get(observation, :device_kind, "unknown"),
-          serial_number: Map.get(observation, :serial_number),
-          sweep_id: Map.get(observation, :sweep_id, 0),
-          started_at: unix_nanos_to_datetime!(started_at_unix_nanos),
-          started_at_unix_nanos: started_at_unix_nanos,
-          captured_at: unix_nanos_to_datetime!(captured_at_unix_nanos),
-          captured_at_unix_nanos: captured_at_unix_nanos,
-          start_frequency_hz: Map.get(observation, :start_frequency_hz, 0),
-          stop_frequency_hz: Map.get(observation, :stop_frequency_hz, 0),
-          bin_width_hz: Map.get(observation, :bin_width_hz, 0.0),
-          sample_count: Map.get(observation, :sample_count, 0),
-          power_bins_dbm: Map.get(observation, :power_bins_dbm, []),
-          power_features: power_features(observation),
-          inserted_at: inserted_at
-        }
-      end)
-
-    case Repo.insert_all("survey_spectrum_observations", entries, prefix: "platform") do
-      {count, _} when count == length(entries) -> {:ok, true}
+    with true <- valid_session_id?(session_id),
+         true <- is_list(observations),
+         true <- length(observations) <= @max_rows_per_batch,
+         {:ok, entries} <- build_entries(session_id, observations, inserted_at) do
+      fn ->
+        case Repo.insert_all("survey_spectrum_observations", entries, prefix: "platform") do
+          {count, _} when count == length(entries) -> true
+          _ -> Repo.rollback(:insert_count_mismatch)
+        end
+      end
+      |> Repo.transaction()
+      |> case do
+        {:ok, true} -> {:ok, true}
+        {:error, _reason} -> {:ok, false}
+      end
+    else
       _ -> {:ok, false}
+    end
+  end
+
+  defp build_entries(session_id, observations, inserted_at) do
+    observations
+    |> Enum.reduce_while({:ok, []}, fn observation, {:ok, entries} ->
+      case safe_build_entry(session_id, observation, inserted_at) do
+        {:ok, entry} -> {:cont, {:ok, [entry | entries]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, entries} -> {:ok, Enum.reverse(entries)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp safe_build_entry(session_id, observation, inserted_at) do
+    build_entry(session_id, observation, inserted_at)
+  rescue
+    _ -> {:error, :invalid_spectrum_observation}
+  end
+
+  defp build_entry(session_id, observation, inserted_at) when is_map(observation) do
+    with {:ok, started_at_unix_nanos} <- fetch_integer(observation, :started_at_unix_nanos),
+         {:ok, captured_at_unix_nanos} <- fetch_integer(observation, :captured_at_unix_nanos),
+         true <- is_list(Map.get(observation, :power_bins_dbm, [])) do
+      {:ok,
+       %{
+         session_id: session_id,
+         sidekick_id: Map.get(observation, :sidekick_id, "unknown"),
+         sdr_id: Map.get(observation, :sdr_id, "unknown"),
+         device_kind: Map.get(observation, :device_kind, "unknown"),
+         serial_number: Map.get(observation, :serial_number),
+         sweep_id: Map.get(observation, :sweep_id, 0),
+         started_at: unix_nanos_to_datetime!(started_at_unix_nanos),
+         started_at_unix_nanos: started_at_unix_nanos,
+         captured_at: unix_nanos_to_datetime!(captured_at_unix_nanos),
+         captured_at_unix_nanos: captured_at_unix_nanos,
+         start_frequency_hz: Map.get(observation, :start_frequency_hz, 0),
+         stop_frequency_hz: Map.get(observation, :stop_frequency_hz, 0),
+         bin_width_hz: Map.get(observation, :bin_width_hz, 0.0),
+         sample_count: Map.get(observation, :sample_count, 0),
+         power_bins_dbm: Map.get(observation, :power_bins_dbm, []),
+         power_features: power_features(observation),
+         inserted_at: inserted_at
+       }}
+    else
+      _ -> {:error, :invalid_spectrum_observation}
+    end
+  end
+
+  defp build_entry(_session_id, _observation, _inserted_at), do: {:error, :invalid_spectrum_observation}
+
+  defp valid_session_id?(session_id), do: is_binary(session_id) and byte_size(session_id) <= 128
+
+  defp fetch_integer(map, key) do
+    case Map.fetch(map, key) do
+      {:ok, value} when is_integer(value) -> {:ok, value}
+      _ -> {:error, {:invalid_integer, key}}
     end
   end
 

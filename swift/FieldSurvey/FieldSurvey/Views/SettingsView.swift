@@ -148,6 +148,7 @@ public struct SettingsView: View {
                                 await checkBackend()
                             }
                         }
+                        .buttonStyle(.borderedProminent)
                         .disabled(isCheckingBackend || isAuthenticatingBackend || !settingsManager.backendUploadEnabled)
 
                         if isAuthenticatingBackend || isCheckingBackend {
@@ -374,6 +375,7 @@ public struct SettingsView: View {
             })
         }
         .preferredColorScheme(.dark)
+        .interactiveDismissDisabled(isAuthenticatingBackend || isCheckingBackend)
         .alert("Backend Status", isPresented: $showBackendResultAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -581,7 +583,7 @@ public struct SettingsView: View {
 
         let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
         let outcome = await validateBackend(cleanedURL: cleanedURL, authToken: authToken)
-        setBackendResult(outcome.message, tone: outcome.tone, showAlert: true)
+        setBackendResult(outcome.message, tone: outcome.tone, showAlert: false)
         isCheckingBackend = false
     }
 

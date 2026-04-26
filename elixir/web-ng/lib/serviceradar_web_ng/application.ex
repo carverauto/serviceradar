@@ -52,7 +52,10 @@ defmodule ServiceRadarWebNG.Application do
     children =
       pubsub_children ++
         base_children ++
-        [{Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}]
+        [
+          ServiceRadarWebNG.FieldSurveyStreamLimiter,
+          {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
+        ]
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()

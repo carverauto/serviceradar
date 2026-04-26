@@ -712,10 +712,15 @@ async fn stream_spectrum_summaries(
 async fn send_spectrum_summary(socket: &mut WebSocket, summary: &SpectrumSummary) -> bool {
     match serde_json::to_string(summary) {
         Ok(payload) => socket.send(Message::Text(payload)).await.is_ok(),
-        Err(error) => socket
-            .send(Message::Text(format!(r#"{{"error":"{error}"}}"#)))
-            .await
-            .is_ok(),
+        Err(error) => {
+            let payload = serde_json::json!({
+                "error": error.to_string(),
+            });
+            socket
+                .send(Message::Text(payload.to_string()))
+                .await
+                .is_ok()
+        }
     }
 }
 
@@ -851,15 +856,16 @@ fn unix_secs_now() -> u64 {
 }
 
 fn constant_time_eq(expected: &[u8], actual: &[u8]) -> bool {
-    if expected.len() != actual.len() {
-        return false;
+    let mut diff = expected.len() ^ actual.len();
+    let max_len = expected.len().max(actual.len());
+
+    for idx in 0..max_len {
+        let left = expected.get(idx).copied().unwrap_or_default();
+        let right = actual.get(idx).copied().unwrap_or_default();
+        diff |= usize::from(left ^ right);
     }
 
-    expected
-        .iter()
-        .zip(actual.iter())
-        .fold(0_u8, |acc, (left, right)| acc | (left ^ right))
-        == 0
+    diff == 0
 }
 
 fn default_sidekick_id() -> String {

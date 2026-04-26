@@ -393,29 +393,17 @@ fn extract_fieldsurvey_rf_rows(
     let interface_names = required_string_column(batch, "interface_name")?;
     let bssids = required_string_column(batch, "bssid")?;
     let ssids = optional_string_column(batch, "ssid")?;
-    let hidden_ssids = batch
-        .column_by_name("hidden_ssid")
-        .ok_or(rustler::Error::BadArg)?
-        .as_boolean();
+    let hidden_ssids = required_boolean_column(batch, "hidden_ssid")?;
     let frame_types = required_string_column(batch, "frame_type")?;
     let rssi_dbms = optional_i16_column(batch, "rssi_dbm")?;
     let noise_floor_dbms = optional_i16_column(batch, "noise_floor_dbm")?;
     let snr_dbs = optional_i16_column(batch, "snr_db")?;
-    let frequency_mhzes = batch
-        .column_by_name("frequency_mhz")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::UInt32Type>();
+    let frequency_mhzes = required_u32_column(batch, "frequency_mhz")?;
     let channels = optional_u16_column(batch, "channel")?;
     let channel_width_mhzes = optional_u16_column(batch, "channel_width_mhz")?;
-    let captured_at_unix_nanoses = batch
-        .column_by_name("captured_at_unix_nanos")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Int64Type>();
+    let captured_at_unix_nanoses = required_i64_column(batch, "captured_at_unix_nanos")?;
     let captured_at_monotonic_nanoses = optional_u64_column(batch, "captured_at_monotonic_nanos")?;
-    let parser_confidences = batch
-        .column_by_name("parser_confidence")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
+    let parser_confidences = required_f32_column(batch, "parser_confidence")?;
 
     for i in 0..batch.num_rows() {
         rows.push(FieldSurveyRfObservationRow {
@@ -449,31 +437,13 @@ fn extract_fieldsurvey_spectrum_rows(
     let sdr_ids = required_string_column(batch, "sdr_id")?;
     let device_kinds = required_string_column(batch, "device_kind")?;
     let serial_numbers = optional_string_column(batch, "serial_number")?;
-    let sweep_ids = batch
-        .column_by_name("sweep_id")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::UInt64Type>();
-    let started_at_unix_nanoses = batch
-        .column_by_name("started_at_unix_nanos")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Int64Type>();
-    let captured_at_unix_nanoses = batch
-        .column_by_name("captured_at_unix_nanos")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Int64Type>();
-    let start_frequency_hzes = batch
-        .column_by_name("start_frequency_hz")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::UInt64Type>();
-    let stop_frequency_hzes = batch
-        .column_by_name("stop_frequency_hz")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::UInt64Type>();
+    let sweep_ids = required_u64_column(batch, "sweep_id")?;
+    let started_at_unix_nanoses = required_i64_column(batch, "started_at_unix_nanos")?;
+    let captured_at_unix_nanoses = required_i64_column(batch, "captured_at_unix_nanos")?;
+    let start_frequency_hzes = required_u64_column(batch, "start_frequency_hz")?;
+    let stop_frequency_hzes = required_u64_column(batch, "stop_frequency_hz")?;
     let bin_width_hzes = required_f32_column(batch, "bin_width_hz")?;
-    let sample_counts = batch
-        .column_by_name("sample_count")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::UInt32Type>();
+    let sample_counts = required_u32_column(batch, "sample_count")?;
     let power_bins_dbms = extract_vector_column(batch, "power_bins_dbm")?;
 
     for i in 0..batch.num_rows() {
@@ -501,10 +471,7 @@ fn extract_fieldsurvey_pose_rows(
     rows: &mut Vec<FieldSurveyPoseSampleRow>,
 ) -> Result<(), rustler::Error> {
     let scanner_device_ids = required_string_column(batch, "scanner_device_id")?;
-    let captured_at_unix_nanoses = batch
-        .column_by_name("captured_at_unix_nanos")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Int64Type>();
+    let captured_at_unix_nanoses = required_i64_column(batch, "captured_at_unix_nanos")?;
     let captured_at_monotonic_nanoses = optional_u64_column(batch, "captured_at_monotonic_nanos")?;
     let xs = required_f32_column(batch, "x")?;
     let ys = required_f32_column(batch, "y")?;
@@ -546,19 +513,27 @@ fn required_string_column<'a>(
     batch: &'a RecordBatch,
     column_name: &str,
 ) -> Result<&'a arrow_array::array::GenericStringArray<i32>, rustler::Error> {
-    Ok(batch
+    batch
         .column_by_name(column_name)
         .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>())
+        .as_any()
+        .downcast_ref::<arrow_array::array::GenericStringArray<i32>>()
+        .ok_or(rustler::Error::BadArg)
 }
 
 fn optional_string_column<'a>(
     batch: &'a RecordBatch,
     column_name: &str,
 ) -> Result<Option<&'a arrow_array::array::GenericStringArray<i32>>, rustler::Error> {
-    Ok(batch
+    batch
         .column_by_name(column_name)
-        .map(|column| column.as_string::<i32>()))
+        .map(|column| {
+            column
+                .as_any()
+                .downcast_ref::<arrow_array::array::GenericStringArray<i32>>()
+                .ok_or(rustler::Error::BadArg)
+        })
+        .transpose()
 }
 
 fn string_value(
@@ -590,9 +565,7 @@ fn optional_i16_column<'a>(
     column_name: &str,
 ) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Int16Type>>, rustler::Error>
 {
-    Ok(batch
-        .column_by_name(column_name)
-        .map(|column| column.as_primitive::<arrow_array::types::Int16Type>()))
+    optional_primitive_column::<arrow_array::types::Int16Type>(batch, column_name)
 }
 
 fn optional_u16_column<'a>(
@@ -600,9 +573,7 @@ fn optional_u16_column<'a>(
     column_name: &str,
 ) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt16Type>>, rustler::Error>
 {
-    Ok(batch
-        .column_by_name(column_name)
-        .map(|column| column.as_primitive::<arrow_array::types::UInt16Type>()))
+    optional_primitive_column::<arrow_array::types::UInt16Type>(batch, column_name)
 }
 
 fn optional_u64_column<'a>(
@@ -610,19 +581,42 @@ fn optional_u64_column<'a>(
     column_name: &str,
 ) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>>, rustler::Error>
 {
-    Ok(batch
-        .column_by_name(column_name)
-        .map(|column| column.as_primitive::<arrow_array::types::UInt64Type>()))
+    optional_primitive_column::<arrow_array::types::UInt64Type>(batch, column_name)
+}
+
+fn required_i64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Int64Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::Int64Type>(batch, column_name)
+}
+
+fn required_u32_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt32Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::UInt32Type>(batch, column_name)
+}
+
+fn required_u64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::UInt64Type>(batch, column_name)
+}
+
+fn required_f64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Float64Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::Float64Type>(batch, column_name)
 }
 
 fn required_f32_column<'a>(
     batch: &'a RecordBatch,
     column_name: &str,
 ) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>, rustler::Error> {
-    Ok(batch
-        .column_by_name(column_name)
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>())
+    required_primitive_column::<arrow_array::types::Float32Type>(batch, column_name)
 }
 
 fn optional_f32_column<'a>(
@@ -630,9 +624,7 @@ fn optional_f32_column<'a>(
     column_name: &str,
 ) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>>, rustler::Error>
 {
-    Ok(batch
-        .column_by_name(column_name)
-        .map(|column| column.as_primitive::<arrow_array::types::Float32Type>()))
+    optional_primitive_column::<arrow_array::types::Float32Type>(batch, column_name)
 }
 
 fn optional_f64_column<'a>(
@@ -640,9 +632,52 @@ fn optional_f64_column<'a>(
     column_name: &str,
 ) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Float64Type>>, rustler::Error>
 {
-    Ok(batch
+    optional_primitive_column::<arrow_array::types::Float64Type>(batch, column_name)
+}
+
+fn required_boolean_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::BooleanArray, rustler::Error> {
+    batch
         .column_by_name(column_name)
-        .map(|column| column.as_primitive::<arrow_array::types::Float64Type>()))
+        .ok_or(rustler::Error::BadArg)?
+        .as_any()
+        .downcast_ref::<arrow_array::BooleanArray>()
+        .ok_or(rustler::Error::BadArg)
+}
+
+fn required_primitive_column<'a, T>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<T>, rustler::Error>
+where
+    T: arrow_array::types::ArrowPrimitiveType,
+{
+    batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?
+        .as_any()
+        .downcast_ref::<arrow_array::PrimitiveArray<T>>()
+        .ok_or(rustler::Error::BadArg)
+}
+
+fn optional_primitive_column<'a, T>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::PrimitiveArray<T>>, rustler::Error>
+where
+    T: arrow_array::types::ArrowPrimitiveType,
+{
+    batch
+        .column_by_name(column_name)
+        .map(|column| {
+            column
+                .as_any()
+                .downcast_ref::<arrow_array::PrimitiveArray<T>>()
+                .ok_or(rustler::Error::BadArg)
+        })
+        .transpose()
 }
 
 fn optional_i16_value(
@@ -715,64 +750,22 @@ pub(crate) fn extract_rows(
     batch: &RecordBatch,
     rows: &mut Vec<SurveySampleRow>,
 ) -> Result<(), rustler::Error> {
-    let timestamps = batch
-        .column_by_name("timestamp")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let scanner_device_ids = batch
-        .column_by_name("scannerDeviceId")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let bssids = batch
-        .column_by_name("bssid")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let ssids = batch
-        .column_by_name("ssid")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let rssis = batch
-        .column_by_name("rssi")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let frequencies = batch
-        .column_by_name("frequency")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Int64Type>();
-    let security_types = batch
-        .column_by_name("securityType")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let is_secures = batch
-        .column_by_name("isSecure")
-        .ok_or(rustler::Error::BadArg)?
-        .as_boolean();
+    let timestamps = required_f64_column(batch, "timestamp")?;
+    let scanner_device_ids = required_string_column(batch, "scannerDeviceId")?;
+    let bssids = required_string_column(batch, "bssid")?;
+    let ssids = required_string_column(batch, "ssid")?;
+    let rssis = required_f64_column(batch, "rssi")?;
+    let frequencies = required_i64_column(batch, "frequency")?;
+    let security_types = required_string_column(batch, "securityType")?;
+    let is_secures = required_boolean_column(batch, "isSecure")?;
     let rf_vectors = extract_vector_column(batch, "rfVector")?;
     let ble_vectors = extract_vector_column(batch, "bleVector")?;
-    let xs = batch
-        .column_by_name("x")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
-    let ys = batch
-        .column_by_name("y")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
-    let zs = batch
-        .column_by_name("z")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
-    let lats = batch
-        .column_by_name("latitude")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let lons = batch
-        .column_by_name("longitude")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let uncertainties = batch
-        .column_by_name("uncertainty")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
+    let xs = required_f32_column(batch, "x")?;
+    let ys = required_f32_column(batch, "y")?;
+    let zs = required_f32_column(batch, "z")?;
+    let lats = required_f64_column(batch, "latitude")?;
+    let lons = required_f64_column(batch, "longitude")?;
+    let uncertainties = required_f32_column(batch, "uncertainty")?;
 
     for i in 0..batch.num_rows() {
         rows.push(SurveySampleRow {
@@ -810,13 +803,19 @@ pub(crate) fn extract_vector_column(
         DataType::List(_) => list_column_to_vectors_i32(column),
         DataType::LargeList(_) => list_column_to_vectors_i64(column),
         DataType::Utf8 => {
-            let values = column.as_string::<i32>();
+            let values = column
+                .as_any()
+                .downcast_ref::<arrow_array::array::GenericStringArray<i32>>()
+                .ok_or(rustler::Error::BadArg)?;
             Ok((0..batch.num_rows())
                 .map(|i| parse_vector_csv(values.value(i)))
                 .collect())
         }
         DataType::LargeUtf8 => {
-            let values = column.as_string::<i64>();
+            let values = column
+                .as_any()
+                .downcast_ref::<arrow_array::array::GenericStringArray<i64>>()
+                .ok_or(rustler::Error::BadArg)?;
             Ok((0..batch.num_rows())
                 .map(|i| parse_vector_csv(values.value(i)))
                 .collect())
@@ -828,14 +827,20 @@ pub(crate) fn extract_vector_column(
 pub(crate) fn list_column_to_vectors_i32(
     column: &arrow_array::ArrayRef,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
-    let list = column.as_list::<i32>();
+    let list = column
+        .as_any()
+        .downcast_ref::<arrow_array::array::GenericListArray<i32>>()
+        .ok_or(rustler::Error::BadArg)?;
     list_column_to_vectors(list)
 }
 
 pub(crate) fn list_column_to_vectors_i64(
     column: &arrow_array::ArrayRef,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
-    let list = column.as_list::<i64>();
+    let list = column
+        .as_any()
+        .downcast_ref::<arrow_array::array::GenericListArray<i64>>()
+        .ok_or(rustler::Error::BadArg)?;
     list_column_to_vectors(list)
 }
 

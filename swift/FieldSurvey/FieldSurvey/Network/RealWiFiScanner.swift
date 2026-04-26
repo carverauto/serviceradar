@@ -25,6 +25,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private let manualAPStoreKey = "manualAPLandmarks"
     private var lastHeatmapSampleByBSSID: [String: (timestamp: TimeInterval, position: SIMD3<Float>)] = [:]
     private let maxHeatmapPoints = 3200
+    private let stationaryHeatmapRadiusMeters: Float = 0.55
+    private var lastAcceptedHeatmapPose: SIMD3<Float>?
     private var lastPoseHeatmapCaptureTime: TimeInterval = 0
     private var pendingPoseHeatmapPosition: SIMD3<Float>?
     private var poseHeatmapFlushScheduled = false
@@ -82,6 +84,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             apLocalizer.clear()
             heatmapPoints.removeAll()
             lastHeatmapSampleByBSSID.removeAll()
+            lastAcceptedHeatmapPose = nil
         }
     }
 
@@ -132,7 +135,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
-        pendingPoseHeatmapPosition = position
+        pendingPoseHeatmapPosition = stabilizedHeatmapPosition(for: position)
         guard !poseHeatmapFlushScheduled else { return }
         poseHeatmapFlushScheduled = true
 
@@ -173,13 +176,14 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     public func ingestSidekickObservations(_ observations: [SidekickObservation]) {
         guard SettingsManager.shared.rfScanningEnabled else { return }
         guard !observations.isEmpty else { return }
+        let heatmapPose = latestDevicePose.map { stabilizedHeatmapPosition(for: $0) }
 
         ingestSampleEvents(
             sidekickAdapter.events(
                 from: observations,
                 context: SidekickScannerAdapterContext(
                     scannerDeviceID: SettingsManager.shared.scannerDeviceId,
-                    latestDevicePose: latestDevicePose,
+                    latestDevicePose: heatmapPose,
                     location: lastLocation
                 )
             )
@@ -348,6 +352,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         for point in snapshot.heatmapPoints.suffix(400) {
             lastHeatmapSampleByBSSID[point.bssid] = (timestamp: point.timestamp, position: point.position)
         }
+        lastAcceptedHeatmapPose = snapshot.heatmapPoints.last?.position
 
         manualAPLandmarks = snapshot.manualLandmarks
         persistManualAPLandmarks()
@@ -499,6 +504,21 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         if heatmapPoints.count > maxHeatmapPoints {
             heatmapPoints.removeFirst(heatmapPoints.count - maxHeatmapPoints)
         }
+    }
+
+    private func stabilizedHeatmapPosition(for position: SIMD3<Float>) -> SIMD3<Float> {
+        guard let previous = lastAcceptedHeatmapPose else {
+            lastAcceptedHeatmapPose = position
+            return position
+        }
+
+        let horizontalDelta = SIMD2<Float>(position.x - previous.x, position.z - previous.z)
+        if simd_length(horizontalDelta) < stationaryHeatmapRadiusMeters {
+            return previous
+        }
+
+        lastAcceptedHeatmapPose = position
+        return position
     }
 
     private func streamPoseIfNeeded(

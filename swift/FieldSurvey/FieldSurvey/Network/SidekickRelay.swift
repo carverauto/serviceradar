@@ -15,8 +15,23 @@ public enum FieldSurveyBackendStream: String {
     case spectrumObservations = "spectrum-observations"
 }
 
+private actor FieldSurveyBackendSendQueue {
+    func send(_ payload: Data, task: URLSessionWebSocketTask) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            task.send(.data(payload)) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+}
+
 public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
     private let task: URLSessionWebSocketTask
+    private let sendQueue = FieldSurveyBackendSendQueue()
     private let logger: Logger
     public let url: URL
 
@@ -53,15 +68,7 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
     }
 
     public func send(_ payload: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            task.send(.data(payload)) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
+        try await sendQueue.send(payload, task: task)
     }
 
     public func close() {
@@ -145,6 +152,11 @@ public final class SidekickRelay: ObservableObject {
     private var relayGeneration = 0
 
     public init() {}
+
+    deinit {
+        tasks.forEach { $0.cancel() }
+        sinks.forEach { $0.close() }
+    }
 
     public var displayWarning: String? {
         backendWarning ?? spectrumWarning
