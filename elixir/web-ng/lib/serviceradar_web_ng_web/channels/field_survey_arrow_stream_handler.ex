@@ -5,9 +5,12 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   @behaviour WebSock
 
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.FieldSurveyStreamLimiter
   alias ServiceRadarWebNG.Topology.Native
 
   require Logger
+
+  @max_frame_size 8 * 1024 * 1024
 
   @impl true
   def init(options) do
@@ -15,28 +18,50 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
     user_id = Keyword.fetch!(options, :user_id)
     stream_type = Keyword.fetch!(options, :stream_type)
 
-    Logger.info("FieldSurvey #{stream_type} stream initialized [session: #{session_id}, user: #{user_id}]")
+    state =
+      %{
+        session_id: session_id,
+        user_id: user_id,
+        stream_type: stream_type,
+        limiter_token: nil,
+        acquire_stream: Keyword.get(options, :acquire_stream, &FieldSurveyStreamLimiter.acquire/2),
+        release_stream: Keyword.get(options, :release_stream, &FieldSurveyStreamLimiter.release/1),
+        decode_rf_payload: Keyword.get(options, :decode_rf_payload, &decode_rf_payload/1),
+        decode_pose_payload: Keyword.get(options, :decode_pose_payload, &decode_pose_payload/1),
+        decode_spectrum_payload: Keyword.get(options, :decode_spectrum_payload, &decode_spectrum_payload/1),
+        bulk_insert_rf: Keyword.get(options, :bulk_insert_rf, &bulk_insert_rf/2),
+        bulk_insert_pose: Keyword.get(options, :bulk_insert_pose, &bulk_insert_pose/2),
+        bulk_insert_spectrum: Keyword.get(options, :bulk_insert_spectrum, &bulk_insert_spectrum/2),
+        archive_frame: Keyword.get(options, :archive_frame, &archive_frame/2),
+        message_count: 0,
+        bytes_received: 0,
+        rows_received: 0,
+        frames_archived: 0
+      }
 
-    {:ok,
-     %{
-       session_id: session_id,
-       user_id: user_id,
-       stream_type: stream_type,
-       decode_rf_payload: Keyword.get(options, :decode_rf_payload, &decode_rf_payload/1),
-       decode_pose_payload: Keyword.get(options, :decode_pose_payload, &decode_pose_payload/1),
-       decode_spectrum_payload: Keyword.get(options, :decode_spectrum_payload, &decode_spectrum_payload/1),
-       bulk_insert_rf: Keyword.get(options, :bulk_insert_rf, &bulk_insert_rf/2),
-       bulk_insert_pose: Keyword.get(options, :bulk_insert_pose, &bulk_insert_pose/2),
-       bulk_insert_spectrum: Keyword.get(options, :bulk_insert_spectrum, &bulk_insert_spectrum/2),
-       archive_frame: Keyword.get(options, :archive_frame, &archive_frame/2),
-       message_count: 0,
-       bytes_received: 0,
-       rows_received: 0,
-       frames_archived: 0
-     }}
+    case state.acquire_stream.(to_string(user_id), session_id) do
+      {:ok, limiter_token} ->
+        Logger.info("FieldSurvey #{stream_type} stream initialized [session: #{session_id}, user: #{user_id}]")
+        {:ok, %{state | limiter_token: limiter_token}}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Rejecting FieldSurvey #{stream_type} stream [session: #{session_id}, user: #{user_id}, reason: #{inspect(reason)}]"
+        )
+
+        {:stop, :normal, {1013, "too many FieldSurvey streams"}, state}
+    end
   end
 
   @impl true
+  def handle_in({data, [opcode: :binary]}, state) when byte_size(data) > @max_frame_size do
+    Logger.warning(
+      "FieldSurvey #{state.stream_type} frame too large [session: #{state.session_id}, bytes: #{byte_size(data)}]"
+    )
+
+    {:stop, :normal, {1009, "FieldSurvey frame too large"}, state}
+  end
+
   def handle_in({data, [opcode: :binary]}, state) do
     new_state = %{
       state
@@ -70,6 +95,8 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
 
   @impl true
   def terminate(reason, state) do
+    state.release_stream.(state.limiter_token)
+
     Logger.info(
       "FieldSurvey #{state.stream_type} stream closed [session: #{state.session_id}, reason: #{inspect(reason)}, msgs: #{state.message_count}, bytes: #{state.bytes_received}, rows: #{state.rows_received}, archived_frames: #{state.frames_archived}]"
     )

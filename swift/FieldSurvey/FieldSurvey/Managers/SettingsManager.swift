@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-/// Manages application-wide settings for the FieldSurvey app, persisting them to UserDefaults.
+/// Manages application-wide settings for the FieldSurvey app.
 @MainActor
 public class SettingsManager: ObservableObject {
     @MainActor public static let shared = SettingsManager()
@@ -14,7 +14,7 @@ public class SettingsManager: ObservableObject {
     
     @Published public var authToken: String {
         didSet {
-            UserDefaults.standard.set(authToken, forKey: "authToken")
+            Self.persistSecret(authToken, account: Self.backendAuthTokenKeychainAccount)
         }
     }
 
@@ -48,7 +48,7 @@ public class SettingsManager: ObservableObject {
 
     @Published public var sidekickAuthToken: String {
         didSet {
-            UserDefaults.standard.set(sidekickAuthToken, forKey: "sidekickAuthToken")
+            Self.persistSecret(sidekickAuthToken, account: Self.sidekickAuthTokenKeychainAccount)
         }
     }
 
@@ -146,7 +146,9 @@ public class SettingsManager: ObservableObject {
     
     private let scannerDeviceIdValue: String
     private static let offlineToken = "OFFLINE_MODE"
+    private static let backendAuthTokenKeychainAccount = "serviceradar-backend-auth-token"
     private static let backendPasswordKeychainAccount = "serviceradar-backend-password"
+    private static let sidekickAuthTokenKeychainAccount = "fieldsurvey-sidekick-auth-token"
 
     public var scannerDeviceId: String {
         if UserDefaults.standard.string(forKey: "scannerDeviceId") != scannerDeviceIdValue {
@@ -171,7 +173,10 @@ public class SettingsManager: ObservableObject {
         self.arPriorityModeEnabled = UserDefaults.standard.object(forKey: "arPriorityModeEnabled") as? Bool ?? true
         
         self.apiURL = UserDefaults.standard.string(forKey: "apiURL") ?? "https://demo.serviceradar.cloud"
-        self.authToken = UserDefaults.standard.string(forKey: "authToken") ?? ""
+        self.authToken = Self.migratedSecret(
+            account: Self.backendAuthTokenKeychainAccount,
+            legacyDefaultsKey: "authToken"
+        )
         self.backendUsername = UserDefaults.standard.string(forKey: "backendUsername") ?? ""
         self.backendPassword = KeychainStore.string(for: Self.backendPasswordKeychainAccount)
         self.backendAuthenticatedAt = UserDefaults.standard.object(forKey: "backendAuthenticatedAt") as? TimeInterval ?? 0
@@ -179,7 +184,10 @@ public class SettingsManager: ObservableObject {
         self.sidekickURL = storedSidekickURL == "http://192.168.1.74:17321"
             ? "http://fieldsurvey-rpi.local:17321"
             : (storedSidekickURL ?? "http://fieldsurvey-rpi.local:17321")
-        self.sidekickAuthToken = UserDefaults.standard.string(forKey: "sidekickAuthToken") ?? ""
+        self.sidekickAuthToken = Self.migratedSecret(
+            account: Self.sidekickAuthTokenKeychainAccount,
+            legacyDefaultsKey: "sidekickAuthToken"
+        )
         self.sidekickRadioConfig = UserDefaults.standard.string(forKey: "sidekickRadioConfig") ?? "auto"
         self.sidekickUplinkInterface = UserDefaults.standard.string(forKey: "sidekickUplinkInterface") ?? "wlan0"
         self.sidekickUplinkSSID = UserDefaults.standard.string(forKey: "sidekickUplinkSSID") ?? ""
@@ -255,5 +263,26 @@ public class SettingsManager: ObservableObject {
     public func signOut() {
         authToken = ""
         backendAuthenticatedAt = 0
+    }
+
+    private static func migratedSecret(account: String, legacyDefaultsKey: String) -> String {
+        let keychainValue = KeychainStore.string(for: account)
+        let legacyValue = UserDefaults.standard.string(forKey: legacyDefaultsKey) ?? ""
+        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+
+        guard keychainValue.isEmpty, !legacyValue.isEmpty else {
+            return keychainValue
+        }
+
+        KeychainStore.setString(legacyValue, for: account)
+        return legacyValue
+    }
+
+    private static func persistSecret(_ value: String, account: String) {
+        if value.isEmpty {
+            KeychainStore.deleteString(for: account)
+        } else {
+            KeychainStore.setString(value, for: account)
+        }
     }
 }

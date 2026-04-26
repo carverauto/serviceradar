@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     parent = self()
 
     {:ok, state} =
-      FieldSurveyArrowStreamHandler.init(
+      init_handler(
         session_id: "survey-rf",
         user_id: "user-1",
         stream_type: :rf_observations,
@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     parent = self()
 
     {:ok, state} =
-      FieldSurveyArrowStreamHandler.init(
+      init_handler(
         session_id: "survey-pose",
         user_id: "user-1",
         stream_type: :pose_samples,
@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     parent = self()
 
     {:ok, state} =
-      FieldSurveyArrowStreamHandler.init(
+      init_handler(
         session_id: "survey-spectrum",
         user_id: "user-1",
         stream_type: :spectrum_observations,
@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     parent = self()
 
     {:ok, state} =
-      FieldSurveyArrowStreamHandler.init(
+      init_handler(
         session_id: "survey-bad",
         user_id: "user-1",
         stream_type: :rf_observations,
@@ -139,12 +139,45 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
 
   test "ignores text frames" do
     {:ok, state} =
-      FieldSurveyArrowStreamHandler.init(
+      init_handler(
         session_id: "survey-text",
         user_id: "user-1",
         stream_type: :rf_observations
       )
 
     assert {:ok, ^state} = FieldSurveyArrowStreamHandler.handle_in({"hello", [opcode: :text]}, state)
+  end
+
+  test "rejects oversized binary frames before decoding" do
+    {:ok, state} =
+      init_handler(
+        session_id: "survey-large",
+        user_id: "user-1",
+        stream_type: :rf_observations
+      )
+
+    oversized_payload = :binary.copy(<<0>>, 8 * 1024 * 1024 + 1)
+
+    assert {:stop, :normal, {1009, "FieldSurvey frame too large"}, ^state} =
+             FieldSurveyArrowStreamHandler.handle_in({oversized_payload, [opcode: :binary]}, state)
+  end
+
+  test "rejects streams when the limiter denies the session" do
+    assert {:stop, :normal, {1013, "too many FieldSurvey streams"}, _state} =
+             init_handler(
+               session_id: "survey-limited",
+               user_id: "user-1",
+               stream_type: :rf_observations,
+               acquire_stream: fn _user_id, _session_id -> {:error, :too_many_user_streams} end
+             )
+  end
+
+  defp init_handler(opts) do
+    default_opts = [
+      acquire_stream: fn _user_id, _session_id -> {:ok, nil} end,
+      release_stream: fn _token -> :ok end
+    ]
+
+    FieldSurveyArrowStreamHandler.init(Keyword.merge(default_opts, opts))
   end
 end

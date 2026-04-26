@@ -4,42 +4,89 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
   """
   alias ServiceRadar.Repo
 
+  @max_rows_per_batch 10_000
+
   def run(input, _opts, _context) do
     session_id = Ash.ActionInput.get_argument(input, :session_id)
     observations = Ash.ActionInput.get_argument(input, :observations)
     inserted_at = DateTime.utc_now()
 
-    entries =
-      Enum.map(observations, fn observation ->
-        captured_at_unix_nanos = Map.fetch!(observation, :captured_at_unix_nanos)
-
-        %{
-          session_id: session_id,
-          sidekick_id: Map.get(observation, :sidekick_id, "unknown"),
-          radio_id: Map.get(observation, :radio_id, "unknown"),
-          interface_name: Map.get(observation, :interface_name, "unknown"),
-          bssid: Map.get(observation, :bssid, ""),
-          ssid: Map.get(observation, :ssid),
-          hidden_ssid: Map.get(observation, :hidden_ssid, true),
-          frame_type: Map.get(observation, :frame_type, "other"),
-          rssi_dbm: Map.get(observation, :rssi_dbm),
-          noise_floor_dbm: Map.get(observation, :noise_floor_dbm),
-          snr_db: Map.get(observation, :snr_db),
-          frequency_mhz: Map.get(observation, :frequency_mhz, 0),
-          channel: Map.get(observation, :channel),
-          channel_width_mhz: Map.get(observation, :channel_width_mhz),
-          captured_at: unix_nanos_to_datetime!(captured_at_unix_nanos),
-          captured_at_unix_nanos: captured_at_unix_nanos,
-          captured_at_monotonic_nanos: Map.get(observation, :captured_at_monotonic_nanos),
-          parser_confidence: Map.get(observation, :parser_confidence, 0.0),
-          rf_features: rf_features(observation),
-          inserted_at: inserted_at
-        }
-      end)
-
-    case Repo.insert_all("survey_rf_observations", entries, prefix: "platform") do
-      {count, _} when count == length(entries) -> {:ok, true}
+    with true <- valid_session_id?(session_id),
+         true <- is_list(observations),
+         true <- length(observations) <= @max_rows_per_batch,
+         {:ok, entries} <- build_entries(session_id, observations, inserted_at) do
+      fn ->
+        case Repo.insert_all("survey_rf_observations", entries, prefix: "platform") do
+          {count, _} when count == length(entries) -> true
+          _ -> Repo.rollback(:insert_count_mismatch)
+        end
+      end
+      |> Repo.transaction()
+      |> case do
+        {:ok, true} -> {:ok, true}
+        {:error, _reason} -> {:ok, false}
+      end
+    else
       _ -> {:ok, false}
+    end
+  end
+
+  defp build_entries(session_id, observations, inserted_at) do
+    observations
+    |> Enum.reduce_while({:ok, []}, fn observation, {:ok, entries} ->
+      case safe_build_entry(session_id, observation, inserted_at) do
+        {:ok, entry} -> {:cont, {:ok, [entry | entries]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, entries} -> {:ok, Enum.reverse(entries)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp safe_build_entry(session_id, observation, inserted_at) do
+    build_entry(session_id, observation, inserted_at)
+  rescue
+    _ -> {:error, :invalid_observation}
+  end
+
+  defp build_entry(session_id, observation, inserted_at) when is_map(observation) do
+    with {:ok, captured_at_unix_nanos} <- fetch_integer(observation, :captured_at_unix_nanos) do
+      {:ok,
+       %{
+         session_id: session_id,
+         sidekick_id: Map.get(observation, :sidekick_id, "unknown"),
+         radio_id: Map.get(observation, :radio_id, "unknown"),
+         interface_name: Map.get(observation, :interface_name, "unknown"),
+         bssid: Map.get(observation, :bssid, ""),
+         ssid: Map.get(observation, :ssid),
+         hidden_ssid: Map.get(observation, :hidden_ssid, true),
+         frame_type: Map.get(observation, :frame_type, "other"),
+         rssi_dbm: Map.get(observation, :rssi_dbm),
+         noise_floor_dbm: Map.get(observation, :noise_floor_dbm),
+         snr_db: Map.get(observation, :snr_db),
+         frequency_mhz: Map.get(observation, :frequency_mhz, 0),
+         channel: Map.get(observation, :channel),
+         channel_width_mhz: Map.get(observation, :channel_width_mhz),
+         captured_at: unix_nanos_to_datetime!(captured_at_unix_nanos),
+         captured_at_unix_nanos: captured_at_unix_nanos,
+         captured_at_monotonic_nanos: Map.get(observation, :captured_at_monotonic_nanos),
+         parser_confidence: Map.get(observation, :parser_confidence, 0.0),
+         rf_features: rf_features(observation),
+         inserted_at: inserted_at
+       }}
+    end
+  end
+
+  defp build_entry(_session_id, _observation, _inserted_at), do: {:error, :invalid_observation}
+
+  defp valid_session_id?(session_id), do: is_binary(session_id) and byte_size(session_id) <= 128
+
+  defp fetch_integer(map, key) do
+    case Map.fetch(map, key) do
+      {:ok, value} when is_integer(value) -> {:ok, value}
+      _ -> {:error, {:invalid_integer, key}}
     end
   end
 
