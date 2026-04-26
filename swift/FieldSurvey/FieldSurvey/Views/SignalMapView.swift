@@ -27,7 +27,6 @@ public struct SignalMapView: View {
     @State private var mapOffset: CGSize = .zero
     @State private var lastMapOffset: CGSize = .zero
     @State private var selectedBSSID: String?
-    @State private var overlayMode: SignalMapOverlay = .wifiCoverage
 
     public init(
         title: String,
@@ -68,7 +67,6 @@ public struct SignalMapView: View {
             failureBanner
             warningBanner
             floorControls
-            overlayControls
             apControls
             if let summary = displaySpectrumSummary {
                 SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
@@ -76,10 +74,8 @@ public struct SignalMapView: View {
 
             SignalMapCanvas(
                 points: visiblePoints,
-                spectrumPoints: Array(visibleSpectrumPoints.suffix(500)),
                 landmarks: visibleLandmarks,
                 currentPose: visibleCurrentPose,
-                overlayMode: overlayMode,
                 zoom: mapScale,
                 pan: mapOffset
             )
@@ -184,26 +180,6 @@ public struct SignalMapView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var overlayControls: some View {
-        HStack(spacing: 8) {
-            ForEach(SignalMapOverlay.allCases) { mode in
-                Button {
-                    overlayMode = mode
-                } label: {
-                    Label(mode.title, systemImage: mode.systemImage)
-                        .font(.system(size: 12, weight: .bold))
-                        .lineLimit(1)
-                        .foregroundColor(overlayMode == mode ? .black : .white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(overlayMode == mode ? Color.cyan : Color.white.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-            }
-            Spacer()
-        }
-    }
-
     @ViewBuilder
     private var failureBanner: some View {
         if let message = sidekickError ?? failedStatusMessage {
@@ -303,39 +279,14 @@ public struct SignalMapView: View {
 
     private var legend: some View {
         HStack(spacing: 10) {
-            switch overlayMode {
-            case .wifiCoverage:
-                ForEach(SignalLegendStop.allCases) { stop in
-                    HStack(spacing: 5) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(stop.color)
-                            .frame(width: 14, height: 14)
-                        Text(stop.label)
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.82))
-                    }
-                }
-            case .wifiConfidence:
-                ForEach(ConfidenceLegendStop.allCases) { stop in
-                    HStack(spacing: 5) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(stop.color)
-                            .frame(width: 14, height: 14)
-                        Text(stop.label)
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.82))
-                    }
-                }
-            case .spectrumInterference:
-                ForEach(SpectrumLegendStop.allCases) { stop in
-                    HStack(spacing: 5) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(stop.color)
-                            .frame(width: 14, height: 14)
-                        Text(stop.label)
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.82))
-                    }
+            ForEach(SignalLegendStop.allCases) { stop in
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(stop.color)
+                        .frame(width: 14, height: 14)
+                    Text(stop.label)
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.82))
                 }
             }
             Spacer()
@@ -402,14 +353,6 @@ public struct SignalMapView: View {
         return floorPoints.filter { $0.bssid == selectedBSSID }
     }
 
-    private var visibleSpectrumPoints: [SpectrumHeatmapPoint] {
-        guard overlayMode == .spectrumInterference else { return [] }
-        return SpectrumHeatmapPoint.build(
-            points: Array(visiblePoints.suffix(500)),
-            summaries: Array(spectrumSummaries.suffix(160))
-        )
-    }
-
     private var displaySpectrumSummary: SidekickSpectrumSummary? {
         guard let spectrumSummary else { return nil }
         var scoresByID: [String: SidekickSpectrumChannelScore] = [:]
@@ -445,42 +388,21 @@ public struct SignalMapView: View {
     }
 
     private var mapHasNoVisibleData: Bool {
-        switch overlayMode {
-        case .wifiCoverage, .wifiConfidence:
-            return visiblePoints.isEmpty
-        case .spectrumInterference:
-            return visibleSpectrumPoints.isEmpty
-        }
+        visiblePoints.isEmpty
     }
 
     private var emptyMapTitle: String {
-        switch overlayMode {
-        case .wifiCoverage, .wifiConfidence:
-            if let rfObservationCount, rfObservationCount > 0 {
-                return "RF frames decoded, waiting for positioned heat points"
-            }
-            return "No Sidekick heat points yet"
-        case .spectrumInterference:
-            if !spectrumSummaries.isEmpty {
-                return "Spectrum analyzer running"
-            }
-            return "Waiting for spectrum heat points"
+        if let rfObservationCount, rfObservationCount > 0 {
+            return "RF frames decoded, waiting for positioned heat points"
         }
+        return "No Sidekick heat points yet"
     }
 
     private var emptyMapDetail: String {
-        switch overlayMode {
-        case .wifiCoverage, .wifiConfidence:
-            if let rfObservationCount, rfObservationCount > 0 {
-                return "Keep LiDAR tracking active and move a few meters so RF samples can attach to survey positions."
-            }
-            return "Start Sidekick preview or backend streaming, then walk a few meters while LiDAR tracking is active."
-        case .spectrumInterference:
-            if !spectrumSummaries.isEmpty && visiblePoints.isEmpty {
-                return "HackRF summaries are arriving. Wi-Fi heat points are needed before interference can be placed on the map."
-            }
-            return "Keep walking while LiDAR tracking is active. HackRF summaries are attached to nearby positioned Wi-Fi samples as they arrive."
+        if let rfObservationCount, rfObservationCount > 0 {
+            return "Keep LiDAR tracking active and move a few meters so RF samples can attach to survey positions."
         }
+        return "Start Sidekick preview or backend streaming, then walk a few meters while LiDAR tracking is active."
     }
 
     private var apSummaries: [SignalAPSummary] {
@@ -511,10 +433,8 @@ public struct SignalMapView: View {
 @available(iOS 16.0, *)
 private struct SignalMapCanvas: View {
     let points: [WiFiHeatmapPoint]
-    let spectrumPoints: [SpectrumHeatmapPoint]
     let landmarks: [ManualAPLandmark]
     let currentPose: SIMD3<Float>?
-    let overlayMode: SignalMapOverlay
     let zoom: CGFloat
     let pan: CGSize
 
@@ -524,9 +444,10 @@ private struct SignalMapCanvas: View {
                 .insetBy(dx: 10, dy: 10)
 
             drawBackground(context: context, rect: plotRect)
+            let signalBuckets = bucketed(points: points)
 
             guard let projection = SignalMapProjection(
-                points: points,
+                signalBuckets: signalBuckets,
                 landmarks: landmarks,
                 currentPose: currentPose,
                 rect: plotRect,
@@ -537,15 +458,7 @@ private struct SignalMapCanvas: View {
             }
 
             drawGrid(context: context, rect: plotRect)
-            drawPath(context: context, projection: projection)
-            switch overlayMode {
-            case .wifiCoverage:
-                drawWiFiHeatmap(context: context, projection: projection)
-            case .wifiConfidence:
-                drawWiFiConfidence(context: context, projection: projection)
-            case .spectrumInterference:
-                drawSpectrumHeatmap(context: context, projection: projection)
-            }
+            drawWiFiHeatmap(context: context, projection: projection, buckets: signalBuckets)
             drawLandmarks(context: context, projection: projection)
             drawCurrentPose(context: context, projection: projection)
         }
@@ -584,26 +497,40 @@ private struct SignalMapCanvas: View {
         context.stroke(path, with: .color(.white.opacity(0.08)), lineWidth: 0.6)
     }
 
-    private func drawPath(context: GraphicsContext, projection: SignalMapProjection) {
-        let sorted = points.filter { $0.position.isValidMapPosition }.sorted { $0.timestamp < $1.timestamp }
-        guard sorted.count >= 2 else { return }
+    private func drawWiFiHeatmap(
+        context: GraphicsContext,
+        projection: SignalMapProjection,
+        buckets: [SignalBucket]
+    ) {
+        let predictions = SignalCoverageInterpolator.coverageGrid(
+            points: points,
+            minX: projection.minX,
+            maxX: projection.maxX,
+            minZ: projection.minZ,
+            maxZ: projection.maxZ,
+            preferredCellSize: 0.75
+        )
 
-        var path = Path()
-        path.move(to: projection.screenPoint(for: sorted[0].position))
-        for point in sorted.dropFirst() {
-            path.addLine(to: projection.screenPoint(for: point.position))
+        if predictions.isEmpty {
+            drawMeasuredBuckets(context: context, projection: projection, buckets: buckets)
+        } else {
+            drawPredictedCoverage(context: context, projection: projection, predictions: predictions)
+            drawMeasuredBuckets(context: context, projection: projection, buckets: buckets, opacityScale: 0.62)
         }
-
-        context.stroke(path, with: .color(Color.cyan.opacity(0.54)), lineWidth: 2)
     }
 
-    private func drawWiFiHeatmap(context: GraphicsContext, projection: SignalMapProjection) {
-        let baseSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
+    private func drawMeasuredBuckets(
+        context: GraphicsContext,
+        projection: SignalMapProjection,
+        buckets: [SignalBucket],
+        opacityScale: Double = 1.0
+    ) {
+        let baseSize = projection.screenSize(widthMeters: 0.7, heightMeters: 0.7)
 
-        for bucket in bucketed(points: points) {
+        for bucket in buckets {
             let center = projection.screenPoint(for: bucket.position)
             let radius = min(
-                max(max(baseSize.width, baseSize.height) * (0.45 + CGFloat(min(bucket.count, 8)) * 0.035), 9),
+                max(max(baseSize.width, baseSize.height) * (0.42 + CGFloat(min(bucket.count, 8)) * 0.03), 8),
                 34
             )
             let circle = CGRect(
@@ -612,7 +539,7 @@ private struct SignalMapCanvas: View {
                 width: radius * 2,
                 height: radius * 2
             )
-            let opacity = min(0.78, 0.42 + Double(bucket.count) * 0.035)
+            let opacity = min(0.7, 0.36 + Double(bucket.count) * 0.03) * opacityScale
             context.fill(
                 Path(ellipseIn: circle),
                 with: .color(SignalColor.color(for: bucket.rssi).opacity(opacity))
@@ -620,47 +547,27 @@ private struct SignalMapCanvas: View {
         }
     }
 
-    private func drawWiFiConfidence(context: GraphicsContext, projection: SignalMapProjection) {
-        let baseSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
+    private func drawPredictedCoverage(
+        context: GraphicsContext,
+        projection: SignalMapProjection,
+        predictions: [SignalCoveragePrediction]
+    ) {
+        let baseSize = projection.screenSize(widthMeters: 0.68, heightMeters: 0.68)
 
-        for bucket in bucketed(points: points) {
-            let center = projection.screenPoint(for: bucket.position)
-            let radius = min(max(max(baseSize.width, baseSize.height) * 0.48, 9), 32)
+        for prediction in predictions where prediction.confidence >= 0.12 {
+            let center = projection.screenPoint(for: prediction.position)
+            let radius = min(max(max(baseSize.width, baseSize.height) * 0.48, 8), 30)
             let circle = CGRect(
                 x: center.x - radius,
                 y: center.y - radius,
                 width: radius * 2,
                 height: radius * 2
             )
-            let confidence = min(1.0, Double(bucket.count) / 8.0)
+            let opacity = 0.18 + min(max(prediction.confidence, 0.0), 1.0) * 0.46
 
             context.fill(
                 Path(ellipseIn: circle),
-                with: .color(ConfidenceColor.color(for: confidence).opacity(0.62))
-            )
-        }
-    }
-
-    private func drawSpectrumHeatmap(context: GraphicsContext, projection: SignalMapProjection) {
-        let baseSize = projection.screenSize(widthMeters: 0.8, heightMeters: 0.8)
-
-        for bucket in bucketedSpectrum(points: spectrumPoints) {
-            let center = projection.screenPoint(for: bucket.position)
-            let radius = min(
-                max(max(baseSize.width, baseSize.height) * (0.42 + CGFloat(bucket.score) * 0.24), 9),
-                34
-            )
-            let circle = CGRect(
-                x: center.x - radius,
-                y: center.y - radius,
-                width: radius * 2,
-                height: radius * 2
-            )
-            let color = SpectrumColor.color(forScore: bucket.score)
-
-            context.fill(
-                Path(ellipseIn: circle),
-                with: .color(color.opacity(0.42 + min(bucket.score, 1.0) * 0.36))
+                with: .color(SignalColor.color(for: prediction.rssi).opacity(opacity))
             )
         }
     }
@@ -735,46 +642,6 @@ private struct SignalMapCanvas: View {
         }
     }
 
-    private func bucketedSpectrum(points: [SpectrumHeatmapPoint]) -> [SpectrumBucket] {
-        struct Accumulator {
-            var x: Float = 0
-            var y: Float = 0
-            var z: Float = 0
-            var score: Double = 0
-            var count: Int = 0
-        }
-
-        let cellSize: Float = 0.55
-        var buckets: [String: Accumulator] = [:]
-
-        for point in points {
-            guard point.position.isValidMapPosition,
-                  point.score.isFinite,
-                  let xi = bucketIndex(point.position.x, cellSize: cellSize),
-                  let zi = bucketIndex(point.position.z, cellSize: cellSize) else {
-                continue
-            }
-
-            let key = "\(xi):\(zi)"
-            var acc = buckets[key] ?? Accumulator()
-            acc.x += point.position.x
-            acc.y += point.position.y
-            acc.z += point.position.z
-            acc.score += point.score
-            acc.count += 1
-            buckets[key] = acc
-        }
-
-        return buckets.values.compactMap { acc in
-            guard acc.count > 0 else { return nil }
-            let count = Float(acc.count)
-            return SpectrumBucket(
-                position: SIMD3<Float>(acc.x / count, acc.y / count, acc.z / count),
-                score: acc.score / Double(acc.count)
-            )
-        }
-    }
-
     private func bucketIndex(_ value: Float, cellSize: Float) -> Int? {
         guard value.isFinite, cellSize.isFinite, cellSize > 0 else { return nil }
         let bucket = (value / cellSize).rounded()
@@ -791,89 +658,6 @@ private struct SignalBucket {
     let position: SIMD3<Float>
     let rssi: Double
     let count: Int
-}
-
-private struct SpectrumBucket {
-    let position: SIMD3<Float>
-    let score: Double
-}
-
-private struct SpectrumHeatmapPoint: Identifiable {
-    let id = UUID()
-    let position: SIMD3<Float>
-    let score: Double
-
-    static func build(points: [WiFiHeatmapPoint], summaries: [SidekickSpectrumSummary]) -> [SpectrumHeatmapPoint] {
-        guard !points.isEmpty, !summaries.isEmpty else { return [] }
-        let sortedSummaries = summaries.sorted { $0.capturedAtUnixNanos < $1.capturedAtUnixNanos }
-
-        return points.compactMap { point in
-            guard point.position.isValidMapPosition else { return nil }
-            guard let summary = nearestSummary(to: point.timestamp, summaries: sortedSummaries) else { return nil }
-            let normalizedScore: Double
-            if let score = summary.channelScores.map({ Double($0.interferenceScore) }).max() {
-                normalizedScore = score / 100.0
-            } else {
-                normalizedScore = SpectrumColor.normalizedPower(summary.peakPowerDBM)
-            }
-            return SpectrumHeatmapPoint(position: point.position, score: min(max(normalizedScore, 0.0), 1.0))
-        }
-    }
-
-    private static func nearestSummary(
-        to timestamp: TimeInterval,
-        summaries: [SidekickSpectrumSummary]
-    ) -> SidekickSpectrumSummary? {
-        guard timestamp.isFinite,
-              timestamp >= 0,
-              timestamp <= Double(Int64.max) / 1_000_000_000 else {
-            return nil
-        }
-
-        let targetNanos = Int64(timestamp * 1_000_000_000)
-        var best: SidekickSpectrumSummary?
-        var bestDelta = Int64.max
-
-        for summary in summaries {
-            guard let delta = safeDelta(summary.capturedAtUnixNanos, targetNanos) else { continue }
-            if delta < bestDelta {
-                best = summary
-                bestDelta = delta
-            }
-        }
-
-        return bestDelta <= 2_500_000_000 ? best : nil
-    }
-
-    private static func safeDelta(_ lhs: Int64, _ rhs: Int64) -> Int64? {
-        let difference = lhs.subtractingReportingOverflow(rhs)
-        guard !difference.overflow, difference.partialValue != Int64.min else { return nil }
-        return abs(difference.partialValue)
-    }
-}
-
-private enum SignalMapOverlay: String, CaseIterable, Identifiable {
-    case wifiCoverage
-    case wifiConfidence
-    case spectrumInterference
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .wifiCoverage: return "Wi-Fi RSSI"
-        case .wifiConfidence: return "Confidence"
-        case .spectrumInterference: return "RF Interference"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .wifiCoverage: return "wifi"
-        case .wifiConfidence: return "checkmark.seal"
-        case .spectrumInterference: return "waveform.path.ecg"
-        }
-    }
 }
 
 private struct SignalAPSummary: Identifiable {
@@ -942,15 +726,15 @@ private struct SignalMapProjection {
     let pan: CGSize
 
     init?(
-        points: [WiFiHeatmapPoint],
+        signalBuckets: [SignalBucket],
         landmarks: [ManualAPLandmark],
         currentPose: SIMD3<Float>?,
         rect: CGRect,
         zoom: CGFloat,
         pan: CGSize
     ) {
-        var xs = points.map(\.x).filter(\.isFinite) + landmarks.map(\.x).filter(\.isFinite)
-        var zs = points.map(\.z).filter(\.isFinite) + landmarks.map(\.z).filter(\.isFinite)
+        var xs = signalBuckets.map { $0.position.x }.filter(\.isFinite) + landmarks.map(\.x).filter(\.isFinite)
+        var zs = signalBuckets.map { $0.position.z }.filter(\.isFinite) + landmarks.map(\.z).filter(\.isFinite)
 
         if let currentPose, currentPose.isValidMapPosition {
             xs.append(currentPose.x)
@@ -1122,52 +906,6 @@ private enum SignalLegendStop: CaseIterable, Identifiable {
     }
 }
 
-private enum ConfidenceColor {
-    static func color(for confidence: Double) -> Color {
-        if confidence >= 0.78 {
-            return Color(red: 0.16, green: 0.78, blue: 0.46)
-        } else if confidence >= 0.56 {
-            return Color(red: 0.58, green: 0.84, blue: 0.34)
-        } else if confidence >= 0.34 {
-            return Color(red: 1.0, green: 0.78, blue: 0.22)
-        } else if confidence >= 0.18 {
-            return Color(red: 1.0, green: 0.45, blue: 0.20)
-        } else {
-            return Color(red: 0.95, green: 0.18, blue: 0.24)
-        }
-    }
-}
-
-private enum ConfidenceLegendStop: CaseIterable, Identifiable {
-    case high
-    case good
-    case fair
-    case low
-    case weak
-
-    var id: Self { self }
-
-    var label: String {
-        switch self {
-        case .high: return "high"
-        case .good: return "good"
-        case .fair: return "fair"
-        case .low: return "low"
-        case .weak: return "weak"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .high: return ConfidenceColor.color(for: 0.9)
-        case .good: return ConfidenceColor.color(for: 0.65)
-        case .fair: return ConfidenceColor.color(for: 0.45)
-        case .low: return ConfidenceColor.color(for: 0.25)
-        case .weak: return ConfidenceColor.color(for: 0.05)
-        }
-    }
-}
-
 private enum SpectrumColor {
     static func normalizedPower(_ powerDBM: Float) -> Double {
         guard powerDBM.isFinite else { return 0 }
@@ -1185,36 +923,6 @@ private enum SpectrumColor {
             return Color(red: 0.43, green: 0.86, blue: 0.28)
         } else {
             return Color(red: 0.16, green: 0.62, blue: 0.95)
-        }
-    }
-}
-
-private enum SpectrumLegendStop: CaseIterable, Identifiable {
-    case quiet
-    case light
-    case busy
-    case noisy
-    case severe
-
-    var id: Self { self }
-
-    var label: String {
-        switch self {
-        case .quiet: return "quiet"
-        case .light: return "light"
-        case .busy: return "busy"
-        case .noisy: return "noisy"
-        case .severe: return "severe"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .quiet: return SpectrumColor.color(forScore: 0.05)
-        case .light: return SpectrumColor.color(forScore: 0.25)
-        case .busy: return SpectrumColor.color(forScore: 0.48)
-        case .noisy: return SpectrumColor.color(forScore: 0.68)
-        case .severe: return SpectrumColor.color(forScore: 0.90)
         }
     }
 }
