@@ -261,18 +261,19 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert payload["targets"] == ["1.1.1.1", "router-a"]
       assert payload["protocol"] == "udp"
       assert payload["concurrency"] == 24
-      assert context.mtr_policy_id == "policy-1"
+      assert context["mtr_policy_id"] == "policy-1"
 
       command = wait_for_status(command_id, :sent, actor)
+      command_id_text = uuid_text(command.id)
 
       assert {:ok, %{rows: [["object", "object"]]}} =
                ServiceRadar.Repo.query(
                  """
                  SELECT jsonb_typeof(payload), jsonb_typeof(context)
                  FROM platform.agent_commands
-                 WHERE command_id = $1
+                 WHERE command_id::text = $1
                  """,
-                 [command.id]
+                 [command_id_text]
                )
 
       assert {:ok, %{rows: rows}} =
@@ -280,10 +281,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  """
                  SELECT target, status
                  FROM platform.mtr_bulk_job_targets
-                 WHERE command_id = $1
+                 WHERE command_id::text = $1
                  ORDER BY target
                  """,
-                 [command.id]
+                 [command_id_text]
                )
 
       assert rows == [["1.1.1.1", "queued"], ["router-a", "queued"]]
@@ -329,9 +330,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  """
                  SELECT jsonb_typeof(progress_payload)
                  FROM platform.agent_commands
-                 WHERE command_id = $1
+                 WHERE command_id::text = $1
                  """,
-                 [command.id]
+                 [command_id]
                )
 
       assert {:ok, %{rows: rows}} =
@@ -339,10 +340,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  """
                  SELECT target, status, result_payload
                  FROM platform.mtr_bulk_job_targets
-                 WHERE command_id = $1
+                 WHERE command_id::text = $1
                  ORDER BY target
                  """,
-                 [command.id]
+                 [command_id]
                )
 
       assert rows == [
@@ -569,6 +570,47 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert payload["codec_hint"] == "h264"
       assert payload["container_hint"] == "annexb"
       assert context.source_url == "rtsp://camera.local/inventory/main"
+    end
+
+    test "marks UniFi Protect bootstrap rtsps relays as insecure TLS before dispatch", %{
+      agent_id: agent_id
+    } do
+      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+
+      fetcher = fn ^camera_source_id, ^stream_profile_id ->
+        {:ok,
+         %{
+           source_url_override: "rtsps://192.168.1.1:7441/front-door?enableSrtp",
+           rtsp_transport: "tcp",
+           metadata: %{"source" => "protect-bootstrap"},
+           camera_source: %{
+             source_url: "rtsps://192.168.1.1:7441/front-door",
+             metadata: %{"plugin_id" => "unifi-protect-camera"}
+           }
+         }}
+      end
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.start_camera_relay(
+                 agent_id,
+                 %{
+                   relay_session_id: "relay-protect",
+                   camera_source_id: camera_source_id,
+                   stream_profile_id: stream_profile_id,
+                   lease_token: "lease-protect"
+                 },
+                 camera_profile_fetcher: fetcher
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      payload = Jason.decode!(command.payload_json)
+
+      assert payload["source_url"] == "rtsps://192.168.1.1:7441/front-door"
+      assert payload["rtsp_transport"] == "tcp"
+      assert payload["insecure_skip_verify"] == true
+      assert context.source_url == "rtsps://192.168.1.1:7441/front-door"
     end
 
     test "sends a typed camera close relay command", %{agent_id: agent_id} do

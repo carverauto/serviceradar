@@ -26,15 +26,20 @@ export default {
       if (state === null) {
         this.emptyState?.remove()
         this.emptyState = null
+        parent.querySelector(".is-static-spatial-empty")?.remove()
         return
       }
 
       if (!this.emptyState) {
-        this.emptyState = document.createElement("div")
-        this.emptyState.className = "sr-spatial-empty-state"
-        parent.appendChild(this.emptyState)
+        this.emptyState = parent.querySelector(".is-static-spatial-empty")
+        if (!this.emptyState) {
+          this.emptyState = document.createElement("div")
+          this.emptyState.className = "sr-spatial-empty-state"
+          parent.appendChild(this.emptyState)
+        }
       }
 
+      this.emptyState.classList.remove("is-static-spatial-empty")
       const title =
         state === "error"
           ? "Spatial samples unavailable"

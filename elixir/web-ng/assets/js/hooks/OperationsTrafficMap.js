@@ -740,6 +740,7 @@ export default {
     this._onMapPointerDown = this._onMapPointerDown.bind(this)
     this._onMapPointerMove = this._onMapPointerMove.bind(this)
     this._onMapPointerUp = this._onMapPointerUp.bind(this)
+    this._onMapShellClick = this._onMapShellClick.bind(this)
     this._onSvgOverlayClick = this._onSvgOverlayClick.bind(this)
     this._onClusterLabelClick = this._onClusterLabelClick.bind(this)
     this._zoomIn = this._zoomIn.bind(this)
@@ -756,6 +757,7 @@ export default {
     window.addEventListener("pointercancel", this._onMapPointerUp)
     this._ensureWorldMapBackground()
     this._ensureSvgOverlay()
+    this.el.parentElement?.addEventListener("click", this._onMapShellClick)
     this._ensureInteractionControls()
     this.resizeObserver = new ResizeObserver(this._resizeMap)
     this.resizeObserver.observe(this.el.parentElement || this.el)
@@ -775,6 +777,7 @@ export default {
     window.removeEventListener("pointermove", this._onMapPointerMove)
     window.removeEventListener("pointerup", this._onMapPointerUp)
     window.removeEventListener("pointercancel", this._onMapPointerUp)
+    this.el.parentElement?.removeEventListener("click", this._onMapShellClick)
     this.svgOverlay?.removeEventListener("click", this._onSvgOverlayClick)
     this.svgOverlay?.removeEventListener("wheel", this._onMapWheel)
     this.svgOverlay?.removeEventListener("pointerdown", this._onMapPointerDown)
@@ -788,6 +791,16 @@ export default {
   _blockMapGesture(event) {
     event.preventDefault()
     event.stopPropagation()
+  },
+
+  _hideAnchorDetails() {
+    this.anchorDetails?.remove()
+    this.anchorDetails = null
+
+    const activeElement = typeof document !== "undefined" ? document.activeElement : null
+    if (activeElement && this.svgOverlay?.contains?.(activeElement)) {
+      activeElement.blur?.()
+    }
   },
 
   _onMapWheel(event) {
@@ -1039,8 +1052,7 @@ export default {
   _resetViewBox() {
     this.currentViewBox = this.autoViewBox
     this._setMapViewBox(this.currentViewBox)
-    this.anchorDetails?.remove()
-    this.anchorDetails = null
+    this._hideAnchorDetails()
     this._renderSvgOverlay()
   },
 
@@ -1049,9 +1061,19 @@ export default {
 
     this.currentViewBox = NETFLOW_WORLD_VIEWBOX
     this._setMapViewBox(this.currentViewBox)
-    this.anchorDetails?.remove()
-    this.anchorDetails = null
+    this._hideAnchorDetails()
     this._renderSvgOverlay()
+  },
+
+  _onMapShellClick(event) {
+    if (this.mapView !== "netflow") return
+    if (event.target?.closest?.(".sr-ops-anchor-details")) return
+    if (event.target?.closest?.(".sr-ops-map-controls, .sr-ops-map-interaction-controls")) return
+    if (event.target?.closest?.(".sr-ops-traffic-link-hit")) return
+    if (event.target?.closest?.(".sr-ops-traffic-label.is-cluster-label, .sr-ops-traffic-cluster-hit")) return
+    if (event.target?.closest?.(".sr-ops-traffic-node.is-local-anchor, .sr-ops-traffic-node.is-external-geo, .sr-ops-traffic-label.is-clickable-endpoint, .sr-ops-traffic-endpoint-hit")) return
+
+    this._hideAnchorDetails()
   },
 
   _onSvgOverlayClick(event) {
@@ -1068,8 +1090,7 @@ export default {
       || event.target?.closest?.(".sr-ops-traffic-endpoint-hit")
 
     if (!node && !cluster && !flow) {
-      this.anchorDetails?.remove()
-      this.anchorDetails = null
+      this._hideAnchorDetails()
       return
     }
 

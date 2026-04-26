@@ -911,8 +911,8 @@
 .sr-ops-traffic-cluster-hit {
   cursor: pointer;
   pointer-events: all;
-  fill: rgba(2, 8, 23, 0.68);
-  stroke: rgba(45, 212, 191, 0.42);
+  fill: transparent;
+  stroke: transparent;
   stroke-width: 0.35px;
   vector-effect: non-scaling-stroke;
 }
@@ -920,25 +920,33 @@
 .sr-ops-traffic-endpoint-hit {
   cursor: pointer;
   pointer-events: all;
-  fill: rgba(2, 8, 23, 0.22);
-  stroke: rgba(71, 85, 105, 0.28);
+  fill: transparent;
+  stroke: transparent;
   stroke-width: 0.2px;
   vector-effect: non-scaling-stroke;
 }
 
 .sr-ops-traffic-endpoint-hit.is-network-endpoint {
-  fill: rgba(13, 148, 136, 0.16);
-  stroke: rgba(45, 212, 191, 0.28);
+  fill: transparent;
+  stroke: transparent;
 }
 
 .sr-ops-traffic-endpoint-hit.is-external-endpoint {
-  fill: rgba(15, 23, 42, 0.34);
+  fill: transparent;
 }
 
+.sr-ops-traffic-cluster-hit:hover,
+.sr-ops-traffic-cluster-hit:focus,
 .sr-ops-traffic-endpoint-hit:hover {
   fill: rgba(15, 23, 42, 0.42);
   stroke: rgba(125, 211, 252, 0.28);
   stroke-width: 0.26px;
+}
+
+.sr-ops-traffic-endpoint-hit:focus {
+  fill: rgba(15, 23, 42, 0.34);
+  stroke: rgba(125, 211, 252, 0.24);
+  outline: none;
 }
 
 @keyframes sr-ops-traffic-flow {
@@ -2335,6 +2343,22 @@
 .sr-ops-alert-meta em {
   color: #e2e8f0;
   font-style: normal;
+}
+
+.sr-spatial-title {
+  color: #f8fafc;
+  font-size: 1.35rem;
+  font-weight: 780;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.sr-spatial-subtitle {
+  margin-top: 0.45rem;
+  max-width: 44rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
 .sr-spatial-panel {

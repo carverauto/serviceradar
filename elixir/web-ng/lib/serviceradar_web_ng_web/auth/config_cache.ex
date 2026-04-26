@@ -238,6 +238,9 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
       {:ok, _settings} = ok ->
         ok
 
+      {:error, _reason} = error ->
+        error
+
       {:refresh, refresh_ref, ttl_ms} ->
         result = load_and_cache(ttl_ms)
         :ok = GenServer.call(__MODULE__, {:complete_refresh, refresh_ref, result}, @refresh_timeout)

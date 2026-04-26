@@ -22,6 +22,16 @@ function pointerEvent({x = 100, y = 100, pointerId = 7, button = 0} = {}) {
   }
 }
 
+function clickEvent({matches = new Set()} = {}) {
+  return {
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    target: {
+      closest: vi.fn((selector) => (matches.has(selector) ? {dataset: {}} : null)),
+    },
+  }
+}
+
 function makeContext() {
   const parentClassList = classListMock()
 
@@ -42,6 +52,7 @@ function makeContext() {
       },
     },
     _setMapViewBox: vi.fn(),
+    _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
     parentClassList,
   }
 }
@@ -78,5 +89,49 @@ describe("OperationsTrafficMap netflow panning", () => {
     expect(ctx.suppressNextClick).toEqual(true)
     expect(ctx.parentClassList.add).toHaveBeenCalledWith("is-netflow-panning")
     expect(ctx.parentClassList.remove).toHaveBeenCalledWith("is-netflow-panning")
+  })
+})
+
+describe("OperationsTrafficMap netflow details dismissal", () => {
+  it("removes node details when the SVG background is clicked", () => {
+    const remove = vi.fn()
+    const ctx = {
+      ...makeContext(),
+      anchorDetails: {remove},
+    }
+
+    OperationsTrafficMap._onSvgOverlayClick.call(ctx, clickEvent())
+
+    expect(remove).toHaveBeenCalled()
+    expect(ctx.anchorDetails).toBeNull()
+  })
+
+  it("removes node details when a non-interactive map-shell area is clicked", () => {
+    const remove = vi.fn()
+    const ctx = {
+      ...makeContext(),
+      anchorDetails: {remove},
+    }
+
+    OperationsTrafficMap._onMapShellClick.call(ctx, clickEvent())
+
+    expect(remove).toHaveBeenCalled()
+    expect(ctx.anchorDetails).toBeNull()
+  })
+
+  it("keeps node details when links inside the details panel are clicked", () => {
+    const anchorDetails = {remove: vi.fn()}
+    const ctx = {
+      ...makeContext(),
+      anchorDetails,
+    }
+
+    OperationsTrafficMap._onMapShellClick.call(
+      ctx,
+      clickEvent({matches: new Set([".sr-ops-anchor-details"])}),
+    )
+
+    expect(anchorDetails.remove).not.toHaveBeenCalled()
+    expect(ctx.anchorDetails).toBe(anchorDetails)
   })
 })
