@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   alias ServiceRadarWebNG.TenantUsage
 
   @prometheus_reporter :serviceradar_web_ng_prometheus_metrics
+  @duration_buckets_ms [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]
 
   @spec prometheus_reporter() :: atom()
   def prometheus_reporter, do: @prometheus_reporter
@@ -33,71 +34,66 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   def metrics do
     [
       # Phoenix Metrics
-      summary("phoenix.endpoint.start.system_time",
-        unit: {:native, :millisecond}
+      last_value("phoenix.endpoint.start.system_time",
+        unit: {:native, :millisecond},
+        description: "Latest Phoenix endpoint start system time"
       ),
-      summary("phoenix.endpoint.stop.duration",
-        unit: {:native, :millisecond}
+      duration_distribution("phoenix.endpoint.stop.duration",
+        description: "Duration of Phoenix endpoint requests"
       ),
-      summary("phoenix.router_dispatch.start.system_time",
+      last_value("phoenix.router_dispatch.start.system_time",
         tags: [:route],
-        unit: {:native, :millisecond}
+        unit: {:native, :millisecond},
+        description: "Latest Phoenix router dispatch start system time"
       ),
-      summary("phoenix.router_dispatch.exception.duration",
+      duration_distribution("phoenix.router_dispatch.exception.duration",
         tags: [:route],
-        unit: {:native, :millisecond}
+        description: "Duration of Phoenix router dispatches that raised exceptions"
       ),
-      summary("phoenix.router_dispatch.stop.duration",
+      duration_distribution("phoenix.router_dispatch.stop.duration",
         tags: [:route],
-        unit: {:native, :millisecond}
+        description: "Duration of Phoenix router dispatches"
       ),
-      summary("phoenix.socket_connected.duration",
-        unit: {:native, :millisecond}
+      duration_distribution("phoenix.socket_connected.duration",
+        description: "Duration of Phoenix socket connection setup"
       ),
       sum("phoenix.socket_drain.count"),
-      summary("phoenix.channel_joined.duration",
-        unit: {:native, :millisecond}
+      duration_distribution("phoenix.channel_joined.duration",
+        description: "Duration of Phoenix channel joins"
       ),
-      summary("phoenix.channel_handled_in.duration",
+      duration_distribution("phoenix.channel_handled_in.duration",
         tags: [:event],
-        unit: {:native, :millisecond}
+        description: "Duration of Phoenix channel event handling"
       ),
 
       # Database Metrics
-      summary("serviceradar_web_ng.repo.query.total_time",
-        unit: {:native, :millisecond},
+      duration_distribution("serviceradar_web_ng.repo.query.total_time",
         description: "The sum of the other measurements"
       ),
-      summary("serviceradar_web_ng.repo.query.decode_time",
-        unit: {:native, :millisecond},
+      duration_distribution("serviceradar_web_ng.repo.query.decode_time",
         description: "The time spent decoding the data received from the database"
       ),
-      summary("serviceradar_web_ng.repo.query.query_time",
-        unit: {:native, :millisecond},
+      duration_distribution("serviceradar_web_ng.repo.query.query_time",
         description: "The time spent executing the query"
       ),
-      summary("serviceradar_web_ng.repo.query.queue_time",
-        unit: {:native, :millisecond},
+      duration_distribution("serviceradar_web_ng.repo.query.queue_time",
         description: "The time spent waiting for a database connection"
       ),
-      summary("serviceradar_web_ng.repo.query.idle_time",
-        unit: {:native, :millisecond},
+      duration_distribution("serviceradar_web_ng.repo.query.idle_time",
         description: "The time the connection spent waiting before being checked out for the query"
       ),
 
       # Ash Framework Metrics
-      summary("ash.action.stop.duration",
+      duration_distribution("ash.action.stop.duration",
         tags: [:domain, :resource, :action, :action_type],
-        unit: {:native, :millisecond},
         description: "Duration of Ash resource actions"
       ),
       counter("ash.action.stop.count",
         tags: [:domain, :resource, :action, :action_type],
         description: "Count of Ash resource actions"
       ),
-      summary("ash.query.stop.duration",
+      duration_distribution("ash.query.stop.duration",
         tags: [:domain, :resource],
-        unit: {:native, :millisecond},
         description: "Duration of Ash queries"
       ),
       counter("ash.query.stop.count",
@@ -106,9 +102,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       ),
 
       # SRQL Metrics
-      summary("serviceradar.srql.query.duration",
+      duration_distribution("serviceradar.srql.query.duration",
         tags: [:path, :entity, :status],
-        unit: {:native, :millisecond},
         description: "Duration of SRQL queries"
       ),
       counter("serviceradar.srql.query.count",
@@ -141,11 +136,24 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       ),
 
       # VM Metrics
-      summary("vm.memory.total", unit: {:byte, :kilobyte}),
-      summary("vm.total_run_queue_lengths.total"),
-      summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      last_value("vm.memory.total", unit: {:byte, :kilobyte}),
+      last_value("vm.total_run_queue_lengths.total"),
+      last_value("vm.total_run_queue_lengths.cpu"),
+      last_value("vm.total_run_queue_lengths.io")
     ] ++ ServiceRadarTelemetry.camera_relay_metrics()
+  end
+
+  defp duration_distribution(metric_name, opts) do
+    distribution(
+      metric_name,
+      Keyword.merge(
+        [
+          unit: {:native, :millisecond},
+          reporter_options: [buckets: @duration_buckets_ms]
+        ],
+        opts
+      )
+    )
   end
 
   defp periodic_measurements do
