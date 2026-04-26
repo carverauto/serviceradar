@@ -17,7 +17,9 @@ public struct SettingsView: View {
     @State private var isStoppingSidekickCapture = false
     @State private var sidekickCaptureResult: String? = nil
     @State private var isPairingSidekick = false
+    @State private var isCheckingSidekick = false
     @State private var sidekickPairingResult: String? = nil
+    @State private var sidekickHealthResult: String? = nil
     @State private var isAuthenticatingBackend = false
     @State private var isCheckingBackend = false
     @State private var backendAuthResult: String? = nil
@@ -170,20 +172,50 @@ public struct SettingsView: View {
                     .padding(.vertical, 8)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Sidekick Token")
+                        Text("Sidekick Runtime Token")
                             .font(.headline)
-                        SecureField("Bearer token", text: $settingsManager.sidekickAuthToken)
+                        SecureField("Paired bearer token", text: $settingsManager.sidekickAuthToken)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                        Text("Used for RF and spectrum capture after pairing.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sidekick Setup Token")
+                            .font(.headline)
+                        SecureField("One-time setup token", text: $settingsManager.sidekickSetupToken)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Text("Only used to pair this phone. Pairing replaces the runtime token above.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        HStack {
                         Button(isPairingSidekick ? "Pairing..." : "Pair Sidekick") {
                             Task {
                                 await pairSidekick()
                             }
                         }
-                        .disabled(isPairingSidekick || settingsManager.sidekickAuthToken.isEmpty)
+                            .disabled(isPairingSidekick || settingsManager.sidekickSetupToken.isEmpty)
+
+                            Button(isCheckingSidekick ? "Checking..." : "Check Sidekick") {
+                                Task {
+                                    await checkSidekick()
+                                }
+                            }
+                            .disabled(isCheckingSidekick)
+                        }
 
                         if let sidekickPairingResult {
                             Text(sidekickPairingResult)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+
+                        if let sidekickHealthResult {
+                            Text(sidekickHealthResult)
                                 .font(.caption)
                                 .foregroundColor(.gray)
                         }
@@ -497,19 +529,45 @@ public struct SettingsView: View {
         sidekickPairingResult = nil
 
         do {
-            let response = try await SidekickClient(settings: settingsManager).claimPairing(
+            let configuredURL = SidekickClient.normalizedBaseURL(from: settingsManager.sidekickURL)
+                ?? URL(string: "http://fieldsurvey-rpi.local:17321")!
+            let setupToken = settingsManager.sidekickSetupToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            let response = try await SidekickClient(baseURL: configuredURL, apiToken: setupToken).claimPairing(
                 SidekickPairingClaimRequest(
                     deviceID: settingsManager.scannerDeviceId,
                     deviceName: UIDevice.current.name.nilIfBlank
                 )
             )
             settingsManager.sidekickAuthToken = response.token
+            settingsManager.sidekickSetupToken = ""
             sidekickPairingResult = "Paired \(response.deviceName ?? response.deviceID)."
         } catch {
-            sidekickPairingResult = error.localizedDescription
+            if error.localizedDescription.contains("invalid setup token") {
+                sidekickPairingResult = "Invalid setup token. Enter the Pi setup token, not the paired runtime token."
+            } else {
+                sidekickPairingResult = error.localizedDescription
+            }
         }
 
         isPairingSidekick = false
+    }
+
+    private func checkSidekick() async {
+        isCheckingSidekick = true
+        sidekickHealthResult = nil
+
+        do {
+            let client = SidekickClient(settings: settingsManager)
+            let health = try await client.health()
+            let status = try await client.status()
+            sidekickHealthResult = health.ok
+                ? "Reachable. \(status.radios.count) radios, iw \(status.iwAvailable ? "ok" : "missing")."
+                : "Sidekick responded but is not healthy."
+        } catch {
+            sidekickHealthResult = error.localizedDescription
+        }
+
+        isCheckingSidekick = false
     }
 
     private func authenticateBackend() async {

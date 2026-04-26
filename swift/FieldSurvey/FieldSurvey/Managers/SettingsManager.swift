@@ -52,6 +52,12 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    @Published public var sidekickSetupToken: String {
+        didSet {
+            Self.persistSecret(sidekickSetupToken, account: Self.sidekickSetupTokenKeychainAccount)
+        }
+    }
+
     @Published public var sidekickRadioConfig: String {
         didSet {
             UserDefaults.standard.set(sidekickRadioConfig, forKey: "sidekickRadioConfig")
@@ -149,6 +155,7 @@ public class SettingsManager: ObservableObject {
     private static let backendAuthTokenKeychainAccount = "serviceradar-backend-auth-token"
     private static let backendPasswordKeychainAccount = "serviceradar-backend-password"
     private static let sidekickAuthTokenKeychainAccount = "fieldsurvey-sidekick-auth-token"
+    private static let sidekickSetupTokenKeychainAccount = "fieldsurvey-sidekick-setup-token"
 
     public var scannerDeviceId: String {
         if UserDefaults.standard.string(forKey: "scannerDeviceId") != scannerDeviceIdValue {
@@ -188,6 +195,7 @@ public class SettingsManager: ObservableObject {
             account: Self.sidekickAuthTokenKeychainAccount,
             legacyDefaultsKey: "sidekickAuthToken"
         )
+        self.sidekickSetupToken = KeychainStore.string(for: Self.sidekickSetupTokenKeychainAccount)
         self.sidekickRadioConfig = UserDefaults.standard.string(forKey: "sidekickRadioConfig") ?? "auto"
         self.sidekickUplinkInterface = UserDefaults.standard.string(forKey: "sidekickUplinkInterface") ?? "wlan0"
         self.sidekickUplinkSSID = UserDefaults.standard.string(forKey: "sidekickUplinkSSID") ?? ""
