@@ -21,6 +21,7 @@ public struct SettingsView: View {
     @State private var backendUsername = ""
     @State private var backendPassword = ""
     @State private var isAuthenticatingBackend = false
+    @State private var isCheckingBackend = false
     @State private var backendAuthResult: String? = nil
     
     public var body: some View {
@@ -123,7 +124,14 @@ public struct SettingsView: View {
                             .disabled(isAuthenticatingBackend || settingsManager.authToken.isEmpty)
                         }
 
-                        if isAuthenticatingBackend {
+                        Button(isCheckingBackend ? "Checking Backend..." : "Check Backend") {
+                            Task {
+                                await checkBackend()
+                            }
+                        }
+                        .disabled(isCheckingBackend || isAuthenticatingBackend || !settingsManager.backendUploadEnabled)
+
+                        if isAuthenticatingBackend || isCheckingBackend {
                             ProgressView()
                         } else if let backendAuthResult {
                             Text(backendAuthResult)
@@ -516,6 +524,48 @@ public struct SettingsView: View {
         }
 
         isAuthenticatingBackend = false
+    }
+
+    private func checkBackend() async {
+        isCheckingBackend = true
+        backendAuthResult = nil
+
+        let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
+        guard let url = URL(string: "\(cleanedURL)/api/spatial/samples") else {
+            backendAuthResult = "Invalid ServiceRadar URL."
+            isCheckingBackend = false
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(settingsManager.authToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                backendAuthResult = "Backend check failed: invalid response."
+                isCheckingBackend = false
+                return
+            }
+
+            switch httpResponse.statusCode {
+            case 200:
+                backendAuthResult = "Backend reachable. Auth token is accepted."
+            case 401:
+                backendAuthResult = "Backend rejected token: sign in again."
+            case 403:
+                backendAuthResult = "Backend auth works, but this user lacks spatial sample permission."
+            default:
+                backendAuthResult = "Backend check returned HTTP \(httpResponse.statusCode)."
+            }
+        } catch {
+            backendAuthResult = "Backend check failed: \(error.localizedDescription)"
+        }
+
+        isCheckingBackend = false
     }
 
     private func normalizedBaseURL(_ rawValue: String) -> String {

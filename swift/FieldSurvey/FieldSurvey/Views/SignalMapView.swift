@@ -610,17 +610,6 @@ private struct SignalMapCanvas: View {
                 Path(ellipseIn: circle),
                 with: .color(SignalColor.color(for: bucket.rssi).opacity(opacity))
             )
-
-            let dotRadius: CGFloat = 3.5
-            let dotRect = CGRect(
-                x: center.x - dotRadius,
-                y: center.y - dotRadius,
-                width: dotRadius * 2,
-                height: dotRadius * 2
-            )
-
-            context.fill(Path(ellipseIn: dotRect), with: .color(.white.opacity(0.75)))
-            context.stroke(Path(ellipseIn: dotRect), with: .color(SignalColor.color(for: bucket.rssi).opacity(0.95)), lineWidth: 1.4)
         }
     }
 
@@ -642,15 +631,6 @@ private struct SignalMapCanvas: View {
                 Path(ellipseIn: circle),
                 with: .color(ConfidenceColor.color(for: confidence).opacity(0.62))
             )
-
-            let dotRadius: CGFloat = 3.5
-            let dotRect = CGRect(
-                x: center.x - dotRadius,
-                y: center.y - dotRadius,
-                width: dotRadius * 2,
-                height: dotRadius * 2
-            )
-            context.fill(Path(ellipseIn: dotRect), with: .color(.white.opacity(0.85)))
         }
     }
 

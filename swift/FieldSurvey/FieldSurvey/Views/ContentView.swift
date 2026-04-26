@@ -474,7 +474,7 @@ public struct SurveyView: View {
     }
 
     private var backendStreamingEnabled: Bool {
-        settings.authToken != "OFFLINE_MODE"
+        settings.backendUploadEnabled
     }
 
     private var pipelineControlActive: Bool {
