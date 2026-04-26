@@ -695,11 +695,9 @@ public struct ContentView: View {
 public struct LoginView: View {
     @StateObject private var settings = SettingsManager.shared
     
-    @State private var serverURL: String = SettingsManager.shared.apiURL
-    @State private var username: String = ""
-    @State private var password: String = ""
     @State private var isAuthenticating: Bool = false
     @State private var errorMessage: String?
+    @State private var showSettings = false
     
     public init() {}
     
@@ -738,7 +736,7 @@ public struct LoginView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    TextField("https://demo.serviceradar.cloud", text: $serverURL)
+                    TextField("https://demo.serviceradar.cloud", text: $settings.apiURL)
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .padding()
@@ -752,7 +750,7 @@ public struct LoginView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    TextField("operator@serviceradar.com", text: $username)
+                    TextField("operator@serviceradar.com", text: $settings.backendUsername)
                         .autocapitalization(.none)
                         .keyboardType(.emailAddress)
                         .padding()
@@ -766,10 +764,14 @@ public struct LoginView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    SecureField("Enter Password", text: $password)
+                    SecureField("Enter Password", text: $settings.backendPassword)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                    
+                    Text("Password is saved in the iOS Keychain on this phone.")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
                 }
                 
                 if let error = errorMessage {
@@ -802,7 +804,20 @@ public struct LoginView: View {
                     .foregroundColor(.black)
                     .cornerRadius(12)
                 }
-                .disabled(isAuthenticating || username.isEmpty || password.isEmpty || serverURL.isEmpty)
+                .disabled(isAuthenticating || !loginFormIsReady)
+
+                Button(action: {
+                    showSettings = true
+                }) {
+                    Text("Settings")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.systemGray5))
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .disabled(isAuthenticating)
                 
                 Button(action: {
                     settings.setOfflineMode()
@@ -826,13 +841,26 @@ public struct LoginView: View {
         }
         .preferredColorScheme(.dark)
         .background(Color.black.edgesIgnoringSafeArea(.all))
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+    }
+
+    private var loginFormIsReady: Bool {
+        !settings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !settings.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !settings.backendPassword.isEmpty
     }
     
     private func authenticate() {
         isAuthenticating = true
         errorMessage = nil
         
-        let cleanedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cleanedURL = settings.apiURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let username = settings.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = settings.backendPassword
         guard let url = URL(string: "\(cleanedURL)/oauth/token") else {
             errorMessage = "Invalid Server URL format."
             isAuthenticating = false
@@ -843,9 +871,12 @@ public struct LoginView: View {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        // Use standard password grant
-        let parameters = "grant_type=password&username=\(username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-        request.httpBody = parameters.data(using: .utf8)
+        request.httpBody = formEncoded([
+            "grant_type": "password",
+            "username": username,
+            "password": password,
+            "scope": "read write"
+        ])
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
@@ -865,8 +896,7 @@ public struct LoginView: View {
                     do {
                         if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                            let token = json["access_token"] as? String {
-                            self.settings.apiURL = cleanedURL
-                            self.settings.authToken = token
+                            self.settings.setAuthenticated(apiURL: cleanedURL, token: token, username: username)
                         } else {
                             self.errorMessage = "Invalid token format received."
                         }
@@ -880,6 +910,21 @@ public struct LoginView: View {
                 }
             }
         }.resume()
+    }
+
+    private func formEncoded(_ parameters: [String: String]) -> Data? {
+        parameters
+            .map { key, value in
+                "\(formEscape(key))=\(formEscape(value))"
+            }
+            .joined(separator: "&")
+            .data(using: .utf8)
+    }
+
+    private func formEscape(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 #endif
