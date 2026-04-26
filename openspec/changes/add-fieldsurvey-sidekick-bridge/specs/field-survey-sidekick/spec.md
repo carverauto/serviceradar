@@ -76,6 +76,13 @@ The survey data contract SHALL preserve raw Sidekick RF observations and iPhone 
 - **AND** pose rows SHALL include PostGIS local 3D position geometry and GPS geography when GPS coordinates are present
 - **AND** fused RF/pose review queries SHALL expose those vector and spatial fields rather than requiring clients to reparse Arrow IPC blobs.
 
+#### Scenario: Raw Arrow IPC frames are archived for replay
+- **GIVEN** FieldSurvey uploads RF, pose, or spectrum Arrow IPC frames
+- **WHEN** the backend receives each binary frame
+- **THEN** the backend SHALL archive the original Arrow IPC payload with session ID, stream type, frame index, byte size, row count when decode succeeds, decode status, and payload SHA-256
+- **AND** failed decodes SHALL keep the WebSocket stream open while preserving the failed frame and error summary for debugging
+- **AND** review and analytics queries SHALL use decoded typed tables instead of reparsing archived payloads on the hot path.
+
 ### Requirement: Kismet remains optional
 The Sidekick product path SHALL NOT require Kismet to be installed or running.
 

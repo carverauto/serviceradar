@@ -139,6 +139,39 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
 
     assert power_features =~ "["
 
+    payload = <<1, 2, 3, 4, 5>>
+
+    assert {1, _} =
+             Repo.insert_all(
+               "survey_arrow_ipc_frames",
+               [
+                 %{
+                   session_id: session_id,
+                   stream_type: "rf_observations",
+                   user_id: "user-1",
+                   frame_index: 1,
+                   byte_size: byte_size(payload),
+                   row_count: 1,
+                   decode_status: "ok",
+                   payload_sha256: :crypto.hash(:sha256, payload),
+                   payload: payload,
+                   received_at: DateTime.utc_now(),
+                   inserted_at: DateTime.utc_now()
+                 }
+               ],
+               prefix: "platform"
+             )
+
+    assert %{rows: [[byte_size(payload), "ok"]]} =
+             Repo.query!(
+               """
+               SELECT byte_size, decode_status
+               FROM platform.survey_arrow_ipc_frames
+               WHERE session_id = $1 AND stream_type = 'rf_observations'
+               """,
+               [session_id]
+             )
+
     assert %{
              rows: [
                [
