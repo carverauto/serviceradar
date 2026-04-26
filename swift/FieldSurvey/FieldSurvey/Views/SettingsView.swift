@@ -536,7 +536,7 @@ public struct SettingsView: View {
         backendAuthResult = nil
 
         let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
-        guard let url = URL(string: "\(cleanedURL)/api/spatial/samples") else {
+        guard let url = URL(string: "\(cleanedURL)/v1/field-survey/auth-check") else {
             backendAuthResult = "Invalid ServiceRadar URL."
             isCheckingBackend = false
             return
@@ -558,7 +558,7 @@ public struct SettingsView: View {
 
             switch httpResponse.statusCode {
             case 200:
-                backendAuthResult = "Backend reachable. Auth token is accepted."
+                backendAuthResult = "FieldSurvey ingest auth accepted. Backend upload can connect."
             case 401:
                 backendAuthResult = "Backend rejected token: sign in again."
             case 403:

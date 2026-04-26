@@ -362,6 +362,7 @@ public struct SurveyView: View {
                 sidekickStatus: sidekickRelay.status,
                 sidekickError: sidekickRelay.lastError,
                 sidekickWarning: sidekickRelay.displayWarning,
+                backendFrameCount: sidekickRelay.backendFrameCount,
                 rfObservationCount: sidekickRelay.previewObservationCount,
                 rfDecodeError: sidekickRelay.previewDecodeError
             )
@@ -421,9 +422,16 @@ public struct SurveyView: View {
     }
 
     private func startBackendStreaming() {
+        guard settings.backendUploadEnabled else {
+            saveStatusMessage = "Backend upload is not authenticated. Sign in and run Check Backend."
+            clearSaveStatus(after: 3.5)
+            return
+        }
         beginAutosaveSession()
         checkpointSession(includeMesh: false, showStatus: false)
         isStreaming = true
+        saveStatusMessage = "Starting FieldSurvey backend upload..."
+        clearSaveStatus(after: 3.0)
         sessionID = autosaveSessionID ?? UUID().uuidString
         wifiScanner.startPoseStreaming(sessionID: sessionID)
         sidekickRelay.start(

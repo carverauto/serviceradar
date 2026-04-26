@@ -154,6 +154,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/v1", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
 
+    get("/field-survey/auth-check", FieldSurveyStreamController, :auth_check)
     get("/field-survey/:session_id/rf-observations", FieldSurveyStreamController, :rf_observations)
     get("/field-survey/:session_id/pose-samples", FieldSurveyStreamController, :pose_samples)
     get("/field-survey/:session_id/spectrum-observations", FieldSurveyStreamController, :spectrum_observations)

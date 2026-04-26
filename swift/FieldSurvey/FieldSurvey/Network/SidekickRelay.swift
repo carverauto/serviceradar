@@ -127,6 +127,7 @@ public final class SidekickRelay: ObservableObject {
     @Published public private(set) var lastError: String?
     @Published public private(set) var spectrumWarning: String?
     @Published public private(set) var backendWarning: String?
+    @Published public private(set) var backendFrameCount: Int = 0
     @Published public private(set) var previewObservationCount: Int = 0
     @Published public private(set) var previewDecodeError: String?
 
@@ -169,6 +170,7 @@ public final class SidekickRelay: ObservableObject {
         lastSpectrumCountPublishTime = 0
         pendingPreviewObservationCount = 0
         lastPreviewCountPublishTime = 0
+        backendFrameCount = 0
         lastError = nil
         spectrumWarning = nil
         backendWarning = nil
@@ -280,6 +282,7 @@ public final class SidekickRelay: ObservableObject {
         lastError = nil
         spectrumWarning = nil
         backendWarning = nil
+        backendFrameCount = 0
     }
 
     private func startRadioRelay(
@@ -343,6 +346,7 @@ public final class SidekickRelay: ObservableObject {
                                     await backendBackoff.markSuccess()
                                     await MainActor.run {
                                         guard self?.isCurrentGeneration(generation) == true else { return }
+                                        self?.backendFrameCount += 1
                                         if self?.backendWarning?.hasPrefix("Backend upload") == true {
                                             self?.backendWarning = nil
                                         }
