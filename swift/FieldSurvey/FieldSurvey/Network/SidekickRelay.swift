@@ -71,8 +71,6 @@ public final class SidekickRelay: ObservableObject {
     ]
     private static let fiveGHzSurveyFrequenciesMHz = [
         5180, 5200, 5220, 5240,
-        5260, 5280, 5300, 5320,
-        5500, 5520, 5540, 5560, 5580, 5600, 5620, 5640, 5660, 5680, 5700,
         5745, 5765, 5785, 5805, 5825
     ]
 
@@ -261,15 +259,21 @@ public final class SidekickRelay: ObservableObject {
 
                     for try await batch in stream {
                         try Task.checkCancellation()
-                        if let backendSink {
-                            try await backendSink.send(batch.payload)
-                        }
                         self?.ingestPreviewBatch(batch.payload, wifiScanner: wifiScanner)
+                        if let backendSink {
+                            do {
+                                try await backendSink.send(batch.payload)
+                            } catch {
+                                await MainActor.run {
+                                    guard self?.isCurrentGeneration(generation) == true else { return }
+                                    self?.spectrumWarning = "Backend upload reconnecting: \(error.localizedDescription)"
+                                }
+                            }
+                        }
                         attempt = 0
                         await MainActor.run {
                             guard self?.isCurrentGeneration(generation) == true else { return }
                             self?.lastError = nil
-                            self?.spectrumWarning = nil
                             self?.recordRFBatch()
                         }
                     }
@@ -340,8 +344,8 @@ public final class SidekickRelay: ObservableObject {
             while !Task.isCancelled {
                 guard await self?.isCurrentGeneration(generation) == true else { return }
                 do {
-                    if let spectrumSink {
-                        let stream = sidekickClient.spectrumBatches(
+                    if spectrumSink != nil {
+                        let stream = sidekickClient.spectrumSummaries(
                             sidekickID: sidekickID,
                             sdrID: settings.sidekickSpectrumSDRID,
                             serialNumber: settings.sidekickSpectrumSerialNumber.nilIfBlank,
@@ -352,14 +356,12 @@ public final class SidekickRelay: ObservableObject {
                             vgaGainDB: settings.sidekickSpectrumVGAGainDB
                         )
 
-                        for try await batch in stream {
+                        for try await summary in stream {
                             try Task.checkCancellation()
-                            try await spectrumSink.send(batch.payload)
                             attempt = 0
                             await MainActor.run {
                                 guard self?.isCurrentGeneration(generation) == true else { return }
-                                self?.spectrumWarning = nil
-                                self?.recordSpectrumBatch()
+                                self?.recordSpectrumSummary(summary)
                             }
                         }
                     } else {
