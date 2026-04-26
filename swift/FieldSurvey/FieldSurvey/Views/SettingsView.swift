@@ -18,6 +18,10 @@ public struct SettingsView: View {
     @State private var sidekickCaptureResult: String? = nil
     @State private var isPairingSidekick = false
     @State private var sidekickPairingResult: String? = nil
+    @State private var backendUsername = ""
+    @State private var backendPassword = ""
+    @State private var isAuthenticatingBackend = false
+    @State private var backendAuthResult: String? = nil
     
     public var body: some View {
         NavigationView {
@@ -53,6 +57,79 @@ public struct SettingsView: View {
                         Text("When AR tracking degrades, temporarily pauses Sidekick preview and subnet background work to keep LiDAR world tracking stable, then resumes automatically.")
                             .font(.caption)
                             .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                Section(header: Text("ServiceRadar Backend")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Upload Status")
+                                .font(.headline)
+                            Spacer()
+                            Text(backendStatusLabel)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(settingsManager.backendUploadEnabled ? .green : .orange)
+                        }
+
+                        TextField("https://demo.serviceradar.cloud", text: $settingsManager.apiURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+
+                        Text(backendStatusDetail)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sign In")
+                            .font(.headline)
+                        TextField("Email or username", text: $backendUsername)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                        SecureField("Password", text: $backendPassword)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        HStack {
+                            Button(isAuthenticatingBackend ? "Signing In..." : "Sign In") {
+                                Task {
+                                    await authenticateBackend()
+                                }
+                            }
+                            .disabled(
+                                isAuthenticatingBackend ||
+                                    backendUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                    backendPassword.isEmpty ||
+                                    settingsManager.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            )
+
+                            Spacer()
+
+                            Button("Work Offline") {
+                                settingsManager.setOfflineMode()
+                                backendAuthResult = "Offline mode enabled. Backend upload is disabled."
+                            }
+                            .disabled(isAuthenticatingBackend)
+
+                            Button("Sign Out") {
+                                settingsManager.signOut()
+                                backendAuthResult = "Signed out. Backend upload is disabled."
+                            }
+                            .disabled(isAuthenticatingBackend || settingsManager.authToken.isEmpty)
+                        }
+
+                        if isAuthenticatingBackend {
+                            ProgressView()
+                        } else if let backendAuthResult {
+                            Text(backendAuthResult)
+                                .font(.caption)
+                                .foregroundColor(settingsManager.backendUploadEnabled ? .green : .gray)
+                        }
                     }
                     .padding(.vertical, 8)
                 }
@@ -188,6 +265,28 @@ public struct SettingsView: View {
                         step: 1
                     )
 
+                    HStack {
+                        Button("2.4 + 5 GHz") {
+                            settingsManager.sidekickSpectrumMinMHz = 2400
+                            settingsManager.sidekickSpectrumMaxMHz = 5900
+                        }
+
+                        Spacer()
+
+                        Button("5 GHz") {
+                            settingsManager.sidekickSpectrumMinMHz = 5150
+                            settingsManager.sidekickSpectrumMaxMHz = 5900
+                        }
+
+                        Spacer()
+
+                        Button("2.4 GHz") {
+                            settingsManager.sidekickSpectrumMinMHz = 2400
+                            settingsManager.sidekickSpectrumMaxMHz = 2500
+                        }
+                    }
+                    .font(.caption)
+
                     Stepper(
                         "Bin Width: \(settingsManager.sidekickSpectrumBinWidthHz) Hz",
                         value: $settingsManager.sidekickSpectrumBinWidthHz,
@@ -252,6 +351,26 @@ public struct SettingsView: View {
             })
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var backendStatusLabel: String {
+        if settingsManager.backendUploadEnabled {
+            return "Enabled"
+        }
+        if settingsManager.isOfflineMode {
+            return "Offline"
+        }
+        return "Signed Out"
+    }
+
+    private var backendStatusDetail: String {
+        if settingsManager.backendUploadEnabled {
+            return "Survey RF, pose, and spectrum Arrow streams will upload to ServiceRadar."
+        }
+        if settingsManager.isOfflineMode {
+            return "Sidekick preview still works, but backend upload is disabled until you sign in."
+        }
+        return "Sign in to enable authenticated survey upload to ServiceRadar."
     }
     
     private func runThroughputTest() async {
@@ -351,12 +470,90 @@ public struct SettingsView: View {
 
         isPairingSidekick = false
     }
+
+    private func authenticateBackend() async {
+        isAuthenticatingBackend = true
+        backendAuthResult = nil
+
+        let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
+        guard let url = URL(string: "\(cleanedURL)/oauth/token") else {
+            backendAuthResult = "Invalid ServiceRadar URL."
+            isAuthenticatingBackend = false
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = formEncoded([
+            "grant_type": "password",
+            "username": backendUsername.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": backendPassword,
+            "scope": "read write"
+        ]).data(using: .utf8)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                backendAuthResult = "Invalid ServiceRadar response."
+                isAuthenticatingBackend = false
+                return
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                backendAuthResult = "Login failed: HTTP \(httpResponse.statusCode)."
+                isAuthenticatingBackend = false
+                return
+            }
+
+            let tokenResponse = try JSONDecoder().decode(OAuthTokenResponse.self, from: data)
+            settingsManager.setAuthenticated(apiURL: cleanedURL, token: tokenResponse.accessToken)
+            backendPassword = ""
+            backendAuthResult = "Signed in. Backend upload is enabled."
+        } catch {
+            backendAuthResult = "Login failed: \(error.localizedDescription)"
+        }
+
+        isAuthenticatingBackend = false
+    }
+
+    private func normalizedBaseURL(_ rawValue: String) -> String {
+        var trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("/") {
+            trimmed.removeLast()
+        }
+        return trimmed.isEmpty || trimmed == "offline" ? "https://demo.serviceradar.cloud" : trimmed
+    }
+
+    private func formEncoded(_ parameters: [String: String]) -> String {
+        parameters
+            .map { key, value in
+                "\(urlFormEscape(key))=\(urlFormEscape(value))"
+            }
+            .joined(separator: "&")
+    }
+
+    private func urlFormEscape(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed)?
+            .replacingOccurrences(of: " ", with: "+") ?? ""
+    }
 }
 
 private extension String {
     var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private struct OAuthTokenResponse: Decodable {
+    let accessToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
     }
 }
 #endif

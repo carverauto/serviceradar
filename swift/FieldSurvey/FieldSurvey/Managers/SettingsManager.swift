@@ -123,12 +123,23 @@ public class SettingsManager: ObservableObject {
     @Published public private(set) var arPriorityLoadShedActive: Bool = false
     
     private let scannerDeviceIdValue: String
+    private static let offlineToken = "OFFLINE_MODE"
 
     public var scannerDeviceId: String {
         if UserDefaults.standard.string(forKey: "scannerDeviceId") != scannerDeviceIdValue {
             UserDefaults.standard.set(scannerDeviceIdValue, forKey: "scannerDeviceId")
         }
         return scannerDeviceIdValue
+    }
+
+    public var backendUploadEnabled: Bool {
+        let trimmedAPIURL = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedAPIURL.isEmpty && trimmedAPIURL != "offline" && !trimmedToken.isEmpty && trimmedToken != Self.offlineToken
+    }
+
+    public var isOfflineMode: Bool {
+        authToken == Self.offlineToken
     }
     
     private init() {
@@ -150,8 +161,22 @@ public class SettingsManager: ObservableObject {
         self.sidekickSpectrumEnabled = UserDefaults.standard.object(forKey: "sidekickSpectrumEnabled") as? Bool ?? true
         self.sidekickSpectrumSDRID = UserDefaults.standard.string(forKey: "sidekickSpectrumSDRID") ?? "hackrf-0"
         self.sidekickSpectrumSerialNumber = UserDefaults.standard.string(forKey: "sidekickSpectrumSerialNumber") ?? "0000000000000000f77c60dc299165c3"
-        self.sidekickSpectrumMinMHz = UserDefaults.standard.object(forKey: "sidekickSpectrumMinMHz") as? Int ?? 2400
-        self.sidekickSpectrumMaxMHz = UserDefaults.standard.object(forKey: "sidekickSpectrumMaxMHz") as? Int ?? 2500
+        let storedSpectrumMin = UserDefaults.standard.object(forKey: "sidekickSpectrumMinMHz") as? Int
+        let storedSpectrumMax = UserDefaults.standard.object(forKey: "sidekickSpectrumMaxMHz") as? Int
+        let shouldMigrateWideSpectrumDefault =
+            !UserDefaults.standard.bool(forKey: "sidekickSpectrumWideDefaultMigrated") &&
+            (storedSpectrumMin == nil || storedSpectrumMin == 2400) &&
+            (storedSpectrumMax == nil || storedSpectrumMax == 2500)
+        if shouldMigrateWideSpectrumDefault {
+            self.sidekickSpectrumMinMHz = 2400
+            self.sidekickSpectrumMaxMHz = 5900
+            UserDefaults.standard.set(true, forKey: "sidekickSpectrumWideDefaultMigrated")
+            UserDefaults.standard.set(2400, forKey: "sidekickSpectrumMinMHz")
+            UserDefaults.standard.set(5900, forKey: "sidekickSpectrumMaxMHz")
+        } else {
+            self.sidekickSpectrumMinMHz = storedSpectrumMin ?? 2400
+            self.sidekickSpectrumMaxMHz = storedSpectrumMax ?? 5900
+        }
         self.sidekickSpectrumBinWidthHz = UserDefaults.standard.object(forKey: "sidekickSpectrumBinWidthHz") as? Int ?? 1_000_000
         self.sidekickSpectrumLNAGainDB = UserDefaults.standard.object(forKey: "sidekickSpectrumLNAGainDB") as? Int ?? 8
         self.sidekickSpectrumVGAGainDB = UserDefaults.standard.object(forKey: "sidekickSpectrumVGAGainDB") as? Int ?? 8
@@ -169,5 +194,21 @@ public class SettingsManager: ObservableObject {
     public func setARPriorityLoadShedActive(_ active: Bool) {
         guard arPriorityLoadShedActive != active else { return }
         arPriorityLoadShedActive = active
+    }
+
+    public func setAuthenticated(apiURL: String, token: String) {
+        self.apiURL = apiURL
+        self.authToken = token
+    }
+
+    public func setOfflineMode() {
+        if apiURL == "offline" || apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            apiURL = "https://demo.serviceradar.cloud"
+        }
+        authToken = Self.offlineToken
+    }
+
+    public func signOut() {
+        authToken = ""
     }
 }
