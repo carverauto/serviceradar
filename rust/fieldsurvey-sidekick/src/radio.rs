@@ -15,6 +15,7 @@ pub struct RadioInterface {
     pub driver: Option<String>,
     pub phy: Option<String>,
     pub supported_modes: Vec<String>,
+    pub supported_frequencies_mhz: Vec<u32>,
     pub monitor_supported: Option<bool>,
     pub usb: Option<UsbDeviceInfo>,
 }
@@ -106,6 +107,11 @@ impl RadioDiscovery {
             .and_then(run_iw_list)
             .map(|raw| parse_iw_list_modes(&raw))
             .unwrap_or_default();
+        let frequencies_by_phy = iw
+            .as_deref()
+            .and_then(run_iw_list)
+            .map(|raw| parse_iw_list_frequencies_mhz(&raw))
+            .unwrap_or_default();
 
         let mut radios = Vec::new();
 
@@ -122,6 +128,10 @@ impl RadioDiscovery {
                     .as_ref()
                     .and_then(|phy| modes_by_phy.get(phy).cloned())
                     .unwrap_or_default();
+                let supported_frequencies_mhz = phy
+                    .as_ref()
+                    .and_then(|phy| frequencies_by_phy.get(phy).cloned())
+                    .unwrap_or_default();
                 let monitor_supported = if supported_modes.is_empty() {
                     None
                 } else {
@@ -135,6 +145,7 @@ impl RadioDiscovery {
                     driver: driver_name(&iface_path),
                     phy,
                     supported_modes,
+                    supported_frequencies_mhz,
                     monitor_supported,
                     usb: usb_device_info(&iface_path),
                 });
@@ -502,6 +513,57 @@ pub fn parse_iw_list_modes(raw: &str) -> HashMap<String, Vec<String>> {
     result
 }
 
+pub fn parse_iw_list_frequencies_mhz(raw: &str) -> HashMap<String, Vec<u32>> {
+    let mut result: HashMap<String, Vec<u32>> = HashMap::new();
+    let mut current_phy: Option<String> = None;
+    let mut in_frequencies = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        if let Some(phy) = trimmed.strip_prefix("Wiphy ") {
+            current_phy = Some(phy.trim().to_string());
+            in_frequencies = false;
+            continue;
+        }
+
+        if trimmed == "Frequencies:" {
+            in_frequencies = true;
+            continue;
+        }
+
+        if in_frequencies {
+            if let Some(raw_frequency) = trimmed.strip_prefix("* ") {
+                if raw_frequency.contains("disabled") {
+                    continue;
+                }
+
+                if let Some(frequency) = parse_frequency_mhz_token(raw_frequency)
+                    && let Some(phy) = &current_phy
+                {
+                    let frequencies = result.entry(phy.clone()).or_default();
+                    if !frequencies.contains(&frequency) {
+                        frequencies.push(frequency);
+                    }
+                }
+                continue;
+            }
+
+            if !trimmed.is_empty() {
+                in_frequencies = false;
+            }
+        }
+    }
+
+    result
+}
+
+fn parse_frequency_mhz_token(raw: &str) -> Option<u32> {
+    let token = raw.split_whitespace().next()?;
+    let integer_token = token.split('.').next()?;
+    integer_token.parse::<u32>().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,6 +605,30 @@ Wiphy phy1
         let parsed = parse_iw_list_modes(raw);
         assert!(parsed["phy0"].contains(&"monitor".to_string()));
         assert!(!parsed["phy1"].contains(&"monitor".to_string()));
+    }
+
+    #[test]
+    fn parses_enabled_frequencies_from_iw_list() {
+        let raw = r#"
+Wiphy phy0
+	Band 1:
+		Frequencies:
+			* 2412.0 MHz [1] (20.0 dBm)
+			* 2462.0 MHz [11] (20.0 dBm)
+	Band 2:
+		Frequencies:
+			* 5180.0 MHz [36] (20.0 dBm)
+			* 5600.0 MHz [120] (disabled)
+Wiphy phy1
+	Band 1:
+		Frequencies:
+			* 2412.0 MHz [1] (20.0 dBm)
+"#;
+
+        let parsed = parse_iw_list_frequencies_mhz(raw);
+
+        assert_eq!(parsed["phy0"], vec![2_412, 2_462, 5_180]);
+        assert_eq!(parsed["phy1"], vec![2_412]);
     }
 
     #[test]
