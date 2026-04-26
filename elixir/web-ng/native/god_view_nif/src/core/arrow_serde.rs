@@ -17,6 +17,9 @@ use roaring::RoaringBitmap;
 use rustler::{Binary, Env, OwnedBinary};
 
 use crate::core::layout::{build_hypergraph_from_projection, build_hypergraph_projection};
+use crate::types::fieldsurvey::{
+    FieldSurveyPoseSampleRow, FieldSurveyRfObservationRow, FieldSurveySpectrumObservationRow,
+};
 use crate::types::survey::SurveySampleRow;
 
 /// Encodes an entire topology active state into an Apache Arrow IPC stream payload.
@@ -281,6 +284,430 @@ pub(crate) fn decode_arrow_file(data: &[u8]) -> Result<Vec<SurveySampleRow>, rus
     }
 
     Ok(rows)
+}
+
+pub(crate) fn decode_fieldsurvey_rf_payload(
+    data: &[u8],
+) -> Result<Vec<FieldSurveyRfObservationRow>, rustler::Error> {
+    decode_arrow_payload(
+        data,
+        extract_fieldsurvey_rf_rows,
+        extract_fieldsurvey_rf_rows_from_file,
+    )
+}
+
+pub(crate) fn decode_fieldsurvey_pose_payload(
+    data: &[u8],
+) -> Result<Vec<FieldSurveyPoseSampleRow>, rustler::Error> {
+    decode_arrow_payload(
+        data,
+        extract_fieldsurvey_pose_rows,
+        extract_fieldsurvey_pose_rows_from_file,
+    )
+}
+
+pub(crate) fn decode_fieldsurvey_spectrum_payload(
+    data: &[u8],
+) -> Result<Vec<FieldSurveySpectrumObservationRow>, rustler::Error> {
+    decode_arrow_payload(
+        data,
+        extract_fieldsurvey_spectrum_rows,
+        extract_fieldsurvey_spectrum_rows_from_file,
+    )
+}
+
+fn decode_arrow_payload<T>(
+    data: &[u8],
+    extract_stream_batch: fn(&RecordBatch, &mut Vec<T>) -> Result<(), rustler::Error>,
+    decode_file: fn(&[u8]) -> Result<Vec<T>, rustler::Error>,
+) -> Result<Vec<T>, rustler::Error> {
+    let cursor = std::io::Cursor::new(data);
+    let mut reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
+        Ok(reader) => reader,
+        Err(_) => return decode_file(data),
+    };
+
+    let mut rows = Vec::new();
+    while let Some(batch_result) = reader.next() {
+        let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
+        extract_stream_batch(&batch, &mut rows)?;
+    }
+
+    Ok(rows)
+}
+
+fn extract_fieldsurvey_rf_rows_from_file(
+    data: &[u8],
+) -> Result<Vec<FieldSurveyRfObservationRow>, rustler::Error> {
+    let cursor = std::io::Cursor::new(data);
+    let mut reader =
+        arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
+
+    let mut rows = Vec::new();
+    while let Some(batch_result) = reader.next() {
+        let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
+        extract_fieldsurvey_rf_rows(&batch, &mut rows)?;
+    }
+
+    Ok(rows)
+}
+
+fn extract_fieldsurvey_pose_rows_from_file(
+    data: &[u8],
+) -> Result<Vec<FieldSurveyPoseSampleRow>, rustler::Error> {
+    let cursor = std::io::Cursor::new(data);
+    let mut reader =
+        arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
+
+    let mut rows = Vec::new();
+    while let Some(batch_result) = reader.next() {
+        let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
+        extract_fieldsurvey_pose_rows(&batch, &mut rows)?;
+    }
+
+    Ok(rows)
+}
+
+fn extract_fieldsurvey_spectrum_rows_from_file(
+    data: &[u8],
+) -> Result<Vec<FieldSurveySpectrumObservationRow>, rustler::Error> {
+    let cursor = std::io::Cursor::new(data);
+    let mut reader =
+        arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
+
+    let mut rows = Vec::new();
+    while let Some(batch_result) = reader.next() {
+        let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
+        extract_fieldsurvey_spectrum_rows(&batch, &mut rows)?;
+    }
+
+    Ok(rows)
+}
+
+fn extract_fieldsurvey_rf_rows(
+    batch: &RecordBatch,
+    rows: &mut Vec<FieldSurveyRfObservationRow>,
+) -> Result<(), rustler::Error> {
+    let sidekick_ids = required_string_column(batch, "sidekick_id")?;
+    let radio_ids = required_string_column(batch, "radio_id")?;
+    let interface_names = required_string_column(batch, "interface_name")?;
+    let bssids = required_string_column(batch, "bssid")?;
+    let ssids = optional_string_column(batch, "ssid")?;
+    let hidden_ssids = batch
+        .column_by_name("hidden_ssid")
+        .ok_or(rustler::Error::BadArg)?
+        .as_boolean();
+    let frame_types = required_string_column(batch, "frame_type")?;
+    let rssi_dbms = optional_i16_column(batch, "rssi_dbm")?;
+    let noise_floor_dbms = optional_i16_column(batch, "noise_floor_dbm")?;
+    let snr_dbs = optional_i16_column(batch, "snr_db")?;
+    let frequency_mhzes = batch
+        .column_by_name("frequency_mhz")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::UInt32Type>();
+    let channels = optional_u16_column(batch, "channel")?;
+    let channel_width_mhzes = optional_u16_column(batch, "channel_width_mhz")?;
+    let captured_at_unix_nanoses = batch
+        .column_by_name("captured_at_unix_nanos")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Int64Type>();
+    let captured_at_monotonic_nanoses = optional_u64_column(batch, "captured_at_monotonic_nanos")?;
+    let parser_confidences = batch
+        .column_by_name("parser_confidence")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float32Type>();
+
+    for i in 0..batch.num_rows() {
+        rows.push(FieldSurveyRfObservationRow {
+            sidekick_id: string_value(sidekick_ids, i)?,
+            radio_id: string_value(radio_ids, i)?,
+            interface_name: string_value(interface_names, i)?,
+            bssid: string_value(bssids, i)?,
+            ssid: optional_string_value(ssids, i),
+            hidden_ssid: hidden_ssids.value(i),
+            frame_type: string_value(frame_types, i)?,
+            rssi_dbm: optional_i16_value(rssi_dbms, i),
+            noise_floor_dbm: optional_i16_value(noise_floor_dbms, i),
+            snr_db: optional_i16_value(snr_dbs, i),
+            frequency_mhz: frequency_mhzes.value(i),
+            channel: optional_u16_value(channels, i),
+            channel_width_mhz: optional_u16_value(channel_width_mhzes, i),
+            captured_at_unix_nanos: captured_at_unix_nanoses.value(i),
+            captured_at_monotonic_nanos: optional_u64_value(captured_at_monotonic_nanoses, i),
+            parser_confidence: parser_confidences.value(i),
+        });
+    }
+
+    Ok(())
+}
+
+fn extract_fieldsurvey_spectrum_rows(
+    batch: &RecordBatch,
+    rows: &mut Vec<FieldSurveySpectrumObservationRow>,
+) -> Result<(), rustler::Error> {
+    let sidekick_ids = required_string_column(batch, "sidekick_id")?;
+    let sdr_ids = required_string_column(batch, "sdr_id")?;
+    let device_kinds = required_string_column(batch, "device_kind")?;
+    let serial_numbers = optional_string_column(batch, "serial_number")?;
+    let sweep_ids = batch
+        .column_by_name("sweep_id")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::UInt64Type>();
+    let started_at_unix_nanoses = batch
+        .column_by_name("started_at_unix_nanos")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Int64Type>();
+    let captured_at_unix_nanoses = batch
+        .column_by_name("captured_at_unix_nanos")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Int64Type>();
+    let start_frequency_hzes = batch
+        .column_by_name("start_frequency_hz")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::UInt64Type>();
+    let stop_frequency_hzes = batch
+        .column_by_name("stop_frequency_hz")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::UInt64Type>();
+    let bin_width_hzes = required_f32_column(batch, "bin_width_hz")?;
+    let sample_counts = batch
+        .column_by_name("sample_count")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::UInt32Type>();
+    let power_bins_dbms = extract_vector_column(batch, "power_bins_dbm")?;
+
+    for i in 0..batch.num_rows() {
+        rows.push(FieldSurveySpectrumObservationRow {
+            sidekick_id: string_value(sidekick_ids, i)?,
+            sdr_id: string_value(sdr_ids, i)?,
+            device_kind: string_value(device_kinds, i)?,
+            serial_number: optional_string_value(serial_numbers, i),
+            sweep_id: sweep_ids.value(i),
+            started_at_unix_nanos: started_at_unix_nanoses.value(i),
+            captured_at_unix_nanos: captured_at_unix_nanoses.value(i),
+            start_frequency_hz: start_frequency_hzes.value(i),
+            stop_frequency_hz: stop_frequency_hzes.value(i),
+            bin_width_hz: bin_width_hzes.value(i),
+            sample_count: sample_counts.value(i),
+            power_bins_dbm: power_bins_dbms.get(i).cloned().unwrap_or_default(),
+        });
+    }
+
+    Ok(())
+}
+
+fn extract_fieldsurvey_pose_rows(
+    batch: &RecordBatch,
+    rows: &mut Vec<FieldSurveyPoseSampleRow>,
+) -> Result<(), rustler::Error> {
+    let scanner_device_ids = required_string_column(batch, "scanner_device_id")?;
+    let captured_at_unix_nanoses = batch
+        .column_by_name("captured_at_unix_nanos")
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Int64Type>();
+    let captured_at_monotonic_nanoses = optional_u64_column(batch, "captured_at_monotonic_nanos")?;
+    let xs = required_f32_column(batch, "x")?;
+    let ys = required_f32_column(batch, "y")?;
+    let zs = required_f32_column(batch, "z")?;
+    let qxs = required_f32_column(batch, "qx")?;
+    let qys = required_f32_column(batch, "qy")?;
+    let qzs = required_f32_column(batch, "qz")?;
+    let qws = required_f32_column(batch, "qw")?;
+    let latitudes = optional_f64_column(batch, "latitude")?;
+    let longitudes = optional_f64_column(batch, "longitude")?;
+    let altitudes = optional_f64_column(batch, "altitude")?;
+    let accuracy_ms = optional_f32_column(batch, "accuracy_m")?;
+    let tracking_qualities = optional_string_column(batch, "tracking_quality")?;
+
+    for i in 0..batch.num_rows() {
+        rows.push(FieldSurveyPoseSampleRow {
+            scanner_device_id: string_value(scanner_device_ids, i)?,
+            captured_at_unix_nanos: captured_at_unix_nanoses.value(i),
+            captured_at_monotonic_nanos: optional_u64_value(captured_at_monotonic_nanoses, i),
+            x: xs.value(i),
+            y: ys.value(i),
+            z: zs.value(i),
+            qx: qxs.value(i),
+            qy: qys.value(i),
+            qz: qzs.value(i),
+            qw: qws.value(i),
+            latitude: optional_f64_value(latitudes, i),
+            longitude: optional_f64_value(longitudes, i),
+            altitude: optional_f64_value(altitudes, i),
+            accuracy_m: optional_f32_value(accuracy_ms, i),
+            tracking_quality: optional_string_value(tracking_qualities, i),
+        });
+    }
+
+    Ok(())
+}
+
+fn required_string_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::array::GenericStringArray<i32>, rustler::Error> {
+    Ok(batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?
+        .as_string::<i32>())
+}
+
+fn optional_string_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::array::GenericStringArray<i32>>, rustler::Error> {
+    Ok(batch
+        .column_by_name(column_name)
+        .map(|column| column.as_string::<i32>()))
+}
+
+fn string_value(
+    values: &arrow_array::array::GenericStringArray<i32>,
+    index: usize,
+) -> Result<String, rustler::Error> {
+    if values.is_null(index) {
+        return Err(rustler::Error::BadArg);
+    }
+
+    Ok(values.value(index).to_string())
+}
+
+fn optional_string_value(
+    values: Option<&arrow_array::array::GenericStringArray<i32>>,
+    index: usize,
+) -> Option<String> {
+    values.and_then(|array| {
+        if array.is_null(index) {
+            None
+        } else {
+            Some(array.value(index).to_string())
+        }
+    })
+}
+
+fn optional_i16_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Int16Type>>, rustler::Error>
+{
+    Ok(batch
+        .column_by_name(column_name)
+        .map(|column| column.as_primitive::<arrow_array::types::Int16Type>()))
+}
+
+fn optional_u16_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt16Type>>, rustler::Error>
+{
+    Ok(batch
+        .column_by_name(column_name)
+        .map(|column| column.as_primitive::<arrow_array::types::UInt16Type>()))
+}
+
+fn optional_u64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>>, rustler::Error>
+{
+    Ok(batch
+        .column_by_name(column_name)
+        .map(|column| column.as_primitive::<arrow_array::types::UInt64Type>()))
+}
+
+fn required_f32_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>, rustler::Error> {
+    Ok(batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?
+        .as_primitive::<arrow_array::types::Float32Type>())
+}
+
+fn optional_f32_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>>, rustler::Error>
+{
+    Ok(batch
+        .column_by_name(column_name)
+        .map(|column| column.as_primitive::<arrow_array::types::Float32Type>()))
+}
+
+fn optional_f64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Float64Type>>, rustler::Error>
+{
+    Ok(batch
+        .column_by_name(column_name)
+        .map(|column| column.as_primitive::<arrow_array::types::Float64Type>()))
+}
+
+fn optional_i16_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::Int16Type>>,
+    index: usize,
+) -> Option<i16> {
+    values.and_then(|array| {
+        if array.is_null(index) {
+            None
+        } else {
+            Some(array.value(index))
+        }
+    })
+}
+
+fn optional_u16_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::UInt16Type>>,
+    index: usize,
+) -> Option<u16> {
+    values.and_then(|array| {
+        if array.is_null(index) {
+            None
+        } else {
+            Some(array.value(index))
+        }
+    })
+}
+
+fn optional_u64_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>>,
+    index: usize,
+) -> Option<u64> {
+    values.and_then(|array| {
+        if array.is_null(index) {
+            None
+        } else {
+            Some(array.value(index))
+        }
+    })
+}
+
+fn optional_f32_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::Float32Type>>,
+    index: usize,
+) -> Option<f32> {
+    values.and_then(|array| {
+        if array.is_null(index) {
+            None
+        } else {
+            Some(array.value(index))
+        }
+    })
+}
+
+fn optional_f64_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::Float64Type>>,
+    index: usize,
+) -> Option<f64> {
+    values.and_then(|array| {
+        if array.is_null(index) {
+            None
+        } else {
+            Some(array.value(index))
+        }
+    })
 }
 
 /// Extracts strongly typed columns from a RecordBatch and populates the Elixir-facing structs.

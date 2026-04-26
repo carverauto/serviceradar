@@ -1,0 +1,29 @@
+[package]
+name = "serviceradar-fieldsurvey-sidekick"
+version = "0.1.0"
+edition = "2024"
+description = "Raspberry Pi RF sidekick daemon for ServiceRadar FieldSurvey"
+license = "Apache-2.0"
+
+[[bin]]
+name = "serviceradar-fieldsurvey-sidekick"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+arrow-array = "58"
+arrow-ipc = "58"
+arrow-schema = "58"
+axum = { version = "0.7", features = ["json", "tokio", "http1", "ws"] }
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "fs", "process", "sync", "time"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,9 +1,10 @@
 import XCTest
 import simd
-@testable import FieldSurveyApp
+@testable import FieldSurvey
 
 final class ArrowStreamerTests: XCTestCase {
     
+    @MainActor
     func testArrowEncoding() throws {
         let streamer = ArrowStreamer()
         

@@ -147,6 +147,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:api_auth)
 
     get("/stream/:session_id", StreamController, :connect)
+    get("/field-survey/:session_id/rf-observations", FieldSurveyStreamController, :rf_observations)
+    get("/field-survey/:session_id/pose-samples", FieldSurveyStreamController, :pose_samples)
+    get("/field-survey/:session_id/spectrum-observations", FieldSurveyStreamController, :spectrum_observations)
   end
 
   scope "/v1", ServiceRadarWebNGWeb.Api do
@@ -476,6 +479,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
+      live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
+      live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
 
       # MTR Diagnostics
       live("/diagnostics/mtr", DiagnosticsLive.Mtr, :index)

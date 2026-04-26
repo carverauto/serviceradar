@@ -1,13 +1,11 @@
 #if os(iOS)
 import Foundation
 import Combine
-import NetworkExtension
 import CoreLocation
 import simd
 
-/// A real Wi-Fi scanner implementation integrating public APIs.
-/// Uses `NEHotspotNetwork.fetchCurrent` combined with standard CoreLocation scanning for legitimate App Store/Enterprise apps.
-/// Also provides the implementation for `NEHotspotHelper` which requires the `com.apple.developer.networking.HotspotHelper` entitlement to receive the full scan list.
+/// Tracks survey pose/location and ingests RF observations from FieldSurvey Sidekick.
+/// iPhone Wi-Fi radio data is intentionally not used for survey measurements.
 @MainActor
 public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published public var accessPoints: [String: SurveySample] = [:]
@@ -21,8 +19,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private var locationManager: CLLocationManager
     private var lastLocation: CLLocationCoordinate2D?
     private var timer: Timer?
-    private var hotspotHelperRegistered = false
     private let apLocalizer = APPositionLocalizer()
+    private let sidekickAdapter = SidekickScannerAdapter()
     private var latestDevicePose: SIMD3<Float>?
     private let manualAPStoreKey = "manualAPLandmarks"
     private var lastHeatmapSampleByBSSID: [String: (timestamp: TimeInterval, position: SIMD3<Float>)] = [:]
@@ -30,6 +28,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private var lastPoseHeatmapCaptureTime: TimeInterval = 0
     private var pendingPoseHeatmapPosition: SIMD3<Float>?
     private var poseHeatmapFlushScheduled = false
+    private var poseBackendSink: FieldSurveyBackendArrowSink?
+    private let poseArrowEncoder = PoseArrowEncoder()
+    private var lastPoseStreamTime: TimeInterval = 0
+    private let poseStreamMinInterval: TimeInterval = 0.1
     
     public override init() {
         self.locationManager = CLLocationManager()
@@ -47,94 +49,25 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     public var isRFEnabled: Bool {
         SettingsManager.shared.rfScanningEnabled
     }
+
+    public var currentDevicePose: SIMD3<Float>? {
+        latestDevicePose
+    }
     
     public func startScanning() {
         guard SettingsManager.shared.rfScanningEnabled else { return }
         guard timer == nil else { return }
         restoreManualLandmarksToSamples()
 
-        // Start CoreLocation to trigger base station updates and ensure precise spatial anchors
+        // Keep location metadata current. RF observations come only from Sidekick.
         locationManager.startUpdatingLocation()
-        
-        // Setup Hotspot Helper once to capture network interfaces (Requires Apple Entitlement for Enterprise Use)
-        if !hotspotHelperRegistered {
-            hotspotHelperRegistered = true
-            let options: [String: NSObject] = [kNEHotspotHelperOptionDisplayName: "ServiceRadar Scanner" as NSObject]
-            let queue = DispatchQueue(label: "com.serviceradar.wifi", attributes: .concurrent)
-            
-            NEHotspotHelper.register(options: options, queue: queue) { cmd in
-                if cmd.commandType == .evaluate || cmd.commandType == .filterScanList {
-                    if let networkList = cmd.networkList {
-                        struct NetData: Sendable {
-                            let bssid: String
-                            let ssid: String
-                            let signalStrength: Double
-                            let isSecure: Bool
-                        }
-                        
-                        let nets = networkList.map {
-                            NetData(
-                                bssid: $0.bssid,
-                                ssid: $0.ssid,
-                                signalStrength: $0.signalStrength,
-                                isSecure: $0.isSecure
-                            )
-                        }
-                        
-                        Task { @MainActor [weak self] in
-                            guard let self = self, SettingsManager.shared.rfScanningEnabled else { return }
-                            var newAPs = self.accessPoints
-                            
-                            let sortedNetworks = nets.sorted { $0.bssid < $1.bssid }
-                            let currentVector: [Double] = sortedNetworks.map { -100.0 + ($0.signalStrength * 70.0) }
-                            
-                            for network in nets {
-                                let mappedRssi = -100.0 + (network.signalStrength * 70.0)
-                                let measurementPosition = self.latestDevicePose ?? SIMD3<Float>(0, 0, 0)
-                                
-                                let sample = SurveySample(
-                                    id: UUID(),
-                                    timestamp: Date().timeIntervalSince1970,
-                                    scannerDeviceId: SettingsManager.shared.scannerDeviceId,
-                                    bssid: network.bssid,
-                                    ssid: network.ssid,
-                                    rssi: mappedRssi,
-                                    frequency: 5180,
-                                    securityType: network.isSecure ? "Secure (WPA/WEP)" : "Open",
-                                    isSecure: network.isSecure,
-                                    rfVector: currentVector,
-                                    bleVector: BLEScanner.shared.currentBleVector,
-                                    position: measurementPosition,
-                                    latitude: self.lastLocation?.latitude ?? 0.0,
-                                    longitude: self.lastLocation?.longitude ?? 0.0,
-                                    uncertainty: 0.1
-                                )
-                                newAPs[network.bssid] = sample
-                                self.appendHeatmapPoint(
-                                    bssid: network.bssid,
-                                    ssid: network.ssid,
-                                    rssi: mappedRssi,
-                                    position: measurementPosition
-                                )
-                            }
-                            self.accessPoints = newAPs
-                        }
-                    }
-                    
-                    let response = cmd.createResponse(.success)
-                    response.deliver()
-                }
-            }
-        }
-        
-        // Continuous poll for the currently connected network as a public API baseline
-        let sampleRate = SettingsManager.shared.sampleRateSeconds
-        timer = Timer.scheduledTimer(withTimeInterval: sampleRate, repeats: true) { [weak self] _ in
+
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.fetchCurrentNetwork()
+                self?.refreshSubnetDevices()
             }
         }
-        fetchCurrentNetwork()
+        refreshSubnetDevices()
     }
     
     public func stopScanning(clearData: Bool = false) {
@@ -160,14 +93,42 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    public func setBLEIngestionEnabled(_ enabled: Bool) {
-        if !enabled {
-            pruneBLESamples()
-        }
-    }
-
     public func updateDevicePose(position: SIMD3<Float>) {
         latestDevicePose = position
+    }
+
+    public func updateDevicePose(
+        position: SIMD3<Float>,
+        orientation: simd_quatf,
+        monotonicTimestampSeconds: TimeInterval?,
+        trackingQuality: String?
+    ) {
+        latestDevicePose = position
+        streamPoseIfNeeded(
+            position: position,
+            orientation: orientation,
+            monotonicTimestampSeconds: monotonicTimestampSeconds,
+            trackingQuality: trackingQuality
+        )
+    }
+
+    public func startPoseStreaming(sessionID: String) {
+        stopPoseStreaming()
+        guard SettingsManager.shared.authToken != "OFFLINE_MODE" else { return }
+
+        poseBackendSink = FieldSurveyBackendArrowSink(
+            baseURL: SettingsManager.shared.apiURL,
+            authToken: SettingsManager.shared.authToken,
+            sessionID: sessionID,
+            stream: .poseSamples
+        )
+        lastPoseStreamTime = 0
+    }
+
+    public func stopPoseStreaming() {
+        poseBackendSink?.close()
+        poseBackendSink = nil
+        lastPoseStreamTime = 0
     }
 
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
@@ -194,7 +155,6 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         let candidates = accessPoints.values
             .filter { sample in
                 sample.frequency > 0 &&
-                    sample.securityType != "BLE" &&
                     !sample.bssid.hasPrefix("manual-ap-") &&
                     !sample.bssid.hasPrefix("mdns-")
             }
@@ -208,6 +168,22 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                 position: position
             )
         }
+    }
+
+    public func ingestSidekickObservations(_ observations: [SidekickObservation]) {
+        guard SettingsManager.shared.rfScanningEnabled else { return }
+        guard !observations.isEmpty else { return }
+
+        ingestSampleEvents(
+            sidekickAdapter.events(
+                from: observations,
+                context: SidekickScannerAdapterContext(
+                    scannerDeviceID: SettingsManager.shared.scannerDeviceId,
+                    latestDevicePose: latestDevicePose,
+                    location: lastLocation
+                )
+            )
+        )
     }
     
     public func updatePosition(bssid: String, position: SIMD3<Float>) {
@@ -235,45 +211,14 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
     
-    private func fetchCurrentNetwork() {
+    private func refreshSubnetDevices() {
         guard SettingsManager.shared.rfScanningEnabled else { return }
 
-        if SettingsManager.shared.showBLEBeacons {
-            // Optional BLE ingest for environments where BLE context is needed.
-            let blePeripherals = BLEScanner.shared.discoveredPeripherals
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
-                for (uuid, data) in blePeripherals {
-                    let bssid = uuid.uuidString
-                    let measurementPosition = self.latestDevicePose ?? SIMD3<Float>(0, 0, 0)
-                    let sample = SurveySample(
-                        id: UUID(),
-                        timestamp: Date().timeIntervalSince1970,
-                        scannerDeviceId: SettingsManager.shared.scannerDeviceId,
-                        bssid: bssid,
-                        ssid: data.name,
-                        rssi: data.rssi,
-                        frequency: 2402, // Standard BLE Frequency
-                        securityType: "BLE",
-                        isSecure: false,
-                        rfVector: [],
-                        bleVector: BLEScanner.shared.currentBleVector,
-                        position: measurementPosition,
-                        latitude: self.lastLocation?.latitude ?? 0.0,
-                        longitude: self.lastLocation?.longitude ?? 0.0,
-                        uncertainty: 0.1
-                    )
-                    self.accessPoints[bssid] = sample
-                }
-            }
-        } else {
-            pruneBLESamples()
-        }
-        
         // Ingest mDNS/Bonjour Subnet Devices
         let mdnsDevices = SubnetScanner.shared.discoveredDevices
         Task { @MainActor [weak self] in
             guard let self = self else { return }
+            var events: [SurveySampleIngestEvent] = []
             for (_, data) in mdnsDevices {
                 let pseudoBssid = "mdns-\(data.ip)"
                 let sample = SurveySample(
@@ -287,7 +232,6 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                     securityType: "mDNS Device",
                     isSecure: true,
                     rfVector: [],
-                    bleVector: BLEScanner.shared.currentBleVector,
                     position: SIMD3<Float>(0, 0, 0), // Will be transformed by AR Session Anchors
                     latitude: self.lastLocation?.latitude ?? 0.0,
                     longitude: self.lastLocation?.longitude ?? 0.0,
@@ -295,87 +239,9 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                     ipAddress: data.ip,
                     hostname: data.hostname
                 )
-                self.accessPoints[pseudoBssid] = sample
+                events.append(SurveySampleIngestEvent(source: .subnet, sample: sample))
             }
-        }
-        
-        NEHotspotNetwork.fetchCurrent { network in
-            guard let network = network else { return }
-            
-            // Extract non-Sendable properties before crossing actor boundary
-            let bssid = network.bssid
-            let ssid = network.ssid
-            let signalStrength = network.signalStrength
-            let isSecure = network.isSecure
-            
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
-                
-                let mappedRssi = -100.0 + (signalStrength * 70.0)
-                let measurementPosition = self.latestDevicePose ?? SIMD3<Float>(0, 0, 0)
-                
-                let sample = SurveySample(
-                    id: UUID(),
-                    timestamp: Date().timeIntervalSince1970,
-                    scannerDeviceId: SettingsManager.shared.scannerDeviceId,
-                    bssid: bssid,
-                    ssid: ssid,
-                    rssi: mappedRssi,
-                    frequency: 5180,
-                    securityType: isSecure ? "Secure (WPA/WEP)" : "Open",
-                    isSecure: isSecure,
-                    rfVector: [],
-                    bleVector: BLEScanner.shared.currentBleVector,
-                    position: measurementPosition,
-                    latitude: self.lastLocation?.latitude ?? 0.0,
-                    longitude: self.lastLocation?.longitude ?? 0.0,
-                    uncertainty: 0.1
-                )
-                
-                self.accessPoints[bssid] = sample
-                self.appendHeatmapPoint(
-                    bssid: bssid,
-                    ssid: ssid,
-                    rssi: mappedRssi,
-                    position: measurementPosition
-                )
-
-                let previousBSSID = self.connectedBSSID
-                if previousBSSID != bssid {
-                    if !previousBSSID.isEmpty {
-                        let roamPosition = self.latestDevicePose ?? SIMD3<Float>(0, 0, 0)
-                        let roam = WiFiRoamEvent(
-                            timestamp: Date().timeIntervalSince1970,
-                            ssid: ssid,
-                            fromBSSID: previousBSSID,
-                            toBSSID: bssid,
-                            position: roamPosition,
-                            latitude: self.lastLocation?.latitude ?? 0.0,
-                            longitude: self.lastLocation?.longitude ?? 0.0
-                        )
-                        self.roamEvents.append(roam)
-                        if self.roamEvents.count > 120 {
-                            self.roamEvents.removeFirst(self.roamEvents.count - 120)
-                        }
-                    }
-                    self.connectedBSSID = bssid
-                }
-
-                if let pose = self.latestDevicePose {
-                    let observation = APPositionObservation(
-                        timestamp: Date().timeIntervalSince1970,
-                        bssid: bssid,
-                        frequencyMHz: sample.frequency,
-                        rssi: sample.rssi,
-                        scannerPosition: pose
-                    )
-
-                    if let resolved = self.apLocalizer.addObservation(observation) {
-                        self.resolvedAPLocations[bssid] = resolved
-                        self.apPositions[bssid] = resolved.position
-                    }
-                }
-            }
+            self.ingestSampleEvents(events)
         }
     }
     
@@ -557,7 +423,6 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             securityType: "Manual AP (\(landmark.source))",
             isSecure: true,
             rfVector: [],
-            bleVector: BLEScanner.shared.currentBleVector,
             position: landmark.position,
             latitude: lastLocation?.latitude ?? 0.0,
             longitude: lastLocation?.longitude ?? 0.0,
@@ -572,6 +437,41 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             observationCount: 1,
             residualErrorMeters: 0.0
         )
+    }
+
+    private func ingestSampleEvents(_ events: [SurveySampleIngestEvent]) {
+        guard !events.isEmpty else { return }
+        var updatedAPs = accessPoints
+
+        for event in events {
+            updatedAPs[event.sample.bssid] = event.sample
+
+            if let heatmapPosition = event.heatmapPosition {
+                appendHeatmapPoint(
+                    bssid: event.sample.bssid,
+                    ssid: event.sample.ssid,
+                    rssi: event.sample.rssi,
+                    position: heatmapPosition
+                )
+            }
+
+            if let localizationObservation = event.localizationObservation {
+                ingestLocalizationObservation(localizationObservation)
+            }
+        }
+
+        accessPoints = updatedAPs
+    }
+
+    private func ingestSampleEvent(_ event: SurveySampleIngestEvent) {
+        ingestSampleEvents([event])
+    }
+
+    private func ingestLocalizationObservation(_ observation: APPositionObservation) {
+        if let resolved = apLocalizer.addObservation(observation) {
+            resolvedAPLocations[observation.bssid] = resolved
+            apPositions[observation.bssid] = resolved.position
+        }
     }
 
     private func appendHeatmapPoint(bssid: String, ssid: String, rssi: Double, position: SIMD3<Float>) {
@@ -601,21 +501,44 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    private func pruneBLESamples() {
-        let bleKeys = accessPoints.compactMap { (key, sample) in
-            sample.securityType == "BLE" ? key : nil
+    private func streamPoseIfNeeded(
+        position: SIMD3<Float>,
+        orientation: simd_quatf,
+        monotonicTimestampSeconds: TimeInterval?,
+        trackingQuality: String?
+    ) {
+        guard let poseBackendSink else { return }
+
+        let now = Date().timeIntervalSince1970
+        guard now - lastPoseStreamTime >= poseStreamMinInterval else { return }
+        lastPoseStreamTime = now
+
+        let monotonicNanos = monotonicTimestampSeconds.map { seconds in
+            UInt64(max(0, seconds * 1_000_000_000))
         }
 
-        guard !bleKeys.isEmpty else { return }
-        let bleKeySet = Set(bleKeys)
+        let sample = FieldSurveyPoseSample(
+            scannerDeviceID: SettingsManager.shared.scannerDeviceId,
+            capturedAtUnixNanos: Int64(now * 1_000_000_000),
+            capturedAtMonotonicNanos: monotonicNanos,
+            position: position,
+            orientation: orientation,
+            latitude: lastLocation?.latitude,
+            longitude: lastLocation?.longitude,
+            altitude: nil,
+            accuracyMeters: nil,
+            trackingQuality: trackingQuality
+        )
 
-        for key in bleKeys {
-            accessPoints.removeValue(forKey: key)
-            apPositions.removeValue(forKey: key)
-            resolvedAPLocations.removeValue(forKey: key)
-            lastHeatmapSampleByBSSID.removeValue(forKey: key)
+        do {
+            let payload = try poseArrowEncoder.encode(samples: [sample])
+            Task { [poseBackendSink] in
+                try? await poseBackendSink.send(payload)
+            }
+        } catch {
+            // Keep AR capture hot; pose streaming errors are surfaced by backend stream diagnostics.
         }
-        heatmapPoints.removeAll { bleKeySet.contains($0.bssid) }
     }
+
 }
 #endif

@@ -3,7 +3,7 @@ import simd
 
 /// Represents a single cyber-physical RF sample.
 /// In production, this would be mapped directly to an Apache Arrow columnar layout.
-public struct SurveySample: Identifiable, Codable, Equatable {
+public struct SurveySample: Identifiable, Codable, Equatable, Sendable {
     public static let rfVectorDimensions = 64
     public static let bleVectorDimensions = 64
     public static let missingSignalValue = -100.0
