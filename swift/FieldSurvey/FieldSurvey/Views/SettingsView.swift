@@ -21,6 +21,8 @@ public struct SettingsView: View {
     @State private var isAuthenticatingBackend = false
     @State private var isCheckingBackend = false
     @State private var backendAuthResult: String? = nil
+    @State private var backendResultTone: BackendResultTone = .neutral
+    @State private var showBackendResultAlert = false
     
     public var body: some View {
         NavigationView {
@@ -80,6 +82,21 @@ public struct SettingsView: View {
                         Text(backendStatusDetail)
                             .font(.caption)
                             .foregroundColor(.gray)
+
+                        if let backendAuthResult {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: backendResultTone.symbolName)
+                                    .foregroundColor(backendResultTone.foregroundColor)
+                                Text(backendAuthResult)
+                                    .font(.caption)
+                                    .foregroundColor(backendResultTone.foregroundColor)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(backendResultTone.backgroundColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
                     }
                     .padding(.vertical, 8)
 
@@ -115,13 +132,13 @@ public struct SettingsView: View {
 
                             Button("Work Offline") {
                                 settingsManager.setOfflineMode()
-                                backendAuthResult = "Offline mode enabled. Backend upload is disabled."
+                                setBackendResult("Offline mode enabled. Backend upload is disabled.", tone: .warning)
                             }
                             .disabled(isAuthenticatingBackend)
 
                             Button("Sign Out") {
                                 settingsManager.signOut()
-                                backendAuthResult = "Signed out. Backend upload is disabled."
+                                setBackendResult("Signed out. Backend upload is disabled.", tone: .neutral)
                             }
                             .disabled(isAuthenticatingBackend || settingsManager.authToken.isEmpty)
                         }
@@ -135,10 +152,6 @@ public struct SettingsView: View {
 
                         if isAuthenticatingBackend || isCheckingBackend {
                             ProgressView()
-                        } else if let backendAuthResult {
-                            Text(backendAuthResult)
-                                .font(.caption)
-                                .foregroundColor(settingsManager.backendUploadEnabled ? .green : .gray)
                         }
                     }
                     .padding(.vertical, 8)
@@ -361,6 +374,11 @@ public struct SettingsView: View {
             })
         }
         .preferredColorScheme(.dark)
+        .alert("Backend Status", isPresented: $showBackendResultAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(backendAuthResult ?? "")
+        }
     }
 
     private var backendStatusLabel: String {
@@ -381,6 +399,17 @@ public struct SettingsView: View {
             return "Sidekick preview still works, but backend upload is disabled until you sign in."
         }
         return "Sign in to enable authenticated survey upload to ServiceRadar."
+    }
+
+    private func clearBackendResult() {
+        backendAuthResult = nil
+        backendResultTone = .neutral
+    }
+
+    private func setBackendResult(_ message: String, tone: BackendResultTone, showAlert: Bool = false) {
+        backendAuthResult = message
+        backendResultTone = tone
+        showBackendResultAlert = showAlert
     }
     
     private func runThroughputTest() async {
@@ -483,11 +512,11 @@ public struct SettingsView: View {
 
     private func authenticateBackend() async {
         isAuthenticatingBackend = true
-        backendAuthResult = nil
+        clearBackendResult()
 
         let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
         guard let url = URL(string: "\(cleanedURL)/oauth/token") else {
-            backendAuthResult = "Invalid ServiceRadar URL."
+            setBackendResult("Invalid ServiceRadar URL.", tone: .error, showAlert: true)
             isAuthenticatingBackend = false
             return
         }
@@ -506,13 +535,13 @@ public struct SettingsView: View {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                backendAuthResult = "Invalid ServiceRadar response."
+                setBackendResult("Invalid ServiceRadar response.", tone: .error, showAlert: true)
                 isAuthenticatingBackend = false
                 return
             }
 
             guard httpResponse.statusCode == 200 else {
-                backendAuthResult = "Login failed: HTTP \(httpResponse.statusCode)."
+                setBackendResult("Login failed: HTTP \(httpResponse.statusCode).", tone: .error, showAlert: true)
                 isAuthenticatingBackend = false
                 return
             }
@@ -523,9 +552,11 @@ public struct SettingsView: View {
                 token: tokenResponse.accessToken,
                 username: settingsManager.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines)
             )
-            backendAuthResult = "Signed in. Backend upload is enabled."
+            setBackendResult("Signed in. Checking FieldSurvey ingest permission...", tone: .neutral)
+            let outcome = await validateBackend(cleanedURL: cleanedURL, authToken: tokenResponse.accessToken)
+            setBackendResult(outcome.message, tone: outcome.tone, showAlert: true)
         } catch {
-            backendAuthResult = "Login failed: \(error.localizedDescription)"
+            setBackendResult("Login failed: \(error.localizedDescription)", tone: .error, showAlert: true)
         }
 
         isAuthenticatingBackend = false
@@ -533,44 +564,69 @@ public struct SettingsView: View {
 
     private func checkBackend() async {
         isCheckingBackend = true
-        backendAuthResult = nil
+        clearBackendResult()
 
-        let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
-        guard let url = URL(string: "\(cleanedURL)/v1/field-survey/auth-check") else {
-            backendAuthResult = "Invalid ServiceRadar URL."
+        guard settingsManager.backendUploadEnabled else {
+            setBackendResult("No backend token is ready. Sign in before checking the backend.", tone: .warning, showAlert: true)
             isCheckingBackend = false
             return
+        }
+
+        let authToken = settingsManager.authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !authToken.isEmpty else {
+            setBackendResult("No backend token is stored. Sign in before checking the backend.", tone: .warning, showAlert: true)
+            isCheckingBackend = false
+            return
+        }
+
+        let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
+        let outcome = await validateBackend(cleanedURL: cleanedURL, authToken: authToken)
+        setBackendResult(outcome.message, tone: outcome.tone, showAlert: true)
+        isCheckingBackend = false
+    }
+
+    private func validateBackend(cleanedURL: String, authToken: String) async -> BackendValidationOutcome {
+        guard let url = URL(string: "\(cleanedURL)/v1/field-survey/auth-check") else {
+            return BackendValidationOutcome(message: "Invalid ServiceRadar URL.", tone: .error)
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 10
-        request.setValue("Bearer \(settingsManager.authToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                backendAuthResult = "Backend check failed: invalid response."
-                isCheckingBackend = false
-                return
+                return BackendValidationOutcome(message: "Backend check failed: invalid response.", tone: .error)
             }
 
             switch httpResponse.statusCode {
             case 200:
-                backendAuthResult = "FieldSurvey ingest auth accepted. Backend upload can connect."
+                return BackendValidationOutcome(
+                    message: "Backend check passed. FieldSurvey upload is authenticated and ready.",
+                    tone: .success
+                )
             case 401:
-                backendAuthResult = "Backend rejected token: sign in again."
+                return BackendValidationOutcome(
+                    message: "Backend rejected the token with HTTP 401. Sign in again before streaming.",
+                    tone: .error
+                )
             case 403:
-                backendAuthResult = "Backend auth works, but this user lacks spatial sample permission."
+                return BackendValidationOutcome(
+                    message: "Backend auth works, but this user lacks FieldSurvey ingest permission.",
+                    tone: .error
+                )
             default:
-                backendAuthResult = "Backend check returned HTTP \(httpResponse.statusCode)."
+                return BackendValidationOutcome(
+                    message: "Backend check returned HTTP \(httpResponse.statusCode).",
+                    tone: .warning
+                )
             }
         } catch {
-            backendAuthResult = "Backend check failed: \(error.localizedDescription)"
+            return BackendValidationOutcome(message: "Backend check failed: \(error.localizedDescription)", tone: .error)
         }
-
-        isCheckingBackend = false
     }
 
     private func normalizedBaseURL(_ rawValue: String) -> String {
@@ -609,6 +665,48 @@ private struct OAuthTokenResponse: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
+    }
+}
+
+private struct BackendValidationOutcome {
+    let message: String
+    let tone: BackendResultTone
+}
+
+private enum BackendResultTone {
+    case neutral
+    case success
+    case warning
+    case error
+
+    var symbolName: String {
+        switch self {
+        case .neutral:
+            return "info.circle.fill"
+        case .success:
+            return "checkmark.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "xmark.octagon.fill"
+        }
+    }
+
+    var foregroundColor: Color {
+        switch self {
+        case .neutral:
+            return .secondary
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .error:
+            return .red
+        }
+    }
+
+    var backgroundColor: Color {
+        foregroundColor.opacity(0.14)
     }
 }
 #endif
