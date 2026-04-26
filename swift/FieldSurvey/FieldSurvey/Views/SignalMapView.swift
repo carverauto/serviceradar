@@ -72,7 +72,7 @@ public struct SignalMapView: View {
             }
 
             SignalMapCanvas(
-                points: Array(visiblePoints.suffix(500)),
+                points: visiblePoints,
                 spectrumPoints: Array(visibleSpectrumPoints.suffix(500)),
                 landmarks: visibleLandmarks,
                 currentPose: visibleCurrentPose,
@@ -591,24 +591,33 @@ private struct SignalMapCanvas: View {
     }
 
     private func drawWiFiHeatmap(context: GraphicsContext, projection: SignalMapProjection) {
-        let cellSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
+        let baseSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
 
         for bucket in bucketed(points: points) {
             let center = projection.screenPoint(for: bucket.position)
-            let rect = CGRect(
-                x: center.x - cellSize.width / 2,
-                y: center.y - cellSize.height / 2,
-                width: max(cellSize.width, 1),
-                height: max(cellSize.height, 1)
+            let radius = min(
+                max(max(baseSize.width, baseSize.height) * (0.45 + CGFloat(min(bucket.count, 8)) * 0.035), 9),
+                34
+            )
+            let circle = CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
             )
             let opacity = min(0.78, 0.42 + Double(bucket.count) * 0.035)
             context.fill(
-                Path(roundedRect: rect, cornerRadius: 1.5),
+                Path(ellipseIn: circle),
                 with: .color(SignalColor.color(for: bucket.rssi).opacity(opacity))
             )
 
-            let radius: CGFloat = 3.5
-            let dotRect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+            let dotRadius: CGFloat = 3.5
+            let dotRect = CGRect(
+                x: center.x - dotRadius,
+                y: center.y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            )
 
             context.fill(Path(ellipseIn: dotRect), with: .color(.white.opacity(0.75)))
             context.stroke(Path(ellipseIn: dotRect), with: .color(SignalColor.color(for: bucket.rssi).opacity(0.95)), lineWidth: 1.4)
@@ -616,44 +625,54 @@ private struct SignalMapCanvas: View {
     }
 
     private func drawWiFiConfidence(context: GraphicsContext, projection: SignalMapProjection) {
-        let cellSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
+        let baseSize = projection.screenSize(widthMeters: 0.75, heightMeters: 0.75)
 
         for bucket in bucketed(points: points) {
             let center = projection.screenPoint(for: bucket.position)
-            let rect = CGRect(
-                x: center.x - cellSize.width / 2,
-                y: center.y - cellSize.height / 2,
-                width: max(cellSize.width, 1),
-                height: max(cellSize.height, 1)
+            let radius = min(max(max(baseSize.width, baseSize.height) * 0.48, 9), 32)
+            let circle = CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
             )
             let confidence = min(1.0, Double(bucket.count) / 8.0)
 
             context.fill(
-                Path(roundedRect: rect, cornerRadius: 1.5),
+                Path(ellipseIn: circle),
                 with: .color(ConfidenceColor.color(for: confidence).opacity(0.62))
             )
 
-            let radius: CGFloat = 3.5
-            let dotRect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+            let dotRadius: CGFloat = 3.5
+            let dotRect = CGRect(
+                x: center.x - dotRadius,
+                y: center.y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            )
             context.fill(Path(ellipseIn: dotRect), with: .color(.white.opacity(0.85)))
         }
     }
 
     private func drawSpectrumHeatmap(context: GraphicsContext, projection: SignalMapProjection) {
-        let cellSize = projection.screenSize(widthMeters: 0.8, heightMeters: 0.8)
+        let baseSize = projection.screenSize(widthMeters: 0.8, heightMeters: 0.8)
 
         for bucket in bucketedSpectrum(points: spectrumPoints) {
             let center = projection.screenPoint(for: bucket.position)
-            let rect = CGRect(
-                x: center.x - cellSize.width / 2,
-                y: center.y - cellSize.height / 2,
-                width: max(cellSize.width, 1),
-                height: max(cellSize.height, 1)
+            let radius = min(
+                max(max(baseSize.width, baseSize.height) * (0.42 + CGFloat(bucket.score) * 0.24), 9),
+                34
+            )
+            let circle = CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
             )
             let color = SpectrumColor.color(forScore: bucket.score)
 
             context.fill(
-                Path(roundedRect: rect, cornerRadius: 1.5),
+                Path(ellipseIn: circle),
                 with: .color(color.opacity(0.42 + min(bucket.score, 1.0) * 0.36))
             )
         }

@@ -121,7 +121,7 @@ public struct SidekickUSBDeviceInfo: Codable, Equatable {
     }
 }
 
-public struct SidekickRadioConfiguration: Equatable, Identifiable {
+public struct SidekickRadioConfiguration: Equatable, Identifiable, Sendable {
     public var id: String { interfaceName }
 
     public let interfaceName: String
@@ -412,7 +412,7 @@ public struct SidekickCommandExecution: Codable, Equatable {
     }
 }
 
-public struct SidekickObservation: Codable, Equatable {
+public struct SidekickObservation: Codable, Equatable, Sendable {
     public let sidekickID: String
     public let radioID: String
     public let interfaceName: String
@@ -461,7 +461,7 @@ public struct SidekickSpectrumBatch: Equatable {
     public let payload: Data
 }
 
-public struct SidekickSpectrumSummary: Codable, Equatable, Identifiable {
+public struct SidekickSpectrumSummary: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(sdrID)-\(sweepID)" }
 
     public let sidekickID: String
@@ -503,7 +503,7 @@ public struct SidekickSpectrumSummary: Codable, Equatable, Identifiable {
     }
 }
 
-public struct SidekickSpectrumChannelScore: Codable, Equatable, Identifiable {
+public struct SidekickSpectrumChannelScore: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(band)-\(channel)" }
 
     public let band: String

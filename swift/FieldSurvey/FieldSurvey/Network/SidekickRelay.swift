@@ -64,6 +64,45 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
     }
 }
 
+private actor BackendUploadBackoff {
+    private let cooldownSeconds: TimeInterval
+    private var pausedUntil: Date?
+    private var inFlight = false
+
+    init(cooldownSeconds: TimeInterval) {
+        self.cooldownSeconds = cooldownSeconds
+    }
+
+    func claimSendSlot(now: Date = Date()) -> Bool {
+        guard !inFlight else { return false }
+        if let pausedUntil, now < pausedUntil {
+            return false
+        }
+        inFlight = true
+        return true
+    }
+
+    func markSuccess() {
+        inFlight = false
+        pausedUntil = nil
+    }
+
+    func markFailure(now: Date = Date()) {
+        inFlight = false
+        pausedUntil = now.addingTimeInterval(cooldownSeconds)
+    }
+}
+
+private actor PreviewIngestThrottle {
+    private var lastIngestTime: TimeInterval = 0
+
+    func claim(minInterval: TimeInterval, now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
+        guard now - lastIngestTime >= minInterval else { return false }
+        lastIngestTime = now
+        return true
+    }
+}
+
 @MainActor
 public final class SidekickRelay: ObservableObject {
     private static let twoGHzSurveyFrequenciesMHz = [
@@ -93,7 +132,6 @@ public final class SidekickRelay: ObservableObject {
     private var pendingSpectrumBatchCount = 0
     private var lastRFCountPublishTime: TimeInterval = 0
     private var lastSpectrumCountPublishTime: TimeInterval = 0
-    private var lastPreviewIngestTime: TimeInterval = 0
     private var pendingPreviewObservationCount = 0
     private var lastPreviewCountPublishTime: TimeInterval = 0
     private var latestSpectrumScoresByChannel: [String: SidekickSpectrumChannelScore] = [:]
@@ -123,7 +161,6 @@ public final class SidekickRelay: ObservableObject {
         pendingSpectrumBatchCount = 0
         lastRFCountPublishTime = 0
         lastSpectrumCountPublishTime = 0
-        lastPreviewIngestTime = 0
         pendingPreviewObservationCount = 0
         lastPreviewCountPublishTime = 0
         lastError = nil
@@ -247,12 +284,14 @@ public final class SidekickRelay: ObservableObject {
         sidekickID: String,
         radioConfig: SidekickRadioConfiguration
     ) {
-        let task = Task { [weak self, sidekickClient, backendSink, weak wifiScanner] in
+        let observationDecoder = observationDecoder
+        let task = Task.detached(priority: .utility) { [weak self, sidekickClient, backendSink, weak wifiScanner, observationDecoder] in
             var attempt = 0
-            var backendPausedUntil: Date?
+            let backendBackoff = BackendUploadBackoff(cooldownSeconds: 20)
+            let previewThrottle = PreviewIngestThrottle()
 
             while !Task.isCancelled {
-                guard await self?.isCurrentGeneration(generation) == true else { return }
+                guard await MainActor.run(body: { self?.isCurrentGeneration(generation) == true }) else { return }
                 do {
                     if let frequencyMHz = radioConfig.frequencyMHz {
                         let execution = try await sidekickClient.prepareMonitor(
@@ -275,23 +314,39 @@ public final class SidekickRelay: ObservableObject {
 
                     for try await batch in stream {
                         try Task.checkCancellation()
-                        self?.ingestPreviewBatch(batch.payload, wifiScanner: wifiScanner)
-                        if let backendSink,
-                           backendPausedUntil.map({ Date() >= $0 }) ?? true {
+                        if await previewThrottle.claim(minInterval: 0.35) {
                             do {
-                                try await backendSink.send(batch.payload)
-                                backendPausedUntil = nil
+                                let observations = try observationDecoder.decode(batch.payload)
                                 await MainActor.run {
                                     guard self?.isCurrentGeneration(generation) == true else { return }
-                                    if self?.backendWarning?.hasPrefix("Backend upload") == true {
-                                        self?.backendWarning = nil
-                                    }
+                                    self?.ingestPreviewObservations(observations, wifiScanner: wifiScanner)
                                 }
                             } catch {
-                                backendPausedUntil = Date().addingTimeInterval(12)
                                 await MainActor.run {
                                     guard self?.isCurrentGeneration(generation) == true else { return }
-                                    self?.backendWarning = "Backend upload paused: \(error.localizedDescription)"
+                                    self?.previewDecodeError = error.localizedDescription
+                                }
+                            }
+                        }
+                        if let backendSink,
+                           await backendBackoff.claimSendSlot() {
+                            let payload = batch.payload
+                            Task.detached(priority: .utility) { [weak self, backendSink, backendBackoff] in
+                                do {
+                                    try await backendSink.send(payload)
+                                    await backendBackoff.markSuccess()
+                                    await MainActor.run {
+                                        guard self?.isCurrentGeneration(generation) == true else { return }
+                                        if self?.backendWarning?.hasPrefix("Backend upload") == true {
+                                            self?.backendWarning = nil
+                                        }
+                                    }
+                                } catch {
+                                    await backendBackoff.markFailure()
+                                    await MainActor.run {
+                                        guard self?.isCurrentGeneration(generation) == true else { return }
+                                        self?.backendWarning = "Backend upload unavailable; recording locally: \(error.localizedDescription)"
+                                    }
                                 }
                             }
                         }
@@ -322,22 +377,12 @@ public final class SidekickRelay: ObservableObject {
         tasks.append(task)
     }
 
-    private func ingestPreviewBatch(_ payload: Data, wifiScanner: RealWiFiScanner?) {
+    private func ingestPreviewObservations(_ observations: [SidekickObservation], wifiScanner: RealWiFiScanner?) {
         guard let wifiScanner else { return }
-        let now = Date().timeIntervalSince1970
-        guard now - lastPreviewIngestTime >= 0.35 else { return }
-        lastPreviewIngestTime = now
-
-        do {
-            let observations = try observationDecoder.decode(payload)
-            guard !observations.isEmpty else { return }
-            wifiScanner.ingestSidekickObservations(observations)
-            recordPreviewObservations(observations.count)
-            previewDecodeError = nil
-        } catch {
-            previewDecodeError = error.localizedDescription
-            logger.debug("Skipped Sidekick preview decode: \(error.localizedDescription)")
-        }
+        guard !observations.isEmpty else { return }
+        wifiScanner.ingestSidekickObservations(observations)
+        recordPreviewObservations(observations.count)
+        previewDecodeError = nil
     }
 
     private func startSpectrumRelay(
@@ -366,22 +411,30 @@ public final class SidekickRelay: ObservableObject {
             spectrumSink = nil
         }
 
-        let task = Task { [weak self, sidekickClient, spectrumSink] in
+        let sdrID = settings.sidekickSpectrumSDRID
+        let serialNumber = settings.sidekickSpectrumSerialNumber.nilIfBlank
+        let frequencyMinMHz = settings.sidekickSpectrumMinMHz
+        let frequencyMaxMHz = settings.sidekickSpectrumMaxMHz
+        let binWidthHz = settings.sidekickSpectrumBinWidthHz
+        let lnaGainDB = settings.sidekickSpectrumLNAGainDB
+        let vgaGainDB = settings.sidekickSpectrumVGAGainDB
+
+        let task = Task.detached(priority: .utility) { [weak self, sidekickClient, spectrumSink] in
             var attempt = 0
 
             while !Task.isCancelled {
-                guard await self?.isCurrentGeneration(generation) == true else { return }
+                guard await MainActor.run(body: { self?.isCurrentGeneration(generation) == true }) else { return }
                 do {
                     if spectrumSink != nil {
                         let stream = sidekickClient.spectrumSummaries(
                             sidekickID: sidekickID,
-                            sdrID: settings.sidekickSpectrumSDRID,
-                            serialNumber: settings.sidekickSpectrumSerialNumber.nilIfBlank,
-                            frequencyMinMHz: settings.sidekickSpectrumMinMHz,
-                            frequencyMaxMHz: settings.sidekickSpectrumMaxMHz,
-                            binWidthHz: settings.sidekickSpectrumBinWidthHz,
-                            lnaGainDB: settings.sidekickSpectrumLNAGainDB,
-                            vgaGainDB: settings.sidekickSpectrumVGAGainDB
+                            sdrID: sdrID,
+                            serialNumber: serialNumber,
+                            frequencyMinMHz: frequencyMinMHz,
+                            frequencyMaxMHz: frequencyMaxMHz,
+                            binWidthHz: binWidthHz,
+                            lnaGainDB: lnaGainDB,
+                            vgaGainDB: vgaGainDB
                         )
 
                         for try await summary in stream {
@@ -395,13 +448,13 @@ public final class SidekickRelay: ObservableObject {
                     } else {
                         let stream = sidekickClient.spectrumSummaries(
                             sidekickID: sidekickID,
-                            sdrID: settings.sidekickSpectrumSDRID,
-                            serialNumber: settings.sidekickSpectrumSerialNumber.nilIfBlank,
-                            frequencyMinMHz: settings.sidekickSpectrumMinMHz,
-                            frequencyMaxMHz: settings.sidekickSpectrumMaxMHz,
-                            binWidthHz: settings.sidekickSpectrumBinWidthHz,
-                            lnaGainDB: settings.sidekickSpectrumLNAGainDB,
-                            vgaGainDB: settings.sidekickSpectrumVGAGainDB
+                            sdrID: sdrID,
+                            serialNumber: serialNumber,
+                            frequencyMinMHz: frequencyMinMHz,
+                            frequencyMaxMHz: frequencyMaxMHz,
+                            binWidthHz: binWidthHz,
+                            lnaGainDB: lnaGainDB,
+                            vgaGainDB: vgaGainDB
                         )
 
                         for try await summary in stream {
@@ -625,7 +678,7 @@ public final class SidekickRelay: ObservableObject {
         return 250
     }
 
-    private static func validateMonitorPrepare(_ execution: SidekickMonitorPrepareExecution) throws {
+    nonisolated private static func validateMonitorPrepare(_ execution: SidekickMonitorPrepareExecution) throws {
         guard let failedExecution = execution.executions.first(where: { !$0.success }) else { return }
         let command = ([failedExecution.command.program] + failedExecution.command.args).joined(separator: " ")
         let detail = failedExecution.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
