@@ -1220,8 +1220,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp value(map, keys) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, fn key ->
-      Map.get(map, key) || Map.get(map, to_string(key))
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      cond do
+        Map.has_key?(map, key) and not is_nil(Map.get(map, key)) ->
+          {:halt, Map.get(map, key)}
+
+        Map.has_key?(map, to_string(key)) and not is_nil(Map.get(map, to_string(key))) ->
+          {:halt, Map.get(map, to_string(key))}
+
+        true ->
+          {:cont, nil}
+      end
     end)
   end
 
@@ -1447,6 +1456,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
                 string_value(details, ["camera_host", "cameraHost"])
               ]),
             "plugin_id" => string_value(source, ["plugin_id", "pluginId"]),
+            "insecure_skip_verify" =>
+              boolean_value(source, ["insecure_skip_verify", "insecureSkipVerify"], nil),
             "device_enrichment" => enrichment
           }
           |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -1466,7 +1477,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         "credential_reference_id" =>
           string_value(stream, ["credential_reference_id", "credentialReferenceId"]),
         "source" => string_value(stream, ["source"]),
-        "protocol" => string_value(stream, ["protocol"])
+        "protocol" => string_value(stream, ["protocol"]),
+        "insecure_skip_verify" =>
+          boolean_value(stream, ["insecure_skip_verify", "insecureSkipVerify"], nil)
       }
       |> Enum.reject(fn {_key, value} -> blank?(value) end)
       |> Map.new()
