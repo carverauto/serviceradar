@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-public struct SignalCoveragePrediction: Identifiable, Equatable {
+public struct SignalCoveragePrediction: Identifiable, Equatable, Sendable {
     public let id = UUID()
     public let position: SIMD3<Float>
     public let rssi: Double

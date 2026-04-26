@@ -282,7 +282,7 @@ public final class SidekickRelay: ObservableObject {
                         spectrum: settings.sidekickSpectrumEnabled
                     )
                 }
-                guard await self?.isCurrentGeneration(generation) == true else { return }
+                guard self?.isCurrentGeneration(generation) == true else { return }
 
                 for radioConfig in radioConfigs {
                     self?.startRadioRelay(
@@ -299,9 +299,7 @@ public final class SidekickRelay: ObservableObject {
                     self?.startSpectrumRelay(
                         generation: generation,
                         sidekickClient: sidekickClient,
-                        sessionID: sessionID,
-                        sidekickID: sidekickID,
-                        forwardToBackend: forwardToBackend
+                        sidekickID: sidekickID
                     )
                 }
             } catch {
@@ -461,28 +459,9 @@ public final class SidekickRelay: ObservableObject {
     private func startSpectrumRelay(
         generation: Int,
         sidekickClient: SidekickClient,
-        sessionID: String,
-        sidekickID: String,
-        forwardToBackend: Bool
+        sidekickID: String
     ) {
         let settings = SettingsManager.shared
-
-        let spectrumSink: FieldSurveyBackendArrowSink?
-        if forwardToBackend {
-            guard let sink = FieldSurveyBackendArrowSink(
-                baseURL: settings.apiURL,
-                authToken: settings.authToken,
-                sessionID: sessionID,
-                stream: .spectrumObservations
-            ) else {
-                status = .failed("Invalid ServiceRadar spectrum ingest URL")
-                return
-            }
-            spectrumSink = sink
-            sinks.append(sink)
-        } else {
-            spectrumSink = nil
-        }
 
         let sdrID = settings.sidekickSpectrumSDRID
         let serialNumber = settings.sidekickSpectrumSerialNumber.nilIfBlank
@@ -492,52 +471,30 @@ public final class SidekickRelay: ObservableObject {
         let lnaGainDB = settings.sidekickSpectrumLNAGainDB
         let vgaGainDB = settings.sidekickSpectrumVGAGainDB
 
-        let task = Task.detached(priority: .utility) { [weak self, sidekickClient, spectrumSink] in
+        let task = Task.detached(priority: .utility) { [weak self, sidekickClient] in
             var attempt = 0
 
             while !Task.isCancelled {
                 guard await MainActor.run(body: { self?.isCurrentGeneration(generation) == true }) else { return }
                 do {
-                    if spectrumSink != nil {
-                        let stream = sidekickClient.spectrumSummaries(
-                            sidekickID: sidekickID,
-                            sdrID: sdrID,
-                            serialNumber: serialNumber,
-                            frequencyMinMHz: frequencyMinMHz,
-                            frequencyMaxMHz: frequencyMaxMHz,
-                            binWidthHz: binWidthHz,
-                            lnaGainDB: lnaGainDB,
-                            vgaGainDB: vgaGainDB
-                        )
+                    let stream = sidekickClient.spectrumSummaries(
+                        sidekickID: sidekickID,
+                        sdrID: sdrID,
+                        serialNumber: serialNumber,
+                        frequencyMinMHz: frequencyMinMHz,
+                        frequencyMaxMHz: frequencyMaxMHz,
+                        binWidthHz: binWidthHz,
+                        lnaGainDB: lnaGainDB,
+                        vgaGainDB: vgaGainDB
+                    )
 
-                        for try await summary in stream {
-                            try Task.checkCancellation()
-                            attempt = 0
-                            await MainActor.run {
-                                guard self?.isCurrentGeneration(generation) == true else { return }
-                                self?.recordSpectrumSummary(summary)
-                            }
-                        }
-                    } else {
-                        let stream = sidekickClient.spectrumSummaries(
-                            sidekickID: sidekickID,
-                            sdrID: sdrID,
-                            serialNumber: serialNumber,
-                            frequencyMinMHz: frequencyMinMHz,
-                            frequencyMaxMHz: frequencyMaxMHz,
-                            binWidthHz: binWidthHz,
-                            lnaGainDB: lnaGainDB,
-                            vgaGainDB: vgaGainDB
-                        )
-
-                        for try await summary in stream {
-                            try Task.checkCancellation()
-                            attempt = 0
-                            await MainActor.run {
-                                guard self?.isCurrentGeneration(generation) == true else { return }
-                                self?.spectrumWarning = nil
-                                self?.recordSpectrumSummary(summary)
-                            }
+                    for try await summary in stream {
+                        try Task.checkCancellation()
+                        attempt = 0
+                        await MainActor.run {
+                            guard self?.isCurrentGeneration(generation) == true else { return }
+                            self?.spectrumWarning = nil
+                            self?.recordSpectrumSummary(summary)
                         }
                     }
                 } catch is CancellationError {

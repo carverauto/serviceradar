@@ -1,6 +1,6 @@
 import Foundation
 
-public struct SurveySessionRecord: Identifiable, Codable, Equatable {
+public struct SurveySessionRecord: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let createdAt: TimeInterval
@@ -12,7 +12,7 @@ public struct SurveySessionRecord: Identifiable, Codable, Equatable {
     public let meshFilename: String?
 }
 
-public struct SurveyRoamEventRecord: Codable, Equatable {
+public struct SurveyRoamEventRecord: Codable, Equatable, Sendable {
     public let timestamp: TimeInterval
     public let ssid: String
     public let fromBSSID: String
@@ -24,7 +24,7 @@ public struct SurveyRoamEventRecord: Codable, Equatable {
     public let longitude: Double
 }
 
-public struct SurveySessionSnapshot: Identifiable, Codable, Equatable {
+public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable {
     public let record: SurveySessionRecord
     public let samples: [SurveySample]
     public let heatmapPoints: [WiFiHeatmapPoint]
@@ -83,7 +83,7 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable {
     }
 }
 
-public struct SurveySessionComparison: Identifiable, Equatable {
+public struct SurveySessionComparison: Identifiable, Equatable, Sendable {
     public let id = UUID()
     public let baselineName: String
     public let currentName: String

@@ -519,7 +519,9 @@ async fn stream_observations(
                     Err(error) => {
                         let _ = send_observation_batch(&mut socket, &mut pending).await;
                         let _ = socket
-                            .send(Message::Text(format!(r#"{{"error":"{error}"}}"#)))
+                            .send(Message::Text(
+                                serde_json::json!({ "error": error }).to_string(),
+                            ))
                             .await;
                         break;
                     }
@@ -564,7 +566,9 @@ async fn send_observation_batch(
         Err(error) => {
             pending.clear();
             return socket
-                .send(Message::Text(format!(r#"{{"error":"{error}"}}"#)))
+                .send(Message::Text(
+                    serde_json::json!({ "error": error }).to_string(),
+                ))
                 .await
                 .is_ok();
         }
@@ -605,7 +609,9 @@ async fn stream_spectrum(
                     Err(error) => {
                         let _ = send_spectrum_batch(&mut socket, &mut pending).await;
                         let _ = socket
-                            .send(Message::Text(format!(r#"{{"error":"{error}"}}"#)))
+                            .send(Message::Text(
+                                serde_json::json!({ "error": error }).to_string(),
+                            ))
                             .await;
                         break;
                     }
@@ -643,7 +649,9 @@ async fn send_spectrum_batch(socket: &mut WebSocket, pending: &mut Vec<SpectrumS
         Err(error) => {
             pending.clear();
             return socket
-                .send(Message::Text(format!(r#"{{"error":"{error}"}}"#)))
+                .send(Message::Text(
+                    serde_json::json!({ "error": error }).to_string(),
+                ))
                 .await
                 .is_ok();
         }
@@ -687,7 +695,9 @@ async fn stream_spectrum_summaries(
                     }
                     Err(error) => {
                         let _ = socket
-                            .send(Message::Text(format!(r#"{{"error":"{error}"}}"#)))
+                            .send(Message::Text(
+                                serde_json::json!({ "error": error }).to_string(),
+                            ))
                             .await;
                         break;
                     }

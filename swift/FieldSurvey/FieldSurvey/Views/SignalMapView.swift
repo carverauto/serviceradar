@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import Combine
 import SwiftUI
 import simd
 
@@ -27,6 +28,7 @@ public struct SignalMapView: View {
     @State private var mapOffset: CGSize = .zero
     @State private var lastMapOffset: CGSize = .zero
     @State private var selectedBSSID: String?
+    @StateObject private var coverageStore = SignalCoverageRenderStore()
 
     public init(
         title: String,
@@ -61,21 +63,28 @@ public struct SignalMapView: View {
     }
 
     public var body: some View {
+        let renderPoints = visiblePoints
+        let renderLandmarks = visibleLandmarks
+        let renderCurrentPose = visibleCurrentPose
+        let summaries = apSummaries
+        let coverageSignature = SignalCoverageRenderSignature(points: renderPoints)
+
         VStack(spacing: 12) {
             headerControls
-            statusStrip
+            statusStrip(visiblePointCount: renderPoints.count, apCount: summaries.count)
             failureBanner
             warningBanner
             floorControls
-            apControls
+            apControls(summaries: summaries)
             if let summary = displaySpectrumSummary {
                 SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
             }
 
             SignalMapCanvas(
-                points: visiblePoints,
-                landmarks: visibleLandmarks,
-                currentPose: visibleCurrentPose,
+                points: renderPoints,
+                landmarks: renderLandmarks,
+                currentPose: renderCurrentPose,
+                predictions: coverageStore.predictions,
                 zoom: mapScale,
                 pan: mapOffset
             )
@@ -125,6 +134,15 @@ public struct SignalMapView: View {
         .padding(12)
         .background(Color(red: 0.025, green: 0.035, blue: 0.05).ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .onAppear {
+            coverageStore.update(points: renderPoints, signature: coverageSignature)
+        }
+        .onChange(of: coverageSignature) { _, newSignature in
+            coverageStore.update(points: renderPoints, signature: newSignature)
+        }
+        .onDisappear {
+            coverageStore.cancel()
+        }
     }
 
     private var headerControls: some View {
@@ -150,10 +168,10 @@ public struct SignalMapView: View {
         }
     }
 
-    private var statusStrip: some View {
+    private func statusStrip(visiblePointCount: Int, apCount: Int) -> some View {
         HStack(spacing: 14) {
-            MetricPill(label: "Heat", value: "\(visiblePoints.count)/\(points.count)")
-            MetricPill(label: "APs", value: "\(apSummaries.count)")
+            MetricPill(label: "Heat", value: "\(visiblePointCount)/\(points.count)")
+            MetricPill(label: "APs", value: "\(apCount)")
             MetricPill(label: "AP Marks", value: "\(landmarks.count)")
 
             if let rfBatchCount {
@@ -217,8 +235,7 @@ public struct SignalMapView: View {
     }
 
     @ViewBuilder
-    private var apControls: some View {
-        let summaries = apSummaries
+    private func apControls(summaries: [SignalAPSummary]) -> some View {
         if !summaries.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -430,11 +447,97 @@ public struct SignalMapView: View {
     }
 }
 
+private struct SignalCoverageRenderSignature: Equatable, Sendable {
+    let count: Int
+    let latestTimestampBucket: Int
+    let minX: Float
+    let maxX: Float
+    let minZ: Float
+    let maxZ: Float
+
+    init(points: [WiFiHeatmapPoint]) {
+        let validPoints = points.filter { $0.position.isValidMapPosition && $0.rssi.isFinite }
+        count = validPoints.count
+        latestTimestampBucket = Int(((validPoints.map(\.timestamp).max() ?? 0) * 2).rounded())
+
+        let xs = validPoints.map(\.x).filter(\.isFinite)
+        let zs = validPoints.map(\.z).filter(\.isFinite)
+        guard let rawMinX = xs.min(),
+              let rawMaxX = xs.max(),
+              let rawMinZ = zs.min(),
+              let rawMaxZ = zs.max() else {
+            minX = 0
+            maxX = 0
+            minZ = 0
+            maxZ = 0
+            return
+        }
+
+        let xPadding = max((rawMaxX - rawMinX) * 0.12, 1.0)
+        let zPadding = max((rawMaxZ - rawMinZ) * 0.12, 1.0)
+        minX = SignalCoverageRenderSignature.rounded(rawMinX - xPadding)
+        maxX = SignalCoverageRenderSignature.rounded(rawMaxX + xPadding)
+        minZ = SignalCoverageRenderSignature.rounded(rawMinZ - zPadding)
+        maxZ = SignalCoverageRenderSignature.rounded(rawMaxZ + zPadding)
+    }
+
+    var canInterpolate: Bool {
+        count >= 3 && maxX > minX && maxZ > minZ
+    }
+
+    private static func rounded(_ value: Float) -> Float {
+        guard value.isFinite else { return 0 }
+        return (value * 10).rounded() / 10
+    }
+}
+
+@MainActor
+private final class SignalCoverageRenderStore: ObservableObject {
+    @Published private(set) var predictions: [SignalCoveragePrediction] = []
+
+    private var currentSignature: SignalCoverageRenderSignature?
+    private var task: Task<Void, Never>?
+
+    func update(points: [WiFiHeatmapPoint], signature: SignalCoverageRenderSignature) {
+        guard signature != currentSignature else { return }
+        currentSignature = signature
+        task?.cancel()
+
+        guard signature.canInterpolate else {
+            predictions = []
+            return
+        }
+
+        let capturedPoints = points
+        task = Task.detached(priority: .utility) { [weak self] in
+            let predictedCoverage = SignalCoverageInterpolator.coverageGrid(
+                points: capturedPoints,
+                minX: signature.minX,
+                maxX: signature.maxX,
+                minZ: signature.minZ,
+                maxZ: signature.maxZ,
+                preferredCellSize: 0.75
+            )
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self?.currentSignature == signature else { return }
+                self?.predictions = predictedCoverage
+            }
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
 @available(iOS 16.0, *)
 private struct SignalMapCanvas: View {
     let points: [WiFiHeatmapPoint]
     let landmarks: [ManualAPLandmark]
     let currentPose: SIMD3<Float>?
+    let predictions: [SignalCoveragePrediction]
     let zoom: CGFloat
     let pan: CGSize
 
@@ -502,15 +605,6 @@ private struct SignalMapCanvas: View {
         projection: SignalMapProjection,
         buckets: [SignalBucket]
     ) {
-        let predictions = SignalCoverageInterpolator.coverageGrid(
-            points: points,
-            minX: projection.minX,
-            maxX: projection.maxX,
-            minZ: projection.minZ,
-            maxZ: projection.maxZ,
-            preferredCellSize: 0.75
-        )
-
         if predictions.isEmpty {
             drawMeasuredBuckets(context: context, projection: projection, buckets: buckets)
         } else {
