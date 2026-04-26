@@ -147,6 +147,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:api_auth)
 
     get("/stream/:session_id", StreamController, :connect)
+  end
+
+  # FieldSurvey mobile clients authenticate with OAuth/API bearer tokens and
+  # stream Arrow IPC frames over WebSockets.
+  scope "/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_key_auth)
+
     get("/field-survey/:session_id/rf-observations", FieldSurveyStreamController, :rf_observations)
     get("/field-survey/:session_id/pose-samples", FieldSurveyStreamController, :pose_samples)
     get("/field-survey/:session_id/spectrum-observations", FieldSurveyStreamController, :spectrum_observations)
