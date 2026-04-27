@@ -5,7 +5,7 @@ import simd
 public struct FieldSurveyPoseSample: Sendable {
     public let scannerDeviceID: String
     public let capturedAtUnixNanos: Int64
-    public let capturedAtMonotonicNanos: UInt64?
+    public let capturedAtMonotonicNanos: Int64?
     public let position: SIMD3<Float>
     public let orientation: simd_quatf
     public let latitude: Double?
@@ -21,7 +21,7 @@ public struct PoseArrowEncoder: Sendable {
     public func encode(samples: [FieldSurveyPoseSample]) throws -> Data {
         let scannerIDBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let unixNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
-        let monotonicNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<UInt64>
+        let monotonicNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>

@@ -868,6 +868,53 @@ if config_env() == :prod do
         """
     end
 
+  adbc_uri =
+    case System.get_env("FIELDSURVEY_ADBC_URI") do
+      value when is_binary(value) and value != "" ->
+        value
+
+      _ ->
+        adbc_base_uri =
+          cond do
+            String.starts_with?(repo_url, "ecto://") ->
+              "postgresql://" <> String.replace_prefix(repo_url, "ecto://", "")
+
+            String.starts_with?(repo_url, "postgres://") ->
+              "postgresql://" <> String.replace_prefix(repo_url, "postgres://", "")
+
+            true ->
+              repo_url
+          end
+
+        adbc_params =
+          %{
+            "sslmode" => cnpg_ssl_mode,
+            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
+          }
+          |> then(fn params ->
+            if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
+          end)
+          |> then(fn params ->
+            if cnpg_cert_file == "", do: params, else: Map.put(params, "sslcert", cnpg_cert_file)
+          end)
+          |> then(fn params ->
+            if cnpg_key_file == "", do: params, else: Map.put(params, "sslkey", cnpg_key_file)
+          end)
+
+        parsed_adbc_uri = URI.parse(adbc_base_uri)
+
+        merged_query =
+          parsed_adbc_uri.query
+          |> then(fn
+            nil -> %{}
+            query -> URI.decode_query(query)
+          end)
+          |> Map.merge(adbc_params)
+          |> URI.encode_query()
+
+        URI.to_string(%{parsed_adbc_uri | query: merged_query})
+    end
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
@@ -1031,6 +1078,7 @@ if config_env() == :prod do
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :serviceradar_web_ng, :field_survey_adbc_uri, adbc_uri
   config :serviceradar_web_ng, :session, session_config
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, dev_routes: dev_routes

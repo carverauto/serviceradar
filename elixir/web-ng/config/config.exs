@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+config :adbc, :drivers, [:postgresql]
+
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,

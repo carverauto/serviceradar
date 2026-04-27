@@ -634,7 +634,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         lastPoseStreamTime = now
 
         let monotonicNanos = monotonicTimestampSeconds.map { seconds in
-            UInt64(max(0, seconds * 1_000_000_000))
+            Int64(max(0, seconds * 1_000_000_000))
         }
 
         let sample = FieldSurveyPoseSample(

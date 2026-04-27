@@ -35,11 +35,11 @@ public final class SidekickObservationArrowDecoder: @unchecked Sendable {
         let rssiDBM = try optionalInt16Column("rssi_dbm", in: batch)
         let noiseFloorDBM = try optionalInt16Column("noise_floor_dbm", in: batch)
         let snrDB = try optionalInt16Column("snr_db", in: batch)
-        let frequencyMHz = try uint32Column("frequency_mhz", in: batch)
-        let channel = try optionalUInt16Column("channel", in: batch)
-        let channelWidthMHz = try optionalUInt16Column("channel_width_mhz", in: batch)
+        let frequencyMHz = try int32Column("frequency_mhz", in: batch)
+        let channel = try optionalInt32Column("channel", in: batch)
+        let channelWidthMHz = try optionalInt32Column("channel_width_mhz", in: batch)
         let capturedAtUnixNanos = try int64Column("captured_at_unix_nanos", in: batch)
-        let capturedAtMonotonicNanos = try optionalUInt64Column("captured_at_monotonic_nanos", in: batch)
+        let capturedAtMonotonicNanos = try optionalInt64Column("captured_at_monotonic_nanos", in: batch)
         let parserConfidence = try floatColumn("parser_confidence", in: batch)
 
         return (0..<batch.length).map { index in
@@ -93,11 +93,11 @@ public final class SidekickObservationArrowDecoder: @unchecked Sendable {
         try fixedColumn(name, in: batch)
     }
 
-    private func optionalUInt16Column(_ name: String, in batch: RecordBatch) throws -> FixedArray<UInt16> {
+    private func optionalInt32Column(_ name: String, in batch: RecordBatch) throws -> FixedArray<Int32> {
         try fixedColumn(name, in: batch)
     }
 
-    private func uint32Column(_ name: String, in batch: RecordBatch) throws -> FixedArray<UInt32> {
+    private func int32Column(_ name: String, in batch: RecordBatch) throws -> FixedArray<Int32> {
         try fixedColumn(name, in: batch)
     }
 
@@ -105,7 +105,7 @@ public final class SidekickObservationArrowDecoder: @unchecked Sendable {
         try fixedColumn(name, in: batch)
     }
 
-    private func optionalUInt64Column(_ name: String, in batch: RecordBatch) throws -> FixedArray<UInt64> {
+    private func optionalInt64Column(_ name: String, in batch: RecordBatch) throws -> FixedArray<Int64> {
         try fixedColumn(name, in: batch)
     }
 
