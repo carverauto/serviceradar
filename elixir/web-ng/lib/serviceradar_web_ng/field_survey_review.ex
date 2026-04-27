@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadar.Spatial.SurveyPoseSample
   alias ServiceRadar.Spatial.SurveyRfObservation
   alias ServiceRadar.Spatial.SurveyRfPoseMatch
+  alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadar.Spatial.SurveySpectrumObservation
 
   require Ash.Query
@@ -15,6 +16,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @default_session_limit 4_000
   @default_spectrum_limit 2_000
   @default_spatial_limit 10_000
+  @default_artifact_limit 200
   @default_cell_size_m 0.75
 
   @type session_summary :: %{
@@ -67,6 +69,37 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, rows} <- read_spatial_rf_pose_matches(scope, limit) do
       {:ok, Enum.map(rows, &spatial_sample/1)}
+    end
+  end
+
+  @spec room_artifacts(any(), keyword()) :: {:ok, [map()]} | {:error, any()}
+  def room_artifacts(scope, opts \\ []) do
+    limit = Keyword.get(opts, :limit, @default_artifact_limit)
+
+    SurveyRoomArtifact
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.sort(uploaded_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+    |> case do
+      {:ok, rows} -> {:ok, Enum.map(rows, &room_artifact_summary/1)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec room_artifact(any(), String.t()) :: {:ok, map()} | {:error, :not_found | any()}
+  def room_artifact(scope, artifact_id) when is_binary(artifact_id) do
+    SurveyRoomArtifact
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^artifact_id)
+    |> Ash.Query.limit(1)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+    |> case do
+      {:ok, [artifact | _]} -> {:ok, room_artifact_summary(artifact)}
+      {:ok, []} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -183,6 +216,22 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       latitude: field(row, :latitude),
       longitude: field(row, :longitude),
       timestamp: field(row, :rf_captured_at)
+    }
+  end
+
+  defp room_artifact_summary(row) do
+    %{
+      id: field(row, :id),
+      session_id: field(row, :session_id),
+      artifact_type: field(row, :artifact_type),
+      content_type: field(row, :content_type),
+      object_key: field(row, :object_key),
+      byte_size: field(row, :byte_size),
+      sha256: field(row, :sha256),
+      captured_at: field(row, :captured_at),
+      uploaded_at: field(row, :uploaded_at),
+      metadata: field(row, :metadata) || %{},
+      download_url: "/api/spatial/room-artifacts/#{field(row, :id)}/download"
     }
   end
 

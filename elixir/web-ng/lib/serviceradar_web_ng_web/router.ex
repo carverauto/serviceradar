@@ -158,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/field-survey/:session_id/rf-observations", FieldSurveyStreamController, :rf_observations)
     get("/field-survey/:session_id/pose-samples", FieldSurveyStreamController, :pose_samples)
     get("/field-survey/:session_id/spectrum-observations", FieldSurveyStreamController, :spectrum_observations)
+    post("/field-survey/:session_id/room-artifacts", FieldSurveyStreamController, :room_artifacts)
   end
 
   scope "/v1", ServiceRadarWebNGWeb.Api do
@@ -198,6 +199,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
 
     get("/spatial/samples", SpatialController, :index)
+    get("/spatial/room-artifacts", SpatialController, :room_artifacts)
+    get("/spatial/room-artifacts/:id/download", SpatialController, :download_room_artifact)
   end
 
   # Admin API (session/JWT auth)
