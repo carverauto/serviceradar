@@ -67,6 +67,7 @@ public struct SignalMapView: View {
         let renderState = makeRenderState()
         let renderPoints = renderState.visiblePoints
         let summaries = renderState.apSummaries
+        let signalBuckets = SignalBucket.build(from: renderPoints)
         let coverageSignature = SignalCoverageRenderSignature(points: renderPoints)
 
         VStack(spacing: 12) {
@@ -81,7 +82,7 @@ public struct SignalMapView: View {
             }
 
             SignalMapCanvas(
-                points: renderPoints,
+                signalBuckets: signalBuckets,
                 landmarks: renderState.visibleLandmarks,
                 currentPose: renderState.visibleCurrentPose,
                 predictions: coverageStore.predictions,
@@ -592,7 +593,7 @@ private final class SignalCoverageRenderStore: ObservableObject {
 
 @available(iOS 16.0, *)
 private struct SignalMapCanvas: View {
-    let points: [WiFiHeatmapPoint]
+    let signalBuckets: [SignalBucket]
     let landmarks: [ManualAPLandmark]
     let currentPose: SIMD3<Float>?
     let predictions: [SignalCoveragePrediction]
@@ -600,8 +601,6 @@ private struct SignalMapCanvas: View {
     let pan: CGSize
 
     var body: some View {
-        let signalBuckets = bucketed(points: points)
-
         ZStack {
             Canvas { context, size in
                 let plotRect = CGRect(origin: .zero, size: size)
@@ -750,8 +749,14 @@ private struct SignalMapCanvas: View {
         context.fill(marker, with: .color(.white))
         context.stroke(marker, with: .color(.black.opacity(0.7)), lineWidth: 1)
     }
+}
 
-    private func bucketed(points: [WiFiHeatmapPoint]) -> [SignalBucket] {
+private struct SignalBucket {
+    let position: SIMD3<Float>
+    let rssi: Double
+    let count: Int
+
+    static func build(from points: [WiFiHeatmapPoint]) -> [SignalBucket] {
         struct Accumulator {
             var x: Float = 0
             var y: Float = 0
@@ -792,7 +797,7 @@ private struct SignalMapCanvas: View {
         }
     }
 
-    private func bucketIndex(_ value: Float, cellSize: Float) -> Int? {
+    private static func bucketIndex(_ value: Float, cellSize: Float) -> Int? {
         guard value.isFinite, cellSize.isFinite, cellSize > 0 else { return nil }
         let bucket = (value / cellSize).rounded()
         guard bucket.isFinite,
@@ -802,12 +807,6 @@ private struct SignalMapCanvas: View {
         }
         return Int(bucket)
     }
-}
-
-private struct SignalBucket {
-    let position: SIMD3<Float>
-    let rssi: Double
-    let count: Int
 }
 
 @available(iOS 16.0, *)
