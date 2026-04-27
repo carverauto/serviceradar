@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import Combine
+import simd
 
 @available(iOS 16.0, *)
 @MainActor
@@ -131,6 +132,66 @@ public final class SurveySessionStore: ObservableObject {
     public func loadSession(id: String) -> SurveySessionSnapshot? {
         guard let data = try? Data(contentsOf: sessionFileURL(for: id)) else { return nil }
         return try? decoder.decode(SurveySessionSnapshot.self, from: data)
+    }
+
+    public func meshFileURL(for record: SurveySessionRecord) -> URL? {
+        guard let meshFilename = record.meshFilename else { return nil }
+        let url = sessionsDirectoryURL().appendingPathComponent(meshFilename)
+        return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+
+    public func writeFloorplanGeoJSON(for snapshot: SurveySessionSnapshot) throws -> URL {
+        guard !snapshot.floorplanSegments.isEmpty else {
+            throw NSError(
+                domain: "SurveySessionStore",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No saved floorplan segments for this session."]
+            )
+        }
+
+        let features = snapshot.floorplanSegments.map { segment -> [String: Any] in
+            let center = (segment.start + segment.end) / 2
+            let width = simd_distance(segment.start, segment.end)
+
+            return [
+                "type": "Feature",
+                "geometry": [
+                    "type": "LineString",
+                    "coordinates": [
+                        [Double(segment.start.x), Double(segment.start.y)],
+                        [Double(segment.end.x), Double(segment.end.y)]
+                    ]
+                ],
+                "properties": [
+                    "id": segment.id.uuidString,
+                    "kind": segment.kind,
+                    "width_m": Double(width),
+                    "height_m": Double(segment.height),
+                    "center_x": Double(center.x),
+                    "center_z": Double(center.y)
+                ]
+            ]
+        }
+
+        let collection: [String: Any] = [
+            "type": "FeatureCollection",
+            "features": features,
+            "properties": [
+                "coordinate_system": "arkit_xz_meters",
+                "source": "RoomPlan",
+                "reconstructed_from": "saved_session",
+                "session_id": snapshot.record.id,
+                "wall_count": snapshot.floorplanSegments.filter { $0.kind == "wall" }.count,
+                "door_count": snapshot.floorplanSegments.filter { $0.kind == "door" }.count,
+                "window_count": snapshot.floorplanSegments.filter { $0.kind == "window" }.count
+            ]
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: collection, options: [.prettyPrinted, .sortedKeys])
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Floorplan2D_Retry_\(snapshot.record.id).geojson")
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
     }
 
     public func deleteSession(id: String) {
