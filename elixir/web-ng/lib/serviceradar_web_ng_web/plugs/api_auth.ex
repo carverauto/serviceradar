@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   Checks for authentication in the following order:
   1. `Authorization: Bearer <token>` header (Guardian JWT session token or OAuth2 access token)
   2. `X-API-Key: <key>` header (Ash API token or legacy static key)
+  3. `ws_token` query parameter for FieldSurvey WebSocket stream handshakes only
 
   ## OAuth2 Client Credentials
 
@@ -77,6 +78,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       api_key = get_api_key(conn) ->
         validate_api_key(conn, api_key)
 
+      # iOS URLSession WebSocket handshakes can lose custom auth headers behind
+      # proxies. Keep this fallback scoped to FieldSurvey stream upgrade routes.
+      field_survey_ws_token = get_field_survey_ws_token(conn) ->
+        validate_bearer_token(conn, field_survey_ws_token)
+
       # No auth provided
       true ->
         {:error, :unauthorized}
@@ -97,6 +103,33 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       _ -> nil
     end
   end
+
+  defp get_field_survey_ws_token(conn) do
+    if field_survey_stream_request?(conn) do
+      conn = fetch_query_params(conn)
+
+      conn.query_params
+      |> Map.get("ws_token")
+      |> normalize_token()
+    end
+  end
+
+  defp field_survey_stream_request?(%{method: "GET", request_path: request_path}) when is_binary(request_path) do
+    String.starts_with?(request_path, "/v1/field-survey/") and
+      Enum.any?(
+        ["/rf-observations", "/pose-samples", "/spectrum-observations"],
+        &String.ends_with?(request_path, &1)
+      )
+  end
+
+  defp field_survey_stream_request?(_conn), do: false
+
+  defp normalize_token(token) when is_binary(token) do
+    token = String.trim(token)
+    if token == "", do: nil, else: token
+  end
+
+  defp normalize_token(_token), do: nil
 
   defp validate_bearer_token(conn, token) do
     # Validate Guardian JWT (user session tokens or API tokens)
