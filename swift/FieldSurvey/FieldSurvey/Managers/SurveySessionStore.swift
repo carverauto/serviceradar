@@ -70,6 +70,7 @@ public final class SurveySessionStore: ObservableObject {
         let samples = Array(wifiScanner.accessPoints.values).sorted { $0.timestamp < $1.timestamp }
         let heatmapPoints = wifiScanner.heatmapPoints
         let manualLandmarks = wifiScanner.manualAPLandmarks
+        let floorplanSegments = roomScanner.currentFloorplanSegments()
         let roamRecords = wifiScanner.roamEvents.map { roam in
             SurveyRoamEventRecord(
                 timestamp: roam.timestamp,
@@ -115,7 +116,8 @@ public final class SurveySessionStore: ObservableObject {
             heatmapPoints: heatmapPoints,
             manualLandmarks: manualLandmarks,
             roamEvents: roamRecords,
-            spectrumSummaries: spectrumSummaries
+            spectrumSummaries: spectrumSummaries,
+            floorplanSegments: floorplanSegments
         )
 
         try await diskWriter.writeSnapshot(snapshot, to: sessionFileURL(for: id))

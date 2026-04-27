@@ -201,6 +201,7 @@ public struct HomeDashboardView: View {
                 title: snapshot.record.name,
                 points: snapshot.heatmapPoints,
                 landmarks: snapshot.manualLandmarks,
+                floorplanSegments: snapshot.floorplanSegments,
                 spectrumSummary: snapshot.spectrumSummaries.last,
                 spectrumSummaries: snapshot.spectrumSummaries
             )
@@ -335,6 +336,7 @@ public struct SessionLibraryView: View {
                     title: snapshot.record.name,
                     points: snapshot.heatmapPoints,
                     landmarks: snapshot.manualLandmarks,
+                    floorplanSegments: snapshot.floorplanSegments,
                     spectrumSummary: snapshot.spectrumSummaries.last,
                     spectrumSummaries: snapshot.spectrumSummaries
                 )

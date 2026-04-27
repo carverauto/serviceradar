@@ -5,7 +5,7 @@ import Combine
 import os.log
 import simd
 
-public struct SurveyFloorplanSegment: Identifiable, Equatable, Sendable {
+public struct SurveyFloorplanSegment: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let kind: String
     public let start: SIMD2<Float>
