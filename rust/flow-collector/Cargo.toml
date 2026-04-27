@@ -18,7 +18,7 @@ clap = { version = "4", features = ["derive"] }
 rustls = "0.23"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.14"
 
 [[bin]]
 name = "serviceradar-flow-collector"
