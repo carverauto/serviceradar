@@ -4,12 +4,13 @@ use super::auth::{
     unix_secs_now,
 };
 use super::models::{
-    CaptureStopResponse, ErrorResponse, HealthResponse, MonitorPrepareExecutionResponse,
-    MonitorPrepareResponse, ObservationStreamQuery, ObservationStreamRequest, PairingClaimRequest,
-    PairingClaimResponse, SpectrumStreamQuery, StatusResponse, WifiUplinkExecutionResponse,
-    WifiUplinkPlanResponse,
+    CaptureStopResponse, ChannelHopMode, ErrorResponse, HealthResponse,
+    MonitorPrepareExecutionResponse, MonitorPrepareResponse, ObservationStreamQuery,
+    ObservationStreamRequest, PairingClaimRequest, PairingClaimResponse, SpectrumStreamQuery,
+    StatusResponse, WifiUplinkExecutionResponse, WifiUplinkPlanResponse,
 };
 use super::streams::{stream_observations, stream_spectrum, stream_spectrum_summaries};
+use crate::adaptive_scan::build_adaptive_channel_hop_request;
 use crate::live_capture::CaptureRequest;
 use crate::radio::{
     MonitorPrepareRequest, RadioDiscovery, build_channel_hop_request, build_monitor_prepare_plan,
@@ -177,15 +178,21 @@ pub(super) async fn configure_wifi_uplink(
 pub(super) async fn observation_stream(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(query): Query<ObservationStreamQuery>,
+    Query(mut query): Query<ObservationStreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers).await?;
+    if query.scan_mode.trim().eq_ignore_ascii_case("adaptive") && query.frequencies_mhz.is_none() {
+        query.frequencies_mhz = adaptive_fallback_frequencies(&state, &query.interface_name);
+    }
     let request = build_observation_stream_request(query)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let capture_control = state.capture_control();
+    let adaptive_scan = state.adaptive_scan();
 
-    Ok(ws.on_upgrade(move |socket| stream_observations(socket, request, capture_control)))
+    Ok(ws.on_upgrade(move |socket| {
+        stream_observations(socket, request, capture_control, adaptive_scan)
+    }))
 }
 
 pub(super) async fn spectrum_stream(
@@ -212,8 +219,11 @@ pub(super) async fn spectrum_summary_stream(
     let request = build_spectrum_sweep_request(query)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let capture_control = state.capture_control();
+    let adaptive_scan = state.adaptive_scan();
 
-    Ok(ws.on_upgrade(move |socket| stream_spectrum_summaries(socket, request, capture_control)))
+    Ok(ws.on_upgrade(move |socket| {
+        stream_spectrum_summaries(socket, request, capture_control, adaptive_scan)
+    }))
 }
 
 pub fn build_status_response(state: &AppState) -> StatusResponse {
@@ -233,6 +243,37 @@ pub fn build_status_response(state: &AppState) -> StatusResponse {
         iw_available: inventory.iw_available,
         radios: inventory.radios,
     }
+}
+
+fn adaptive_fallback_frequencies(state: &AppState, interface_name: &str) -> Option<String> {
+    let interface = interface_name.trim();
+    if interface.is_empty() {
+        return None;
+    }
+
+    let inventory = RadioDiscovery::new(
+        state.config.sysfs_net_path.clone(),
+        state.config.interfaces.clone(),
+    )
+    .discover();
+    let mut frequencies = inventory
+        .radios
+        .into_iter()
+        .find(|radio| radio.name == interface)
+        .map(|radio| radio.supported_frequencies_mhz)
+        .unwrap_or_default();
+
+    frequencies.retain(|frequency| (2_412..=7_125).contains(frequency));
+    frequencies.sort_unstable();
+    frequencies.dedup();
+
+    (!frequencies.is_empty()).then(|| {
+        frequencies
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    })
 }
 
 pub fn build_monitor_prepare_response(
@@ -279,9 +320,17 @@ pub fn build_observation_stream_request(
         radio_id: radio_id.to_string(),
     };
 
+    let scan_mode = query.scan_mode.trim().to_ascii_lowercase();
     let channel_hop = match query.frequencies_mhz {
+        Some(raw_frequencies) if scan_mode == "adaptive" => build_adaptive_channel_hop_request(
+            interface_name,
+            &raw_frequencies,
+            query.hop_interval_ms,
+        )?
+        .map(ChannelHopMode::Adaptive),
         Some(raw_frequencies) => {
             build_channel_hop_request(interface_name, &raw_frequencies, query.hop_interval_ms)?
+                .map(ChannelHopMode::Fixed)
         }
         None => None,
     };

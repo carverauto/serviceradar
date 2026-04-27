@@ -22,6 +22,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @default_artifact_limit 200
   @default_cell_size_m 0.75
   @default_raster_cell_size_m 0.42
+  @default_waterfall_rows 80
+  @default_waterfall_bins 96
   @max_raster_cells 1_400
 
   @type session_summary :: %{
@@ -40,6 +42,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           wifi_points: [map()],
           wifi_raster: [map()],
           interference_points: [map()],
+          interference_raster: [map()],
+          spectrum_waterfall: map(),
           path_points: [map()],
           floorplan_segments: [map()],
           ap_summaries: [map()],
@@ -70,7 +74,20 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       floorplan_segments = load_floorplan_segments(scope, session_id)
       user_id = scope_user_id(scope)
       wifi_points = build_wifi_points(rf_matches, cell_size_m)
-      {wifi_raster, raster_source} = reusable_wifi_raster(scope, session_id, user_id, length(wifi_points))
+      interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
+
+      {wifi_raster, wifi_raster_source} =
+        reusable_coverage_raster(scope, session_id, user_id, "wifi_rssi", "wifi_point_count", length(wifi_points))
+
+      {interference_raster, interference_raster_source} =
+        reusable_coverage_raster(
+          scope,
+          session_id,
+          user_id,
+          "rf_interference",
+          "interference_point_count",
+          length(interference_points)
+        )
 
       review =
         build_review(session_id, rf_matches, pose_samples, spectrum_rows,
@@ -78,13 +95,15 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           floorplan_segments: floorplan_segments,
           room_artifacts: room_artifacts,
           wifi_points: wifi_points,
-          wifi_raster: wifi_raster
+          wifi_raster: wifi_raster,
+          interference_points: interference_points,
+          interference_raster: interference_raster
         )
 
-      if raster_source == :persisted do
+      if wifi_raster_source == :persisted and interference_raster_source == :persisted do
         {:ok, review}
       else
-        {:ok, maybe_persist_coverage_raster(scope, review)}
+        {:ok, maybe_persist_coverage_rasters(scope, review)}
       end
     end
   end
@@ -159,9 +178,21 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     wifi_points = Keyword.get_lazy(opts, :wifi_points, fn -> build_wifi_points(rf_matches, cell_size_m) end)
     wifi_raster = Keyword.get(opts, :wifi_raster) || build_wifi_raster(rf_matches, floorplan_segments)
     path_points = build_path_points(pose_samples, rf_matches)
-    channel_scores = build_channel_scores(spectrum_rows)
-    interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
-    bounds = bounds_for(wifi_points, wifi_raster, interference_points, path_points, floorplan_segments)
+    channel_scores = build_channel_scores(spectrum_rows, rf_matches)
+
+    interference_points =
+      Keyword.get_lazy(opts, :interference_points, fn ->
+        build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
+      end)
+
+    interference_raster =
+      Keyword.get(opts, :interference_raster) || build_interference_raster(interference_points, floorplan_segments)
+
+    spectrum_waterfall = build_spectrum_waterfall(spectrum_rows)
+
+    bounds =
+      bounds_for(wifi_points, wifi_raster, interference_points, interference_raster, path_points, floorplan_segments)
+
     ap_summaries = build_ap_summaries(rf_matches)
 
     %{
@@ -174,6 +205,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         wifi_point_count: length(wifi_points),
         wifi_raster_cell_count: length(wifi_raster),
         interference_point_count: length(interference_points),
+        interference_raster_cell_count: length(interference_raster),
+        waterfall_row_count: length(Map.get(spectrum_waterfall, :rows, [])),
+        waterfall_bin_count: Map.get(spectrum_waterfall, :bin_count, 0),
         floorplan_segment_count: length(floorplan_segments),
         ap_count: length(ap_summaries),
         channel_count: length(channel_scores)
@@ -182,6 +216,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       wifi_points: project_points(wifi_points, bounds),
       wifi_raster: project_raster_cells(wifi_raster, bounds),
       interference_points: project_points(interference_points, bounds),
+      interference_raster: project_raster_cells(interference_raster, bounds),
+      spectrum_waterfall: spectrum_waterfall,
       path_points: project_points(path_points, bounds),
       floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
       room_artifacts: Enum.map(room_artifacts, &room_artifact_summary/1),
@@ -283,11 +319,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Page.unwrap()
   end
 
-  defp read_latest_coverage_raster(scope, session_id, user_id) do
+  defp read_latest_coverage_raster(scope, session_id, user_id, overlay_type) do
     SurveyCoverageRaster
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
-      session_id == ^session_id and user_id == ^user_id and overlay_type == "wifi_rssi" and selector_type == "all" and
+      session_id == ^session_id and user_id == ^user_id and overlay_type == ^overlay_type and selector_type == "all" and
         selector_value == "*"
     )
     |> Ash.Query.sort(generated_at: :desc)
@@ -334,25 +370,25 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     }
   end
 
-  defp reusable_wifi_raster(scope, session_id, user_id, wifi_point_count) do
-    case read_latest_coverage_raster(scope, session_id, user_id) do
+  defp reusable_coverage_raster(scope, session_id, user_id, overlay_type, count_key, source_count) do
+    case read_latest_coverage_raster(scope, session_id, user_id, overlay_type) do
       {:ok, raster} ->
-        reusable_wifi_raster_cells(raster, wifi_point_count)
+        reusable_raster_cells(raster, count_key, source_count)
 
       {:error, reason} ->
-        Logger.debug("FieldSurvey persisted coverage raster read skipped: #{inspect(reason)}")
+        Logger.debug("FieldSurvey persisted #{overlay_type} raster read skipped: #{inspect(reason)}")
         {nil, :missing}
     end
   end
 
-  defp reusable_wifi_raster_cells(nil, _wifi_point_count), do: {nil, :missing}
+  defp reusable_raster_cells(nil, _count_key, _source_count), do: {nil, :missing}
 
-  defp reusable_wifi_raster_cells(raster, wifi_point_count) do
+  defp reusable_raster_cells(raster, count_key, source_count) do
     metadata = field(raster, :metadata) || %{}
-    stored_point_count = map_value(metadata, "wifi_point_count")
+    stored_point_count = map_value(metadata, count_key)
     cells = map_value(field(raster, :cells) || %{}, "cells") || []
 
-    if stored_point_count == wifi_point_count and is_list(cells) and cells != [] do
+    if stored_point_count == source_count and is_list(cells) and cells != [] do
       reusable_cells = cells |> Enum.map(&persisted_raster_cell/1) |> Enum.reject(&is_nil/1)
 
       case reusable_cells do
@@ -366,18 +402,26 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp persisted_raster_cell(cell) when is_map(cell) do
     with x when is_number(x) <- map_value(cell, "x"),
-         z when is_number(z) <- map_value(cell, "z"),
-         rssi when is_number(rssi) <- map_value(cell, "rssi") do
-      %{
-        x: x * 1.0,
-        y: 0.0,
-        z: z * 1.0,
-        rssi: rssi * 1.0,
-        confidence: number_or_default(map_value(cell, "confidence"), 0.5),
-        nearest_distance_m: number_or_default(map_value(cell, "nearest_distance_m"), 0.0),
-        count: number_or_default(map_value(cell, "count"), 1),
-        radius_m: number_or_default(map_value(cell, "radius_m"), @default_raster_cell_size_m * 0.72)
-      }
+         z when is_number(z) <- map_value(cell, "z") do
+      value =
+        cond do
+          is_number(map_value(cell, "rssi")) -> %{rssi: map_value(cell, "rssi") * 1.0}
+          is_number(map_value(cell, "score")) -> %{score: map_value(cell, "score") * 1.0}
+          true -> %{}
+        end
+
+      Map.merge(
+        %{
+          x: x * 1.0,
+          y: 0.0,
+          z: z * 1.0,
+          confidence: number_or_default(map_value(cell, "confidence"), 0.5),
+          nearest_distance_m: number_or_default(map_value(cell, "nearest_distance_m"), 0.0),
+          count: number_or_default(map_value(cell, "count"), 1),
+          radius_m: number_or_default(map_value(cell, "radius_m"), @default_raster_cell_size_m * 0.72)
+        },
+        value
+      )
     else
       _ -> nil
     end
@@ -385,37 +429,60 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp persisted_raster_cell(_cell), do: nil
 
-  defp maybe_persist_coverage_raster(scope, %{wifi_raster: [_ | _]} = review) do
+  defp maybe_persist_coverage_rasters(scope, review) do
     user_id = scope_user_id(scope)
 
-    attrs = coverage_raster_attrs(review, user_id)
+    [
+      coverage_raster_attrs(
+        review,
+        user_id,
+        "wifi_rssi",
+        review.wifi_raster,
+        "wifi_point_count",
+        review.metrics.wifi_point_count
+      ),
+      coverage_raster_attrs(
+        review,
+        user_id,
+        "rf_interference",
+        review.interference_raster,
+        "interference_point_count",
+        review.metrics.interference_point_count
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.each(&persist_coverage_raster(scope, &1))
 
+    review
+  end
+
+  defp persist_coverage_raster(scope, attrs) do
     SurveyCoverageRaster
     |> Ash.Changeset.for_create(:upsert, attrs)
     |> Ash.create(scope: scope, domain: ServiceRadar.Spatial)
     |> case do
       {:ok, _raster} ->
-        review
+        :ok
 
       {:error, reason} ->
         Logger.warning("FieldSurvey coverage raster persistence failed: #{inspect(reason)}")
-        review
+        :error
     end
   end
 
-  defp maybe_persist_coverage_raster(_scope, review), do: review
+  defp coverage_raster_attrs(_review, _user_id, _overlay_type, [], _count_key, _source_count), do: nil
 
-  defp coverage_raster_attrs(review, user_id) do
+  defp coverage_raster_attrs(review, user_id, overlay_type, raster_cells, count_key, source_count) do
     bounds = review.bounds
-    cells = Enum.map(review.wifi_raster, &coverage_raster_cell/1)
-    cell_size_m = inferred_cell_size_m(review.wifi_raster)
+    cells = Enum.map(raster_cells, &coverage_raster_cell/1)
+    cell_size_m = inferred_cell_size_m(raster_cells)
     columns = max(round((bounds.max_x - bounds.min_x) / max(cell_size_m, 0.01)), 1)
     rows = max(round((bounds.max_z - bounds.min_z) / max(cell_size_m, 0.01)), 1)
 
     %{
       session_id: review.session_id,
       user_id: user_id,
-      overlay_type: "wifi_rssi",
+      overlay_type: overlay_type,
       selector_type: "all",
       selector_value: "*",
       cell_size_m: cell_size_m,
@@ -430,7 +497,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         "algorithm" => "rbf_kernel_raster_v1",
         "masked_by" => "floorplan_convex_hull",
         "cell_count" => length(cells),
-        "wifi_point_count" => review.metrics.wifi_point_count
+        count_key => source_count
       },
       generated_at: DateTime.utc_now()
     }
@@ -440,7 +507,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     %{
       "x" => cell.x,
       "z" => cell.z,
-      "rssi" => cell.rssi,
+      "rssi" => Map.get(cell, :rssi),
+      "score" => Map.get(cell, :score),
       "confidence" => cell.confidence,
       "nearest_distance_m" => cell.nearest_distance_m,
       "radius_m" => cell.radius_m,
@@ -721,6 +789,76 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Enum.sort_by(& &1.score, :desc)
   end
 
+  defp build_interference_raster([], _floorplan_segments), do: []
+
+  defp build_interference_raster(interference_points, floorplan_segments) do
+    case raster_bounds(interference_points, floorplan_segments) do
+      %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} ->
+        hull = floorplan_hull(floorplan_segments)
+        span = max(max_x - min_x, max_z - min_z)
+        cell_size = raster_cell_size(span)
+        length_scale = max(span / 4.0, 1.1)
+        max_distance = max(span * 0.38, 1.8)
+
+        min_x
+        |> grid_values(max_x, cell_size)
+        |> Enum.flat_map(fn x ->
+          min_z
+          |> grid_values(max_z, cell_size)
+          |> Enum.map(fn z -> {x, z} end)
+        end)
+        |> Enum.filter(fn {x, z} -> hull == [] or point_in_polygon?({x, z}, hull) end)
+        |> Enum.map(fn {x, z} ->
+          interpolate_interference_cell(x, z, interference_points, length_scale, max_distance, cell_size)
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.take(@max_raster_cells)
+
+      _ ->
+        []
+    end
+  end
+
+  defp interpolate_interference_cell(x, z, observations, length_scale, max_distance, cell_size) do
+    {weighted_sum, weight_sum, nearest_distance, count_sum} =
+      Enum.reduce(observations, {0.0, 0.0, :infinity, 0}, fn observation,
+                                                             {weighted_acc, weight_acc, nearest, count_acc} ->
+        distance = distance_2d(x, z, observation.x, observation.z)
+
+        weight =
+          :math.exp(-:math.pow(distance, 2) / (2.0 * :math.pow(length_scale, 2))) * :math.log2(observation.count + 1)
+
+        {
+          weighted_acc + observation.score * weight,
+          weight_acc + weight,
+          min(nearest, distance),
+          count_acc + observation.count
+        }
+      end)
+
+    cond do
+      weight_sum <= 0.0001 ->
+        nil
+
+      nearest_distance > max_distance ->
+        nil
+
+      true ->
+        confidence = weight_sum / (weight_sum + 10.0 + max(nearest_distance - cell_size, 0.0) * 2.5)
+
+        %{
+          x: x,
+          y: 0.0,
+          z: z,
+          score: weighted_sum / weight_sum,
+          confidence: min(max(confidence, 0.06), 0.88),
+          nearest_distance_m: nearest_distance,
+          count: count_sum,
+          radius_m: cell_size * 0.72
+        }
+    end
+  end
+
   defp summarize_interference_bucket(points) do
     peak = Enum.max_by(points, & &1.peak_power_dbm)
 
@@ -736,24 +874,124 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     }
   end
 
-  defp build_channel_scores(spectrum_rows) do
+  defp build_channel_scores(spectrum_rows, rf_matches) do
+    ap_channels = ap_channel_summary(rf_matches)
+
     spectrum_rows
     |> Enum.flat_map(&channel_scores_for_spectrum/1)
     |> Enum.group_by(&{&1.band, &1.channel})
     |> Enum.map(fn {{band, channel}, scores} ->
       peak = Enum.max_by(scores, & &1.peak_power_dbm)
+      ap_summary = Map.get(ap_channels, channel_key(band, channel), %{ap_count: 0, strongest_rssi: nil})
+      score = Enum.max(Enum.map(scores, & &1.score))
 
       %{
         band: band,
         channel: channel,
         center_frequency_mhz: peak.center_frequency_mhz,
-        score: Enum.max(Enum.map(scores, & &1.score)),
+        score: score,
         average_power_dbm: average_maps(scores, :average_power_dbm),
         peak_power_dbm: peak.peak_power_dbm,
-        sample_count: Enum.reduce(scores, 0, &(&1.sample_count + &2))
+        baseline_power_dbm: average_maps(scores, :baseline_power_dbm),
+        sample_count: Enum.reduce(scores, 0, &(&1.sample_count + &2)),
+        ap_count: ap_summary.ap_count,
+        strongest_rssi: ap_summary.strongest_rssi,
+        conflict: ap_summary.ap_count > 0 and score >= 55
       }
     end)
     |> Enum.sort_by(&{&1.band, &1.channel})
+  end
+
+  defp ap_channel_summary(rf_matches) do
+    rf_matches
+    |> Enum.filter(&(number?(field(&1, :channel)) and number?(field(&1, :frequency_mhz))))
+    |> Enum.group_by(fn row -> channel_key(band_for_frequency(field(row, :frequency_mhz)), field(row, :channel)) end)
+    |> Map.new(fn {key, rows} ->
+      strongest =
+        rows
+        |> Enum.map(&field(&1, :rssi_dbm))
+        |> Enum.filter(&number?/1)
+        |> Enum.max(fn -> nil end)
+
+      {key,
+       %{
+         ap_count: rows |> Enum.map(&field(&1, :bssid)) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> length(),
+         strongest_rssi: strongest
+       }}
+    end)
+  end
+
+  defp channel_key(band, channel), do: {band, channel}
+
+  defp band_for_frequency(frequency_mhz) when frequency_mhz < 3_000, do: "2.4GHz"
+  defp band_for_frequency(_frequency_mhz), do: "5GHz"
+
+  defp build_spectrum_waterfall(spectrum_rows) do
+    rows =
+      spectrum_rows
+      |> Enum.sort_by(&(field(&1, :captured_at_unix_nanos) || 0), :asc)
+      |> Enum.take(-@default_waterfall_rows)
+      |> Enum.map(&waterfall_row/1)
+      |> Enum.reject(&is_nil/1)
+
+    %{
+      rows: rows,
+      row_count: length(rows),
+      bin_count: rows |> List.first(%{}) |> Map.get(:bin_count, 0),
+      min_power_dbm: rows |> Enum.flat_map(& &1.bins) |> Enum.map(& &1.power_dbm) |> Enum.min(fn -> nil end),
+      max_power_dbm: rows |> Enum.flat_map(& &1.bins) |> Enum.map(& &1.power_dbm) |> Enum.max(fn -> nil end)
+    }
+  end
+
+  defp waterfall_row(row) do
+    powers = field(row, :power_bins_dbm) || []
+
+    case downsample_powers(powers, @default_waterfall_bins) do
+      [] ->
+        nil
+
+      bins ->
+        start_hz = field(row, :start_frequency_hz) || 0
+        stop_hz = field(row, :stop_frequency_hz) || start_hz
+        bin_count = length(bins)
+        frequency_span_mhz = max((stop_hz - start_hz) / 1_000_000.0, 0.0)
+
+        %{
+          captured_at_unix_nanos: field(row, :captured_at_unix_nanos),
+          start_frequency_mhz: start_hz / 1_000_000.0,
+          stop_frequency_mhz: stop_hz / 1_000_000.0,
+          bin_count: bin_count,
+          average_power_dbm: average_numbers(powers) || -100.0,
+          baseline_power_dbm: percentile(powers, 0.5) || -100.0,
+          peak_power_dbm: Enum.max(powers, fn -> -100.0 end),
+          bins:
+            bins
+            |> Enum.with_index()
+            |> Enum.map(fn {power, index} ->
+              %{
+                index: index,
+                frequency_mhz: start_hz / 1_000_000.0 + frequency_span_mhz * ((index + 0.5) / max(bin_count, 1)),
+                power_dbm: power,
+                intensity: normalize_power(power)
+              }
+            end)
+        }
+    end
+  end
+
+  defp downsample_powers([], _target_count), do: []
+
+  defp downsample_powers(powers, target_count) when length(powers) <= target_count do
+    Enum.map(powers, &(&1 * 1.0))
+  end
+
+  defp downsample_powers(powers, target_count) do
+    chunk_size = (length(powers) / target_count) |> Float.ceil() |> trunc()
+
+    powers
+    |> Enum.chunk_every(chunk_size)
+    |> Enum.map(fn chunk -> average_numbers(chunk) || -100.0 end)
+    |> Enum.take(target_count)
   end
 
   defp build_ap_summaries(rf_matches) do
@@ -831,13 +1069,17 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     powers = field(row, :power_bins_dbm) || []
     peak_power_dbm = Enum.max(powers, fn -> nil end)
     average_power_dbm = average_numbers(powers)
-    score = max(normalize_power(average_power_dbm), max(normalize_power(peak_power_dbm) - 10, 0))
+    baseline_power_dbm = percentile(powers, 0.5)
+    broad_noise_score = normalize_power(average_power_dbm)
+    excess_score = excess_power_score(average_power_dbm, peak_power_dbm, baseline_power_dbm)
+    score = max(broad_noise_score, excess_score)
     peak_index = Enum.find_index(powers, &(&1 == peak_power_dbm)) || 0
     peak_frequency_mhz = peak_frequency_mhz(row, peak_index)
 
     %{
       average_power_dbm: average_power_dbm || -100.0,
       peak_power_dbm: peak_power_dbm || -100.0,
+      baseline_power_dbm: baseline_power_dbm || -100.0,
       peak_frequency_mhz: peak_frequency_mhz,
       score: score
     }
@@ -877,6 +1119,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         [_ | _] ->
           average_power = average_numbers(channel_powers)
           peak_power = Enum.max(channel_powers)
+          baseline_power = percentile(powers, 0.5)
 
           [
             %{
@@ -885,7 +1128,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
               center_frequency_mhz: center,
               average_power_dbm: average_power,
               peak_power_dbm: peak_power,
-              score: max(normalize_power(average_power), max(normalize_power(peak_power) - 10, 0)),
+              baseline_power_dbm: baseline_power,
+              score: max(normalize_power(average_power), excess_power_score(average_power, peak_power, baseline_power)),
               sample_count: length(channel_powers)
             }
           ]
@@ -916,6 +1160,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     floorplan_segments
     |> floorplan_segment_points()
     |> Enum.map(&{&1.x, &1.z})
+    |> Enum.filter(&valid_polygon_point?/1)
     |> Enum.uniq()
     |> convex_hull()
   end
@@ -952,21 +1197,39 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp point_in_polygon?(_point, polygon) when length(polygon) < 3, do: true
 
   defp point_in_polygon?({x, z}, polygon) do
-    polygon
-    |> Enum.zip(tl(polygon) ++ [hd(polygon)])
-    |> Enum.reduce(false, fn {{x1, z1}, {x2, z2}}, inside ->
-      crosses = z1 > z != z2 > z
-      boundary_x = (x2 - x1) * (z - z1) / (z2 - z1) + x1
+    polygon = Enum.filter(polygon, &valid_polygon_point?/1)
 
-      if crosses and x < boundary_x, do: not inside, else: inside
-    end)
+    if length(polygon) < 3 do
+      true
+    else
+      polygon
+      |> Enum.zip(tl(polygon) ++ [hd(polygon)])
+      |> Enum.reduce(false, fn {{x1, z1}, {x2, z2}}, inside ->
+        same_side = z1 > z == z2 > z
+
+        if same_side do
+          inside
+        else
+          boundary_x = (x2 - x1) * (z - z1) / (z2 - z1) + x1
+
+          if x < boundary_x, do: not inside, else: inside
+        end
+      end)
+    end
   end
+
+  defp point_in_polygon?(_point, _polygon), do: true
+
+  defp valid_polygon_point?({x, z}), do: number?(x) and number?(z)
+  defp valid_polygon_point?(_point), do: false
 
   defp distance_2d(x1, z1, x2, z2), do: :math.sqrt(:math.pow(x1 - x2, 2) + :math.pow(z1 - z2, 2))
 
-  defp bounds_for(wifi_points, wifi_raster, interference_points, path_points, floorplan_segments) do
+  defp bounds_for(wifi_points, wifi_raster, interference_points, interference_raster, path_points, floorplan_segments) do
     points =
-      wifi_points ++ wifi_raster ++ interference_points ++ path_points ++ floorplan_segment_points(floorplan_segments)
+      wifi_points ++
+        wifi_raster ++
+        interference_points ++ interference_raster ++ path_points ++ floorplan_segment_points(floorplan_segments)
 
     xs = Enum.map(points, & &1.x)
     zs = Enum.map(points, & &1.z)
@@ -1091,6 +1354,37 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     end
   end
 
+  defp percentile(values, fraction) do
+    numbers = values |> Enum.filter(&number?/1) |> Enum.sort()
+
+    case numbers do
+      [] ->
+        nil
+
+      [_ | _] ->
+        index =
+          ((length(numbers) - 1) * min(max(fraction, 0.0), 1.0))
+          |> Float.round()
+          |> trunc()
+
+        Enum.at(numbers, index)
+    end
+  end
+
+  defp excess_power_score(average_power_dbm, peak_power_dbm, baseline_power_dbm) do
+    if number?(baseline_power_dbm) do
+      average_excess = max((average_power_dbm || baseline_power_dbm) - baseline_power_dbm, 0.0)
+      peak_excess = max((peak_power_dbm || baseline_power_dbm) - baseline_power_dbm, 0.0)
+
+      ((average_excess * 3.0 + peak_excess * 4.0) / 55.0 * 100.0)
+      |> min(100.0)
+      |> max(0.0)
+      |> round()
+    else
+      0
+    end
+  end
+
   defp number_or_default(value, _default) when is_number(value), do: value
   defp number_or_default(_value, default), do: default
 
@@ -1103,9 +1397,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp known_atom_key("cells"), do: :cells
   defp known_atom_key("confidence"), do: :confidence
   defp known_atom_key("count"), do: :count
+  defp known_atom_key("interference_point_count"), do: :interference_point_count
   defp known_atom_key("nearest_distance_m"), do: :nearest_distance_m
   defp known_atom_key("radius_m"), do: :radius_m
   defp known_atom_key("rssi"), do: :rssi
+  defp known_atom_key("score"), do: :score
   defp known_atom_key("wifi_point_count"), do: :wifi_point_count
   defp known_atom_key("x"), do: :x
   defp known_atom_key("z"), do: :z

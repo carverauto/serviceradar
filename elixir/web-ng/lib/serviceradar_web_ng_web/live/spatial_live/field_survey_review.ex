@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     <span
                       :for={cell <- coverage_cells(@review, @overlay)}
                       class="absolute rounded-full pointer-events-none"
-                      style={coverage_cell_style(cell)}
+                      style={coverage_cell_style(cell, @overlay)}
                     >
                     </span>
 
@@ -242,12 +242,22 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </:header>
                 <div class="grid grid-cols-2 gap-3 text-sm">
                   <.summary_cell label="Heat Points" value={@review.metrics.interference_point_count} />
+                  <.summary_cell
+                    label="Heat Cells"
+                    value={@review.metrics.interference_raster_cell_count}
+                  />
                   <.summary_cell label="Channels" value={@review.metrics.channel_count} />
                   <.summary_cell label="Spectrum Rows" value={@review.metrics.spectrum_count} />
+                  <.summary_cell
+                    label="Waterfall"
+                    value={"#{@review.metrics.waterfall_row_count}x#{@review.metrics.waterfall_bin_count}"}
+                  />
                   <.summary_cell label="Pose Rows" value={@review.metrics.pose_count} />
                 </div>
               </.ui_panel>
             </div>
+
+            <.spectrum_waterfall :if={@review} waterfall={@review.spectrum_waterfall} />
 
             <.ui_panel :if={!@review && @sessions != []}>
               <div class="py-10 text-center text-sm text-base-content/60">
@@ -265,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp metric_strip(assigns) do
     ~H"""
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-7">
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-8">
       <.summary_cell label="RF Rows" value={@metrics.rf_count} />
       <.summary_cell label="Pose Rows" value={@metrics.pose_count} />
       <.summary_cell label="APs" value={@metrics.ap_count} />
@@ -273,8 +283,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
         label="Wi-Fi Heat"
         value={"#{@metrics.wifi_raster_cell_count}/#{@metrics.wifi_point_count}"}
       />
-      <.summary_cell label="RF Heat" value={@metrics.interference_point_count} />
+      <.summary_cell
+        label="RF Heat"
+        value={"#{@metrics.interference_raster_cell_count}/#{@metrics.interference_point_count}"}
+      />
       <.summary_cell label="Spectrum" value={@metrics.spectrum_count} />
+      <.summary_cell label="Waterfall" value={@metrics.waterfall_row_count} />
       <.summary_cell label="Artifacts" value={@metrics.room_artifact_count} />
     </div>
     """
@@ -321,13 +335,16 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       <div class="mt-3 space-y-2">
         <div
           :for={score <- @scores}
-          class="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2 text-xs"
+          class="grid grid-cols-[3.5rem_1fr_3rem_1.5rem] items-center gap-2 text-xs"
         >
           <div>{score.band} {score.channel}</div>
           <div class="h-2 overflow-hidden rounded bg-base-200">
             <div class="h-full rounded" style={bar_style(score.score)}></div>
           </div>
           <div class="text-right text-base-content/60">{round(score.score)}%</div>
+          <div class="text-right" title={channel_conflict_title(score)}>
+            <.icon :if={score.conflict} name="hero-exclamation-triangle" class="size-3 text-warning" />
+          </div>
         </div>
         <div :if={@scores == []} class="text-xs text-base-content/60">
           No spectrum channel summaries yet.
@@ -383,9 +400,18 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp map_points(review, _overlay), do: review.wifi_points
 
   defp coverage_cells(review, "wifi"), do: Map.get(review, :wifi_raster, [])
+  defp coverage_cells(review, "interference"), do: Map.get(review, :interference_raster, [])
   defp coverage_cells(_review, _overlay), do: []
 
-  defp coverage_cell_style(cell) do
+  defp coverage_cell_style(cell, "interference") do
+    diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
+    color = interference_color(cell.score || 0)
+    opacity = 0.12 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.48
+
+    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 50%, transparent 78%); opacity: #{Float.round(opacity, 3)}; filter: blur(3px);"
+  end
+
+  defp coverage_cell_style(cell, _overlay) do
     diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
     color = rssi_color(cell.rssi || -95)
     opacity = 0.14 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.42
@@ -413,6 +439,57 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp bar_style(score) do
     "width: #{min(max(score || 0, 0), 100)}%; background: #{interference_color(score || 0)};"
+  end
+
+  defp channel_conflict_title(%{conflict: true} = score) do
+    "#{score.ap_count} APs observed; strongest RSSI #{format_number(score.strongest_rssi)} dBm with high RF energy"
+  end
+
+  defp channel_conflict_title(_score), do: "No AP/noise conflict flagged"
+
+  attr :waterfall, :map, required: true
+
+  defp spectrum_waterfall(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div>
+          <div class="text-sm font-semibold">Spectrum Waterfall</div>
+          <div class="text-xs text-base-content/60">
+            HackRF sweep bins over time. Frequency runs left to right, newest rows are at the bottom.
+          </div>
+        </div>
+      </:header>
+
+      <div :if={@waterfall.rows != []} class="space-y-2">
+        <div class="overflow-hidden rounded border border-base-200 bg-base-300/40 p-2">
+          <div
+            class="grid gap-px"
+            style={"grid-template-columns: repeat(#{@waterfall.bin_count}, minmax(2px, 1fr));"}
+          >
+            <span
+              :for={bin <- waterfall_bins(@waterfall)}
+              class="block h-2 min-w-0"
+              title={waterfall_bin_title(bin)}
+              style={"background: #{waterfall_color(bin.intensity)};"}
+            >
+            </span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-base-content/60">
+          <span>{format_frequency(waterfall_start(@waterfall))}</span>
+          <span>
+            {format_number(@waterfall.min_power_dbm)} to {format_number(@waterfall.max_power_dbm)} dBm
+          </span>
+          <span>{format_frequency(waterfall_stop(@waterfall))}</span>
+        </div>
+      </div>
+
+      <div :if={@waterfall.rows == []} class="text-sm text-base-content/60">
+        No spectrum waterfall rows yet.
+      </div>
+    </.ui_panel>
+    """
   end
 
   defp floorplan_line_style(%{kind: "door"}) do
@@ -460,6 +537,30 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp interference_color(score) when score >= 35, do: "#facc15"
   defp interference_color(_score), do: "#22c55e"
 
+  defp waterfall_bins(waterfall) do
+    waterfall.rows
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {row, row_index} ->
+      Enum.map(row.bins, &Map.put(&1, :row_index, row_index))
+    end)
+  end
+
+  defp waterfall_bin_title(bin) do
+    "#{format_frequency(bin.frequency_mhz)} #{format_number(bin.power_dbm)} dBm"
+  end
+
+  defp waterfall_start(%{rows: [row | _]}), do: row.start_frequency_mhz
+  defp waterfall_start(_waterfall), do: nil
+
+  defp waterfall_stop(%{rows: [row | _]}), do: row.stop_frequency_mhz
+  defp waterfall_stop(_waterfall), do: nil
+
+  defp waterfall_color(score) when score >= 82, do: "#ef4444"
+  defp waterfall_color(score) when score >= 64, do: "#f97316"
+  defp waterfall_color(score) when score >= 46, do: "#facc15"
+  defp waterfall_color(score) when score >= 28, do: "#84cc16"
+  defp waterfall_color(_score), do: "#0f766e"
+
   defp format_time(nil), do: "unknown"
 
   defp format_time(%DateTime{} = value) do
@@ -471,6 +572,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp format_number(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_number(value) when is_integer(value), do: Integer.to_string(value)
   defp format_number(_value), do: "?"
+
+  defp format_frequency(value) when is_number(value), do: "#{format_number(value)} MHz"
+  defp format_frequency(_value), do: "? MHz"
 
   defp artifact_label(%{artifact_type: "roomplan_usdz"}), do: "RoomPlan USDZ"
   defp artifact_label(%{artifact_type: "floorplan_geojson"}), do: "2D floorplan GeoJSON"

@@ -1,4 +1,5 @@
-use super::models::ObservationStreamRequest;
+use super::models::{ChannelHopMode, ObservationStreamRequest};
+use crate::adaptive_scan::{AdaptiveScanState, spawn_adaptive_channel_hopper};
 use crate::capture_control::{CaptureControl, CaptureStreamType};
 use crate::live_capture::spawn_capture;
 use crate::observation::SidekickObservation;
@@ -14,11 +15,17 @@ pub(super) async fn stream_observations(
     mut socket: WebSocket,
     request: ObservationStreamRequest,
     capture_control: Arc<CaptureControl>,
+    adaptive_scan: AdaptiveScanState,
 ) {
     let target = request.capture.interface_name.clone();
     let _registration = capture_control.register(CaptureStreamType::RfObservation, target);
     let mut stop_rx = capture_control.subscribe_stop();
-    let channel_hopper = request.channel_hop.map(spawn_channel_hopper);
+    let channel_hopper = request.channel_hop.map(|mode| match mode {
+        ChannelHopMode::Fixed(request) => spawn_channel_hopper(request),
+        ChannelHopMode::Adaptive(request) => {
+            spawn_adaptive_channel_hopper(request, adaptive_scan.clone())
+        }
+    });
     let mut observations = spawn_capture(request.capture);
     let mut pending = Vec::with_capacity(128);
     let mut flush_interval = tokio::time::interval(Duration::from_millis(200));
@@ -34,6 +41,7 @@ pub(super) async fn stream_observations(
 
                 match result {
                     Ok(observation) => {
+                        adaptive_scan.observe_rf_observation(&observation);
                         pending.push(observation);
                         if pending.len() >= 128
                             && !send_observation_batch(&mut socket, &mut pending).await {
@@ -189,6 +197,7 @@ pub(super) async fn stream_spectrum_summaries(
     mut socket: WebSocket,
     request: SpectrumSweepRequest,
     capture_control: Arc<CaptureControl>,
+    adaptive_scan: AdaptiveScanState,
 ) {
     let target = format!("{}:summary", request.sdr_id);
     let _registration = capture_control.register(CaptureStreamType::Spectrum, target);
@@ -213,6 +222,7 @@ pub(super) async fn stream_spectrum_summaries(
                             .filter(|rate| rate.is_finite() && *rate > 0.0);
                         last_capture_unix_nanos = Some(sweep.captured_at_unix_nanos);
                         let summary = summarize_sweep(&sweep, sweep_rate_hz);
+                        adaptive_scan.observe_spectrum_summary(&summary);
                         if !send_spectrum_summary(&mut socket, &summary).await {
                             break;
                         }

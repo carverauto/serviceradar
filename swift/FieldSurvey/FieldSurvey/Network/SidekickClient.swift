@@ -648,7 +648,8 @@ public final class SidekickClient: @unchecked Sendable {
         sidekickID: String,
         radioID: String,
         frequenciesMHz: [Int] = [],
-        hopIntervalMS: Int = 250
+        hopIntervalMS: Int = 250,
+        scanMode: String = "adaptive"
     ) -> AsyncThrowingStream<SidekickObservationBatch, Error> {
         AsyncThrowingStream { continuation in
             guard let url = streamURL(
@@ -656,7 +657,8 @@ public final class SidekickClient: @unchecked Sendable {
                 sidekickID: sidekickID,
                 radioID: radioID,
                 frequenciesMHz: frequenciesMHz,
-                hopIntervalMS: hopIntervalMS
+                hopIntervalMS: hopIntervalMS,
+                scanMode: scanMode
             ) else {
                 continuation.finish(throwing: SidekickClientError.invalidStreamURL)
                 return
@@ -803,7 +805,8 @@ public final class SidekickClient: @unchecked Sendable {
         sidekickID: String,
         radioID: String,
         frequenciesMHz: [Int],
-        hopIntervalMS: Int
+        hopIntervalMS: Int,
+        scanMode: String
     ) -> URL? {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         let originalScheme = components?.scheme
@@ -821,6 +824,10 @@ public final class SidekickClient: @unchecked Sendable {
                 value: frequenciesMHz.map(String.init).joined(separator: ",")
             ))
             queryItems.append(URLQueryItem(name: "hop_interval_ms", value: String(hopIntervalMS)))
+        }
+
+        if !scanMode.isEmpty {
+            queryItems.append(URLQueryItem(name: "scan_mode", value: scanMode))
         }
 
         components?.queryItems = queryItems

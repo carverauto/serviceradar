@@ -803,7 +803,7 @@ private struct SignalBucket {
             var x: Float = 0
             var y: Float = 0
             var z: Float = 0
-            var rssi: Double = 0
+            var strongestRSSI: Double = -200
             var count: Int = 0
         }
 
@@ -823,7 +823,7 @@ private struct SignalBucket {
             acc.x += point.x
             acc.y += point.y
             acc.z += point.z
-            acc.rssi += point.rssi
+            acc.strongestRSSI = max(acc.strongestRSSI, point.rssi)
             acc.count += 1
             buckets[key] = acc
         }
@@ -833,7 +833,7 @@ private struct SignalBucket {
             let count = Float(acc.count)
             return SignalBucket(
                 position: SIMD3<Float>(acc.x / count, acc.y / count, acc.z / count),
-                rssi: acc.rssi / Double(acc.count),
+                rssi: acc.strongestRSSI,
                 count: acc.count
             )
         }

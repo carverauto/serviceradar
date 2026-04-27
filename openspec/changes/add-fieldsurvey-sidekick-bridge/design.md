@@ -30,8 +30,18 @@ Create `serviceradar-fieldsurvey-sidekick`, a Rust daemon with these internal mo
 - `spectrum`: captures receive-only SDR sweeps from HackRF through
   `hackrf_sweep` first, with RX amp and antenna power disabled by default.
   These observations are channel-energy/interference data, not BSSID/SSID
-  identity data.
-- `hopper`: coordinates channel dwell schedules across radios. With two dongles, one can cover 2.4 GHz dwell while the other rotates 5/6 GHz channels, or both can follow configured survey plans.
+  identity data. `hackrf_sweep` already produces FFT-derived power bins, so it
+  remains the broad-survey path for 2.4/5 GHz waterfall and interference
+  rasters. A focused raw-IQ mode can be evaluated later for one channel/band
+  when classification requires raw samples instead of sweep bins; do not add
+  that dependency to the broad-survey path prematurely.
+- `hopper`: coordinates channel dwell schedules across radios. With two
+  dongles, one can cover 2.4 GHz dwell while the other rotates 5/6 GHz
+  channels, or both can follow configured survey plans. The golden survey mode
+  is adaptive and daemon-owned: HackRF spectrum summaries prioritize noisy or
+  active channels, decoded Wi-Fi observations confirm BSSID/SSID/RSSI identity,
+  and the hopper weights dwell toward known AP channels while still performing
+  periodic full passes to discover newly visible APs.
 - `api`: serves local HTTP/WebSocket endpoints for pairing, status, configuration, and observation streaming.
 - `state`: stores paired device keys and safe daemon config under `/var/lib/serviceradar/fieldsurvey-sidekick`.
 
@@ -117,6 +127,21 @@ every RF observation. The final survey sample schema may still preserve source
 metadata, but the raw RF table is the source of truth for channel, noise, radio
 assignment, frame type, and packet timestamp data. The spectrum table is the
 source of truth for interference/channel-energy overlays.
+
+Backend review surfaces should derive and persist two independent rasters:
+
+- `wifi_rssi`: AP/BSSID RSSI coverage, generated from fused Sidekick RF and
+  iPhone pose rows.
+- `rf_interference`: HackRF energy/noise, generated from spectrum rows fused to
+  the same pose timeline.
+
+Spectrum review must also expose a waterfall/spectrogram matrix built from the
+last N sweep rows. Frequency is X, time is Y, and power is colorized. The first
+version uses downsampled `power_bins_dbm` from `hackrf_sweep`; no extra FFT is
+required until the focused raw-IQ path is enabled. Interference scores should
+use local noise-floor baselines and session/channel medians instead of raw dBm
+alone, and channel conflict scoring should correlate Wi-Fi AP channel
+observations with HackRF energy on the same channels.
 
 Schema changes must be implemented through Elixir migrations under `elixir/serviceradar_core/priv/repo/migrations/` and stay in the `platform` schema.
 

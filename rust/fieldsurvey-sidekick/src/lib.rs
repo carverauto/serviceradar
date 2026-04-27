@@ -1,3 +1,4 @@
+pub mod adaptive_scan;
 pub mod api;
 pub mod arrow_stream;
 pub mod capture;
