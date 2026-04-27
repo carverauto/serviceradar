@@ -641,7 +641,7 @@ public struct SettingsView: View {
 
         let cleanedURL = normalizedBaseURL(settingsManager.apiURL)
         let outcome = await validateBackend(cleanedURL: cleanedURL, authToken: authToken)
-        setBackendResult(outcome.message, tone: outcome.tone, showAlert: false)
+        setBackendResult(outcome.message, tone: outcome.tone, showAlert: true)
         isCheckingBackend = false
     }
 

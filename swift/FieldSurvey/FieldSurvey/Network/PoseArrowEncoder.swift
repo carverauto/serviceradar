@@ -83,13 +83,10 @@ public struct PoseArrowEncoder {
             )
         }
 
-        switch ArrowWriter().toMessage(batch) {
-        case .success(let dataArray):
-            var combined = Data()
-            for data in dataArray {
-                combined.append(data)
-            }
-            return combined
+        let writerInfo = ArrowWriter.Info(.recordbatch, schema: batch.schema, batches: [batch])
+        switch ArrowWriter().writeStreaming(writerInfo) {
+        case .success(let data):
+            return data
         case .failure(let error):
             throw NSError(
                 domain: "PoseArrowEncoder",
