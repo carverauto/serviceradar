@@ -89,7 +89,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
       parser_confidence,
       NULLIF(rf_features, '')::vector(8),
       inserted_at
-    FROM jsonb_to_recordset($1::jsonb) AS rows(
+    FROM jsonb_to_recordset($1::text::jsonb) AS rows(
       session_id text,
       sidekick_id text,
       radio_id text,
