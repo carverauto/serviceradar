@@ -427,7 +427,7 @@ public struct SidekickObservation: Codable, Equatable, Sendable {
     public let channel: Int?
     public let channelWidthMHz: Int?
     public let capturedAtUnixNanos: Int64
-    public let capturedAtMonotonicNanos: UInt64?
+    public let capturedAtMonotonicNanos: Int64?
     public let parserConfidence: Double
 
     enum CodingKeys: String, CodingKey {

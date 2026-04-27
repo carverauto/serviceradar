@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
 
   @payload <<1, 2, 3, 4>>
 
-  test "routes RF Arrow frames through the RF decoder and bulk insert path" do
+  test "routes RF Arrow frames through the direct IPC ingest path" do
     parent = self()
 
     {:ok, state} =
@@ -13,12 +13,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         session_id: "survey-rf",
         user_id: "user-1",
         stream_type: :rf_observations,
-        decode_rf_payload: fn @payload ->
-          {:ok, [%{bssid: "00:11:22:33:44:55"}, %{bssid: "66:77:88:99:aa:bb"}]}
-        end,
-        bulk_insert_rf: fn session_id, observations ->
-          send(parent, {:rf_insert, session_id, observations})
-          true
+        ingest_arrow: fn :test_conn, stream_type, session_id, @payload ->
+          send(parent, {:arrow_ingest, stream_type, session_id})
+          {:ok, 2}
         end,
         archive_frame: fn payload, metadata ->
           send(parent, {:archive_frame, payload, metadata})
@@ -31,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     assert state.bytes_received == byte_size(@payload)
     assert state.rows_received == 2
     assert state.frames_archived == 1
-    assert_receive {:rf_insert, "survey-rf", [%{bssid: "00:11:22:33:44:55"}, %{bssid: "66:77:88:99:aa:bb"}]}
+    assert_receive {:arrow_ingest, :rf_observations, "survey-rf"}
 
     assert_receive {:archive_frame, @payload,
                     %{
@@ -46,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
                     }}
   end
 
-  test "routes pose Arrow frames through the pose decoder and bulk insert path" do
+  test "routes pose Arrow frames through the direct IPC ingest path" do
     parent = self()
 
     {:ok, state} =
@@ -54,12 +51,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         session_id: "survey-pose",
         user_id: "user-1",
         stream_type: :pose_samples,
-        decode_pose_payload: fn @payload ->
-          {:ok, [%{scanner_device_id: "iphone-1"}]}
-        end,
-        bulk_insert_pose: fn session_id, samples ->
-          send(parent, {:pose_insert, session_id, samples})
-          true
+        ingest_arrow: fn :test_conn, stream_type, session_id, @payload ->
+          send(parent, {:arrow_ingest, stream_type, session_id})
+          {:ok, 1}
         end,
         archive_frame: fn _payload, metadata ->
           send(parent, {:archive_frame, metadata})
@@ -70,11 +64,11 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     assert {:ok, state} = FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
     assert state.rows_received == 1
     assert state.frames_archived == 1
-    assert_receive {:pose_insert, "survey-pose", [%{scanner_device_id: "iphone-1"}]}
+    assert_receive {:arrow_ingest, :pose_samples, "survey-pose"}
     assert_receive {:archive_frame, %{stream_type: :pose_samples, row_count: 1, decode_status: :ok}}
   end
 
-  test "routes spectrum Arrow frames through the spectrum decoder and bulk insert path" do
+  test "routes spectrum Arrow frames through the direct IPC ingest path" do
     parent = self()
 
     {:ok, state} =
@@ -82,12 +76,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         session_id: "survey-spectrum",
         user_id: "user-1",
         stream_type: :spectrum_observations,
-        decode_spectrum_payload: fn @payload ->
-          {:ok, [%{sdr_id: "hackrf-0"}, %{sdr_id: "hackrf-1"}, %{sdr_id: "hackrf-2"}]}
-        end,
-        bulk_insert_spectrum: fn session_id, observations ->
-          send(parent, {:spectrum_insert, session_id, observations})
-          true
+        ingest_arrow: fn :test_conn, stream_type, session_id, @payload ->
+          send(parent, {:arrow_ingest, stream_type, session_id})
+          {:ok, 3}
         end,
         archive_frame: fn _payload, metadata ->
           send(parent, {:archive_frame, metadata})
@@ -99,13 +90,11 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     assert state.rows_received == 3
     assert state.frames_archived == 1
 
-    assert_receive {:spectrum_insert, "survey-spectrum",
-                    [%{sdr_id: "hackrf-0"}, %{sdr_id: "hackrf-1"}, %{sdr_id: "hackrf-2"}]}
-
+    assert_receive {:arrow_ingest, :spectrum_observations, "survey-spectrum"}
     assert_receive {:archive_frame, %{stream_type: :spectrum_observations, row_count: 3, decode_status: :ok}}
   end
 
-  test "archives failed frames and keeps stream open when decode fails" do
+  test "archives failed frames and keeps stream open when direct ingest fails" do
     parent = self()
 
     {:ok, state} =
@@ -113,8 +102,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         session_id: "survey-bad",
         user_id: "user-1",
         stream_type: :rf_observations,
-        decode_rf_payload: fn @payload -> {:error, :bad_arrow} end,
-        bulk_insert_rf: fn _session_id, _observations -> flunk("bulk insert should not run") end,
+        ingest_arrow: fn :test_conn, :rf_observations, "survey-bad", @payload -> {:error, :bad_arrow} end,
         archive_frame: fn payload, metadata ->
           send(parent, {:archive_frame, payload, metadata})
           true
@@ -175,7 +163,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
   defp init_handler(opts) do
     default_opts = [
       acquire_stream: fn _user_id, _session_id -> {:ok, nil} end,
-      release_stream: fn _token -> :ok end
+      release_stream: fn _token -> :ok end,
+      open_ingest_connection: fn _session_id -> {:ok, :test_conn} end,
+      close_ingest_connection: fn _conn -> :ok end
     ]
 
     FieldSurveyArrowStreamHandler.init(Keyword.merge(default_opts, opts))

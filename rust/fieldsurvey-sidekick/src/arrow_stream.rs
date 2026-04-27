@@ -1,8 +1,8 @@
 use crate::observation::SidekickObservation;
 use crate::spectrum::SpectrumSweep;
 use arrow_array::{
-    ArrayRef, BooleanArray, Float32Array, Int16Array, Int64Array, RecordBatch, StringArray,
-    UInt16Array, UInt32Array, UInt64Array,
+    ArrayRef, BooleanArray, Float32Array, Int16Array, Int32Array, Int64Array, RecordBatch,
+    StringArray,
     builder::{Float32Builder, ListBuilder},
 };
 use arrow_ipc::writer::StreamWriter;
@@ -21,11 +21,11 @@ pub fn rf_observation_schema() -> Arc<Schema> {
         Field::new("rssi_dbm", DataType::Int16, true),
         Field::new("noise_floor_dbm", DataType::Int16, true),
         Field::new("snr_db", DataType::Int16, true),
-        Field::new("frequency_mhz", DataType::UInt32, false),
-        Field::new("channel", DataType::UInt16, true),
-        Field::new("channel_width_mhz", DataType::UInt16, true),
+        Field::new("frequency_mhz", DataType::Int32, false),
+        Field::new("channel", DataType::Int32, true),
+        Field::new("channel_width_mhz", DataType::Int32, true),
         Field::new("captured_at_unix_nanos", DataType::Int64, false),
-        Field::new("captured_at_monotonic_nanos", DataType::UInt64, true),
+        Field::new("captured_at_monotonic_nanos", DataType::Int64, true),
         Field::new("parser_confidence", DataType::Float32, false),
     ]))
 }
@@ -36,13 +36,13 @@ pub fn spectrum_observation_schema() -> Arc<Schema> {
         Field::new("sdr_id", DataType::Utf8, false),
         Field::new("device_kind", DataType::Utf8, false),
         Field::new("serial_number", DataType::Utf8, true),
-        Field::new("sweep_id", DataType::UInt64, false),
+        Field::new("sweep_id", DataType::Int64, false),
         Field::new("started_at_unix_nanos", DataType::Int64, false),
         Field::new("captured_at_unix_nanos", DataType::Int64, false),
-        Field::new("start_frequency_hz", DataType::UInt64, false),
-        Field::new("stop_frequency_hz", DataType::UInt64, false),
+        Field::new("start_frequency_hz", DataType::Int64, false),
+        Field::new("stop_frequency_hz", DataType::Int64, false),
         Field::new("bin_width_hz", DataType::Float32, false),
-        Field::new("sample_count", DataType::UInt32, false),
+        Field::new("sample_count", DataType::Int32, false),
         Field::new(
             "power_bins_dbm",
             DataType::List(Arc::new(Field::new("item", DataType::Float32, true))),
@@ -146,22 +146,22 @@ fn observations_to_record_batch(
                 .map(|observation| observation.snr_db)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt32Array::from(
+        Arc::new(Int32Array::from(
             observations
                 .iter()
-                .map(|observation| observation.frequency_mhz)
+                .map(|observation| observation.frequency_mhz as i32)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt16Array::from(
+        Arc::new(Int32Array::from(
             observations
                 .iter()
-                .map(|observation| observation.channel)
+                .map(|observation| observation.channel.map(i32::from))
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt16Array::from(
+        Arc::new(Int32Array::from(
             observations
                 .iter()
-                .map(|observation| observation.channel_width_mhz)
+                .map(|observation| observation.channel_width_mhz.map(i32::from))
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Int64Array::from(
@@ -170,10 +170,14 @@ fn observations_to_record_batch(
                 .map(|observation| observation.captured_at_unix_nanos)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt64Array::from(
+        Arc::new(Int64Array::from(
             observations
                 .iter()
-                .map(|observation| observation.captured_at_monotonic_nanos)
+                .map(|observation| {
+                    observation
+                        .captured_at_monotonic_nanos
+                        .map(|value| value as i64)
+                })
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Float32Array::from(
@@ -224,10 +228,10 @@ fn spectrum_sweeps_to_record_batch(
                 .map(|sweep| sweep.serial_number.as_deref())
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt64Array::from(
+        Arc::new(Int64Array::from(
             sweeps
                 .iter()
-                .map(|sweep| sweep.sweep_id)
+                .map(|sweep| sweep.sweep_id as i64)
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Int64Array::from(
@@ -242,16 +246,16 @@ fn spectrum_sweeps_to_record_batch(
                 .map(|sweep| sweep.captured_at_unix_nanos)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt64Array::from(
+        Arc::new(Int64Array::from(
             sweeps
                 .iter()
-                .map(|sweep| sweep.start_frequency_hz)
+                .map(|sweep| sweep.start_frequency_hz as i64)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt64Array::from(
+        Arc::new(Int64Array::from(
             sweeps
                 .iter()
-                .map(|sweep| sweep.stop_frequency_hz)
+                .map(|sweep| sweep.stop_frequency_hz as i64)
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Float32Array::from(
@@ -260,10 +264,10 @@ fn spectrum_sweeps_to_record_batch(
                 .map(|sweep| sweep.bin_width_hz)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(UInt32Array::from(
+        Arc::new(Int32Array::from(
             sweeps
                 .iter()
-                .map(|sweep| sweep.sample_count)
+                .map(|sweep| sweep.sample_count as i32)
                 .collect::<Vec<_>>(),
         )),
         Arc::new(power_bins_builder.finish()),
@@ -276,7 +280,7 @@ fn spectrum_sweeps_to_record_batch(
 mod tests {
     use super::*;
     use crate::observation::ManagementFrameType;
-    use arrow_array::{Int64Array, StringArray, UInt64Array};
+    use arrow_array::{Int64Array, StringArray};
     use arrow_ipc::reader::StreamReader;
     use std::io::Cursor;
 
@@ -328,7 +332,7 @@ mod tests {
             .column_by_name("captured_at_monotonic_nanos")
             .unwrap()
             .as_any()
-            .downcast_ref::<UInt64Array>()
+            .downcast_ref::<Int64Array>()
             .unwrap();
         assert_eq!(monotonic_nanos.value(0), 9_876_543_210);
     }

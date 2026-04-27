@@ -27,22 +27,38 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
   defp insert_entries([]), do: {:ok, 0}
 
   defp insert_entries(entries) do
-    payload =
-      entries
-      |> Enum.map(&json_ready_entry/1)
-      |> Jason.encode!()
-
-    case Repo.query(insert_sql(), [payload]) do
+    case Repo.query(insert_sql(), insert_params(entries)) do
       {:ok, %{num_rows: count}} -> {:ok, count}
       {:error, _reason} -> {:error, :insert_failed}
     end
   end
 
-  defp json_ready_entry(entry) do
-    entry
-    |> Map.update!(:captured_at, &DateTime.to_iso8601/1)
-    |> Map.update!(:inserted_at, &DateTime.to_iso8601/1)
+  defp insert_params(entries) do
+    [
+      column(entries, :session_id),
+      column(entries, :sidekick_id),
+      column(entries, :radio_id),
+      column(entries, :interface_name),
+      column(entries, :bssid),
+      column(entries, :ssid),
+      column(entries, :hidden_ssid),
+      column(entries, :frame_type),
+      column(entries, :rssi_dbm),
+      column(entries, :noise_floor_dbm),
+      column(entries, :snr_db),
+      column(entries, :frequency_mhz),
+      column(entries, :channel),
+      column(entries, :channel_width_mhz),
+      column(entries, :captured_at),
+      column(entries, :captured_at_unix_nanos),
+      column(entries, :captured_at_monotonic_nanos),
+      column(entries, :parser_confidence),
+      column(entries, :rf_features),
+      column(entries, :inserted_at)
+    ]
   end
+
+  defp column(entries, field), do: Enum.map(entries, &Map.fetch!(&1, field))
 
   defp insert_sql do
     """
@@ -89,27 +105,48 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
       parser_confidence,
       NULLIF(rf_features, '')::vector(8),
       inserted_at
-    FROM jsonb_to_recordset($1::text::jsonb) AS rows(
-      session_id text,
-      sidekick_id text,
-      radio_id text,
-      interface_name text,
-      bssid text,
-      ssid text,
-      hidden_ssid boolean,
-      frame_type text,
-      rssi_dbm smallint,
-      noise_floor_dbm smallint,
-      snr_db smallint,
-      frequency_mhz integer,
-      channel integer,
-      channel_width_mhz integer,
-      captured_at timestamptz,
-      captured_at_unix_nanos bigint,
-      captured_at_monotonic_nanos bigint,
-      parser_confidence double precision,
-      rf_features text,
-      inserted_at timestamptz
+    FROM UNNEST(
+      $1::text[],
+      $2::text[],
+      $3::text[],
+      $4::text[],
+      $5::text[],
+      $6::text[],
+      $7::boolean[],
+      $8::text[],
+      $9::smallint[],
+      $10::smallint[],
+      $11::smallint[],
+      $12::integer[],
+      $13::integer[],
+      $14::integer[],
+      $15::timestamptz[],
+      $16::bigint[],
+      $17::bigint[],
+      $18::double precision[],
+      $19::text[],
+      $20::timestamptz[]
+    ) AS rows(
+      session_id,
+      sidekick_id,
+      radio_id,
+      interface_name,
+      bssid,
+      ssid,
+      hidden_ssid,
+      frame_type,
+      rssi_dbm,
+      noise_floor_dbm,
+      snr_db,
+      frequency_mhz,
+      channel,
+      channel_width_mhz,
+      captured_at,
+      captured_at_unix_nanos,
+      captured_at_monotonic_nanos,
+      parser_confidence,
+      rf_features,
+      inserted_at
     )
     """
   end
