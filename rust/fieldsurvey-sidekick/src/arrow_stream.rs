@@ -2,11 +2,11 @@ use crate::observation::SidekickObservation;
 use crate::spectrum::SpectrumSweep;
 use arrow_array::{
     ArrayRef, BooleanArray, Float64Array, Int16Array, Int32Array, Int64Array, RecordBatch,
-    StringArray,
+    StringArray, TimestampMicrosecondArray,
     builder::{Float64Builder, ListBuilder},
 };
 use arrow_ipc::writer::StreamWriter;
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::{DataType, Field, Schema, TimeUnit};
 use std::sync::Arc;
 
 pub fn rf_observation_schema() -> Arc<Schema> {
@@ -24,6 +24,11 @@ pub fn rf_observation_schema() -> Arc<Schema> {
         Field::new("frequency_mhz", DataType::Int32, false),
         Field::new("channel", DataType::Int32, true),
         Field::new("channel_width_mhz", DataType::Int32, true),
+        Field::new(
+            "captured_at",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            false,
+        ),
         Field::new("captured_at_unix_nanos", DataType::Int64, false),
         Field::new("captured_at_monotonic_nanos", DataType::Int64, true),
         Field::new("parser_confidence", DataType::Float64, false),
@@ -37,7 +42,17 @@ pub fn spectrum_observation_schema() -> Arc<Schema> {
         Field::new("device_kind", DataType::Utf8, false),
         Field::new("serial_number", DataType::Utf8, true),
         Field::new("sweep_id", DataType::Int64, false),
+        Field::new(
+            "started_at",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            false,
+        ),
         Field::new("started_at_unix_nanos", DataType::Int64, false),
+        Field::new(
+            "captured_at",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            false,
+        ),
         Field::new("captured_at_unix_nanos", DataType::Int64, false),
         Field::new("start_frequency_hz", DataType::Int64, false),
         Field::new("stop_frequency_hz", DataType::Int64, false),
@@ -164,6 +179,15 @@ fn observations_to_record_batch(
                 .map(|observation| observation.channel_width_mhz.map(i32::from))
                 .collect::<Vec<_>>(),
         )),
+        Arc::new(
+            TimestampMicrosecondArray::from(
+                observations
+                    .iter()
+                    .map(|observation| unix_nanos_to_micros(observation.captured_at_unix_nanos))
+                    .collect::<Vec<_>>(),
+            )
+            .with_timezone("UTC"),
+        ),
         Arc::new(Int64Array::from(
             observations
                 .iter()
@@ -234,12 +258,30 @@ fn spectrum_sweeps_to_record_batch(
                 .map(|sweep| sweep.sweep_id as i64)
                 .collect::<Vec<_>>(),
         )),
+        Arc::new(
+            TimestampMicrosecondArray::from(
+                sweeps
+                    .iter()
+                    .map(|sweep| unix_nanos_to_micros(sweep.started_at_unix_nanos))
+                    .collect::<Vec<_>>(),
+            )
+            .with_timezone("UTC"),
+        ),
         Arc::new(Int64Array::from(
             sweeps
                 .iter()
                 .map(|sweep| sweep.started_at_unix_nanos)
                 .collect::<Vec<_>>(),
         )),
+        Arc::new(
+            TimestampMicrosecondArray::from(
+                sweeps
+                    .iter()
+                    .map(|sweep| unix_nanos_to_micros(sweep.captured_at_unix_nanos))
+                    .collect::<Vec<_>>(),
+            )
+            .with_timezone("UTC"),
+        ),
         Arc::new(Int64Array::from(
             sweeps
                 .iter()
@@ -276,11 +318,15 @@ fn spectrum_sweeps_to_record_batch(
     RecordBatch::try_new(schema, columns).map_err(|error| error.to_string())
 }
 
+fn unix_nanos_to_micros(unix_nanos: i64) -> i64 {
+    unix_nanos / 1_000
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::observation::ManagementFrameType;
-    use arrow_array::{Int64Array, StringArray};
+    use arrow_array::{Int64Array, StringArray, TimestampMicrosecondArray};
     use arrow_ipc::reader::StreamReader;
     use std::io::Cursor;
 
@@ -327,6 +373,14 @@ mod tests {
             .downcast_ref::<Int64Array>()
             .unwrap();
         assert_eq!(unix_nanos.value(0), 1_712_345_678_000_000_123);
+
+        let captured_at = batch
+            .column_by_name("captured_at")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<TimestampMicrosecondArray>()
+            .unwrap();
+        assert_eq!(captured_at.value(0), 1_712_345_678_000_000);
 
         let monotonic_nanos = batch
             .column_by_name("captured_at_monotonic_nanos")
