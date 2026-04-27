@@ -22,6 +22,22 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
     end
   end
 
+  def scene(conn, _params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "analytics.view"),
+         {:ok, scene} <- FieldSurveyReview.spatial_scene(conn.assigns.current_scope) do
+      json(conn, %{data: scene})
+    else
+      {:error, error} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "spatial_scene_unavailable", detail: inspect(error)})
+
+      conn ->
+        conn
+    end
+  end
+
   def room_artifacts(conn, _params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "analytics.view"),

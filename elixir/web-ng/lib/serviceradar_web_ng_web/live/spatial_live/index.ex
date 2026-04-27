@@ -46,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
               id="spatial-survey-map"
               phx-hook="SpatialSurveyMap"
               phx-update="ignore"
-              data-api-url={~p"/api/spatial/samples"}
+              data-api-url={~p"/api/spatial/scene"}
               class="sr-spatial-canvas"
             >
             </canvas>
