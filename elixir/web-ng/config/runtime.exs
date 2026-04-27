@@ -901,7 +901,16 @@ if config_env() == :prod do
             if cnpg_key_file == "", do: params, else: Map.put(params, "sslkey", cnpg_key_file)
           end)
 
-        parsed_adbc_uri = URI.parse(adbc_base_uri)
+        parsed_adbc_uri =
+          adbc_base_uri
+          |> URI.parse()
+          |> then(fn uri ->
+            if cnpg_ssl_mode == "verify-full" and cnpg_tls_server_name != "" do
+              %{uri | host: cnpg_tls_server_name}
+            else
+              uri
+            end
+          end)
 
         merged_query =
           parsed_adbc_uri.query
