@@ -20,7 +20,7 @@ public struct PoseArrowEncoder: Sendable {
 
     public func encode(samples: [FieldSurveyPoseSample]) throws -> Data {
         let scannerIDBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
-        let capturedAtBuilder = try ArrowArrayBuilders.loadTimestampArrayBuilder(.microseconds, timezone: "UTC")
+        let capturedAtBuilder = try ArrowArrayBuilders.loadTimestampArrayBuilder(.microseconds)
         let unixNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let monotonicNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
