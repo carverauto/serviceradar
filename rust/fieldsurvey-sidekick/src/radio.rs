@@ -327,7 +327,10 @@ pub fn spawn_channel_hopper(request: ChannelHopRequest) -> JoinHandle<()> {
     })
 }
 
-async fn set_interface_frequency(interface_name: &str, frequency_mhz: u32) -> Result<(), String> {
+pub(crate) async fn set_interface_frequency(
+    interface_name: &str,
+    frequency_mhz: u32,
+) -> Result<(), String> {
     let program = resolve_program("iw");
     let output = TokioCommand::new(&program)
         .args([

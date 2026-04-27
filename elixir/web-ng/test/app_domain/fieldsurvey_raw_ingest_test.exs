@@ -43,6 +43,32 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
            end)
   end
 
+  test "review raster masks tolerate horizontal floorplan segments" do
+    review =
+      FieldSurveyReview.build_review(
+        "floorplan-horizontal-mask-test",
+        [
+          %{x: -1.0, y: 0.0, z: -0.5, rssi_dbm: -58, bssid: "02:00:00:00:00:01", ssid: "SurveyNet"},
+          %{x: 1.0, y: 0.0, z: 0.5, rssi_dbm: -62, bssid: "02:00:00:00:00:02", ssid: "SurveyNet"}
+        ],
+        [],
+        [],
+        floorplan_segments: [
+          %{kind: "wall", start_x: -2.0, start_z: -1.0, end_x: 2.0, end_z: -1.0, height: 2.4},
+          %{kind: "wall", start_x: 2.0, start_z: -1.0, end_x: 2.0, end_z: 1.0, height: 2.4},
+          %{kind: "wall", start_x: 2.0, start_z: 1.0, end_x: -2.0, end_z: 1.0, height: 2.4},
+          %{kind: "wall", start_x: -2.0, start_z: 1.0, end_x: -2.0, end_z: -1.0, height: 2.4}
+        ]
+      )
+
+    assert review.metrics.wifi_heat_cell_count > 0
+
+    assert Enum.all?(review.wifi_raster, fn cell ->
+             cell.x >= review.bounds.min_x and cell.x <= review.bounds.max_x and
+               cell.z >= review.bounds.min_z and cell.z <= review.bounds.max_z
+           end)
+  end
+
   test "bulk raw ingest persists RF, pose, and spectrum rows and exposes nearest pose matches" do
     session_id = "fieldsurvey-test-#{System.unique_integer([:positive])}"
     rf_unix_nanos = 1_800_000_000_050_000_000

@@ -3,6 +3,7 @@ mod handlers;
 mod models;
 mod streams;
 
+use crate::adaptive_scan::AdaptiveScanState;
 use crate::capture_control::CaptureControl;
 use crate::config::SidekickConfig;
 use axum::Router;
@@ -24,6 +25,7 @@ pub use models::{
 pub struct AppState {
     config: Arc<SidekickConfig>,
     capture_control: Arc<CaptureControl>,
+    adaptive_scan: AdaptiveScanState,
 }
 
 impl AppState {
@@ -31,6 +33,7 @@ impl AppState {
         Self {
             config: Arc::new(config),
             capture_control: CaptureControl::new(),
+            adaptive_scan: AdaptiveScanState::default(),
         }
     }
 
@@ -40,6 +43,10 @@ impl AppState {
 
     pub fn capture_control(&self) -> Arc<CaptureControl> {
         Arc::clone(&self.capture_control)
+    }
+
+    pub fn adaptive_scan(&self) -> AdaptiveScanState {
+        self.adaptive_scan.clone()
     }
 }
 
@@ -112,6 +119,7 @@ mod tests {
             radio_id: " radio-1 ".to_string(),
             frequencies_mhz: None,
             hop_interval_ms: 250,
+            scan_mode: "fixed".to_string(),
         })
         .unwrap();
 
@@ -128,12 +136,39 @@ mod tests {
             radio_id: "radio-1".to_string(),
             frequencies_mhz: Some("5180,5200,5220".to_string()),
             hop_interval_ms: 300,
+            scan_mode: "fixed".to_string(),
         })
         .unwrap();
 
-        let channel_hop = request.channel_hop.unwrap();
+        let super::models::ChannelHopMode::Fixed(channel_hop) = request.channel_hop.unwrap() else {
+            panic!("expected fixed channel hop");
+        };
         assert_eq!(request.capture.interface_name, "wlan2");
         assert_eq!(channel_hop.frequencies_mhz, vec![5_180, 5_200, 5_220]);
+        assert_eq!(channel_hop.interval, Duration::from_millis(300));
+    }
+
+    #[test]
+    fn builds_observation_stream_request_with_adaptive_channel_hop_plan() {
+        let request = build_observation_stream_request(ObservationStreamQuery {
+            interface_name: "wlan2".to_string(),
+            sidekick_id: "sidekick-1".to_string(),
+            radio_id: "radio-1".to_string(),
+            frequencies_mhz: Some("5180,5200,5220".to_string()),
+            hop_interval_ms: 300,
+            scan_mode: "adaptive".to_string(),
+        })
+        .unwrap();
+
+        let super::models::ChannelHopMode::Adaptive(channel_hop) = request.channel_hop.unwrap()
+        else {
+            panic!("expected adaptive channel hop");
+        };
+        assert_eq!(request.capture.interface_name, "wlan2");
+        assert_eq!(
+            channel_hop.fallback_frequencies_mhz,
+            vec![5_180, 5_200, 5_220]
+        );
         assert_eq!(channel_hop.interval, Duration::from_millis(300));
     }
 

@@ -1,3 +1,4 @@
+use crate::adaptive_scan::AdaptiveChannelHopRequest;
 use crate::capture_control::ActiveCaptureStream;
 use crate::live_capture::CaptureRequest;
 use crate::radio::ChannelHopRequest;
@@ -78,12 +79,20 @@ pub struct ObservationStreamQuery {
     pub frequencies_mhz: Option<String>,
     #[serde(default = "default_hop_interval_ms")]
     pub hop_interval_ms: u64,
+    #[serde(default = "default_scan_mode")]
+    pub scan_mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservationStreamRequest {
     pub capture: CaptureRequest,
-    pub channel_hop: Option<ChannelHopRequest>,
+    pub channel_hop: Option<ChannelHopMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChannelHopMode {
+    Fixed(ChannelHopRequest),
+    Adaptive(AdaptiveChannelHopRequest),
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -117,6 +126,10 @@ fn default_radio_id() -> String {
 
 fn default_hop_interval_ms() -> u64 {
     250
+}
+
+fn default_scan_mode() -> String {
+    "fixed".to_string()
 }
 
 fn default_sdr_id() -> String {

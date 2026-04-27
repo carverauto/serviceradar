@@ -514,8 +514,9 @@ public final class SidekickRelay: ObservableObject {
                         interfaceName: radioConfig.interfaceName,
                         sidekickID: sidekickID,
                         radioID: radioConfig.interfaceName,
-                        frequenciesMHz: radioConfig.frequenciesMHz,
-                        hopIntervalMS: radioConfig.hopIntervalMS
+                        frequenciesMHz: [],
+                        hopIntervalMS: radioConfig.hopIntervalMS,
+                        scanMode: "adaptive"
                     )
 
                     for try await batch in stream {
@@ -772,7 +773,7 @@ public final class SidekickRelay: ObservableObject {
         radio: SidekickRadioInterface
     ) -> [Int] {
         if radioCount <= 1 {
-            return preferredSingleRadioFrequencies(for: radio)
+            return supportedSurveyFrequencies(for: radio)
         }
 
         return index == 0
@@ -822,24 +823,6 @@ public final class SidekickRelay: ObservableObject {
     private static func filterSupported(_ frequencies: [Int], supportedBy supported: [Int]) -> [Int] {
         guard !supported.isEmpty else { return frequencies }
         return frequencies.filter { supported.contains($0) }
-    }
-
-    private static func preferredSingleRadioFrequencies(for radio: SidekickRadioInterface) -> [Int] {
-        let supported = radio.supportedFrequenciesMHz ?? []
-        let fiveGHz = filterSupported(fiveGHzSurveyFrequenciesMHz, supportedBy: supported)
-        if fiveGHz.contains(5220) {
-            return [5220]
-        }
-        if let frequency = fiveGHz.first {
-            return [frequency]
-        }
-
-        let twoGHz = filterSupported([2412, 2437, 2462], supportedBy: supported)
-        if let frequency = twoGHz.first {
-            return [frequency]
-        }
-
-        return [2412]
     }
 
     private static func autoHopIntervalMS(for radio: SidekickRadioInterface) -> Int {
