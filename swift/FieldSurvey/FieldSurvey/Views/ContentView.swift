@@ -38,6 +38,7 @@ public struct SurveyView: View {
     @State private var didApplyResumeSnapshot = false
     @State private var checkpointTask: Task<Void, Never>?
     @State private var lastAutosavedHeatmapCount = 0
+    @State private var captureStartedAt: Date?
     private let autosaveTimer = Timer.publish(every: 12.0, on: .main, in: .common).autoconnect()
     
     // Core Pipeline Instantiation for God-View Ingestion
@@ -119,7 +120,8 @@ public struct SurveyView: View {
                             backendFrames: sidekickRelay.backendFrameCount,
                             isStreaming: isStreaming,
                             isPreviewing: isSidekickPreviewing,
-                            backendEnabled: backendStreamingEnabled
+                            backendEnabled: backendStreamingEnabled,
+                            elapsedSeconds: captureElapsedSeconds
                         )
                         .padding(.top, 4)
 
@@ -427,6 +429,7 @@ public struct SurveyView: View {
         beginAutosaveSession()
         checkpointSession(includeMesh: false, showStatus: false)
         isSidekickPreviewing = true
+        captureStartedAt = Date()
         sessionID = autosaveSessionID ?? UUID().uuidString
         sidekickRelay.start(
             sessionID: sessionID,
@@ -444,6 +447,7 @@ public struct SurveyView: View {
         beginAutosaveSession()
         checkpointSession(includeMesh: false, showStatus: false)
         isStreaming = true
+        captureStartedAt = Date()
         saveStatusMessage = "Starting FieldSurvey backend upload..."
         clearSaveStatus(after: 3.0)
         sessionID = autosaveSessionID ?? UUID().uuidString
@@ -461,12 +465,14 @@ public struct SurveyView: View {
         sidekickRelay.stop()
         isStreaming = false
         isSidekickPreviewing = false
+        captureStartedAt = nil
     }
 
     private func stopSidekickPreview() {
         checkpointSession(includeMesh: true, showStatus: false)
         sidekickRelay.stop()
         isSidekickPreviewing = false
+        captureStartedAt = nil
         if settings.rfScanningEnabled {
             wifiScanner.startScanning()
         }
@@ -479,6 +485,7 @@ public struct SurveyView: View {
         sidekickRelay.stop()
         isStreaming = false
         isSidekickPreviewing = false
+        captureStartedAt = nil
     }
 
     private func applyRFState(_ enabled: Bool) {
@@ -508,6 +515,11 @@ public struct SurveyView: View {
     private var hasLivePreviewData: Bool {
         wifiScanner.heatmapPoints.contains { !$0.bssid.hasPrefix("manual-ap-") } ||
             wifiScanner.accessPoints.keys.contains { !$0.hasPrefix("manual-ap-") }
+    }
+
+    private var captureElapsedSeconds: Int {
+        guard let captureStartedAt else { return 0 }
+        return max(0, Int(Date().timeIntervalSince(captureStartedAt)))
     }
 
     private func discardLiveRFPreview() {
@@ -693,12 +705,14 @@ private struct CaptureStatusPanel: View {
     let isStreaming: Bool
     let isPreviewing: Bool
     let backendEnabled: Bool
+    let elapsedSeconds: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(modeLabel)
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundColor(modeColor)
+            Text("Elapsed: \(elapsedLabel)")
             Text("Sidekick: \(sidekickLabel)")
             Text("RF: \(rfBatches) batches / \(rfObservations) obs")
             Text("Pose: \(poseSamples) frames")
@@ -741,6 +755,12 @@ private struct CaptureStatusPanel: View {
     private var backendLabel: String {
         guard backendEnabled else { return "offline" }
         return backendFrames > 0 ? "\(backendFrames) frames" : "pending"
+    }
+
+    private var elapsedLabel: String {
+        let minutes = elapsedSeconds / 60
+        let seconds = elapsedSeconds % 60
+        return "\(minutes)m \(seconds)s"
     }
 }
 
