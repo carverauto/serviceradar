@@ -13,7 +13,7 @@ tonic = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
-async-nats = "0.42"
+async-nats = "0.47"
 anyhow = "1.0"
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
