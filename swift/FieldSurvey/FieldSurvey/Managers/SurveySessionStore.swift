@@ -13,7 +13,6 @@ public final class SurveySessionStore: ObservableObject {
     private let diskWriter = SurveySessionDiskWriter()
 
     public init() {
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         loadIndex()
     }
 
@@ -257,7 +256,6 @@ private actor SurveySessionDiskWriter {
 
     init() {
         encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
     func writeSnapshot(_ snapshot: SurveySessionSnapshot, to url: URL) throws {

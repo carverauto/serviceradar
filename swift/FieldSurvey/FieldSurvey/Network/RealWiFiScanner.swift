@@ -15,6 +15,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published public private(set) var resolvedAPLocations: [String: APResolvedLocation] = [:]
     @Published public private(set) var manualAPLandmarks: [ManualAPLandmark] = []
     @Published public private(set) var heatmapPoints: [WiFiHeatmapPoint] = []
+    @Published public private(set) var poseStreamFrameCount: Int = 0
     
     private var locationManager: CLLocationManager
     private var lastLocation: CLLocationCoordinate2D?
@@ -130,12 +131,26 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             stream: .poseSamples
         )
         lastPoseStreamTime = 0
+        poseStreamFrameCount = 0
     }
 
     public func stopPoseStreaming() {
         poseBackendSink?.close()
         poseBackendSink = nil
         lastPoseStreamTime = 0
+    }
+
+    public func discardLiveRFPreview() {
+        accessPoints = accessPoints.filter { $0.key.hasPrefix("manual-ap-") }
+        apPositions = apPositions.filter { $0.key.hasPrefix("manual-ap-") }
+        resolvedAPLocations = resolvedAPLocations.filter { $0.key.hasPrefix("manual-ap-") }
+        heatmapPoints.removeAll()
+        roamEvents.removeAll()
+        lastHeatmapSampleByBSSID.removeAll()
+        lastAcceptedHeatmapPose = nil
+        latestStableMapPose = latestDevicePose.map { stabilizedHeatmapPosition(for: $0) }
+        lastPoseHeatmapCaptureTime = 0
+        restoreManualLandmarksToSamples()
     }
 
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
@@ -585,10 +600,13 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             trackingQuality: trackingQuality
         )
 
-        Task.detached(priority: .utility) { [poseBackendSink, poseArrowEncoder, sample] in
+        Task.detached(priority: .utility) { [weak self, poseBackendSink, poseArrowEncoder, sample] in
             do {
                 let payload = try poseArrowEncoder.encode(samples: [sample])
-                try? await poseBackendSink.send(payload)
+                try await poseBackendSink.send(payload)
+                await MainActor.run {
+                    self?.poseStreamFrameCount += 1
+                }
             } catch {
                 // Keep AR capture hot; pose streaming errors are surfaced by backend stream diagnostics.
             }

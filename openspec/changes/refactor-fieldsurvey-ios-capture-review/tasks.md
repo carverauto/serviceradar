@@ -15,9 +15,9 @@
 
 ## 2. Capture Workflow
 - [ ] 2.1 Split the current survey screen into explicit setup, capture, and review states.
-- [ ] 2.2 Add capture status counters for Sidekick connection, active radios, RF batches, RF observations, pose samples, elapsed time, and backend/offline mode.
-- [ ] 2.3 Make start/stop survey state deterministic for offline preview and backend streaming.
-- [ ] 2.4 Add a "discard live RF preview" action that clears derived preview state without deleting saved sessions.
+- [x] 2.2 Add capture status counters for Sidekick connection, active radios, RF batches, RF observations, pose samples, elapsed time, and backend/offline mode.
+- [x] 2.3 Make start/stop survey state deterministic for offline preview and backend streaming.
+- [x] 2.4 Add a "discard live RF preview" action that clears derived preview state without deleting saved sessions.
 - [ ] 2.5 Add an RF Update mode that reuses an existing room/survey review baseline, captures new Sidekick RF with lightweight pose tracking, and avoids RoomPlan mesh reconstruction unless the operator explicitly remaps geometry.
 - [ ] 2.6 Add a manual alignment/relocalization step for RF Update mode so new walk-path coordinates can be aligned to the saved room coordinate space before comparing heatmaps.
 
@@ -42,7 +42,7 @@
 - [x] 4.5 Archive original FieldSurvey Arrow IPC RF/pose/spectrum frames for replay/debug while keeping typed pgvector/PostGIS tables as the hot query path.
 
 ## 5. Verification
-- [ ] 5.1 Run FieldSurvey iPhone build and install.
+- [x] 5.1 Run FieldSurvey iPhone build and install.
 - [ ] 5.2 Run focused Swift tests for Sidekick URL/error handling and session review projection.
 - [ ] 5.3 Perform an iPhone/Pi capture smoke test and verify local save/review.
 - [ ] 5.4 Perform an iPhone/Pi/backend smoke test and verify ServiceRadar saved-survey review.
