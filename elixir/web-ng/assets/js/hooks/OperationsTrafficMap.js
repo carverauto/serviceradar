@@ -508,8 +508,8 @@ function netflowGeometryStyle(zoomWidth) {
 function reservedNetflowLegendArea(endpoint, box) {
   if (endpoint.local || !box) return false
 
-  const reserveRight = box.x + box.width * 0.24
-  const reserveBottom = box.y + box.height * 0.72
+  const reserveRight = box.x + box.width * 0.18
+  const reserveBottom = box.y + box.height * 0.36
 
   return endpoint.x < reserveRight && endpoint.y < reserveBottom
 }
@@ -1096,6 +1096,8 @@ export default {
 
     event.preventDefault()
     event.stopPropagation()
+    event.target?.blur?.()
+
     if (cluster) {
       this._showClusterDetails(cluster)
       return

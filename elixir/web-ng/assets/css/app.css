@@ -794,6 +794,14 @@
   vector-effect: non-scaling-stroke;
 }
 
+.sr-ops-traffic-link-hit:hover,
+.sr-ops-traffic-link-hit:focus,
+.sr-ops-traffic-link-hit:active {
+  opacity: 0;
+  stroke: transparent;
+  outline: none;
+}
+
 .sr-ops-traffic-arrow {
   pointer-events: none;
   opacity: 0.94;
