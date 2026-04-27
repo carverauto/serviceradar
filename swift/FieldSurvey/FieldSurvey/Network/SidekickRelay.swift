@@ -41,8 +41,95 @@ private actor FieldSurveyBackendSendQueue {
     }
 }
 
+private final class FieldSurveyBackendWebSocketDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var opened = false
+    private var failedError: Error?
+    private var continuations: [CheckedContinuation<Void, Error>] = []
+
+    func waitForOpen(timeoutSeconds: TimeInterval) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { throw URLError(.cancelled) }
+                try await self.waitForOpen()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(timeoutSeconds, 1) * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+
+            guard let result = try await group.next() else {
+                throw URLError(.cannotConnectToHost)
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func waitForOpen() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            if opened {
+                lock.unlock()
+                continuation.resume(returning: ())
+                return
+            }
+            if let failedError {
+                lock.unlock()
+                continuation.resume(throwing: failedError)
+                return
+            }
+            continuations.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        completeOpen()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        failOpen(URLError(.networkConnectionLost))
+    }
+
+    private func completeOpen() {
+        lock.lock()
+        opened = true
+        let pending = continuations
+        continuations.removeAll()
+        lock.unlock()
+
+        pending.forEach { $0.resume(returning: ()) }
+    }
+
+    private func failOpen(_ error: Error) {
+        lock.lock()
+        guard !opened else {
+            lock.unlock()
+            return
+        }
+        failedError = error
+        let pending = continuations
+        continuations.removeAll()
+        lock.unlock()
+
+        pending.forEach { $0.resume(throwing: error) }
+    }
+}
+
 public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
     private let task: URLSessionWebSocketTask
+    private let session: URLSession
+    private let webSocketDelegate: FieldSurveyBackendWebSocketDelegate
     private let sendQueue = FieldSurveyBackendSendQueue()
     private let logger: Logger
     public let url: URL
@@ -52,7 +139,7 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         authToken: String,
         sessionID: String,
         stream: FieldSurveyBackendStream,
-        urlSession: URLSession = .shared
+        urlSession: URLSession? = nil
     ) {
         let trimmedBaseURL = baseURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,8 +160,17 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         request.timeoutInterval = 12
         request.setValue("Bearer \(trimmedAuthToken)", forHTTPHeaderField: "Authorization")
 
+        let webSocketDelegate = FieldSurveyBackendWebSocketDelegate()
+        let session = urlSession ?? URLSession(
+            configuration: .default,
+            delegate: webSocketDelegate,
+            delegateQueue: nil
+        )
+
         self.url = url
-        self.task = urlSession.webSocketTask(with: request)
+        self.session = session
+        self.webSocketDelegate = webSocketDelegate
+        self.task = session.webSocketTask(with: request)
         self.logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "FieldSurveyBackendArrowSink")
         self.task.resume()
     }
@@ -98,11 +194,13 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
     }
 
     public func send(_ payload: Data) async throws {
+        try await webSocketDelegate.waitForOpen(timeoutSeconds: 8)
         try await sendQueue.send(payload, task: task)
     }
 
     public func close() {
         task.cancel(with: .normalClosure, reason: nil)
+        session.invalidateAndCancel()
         logger.debug("Closed FieldSurvey backend Arrow sink")
     }
 }
@@ -222,6 +320,11 @@ public final class SidekickRelay: ObservableObject {
         let settings = SettingsManager.shared
         let sidekickBaseURLs = SidekickClient.baseURLCandidates(from: settings.sidekickURL)
         let sidekickAuthToken = settings.sidekickAuthToken
+        let sidekickSetupToken = settings.sidekickSetupToken
+        let scannerDeviceID = settings.scannerDeviceId
+        let sidekickRadioConfig = settings.sidekickRadioConfig
+        let sidekickUplinkInterface = settings.sidekickUplinkInterface
+        let sidekickSpectrumEnabled = settings.sidekickSpectrumEnabled
         let sidekickID = "fieldsurvey-sidekick"
 
         let rfSink: FieldSurveyBackendArrowSink?
@@ -244,42 +347,24 @@ public final class SidekickRelay: ObservableObject {
 
         let bootstrapTask = Task { [weak self, rfSink, generation] in
             do {
-                var activeRFSink = rfSink
-                if let rfSink {
-                    do {
-                        try await rfSink.connect()
-                        await MainActor.run {
-                            guard self?.isCurrentGeneration(generation) == true else { return }
-                            if self?.backendWarning?.hasPrefix("Backend upload") == true {
-                                self?.backendWarning = nil
-                            }
-                        }
-                    } catch {
-                        rfSink.close()
-                        activeRFSink = nil
-                        await MainActor.run {
-                            guard self?.isCurrentGeneration(generation) == true else { return }
-                            self?.backendWarning = "Backend upload unavailable; recording locally: \(error.localizedDescription)"
-                        }
-                    }
-                }
-
                 let (sidekickClient, statusResponse) = try await Self.firstReachableSidekick(
                     baseURLs: sidekickBaseURLs,
-                    apiToken: sidekickAuthToken
+                    apiToken: sidekickAuthToken,
+                    setupToken: sidekickSetupToken,
+                    deviceID: scannerDeviceID
                 )
                 try Task.checkCancellation()
                 let radioConfigs = Self.radioConfigurations(
-                    from: settings.sidekickRadioConfig,
+                    from: sidekickRadioConfig,
                     status: statusResponse,
-                    uplinkInterfaceName: settings.sidekickUplinkInterface
+                    uplinkInterfaceName: sidekickUplinkInterface
                 )
 
                 await MainActor.run {
                     guard self?.isCurrentGeneration(generation) == true else { return }
                     self?.status = .streaming(
                         radios: radioConfigs.count,
-                        spectrum: settings.sidekickSpectrumEnabled
+                        spectrum: sidekickSpectrumEnabled
                     )
                 }
                 guard self?.isCurrentGeneration(generation) == true else { return }
@@ -288,14 +373,14 @@ public final class SidekickRelay: ObservableObject {
                     self?.startRadioRelay(
                         generation: generation,
                         sidekickClient: sidekickClient,
-                        backendSink: activeRFSink,
+                        backendSink: rfSink,
                         wifiScanner: wifiScanner,
                         sidekickID: sidekickID,
                         radioConfig: radioConfig
                     )
                 }
 
-                if settings.sidekickSpectrumEnabled {
+                if sidekickSpectrumEnabled {
                     self?.startSpectrumRelay(
                         generation: generation,
                         sidekickClient: sidekickClient,
@@ -316,15 +401,40 @@ public final class SidekickRelay: ObservableObject {
 
     nonisolated private static func firstReachableSidekick(
         baseURLs: [URL],
-        apiToken: String
+        apiToken: String,
+        setupToken: String,
+        deviceID: String
     ) async throws -> (SidekickClient, SidekickStatusResponse) {
         var lastError: Error?
+        let trimmedAPIToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSetupToken = setupToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
         for baseURL in baseURLs {
-            let client = SidekickClient(baseURL: baseURL, apiToken: apiToken)
+            let client = SidekickClient(baseURL: baseURL, apiToken: trimmedAPIToken)
             do {
                 let status = try await client.status()
-                return (client, status)
+                do {
+                    _ = try await client.runtimeConfig()
+                    return (client, status)
+                } catch {
+                    lastError = error
+                    guard !trimmedSetupToken.isEmpty, trimmedSetupToken != trimmedAPIToken else {
+                        continue
+                    }
+
+                    let setupClient = SidekickClient(baseURL: baseURL, apiToken: trimmedSetupToken)
+                    let pairing = try await setupClient.claimPairing(
+                        SidekickPairingClaimRequest(deviceID: deviceID, deviceName: "iPhone")
+                    )
+                    let pairedClient = SidekickClient(baseURL: baseURL, apiToken: pairing.token)
+                    _ = try await pairedClient.runtimeConfig()
+                    await MainActor.run {
+                        let settings = SettingsManager.shared
+                        settings.sidekickAuthToken = pairing.token
+                        settings.sidekickSetupToken = ""
+                    }
+                    return (pairedClient, status)
+                }
             } catch {
                 lastError = error
             }

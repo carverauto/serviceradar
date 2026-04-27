@@ -170,30 +170,33 @@ public struct SignalMapView: View {
     }
 
     private func statusStrip(visiblePointCount: Int, apCount: Int) -> some View {
-        HStack(spacing: 14) {
-            MetricPill(label: "Heat", value: "\(visiblePointCount)/\(points.count)")
-            MetricPill(label: "APs", value: "\(apCount)")
-            MetricPill(label: "AP Marks", value: "\(landmarks.count)")
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                MetricPill(label: "Heat", value: "\(visiblePointCount)/\(points.count)")
+                MetricPill(label: "APs", value: "\(apCount)")
+                MetricPill(label: "AP Marks", value: "\(landmarks.count)")
 
-            if let rfBatchCount {
-                MetricPill(label: "RF Batches", value: "\(rfBatchCount)")
-            }
+                if let rfBatchCount {
+                    MetricPill(label: "RF Batches", value: "\(rfBatchCount)")
+                }
 
-            if let rfObservationCount {
-                MetricPill(label: "RF Obs", value: "\(rfObservationCount)")
-            }
+                if let rfObservationCount {
+                    MetricPill(label: "RF Obs", value: "\(rfObservationCount)")
+                }
 
-            if let spectrumBatchCount {
-                MetricPill(label: "Spectrum", value: "\(spectrumBatchCount)")
-            }
+                if let spectrumBatchCount {
+                    MetricPill(label: "Spectrum", value: "\(spectrumBatchCount)")
+                }
 
-            if let sidekickStatus {
-                MetricPill(label: "Sidekick", value: statusLabel(sidekickStatus))
-            }
+                if let sidekickStatus {
+                    MetricPill(label: "Sidekick", value: statusLabel(sidekickStatus))
+                }
 
-            if let backendFrameCount {
-                MetricPill(label: "Backend", value: backendFrameCount > 0 ? "\(backendFrameCount) frames" : "pending")
+                if let backendFrameCount {
+                    MetricPill(label: "Backend", value: backendFrameCount > 0 ? "\(backendFrameCount) frames" : "pending")
+                }
             }
+            .padding(.horizontal, 1)
         }
         .font(.system(size: 12, weight: .semibold, design: .monospaced))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -879,13 +882,27 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
         }
 
         let baseSize = projection.screenSize(widthMeters: 0.68, heightMeters: 0.68)
+        let maxPredictionDistanceMeters: Float
+        switch signalBuckets.count {
+        case 0..<12:
+            maxPredictionDistanceMeters = 1.25
+        case 12..<30:
+            maxPredictionDistanceMeters = 1.8
+        default:
+            maxPredictionDistanceMeters = 2.4
+        }
+
         let heatSamples = predictions
-            .filter { $0.confidence >= 0.12 }
+            .filter {
+                $0.confidence >= 0.18 &&
+                    $0.nearestSampleDistance <= maxPredictionDistanceMeters
+            }
             .prefix(900)
             .map { prediction -> MetalHeatmapSample in
                 let center = projection.screenPoint(for: prediction.position)
-                let radius = min(max(max(baseSize.width, baseSize.height) * 0.52, 8), 34)
-                let alpha = 0.16 + Float(min(max(prediction.confidence, 0.0), 1.0)) * 0.50
+                let radius = min(max(max(baseSize.width, baseSize.height) * 0.45, 7), 28)
+                let distanceFade = max(0, 1 - prediction.nearestSampleDistance / maxPredictionDistanceMeters)
+                let alpha = (0.12 + Float(min(max(prediction.confidence, 0.0), 1.0)) * 0.42) * distanceFade
                 let color = SignalColor.rgba(for: prediction.rssi)
                 return MetalHeatmapSample(
                     center: SIMD2<Float>(Float(center.x), Float(center.y)),
@@ -963,6 +980,7 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
         float2 pixel;
         float2 center;
         float radius;
+        float alpha;
         float4 color;
     };
 
@@ -993,6 +1011,7 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
         out.pixel = pixel;
         out.center = sample.center;
         out.radius = sample.radius;
+        out.alpha = sample.alpha;
         out.color = sample.color;
         return out;
     }
@@ -1419,6 +1438,7 @@ private struct MetricPill: View {
             Text(label.uppercased())
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(.white.opacity(0.54))
+                .lineLimit(1)
             Text(value)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundColor(.white)
@@ -1426,6 +1446,8 @@ private struct MetricPill: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
+        .frame(minWidth: 72, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .background(Color.white.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
