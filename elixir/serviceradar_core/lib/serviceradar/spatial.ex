@@ -11,5 +11,6 @@ defmodule ServiceRadar.Spatial do
     resource(ServiceRadar.Spatial.SurveyPoseSample)
     resource(ServiceRadar.Spatial.SurveySpectrumObservation)
     resource(ServiceRadar.Spatial.SurveyRfPoseMatch)
+    resource(ServiceRadar.Spatial.SurveyRoomArtifact)
   end
 end

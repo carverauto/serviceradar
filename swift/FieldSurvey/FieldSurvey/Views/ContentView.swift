@@ -51,6 +51,7 @@ public struct SurveyView: View {
     
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
+    private let roomArtifactUploader = FieldSurveyRoomArtifactUploader()
     
     public init(
         roomScanner: RoomScanner,
@@ -631,8 +632,18 @@ public struct SurveyView: View {
                 )
                 guard !Task.isCancelled else { return }
                 autosaveSessionName = record.name
-                if showStatus {
-                    saveStatusMessage = includeMesh ? "Checkpoint saved: \(record.name)" : "Autosaved: \(record.name)"
+                let roomArtifactUploaded: Bool?
+                if includeMesh {
+                    roomArtifactUploaded = await uploadRoomArtifact(sessionID: record.id, showStatus: showStatus)
+                    guard !Task.isCancelled else { return }
+                } else {
+                    roomArtifactUploaded = false
+                }
+                if showStatus, roomArtifactUploaded != nil {
+                    let checkpointPrefix = (roomArtifactUploaded == true)
+                        ? "Checkpoint saved + room scan uploaded"
+                        : "Checkpoint saved locally"
+                    saveStatusMessage = includeMesh ? "\(checkpointPrefix): \(record.name)" : "Autosaved: \(record.name)"
                     clearSaveStatus(after: 2.6)
                 }
             } catch {
@@ -642,6 +653,32 @@ public struct SurveyView: View {
                     clearSaveStatus(after: 3.5)
                 }
             }
+        }
+    }
+
+    private func uploadRoomArtifact(sessionID: String, showStatus: Bool) async -> Bool? {
+        guard backendStreamingEnabled else { return false }
+
+        do {
+            let artifactURL = try roomScanner.exportCurrentRoomToUSDZ()
+            let result = try await roomArtifactUploader.uploadRoomPlanUSDZ(
+                fileURL: artifactURL,
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: sessionID
+            )
+
+            if showStatus, result.ok {
+                saveStatusMessage = "Room scan uploaded"
+                clearSaveStatus(after: 2.4)
+            }
+            return result.ok
+        } catch {
+            if showStatus {
+                saveStatusMessage = "Room scan upload failed: \(error.localizedDescription)"
+                clearSaveStatus(after: 3.5)
+            }
+            return nil
         }
     }
 
