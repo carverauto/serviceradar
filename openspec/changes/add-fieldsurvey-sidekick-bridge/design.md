@@ -143,6 +143,28 @@ use local noise-floor baselines and session/channel medians instead of raw dBm
 alone, and channel conflict scoring should correlate Wi-Fi AP channel
 observations with HackRF energy on the same channels.
 
+### Survey review and AP placement
+FieldSurvey and ServiceRadar should make the live survey state inspectable
+instead of hiding RF scheduling behind a generic "Sidekick connected" state.
+The Sidekick status payload should expose an adaptive-scan snapshot with the
+current weighted channel plan, observed BSSID counts per channel, spectrum
+priority, and stale/unseen channels. The iOS app can display this in compact
+form during capture so operators can verify that the monitor radio is not
+parked on one AP/channel.
+
+AP placement should treat manual marks as authoritative anchors and inferred
+locations as confidence-scored estimates. The first inference pass should use
+per-BSSID RSSI gradients across the ARKit path, strongest-observation clusters,
+and path diversity. HackRF energy can improve confidence and explain noisy
+channels, but it cannot identify BSSID by itself and should not be used as the
+sole AP location source.
+
+Coverage review should use persisted backend-derived rasters as the durable
+rendering artifact for web dashboard/review views. Live iOS previews may still
+render local approximations, but persisted `wifi_rssi` and `rf_interference`
+rasters are the source of truth for post-survey review, dashboard overlays, and
+future report exports.
+
 Schema changes must be implemented through Elixir migrations under `elixir/serviceradar_core/priv/repo/migrations/` and stay in the `platform` schema.
 
 ## Language choice

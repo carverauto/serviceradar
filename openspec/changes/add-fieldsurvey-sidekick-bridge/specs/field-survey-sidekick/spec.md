@@ -90,3 +90,51 @@ The Sidekick product path SHALL NOT require Kismet to be installed or running.
 - **GIVEN** a Sidekick host with supported radios and no Kismet installation
 - **WHEN** the Sidekick daemon starts
 - **THEN** it can capture, parse, and stream RF observations through its own daemon path.
+
+### Requirement: Adaptive RF channel scheduling
+The Sidekick daemon SHALL own RF channel scheduling and SHALL use both HackRF spectrum energy and decoded Wi-Fi observations to prioritize monitor-radio dwell time.
+
+#### Scenario: Spectrum energy prioritizes channel dwell
+- **GIVEN** FieldSurvey requests adaptive RF scanning from a paired Sidekick
+- **AND** the HackRF spectrum stream reports elevated energy on a supported Wi-Fi channel
+- **WHEN** the monitor radio is hopping channels
+- **THEN** the Sidekick weights that channel higher in the local dwell plan
+- **AND** still performs periodic passes over lower-priority supported channels.
+
+#### Scenario: Wi-Fi observations confirm AP identity
+- **GIVEN** the adaptive scheduler has prioritized a channel from spectrum energy
+- **WHEN** the Wi-Fi monitor radio decodes beacons or probe responses on that channel
+- **THEN** the Sidekick records BSSID, SSID when present, channel/frequency, and RSSI observations
+- **AND** exposes enough status to show observed BSSID counts and stale/unseen channel state.
+
+### Requirement: Survey review rasters and floorplan overlays
+ServiceRadar SHALL persist backend-derived coverage artifacts for post-survey review instead of relying only on transient client-side drawing.
+
+#### Scenario: Wi-Fi and RF rasters are persisted
+- **GIVEN** a survey has fused RF/pose rows and optional floorplan geometry
+- **WHEN** the survey review is generated
+- **THEN** ServiceRadar persists a `wifi_rssi` raster derived from per-BSSID RSSI coverage
+- **AND** persists an `rf_interference` raster derived from spectrum observations
+- **AND** both rasters are masked to valid floorplan geometry when available.
+
+#### Scenario: Malformed floorplan geometry does not crash review
+- **GIVEN** a survey floorplan artifact contains horizontal, vertical, duplicate, or partial segments
+- **WHEN** ServiceRadar generates review rasters
+- **THEN** invalid polygon points are ignored
+- **AND** horizontal or vertical edges do not raise arithmetic exceptions
+- **AND** review falls back to unmasked bounds when the polygon cannot form a valid area.
+
+### Requirement: AP placement support
+FieldSurvey SHALL support both manual and inferred AP placement without relying on HackRF as a BSSID identity source.
+
+#### Scenario: Manual AP mark anchors placement
+- **GIVEN** the operator is physically near an access point during capture
+- **WHEN** the operator adds an AP mark
+- **THEN** FieldSurvey records the mark as an authoritative AP landmark at the current pose
+- **AND** keeps it available in live and review maps.
+
+#### Scenario: Inferred AP candidates are confidence-scored
+- **GIVEN** a survey contains per-BSSID RSSI observations across a path
+- **WHEN** the app or backend estimates AP location candidates
+- **THEN** the estimate uses per-BSSID RSSI gradients, strongest-observation clusters, and path diversity
+- **AND** HackRF channel energy may affect confidence/noise explanation but SHALL NOT identify BSSID by itself.
