@@ -127,6 +127,10 @@ public struct SurveyView: View {
                             .foregroundColor(.white)
                             .opacity(0.8)
 
+                        Text(wifiScanner.poseTrackingStatus.label)
+                            .font(.caption2)
+                            .foregroundColor(wifiScanner.poseTrackingStatus.canPlaceRF ? .green : .orange)
+
                         Text(settings.rfScanningEnabled ? "RF Scan Enabled" : "RF Scan Paused")
                             .font(.caption2)
                             .foregroundColor(settings.rfScanningEnabled ? .green : .orange)

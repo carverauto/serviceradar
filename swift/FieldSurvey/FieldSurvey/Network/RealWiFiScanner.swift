@@ -4,6 +4,30 @@ import Combine
 import CoreLocation
 import simd
 
+public enum SurveyPoseTrackingStatus: Equatable {
+    case initializing
+    case normal
+    case limited(String)
+    case unavailable
+
+    public var canPlaceRF: Bool {
+        self == .normal
+    }
+
+    public var label: String {
+        switch self {
+        case .initializing:
+            return "LiDAR initializing"
+        case .normal:
+            return "LiDAR tracking"
+        case .limited(let reason):
+            return "LiDAR limited: \(reason)"
+        case .unavailable:
+            return "LiDAR unavailable"
+        }
+    }
+}
+
 /// Tracks survey pose/location and ingests RF observations from FieldSurvey Sidekick.
 /// iPhone Wi-Fi radio data is intentionally not used for survey measurements.
 @MainActor
@@ -16,6 +40,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published public private(set) var manualAPLandmarks: [ManualAPLandmark] = []
     @Published public private(set) var heatmapPoints: [WiFiHeatmapPoint] = []
     @Published public private(set) var poseStreamFrameCount: Int = 0
+    @Published public private(set) var poseTrackingStatus: SurveyPoseTrackingStatus = .initializing
     
     private var locationManager: CLLocationManager
     private var lastLocation: CLLocationCoordinate2D?
@@ -58,7 +83,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public var currentDevicePose: SIMD3<Float>? {
-        latestStableMapPose
+        guard poseTrackingStatus.canPlaceRF else { return nil }
+        return latestStableMapPose
     }
     
     public func startScanning() {
@@ -104,6 +130,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public func updateDevicePose(position: SIMD3<Float>) {
+        poseTrackingStatus = .normal
         latestDevicePose = position
         if let stablePose = stabilizedHeatmapPosition(
             for: position,
@@ -120,6 +147,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         monotonicTimestampSeconds: TimeInterval?,
         trackingQuality: String?
     ) {
+        poseTrackingStatus = Self.poseTrackingStatus(from: trackingQuality)
         latestDevicePose = position
         guard let stablePose = stabilizedHeatmapPosition(
             for: position,
@@ -180,6 +208,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
+        guard poseTrackingStatus.canPlaceRF else { return }
         guard let heatmapPosition = latestStableMapPose else { return }
         pendingPoseHeatmapPosition = heatmapPosition
         guard !poseHeatmapFlushScheduled else { return }
@@ -222,7 +251,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     public func ingestSidekickObservations(_ observations: [SidekickObservation]) {
         guard SettingsManager.shared.rfScanningEnabled else { return }
         guard !observations.isEmpty else { return }
-        let heatmapPose = latestStableMapPose
+        let heatmapPose = poseTrackingStatus.canPlaceRF ? latestStableMapPose : nil
 
         ingestSampleEvents(
             sidekickAdapter.events(
@@ -619,6 +648,26 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         lastAcceptedHeatmapPose = position
         lastAcceptedPoseUpdateTime = timestamp
         return position
+    }
+
+    private static func poseTrackingStatus(from trackingQuality: String?) -> SurveyPoseTrackingStatus {
+        guard let trackingQuality else { return .normal }
+        switch trackingQuality {
+        case "normal":
+            return .normal
+        case "not_available":
+            return .unavailable
+        case "limited_initializing":
+            return .initializing
+        case "limited_excessive_motion":
+            return .limited("move slower")
+        case "limited_insufficient_features":
+            return .limited("aim at textured surfaces")
+        case "limited_relocalizing":
+            return .limited("relocalizing")
+        default:
+            return .limited("check lighting and camera")
+        }
     }
 
     private func streamPoseIfNeeded(
