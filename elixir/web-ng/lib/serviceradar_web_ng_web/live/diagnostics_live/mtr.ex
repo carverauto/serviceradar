@@ -164,13 +164,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "mtr_traces")}
   end
 
   def handle_event("open_mtr_modal", _params, socket) do
@@ -227,9 +225,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       true ->
         payload = %{@payload_target_key => target, @payload_protocol_key => protocol}
 
-        case AgentCommandBus.dispatch(agent_id, @command_type_mtr_run, payload,
-               required_capability: "mtr"
-             ) do
+        case AgentCommandBus.dispatch(agent_id, @command_type_mtr_run, payload, required_capability: "mtr") do
           {:ok, command_id} ->
             {:noreply,
              socket
@@ -261,9 +257,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     protocol = normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp))
     payload = %{@payload_target_key => target, @payload_protocol_key => protocol}
 
-    case AgentCommandBus.dispatch(agent_id, @command_type_mtr_run, payload,
-           required_capability: "mtr"
-         ) do
+    case AgentCommandBus.dispatch(agent_id, @command_type_mtr_run, payload, required_capability: "mtr") do
       {:ok, command_id} ->
         {:noreply,
          socket
@@ -295,9 +289,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     protocol = normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp))
 
     execution_profile =
-      normalize_bulk_execution_profile(
-        Map.get(params, @payload_execution_profile_key, @execution_profile_fast)
-      )
+      normalize_bulk_execution_profile(Map.get(params, @payload_execution_profile_key, @execution_profile_fast))
 
     concurrency = parse_positive_integer(Map.get(params, "concurrency"), 64)
     selector_limit = parse_positive_integer(Map.get(params, @payload_selector_limit_key), 100)
@@ -334,19 +326,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         {:noreply, assign(socket, :bulk_mtr_error, "SRQL query returned no eligible targets")}
 
       {:error, {:srql_query_failed, reason}} ->
-        {:noreply,
-         assign(socket, :bulk_mtr_error, "SRQL target resolution failed: #{inspect(reason)}")}
+        {:noreply, assign(socket, :bulk_mtr_error, "SRQL target resolution failed: #{inspect(reason)}")}
 
       {:error, {:agent_busy, :bulk_mtr_job_running}} ->
-        {:noreply,
-         assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
+        {:noreply, assign(socket, :bulk_mtr_error, "Agent already has a bulk MTR job in progress")}
 
       {:error, {:agent_offline, _}} ->
         {:noreply, assign(socket, :bulk_mtr_error, "Agent is offline")}
 
       {:error, reason} ->
-        {:noreply,
-         assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
+        {:noreply, assign(socket, :bulk_mtr_error, "Failed to dispatch bulk job: #{inspect(reason)}")}
     end
   end
 
@@ -436,15 +425,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     %{
       "targets" => to_string(Map.get(params, @payload_targets_key, "")),
       @payload_target_query_key => to_string(Map.get(params, @payload_target_query_key, "")),
-      @payload_selector_limit_key =>
-        to_string(Map.get(params, @payload_selector_limit_key, "100")),
+      @payload_selector_limit_key => to_string(Map.get(params, @payload_selector_limit_key, "100")),
       "agent_id" => to_string(Map.get(params, @payload_agent_id_key, "")),
-      @payload_protocol_key =>
-        normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp)),
+      @payload_protocol_key => normalize_protocol(Map.get(params, @payload_protocol_key, @protocol_icmp)),
       @payload_execution_profile_key =>
-        normalize_bulk_execution_profile(
-          Map.get(params, @payload_execution_profile_key, @execution_profile_fast)
-        ),
+        normalize_bulk_execution_profile(Map.get(params, @payload_execution_profile_key, @execution_profile_fast)),
       "concurrency" => to_string(Map.get(params, @payload_concurrency_key, "64"))
     }
   end
@@ -459,8 +444,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
     |> Enum.uniq()
   end
 
-  defp bulk_targets_from_params(params, selector_limit)
-       when is_map(params) and is_integer(selector_limit) do
+  defp bulk_targets_from_params(params, selector_limit) when is_map(params) and is_integer(selector_limit) do
     query =
       params
       |> Map.get(@payload_target_query_key, "")
