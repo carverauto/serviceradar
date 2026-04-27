@@ -10,6 +10,7 @@ public struct SurveySessionRecord: Identifiable, Codable, Equatable, Sendable {
     public let manualLandmarkCount: Int
     public let roamEventCount: Int
     public let meshFilename: String?
+    public let pointCloudFilename: String?
 }
 
 public struct SurveyRoamEventRecord: Codable, Equatable, Sendable {

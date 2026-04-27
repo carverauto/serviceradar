@@ -87,6 +87,7 @@ public final class SurveySessionStore: ObservableObject {
         }
 
         let meshFilename: String?
+        let pointCloudFilename: String?
         if includeMesh, let meshURL = try? roomScanner.exportCurrentRoomToUSDZ() {
             let targetName = "\(id).usdz"
             let targetURL = sessionsDirectoryURL().appendingPathComponent(targetName)
@@ -98,6 +99,17 @@ public final class SurveySessionStore: ObservableObject {
         } else {
             meshFilename = existing?.meshFilename
         }
+        if includeMesh, let pointCloudURL = try? roomScanner.exportPointCloudPLY() {
+            let targetName = "\(id).ply"
+            let targetURL = sessionsDirectoryURL().appendingPathComponent(targetName)
+            if fileManager.fileExists(atPath: targetURL.path) {
+                try? fileManager.removeItem(at: targetURL)
+            }
+            try? fileManager.copyItem(at: pointCloudURL, to: targetURL)
+            pointCloudFilename = targetName
+        } else {
+            pointCloudFilename = existing?.pointCloudFilename
+        }
 
         let record = SurveySessionRecord(
             id: id,
@@ -108,7 +120,8 @@ public final class SurveySessionStore: ObservableObject {
             heatmapPointCount: heatmapPoints.count,
             manualLandmarkCount: manualLandmarks.count,
             roamEventCount: roamRecords.count,
-            meshFilename: meshFilename
+            meshFilename: meshFilename,
+            pointCloudFilename: pointCloudFilename
         )
 
         let snapshot = SurveySessionSnapshot(
@@ -137,6 +150,12 @@ public final class SurveySessionStore: ObservableObject {
     public func meshFileURL(for record: SurveySessionRecord) -> URL? {
         guard let meshFilename = record.meshFilename else { return nil }
         let url = sessionsDirectoryURL().appendingPathComponent(meshFilename)
+        return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+
+    public func pointCloudFileURL(for record: SurveySessionRecord) -> URL? {
+        guard let pointCloudFilename = record.pointCloudFilename else { return nil }
+        let url = sessionsDirectoryURL().appendingPathComponent(pointCloudFilename)
         return fileManager.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -200,6 +219,10 @@ public final class SurveySessionStore: ObservableObject {
         let meshURL = sessionsDirectoryURL().appendingPathComponent("\(id).usdz")
         if fileManager.fileExists(atPath: meshURL.path) {
             try? fileManager.removeItem(at: meshURL)
+        }
+        let pointCloudURL = sessionsDirectoryURL().appendingPathComponent("\(id).ply")
+        if fileManager.fileExists(atPath: pointCloudURL.path) {
+            try? fileManager.removeItem(at: pointCloudURL)
         }
         Task { await saveIndex() }
     }

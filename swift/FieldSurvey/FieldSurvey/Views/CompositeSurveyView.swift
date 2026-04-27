@@ -358,6 +358,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 trackingQuality: trackingQualityLabel(frame.camera.trackingState)
             )
             wifiScanner?.queueHeatmapCaptureFromCurrentPose(position: cameraPos)
+            parent.roomScanner.recordFeaturePoints(from: frame)
 
             restoreLiveCaptureSurface()
         }
