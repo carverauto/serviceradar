@@ -260,6 +260,43 @@ to_csv_list = fn value ->
   end
 end
 
+nats_enabled =
+  "NATS_ENABLED"
+  |> System.get_env("false")
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+
+nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+nats_uri = URI.parse(nats_url)
+nats_creds_file = System.get_env("NATS_CREDS_FILE")
+
+nats_tls_enabled =
+  "NATS_TLS"
+  |> System.get_env("false")
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+
+if nats_enabled && nats_creds_file in [nil, ""] do
+  raise """
+  NATS_CREDS_FILE is required when NATS_ENABLED=true.
+  """
+end
+
+nats_tls_config =
+  if nats_tls_enabled do
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+    [
+      verify: :verify_peer,
+      cacertfile: Path.join(cert_dir, "root.pem"),
+      certfile: Path.join(cert_dir, "core.pem"),
+      keyfile: Path.join(cert_dir, "core-key.pem"),
+      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+    ]
+  else
+    false
+  end
+
 to_csv_map = fn value ->
   cond do
     is_map(value) ->
@@ -412,6 +449,14 @@ camera_relay_browser_stream_timeout_ms =
     value when is_integer(value) and value > 0 -> value
     _other -> 86_400_000
   end
+
+config :serviceradar_core, ServiceRadar.NATS.Connection,
+  host: nats_uri.host || "localhost",
+  port: nats_uri.port || 4222,
+  user: System.get_env("NATS_USER"),
+  password: {:system, "NATS_PASSWORD"},
+  creds_file: nats_creds_file,
+  tls: nats_tls_config
 
 config :serviceradar_core,
   device_enrichment_rules_dir:
