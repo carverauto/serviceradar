@@ -1,4 +1,5 @@
 use crate::adaptive_scan::AdaptiveChannelHopRequest;
+use crate::adaptive_scan::AdaptiveScanSnapshot;
 use crate::capture_control::ActiveCaptureStream;
 use crate::live_capture::CaptureRequest;
 use crate::radio::ChannelHopRequest;
@@ -19,6 +20,7 @@ pub struct StatusResponse {
     pub active_streams: Vec<ActiveCaptureStream>,
     pub iw_available: bool,
     pub radios: Vec<RadioInterface>,
+    pub adaptive_scan: AdaptiveScanSnapshot,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]

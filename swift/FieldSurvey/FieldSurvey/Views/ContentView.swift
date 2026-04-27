@@ -158,6 +158,7 @@ public struct SurveyView: View {
                             rfObservations: sidekickRelay.previewObservationCount,
                             poseSamples: wifiScanner.poseStreamFrameCount,
                             backendFrames: sidekickRelay.backendFrameCount,
+                            adaptiveScan: sidekickRelay.adaptiveScan,
                             isStreaming: isStreaming,
                             isPreviewing: isSidekickPreviewing,
                             backendEnabled: backendStreamingEnabled,
@@ -419,6 +420,7 @@ public struct SurveyView: View {
                 spectrumBatchCount: sidekickRelay.spectrumBatchCount,
                 spectrumSummary: currentSpectrumSummary,
                 spectrumSummaries: currentSpectrumSummaries,
+                adaptiveScan: sidekickRelay.adaptiveScan,
                 sidekickStatus: sidekickRelay.status,
                 sidekickError: sidekickRelay.lastError,
                 sidekickWarning: sidekickRelay.displayWarning,
@@ -1039,6 +1041,7 @@ private struct CaptureStatusPanel: View {
     let rfObservations: Int
     let poseSamples: Int
     let backendFrames: Int
+    let adaptiveScan: SidekickAdaptiveScanSnapshot?
     let isStreaming: Bool
     let isPreviewing: Bool
     let backendEnabled: Bool
@@ -1052,6 +1055,9 @@ private struct CaptureStatusPanel: View {
             Text("Elapsed: \(elapsedLabel)")
             Text("Sidekick: \(sidekickLabel)")
             Text("RF: \(rfBatches) batches / \(rfObservations) obs")
+            if let adaptiveScan {
+                Text("Scan: \(adaptiveScanLabel(adaptiveScan))")
+            }
             Text("Pose: \(poseSamples) frames")
             Text("Backend: \(backendLabel)")
         }
@@ -1092,6 +1098,23 @@ private struct CaptureStatusPanel: View {
     private var backendLabel: String {
         guard backendEnabled else { return "offline" }
         return backendFrames > 0 ? "\(backendFrames) frames" : "pending"
+    }
+
+    private func adaptiveScanLabel(_ snapshot: SidekickAdaptiveScanSnapshot) -> String {
+        let topChannels = snapshot.channels
+            .filter { $0.observed != false }
+            .prefix(4)
+            .map { channel in
+                let channelLabel = channel.channel.map { "ch\($0)" } ?? "\(channel.frequencyMHz)"
+                return "\(channelLabel)x\(channel.weight)"
+            }
+            .joined(separator: " ")
+        let observedChannels = snapshot.channels.filter { $0.observed == true }.count
+
+        if topChannels.isEmpty {
+            return "\(snapshot.observedBSSIDCount) APs observed / \(snapshot.channelCount) ch"
+        }
+        return "\(topChannels) • \(snapshot.observedBSSIDCount) APs • \(observedChannels)/\(snapshot.channelCount) ch"
     }
 
     private var elapsedLabel: String {

@@ -1,5 +1,6 @@
 use crate::observation::SidekickObservation;
 use crate::spectrum::SpectrumSummary;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -8,6 +9,7 @@ use tokio::task::JoinHandle;
 const RF_OBSERVATION_TTL: Duration = Duration::from_secs(30);
 const SPECTRUM_SCORE_TTL: Duration = Duration::from_secs(15);
 const MIN_HOP_INTERVAL: Duration = Duration::from_millis(100);
+const MAX_STATUS_CHANNELS: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdaptiveChannelHopRequest {
@@ -19,6 +21,29 @@ pub struct AdaptiveChannelHopRequest {
 #[derive(Debug, Clone, Default)]
 pub struct AdaptiveScanState {
     inner: Arc<RwLock<AdaptiveScanInner>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct AdaptiveScanSnapshot {
+    pub channel_count: usize,
+    pub observed_bssid_count: usize,
+    pub channels: Vec<AdaptiveScanChannelSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AdaptiveScanChannelSnapshot {
+    pub frequency_mhz: u32,
+    pub band: String,
+    pub channel: Option<u16>,
+    pub weight: usize,
+    pub observed: bool,
+    pub spectrum_score: Option<u8>,
+    pub average_power_dbm: Option<f32>,
+    pub peak_power_dbm: Option<f32>,
+    pub observed_bssid_count: usize,
+    pub strongest_rssi_dbm: Option<i16>,
+    pub spectrum_age_secs: Option<u64>,
+    pub rf_age_secs: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -119,6 +144,66 @@ impl AdaptiveScanState {
         weighted.extend(fallback);
         weighted
     }
+
+    pub fn snapshot(&self, fallback_frequencies_mhz: &[u32]) -> AdaptiveScanSnapshot {
+        let now = Instant::now();
+        let Ok(mut inner) = self.inner.write() else {
+            return AdaptiveScanSnapshot::default();
+        };
+
+        inner.prune(now);
+        let frequencies = inner.snapshot_frequencies(fallback_frequencies_mhz);
+        let channel_count = frequencies.len();
+        let observed_bssid_count = inner
+            .rf_by_frequency
+            .values()
+            .fold(HashSet::new(), |mut bssids, activity| {
+                bssids.extend(activity.bssids.iter().cloned());
+                bssids
+            })
+            .len();
+
+        let mut channels = frequencies
+            .into_iter()
+            .map(|frequency_mhz| {
+                let spectrum = inner.spectrum_by_frequency.get(&frequency_mhz);
+                let rf = inner.rf_by_frequency.get(&frequency_mhz);
+                let observed = spectrum.is_some() || rf.is_some();
+
+                AdaptiveScanChannelSnapshot {
+                    frequency_mhz,
+                    band: band_for_frequency(frequency_mhz).to_string(),
+                    channel: frequency_mhz_to_channel(frequency_mhz),
+                    weight: inner.frequency_weight(frequency_mhz),
+                    observed,
+                    spectrum_score: spectrum.map(|activity| activity.interference_score),
+                    average_power_dbm: spectrum.map(|activity| activity.average_power_dbm),
+                    peak_power_dbm: spectrum.map(|activity| activity.peak_power_dbm),
+                    observed_bssid_count: rf.map(|activity| activity.bssids.len()).unwrap_or(0),
+                    strongest_rssi_dbm: rf.and_then(|activity| activity.strongest_rssi_dbm),
+                    spectrum_age_secs: spectrum
+                        .map(|activity| now.duration_since(activity.observed_at).as_secs()),
+                    rf_age_secs: rf
+                        .map(|activity| now.duration_since(activity.observed_at).as_secs()),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        channels.sort_by_key(|channel| {
+            (
+                std::cmp::Reverse(channel.weight),
+                std::cmp::Reverse(channel.observed_bssid_count),
+                channel.frequency_mhz,
+            )
+        });
+        channels.truncate(MAX_STATUS_CHANNELS);
+
+        AdaptiveScanSnapshot {
+            channel_count,
+            observed_bssid_count,
+            channels,
+        }
+    }
 }
 
 impl AdaptiveScanInner {
@@ -147,6 +232,23 @@ impl AdaptiveScanInner {
         }
 
         weight
+    }
+
+    fn snapshot_frequencies(&self, fallback_frequencies_mhz: &[u32]) -> Vec<u32> {
+        let mut frequencies = fallback_frequencies_mhz
+            .iter()
+            .copied()
+            .chain(
+                self.spectrum_by_frequency
+                    .keys()
+                    .chain(self.rf_by_frequency.keys())
+                    .copied(),
+            )
+            .filter(|frequency| *frequency > 0)
+            .collect::<Vec<_>>();
+        frequencies.sort_unstable();
+        frequencies.dedup();
+        frequencies
     }
 }
 
@@ -211,6 +313,26 @@ fn dedupe_frequencies(frequencies: &[u32]) -> Vec<u32> {
         }
     }
     deduped
+}
+
+fn band_for_frequency(frequency_mhz: u32) -> &'static str {
+    if frequency_mhz < 3_000 {
+        "2.4GHz"
+    } else if frequency_mhz < 6_000 {
+        "5GHz"
+    } else {
+        "6GHz"
+    }
+}
+
+fn frequency_mhz_to_channel(frequency_mhz: u32) -> Option<u16> {
+    match frequency_mhz {
+        2_412..=2_472 => Some(((frequency_mhz - 2_407) / 5) as u16),
+        2_484 => Some(14),
+        5_000..=5_950 => Some(((frequency_mhz - 5_000) / 5) as u16),
+        5_955..=7_115 => Some(((frequency_mhz - 5_950) / 5) as u16),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

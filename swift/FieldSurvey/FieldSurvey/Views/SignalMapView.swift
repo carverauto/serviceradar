@@ -16,6 +16,7 @@ public struct SignalMapView: View {
     public let spectrumBatchCount: Int?
     public let spectrumSummary: SidekickSpectrumSummary?
     public let spectrumSummaries: [SidekickSpectrumSummary]
+    public let adaptiveScan: SidekickAdaptiveScanSnapshot?
     public let sidekickStatus: SidekickRelayStatus?
     public let sidekickError: String?
     public let sidekickWarning: String?
@@ -42,6 +43,7 @@ public struct SignalMapView: View {
         spectrumBatchCount: Int? = nil,
         spectrumSummary: SidekickSpectrumSummary? = nil,
         spectrumSummaries: [SidekickSpectrumSummary] = [],
+        adaptiveScan: SidekickAdaptiveScanSnapshot? = nil,
         sidekickStatus: SidekickRelayStatus? = nil,
         sidekickError: String? = nil,
         sidekickWarning: String? = nil,
@@ -58,6 +60,7 @@ public struct SignalMapView: View {
         self.spectrumBatchCount = spectrumBatchCount
         self.spectrumSummary = spectrumSummary
         self.spectrumSummaries = spectrumSummaries
+        self.adaptiveScan = adaptiveScan
         self.sidekickStatus = sidekickStatus
         self.sidekickError = sidekickError
         self.sidekickWarning = sidekickWarning
@@ -200,6 +203,10 @@ public struct SignalMapView: View {
                     MetricPill(label: "Sidekick", value: statusLabel(sidekickStatus))
                 }
 
+                if let adaptiveScan {
+                    MetricPill(label: "Scan", value: adaptiveScanLabel(adaptiveScan))
+                }
+
                 if let backendFrameCount {
                     MetricPill(label: "Backend", value: backendFrameCount > 0 ? "\(backendFrameCount) frames" : "pending")
                 }
@@ -208,6 +215,22 @@ public struct SignalMapView: View {
         }
         .font(.system(size: 12, weight: .semibold, design: .monospaced))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func adaptiveScanLabel(_ snapshot: SidekickAdaptiveScanSnapshot) -> String {
+        let topChannels = snapshot.channels
+            .filter { $0.observed != false }
+            .prefix(3)
+            .map { channel in
+                channel.channel.map { "ch\($0)" } ?? "\(channel.frequencyMHz)"
+            }
+            .joined(separator: "/")
+        let observedChannels = snapshot.channels.filter { $0.observed == true }.count
+
+        if topChannels.isEmpty {
+            return "\(snapshot.observedBSSIDCount) APs • \(observedChannels)/\(snapshot.channelCount) ch"
+        }
+        return "\(topChannels) • \(observedChannels)/\(snapshot.channelCount) ch"
     }
 
     @ViewBuilder
