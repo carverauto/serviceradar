@@ -5,6 +5,14 @@ import Combine
 import os.log
 import simd
 
+public struct SurveyFloorplanSegment: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let kind: String
+    public let start: SIMD2<Float>
+    public let end: SIMD2<Float>
+    public let height: Float
+}
+
 /// Manages the RoomPlan LiDAR scanning session to build a physical 3D mesh
 /// of the environment while walking the survey.
 @available(iOS 16.0, *)
@@ -165,10 +173,7 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
             throw NSError(domain: "RoomScanner", code: 3, userInfo: [NSLocalizedDescriptionKey: "No room data available yet."])
         }
 
-        let features =
-            room.walls.map { floorplanFeature(for: $0, kind: "wall") } +
-            room.doors.map { floorplanFeature(for: $0, kind: "door") } +
-            room.windows.map { floorplanFeature(for: $0, kind: "window") }
+        let features = floorplanSegments(for: room).map(floorplanFeature(for:))
 
         let collection: [String: Any] = [
             "type": "FeatureCollection",
@@ -188,25 +193,45 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         return fileURL
     }
 
-    private func floorplanFeature(for surface: CapturedRoom.Surface, kind: String) -> [String: Any] {
-        let start = projectedPoint(surface.transform, xOffset: -surface.dimensions.x / 2)
-        let end = projectedPoint(surface.transform, xOffset: surface.dimensions.x / 2)
-        let center = projectedPoint(surface.transform, xOffset: 0)
+    public func currentFloorplanSegments() -> [SurveyFloorplanSegment] {
+        guard let room = currentRoom ?? finalResult else { return [] }
+        return floorplanSegments(for: room)
+    }
+
+    private func floorplanSegments(for room: CapturedRoom) -> [SurveyFloorplanSegment] {
+        room.walls.map { floorplanSegment(for: $0, kind: "wall") } +
+        room.doors.map { floorplanSegment(for: $0, kind: "door") } +
+        room.windows.map { floorplanSegment(for: $0, kind: "window") }
+    }
+
+    private func floorplanSegment(for surface: CapturedRoom.Surface, kind: String) -> SurveyFloorplanSegment {
+        SurveyFloorplanSegment(
+            id: surface.identifier,
+            kind: kind,
+            start: projectedPoint(surface.transform, xOffset: -surface.dimensions.x / 2),
+            end: projectedPoint(surface.transform, xOffset: surface.dimensions.x / 2),
+            height: surface.dimensions.y
+        )
+    }
+
+    private func floorplanFeature(for segment: SurveyFloorplanSegment) -> [String: Any] {
+        let center = (segment.start + segment.end) / 2
+        let width = simd_distance(segment.start, segment.end)
 
         return [
             "type": "Feature",
             "geometry": [
                 "type": "LineString",
                 "coordinates": [
-                    [Double(start.x), Double(start.y)],
-                    [Double(end.x), Double(end.y)]
+                    [Double(segment.start.x), Double(segment.start.y)],
+                    [Double(segment.end.x), Double(segment.end.y)]
                 ]
             ],
             "properties": [
-                "id": surface.identifier.uuidString,
-                "kind": kind,
-                "width_m": Double(surface.dimensions.x),
-                "height_m": Double(surface.dimensions.y),
+                "id": segment.id.uuidString,
+                "kind": segment.kind,
+                "width_m": Double(width),
+                "height_m": Double(segment.height),
                 "center_x": Double(center.x),
                 "center_z": Double(center.y)
             ]

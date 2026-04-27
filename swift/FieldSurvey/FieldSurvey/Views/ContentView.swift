@@ -413,6 +413,7 @@ public struct SurveyView: View {
                 title: "Live Signal Map",
                 points: signalMapPoints,
                 landmarks: signalMapLandmarks,
+                floorplanSegments: roomScanner.currentFloorplanSegments(),
                 currentPose: wifiScanner.currentDevicePose,
                 rfBatchCount: sidekickRelay.rfBatchCount,
                 spectrumBatchCount: sidekickRelay.spectrumBatchCount,
