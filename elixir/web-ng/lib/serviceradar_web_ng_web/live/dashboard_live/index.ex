@@ -188,24 +188,59 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             <:actions>
               <.link href={~p"/spatial"} class="sr-ops-button">Open FieldSurvey</.link>
             </:actions>
-            <div class="sr-ops-heatmap-placeholder" data-testid="fieldsurvey-empty">
-              <div class="sr-ops-floor-grid">
+            <div
+              class={[
+                "sr-ops-heatmap-placeholder",
+                @survey_summary.raster_cell_count > 0 && "sr-ops-heatmap-real"
+              ]}
+              data-testid="fieldsurvey-heatmap"
+            >
+              <svg
+                :if={@survey_summary.raster_cell_count > 0}
+                class="sr-ops-field-survey-raster"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label="Latest FieldSurvey Wi-Fi RSSI raster"
+              >
+                <circle
+                  :for={cell <- @survey_summary.raster_cells}
+                  cx={cell.x_pct}
+                  cy={cell.z_pct}
+                  r={cell.radius_pct}
+                  fill={field_survey_rssi_color(cell.rssi)}
+                  opacity={field_survey_raster_opacity(cell)}
+                />
+              </svg>
+              <div :if={@survey_summary.raster_cell_count == 0} class="sr-ops-floor-grid">
                 <span :for={_ <- 1..18}></span>
               </div>
-              <div :if={@survey_summary.sample_count == 0} class="sr-ops-heatmap-empty">
+              <div
+                :if={@survey_summary.sample_count == 0 and @survey_summary.raster_cell_count == 0}
+                class="sr-ops-heatmap-empty"
+              >
                 <.icon name="hero-wifi" class="size-8" />
                 <p>No FieldSurvey heatmap data</p>
                 <span>Survey overlays will render here when floorplan samples exist.</span>
               </div>
               <div
-                :if={@survey_summary.sample_count > 0}
+                :if={@survey_summary.sample_count > 0 or @survey_summary.raster_cell_count > 0}
                 class="sr-ops-heatmap-empty sr-ops-heatmap-summary"
                 data-testid="fieldsurvey-summary"
               >
                 <.icon name="hero-wifi" class="size-8" />
-                <p>{@survey_summary.session_count} survey sessions</p>
+                <p>
+                  <%= if @survey_summary.session_count > 0 do %>
+                    {@survey_summary.session_count} survey sessions
+                  <% else %>
+                    Persisted survey raster
+                  <% end %>
+                </p>
                 <span>
                   {@survey_summary.sample_count} samples, {@survey_summary.avg_rssi} dBm average RSSI
+                  <span :if={@survey_summary.raster_cell_count > 0}>
+                    · {@survey_summary.raster_cell_count} raster cells
+                  </span>
                 </span>
               </div>
             </div>
@@ -616,6 +651,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp normalize_map_view(_), do: "netflow"
 
   defp map_panel_title(_), do: "NetFlow Map"
+
+  defp field_survey_rssi_color(rssi) when rssi >= -55, do: "#5fd38a"
+  defp field_survey_rssi_color(rssi) when rssi >= -65, do: "#8bd94f"
+  defp field_survey_rssi_color(rssi) when rssi >= -75, do: "#ffd25a"
+  defp field_survey_rssi_color(rssi) when rssi >= -82, do: "#ff7d3f"
+  defp field_survey_rssi_color(_rssi), do: "#ef4444"
+
+  defp field_survey_raster_opacity(%{confidence: confidence, rssi: rssi}) do
+    signal = min(max((rssi + 90.0) / 60.0, 0.0), 1.0)
+    confidence = min(max(confidence, 0.15), 1.0)
+    0.24 + signal * 0.34 + confidence * 0.18
+  end
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 

@@ -417,7 +417,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                     position: pos,
                     confidence: confidence,
                     observationCount: 1,
-                    residualErrorMeters: 0.0
+                    residualErrorMeters: 0.0,
+                    pathDiversityScore: 1.0,
+                    strongestRSSI: sample.rssi,
+                    strongestObservationPosition: pos
                 )
             }
         }
@@ -517,7 +520,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             position: landmark.position,
             confidence: Float(boundedConfidence),
             observationCount: 1,
-            residualErrorMeters: 0.0
+            residualErrorMeters: 0.0,
+            pathDiversityScore: 1.0,
+            strongestRSSI: rssi,
+            strongestObservationPosition: landmark.position
         )
     }
 

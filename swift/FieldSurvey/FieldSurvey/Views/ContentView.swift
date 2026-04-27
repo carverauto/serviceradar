@@ -757,8 +757,38 @@ public struct SurveyView: View {
     }
 
     private var signalMapLandmarks: [ManualAPLandmark] {
-        if !wifiScanner.manualAPLandmarks.isEmpty {
-            return wifiScanner.manualAPLandmarks
+        var landmarks = wifiScanner.manualAPLandmarks
+        let autoCandidates = wifiScanner.resolvedAPLocations
+            .filter { bssid, resolved in
+                !bssid.hasPrefix("manual-ap-") &&
+                    resolved.confidence >= 0.30 &&
+                    !landmarks.contains { simd_distance($0.position, resolved.position) < 0.8 }
+            }
+            .sorted { lhs, rhs in
+                if lhs.value.confidence == rhs.value.confidence {
+                    return lhs.value.observationCount > rhs.value.observationCount
+                }
+                return lhs.value.confidence > rhs.value.confidence
+            }
+            .prefix(8)
+            .map { bssid, resolved in
+                let trimmedSSID = wifiScanner.accessPoints[bssid]?.ssid
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let displayName = trimmedSSID.isEmpty ? String(bssid.suffix(5)) : trimmedSSID
+                return ManualAPLandmark(
+                    id: "auto-\(bssid)",
+                    label: "\(displayName) \(Int((resolved.confidence * 100).rounded()))%",
+                    confidence: Double(resolved.confidence),
+                    source: "sidekick-auto",
+                    createdAt: Date().timeIntervalSince1970,
+                    updatedAt: Date().timeIntervalSince1970,
+                    position: resolved.position
+                )
+            }
+
+        landmarks.append(contentsOf: autoCandidates)
+        if !landmarks.isEmpty {
+            return landmarks
         }
         return recoveredSnapshot?.manualLandmarks ?? []
     }
