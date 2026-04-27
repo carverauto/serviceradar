@@ -276,6 +276,7 @@ public final class SidekickRelay: ObservableObject {
     private var lastSpectrumCountPublishTime: TimeInterval = 0
     private var pendingPreviewObservationCount = 0
     private var lastPreviewCountPublishTime: TimeInterval = 0
+    private var lastSpectrumSummaryPublishTime: TimeInterval = 0
     private var latestSpectrumScoresByChannel: [String: SidekickSpectrumChannelScore] = [:]
     private var relayGeneration = 0
 
@@ -310,6 +311,7 @@ public final class SidekickRelay: ObservableObject {
         lastSpectrumCountPublishTime = 0
         pendingPreviewObservationCount = 0
         lastPreviewCountPublishTime = 0
+        lastSpectrumSummaryPublishTime = 0
         backendFrameCount = 0
         lastError = nil
         spectrumWarning = nil
@@ -494,7 +496,7 @@ public final class SidekickRelay: ObservableObject {
 
                     for try await batch in stream {
                         try Task.checkCancellation()
-                        if await previewThrottle.claim(minInterval: 0.35) {
+                        if await previewThrottle.claim(minInterval: 0.8) {
                             do {
                                 let observations = try observationDecoder.decode(batch.payload)
                                 await MainActor.run {
@@ -697,6 +699,12 @@ public final class SidekickRelay: ObservableObject {
             latestSpectrumScoresByChannel[score.id] = score
         }
 
+        recordSpectrumBatch()
+
+        let now = Date().timeIntervalSince1970
+        guard now - lastSpectrumSummaryPublishTime >= 0.75 else { return }
+        lastSpectrumSummaryPublishTime = now
+
         latestSpectrumSummary = SidekickSpectrumSummary(
             sidekickID: summary.sidekickID,
             sdrID: summary.sdrID,
@@ -715,10 +723,9 @@ public final class SidekickRelay: ObservableObject {
             channelScores: mergedSpectrumScores()
         )
         spectrumSummaries.append(summary)
-        if spectrumSummaries.count > 900 {
-            spectrumSummaries.removeFirst(spectrumSummaries.count - 900)
+        if spectrumSummaries.count > 180 {
+            spectrumSummaries.removeFirst(spectrumSummaries.count - 180)
         }
-        recordSpectrumBatch()
     }
 
     private func mergedSpectrumScores() -> [SidekickSpectrumChannelScore] {
