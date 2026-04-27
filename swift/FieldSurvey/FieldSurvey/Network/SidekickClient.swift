@@ -48,6 +48,7 @@ public struct SidekickStatusResponse: Codable, Equatable {
     public let activeStreams: [SidekickActiveCaptureStream]
     public let iwAvailable: Bool
     public let radios: [SidekickRadioInterface]
+    public let adaptiveScan: SidekickAdaptiveScanSnapshot?
 
     enum CodingKeys: String, CodingKey {
         case service
@@ -56,6 +57,51 @@ public struct SidekickStatusResponse: Codable, Equatable {
         case activeStreams = "active_streams"
         case iwAvailable = "iw_available"
         case radios
+        case adaptiveScan = "adaptive_scan"
+    }
+}
+
+public struct SidekickAdaptiveScanSnapshot: Codable, Equatable, Sendable {
+    public let channelCount: Int
+    public let observedBSSIDCount: Int
+    public let channels: [SidekickAdaptiveScanChannel]
+
+    enum CodingKeys: String, CodingKey {
+        case channelCount = "channel_count"
+        case observedBSSIDCount = "observed_bssid_count"
+        case channels
+    }
+}
+
+public struct SidekickAdaptiveScanChannel: Codable, Equatable, Identifiable, Sendable {
+    public var id: Int { frequencyMHz }
+
+    public let frequencyMHz: Int
+    public let band: String
+    public let channel: Int?
+    public let weight: Int
+    public let observed: Bool?
+    public let spectrumScore: Int?
+    public let averagePowerDBM: Float?
+    public let peakPowerDBM: Float?
+    public let observedBSSIDCount: Int
+    public let strongestRSSIDBM: Int?
+    public let spectrumAgeSecs: UInt64?
+    public let rfAgeSecs: UInt64?
+
+    enum CodingKeys: String, CodingKey {
+        case frequencyMHz = "frequency_mhz"
+        case band
+        case channel
+        case weight
+        case observed
+        case spectrumScore = "spectrum_score"
+        case averagePowerDBM = "average_power_dbm"
+        case peakPowerDBM = "peak_power_dbm"
+        case observedBSSIDCount = "observed_bssid_count"
+        case strongestRSSIDBM = "strongest_rssi_dbm"
+        case spectrumAgeSecs = "spectrum_age_secs"
+        case rfAgeSecs = "rf_age_secs"
     }
 }
 

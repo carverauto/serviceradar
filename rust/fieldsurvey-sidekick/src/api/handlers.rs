@@ -232,6 +232,7 @@ pub fn build_status_response(state: &AppState) -> StatusResponse {
         state.config.interfaces.clone(),
     )
     .discover();
+    let adaptive_frequencies = status_frequencies(&inventory.radios);
     let active_streams = state.capture_control.active_streams();
     let capture_running = !active_streams.is_empty();
 
@@ -242,7 +243,19 @@ pub fn build_status_response(state: &AppState) -> StatusResponse {
         active_streams,
         iw_available: inventory.iw_available,
         radios: inventory.radios,
+        adaptive_scan: state.adaptive_scan.snapshot(&adaptive_frequencies),
     }
+}
+
+fn status_frequencies(radios: &[crate::radio::RadioInterface]) -> Vec<u32> {
+    let mut frequencies = radios
+        .iter()
+        .flat_map(|radio| radio.supported_frequencies_mhz.iter().copied())
+        .filter(|frequency| (2_412..=7_125).contains(frequency))
+        .collect::<Vec<_>>();
+    frequencies.sort_unstable();
+    frequencies.dedup();
+    frequencies
 }
 
 fn adaptive_fallback_frequencies(state: &AppState, interface_name: &str) -> Option<String> {

@@ -267,6 +267,7 @@ public final class SidekickRelay: ObservableObject {
     @Published public private(set) var spectrumBatchCount: Int = 0
     @Published public private(set) var latestSpectrumSummary: SidekickSpectrumSummary?
     @Published public private(set) var spectrumSummaries: [SidekickSpectrumSummary] = []
+    @Published public private(set) var adaptiveScan: SidekickAdaptiveScanSnapshot?
     @Published public private(set) var lastError: String?
     @Published public private(set) var spectrumWarning: String?
     @Published public private(set) var backendWarning: String?
@@ -312,6 +313,7 @@ public final class SidekickRelay: ObservableObject {
         spectrumBatchCount = 0
         latestSpectrumSummary = nil
         spectrumSummaries = []
+        adaptiveScan = nil
         latestSpectrumScoresByChannel = [:]
         pendingRFBatchCount = 0
         pendingSpectrumBatchCount = 0
@@ -388,6 +390,7 @@ public final class SidekickRelay: ObservableObject {
 
                 await MainActor.run {
                     guard self?.isCurrentGeneration(generation) == true else { return }
+                    self?.adaptiveScan = statusResponse.adaptiveScan
                     self?.status = .streaming(
                         radios: radioConfigs.count,
                         spectrum: sidekickSpectrumEnabled
@@ -413,6 +416,8 @@ public final class SidekickRelay: ObservableObject {
                         sidekickID: sidekickID
                     )
                 }
+
+                self?.startStatusRelay(generation: generation, sidekickClient: sidekickClient)
             } catch {
                 await MainActor.run {
                     guard self?.isCurrentGeneration(generation) == true else { return }
@@ -423,6 +428,35 @@ public final class SidekickRelay: ObservableObject {
         }
 
         tasks.append(bootstrapTask)
+    }
+
+    private func startStatusRelay(
+        generation: Int,
+        sidekickClient: SidekickClient
+    ) {
+        let task = Task.detached(priority: .utility) { [weak self, sidekickClient] in
+            while !Task.isCancelled {
+                guard await MainActor.run(body: { self?.isCurrentGeneration(generation) == true }) else { return }
+                do {
+                    let status = try await sidekickClient.status()
+                    await MainActor.run {
+                        guard self?.isCurrentGeneration(generation) == true else { return }
+                        self?.adaptiveScan = status.adaptiveScan
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard self?.isCurrentGeneration(generation) == true else { return }
+                        if self?.spectrumWarning == nil {
+                            self?.spectrumWarning = "Sidekick status unavailable: \(error.localizedDescription)"
+                        }
+                    }
+                }
+
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+
+        tasks.append(task)
     }
 
     nonisolated private static func firstReachableSidekick(
@@ -476,6 +510,7 @@ public final class SidekickRelay: ObservableObject {
         sinks.forEach { $0.close() }
         sinks.removeAll()
         status = .idle
+        adaptiveScan = nil
         lastError = nil
         spectrumWarning = nil
         backendWarning = nil
