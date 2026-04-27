@@ -1160,7 +1160,7 @@ private struct SignalMapProjection {
         var xs = signalBuckets.map { $0.position.x }.filter(\.isFinite) + landmarks.map(\.x).filter(\.isFinite)
         var zs = signalBuckets.map { $0.position.z }.filter(\.isFinite) + landmarks.map(\.z).filter(\.isFinite)
 
-        if let currentPose, currentPose.isValidMapPosition {
+        if xs.isEmpty, let currentPose, currentPose.isValidMapPosition {
             xs.append(currentPose.x)
             zs.append(currentPose.z)
         }

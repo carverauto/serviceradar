@@ -343,6 +343,22 @@ public final class SidekickRelay: ObservableObject {
             rfSink = sink
             sinks.append(sink)
             backendWarning = "Backend upload connecting"
+            Task { [weak self, sink, generation] in
+                do {
+                    try await sink.connect()
+                    await MainActor.run {
+                        guard self?.isCurrentGeneration(generation) == true else { return }
+                        if self?.backendWarning?.hasPrefix("Backend upload") == true {
+                            self?.backendWarning = nil
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard self?.isCurrentGeneration(generation) == true else { return }
+                        self?.backendWarning = "Backend upload unavailable; recording locally: \(error.localizedDescription)"
+                    }
+                }
+            }
         } else {
             rfSink = nil
         }
