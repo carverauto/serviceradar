@@ -15,20 +15,103 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertRfObservations do
          true <- is_list(observations),
          true <- length(observations) <= @max_rows_per_batch,
          {:ok, entries} <- build_entries(session_id, observations, inserted_at) do
-      fn ->
-        case Repo.insert_all("survey_rf_observations", entries, prefix: "platform") do
-          {count, _} when count == length(entries) -> true
-          _ -> Repo.rollback(:insert_count_mismatch)
-        end
-      end
-      |> Repo.transaction()
-      |> case do
-        {:ok, true} -> {:ok, true}
-        {:error, _reason} -> {:ok, false}
+      case insert_entries(entries) do
+        {:ok, count} when count == length(entries) -> {:ok, true}
+        _ -> {:ok, false}
       end
     else
       _ -> {:ok, false}
     end
+  end
+
+  defp insert_entries([]), do: {:ok, 0}
+
+  defp insert_entries(entries) do
+    payload =
+      entries
+      |> Enum.map(&json_ready_entry/1)
+      |> Jason.encode!()
+
+    case Repo.query(insert_sql(), [payload]) do
+      {:ok, %{num_rows: count}} -> {:ok, count}
+      {:error, _reason} -> {:error, :insert_failed}
+    end
+  end
+
+  defp json_ready_entry(entry) do
+    entry
+    |> Map.update!(:captured_at, &DateTime.to_iso8601/1)
+    |> Map.update!(:inserted_at, &DateTime.to_iso8601/1)
+  end
+
+  defp insert_sql do
+    """
+    INSERT INTO platform.survey_rf_observations (
+      session_id,
+      sidekick_id,
+      radio_id,
+      interface_name,
+      bssid,
+      ssid,
+      hidden_ssid,
+      frame_type,
+      rssi_dbm,
+      noise_floor_dbm,
+      snr_db,
+      frequency_mhz,
+      channel,
+      channel_width_mhz,
+      captured_at,
+      captured_at_unix_nanos,
+      captured_at_monotonic_nanos,
+      parser_confidence,
+      rf_features,
+      inserted_at
+    )
+    SELECT
+      session_id,
+      sidekick_id,
+      radio_id,
+      interface_name,
+      bssid,
+      ssid,
+      hidden_ssid,
+      frame_type,
+      rssi_dbm,
+      noise_floor_dbm,
+      snr_db,
+      frequency_mhz,
+      channel,
+      channel_width_mhz,
+      captured_at,
+      captured_at_unix_nanos,
+      captured_at_monotonic_nanos,
+      parser_confidence,
+      NULLIF(rf_features, '')::vector(8),
+      inserted_at
+    FROM jsonb_to_recordset($1::jsonb) AS rows(
+      session_id text,
+      sidekick_id text,
+      radio_id text,
+      interface_name text,
+      bssid text,
+      ssid text,
+      hidden_ssid boolean,
+      frame_type text,
+      rssi_dbm smallint,
+      noise_floor_dbm smallint,
+      snr_db smallint,
+      frequency_mhz integer,
+      channel integer,
+      channel_width_mhz integer,
+      captured_at timestamptz,
+      captured_at_unix_nanos bigint,
+      captured_at_monotonic_nanos bigint,
+      parser_confidence double precision,
+      rf_features text,
+      inserted_at timestamptz
+    )
+    """
   end
 
   defp build_entries(session_id, observations, inserted_at) do
