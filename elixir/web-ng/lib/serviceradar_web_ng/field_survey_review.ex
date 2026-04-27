@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   """
 
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Spatial.SurveyCoverageRaster
   alias ServiceRadar.Spatial.SurveyPoseSample
   alias ServiceRadar.Spatial.SurveyRfObservation
   alias ServiceRadar.Spatial.SurveyRfPoseMatch
@@ -12,6 +13,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
 
   require Ash.Query
+  require Logger
 
   @default_recent_limit 100_000
   @default_session_limit 25_000
@@ -19,6 +21,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @default_spatial_limit 10_000
   @default_artifact_limit 200
   @default_cell_size_m 0.75
+  @default_raster_cell_size_m 0.42
+  @max_raster_cells 1_400
 
   @type session_summary :: %{
           id: String.t(),
@@ -34,6 +38,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           metrics: map(),
           bounds: map(),
           wifi_points: [map()],
+          wifi_raster: [map()],
           interference_points: [map()],
           path_points: [map()],
           floorplan_segments: [map()],
@@ -64,12 +69,14 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
          {:ok, room_artifacts} <- read_room_artifacts(scope, session_id) do
       floorplan_segments = load_floorplan_segments(scope, session_id)
 
-      {:ok,
-       build_review(session_id, rf_matches, pose_samples, spectrum_rows,
-         cell_size_m: cell_size_m,
-         floorplan_segments: floorplan_segments,
-         room_artifacts: room_artifacts
-       )}
+      review =
+        build_review(session_id, rf_matches, pose_samples, spectrum_rows,
+          cell_size_m: cell_size_m,
+          floorplan_segments: floorplan_segments,
+          room_artifacts: room_artifacts
+        )
+
+      {:ok, maybe_persist_coverage_raster(scope, review)}
     end
   end
 
@@ -141,10 +148,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     floorplan_segments = Keyword.get(opts, :floorplan_segments, [])
     room_artifacts = Keyword.get(opts, :room_artifacts, [])
     wifi_points = build_wifi_points(rf_matches, cell_size_m)
+    wifi_raster = build_wifi_raster(rf_matches, floorplan_segments)
     path_points = build_path_points(pose_samples, rf_matches)
     channel_scores = build_channel_scores(spectrum_rows)
     interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
-    bounds = bounds_for(wifi_points, interference_points, path_points, floorplan_segments)
+    bounds = bounds_for(wifi_points, wifi_raster, interference_points, path_points, floorplan_segments)
     ap_summaries = build_ap_summaries(rf_matches)
 
     %{
@@ -155,6 +163,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         spectrum_count: length(spectrum_rows),
         room_artifact_count: length(room_artifacts),
         wifi_point_count: length(wifi_points),
+        wifi_raster_cell_count: length(wifi_raster),
         interference_point_count: length(interference_points),
         floorplan_segment_count: length(floorplan_segments),
         ap_count: length(ap_summaries),
@@ -162,6 +171,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       },
       bounds: bounds,
       wifi_points: project_points(wifi_points, bounds),
+      wifi_raster: project_raster_cells(wifi_raster, bounds),
       interference_points: project_points(interference_points, bounds),
       path_points: project_points(path_points, bounds),
       floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
@@ -297,6 +307,78 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     }
   end
 
+  defp maybe_persist_coverage_raster(scope, %{wifi_raster: [_ | _]} = review) do
+    user_id = scope_user_id(scope)
+
+    attrs = coverage_raster_attrs(review, user_id)
+
+    SurveyCoverageRaster
+    |> Ash.Changeset.for_create(:upsert, attrs)
+    |> Ash.create(scope: scope, domain: ServiceRadar.Spatial)
+    |> case do
+      {:ok, _raster} ->
+        review
+
+      {:error, reason} ->
+        Logger.warning("FieldSurvey coverage raster persistence failed: #{inspect(reason)}")
+        review
+    end
+  end
+
+  defp maybe_persist_coverage_raster(_scope, review), do: review
+
+  defp coverage_raster_attrs(review, user_id) do
+    bounds = review.bounds
+    cells = Enum.map(review.wifi_raster, &coverage_raster_cell/1)
+    cell_size_m = inferred_cell_size_m(review.wifi_raster)
+    columns = max(round((bounds.max_x - bounds.min_x) / max(cell_size_m, 0.01)), 1)
+    rows = max(round((bounds.max_z - bounds.min_z) / max(cell_size_m, 0.01)), 1)
+
+    %{
+      session_id: review.session_id,
+      user_id: user_id,
+      overlay_type: "wifi_rssi",
+      selector_type: "all",
+      selector_value: "*",
+      cell_size_m: cell_size_m,
+      min_x: bounds.min_x,
+      max_x: bounds.max_x,
+      min_z: bounds.min_z,
+      max_z: bounds.max_z,
+      columns: columns,
+      rows: rows,
+      cells: %{"cells" => cells},
+      metadata: %{
+        "algorithm" => "rbf_kernel_raster_v1",
+        "masked_by" => "floorplan_convex_hull",
+        "cell_count" => length(cells),
+        "wifi_point_count" => review.metrics.wifi_point_count
+      },
+      generated_at: DateTime.utc_now()
+    }
+  end
+
+  defp coverage_raster_cell(cell) do
+    %{
+      "x" => cell.x,
+      "z" => cell.z,
+      "rssi" => cell.rssi,
+      "confidence" => cell.confidence,
+      "nearest_distance_m" => cell.nearest_distance_m,
+      "radius_m" => cell.radius_m,
+      "x_pct" => cell.x_pct,
+      "z_pct" => cell.z_pct,
+      "radius_pct" => cell.radius_pct,
+      "count" => cell.count
+    }
+  end
+
+  defp inferred_cell_size_m([cell | _]), do: max((cell.radius_m || @default_raster_cell_size_m * 0.72) / 0.72, 0.01)
+  defp inferred_cell_size_m([]), do: @default_raster_cell_size_m
+
+  defp scope_user_id(%{user: %{id: id}}) when not is_nil(id), do: to_string(id)
+  defp scope_user_id(_scope), do: "system"
+
   defp latest_artifact_session_id([artifact | _]), do: artifact.session_id
   defp latest_artifact_session_id([]), do: nil
 
@@ -389,6 +471,130 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       ssid: field(strongest, :ssid) || "Hidden",
       count: count
     }
+  end
+
+  defp build_wifi_raster(rf_matches, floorplan_segments) do
+    observations =
+      rf_matches
+      |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
+      |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), @default_raster_cell_size_m) end)
+      |> Enum.map(fn {_bucket, rows} ->
+        %{
+          x: average(rows, :x),
+          y: average(rows, :y) || 0.0,
+          z: average(rows, :z),
+          rssi: average(rows, :rssi_dbm),
+          count: length(rows)
+        }
+      end)
+
+    with [_ | _] <- observations,
+         %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} <- raster_bounds(observations, floorplan_segments) do
+      hull = floorplan_hull(floorplan_segments)
+      span = max(max_x - min_x, max_z - min_z)
+      cell_size = raster_cell_size(span)
+      length_scale = max(span / 4.8, 1.25)
+      max_distance = max(span * 0.42, 2.2)
+
+      min_x
+      |> grid_values(max_x, cell_size)
+      |> Enum.flat_map(fn x ->
+        min_z
+        |> grid_values(max_z, cell_size)
+        |> Enum.map(fn z -> {x, z} end)
+      end)
+      |> Enum.filter(fn {x, z} -> hull == [] or point_in_polygon?({x, z}, hull) end)
+      |> Enum.map(fn {x, z} -> interpolate_rssi_cell(x, z, observations, length_scale, max_distance, cell_size) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(@max_raster_cells)
+    else
+      _ -> []
+    end
+  end
+
+  defp raster_bounds(_observations, [_ | _] = floorplan_segments) do
+    points = floorplan_segment_points(floorplan_segments)
+    xs = Enum.map(points, & &1.x)
+    zs = Enum.map(points, & &1.z)
+    pad = 0.35
+
+    %{
+      min_x: Enum.min(xs) - pad,
+      max_x: Enum.max(xs) + pad,
+      min_z: Enum.min(zs) - pad,
+      max_z: Enum.max(zs) + pad
+    }
+  end
+
+  defp raster_bounds(observations, _floorplan_segments) do
+    xs = Enum.map(observations, & &1.x)
+    zs = Enum.map(observations, & &1.z)
+    pad = 1.5
+
+    %{
+      min_x: Enum.min(xs) - pad,
+      max_x: Enum.max(xs) + pad,
+      min_z: Enum.min(zs) - pad,
+      max_z: Enum.max(zs) + pad
+    }
+  end
+
+  defp raster_cell_size(span) do
+    estimated_cells = :math.pow(max(span, 1.0) / @default_raster_cell_size_m, 2)
+
+    if estimated_cells > @max_raster_cells do
+      max(span / :math.sqrt(@max_raster_cells), @default_raster_cell_size_m)
+    else
+      @default_raster_cell_size_m
+    end
+  end
+
+  defp grid_values(min, max, step) do
+    Stream.unfold(min, fn value ->
+      if value <= max do
+        {value, value + step}
+      end
+    end)
+  end
+
+  defp interpolate_rssi_cell(x, z, observations, length_scale, max_distance, cell_size) do
+    {weighted_sum, weight_sum, nearest_distance, count_sum} =
+      Enum.reduce(observations, {0.0, 0.0, :infinity, 0}, fn observation,
+                                                             {weighted_acc, weight_acc, nearest, count_acc} ->
+        distance = distance_2d(x, z, observation.x, observation.z)
+
+        weight =
+          :math.exp(-:math.pow(distance, 2) / (2.0 * :math.pow(length_scale, 2))) * :math.log2(observation.count + 1)
+
+        {
+          weighted_acc + observation.rssi * weight,
+          weight_acc + weight,
+          min(nearest, distance),
+          count_acc + observation.count
+        }
+      end)
+
+    cond do
+      weight_sum <= 0.0001 ->
+        nil
+
+      nearest_distance > max_distance ->
+        nil
+
+      true ->
+        confidence = weight_sum / (weight_sum + 8.0 + max(nearest_distance - cell_size, 0.0) * 2.0)
+
+        %{
+          x: x,
+          y: 0.0,
+          z: z,
+          rssi: weighted_sum / weight_sum,
+          confidence: min(max(confidence, 0.08), 0.92),
+          nearest_distance_m: nearest_distance,
+          count: count_sum,
+          radius_m: cell_size * 0.72
+        }
+    end
   end
 
   defp build_path_points(pose_samples, rf_matches) do
@@ -626,8 +832,64 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     end
   end
 
-  defp bounds_for(wifi_points, interference_points, path_points, floorplan_segments) do
-    points = wifi_points ++ interference_points ++ path_points ++ floorplan_segment_points(floorplan_segments)
+  defp floorplan_hull([]), do: []
+
+  defp floorplan_hull(floorplan_segments) do
+    floorplan_segments
+    |> floorplan_segment_points()
+    |> Enum.map(&{&1.x, &1.z})
+    |> Enum.uniq()
+    |> convex_hull()
+  end
+
+  defp convex_hull(points) when length(points) < 3, do: points
+
+  defp convex_hull(points) do
+    sorted = Enum.sort(points)
+    lower = Enum.reduce(sorted, [], &append_hull_point/2)
+    upper = Enum.reduce(Enum.reverse(sorted), [], &append_hull_point/2)
+
+    Enum.uniq(tl(Enum.reverse(lower)) ++ tl(Enum.reverse(upper)))
+  end
+
+  defp append_hull_point(point, hull) do
+    hull = trim_hull(hull, point)
+    [point | hull]
+  end
+
+  defp trim_hull([second, first | rest] = hull, point) do
+    if cross(first, second, point) <= 0 do
+      trim_hull([first | rest], point)
+    else
+      hull
+    end
+  end
+
+  defp trim_hull(hull, _point), do: hull
+
+  defp cross({ax, ay}, {bx, by}, {cx, cy}) do
+    (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+  end
+
+  defp point_in_polygon?(_point, polygon) when length(polygon) < 3, do: true
+
+  defp point_in_polygon?({x, z}, polygon) do
+    polygon
+    |> Enum.zip(tl(polygon) ++ [hd(polygon)])
+    |> Enum.reduce(false, fn {{x1, z1}, {x2, z2}}, inside ->
+      crosses = z1 > z != z2 > z
+      boundary_x = (x2 - x1) * (z - z1) / (z2 - z1) + x1
+
+      if crosses and x < boundary_x, do: not inside, else: inside
+    end)
+  end
+
+  defp distance_2d(x1, z1, x2, z2), do: :math.sqrt(:math.pow(x1 - x2, 2) + :math.pow(z1 - z2, 2))
+
+  defp bounds_for(wifi_points, wifi_raster, interference_points, path_points, floorplan_segments) do
+    points =
+      wifi_points ++ wifi_raster ++ interference_points ++ path_points ++ floorplan_segment_points(floorplan_segments)
+
     xs = Enum.map(points, & &1.x)
     zs = Enum.map(points, & &1.z)
 
@@ -651,6 +913,19 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       point
       |> Map.put(:x_pct, (point.x - bounds.min_x) / width * 100.0)
       |> Map.put(:z_pct, 100.0 - (point.z - bounds.min_z) / height * 100.0)
+    end)
+  end
+
+  defp project_raster_cells(cells, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+    meters_per_pct = max(width, height) / 100.0
+
+    Enum.map(cells, fn cell ->
+      cell
+      |> Map.put(:x_pct, (cell.x - bounds.min_x) / width * 100.0)
+      |> Map.put(:z_pct, 100.0 - (cell.z - bounds.min_z) / height * 100.0)
+      |> Map.put(:radius_pct, cell.radius_m / max(meters_per_pct, 0.01))
     end)
   end
 
