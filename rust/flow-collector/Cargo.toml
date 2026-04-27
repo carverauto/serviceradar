@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 flowparser-sflow = "0.3.0"
-netflow_parser = { version = "1.0.0", features = ["parse_unknown_fields"] }
+netflow_parser = { version = "1.0.2", features = ["parse_unknown_fields"] }
 prost = "0.13"
 async-nats = "0.42"
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
