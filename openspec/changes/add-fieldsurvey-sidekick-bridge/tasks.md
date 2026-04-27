@@ -52,9 +52,9 @@
 ## 7. Live Survey UX, AP Placement, and Rasters
 - [x] 7.1 Expose Sidekick adaptive scan visibility: current weighted channel plan, spectrum-prioritized channels, per-channel observed BSSID counts, and stale/unseen channels.
 - [x] 7.2 Render adaptive scan status in FieldSurvey so an operator can verify the radio is sweeping the expected channels during capture.
-- [ ] 7.3 Improve AP placement by combining manual AP marks, per-BSSID RSSI gradients, strongest-observation clusters, and path diversity into confidence-scored AP candidates.
+- [x] 7.3 Improve AP placement by combining manual AP marks, per-BSSID RSSI gradients, strongest-observation clusters, and path diversity into confidence-scored AP candidates.
 - [ ] 7.4 Surface AP placement confidence and supporting observations in iOS and web review.
-- [ ] 7.5 Ensure web dashboard/review uses persisted backend-derived `wifi_rssi` and `rf_interference` rasters as the post-survey source of truth.
+- [x] 7.5 Ensure web dashboard/review uses persisted backend-derived `wifi_rssi` and `rf_interference` rasters as the post-survey source of truth.
 - [ ] 7.6 Add persisted raster regeneration/retry controls for sessions whose artifacts or rasters failed during upload/review.
 
 ## 8. Verification

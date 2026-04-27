@@ -842,61 +842,136 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp survey_summary(_scope) do
-    cond do
-      relation_exists?("platform.survey_rf_pose_matches") ->
-        sql = """
-        SELECT
-          COUNT(*)::bigint AS sample_count,
-          COUNT(DISTINCT session_id)::bigint AS session_count,
-          COALESCE(AVG(rssi_dbm), 0)::float8 AS avg_rssi,
-          COUNT(DISTINCT bssid)::bigint AS secure_count
-        FROM platform.survey_rf_pose_matches
-        WHERE x IS NOT NULL
-          AND z IS NOT NULL
-          AND rssi_dbm IS NOT NULL
-        """
+    summary =
+      cond do
+        relation_exists?("platform.survey_rf_pose_matches") ->
+          sql = """
+          SELECT
+            COUNT(*)::bigint AS sample_count,
+            COUNT(DISTINCT session_id)::bigint AS session_count,
+            COALESCE(AVG(rssi_dbm), 0)::float8 AS avg_rssi,
+            COUNT(DISTINCT bssid)::bigint AS secure_count
+          FROM platform.survey_rf_pose_matches
+          WHERE x IS NOT NULL
+            AND z IS NOT NULL
+            AND rssi_dbm IS NOT NULL
+          """
 
-        case Repo.query(sql, []) do
-          {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
-            %{
-              sample_count: to_int(samples),
-              session_count: to_int(sessions),
-              avg_rssi: avg_rssi |> to_float() |> Float.round(1),
-              secure_count: to_int(secure)
-            }
+          case Repo.query(sql, []) do
+            {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
+              %{
+                sample_count: to_int(samples),
+                session_count: to_int(sessions),
+                avg_rssi: avg_rssi |> to_float() |> Float.round(1),
+                secure_count: to_int(secure)
+              }
 
-          _ ->
-            empty_survey_summary()
-        end
+            _ ->
+              empty_survey_summary()
+          end
 
-      relation_exists?("platform.survey_samples") ->
-        sql = """
-        SELECT
-          COUNT(*)::bigint AS sample_count,
-          COUNT(DISTINCT session_id)::bigint AS session_count,
-          COALESCE(AVG(rssi), 0)::float8 AS avg_rssi,
-          COUNT(*) FILTER (WHERE is_secure = true)::bigint AS secure_count
-        FROM platform.survey_samples
-        """
+        relation_exists?("platform.survey_samples") ->
+          sql = """
+          SELECT
+            COUNT(*)::bigint AS sample_count,
+            COUNT(DISTINCT session_id)::bigint AS session_count,
+            COALESCE(AVG(rssi), 0)::float8 AS avg_rssi,
+            COUNT(*) FILTER (WHERE is_secure = true)::bigint AS secure_count
+          FROM platform.survey_samples
+          """
 
-        case Repo.query(sql, []) do
-          {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
-            %{
-              sample_count: to_int(samples),
-              session_count: to_int(sessions),
-              avg_rssi: avg_rssi |> to_float() |> Float.round(1),
-              secure_count: to_int(secure)
-            }
+          case Repo.query(sql, []) do
+            {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
+              %{
+                sample_count: to_int(samples),
+                session_count: to_int(sessions),
+                avg_rssi: avg_rssi |> to_float() |> Float.round(1),
+                secure_count: to_int(secure)
+              }
 
-          _ ->
-            empty_survey_summary()
-        end
+            _ ->
+              empty_survey_summary()
+          end
 
-      true ->
-        empty_survey_summary()
-    end
+        true ->
+          empty_survey_summary()
+      end
+
+    Map.merge(summary, latest_survey_raster_summary())
   rescue
     _ -> empty_survey_summary()
+  end
+
+  defp latest_survey_raster_summary do
+    if relation_exists?("platform.survey_coverage_rasters") do
+      sql = """
+      SELECT session_id, min_x, max_x, min_z, max_z, cells, metadata, generated_at
+      FROM platform.survey_coverage_rasters
+      WHERE overlay_type = 'wifi_rssi'
+        AND selector_type = 'all'
+        AND selector_value = '*'
+      ORDER BY generated_at DESC
+      LIMIT 1
+      """
+
+      case Repo.query(sql, []) do
+        {:ok, %{rows: [[session_id, min_x, max_x, min_z, max_z, cells, metadata, generated_at]]}} ->
+          raw_cells = map_value(cells || %{}, "cells") || []
+
+          %{
+            raster_session_id: session_id,
+            raster_generated_at: generated_at,
+            raster_cell_count: length(raw_cells),
+            raster_cells:
+              raw_cells
+              |> Enum.map(&dashboard_raster_cell(&1, min_x, max_x, min_z, max_z))
+              |> Enum.reject(&is_nil/1)
+              |> Enum.sort_by(& &1.confidence, :desc)
+              |> Enum.take(260),
+            raster_metadata: metadata || %{}
+          }
+
+        _ ->
+          empty_survey_raster_summary()
+      end
+    else
+      empty_survey_raster_summary()
+    end
+  rescue
+    _ -> empty_survey_raster_summary()
+  end
+
+  defp dashboard_raster_cell(cell, min_x, max_x, min_z, max_z) when is_map(cell) do
+    x = map_value(cell, "x")
+    z = map_value(cell, "z")
+    rssi = map_value(cell, "rssi")
+
+    with true <- is_number(x),
+         true <- is_number(z),
+         true <- is_number(rssi) do
+      x_pct = map_value(cell, "x_pct") || percent_between(x, min_x, max_x)
+      z_pct = map_value(cell, "z_pct") || percent_between(z, min_z, max_z)
+      radius_pct = map_value(cell, "radius_pct") || 3.0
+
+      %{
+        x_pct: clamp(to_float(x_pct), 0.0, 100.0),
+        z_pct: 100.0 - clamp(to_float(z_pct), 0.0, 100.0),
+        radius_pct: clamp(to_float(radius_pct), 1.6, 7.0),
+        rssi: Float.round(to_float(rssi), 1),
+        confidence: clamp(to_float(map_value(cell, "confidence") || 0.5), 0.15, 1.0)
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp dashboard_raster_cell(_cell, _min_x, _max_x, _min_z, _max_z), do: nil
+
+  defp percent_between(value, min_value, max_value) do
+    min_value = to_float(min_value)
+    max_value = to_float(max_value)
+    width = max(max_value - min_value, 0.0001)
+    (to_float(value) - min_value) / width * 100.0
   end
 
   defp security_trend(time_window) do
@@ -1319,7 +1394,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       netflow: source_state(netflow_configured?, flow_active?),
       mtr: source_state(false, mtr_summary.path_count > 0),
       camera: source_state(false, camera_summary.total > 0),
-      fieldsurvey: source_state(false, survey_summary.sample_count > 0),
+      fieldsurvey: source_state(false, survey_available?(survey_summary)),
       security_events: source_state(false, event_summary.total > 0),
       vulnerable_assets: :unconnected,
       siem: source_state(false, alert_summary.total > 0)
@@ -1489,7 +1564,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp empty_flow_summary, do: %{bytes_total: 0, packets_total: 0, flow_count: 0, bps: 0.0, pps: 0.0, link_count: 0}
   defp empty_mtr_summary, do: %{path_count: 0, avg_loss_pct: 0.0, avg_latency_ms: 0.0, degraded_count: 0}
   defp empty_camera_summary, do: %{total: 0, online: 0, offline: 0, recording: 0, tiles: []}
-  defp empty_survey_summary, do: %{sample_count: 0, session_count: 0, avg_rssi: 0.0, secure_count: 0}
+
+  defp empty_survey_summary,
+    do: Map.merge(%{sample_count: 0, session_count: 0, avg_rssi: 0.0, secure_count: 0}, empty_survey_raster_summary())
+
+  defp empty_survey_raster_summary,
+    do: %{raster_session_id: nil, raster_generated_at: nil, raster_cell_count: 0, raster_cells: [], raster_metadata: %{}}
+
   defp empty_alert_summary, do: Stats.empty_alerts_summary()
   defp empty_event_summary, do: Stats.empty_events_summary()
 
@@ -1791,8 +1872,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp network_health_tone(%{total: total, availability_pct: pct}) when total > 0 and pct < 90, do: "error"
   defp network_health_tone(_), do: "success"
 
+  defp survey_available?(%{sample_count: samples, raster_cell_count: cells}), do: samples > 0 or cells > 0
+  defp survey_available?(%{sample_count: samples}), do: samples > 0
+  defp survey_available?(_survey), do: false
+
+  defp survey_value(%{sample_count: 0, raster_cell_count: cells}) when cells > 0, do: "Persisted raster"
   defp survey_value(%{sample_count: 0}), do: "No survey"
   defp survey_value(%{session_count: sessions}), do: "#{format_count(sessions)} sessions"
+
+  defp survey_detail(%{sample_count: 0, raster_cell_count: cells}) when cells > 0,
+    do: "#{format_count(cells)} backend raster cells"
 
   defp survey_detail(%{sample_count: 0}), do: "FieldSurvey summary unavailable"
 
@@ -1872,6 +1961,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp to_float(_), do: 0.0
+
+  defp clamp(value, min_value, max_value), do: value |> max(min_value) |> min(max_value)
 
   defp format_count(value), do: value |> to_int() |> Integer.to_string() |> delimit_integer_string()
 

@@ -1634,6 +1634,24 @@
   opacity: 0.92;
 }
 
+.sr-ops-heatmap-placeholder.sr-ops-heatmap-real::before,
+.sr-ops-heatmap-placeholder.sr-ops-heatmap-real::after {
+  display: none;
+}
+
+.sr-ops-field-survey-raster {
+  position: absolute;
+  z-index: 2;
+  inset: 0.85rem 1.15rem;
+  width: calc(100% - 2.3rem);
+  height: calc(100% - 1.7rem);
+  filter: saturate(1.08);
+}
+
+.sr-ops-field-survey-raster circle {
+  mix-blend-mode: screen;
+}
+
 .sr-ops-heatmap-placeholder::after {
   content: "";
   position: absolute;
