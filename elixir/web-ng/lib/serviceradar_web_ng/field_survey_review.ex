@@ -60,13 +60,15 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, rf_matches} <- read_rf_pose_matches(scope, session_id, rf_limit),
          {:ok, pose_samples} <- read_pose_samples(scope, session_id, pose_limit),
-         {:ok, spectrum_rows} <- read_spectrum_rows(scope, session_id, spectrum_limit) do
+         {:ok, spectrum_rows} <- read_spectrum_rows(scope, session_id, spectrum_limit),
+         {:ok, room_artifacts} <- read_room_artifacts(scope, session_id) do
       floorplan_segments = load_floorplan_segments(scope, session_id)
 
       {:ok,
        build_review(session_id, rf_matches, pose_samples, spectrum_rows,
          cell_size_m: cell_size_m,
-         floorplan_segments: floorplan_segments
+         floorplan_segments: floorplan_segments,
+         room_artifacts: room_artifacts
        )}
     end
   end
@@ -77,6 +79,28 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, rows} <- read_spatial_rf_pose_matches(scope, limit) do
       {:ok, Enum.map(rows, &spatial_sample/1)}
+    end
+  end
+
+  @spec spatial_scene(any(), keyword()) :: {:ok, map()} | {:error, any()}
+  def spatial_scene(scope, opts \\ []) do
+    sample_limit = Keyword.get(opts, :sample_limit, @default_spatial_limit)
+    artifact_limit = Keyword.get(opts, :artifact_limit, @default_artifact_limit)
+
+    with {:ok, samples} <- spatial_samples(scope, limit: sample_limit),
+         {:ok, artifacts} <- room_artifacts(scope, limit: artifact_limit) do
+      selected_session_id = latest_artifact_session_id(artifacts) || latest_sample_session_id(samples)
+      floorplan_segments = if selected_session_id, do: load_floorplan_segments(scope, selected_session_id), else: []
+
+      {:ok,
+       %{
+         selected_session_id: selected_session_id,
+         samples: samples,
+         artifacts: artifacts,
+         floorplan_segments: floorplan_segments,
+         point_cloud_artifact: Enum.find(artifacts, &(&1.artifact_type == "point_cloud_ply")),
+         roomplan_artifact: Enum.find(artifacts, &(&1.artifact_type == "roomplan_usdz"))
+       }}
     end
   end
 
@@ -115,6 +139,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   def build_review(session_id, rf_matches, pose_samples, spectrum_rows, opts \\ []) do
     cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
     floorplan_segments = Keyword.get(opts, :floorplan_segments, [])
+    room_artifacts = Keyword.get(opts, :room_artifacts, [])
     wifi_points = build_wifi_points(rf_matches, cell_size_m)
     path_points = build_path_points(pose_samples, rf_matches)
     channel_scores = build_channel_scores(spectrum_rows)
@@ -128,6 +153,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         rf_count: length(rf_matches),
         pose_count: length(pose_samples),
         spectrum_count: length(spectrum_rows),
+        room_artifact_count: length(room_artifacts),
         wifi_point_count: length(wifi_points),
         interference_point_count: length(interference_points),
         floorplan_segment_count: length(floorplan_segments),
@@ -139,6 +165,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       interference_points: project_points(interference_points, bounds),
       path_points: project_points(path_points, bounds),
       floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
+      room_artifacts: Enum.map(room_artifacts, &room_artifact_summary/1),
       ap_summaries: ap_summaries,
       channel_scores: channel_scores
     }
@@ -228,6 +255,15 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     end
   end
 
+  defp read_room_artifacts(scope, session_id) do
+    SurveyRoomArtifact
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(session_id == ^session_id)
+    |> Ash.Query.sort(uploaded_at: :desc)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+  end
+
   defp spatial_sample(row) do
     %{
       id: field(row, :rf_observation_id),
@@ -260,6 +296,12 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       download_url: "/api/spatial/room-artifacts/#{field(row, :id)}/download"
     }
   end
+
+  defp latest_artifact_session_id([artifact | _]), do: artifact.session_id
+  defp latest_artifact_session_id([]), do: nil
+
+  defp latest_sample_session_id([sample | _]), do: sample.session_id
+  defp latest_sample_session_id([]), do: nil
 
   defp build_session_summaries(rf_rows, spectrum_rows) do
     rf_sessions =

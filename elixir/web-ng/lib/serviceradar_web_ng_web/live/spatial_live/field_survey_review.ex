@@ -176,7 +176,38 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               </div>
             </.ui_panel>
 
-            <div :if={@review} class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div :if={@review} class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <.ui_panel>
+                <:header>
+                  <div class="text-sm font-semibold">Room Artifacts</div>
+                </:header>
+                <div class="space-y-2">
+                  <div
+                    :for={artifact <- @review.room_artifacts}
+                    class="flex items-center justify-between gap-3 rounded border border-base-200 px-3 py-2"
+                  >
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-semibold">{artifact_label(artifact)}</div>
+                      <div class="truncate text-xs text-base-content/60">
+                        {format_bytes(artifact.byte_size)} · {format_time(artifact.uploaded_at)}
+                      </div>
+                    </div>
+                    <.link href={artifact.download_url} class="btn btn-xs btn-outline">
+                      Download
+                    </.link>
+                  </div>
+                  <div :if={@review.room_artifacts == []} class="text-sm text-base-content/60">
+                    No room artifacts uploaded for this session.
+                  </div>
+                  <div
+                    :if={@review.room_artifacts != [] && @review.floorplan_segments == []}
+                    class="rounded border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
+                  >
+                    RoomPlan USDZ is stored, but no 2D floorplan GeoJSON artifact exists for this session yet.
+                  </div>
+                </div>
+              </.ui_panel>
+
               <.ui_panel>
                 <:header>
                   <div class="text-sm font-semibold">Observed APs</div>
@@ -227,13 +258,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp metric_strip(assigns) do
     ~H"""
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-6">
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-7">
       <.summary_cell label="RF Rows" value={@metrics.rf_count} />
       <.summary_cell label="Pose Rows" value={@metrics.pose_count} />
       <.summary_cell label="APs" value={@metrics.ap_count} />
       <.summary_cell label="Wi-Fi Heat" value={@metrics.wifi_point_count} />
       <.summary_cell label="RF Heat" value={@metrics.interference_point_count} />
       <.summary_cell label="Spectrum" value={@metrics.spectrum_count} />
+      <.summary_cell label="Artifacts" value={@metrics.room_artifact_count} />
     </div>
     """
   end
@@ -418,4 +450,20 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp format_number(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_number(value) when is_integer(value), do: Integer.to_string(value)
   defp format_number(_value), do: "?"
+
+  defp artifact_label(%{artifact_type: "roomplan_usdz"}), do: "RoomPlan USDZ"
+  defp artifact_label(%{artifact_type: "floorplan_geojson"}), do: "2D floorplan GeoJSON"
+  defp artifact_label(%{artifact_type: "point_cloud_ply"}), do: "Point cloud PLY"
+  defp artifact_label(%{artifact_type: type}), do: type
+
+  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576 do
+    "#{Float.round(bytes / 1_048_576, 1)} MB"
+  end
+
+  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1024 do
+    "#{Float.round(bytes / 1024, 1)} KB"
+  end
+
+  defp format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
+  defp format_bytes(_bytes), do: "unknown size"
 end

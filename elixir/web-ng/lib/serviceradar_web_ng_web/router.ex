@@ -199,6 +199,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
 
     get("/spatial/samples", SpatialController, :index)
+    get("/spatial/scene", SpatialController, :scene)
     get("/spatial/room-artifacts", SpatialController, :room_artifacts)
     get("/spatial/room-artifacts/:id/download", SpatialController, :download_room_artifact)
   end
