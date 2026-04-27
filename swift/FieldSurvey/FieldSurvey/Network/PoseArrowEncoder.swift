@@ -20,6 +20,7 @@ public struct PoseArrowEncoder: Sendable {
 
     public func encode(samples: [FieldSurveyPoseSample]) throws -> Data {
         let scannerIDBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let capturedAtBuilder = try ArrowArrayBuilders.loadTimestampArrayBuilder(.microseconds, timezone: "UTC")
         let unixNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let monotonicNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
@@ -37,6 +38,7 @@ public struct PoseArrowEncoder: Sendable {
 
         for sample in samples {
             scannerIDBuilder.append(sample.scannerDeviceID)
+            capturedAtBuilder.append(sample.capturedAtUnixNanos / 1_000)
             unixNanosBuilder.append(sample.capturedAtUnixNanos)
             monotonicNanosBuilder.append(sample.capturedAtMonotonicNanos)
             xBuilder.append(Double(sample.position.x))
@@ -55,6 +57,7 @@ public struct PoseArrowEncoder: Sendable {
 
         let batchResult = RecordBatch.Builder()
             .addColumn("scanner_device_id", arrowArray: try scannerIDBuilder.toHolder())
+            .addColumn("captured_at", arrowArray: try capturedAtBuilder.toHolder())
             .addColumn("captured_at_unix_nanos", arrowArray: try unixNanosBuilder.toHolder())
             .addColumn("captured_at_monotonic_nanos", arrowArray: try monotonicNanosBuilder.toHolder())
             .addColumn("x", arrowArray: try xBuilder.toHolder())
