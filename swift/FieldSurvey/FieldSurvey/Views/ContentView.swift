@@ -660,6 +660,24 @@ public struct SurveyView: View {
     private func uploadRoomArtifact(sessionID: String, showStatus: Bool) async -> Bool? {
         guard backendStreamingEnabled else { return false }
 
+        var uploaded: [String] = []
+        var failures: [String] = []
+
+        do {
+            let floorplanURL = try roomScanner.exportCurrentFloorplanGeoJSON()
+            let floorplanResult = try await roomArtifactUploader.uploadFloorplanGeoJSON(
+                fileURL: floorplanURL,
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: sessionID
+            )
+            if floorplanResult.ok {
+                uploaded.append("floorplan")
+            }
+        } catch {
+            failures.append("floorplan: \(error.localizedDescription)")
+        }
+
         do {
             let roomPlanURL = try roomScanner.exportCurrentRoomToUSDZ()
             let roomPlanResult = try await roomArtifactUploader.uploadRoomPlanUSDZ(
@@ -668,27 +686,45 @@ public struct SurveyView: View {
                 authToken: settings.authToken,
                 sessionID: sessionID
             )
+            if roomPlanResult.ok {
+                uploaded.append("RoomPlan")
+            }
+        } catch {
+            failures.append("RoomPlan: \(error.localizedDescription)")
+        }
 
-            let floorplanURL = try roomScanner.exportCurrentFloorplanGeoJSON()
-            let floorplanResult = try await roomArtifactUploader.uploadFloorplanGeoJSON(
-                fileURL: floorplanURL,
+        do {
+            let pointCloudURL = try roomScanner.exportPointCloudPLY()
+            let pointCloudResult = try await roomArtifactUploader.uploadPointCloudPLY(
+                fileURL: pointCloudURL,
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
                 sessionID: sessionID
             )
-
-            if showStatus, roomPlanResult.ok, floorplanResult.ok {
-                saveStatusMessage = "Room scan + floorplan uploaded"
-                clearSaveStatus(after: 2.4)
+            if pointCloudResult.ok {
+                uploaded.append("point cloud")
             }
-            return roomPlanResult.ok && floorplanResult.ok
         } catch {
-            if showStatus {
-                saveStatusMessage = "Room scan upload failed: \(error.localizedDescription)"
+            failures.append("point cloud: \(error.localizedDescription)")
+        }
+
+        if showStatus {
+            if failures.isEmpty {
+                saveStatusMessage = "Uploaded \(uploaded.joined(separator: " + "))"
+                clearSaveStatus(after: 2.4)
+            } else if uploaded.isEmpty {
+                saveStatusMessage = "Room artifact upload failed: \(failures.joined(separator: "; "))"
+                clearSaveStatus(after: 3.5)
+            } else {
+                saveStatusMessage = "Uploaded \(uploaded.joined(separator: " + ")); failed \(failures.joined(separator: "; "))"
                 clearSaveStatus(after: 3.5)
             }
+        }
+
+        if uploaded.isEmpty {
             return nil
         }
+        return failures.isEmpty ? true : nil
     }
 
     private func markManualAccessPoint() {

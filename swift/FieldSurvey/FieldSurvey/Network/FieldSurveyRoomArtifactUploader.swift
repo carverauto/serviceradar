@@ -63,6 +63,24 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         )
     }
 
+    public func uploadPointCloudPLY(
+        fileURL: URL,
+        baseURL: String,
+        authToken: String,
+        sessionID: String,
+        capturedAt: Date = Date()
+    ) async throws -> FieldSurveyRoomArtifactUploadResult {
+        try await uploadArtifact(
+            fileURL: fileURL,
+            baseURL: baseURL,
+            authToken: authToken,
+            sessionID: sessionID,
+            artifactType: "point_cloud_ply",
+            contentType: "application/octet-stream",
+            capturedAt: capturedAt
+        )
+    }
+
     public func uploadArtifact(
         fileURL: URL,
         baseURL: String,

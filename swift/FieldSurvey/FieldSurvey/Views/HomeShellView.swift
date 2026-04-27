@@ -483,7 +483,8 @@ public struct SessionLibraryView: View {
         }
 
         let meshURL = sessionStore.meshFileURL(for: session)
-        guard meshURL != nil || !snapshot.floorplanSegments.isEmpty else {
+        let pointCloudURL = sessionStore.pointCloudFileURL(for: session)
+        guard meshURL != nil || pointCloudURL != nil || !snapshot.floorplanSegments.isEmpty else {
             setArtifactUploadState(
                 .failed(message: "This saved session has no room scan or floorplan artifact to upload."),
                 for: session.id
@@ -492,7 +493,9 @@ public struct SessionLibraryView: View {
             return
         }
 
-        let totalArtifacts = (meshURL == nil ? 0 : 1) + (snapshot.floorplanSegments.isEmpty ? 0 : 1)
+        let totalArtifacts = (meshURL == nil ? 0 : 1)
+            + (pointCloudURL == nil ? 0 : 1)
+            + (snapshot.floorplanSegments.isEmpty ? 0 : 1)
         setArtifactUploadState(
             .uploading(message: "Preparing saved room artifacts", completed: 0, total: totalArtifacts),
             for: session.id
@@ -504,6 +507,29 @@ public struct SessionLibraryView: View {
                 var uploadedTypes: [String] = []
                 var completed = 0
                 let capturedAt = Date(timeIntervalSince1970: session.updatedAt)
+
+                if !snapshot.floorplanSegments.isEmpty {
+                    setArtifactUploadState(
+                        .uploading(message: "Building 2D floorplan GeoJSON", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
+                    let floorplanURL = try sessionStore.writeFloorplanGeoJSON(for: snapshot)
+                    setArtifactUploadState(
+                        .uploading(message: "Uploading 2D floorplan", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
+                    let result = try await uploader.uploadFloorplanGeoJSON(
+                        fileURL: floorplanURL,
+                        baseURL: settings.apiURL,
+                        authToken: authToken,
+                        sessionID: session.id,
+                        capturedAt: capturedAt
+                    )
+                    if result.ok {
+                        completed += 1
+                        uploadedTypes.append("2D floorplan")
+                    }
+                }
 
                 if let meshURL {
                     setArtifactUploadState(
@@ -531,18 +557,13 @@ public struct SessionLibraryView: View {
                     }
                 }
 
-                if !snapshot.floorplanSegments.isEmpty {
+                if let pointCloudURL {
                     setArtifactUploadState(
-                        .uploading(message: "Building 2D floorplan GeoJSON", completed: completed, total: totalArtifacts),
+                        .uploading(message: "Uploading point cloud PLY", completed: completed, total: totalArtifacts),
                         for: session.id
                     )
-                    let floorplanURL = try sessionStore.writeFloorplanGeoJSON(for: snapshot)
-                    setArtifactUploadState(
-                        .uploading(message: "Uploading 2D floorplan", completed: completed, total: totalArtifacts),
-                        for: session.id
-                    )
-                    let result = try await uploader.uploadFloorplanGeoJSON(
-                        fileURL: floorplanURL,
+                    let result = try await uploader.uploadPointCloudPLY(
+                        fileURL: pointCloudURL,
                         baseURL: settings.apiURL,
                         authToken: authToken,
                         sessionID: session.id,
@@ -550,7 +571,7 @@ public struct SessionLibraryView: View {
                     )
                     if result.ok {
                         completed += 1
-                        uploadedTypes.append("2D floorplan")
+                        uploadedTypes.append("point cloud")
                     }
                 }
 

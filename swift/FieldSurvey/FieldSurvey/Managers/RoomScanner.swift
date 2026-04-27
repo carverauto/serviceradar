@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import ARKit
 import RoomPlan
 import Combine
 import os.log
@@ -29,6 +30,11 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     private var pendingCurrentRoom: CapturedRoom?
     private var currentRoomPublishScheduled = false
     private let currentRoomPublishMinInterval: TimeInterval = 1.0
+    private var pointCloudSamples: [SIMD3<Float>] = []
+    private var pointCloudKeys = Set<String>()
+    private var lastPointCloudSampleTime: TimeInterval = 0
+    private let maxPointCloudSamples = 120_000
+    private let pointCloudSampleInterval: TimeInterval = 0.55
     
     public override init() { super.init() }
     
@@ -47,6 +53,7 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         let configuration = RoomCaptureSession.Configuration()
         view.captureSession.run(configuration: configuration)
         isScanning = true
+        resetPointCloudSamples()
         logger.info("RoomPlan session started via LiDAR.")
     }
     
@@ -198,6 +205,68 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         return floorplanSegments(for: room)
     }
 
+    public func recordFeaturePoints(from frame: ARFrame) {
+        guard pointCloudSamples.count < maxPointCloudSamples else { return }
+        guard frame.timestamp - lastPointCloudSampleTime >= pointCloudSampleInterval else { return }
+        guard case .normal = frame.camera.trackingState else { return }
+        guard let points = frame.rawFeaturePoints?.points, !points.isEmpty else { return }
+
+        lastPointCloudSampleTime = frame.timestamp
+        let remaining = maxPointCloudSamples - pointCloudSamples.count
+        let targetPerFrame = min(1_200, remaining)
+        let stride = max(points.count / max(targetPerFrame, 1), 1)
+        var added = 0
+
+        for index in Swift.stride(from: 0, to: points.count, by: stride) {
+            guard added < targetPerFrame, pointCloudSamples.count < maxPointCloudSamples else { break }
+            let point = points[index]
+            let key = pointCloudKey(point)
+            guard !pointCloudKeys.contains(key) else { continue }
+            pointCloudKeys.insert(key)
+            pointCloudSamples.append(point)
+            added += 1
+        }
+    }
+
+    public func exportPointCloudPLY() throws -> URL {
+        guard !pointCloudSamples.isEmpty else {
+            throw NSError(
+                domain: "RoomScanner",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "No ARKit feature points available to export."]
+            )
+        }
+
+        var body = """
+        ply
+        format ascii 1.0
+        element vertex \(pointCloudSamples.count)
+        property float x
+        property float y
+        property float z
+        property uchar red
+        property uchar green
+        property uchar blue
+        end_header
+
+        """
+        body.reserveCapacity(pointCloudSamples.count * 38)
+
+        for point in pointCloudSamples {
+            body += "\(point.x) \(point.y) \(point.z) 160 210 230\n"
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("PointCloud_\(UUID().uuidString).ply")
+        try body.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    private func resetPointCloudSamples() {
+        pointCloudSamples.removeAll(keepingCapacity: true)
+        pointCloudKeys.removeAll(keepingCapacity: true)
+        lastPointCloudSampleTime = 0
+    }
+
     private func floorplanSegments(for room: CapturedRoom) -> [SurveyFloorplanSegment] {
         room.walls.map { floorplanSegment(for: $0, kind: "wall") } +
         room.doors.map { floorplanSegment(for: $0, kind: "door") } +
@@ -242,6 +311,14 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         let local = SIMD4<Float>(xOffset, 0, 0, 1)
         let world = transform * local
         return SIMD2<Float>(world.x, world.z)
+    }
+
+    private func pointCloudKey(_ point: SIMD3<Float>) -> String {
+        let scale: Float = 50
+        let x = Int((point.x * scale).rounded())
+        let y = Int((point.y * scale).rounded())
+        let z = Int((point.z * scale).rounded())
+        return "\(x):\(y):\(z)"
     }
 }
 #endif

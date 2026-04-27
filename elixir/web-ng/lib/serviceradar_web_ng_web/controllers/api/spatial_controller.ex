@@ -81,11 +81,14 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
 
   defp artifact_filename(%{session_id: session_id, artifact_type: artifact_type, content_type: content_type}) do
     extension =
-      case content_type do
-        "model/vnd.usdz+zip" -> "usdz"
-        "application/geo+json" -> "geojson"
-        "application/json" -> "json"
-        "application/octet-stream" -> "bin"
+      case {artifact_type, content_type} do
+        {"roomplan_usdz", _} -> "usdz"
+        {"floorplan_geojson", _} -> "geojson"
+        {"point_cloud_ply", _} -> "ply"
+        {_, "model/vnd.usdz+zip"} -> "usdz"
+        {_, "application/geo+json"} -> "geojson"
+        {_, "application/json"} -> "json"
+        {_, "application/octet-stream"} -> "bin"
         _ -> "bin"
       end
 
