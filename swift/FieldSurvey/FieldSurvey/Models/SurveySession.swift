@@ -31,6 +31,7 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable 
     public let manualLandmarks: [ManualAPLandmark]
     public let roamEvents: [SurveyRoamEventRecord]
     public let spectrumSummaries: [SidekickSpectrumSummary]
+    public let floorplanSegments: [SurveyFloorplanSegment]
 
     public var id: String { record.id }
 
@@ -40,7 +41,8 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable 
         heatmapPoints: [WiFiHeatmapPoint],
         manualLandmarks: [ManualAPLandmark],
         roamEvents: [SurveyRoamEventRecord],
-        spectrumSummaries: [SidekickSpectrumSummary] = []
+        spectrumSummaries: [SidekickSpectrumSummary] = [],
+        floorplanSegments: [SurveyFloorplanSegment] = []
     ) {
         self.record = record
         self.samples = samples
@@ -48,6 +50,7 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable 
         self.manualLandmarks = manualLandmarks
         self.roamEvents = roamEvents
         self.spectrumSummaries = spectrumSummaries
+        self.floorplanSegments = floorplanSegments
     }
 
     enum CodingKeys: String, CodingKey {
@@ -57,6 +60,7 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable 
         case manualLandmarks
         case roamEvents
         case spectrumSummaries
+        case floorplanSegments
     }
 
     public init(from decoder: Decoder) throws {
@@ -70,6 +74,10 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable 
             [SidekickSpectrumSummary].self,
             forKey: .spectrumSummaries
         ) ?? []
+        self.floorplanSegments = try container.decodeIfPresent(
+            [SurveyFloorplanSegment].self,
+            forKey: .floorplanSegments
+        ) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -80,6 +88,7 @@ public struct SurveySessionSnapshot: Identifiable, Codable, Equatable, Sendable 
         try container.encode(manualLandmarks, forKey: .manualLandmarks)
         try container.encode(roamEvents, forKey: .roamEvents)
         try container.encode(spectrumSummaries, forKey: .spectrumSummaries)
+        try container.encode(floorplanSegments, forKey: .floorplanSegments)
     }
 }
 

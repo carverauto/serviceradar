@@ -413,7 +413,7 @@ public struct SurveyView: View {
                 title: "Live Signal Map",
                 points: signalMapPoints,
                 landmarks: signalMapLandmarks,
-                floorplanSegments: roomScanner.currentFloorplanSegments(),
+                floorplanSegments: signalMapFloorplanSegments,
                 currentPose: wifiScanner.currentDevicePose,
                 rfBatchCount: sidekickRelay.rfBatchCount,
                 spectrumBatchCount: sidekickRelay.spectrumBatchCount,
@@ -725,6 +725,14 @@ public struct SurveyView: View {
             return wifiScanner.manualAPLandmarks
         }
         return recoveredSnapshot?.manualLandmarks ?? []
+    }
+
+    private var signalMapFloorplanSegments: [SurveyFloorplanSegment] {
+        let liveSegments = roomScanner.currentFloorplanSegments()
+        if !liveSegments.isEmpty {
+            return liveSegments
+        }
+        return recoveredSnapshot?.floorplanSegments ?? []
     }
 
     private var currentSpectrumSummary: SidekickSpectrumSummary? {
