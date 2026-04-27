@@ -84,7 +84,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSpectrumObservations do
       power_bins_dbm,
       NULLIF(power_features, '')::vector(8),
       inserted_at
-    FROM jsonb_to_recordset($1::jsonb) AS rows(
+    FROM jsonb_to_recordset($1::text::jsonb) AS rows(
       session_id text,
       sidekick_id text,
       sdr_id text,
@@ -155,8 +155,7 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSpectrumObservations do
     end
   end
 
-  defp build_entry(_session_id, _observation, _inserted_at),
-    do: {:error, :invalid_spectrum_observation}
+  defp build_entry(_session_id, _observation, _inserted_at), do: {:error, :invalid_spectrum_observation}
 
   defp valid_session_id?(session_id), do: is_binary(session_id) and byte_size(session_id) <= 128
 
