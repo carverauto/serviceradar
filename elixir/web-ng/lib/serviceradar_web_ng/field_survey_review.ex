@@ -68,15 +68,24 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
          {:ok, spectrum_rows} <- read_spectrum_rows(scope, session_id, spectrum_limit),
          {:ok, room_artifacts} <- read_room_artifacts(scope, session_id) do
       floorplan_segments = load_floorplan_segments(scope, session_id)
+      user_id = scope_user_id(scope)
+      wifi_points = build_wifi_points(rf_matches, cell_size_m)
+      {wifi_raster, raster_source} = reusable_wifi_raster(scope, session_id, user_id, length(wifi_points))
 
       review =
         build_review(session_id, rf_matches, pose_samples, spectrum_rows,
           cell_size_m: cell_size_m,
           floorplan_segments: floorplan_segments,
-          room_artifacts: room_artifacts
+          room_artifacts: room_artifacts,
+          wifi_points: wifi_points,
+          wifi_raster: wifi_raster
         )
 
-      {:ok, maybe_persist_coverage_raster(scope, review)}
+      if raster_source == :persisted do
+        {:ok, review}
+      else
+        {:ok, maybe_persist_coverage_raster(scope, review)}
+      end
     end
   end
 
@@ -147,8 +156,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
     floorplan_segments = Keyword.get(opts, :floorplan_segments, [])
     room_artifacts = Keyword.get(opts, :room_artifacts, [])
-    wifi_points = build_wifi_points(rf_matches, cell_size_m)
-    wifi_raster = build_wifi_raster(rf_matches, floorplan_segments)
+    wifi_points = Keyword.get_lazy(opts, :wifi_points, fn -> build_wifi_points(rf_matches, cell_size_m) end)
+    wifi_raster = Keyword.get(opts, :wifi_raster) || build_wifi_raster(rf_matches, floorplan_segments)
     path_points = build_path_points(pose_samples, rf_matches)
     channel_scores = build_channel_scores(spectrum_rows)
     interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
@@ -274,6 +283,24 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Page.unwrap()
   end
 
+  defp read_latest_coverage_raster(scope, session_id, user_id) do
+    SurveyCoverageRaster
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      session_id == ^session_id and user_id == ^user_id and overlay_type == "wifi_rssi" and selector_type == "all" and
+        selector_value == "*"
+    )
+    |> Ash.Query.sort(generated_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+    |> case do
+      {:ok, [raster | _]} -> {:ok, raster}
+      {:ok, []} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp spatial_sample(row) do
     %{
       id: field(row, :rf_observation_id),
@@ -306,6 +333,57 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       download_url: "/api/spatial/room-artifacts/#{field(row, :id)}/download"
     }
   end
+
+  defp reusable_wifi_raster(scope, session_id, user_id, wifi_point_count) do
+    case read_latest_coverage_raster(scope, session_id, user_id) do
+      {:ok, raster} ->
+        reusable_wifi_raster_cells(raster, wifi_point_count)
+
+      {:error, reason} ->
+        Logger.debug("FieldSurvey persisted coverage raster read skipped: #{inspect(reason)}")
+        {nil, :missing}
+    end
+  end
+
+  defp reusable_wifi_raster_cells(nil, _wifi_point_count), do: {nil, :missing}
+
+  defp reusable_wifi_raster_cells(raster, wifi_point_count) do
+    metadata = field(raster, :metadata) || %{}
+    stored_point_count = map_value(metadata, "wifi_point_count")
+    cells = map_value(field(raster, :cells) || %{}, "cells") || []
+
+    if stored_point_count == wifi_point_count and is_list(cells) and cells != [] do
+      reusable_cells = cells |> Enum.map(&persisted_raster_cell/1) |> Enum.reject(&is_nil/1)
+
+      case reusable_cells do
+        [] -> {nil, :stale}
+        [_ | _] -> {reusable_cells, :persisted}
+      end
+    else
+      {nil, :stale}
+    end
+  end
+
+  defp persisted_raster_cell(cell) when is_map(cell) do
+    with x when is_number(x) <- map_value(cell, "x"),
+         z when is_number(z) <- map_value(cell, "z"),
+         rssi when is_number(rssi) <- map_value(cell, "rssi") do
+      %{
+        x: x * 1.0,
+        y: 0.0,
+        z: z * 1.0,
+        rssi: rssi * 1.0,
+        confidence: number_or_default(map_value(cell, "confidence"), 0.5),
+        nearest_distance_m: number_or_default(map_value(cell, "nearest_distance_m"), 0.0),
+        count: number_or_default(map_value(cell, "count"), 1),
+        radius_m: number_or_default(map_value(cell, "radius_m"), @default_raster_cell_size_m * 0.72)
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp persisted_raster_cell(_cell), do: nil
 
   defp maybe_persist_coverage_raster(scope, %{wifi_raster: [_ | _]} = review) do
     user_id = scope_user_id(scope)
@@ -1012,6 +1090,26 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       [_ | _] -> Enum.sum(numbers) / length(numbers)
     end
   end
+
+  defp number_or_default(value, _default) when is_number(value), do: value
+  defp number_or_default(_value, default), do: default
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || Map.get(map, known_atom_key(key))
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp known_atom_key("cells"), do: :cells
+  defp known_atom_key("confidence"), do: :confidence
+  defp known_atom_key("count"), do: :count
+  defp known_atom_key("nearest_distance_m"), do: :nearest_distance_m
+  defp known_atom_key("radius_m"), do: :radius_m
+  defp known_atom_key("rssi"), do: :rssi
+  defp known_atom_key("wifi_point_count"), do: :wifi_point_count
+  defp known_atom_key("x"), do: :x
+  defp known_atom_key("z"), do: :z
+  defp known_atom_key(_key), do: nil
 
   defp field(row, name), do: Map.get(row, name)
   defp number?(value), do: is_integer(value) or is_float(value)
