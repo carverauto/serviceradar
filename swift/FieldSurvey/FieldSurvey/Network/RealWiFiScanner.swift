@@ -452,17 +452,24 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private func ingestSampleEvents(_ events: [SurveySampleIngestEvent]) {
         guard !events.isEmpty else { return }
         var updatedAPs = accessPoints
+        var updatedHeatmapPoints = heatmapPoints
+        var updatedLastHeatmapSampleByBSSID = lastHeatmapSampleByBSSID
+        var heatmapChanged = false
 
         for event in events {
             updatedAPs[event.sample.bssid] = event.sample
 
             if let heatmapPosition = event.heatmapPosition {
-                appendHeatmapPoint(
+                if let heatmapPoint = makeHeatmapPoint(
                     bssid: event.sample.bssid,
                     ssid: event.sample.ssid,
                     rssi: event.sample.rssi,
-                    position: heatmapPosition
-                )
+                    position: heatmapPosition,
+                    lastSamplesByBSSID: &updatedLastHeatmapSampleByBSSID
+                ) {
+                    updatedHeatmapPoints.append(heatmapPoint)
+                    heatmapChanged = true
+                }
             }
 
             if let localizationObservation = event.localizationObservation {
@@ -471,6 +478,14 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
 
         accessPoints = updatedAPs
+
+        if heatmapChanged {
+            if updatedHeatmapPoints.count > maxHeatmapPoints {
+                updatedHeatmapPoints.removeFirst(updatedHeatmapPoints.count - maxHeatmapPoints)
+            }
+            lastHeatmapSampleByBSSID = updatedLastHeatmapSampleByBSSID
+            heatmapPoints = updatedHeatmapPoints
+        }
     }
 
     private func ingestSampleEvent(_ event: SurveySampleIngestEvent) {
@@ -485,30 +500,45 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     private func appendHeatmapPoint(bssid: String, ssid: String, rssi: Double, position: SIMD3<Float>) {
-        let now = Date().timeIntervalSince1970
+        guard let point = makeHeatmapPoint(
+            bssid: bssid,
+            ssid: ssid,
+            rssi: rssi,
+            position: position,
+            lastSamplesByBSSID: &lastHeatmapSampleByBSSID
+        ) else { return }
 
-        if let previous = lastHeatmapSampleByBSSID[bssid] {
-            let elapsed = now - previous.timestamp
-            let movement = simd_distance(position, previous.position)
-            if elapsed < 0.7 && movement < 0.25 {
-                return
-            }
-        }
-
-        lastHeatmapSampleByBSSID[bssid] = (timestamp: now, position: position)
-        heatmapPoints.append(
-            WiFiHeatmapPoint(
-                timestamp: now,
-                bssid: bssid,
-                ssid: ssid,
-                rssi: rssi,
-                position: position
-            )
-        )
-
+        heatmapPoints.append(point)
         if heatmapPoints.count > maxHeatmapPoints {
             heatmapPoints.removeFirst(heatmapPoints.count - maxHeatmapPoints)
         }
+    }
+
+    private func makeHeatmapPoint(
+        bssid: String,
+        ssid: String,
+        rssi: Double,
+        position: SIMD3<Float>,
+        lastSamplesByBSSID: inout [String: (timestamp: TimeInterval, position: SIMD3<Float>)]
+    ) -> WiFiHeatmapPoint? {
+        let now = Date().timeIntervalSince1970
+
+        if let previous = lastSamplesByBSSID[bssid] {
+            let elapsed = now - previous.timestamp
+            let movement = simd_distance(position, previous.position)
+            if elapsed < 0.7 && movement < 0.25 {
+                return nil
+            }
+        }
+
+        lastSamplesByBSSID[bssid] = (timestamp: now, position: position)
+        return WiFiHeatmapPoint(
+            timestamp: now,
+            bssid: bssid,
+            ssid: ssid,
+            rssi: rssi,
+            position: position
+        )
     }
 
     private func stabilizedHeatmapPosition(for position: SIMD3<Float>) -> SIMD3<Float> {

@@ -161,6 +161,7 @@ public struct SignalMapView: View {
             .buttonStyle(.bordered)
 
             Button {
+                coverageStore.cancel()
                 dismiss()
             } label: {
                 Label("Done", systemImage: "xmark")
@@ -512,8 +513,11 @@ private final class SignalCoverageRenderStore: ObservableObject {
             return
         }
 
-        let capturedPoints = points
+        let capturedPoints = Array(points.suffix(1_200))
+
         task = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard !Task.isCancelled else { return }
             let predictedCoverage = SignalCoverageInterpolator.coverageGrid(
                 points: capturedPoints,
                 minX: signature.minX,
@@ -526,6 +530,7 @@ private final class SignalCoverageRenderStore: ObservableObject {
             await MainActor.run {
                 guard self?.currentSignature == signature else { return }
                 self?.predictions = predictedCoverage
+                self?.task = nil
             }
         }
     }
@@ -533,6 +538,7 @@ private final class SignalCoverageRenderStore: ObservableObject {
     func cancel() {
         task?.cancel()
         task = nil
+        predictions = []
     }
 }
 
