@@ -64,10 +64,9 @@ public struct SignalMapView: View {
     }
 
     public var body: some View {
-        let renderPoints = visiblePoints
-        let renderLandmarks = visibleLandmarks
-        let renderCurrentPose = visibleCurrentPose
-        let summaries = apSummaries
+        let renderState = makeRenderState()
+        let renderPoints = renderState.visiblePoints
+        let summaries = renderState.apSummaries
         let coverageSignature = SignalCoverageRenderSignature(points: renderPoints)
 
         VStack(spacing: 12) {
@@ -75,23 +74,23 @@ public struct SignalMapView: View {
             statusStrip(visiblePointCount: renderPoints.count, apCount: summaries.count)
             failureBanner
             warningBanner
-            floorControls
-            apControls(summaries: summaries)
+            floorControls(floors: renderState.floors, activeIndex: renderState.activeFloorIndex)
+            apControls(summaries: summaries, floorPointCount: renderState.floorPoints.count)
             if let summary = displaySpectrumSummary {
                 SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
             }
 
             SignalMapCanvas(
                 points: renderPoints,
-                landmarks: renderLandmarks,
-                currentPose: renderCurrentPose,
+                landmarks: renderState.visibleLandmarks,
+                currentPose: renderState.visibleCurrentPose,
                 predictions: coverageStore.predictions,
                 zoom: mapScale,
                 pan: mapOffset
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .center) {
-                if mapHasNoVisibleData {
+                if renderPoints.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "wifi.exclamationmark")
                             .font(.system(size: 34, weight: .semibold))
@@ -240,7 +239,7 @@ public struct SignalMapView: View {
     }
 
     @ViewBuilder
-    private func apControls(summaries: [SignalAPSummary]) -> some View {
+    private func apControls(summaries: [SignalAPSummary], floorPointCount: Int) -> some View {
         if !summaries.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -250,7 +249,7 @@ public struct SignalMapView: View {
                     } label: {
                         APFilterChip(
                             title: "All APs",
-                            subtitle: "\(floorFilteredPoints.count) pts",
+                            subtitle: "\(floorPointCount) pts",
                             rssi: summaries.map(\.strongestRSSI).max(),
                             isSelected: selectedBSSID == nil
                         )
@@ -275,8 +274,7 @@ public struct SignalMapView: View {
     }
 
     @ViewBuilder
-    private var floorControls: some View {
-        let floors = detectedFloors
+    private func floorControls(floors: [SignalFloor], activeIndex: Int) -> some View {
         if floors.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -287,10 +285,10 @@ public struct SignalMapView: View {
                         } label: {
                             Text(floor.label)
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                .foregroundColor(index == activeFloorIndex ? .black : .white)
+                                .foregroundColor(index == activeIndex ? .black : .white)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 7)
-                                .background(index == activeFloorIndex ? Color.cyan : Color.white.opacity(0.12))
+                                .background(index == activeIndex ? Color.cyan : Color.white.opacity(0.12))
                                 .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                     }
@@ -450,6 +448,56 @@ public struct SignalMapView: View {
         mapOffset = .zero
         lastMapOffset = .zero
     }
+
+    private func makeRenderState() -> SignalMapRenderState {
+        let floors = SignalFloor.detect(points: points, landmarks: landmarks, currentPose: currentPose)
+        let activeIndex = min(max(selectedFloorIndex, 0), max(floors.count - 1, 0))
+        let floor = floors.isEmpty ? nil : floors[activeIndex]
+
+        let validPoints = points.filter { $0.position.isValidMapPosition }
+        let floorPoints = floor.map { activeFloor in
+            validPoints.filter { activeFloor.contains(y: $0.y) }
+        } ?? validPoints
+        let visiblePoints = selectedBSSID.map { bssid in
+            floorPoints.filter { $0.bssid == bssid }
+        } ?? floorPoints
+
+        let validLandmarks = landmarks.filter { $0.position.isValidMapPosition }
+        let visibleLandmarks = floor.map { activeFloor in
+            validLandmarks.filter { activeFloor.contains(y: $0.y) }
+        } ?? validLandmarks
+
+        let visibleCurrentPose: SIMD3<Float>?
+        if let currentPose, currentPose.isValidMapPosition {
+            if let floor {
+                visibleCurrentPose = floor.contains(y: currentPose.y) ? currentPose : nil
+            } else {
+                visibleCurrentPose = currentPose
+            }
+        } else {
+            visibleCurrentPose = nil
+        }
+
+        return SignalMapRenderState(
+            floors: floors,
+            activeFloorIndex: activeIndex,
+            floorPoints: floorPoints,
+            visiblePoints: visiblePoints,
+            visibleLandmarks: visibleLandmarks,
+            visibleCurrentPose: visibleCurrentPose,
+            apSummaries: SignalAPSummary.summarize(points: floorPoints)
+        )
+    }
+}
+
+private struct SignalMapRenderState {
+    let floors: [SignalFloor]
+    let activeFloorIndex: Int
+    let floorPoints: [WiFiHeatmapPoint]
+    let visiblePoints: [WiFiHeatmapPoint]
+    let visibleLandmarks: [ManualAPLandmark]
+    let visibleCurrentPose: SIMD3<Float>?
+    let apSummaries: [SignalAPSummary]
 }
 
 private struct SignalCoverageRenderSignature: Equatable, Sendable {

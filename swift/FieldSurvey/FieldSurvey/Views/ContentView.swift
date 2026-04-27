@@ -38,7 +38,7 @@ public struct SurveyView: View {
     @State private var didApplyResumeSnapshot = false
     @State private var checkpointTask: Task<Void, Never>?
     @State private var lastAutosavedHeatmapCount = 0
-    private let autosaveTimer = Timer.publish(every: 6.0, on: .main, in: .common).autoconnect()
+    private let autosaveTimer = Timer.publish(every: 12.0, on: .main, in: .common).autoconnect()
     
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
@@ -394,7 +394,7 @@ public struct SurveyView: View {
             checkpointSession(includeMesh: false, showStatus: false)
         }
         .onChange(of: wifiScanner.heatmapPoints.count) { _, count in
-            guard count >= lastAutosavedHeatmapCount + 25 else { return }
+            guard count >= lastAutosavedHeatmapCount + 75 else { return }
             lastAutosavedHeatmapCount = count
             checkpointSession(includeMesh: false, showStatus: false)
         }

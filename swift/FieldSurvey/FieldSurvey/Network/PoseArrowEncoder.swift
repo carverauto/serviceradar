@@ -2,7 +2,7 @@ import Foundation
 import Arrow
 import simd
 
-public struct FieldSurveyPoseSample {
+public struct FieldSurveyPoseSample: Sendable {
     public let scannerDeviceID: String
     public let capturedAtUnixNanos: Int64
     public let capturedAtMonotonicNanos: UInt64?
@@ -15,7 +15,7 @@ public struct FieldSurveyPoseSample {
     public let trackingQuality: String?
 }
 
-public struct PoseArrowEncoder {
+public struct PoseArrowEncoder: Sendable {
     public init() {}
 
     public func encode(samples: [FieldSurveyPoseSample]) throws -> Data {

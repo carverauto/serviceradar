@@ -585,13 +585,13 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             trackingQuality: trackingQuality
         )
 
-        do {
-            let payload = try poseArrowEncoder.encode(samples: [sample])
-            Task { [poseBackendSink] in
+        Task.detached(priority: .utility) { [poseBackendSink, poseArrowEncoder, sample] in
+            do {
+                let payload = try poseArrowEncoder.encode(samples: [sample])
                 try? await poseBackendSink.send(payload)
+            } catch {
+                // Keep AR capture hot; pose streaming errors are surfaced by backend stream diagnostics.
             }
-        } catch {
-            // Keep AR capture hot; pose streaming errors are surfaced by backend stream diagnostics.
         }
     }
 
