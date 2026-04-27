@@ -3,6 +3,7 @@ import Foundation
 import RoomPlan
 import Combine
 import os.log
+import simd
 
 /// Manages the RoomPlan LiDAR scanning session to build a physical 3D mesh
 /// of the environment while walking the survey.
@@ -156,6 +157,66 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         }
         try room.export(to: fileURL)
         return fileURL
+    }
+
+    /// Exports a top-down 2D floorplan projection in the ARKit x/z coordinate plane.
+    public func exportCurrentFloorplanGeoJSON() throws -> URL {
+        guard let room = currentRoom ?? finalResult else {
+            throw NSError(domain: "RoomScanner", code: 3, userInfo: [NSLocalizedDescriptionKey: "No room data available yet."])
+        }
+
+        let features =
+            room.walls.map { floorplanFeature(for: $0, kind: "wall") } +
+            room.doors.map { floorplanFeature(for: $0, kind: "door") } +
+            room.windows.map { floorplanFeature(for: $0, kind: "window") }
+
+        let collection: [String: Any] = [
+            "type": "FeatureCollection",
+            "features": features,
+            "properties": [
+                "coordinate_system": "arkit_xz_meters",
+                "source": "RoomPlan",
+                "wall_count": room.walls.count,
+                "door_count": room.doors.count,
+                "window_count": room.windows.count
+            ]
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: collection, options: [.prettyPrinted, .sortedKeys])
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Floorplan2D_\(UUID().uuidString).geojson")
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    private func floorplanFeature(for surface: CapturedRoom.Surface, kind: String) -> [String: Any] {
+        let start = projectedPoint(surface.transform, xOffset: -surface.dimensions.x / 2)
+        let end = projectedPoint(surface.transform, xOffset: surface.dimensions.x / 2)
+        let center = projectedPoint(surface.transform, xOffset: 0)
+
+        return [
+            "type": "Feature",
+            "geometry": [
+                "type": "LineString",
+                "coordinates": [
+                    [Double(start.x), Double(start.y)],
+                    [Double(end.x), Double(end.y)]
+                ]
+            ],
+            "properties": [
+                "id": surface.identifier.uuidString,
+                "kind": kind,
+                "width_m": Double(surface.dimensions.x),
+                "height_m": Double(surface.dimensions.y),
+                "center_x": Double(center.x),
+                "center_z": Double(center.y)
+            ]
+        ]
+    }
+
+    private func projectedPoint(_ transform: simd_float4x4, xOffset: Float) -> SIMD2<Float> {
+        let local = SIMD4<Float>(xOffset, 0, 0, 1)
+        let world = transform * local
+        return SIMD2<Float>(world.x, world.z)
     }
 }
 #endif
