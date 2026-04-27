@@ -22,34 +22,34 @@ public struct PoseArrowEncoder: Sendable {
         let scannerIDBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let unixNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
         let monotonicNanosBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
-        let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
-        let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
-        let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
-        let qxBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
-        let qyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
-        let qzBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
-        let qwBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let qxBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let qyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let qzBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let qwBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let latitudeBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let longitudeBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let altitudeBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
-        let accuracyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let accuracyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let trackingQualityBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
 
         for sample in samples {
             scannerIDBuilder.append(sample.scannerDeviceID)
             unixNanosBuilder.append(sample.capturedAtUnixNanos)
             monotonicNanosBuilder.append(sample.capturedAtMonotonicNanos)
-            xBuilder.append(sample.position.x)
-            yBuilder.append(sample.position.y)
-            zBuilder.append(sample.position.z)
-            qxBuilder.append(sample.orientation.vector.x)
-            qyBuilder.append(sample.orientation.vector.y)
-            qzBuilder.append(sample.orientation.vector.z)
-            qwBuilder.append(sample.orientation.vector.w)
+            xBuilder.append(Double(sample.position.x))
+            yBuilder.append(Double(sample.position.y))
+            zBuilder.append(Double(sample.position.z))
+            qxBuilder.append(Double(sample.orientation.vector.x))
+            qyBuilder.append(Double(sample.orientation.vector.y))
+            qzBuilder.append(Double(sample.orientation.vector.z))
+            qwBuilder.append(Double(sample.orientation.vector.w))
             latitudeBuilder.append(sample.latitude)
             longitudeBuilder.append(sample.longitude)
             altitudeBuilder.append(sample.altitude)
-            accuracyBuilder.append(sample.accuracyMeters)
+            accuracyBuilder.append(sample.accuracyMeters.map(Double.init))
             trackingQualityBuilder.append(sample.trackingQuality)
         }
 

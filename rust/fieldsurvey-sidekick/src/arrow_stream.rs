@@ -1,9 +1,9 @@
 use crate::observation::SidekickObservation;
 use crate::spectrum::SpectrumSweep;
 use arrow_array::{
-    ArrayRef, BooleanArray, Float32Array, Int16Array, Int32Array, Int64Array, RecordBatch,
+    ArrayRef, BooleanArray, Float64Array, Int16Array, Int32Array, Int64Array, RecordBatch,
     StringArray,
-    builder::{Float32Builder, ListBuilder},
+    builder::{Float64Builder, ListBuilder},
 };
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::{DataType, Field, Schema};
@@ -26,7 +26,7 @@ pub fn rf_observation_schema() -> Arc<Schema> {
         Field::new("channel_width_mhz", DataType::Int32, true),
         Field::new("captured_at_unix_nanos", DataType::Int64, false),
         Field::new("captured_at_monotonic_nanos", DataType::Int64, true),
-        Field::new("parser_confidence", DataType::Float32, false),
+        Field::new("parser_confidence", DataType::Float64, false),
     ]))
 }
 
@@ -41,11 +41,11 @@ pub fn spectrum_observation_schema() -> Arc<Schema> {
         Field::new("captured_at_unix_nanos", DataType::Int64, false),
         Field::new("start_frequency_hz", DataType::Int64, false),
         Field::new("stop_frequency_hz", DataType::Int64, false),
-        Field::new("bin_width_hz", DataType::Float32, false),
+        Field::new("bin_width_hz", DataType::Float64, false),
         Field::new("sample_count", DataType::Int32, false),
         Field::new(
             "power_bins_dbm",
-            DataType::List(Arc::new(Field::new("item", DataType::Float32, true))),
+            DataType::List(Arc::new(Field::new("item", DataType::Float64, true))),
             false,
         ),
     ]))
@@ -180,10 +180,10 @@ fn observations_to_record_batch(
                 })
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(Float32Array::from(
+        Arc::new(Float64Array::from(
             observations
                 .iter()
-                .map(|observation| observation.parser_confidence)
+                .map(|observation| f64::from(observation.parser_confidence))
                 .collect::<Vec<_>>(),
         )),
     ];
@@ -195,10 +195,10 @@ fn spectrum_sweeps_to_record_batch(
     schema: Arc<Schema>,
     sweeps: &[SpectrumSweep],
 ) -> Result<RecordBatch, String> {
-    let mut power_bins_builder = ListBuilder::new(Float32Builder::new());
+    let mut power_bins_builder = ListBuilder::new(Float64Builder::new());
     for sweep in sweeps {
         for value in &sweep.power_bins_dbm {
-            power_bins_builder.values().append_value(*value);
+            power_bins_builder.values().append_value(f64::from(*value));
         }
         power_bins_builder.append(true);
     }
@@ -258,10 +258,10 @@ fn spectrum_sweeps_to_record_batch(
                 .map(|sweep| sweep.stop_frequency_hz as i64)
                 .collect::<Vec<_>>(),
         )),
-        Arc::new(Float32Array::from(
+        Arc::new(Float64Array::from(
             sweeps
                 .iter()
-                .map(|sweep| sweep.bin_width_hz)
+                .map(|sweep| f64::from(sweep.bin_width_hz))
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Int32Array::from(

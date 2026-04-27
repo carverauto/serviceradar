@@ -40,7 +40,7 @@ public final class SidekickObservationArrowDecoder: @unchecked Sendable {
         let channelWidthMHz = try optionalInt32Column("channel_width_mhz", in: batch)
         let capturedAtUnixNanos = try int64Column("captured_at_unix_nanos", in: batch)
         let capturedAtMonotonicNanos = try optionalInt64Column("captured_at_monotonic_nanos", in: batch)
-        let parserConfidence = try floatColumn("parser_confidence", in: batch)
+        let parserConfidence = try doubleColumn("parser_confidence", in: batch)
 
         return (0..<batch.length).map { index in
             SidekickObservation(
@@ -59,7 +59,7 @@ public final class SidekickObservationArrowDecoder: @unchecked Sendable {
                 channelWidthMHz: channelWidthMHz[index].map(Int.init),
                 capturedAtUnixNanos: capturedAtUnixNanos[index] ?? 0,
                 capturedAtMonotonicNanos: capturedAtMonotonicNanos[index],
-                parserConfidence: Double(parserConfidence[index] ?? 0.0)
+                parserConfidence: parserConfidence[index] ?? 0.0
             )
         }
         .filter { !$0.bssid.isEmpty }
@@ -109,7 +109,7 @@ public final class SidekickObservationArrowDecoder: @unchecked Sendable {
         try fixedColumn(name, in: batch)
     }
 
-    private func floatColumn(_ name: String, in batch: RecordBatch) throws -> FixedArray<Float> {
+    private func doubleColumn(_ name: String, in batch: RecordBatch) throws -> FixedArray<Double> {
         try fixedColumn(name, in: batch)
     }
 

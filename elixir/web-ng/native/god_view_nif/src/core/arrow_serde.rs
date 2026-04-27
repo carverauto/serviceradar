@@ -398,12 +398,12 @@ fn extract_fieldsurvey_rf_rows(
     let rssi_dbms = optional_i16_column(batch, "rssi_dbm")?;
     let noise_floor_dbms = optional_i16_column(batch, "noise_floor_dbm")?;
     let snr_dbs = optional_i16_column(batch, "snr_db")?;
-    let frequency_mhzes = required_u32_column(batch, "frequency_mhz")?;
-    let channels = optional_u16_column(batch, "channel")?;
-    let channel_width_mhzes = optional_u16_column(batch, "channel_width_mhz")?;
+    let frequency_mhzes = required_i32_column(batch, "frequency_mhz")?;
+    let channels = optional_i32_column(batch, "channel")?;
+    let channel_width_mhzes = optional_i32_column(batch, "channel_width_mhz")?;
     let captured_at_unix_nanoses = required_i64_column(batch, "captured_at_unix_nanos")?;
-    let captured_at_monotonic_nanoses = optional_u64_column(batch, "captured_at_monotonic_nanos")?;
-    let parser_confidences = required_f32_column(batch, "parser_confidence")?;
+    let captured_at_monotonic_nanoses = optional_i64_column(batch, "captured_at_monotonic_nanos")?;
+    let parser_confidences = required_f64_column(batch, "parser_confidence")?;
 
     for i in 0..batch.num_rows() {
         rows.push(FieldSurveyRfObservationRow {
@@ -418,10 +418,10 @@ fn extract_fieldsurvey_rf_rows(
             noise_floor_dbm: optional_i16_value(noise_floor_dbms, i),
             snr_db: optional_i16_value(snr_dbs, i),
             frequency_mhz: frequency_mhzes.value(i),
-            channel: optional_u16_value(channels, i),
-            channel_width_mhz: optional_u16_value(channel_width_mhzes, i),
+            channel: optional_i32_value(channels, i),
+            channel_width_mhz: optional_i32_value(channel_width_mhzes, i),
             captured_at_unix_nanos: captured_at_unix_nanoses.value(i),
-            captured_at_monotonic_nanos: optional_u64_value(captured_at_monotonic_nanoses, i),
+            captured_at_monotonic_nanos: optional_i64_value(captured_at_monotonic_nanoses, i),
             parser_confidence: parser_confidences.value(i),
         });
     }
@@ -437,13 +437,13 @@ fn extract_fieldsurvey_spectrum_rows(
     let sdr_ids = required_string_column(batch, "sdr_id")?;
     let device_kinds = required_string_column(batch, "device_kind")?;
     let serial_numbers = optional_string_column(batch, "serial_number")?;
-    let sweep_ids = required_u64_column(batch, "sweep_id")?;
+    let sweep_ids = required_i64_column(batch, "sweep_id")?;
     let started_at_unix_nanoses = required_i64_column(batch, "started_at_unix_nanos")?;
     let captured_at_unix_nanoses = required_i64_column(batch, "captured_at_unix_nanos")?;
-    let start_frequency_hzes = required_u64_column(batch, "start_frequency_hz")?;
-    let stop_frequency_hzes = required_u64_column(batch, "stop_frequency_hz")?;
-    let bin_width_hzes = required_f32_column(batch, "bin_width_hz")?;
-    let sample_counts = required_u32_column(batch, "sample_count")?;
+    let start_frequency_hzes = required_i64_column(batch, "start_frequency_hz")?;
+    let stop_frequency_hzes = required_i64_column(batch, "stop_frequency_hz")?;
+    let bin_width_hzes = required_f64_column(batch, "bin_width_hz")?;
+    let sample_counts = required_i32_column(batch, "sample_count")?;
     let power_bins_dbms = extract_vector_column(batch, "power_bins_dbm")?;
 
     for i in 0..batch.num_rows() {
@@ -472,25 +472,25 @@ fn extract_fieldsurvey_pose_rows(
 ) -> Result<(), rustler::Error> {
     let scanner_device_ids = required_string_column(batch, "scanner_device_id")?;
     let captured_at_unix_nanoses = required_i64_column(batch, "captured_at_unix_nanos")?;
-    let captured_at_monotonic_nanoses = optional_u64_column(batch, "captured_at_monotonic_nanos")?;
-    let xs = required_f32_column(batch, "x")?;
-    let ys = required_f32_column(batch, "y")?;
-    let zs = required_f32_column(batch, "z")?;
-    let qxs = required_f32_column(batch, "qx")?;
-    let qys = required_f32_column(batch, "qy")?;
-    let qzs = required_f32_column(batch, "qz")?;
-    let qws = required_f32_column(batch, "qw")?;
+    let captured_at_monotonic_nanoses = optional_i64_column(batch, "captured_at_monotonic_nanos")?;
+    let xs = required_f64_column(batch, "x")?;
+    let ys = required_f64_column(batch, "y")?;
+    let zs = required_f64_column(batch, "z")?;
+    let qxs = required_f64_column(batch, "qx")?;
+    let qys = required_f64_column(batch, "qy")?;
+    let qzs = required_f64_column(batch, "qz")?;
+    let qws = required_f64_column(batch, "qw")?;
     let latitudes = optional_f64_column(batch, "latitude")?;
     let longitudes = optional_f64_column(batch, "longitude")?;
     let altitudes = optional_f64_column(batch, "altitude")?;
-    let accuracy_ms = optional_f32_column(batch, "accuracy_m")?;
+    let accuracy_ms = optional_f64_column(batch, "accuracy_m")?;
     let tracking_qualities = optional_string_column(batch, "tracking_quality")?;
 
     for i in 0..batch.num_rows() {
         rows.push(FieldSurveyPoseSampleRow {
             scanner_device_id: string_value(scanner_device_ids, i)?,
             captured_at_unix_nanos: captured_at_unix_nanoses.value(i),
-            captured_at_monotonic_nanos: optional_u64_value(captured_at_monotonic_nanoses, i),
+            captured_at_monotonic_nanos: optional_i64_value(captured_at_monotonic_nanoses, i),
             x: xs.value(i),
             y: ys.value(i),
             z: zs.value(i),
@@ -501,7 +501,7 @@ fn extract_fieldsurvey_pose_rows(
             latitude: optional_f64_value(latitudes, i),
             longitude: optional_f64_value(longitudes, i),
             altitude: optional_f64_value(altitudes, i),
-            accuracy_m: optional_f32_value(accuracy_ms, i),
+            accuracy_m: optional_f64_value(accuracy_ms, i),
             tracking_quality: optional_string_value(tracking_qualities, i),
         });
     }
@@ -568,20 +568,20 @@ fn optional_i16_column<'a>(
     optional_primitive_column::<arrow_array::types::Int16Type>(batch, column_name)
 }
 
-fn optional_u16_column<'a>(
+fn optional_i32_column<'a>(
     batch: &'a RecordBatch,
     column_name: &str,
-) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt16Type>>, rustler::Error>
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Int32Type>>, rustler::Error>
 {
-    optional_primitive_column::<arrow_array::types::UInt16Type>(batch, column_name)
+    optional_primitive_column::<arrow_array::types::Int32Type>(batch, column_name)
 }
 
-fn optional_u64_column<'a>(
+fn optional_i64_column<'a>(
     batch: &'a RecordBatch,
     column_name: &str,
-) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>>, rustler::Error>
+) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Int64Type>>, rustler::Error>
 {
-    optional_primitive_column::<arrow_array::types::UInt64Type>(batch, column_name)
+    optional_primitive_column::<arrow_array::types::Int64Type>(batch, column_name)
 }
 
 fn required_i64_column<'a>(
@@ -591,18 +591,11 @@ fn required_i64_column<'a>(
     required_primitive_column::<arrow_array::types::Int64Type>(batch, column_name)
 }
 
-fn required_u32_column<'a>(
+fn required_i32_column<'a>(
     batch: &'a RecordBatch,
     column_name: &str,
-) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt32Type>, rustler::Error> {
-    required_primitive_column::<arrow_array::types::UInt32Type>(batch, column_name)
-}
-
-fn required_u64_column<'a>(
-    batch: &'a RecordBatch,
-    column_name: &str,
-) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>, rustler::Error> {
-    required_primitive_column::<arrow_array::types::UInt64Type>(batch, column_name)
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Int32Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::Int32Type>(batch, column_name)
 }
 
 fn required_f64_column<'a>(
@@ -617,14 +610,6 @@ fn required_f32_column<'a>(
     column_name: &str,
 ) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>, rustler::Error> {
     required_primitive_column::<arrow_array::types::Float32Type>(batch, column_name)
-}
-
-fn optional_f32_column<'a>(
-    batch: &'a RecordBatch,
-    column_name: &str,
-) -> Result<Option<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>>, rustler::Error>
-{
-    optional_primitive_column::<arrow_array::types::Float32Type>(batch, column_name)
 }
 
 fn optional_f64_column<'a>(
@@ -693,10 +678,10 @@ fn optional_i16_value(
     })
 }
 
-fn optional_u16_value(
-    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::UInt16Type>>,
+fn optional_i32_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::Int32Type>>,
     index: usize,
-) -> Option<u16> {
+) -> Option<i32> {
     values.and_then(|array| {
         if array.is_null(index) {
             None
@@ -706,23 +691,10 @@ fn optional_u16_value(
     })
 }
 
-fn optional_u64_value(
-    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::UInt64Type>>,
+fn optional_i64_value(
+    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::Int64Type>>,
     index: usize,
-) -> Option<u64> {
-    values.and_then(|array| {
-        if array.is_null(index) {
-            None
-        } else {
-            Some(array.value(index))
-        }
-    })
-}
-
-fn optional_f32_value(
-    values: Option<&arrow_array::PrimitiveArray<arrow_array::types::Float32Type>>,
-    index: usize,
-) -> Option<f32> {
+) -> Option<i64> {
     values.and_then(|array| {
         if array.is_null(index) {
             None
