@@ -131,6 +131,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
         } else {
             context.coordinator.stopDisplayLink()
             context.coordinator.startCaptureHealthTimer()
+            context.coordinator.restoreLiveCaptureSurface()
             context.coordinator.clearSurveyOverlayNodes()
         }
     }
@@ -268,6 +269,18 @@ public struct CompositeSurveyView: UIViewRepresentable {
             captureHealthTimer = nil
         }
 
+        func restoreLiveCaptureSurface() {
+            roomView?.isHidden = false
+            scnView?.isHidden = true
+            scnView?.isPlaying = false
+            scnView?.allowsCameraControl = false
+            roomMeshNode?.isHidden = true
+            for node in roomNodes.values {
+                node.isHidden = true
+            }
+            previousMapState = false
+        }
+
         @objc private func captureHealthTick() {
             guard !isMapView, isAppActive else { return }
             guard let frame = roomView?.captureSession.arSession.currentFrame else {
@@ -346,15 +359,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
             )
             wifiScanner?.queueHeatmapCaptureFromCurrentPose(position: cameraPos)
 
-            roomView?.isHidden = false
-            scnView?.isHidden = true
-            scnView?.isPlaying = false
-            scnView?.allowsCameraControl = false
-            roomMeshNode?.isHidden = true
-            for node in roomNodes.values {
-                node.isHidden = true
-            }
-            previousMapState = false
+            restoreLiveCaptureSurface()
         }
 
         private func trackingQualityLabel(_ state: ARCamera.TrackingState) -> String {
