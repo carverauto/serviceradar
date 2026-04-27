@@ -660,19 +660,27 @@ public struct SurveyView: View {
         guard backendStreamingEnabled else { return false }
 
         do {
-            let artifactURL = try roomScanner.exportCurrentRoomToUSDZ()
-            let result = try await roomArtifactUploader.uploadRoomPlanUSDZ(
-                fileURL: artifactURL,
+            let roomPlanURL = try roomScanner.exportCurrentRoomToUSDZ()
+            let roomPlanResult = try await roomArtifactUploader.uploadRoomPlanUSDZ(
+                fileURL: roomPlanURL,
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
                 sessionID: sessionID
             )
 
-            if showStatus, result.ok {
-                saveStatusMessage = "Room scan uploaded"
+            let floorplanURL = try roomScanner.exportCurrentFloorplanGeoJSON()
+            let floorplanResult = try await roomArtifactUploader.uploadFloorplanGeoJSON(
+                fileURL: floorplanURL,
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: sessionID
+            )
+
+            if showStatus, roomPlanResult.ok, floorplanResult.ok {
+                saveStatusMessage = "Room scan + floorplan uploaded"
                 clearSaveStatus(after: 2.4)
             }
-            return result.ok
+            return roomPlanResult.ok && floorplanResult.ok
         } catch {
             if showStatus {
                 saveStatusMessage = "Room scan upload failed: \(error.localizedDescription)"

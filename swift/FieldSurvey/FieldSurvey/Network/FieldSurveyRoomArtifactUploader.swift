@@ -34,12 +34,50 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         sessionID: String,
         capturedAt: Date = Date()
     ) async throws -> FieldSurveyRoomArtifactUploadResult {
+        try await uploadArtifact(
+            fileURL: fileURL,
+            baseURL: baseURL,
+            authToken: authToken,
+            sessionID: sessionID,
+            artifactType: "roomplan_usdz",
+            contentType: "model/vnd.usdz+zip",
+            capturedAt: capturedAt
+        )
+    }
+
+    public func uploadFloorplanGeoJSON(
+        fileURL: URL,
+        baseURL: String,
+        authToken: String,
+        sessionID: String,
+        capturedAt: Date = Date()
+    ) async throws -> FieldSurveyRoomArtifactUploadResult {
+        try await uploadArtifact(
+            fileURL: fileURL,
+            baseURL: baseURL,
+            authToken: authToken,
+            sessionID: sessionID,
+            artifactType: "floorplan_geojson",
+            contentType: "application/geo+json",
+            capturedAt: capturedAt
+        )
+    }
+
+    public func uploadArtifact(
+        fileURL: URL,
+        baseURL: String,
+        authToken: String,
+        sessionID: String,
+        artifactType: String,
+        contentType: String,
+        capturedAt: Date = Date()
+    ) async throws -> FieldSurveyRoomArtifactUploadResult {
         let trimmedAuthToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAuthToken.isEmpty, trimmedAuthToken != "OFFLINE_MODE" else {
             throw URLError(.userAuthenticationRequired)
         }
 
-        guard let url = roomArtifactURL(baseURL: baseURL, sessionID: sessionID) else {
+        guard let url = roomArtifactURL(baseURL: baseURL, sessionID: sessionID, artifactType: artifactType) else {
             throw URLError(.badURL)
         }
 
@@ -47,8 +85,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         request.httpMethod = "POST"
         request.timeoutInterval = 90
         request.setValue("Bearer \(trimmedAuthToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("roomplan_usdz", forHTTPHeaderField: "X-FieldSurvey-Artifact-Type")
-        request.setValue("model/vnd.usdz+zip", forHTTPHeaderField: "Content-Type")
+        request.setValue(artifactType, forHTTPHeaderField: "X-FieldSurvey-Artifact-Type")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue(String(Self.unixNanos(from: capturedAt)), forHTTPHeaderField: "X-FieldSurvey-Captured-At-Unix-Nanos")
 
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: fileURL)
@@ -68,7 +106,7 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         return try JSONDecoder().decode(FieldSurveyRoomArtifactUploadResult.self, from: data)
     }
 
-    private func roomArtifactURL(baseURL: String, sessionID: String) -> URL? {
+    private func roomArtifactURL(baseURL: String, sessionID: String, artifactType: String) -> URL? {
         let trimmedBaseURL = baseURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -82,7 +120,7 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
             return nil
         }
 
-        components.queryItems = [URLQueryItem(name: "artifact_type", value: "roomplan_usdz")]
+        components.queryItems = [URLQueryItem(name: "artifact_type", value: artifactType)]
         return components.url
     }
 
