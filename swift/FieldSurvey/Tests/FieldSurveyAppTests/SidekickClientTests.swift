@@ -270,12 +270,12 @@ final class SidekickClientTests: XCTestCase {
         let rssi = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int16>
         let noise = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int16>
         let snr = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int16>
-        let frequency = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<UInt32>
-        let channel = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<UInt16>
-        let width = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<UInt16>
+        let frequency = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int32>
+        let channel = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int32>
+        let width = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int32>
         let unixNanos = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
-        let monoNanos = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<UInt64>
-        let confidence = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let monoNanos = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
+        let confidence = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
 
         sidekickID.append(["fieldsurvey-sidekick", "fieldsurvey-sidekick"])
         radioID.append(["wlan2", "wlan1"])

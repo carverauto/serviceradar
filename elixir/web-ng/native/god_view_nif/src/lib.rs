@@ -408,9 +408,9 @@ mod tests {
     use crate::core::layout::{build_hypergraph_projection, layout_nodes_layered};
     use crate::core::telemetry::enrich_edges_telemetry_impl;
     use arrow_array::{
-        builder::{Float32Builder, ListBuilder},
-        ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int64Array, RecordBatch,
-        StringArray, UInt16Array, UInt32Array, UInt64Array,
+        builder::{Float64Builder, ListBuilder},
+        ArrayRef, BooleanArray, Float64Array, Int16Array, Int32Array, Int64Array, RecordBatch,
+        StringArray,
     };
     use arrow_ipc::writer::StreamWriter;
     use arrow_schema::{DataType, Field, Schema};
@@ -445,12 +445,12 @@ mod tests {
             Field::new("rssi_dbm", DataType::Int16, true),
             Field::new("noise_floor_dbm", DataType::Int16, true),
             Field::new("snr_db", DataType::Int16, true),
-            Field::new("frequency_mhz", DataType::UInt32, false),
-            Field::new("channel", DataType::UInt16, true),
-            Field::new("channel_width_mhz", DataType::UInt16, true),
+            Field::new("frequency_mhz", DataType::Int32, false),
+            Field::new("channel", DataType::Int32, true),
+            Field::new("channel_width_mhz", DataType::Int32, true),
             Field::new("captured_at_unix_nanos", DataType::Int64, false),
-            Field::new("captured_at_monotonic_nanos", DataType::UInt64, true),
-            Field::new("parser_confidence", DataType::Float32, false),
+            Field::new("captured_at_monotonic_nanos", DataType::Int64, true),
+            Field::new("parser_confidence", DataType::Float64, false),
         ]));
         let columns: Vec<ArrayRef> = vec![
             Arc::new(StringArray::from(vec!["sidekick-1"])),
@@ -463,12 +463,12 @@ mod tests {
             Arc::new(Int16Array::from(vec![Some(-64)])),
             Arc::new(Int16Array::from(vec![Some(-97)])),
             Arc::new(Int16Array::from(vec![Some(33)])),
-            Arc::new(UInt32Array::from(vec![5_180])),
-            Arc::new(UInt16Array::from(vec![Some(36)])),
-            Arc::new(UInt16Array::from(vec![None])),
+            Arc::new(Int32Array::from(vec![5_180])),
+            Arc::new(Int32Array::from(vec![Some(36)])),
+            Arc::new(Int32Array::from(vec![None])),
             Arc::new(Int64Array::from(vec![1_777_132_800_000_000_000])),
-            Arc::new(UInt64Array::from(vec![Some(9_876_543_210)])),
-            Arc::new(Float32Array::from(vec![0.9])),
+            Arc::new(Int64Array::from(vec![Some(9_876_543_210)])),
+            Arc::new(Float64Array::from(vec![0.9])),
         ];
 
         let batch = RecordBatch::try_new(schema, columns).unwrap();
@@ -486,35 +486,35 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![
             Field::new("scanner_device_id", DataType::Utf8, false),
             Field::new("captured_at_unix_nanos", DataType::Int64, false),
-            Field::new("captured_at_monotonic_nanos", DataType::UInt64, true),
-            Field::new("x", DataType::Float32, false),
-            Field::new("y", DataType::Float32, false),
-            Field::new("z", DataType::Float32, false),
-            Field::new("qx", DataType::Float32, false),
-            Field::new("qy", DataType::Float32, false),
-            Field::new("qz", DataType::Float32, false),
-            Field::new("qw", DataType::Float32, false),
+            Field::new("captured_at_monotonic_nanos", DataType::Int64, true),
+            Field::new("x", DataType::Float64, false),
+            Field::new("y", DataType::Float64, false),
+            Field::new("z", DataType::Float64, false),
+            Field::new("qx", DataType::Float64, false),
+            Field::new("qy", DataType::Float64, false),
+            Field::new("qz", DataType::Float64, false),
+            Field::new("qw", DataType::Float64, false),
             Field::new("latitude", DataType::Float64, true),
             Field::new("longitude", DataType::Float64, true),
             Field::new("altitude", DataType::Float64, true),
-            Field::new("accuracy_m", DataType::Float32, true),
+            Field::new("accuracy_m", DataType::Float64, true),
             Field::new("tracking_quality", DataType::Utf8, true),
         ]));
         let columns: Vec<ArrayRef> = vec![
             Arc::new(StringArray::from(vec!["iphone-1"])),
             Arc::new(Int64Array::from(vec![1_777_132_800_000_000_000])),
-            Arc::new(UInt64Array::from(vec![Some(8_765_432_100)])),
-            Arc::new(Float32Array::from(vec![1.0])),
-            Arc::new(Float32Array::from(vec![2.0])),
-            Arc::new(Float32Array::from(vec![3.0])),
-            Arc::new(Float32Array::from(vec![0.0])),
-            Arc::new(Float32Array::from(vec![0.0])),
-            Arc::new(Float32Array::from(vec![0.0])),
-            Arc::new(Float32Array::from(vec![1.0])),
+            Arc::new(Int64Array::from(vec![Some(8_765_432_100)])),
+            Arc::new(Float64Array::from(vec![1.0])),
+            Arc::new(Float64Array::from(vec![2.0])),
+            Arc::new(Float64Array::from(vec![3.0])),
+            Arc::new(Float64Array::from(vec![0.0])),
+            Arc::new(Float64Array::from(vec![0.0])),
+            Arc::new(Float64Array::from(vec![0.0])),
+            Arc::new(Float64Array::from(vec![1.0])),
             Arc::new(Float64Array::from(vec![Some(45.0)])),
             Arc::new(Float64Array::from(vec![Some(-93.0)])),
             Arc::new(Float64Array::from(vec![None])),
-            Arc::new(Float32Array::from(vec![Some(0.25)])),
+            Arc::new(Float64Array::from(vec![Some(0.25)])),
             Arc::new(StringArray::from(vec![Some("normal")])),
         ];
 
@@ -535,20 +535,20 @@ mod tests {
             Field::new("sdr_id", DataType::Utf8, false),
             Field::new("device_kind", DataType::Utf8, false),
             Field::new("serial_number", DataType::Utf8, true),
-            Field::new("sweep_id", DataType::UInt64, false),
+            Field::new("sweep_id", DataType::Int64, false),
             Field::new("started_at_unix_nanos", DataType::Int64, false),
             Field::new("captured_at_unix_nanos", DataType::Int64, false),
-            Field::new("start_frequency_hz", DataType::UInt64, false),
-            Field::new("stop_frequency_hz", DataType::UInt64, false),
-            Field::new("bin_width_hz", DataType::Float32, false),
-            Field::new("sample_count", DataType::UInt32, false),
+            Field::new("start_frequency_hz", DataType::Int64, false),
+            Field::new("stop_frequency_hz", DataType::Int64, false),
+            Field::new("bin_width_hz", DataType::Float64, false),
+            Field::new("sample_count", DataType::Int32, false),
             Field::new(
                 "power_bins_dbm",
-                DataType::List(Arc::new(Field::new("item", DataType::Float32, true))),
+                DataType::List(Arc::new(Field::new("item", DataType::Float64, true))),
                 false,
             ),
         ]));
-        let mut power_bins = ListBuilder::new(Float32Builder::new());
+        let mut power_bins = ListBuilder::new(Float64Builder::new());
         power_bins.values().append_value(-74.5);
         power_bins.values().append_value(-70.25);
         power_bins.append(true);
@@ -558,13 +558,13 @@ mod tests {
             Arc::new(StringArray::from(vec!["hackrf-0"])),
             Arc::new(StringArray::from(vec!["hackrf"])),
             Arc::new(StringArray::from(vec![Some("abc")])),
-            Arc::new(UInt64Array::from(vec![42])),
+            Arc::new(Int64Array::from(vec![42])),
             Arc::new(Int64Array::from(vec![1_777_137_380_785_750_000])),
             Arc::new(Int64Array::from(vec![1_777_137_380_785_750_000])),
-            Arc::new(UInt64Array::from(vec![2_400_000_000])),
-            Arc::new(UInt64Array::from(vec![2_405_000_000])),
-            Arc::new(Float32Array::from(vec![1_000_000.0])),
-            Arc::new(UInt32Array::from(vec![20])),
+            Arc::new(Int64Array::from(vec![2_400_000_000])),
+            Arc::new(Int64Array::from(vec![2_405_000_000])),
+            Arc::new(Float64Array::from(vec![1_000_000.0])),
+            Arc::new(Int32Array::from(vec![20])),
             Arc::new(power_bins.finish()),
         ];
 
