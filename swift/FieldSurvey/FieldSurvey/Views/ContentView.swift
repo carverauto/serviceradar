@@ -8,6 +8,13 @@ import UIKit
 import Combine
 
 @available(iOS 16.0, *)
+private enum SurveyWorkflowPhase {
+    case setup
+    case capture
+    case review
+}
+
+@available(iOS 16.0, *)
 public struct SurveyView: View {
     @ObservedObject public var roomScanner: RoomScanner
     @ObservedObject public var wifiScanner: RealWiFiScanner
@@ -21,6 +28,7 @@ public struct SurveyView: View {
     
     @State private var isStreaming = false
     @State private var isSidekickPreviewing = false
+    @State private var workflowPhase: SurveyWorkflowPhase = .setup
     @State private var showSettings = false
     @State private var showSessionLibrary = false
     @State private var showSubnetIntel = false
@@ -60,16 +68,43 @@ public struct SurveyView: View {
 
     public var body: some View {
         ZStack {
-            CompositeSurveyView(
-                roomScanner: roomScanner,
-                wifiScanner: wifiScanner,
-                isMapView: $isMapView
-            )
+            switch workflowPhase {
+            case .setup:
+                SurveySetupPhaseView(
+                    backendEnabled: backendStreamingEnabled,
+                    rfEnabled: settings.rfScanningEnabled,
+                    sessionName: autosaveSessionName,
+                    heatmapPointCount: wifiScanner.heatmapPoints.count,
+                    onStartLocal: startSidekickPreview,
+                    onStartBackend: startBackendStreaming,
+                    onReview: { workflowPhase = .review },
+                    onSessions: { showSessionLibrary = true },
+                    onSettings: { showSettings = true },
+                    onExit: onExit
+                )
+            case .capture:
+                CompositeSurveyView(
+                    roomScanner: roomScanner,
+                    wifiScanner: wifiScanner,
+                    isMapView: $isMapView
+                )
                 .edgesIgnoringSafeArea(.all)
-            
-            VStack {
-                if !backendStreamingEnabled {
-                    Text("Backend upload is disabled in Offline Mode; Sidekick preview is still available")
+            case .review:
+                SurveyReviewPhaseView(
+                    sessionName: autosaveSessionName,
+                    heatmapPointCount: signalMapPoints.count,
+                    spectrumCount: currentSpectrumSummaries.count,
+                    onResumeCapture: enterCapturePhase,
+                    onOpenSignalMap: { showSignalMap = true },
+                    onSessions: { showSessionLibrary = true },
+                    onDone: onExit
+                )
+            }
+
+            if workflowPhase == .capture {
+                VStack {
+                    if !backendStreamingEnabled {
+                        Text("Backend upload is disabled in Offline Mode; Sidekick preview is still available")
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundColor(.black)
@@ -177,6 +212,7 @@ public struct SurveyView: View {
                     VStack(spacing: 12) {
                         if onExit != nil {
                             Button(action: {
+                                stopSidekickForLifecycle()
                                 onExit?()
                             }) {
                                 Image(systemName: "house.fill")
@@ -347,6 +383,7 @@ public struct SurveyView: View {
                 }
                 .padding(.bottom, 40)
             }
+            }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) {
@@ -397,7 +434,6 @@ public struct SurveyView: View {
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             applyResumeSnapshotIfNeeded()
-            applyRFState(settings.rfScanningEnabled)
             beginAutosaveSession()
             checkpointSession(includeMesh: false, showStatus: false)
         }
@@ -413,6 +449,7 @@ public struct SurveyView: View {
             stopSidekickForLifecycle()
         }
         .onChange(of: settings.rfScanningEnabled) { _, enabled in
+            guard workflowPhase == .capture else { return }
             applyRFState(enabled)
         }
         .onReceive(autosaveTimer) { _ in
@@ -428,6 +465,7 @@ public struct SurveyView: View {
     private func startSidekickPreview() {
         beginAutosaveSession()
         checkpointSession(includeMesh: false, showStatus: false)
+        enterCapturePhase()
         isSidekickPreviewing = true
         captureStartedAt = Date()
         sessionID = autosaveSessionID ?? UUID().uuidString
@@ -446,6 +484,7 @@ public struct SurveyView: View {
         }
         beginAutosaveSession()
         checkpointSession(includeMesh: false, showStatus: false)
+        enterCapturePhase()
         isStreaming = true
         captureStartedAt = Date()
         saveStatusMessage = "Starting FieldSurvey backend upload..."
@@ -461,31 +500,40 @@ public struct SurveyView: View {
 
     private func stopStreamingPipeline() {
         checkpointSession(includeMesh: true, showStatus: false)
-        wifiScanner.stopPoseStreaming()
+        stopCaptureSideEffects()
         sidekickRelay.stop()
         isStreaming = false
         isSidekickPreviewing = false
         captureStartedAt = nil
+        workflowPhase = .review
     }
 
     private func stopSidekickPreview() {
         checkpointSession(includeMesh: true, showStatus: false)
+        stopCaptureSideEffects()
         sidekickRelay.stop()
         isSidekickPreviewing = false
         captureStartedAt = nil
-        if settings.rfScanningEnabled {
-            wifiScanner.startScanning()
-        }
+        workflowPhase = .review
     }
 
     private func stopSidekickForLifecycle() {
         guard isStreaming || isSidekickPreviewing else { return }
         checkpointSession(includeMesh: true, showStatus: false)
-        wifiScanner.stopPoseStreaming()
+        stopCaptureSideEffects()
         sidekickRelay.stop()
         isStreaming = false
         isSidekickPreviewing = false
         captureStartedAt = nil
+        if workflowPhase == .capture {
+            workflowPhase = .review
+        }
+    }
+
+    private func stopCaptureSideEffects() {
+        wifiScanner.stopPoseStreaming()
+        wifiScanner.stopScanning(clearData: false)
+        SubnetScanner.shared.stopScanning()
     }
 
     private func applyRFState(_ enabled: Bool) {
@@ -495,6 +543,11 @@ public struct SurveyView: View {
         } else {
             SubnetScanner.shared.stopScanning()
         }
+    }
+
+    private func enterCapturePhase() {
+        workflowPhase = .capture
+        applyRFState(settings.rfScanningEnabled)
     }
 
     private var backendStreamingEnabled: Bool {
@@ -640,6 +693,7 @@ public struct SurveyView: View {
         autosaveSessionName = snapshot.record.name
         sessionID = snapshot.record.id
         recoveredSnapshot = snapshot
+        enterCapturePhase()
     }
 
     private func clearSaveStatus(after delay: TimeInterval) {
@@ -693,6 +747,197 @@ public struct SurveyView: View {
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter
     }()
+}
+
+@available(iOS 16.0, *)
+private struct SurveySetupPhaseView: View {
+    let backendEnabled: Bool
+    let rfEnabled: Bool
+    let sessionName: String
+    let heatmapPointCount: Int
+    let onStartLocal: () -> Void
+    let onStartBackend: () -> Void
+    let onReview: () -> Void
+    let onSessions: () -> Void
+    let onSettings: () -> Void
+    let onExit: (() -> Void)?
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.025, green: 0.035, blue: 0.05)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("FieldSurvey")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
+                        Text(sessionName.isEmpty ? "Setup" : sessionName)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.cyan.opacity(0.86))
+                    }
+
+                    Spacer()
+
+                    if let onExit {
+                        Button(action: onExit) {
+                            Image(systemName: "house.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.cyan)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    CaptureMetric(label: "RF", value: rfEnabled ? "ready" : "paused", tint: rfEnabled ? .green : .orange)
+                    CaptureMetric(label: "Backend", value: backendEnabled ? "ready" : "offline", tint: backendEnabled ? .green : .orange)
+                    CaptureMetric(label: "Heat", value: "\(heatmapPointCount)", tint: .cyan)
+                }
+
+                VStack(spacing: 12) {
+                    PhaseActionButton(
+                        title: backendEnabled ? "Start Backend Capture" : "Start Local Capture",
+                        icon: backendEnabled ? "antenna.radiowaves.left.and.right" : "play.fill",
+                        tint: .green,
+                        action: backendEnabled ? onStartBackend : onStartLocal
+                    )
+
+                    if backendEnabled {
+                        PhaseActionButton(
+                            title: "Start Local Preview",
+                            icon: "play",
+                            tint: .cyan,
+                            action: onStartLocal
+                        )
+                    }
+
+                    PhaseActionButton(title: "Review", icon: "chart.dots.scatter", tint: .cyan, action: onReview)
+                    PhaseActionButton(title: "Sessions", icon: "folder.fill", tint: .purple, action: onSessions)
+                    PhaseActionButton(title: "Settings", icon: "gearshape.fill", tint: .orange, action: onSettings)
+                }
+
+                Spacer()
+            }
+            .padding(22)
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+@available(iOS 16.0, *)
+private struct SurveyReviewPhaseView: View {
+    let sessionName: String
+    let heatmapPointCount: Int
+    let spectrumCount: Int
+    let onResumeCapture: () -> Void
+    let onOpenSignalMap: () -> Void
+    let onSessions: () -> Void
+    let onDone: (() -> Void)?
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.025, green: 0.035, blue: 0.05)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Review")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
+                        Text(sessionName.isEmpty ? "Current survey" : sessionName)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.cyan.opacity(0.86))
+                    }
+
+                    Spacer()
+
+                    if let onDone {
+                        Button(action: onDone) {
+                            Image(systemName: "house.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.cyan)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    CaptureMetric(label: "Heat", value: "\(heatmapPointCount)", tint: .green)
+                    CaptureMetric(label: "Spectrum", value: "\(spectrumCount)", tint: .orange)
+                }
+
+                VStack(spacing: 12) {
+                    PhaseActionButton(title: "Open Signal Map", icon: "chart.dots.scatter", tint: .green, action: onOpenSignalMap)
+                    PhaseActionButton(title: "Resume Capture", icon: "camera.viewfinder", tint: .cyan, action: onResumeCapture)
+                    PhaseActionButton(title: "Sessions", icon: "folder.fill", tint: .purple, action: onSessions)
+                }
+
+                Spacer()
+            }
+            .padding(22)
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+@available(iOS 16.0, *)
+private struct PhaseActionButton: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .bold))
+                    .frame(width: 24)
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 16)
+            .frame(height: 52)
+            .background(tint)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+private struct CaptureMetric: View {
+    let label: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.58))
+            Text(value)
+                .font(.system(size: 15, weight: .bold, design: .monospaced))
+                .foregroundColor(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 54)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
 }
 
 @available(iOS 16.0, *)
