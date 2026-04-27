@@ -134,9 +134,16 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     <div class="absolute inset-0 opacity-40 [background-image:linear-gradient(to_right,hsl(var(--bc)/0.12)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--bc)/0.12)_1px,transparent_1px)] [background-size:2rem_2rem]">
                     </div>
 
+                    <span
+                      :for={cell <- coverage_cells(@review, @overlay)}
+                      class="absolute rounded-full pointer-events-none"
+                      style={coverage_cell_style(cell)}
+                    >
+                    </span>
+
                     <svg
                       :if={@review.floorplan_segments != []}
-                      class="absolute inset-0 h-full w-full"
+                      class="absolute inset-0 h-full w-full pointer-events-none"
                       viewBox="0 0 100 100"
                       preserveAspectRatio="none"
                       aria-hidden="true"
@@ -262,7 +269,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       <.summary_cell label="RF Rows" value={@metrics.rf_count} />
       <.summary_cell label="Pose Rows" value={@metrics.pose_count} />
       <.summary_cell label="APs" value={@metrics.ap_count} />
-      <.summary_cell label="Wi-Fi Heat" value={@metrics.wifi_point_count} />
+      <.summary_cell
+        label="Wi-Fi Heat"
+        value={"#{@metrics.wifi_raster_cell_count}/#{@metrics.wifi_point_count}"}
+      />
       <.summary_cell label="RF Heat" value={@metrics.interference_point_count} />
       <.summary_cell label="Spectrum" value={@metrics.spectrum_count} />
       <.summary_cell label="Artifacts" value={@metrics.room_artifact_count} />
@@ -371,6 +381,17 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp map_points(review, "interference"), do: review.interference_points
   defp map_points(review, _overlay), do: review.wifi_points
+
+  defp coverage_cells(review, "wifi"), do: Map.get(review, :wifi_raster, [])
+  defp coverage_cells(_review, _overlay), do: []
+
+  defp coverage_cell_style(cell) do
+    diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
+    color = rssi_color(cell.rssi || -95)
+    opacity = 0.14 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.42
+
+    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 52%, transparent 78%); opacity: #{Float.round(opacity, 3)}; filter: blur(3px);"
+  end
 
   defp point_style(point, "interference") do
     size = 18 + (point.score || 0) * 0.22

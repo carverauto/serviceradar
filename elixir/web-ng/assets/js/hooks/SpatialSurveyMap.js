@@ -54,12 +54,10 @@ export default {
 
     this.initDeck = async () => {
       const {Deck, OrbitView, COORDINATE_SYSTEM} = await import("@deck.gl/core")
-      const {LineLayer, PointCloudLayer, ScatterplotLayer} = await import("@deck.gl/layers")
-      const {HexagonLayer} = await import("@deck.gl/aggregation-layers")
+      const {LineLayer, PointCloudLayer, SolidPolygonLayer} = await import("@deck.gl/layers")
 
       this.resizeDeck()
 
-      let data = []
       let artifacts = []
       let floorplanSegments = []
       let pointCloud = []
@@ -70,17 +68,14 @@ export default {
         const payload = await response.json()
         const scene = payload?.data
 
-        if (Array.isArray(scene)) {
-          data = scene.map(normalizeSample).filter(Boolean)
-        } else {
-          data = Array.isArray(scene?.samples) ? scene.samples.map(normalizeSample).filter(Boolean) : []
+        if (!Array.isArray(scene)) {
           artifacts = Array.isArray(scene?.artifacts) ? scene.artifacts : []
           floorplanSegments = Array.isArray(scene?.floorplan_segments)
             ? scene.floorplan_segments.map(normalizeFloorplanSegment).filter(Boolean)
             : []
 
           if (scene?.point_cloud_artifact?.download_url) {
-            pointCloud = await loadPointCloud(scene.point_cloud_artifact.download_url)
+            pointCloud = await loadPointCloud(scene.point_cloud_artifact.download_url, floorplanSegments)
           }
         }
 
@@ -88,15 +83,19 @@ export default {
         const hasRoomPlanOnly = artifacts.some((artifact) => artifact?.artifact_type === "roomplan_usdz") && !hasRenderableRoom
         const emptyDetail = hasRoomPlanOnly
           ? "RoomPlan USDZ is stored, but no browser-renderable floorplan or point-cloud artifact was uploaded for this session yet."
-          : "FieldSurvey uploads will appear here once pose, RF, and room scan artifacts are ingested."
-        this.setEmptyState(data.length === 0 && !hasRenderableRoom ? "empty" : null, emptyDetail)
+          : "FieldSurvey room scan uploads will appear here once RoomPlan floorplan or point-cloud artifacts are ingested."
+        this.setEmptyState(!hasRenderableRoom ? "empty" : null, emptyDetail)
       } catch (error) {
         this.setEmptyState("error", error?.message || "The spatial sample API did not return usable data.")
       }
 
+      const roomSurfaces = roomSurfacesFromSegments(floorplanSegments)
+      const structuralLines = roomStructuralLines(floorplanSegments)
+      const sceneBounds = boundsForScene(floorplanSegments, pointCloud)
+
       const gridLayer = new LineLayer({
         id: "spatial-reference-grid",
-        data: referenceGridLines(),
+        data: referenceGridLines(sceneBounds),
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getSourcePosition: (d) => d.source,
         getTargetPosition: (d) => d.target,
@@ -106,68 +105,44 @@ export default {
         pickable: false,
       })
 
-      const floorplanLayer = new LineLayer({
-        id: "roomplan-floorplan",
-        data: floorplanSegments,
+      const wallSurfaceLayer = new SolidPolygonLayer({
+        id: "roomplan-wall-surfaces",
+        data: roomSurfaces,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getSourcePosition: (d) => [d.startX, d.startZ, 0.05],
-        getTargetPosition: (d) => [d.endX, d.endZ, 0.05],
-        getColor: (d) => floorplanColor(d.kind),
-        getWidth: (d) => d.kind === "wall" ? 4 : 2,
+        getPolygon: (d) => d.polygon,
+        getFillColor: (d) => d.color,
+        material: {
+          ambient: 0.52,
+          diffuse: 0.82,
+          shininess: 18,
+          specularColor: [80, 110, 120],
+        },
+        _full3d: true,
+        pickable: true,
+      })
+
+      const structureLineLayer = new LineLayer({
+        id: "roomplan-structure-lines",
+        data: structuralLines,
+        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        getSourcePosition: (d) => d.source,
+        getTargetPosition: (d) => d.target,
+        getColor: (d) => d.color,
+        getWidth: (d) => d.width,
         widthUnits: "pixels",
         pickable: true,
       })
 
-      // Flat RF coverage aggregation. This is RF survey data, not LiDAR geometry.
-      const hexLayer = new HexagonLayer({
-        id: "rf-hexagon-layer",
-        data,
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        pickable: true,
-        extruded: false,
-        radius: 1.5, // 1.5 meters per hex cell
-        getPosition: (d) => [d.x, d.y],
-        // Aggregate color by average RSSI. Closer to 0 = stronger = brighter green.
-        getColorValue: (points) => {
-          const avg = points.reduce((sum, p) => sum + p.rssi, 0) / points.length
-          return avg
-        },
-        colorRange: [
-          [255, 64, 64], // Red (Weak)
-          [255, 162, 50], // Orange
-          [255, 255, 0], // Yellow
-          [0, 255, 0], // Green
-          [0, 224, 255], // Cyan (Strong)
-          [214, 97, 255], // Purple (Excellent)
-        ],
-        colorDomain: [-90, -40], // RSSI bounds
-      })
-
-      const rfPointLayer = new ScatterplotLayer({
-        id: "rf-sample-points",
-        data,
-        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => [d.x, d.y, 0.08],
-        getFillColor: (d) => rssiColor(d.rssi, 170),
-        getLineColor: [255, 255, 255, 90],
-        getRadius: 0.12,
-        radiusUnits: "meters",
-        lineWidthUnits: "pixels",
-        lineWidthMinPixels: 1,
-        stroked: true,
-        filled: true,
-        pickable: true,
-      })
-
-      // Point cloud layer for browser-renderable LiDAR artifacts, when uploaded.
+      // Raw ARKit feature points are noisy, so only use them when no RoomPlan floorplan
+      // is available. The review page owns RF/heatmap rendering.
       const pointCloudLayer = new PointCloudLayer({
         id: "lidar-point-cloud",
-        data: pointCloud,
+        data: floorplanSegments.length === 0 ? pointCloud : [],
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
         getNormal: [0, 1, 0],
         getColor: (d) => d.color,
-        pointSize: 2,
+        pointSize: 1.4,
         sizeUnits: "pixels",
       })
 
@@ -177,17 +152,12 @@ export default {
           id: "orbit-view",
           orbitAxis: "Z",
         }),
-        initialViewState: {
-          target: [0, 0, 0],
-          zoom: 4,
-          rotationX: 60,
-          rotationOrbit: 45,
-        },
+        initialViewState: viewStateForBounds(sceneBounds),
         controller: true,
         parameters: {
           clearColor: [0.02, 0.04, 0.08, 1],
         },
-        layers: [gridLayer, floorplanLayer, hexLayer, rfPointLayer, pointCloudLayer],
+        layers: [gridLayer, wallSurfaceLayer, structureLineLayer, pointCloudLayer],
       })
 
       this.resizeDeck()
@@ -208,28 +178,12 @@ export default {
   },
 }
 
-function normalizeSample(sample) {
-  const x = Number(sample?.x)
-  const floorY = Number(sample?.z)
-  const height = Number(sample?.y || 0)
-  const rssi = Number(sample?.rssi)
-
-  if (!Number.isFinite(x) || !Number.isFinite(floorY)) return null
-
-  return {
-    ...sample,
-    x,
-    y: floorY,
-    z: Number.isFinite(height) ? height : 0,
-    rssi: Number.isFinite(rssi) ? rssi : -90,
-  }
-}
-
 function normalizeFloorplanSegment(segment) {
   const startX = Number(segment?.start_x)
   const startZ = Number(segment?.start_z)
   const endX = Number(segment?.end_x)
   const endZ = Number(segment?.end_z)
+  const height = Number(segment?.height)
 
   if (![startX, startZ, endX, endZ].every(Number.isFinite)) return null
 
@@ -239,21 +193,22 @@ function normalizeFloorplanSegment(segment) {
     startZ,
     endX,
     endZ,
+    height: Number.isFinite(height) && height > 0.3 ? Math.min(height, 4) : 2.55,
   }
 }
 
-async function loadPointCloud(downloadUrl) {
+async function loadPointCloud(downloadUrl, floorplanSegments) {
   try {
     const response = await fetch(downloadUrl, {credentials: "same-origin"})
     if (!response.ok) return []
     const text = await response.text()
-    return parseAsciiPly(text)
+    return parseAsciiPly(text, floorplanSegments)
   } catch (_error) {
     return []
   }
 }
 
-function parseAsciiPly(text) {
+function parseAsciiPly(text, floorplanSegments) {
   const lines = text.split(/\r?\n/)
   const endHeader = lines.findIndex((line) => line.trim() === "end_header")
   if (endHeader < 0 || !lines.some((line) => line.trim() === "format ascii 1.0")) return []
@@ -263,8 +218,7 @@ function parseAsciiPly(text) {
   if (!Number.isFinite(vertexCount) || vertexCount <= 0) return []
 
   const vertices = []
-  const limit = Math.min(vertexCount, 500000)
-  for (let index = 0; index < limit; index += 1) {
+  for (let index = 0; index < vertexCount; index += 1) {
     const fields = lines[endHeader + 1 + index]?.trim().split(/\s+/).map(Number)
     if (!fields || fields.length < 3) continue
 
@@ -272,19 +226,136 @@ function parseAsciiPly(text) {
     if (![x, y, z].every(Number.isFinite)) continue
 
     vertices.push({
+      x,
+      y,
+      z,
       position: [x, z, y],
-      color: [red || 180, green || 210, blue || 220, 220],
+      color: [red || 178, green || 205, blue || 220, 185],
     })
   }
-  return vertices
+
+  return downsamplePointCloud(trimPointCloud(vertices, floorplanSegments), 180000)
 }
 
-function rssiColor(rssi, alpha = 210) {
-  if (rssi >= -50) return [34, 197, 94, alpha]
-  if (rssi >= -60) return [132, 204, 22, alpha]
-  if (rssi >= -70) return [250, 204, 21, alpha]
-  if (rssi >= -80) return [249, 115, 22, alpha]
-  return [239, 68, 68, alpha]
+function trimPointCloud(vertices, floorplanSegments) {
+  if (vertices.length === 0) return []
+
+  const bounds = floorplanBounds(floorplanSegments) || robustPointBounds(vertices)
+  if (!bounds) return vertices
+
+  const margin = floorplanSegments.length > 0 ? 1.2 : 0
+  const minY = floorplanSegments.length > 0 ? -0.75 : bounds.minY
+  const maxY = floorplanSegments.length > 0 ? 3.6 : bounds.maxY
+
+  return vertices.filter((vertex) =>
+    vertex.x >= bounds.minX - margin &&
+    vertex.x <= bounds.maxX + margin &&
+    vertex.z >= bounds.minZ - margin &&
+    vertex.z <= bounds.maxZ + margin &&
+    vertex.y >= minY &&
+    vertex.y <= maxY
+  )
+}
+
+function downsamplePointCloud(vertices, maxPoints) {
+  if (vertices.length <= maxPoints) return vertices
+
+  const stride = Math.ceil(vertices.length / maxPoints)
+  const sampled = []
+  for (let index = 0; index < vertices.length && sampled.length < maxPoints; index += stride) {
+    sampled.push(vertices[index])
+  }
+  return sampled
+}
+
+function robustPointBounds(vertices) {
+  return {
+    minX: percentile(vertices.map((point) => point.x), 0.01),
+    maxX: percentile(vertices.map((point) => point.x), 0.99),
+    minY: percentile(vertices.map((point) => point.y), 0.01),
+    maxY: percentile(vertices.map((point) => point.y), 0.99),
+    minZ: percentile(vertices.map((point) => point.z), 0.01),
+    maxZ: percentile(vertices.map((point) => point.z), 0.99),
+  }
+}
+
+function percentile(values, ratio) {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b)
+  if (sorted.length === 0) return 0
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * ratio)))]
+}
+
+function roomSurfacesFromSegments(segments) {
+  return segments.map((segment) => {
+    const color = wallFillColor(segment.kind)
+    const baseStart = [segment.startX, segment.startZ, 0]
+    const baseEnd = [segment.endX, segment.endZ, 0]
+    const topEnd = [segment.endX, segment.endZ, segment.height]
+    const topStart = [segment.startX, segment.startZ, segment.height]
+
+    return {
+      kind: segment.kind,
+      polygon: [baseStart, baseEnd, topEnd, topStart],
+      color,
+    }
+  })
+}
+
+function roomStructuralLines(segments) {
+  return segments.flatMap((segment) => {
+    const color = floorplanColor(segment.kind)
+    const width = segment.kind === "wall" ? 3 : 2
+    const startBottom = [segment.startX, segment.startZ, 0.02]
+    const endBottom = [segment.endX, segment.endZ, 0.02]
+    const startTop = [segment.startX, segment.startZ, segment.height]
+    const endTop = [segment.endX, segment.endZ, segment.height]
+
+    return [
+      {source: startBottom, target: endBottom, color, width},
+      {source: startTop, target: endTop, color, width},
+      {source: startBottom, target: startTop, color: [...color.slice(0, 3), 120], width: 1},
+      {source: endBottom, target: endTop, color: [...color.slice(0, 3), 120], width: 1},
+    ]
+  })
+}
+
+function floorplanBounds(segments) {
+  if (segments.length === 0) return null
+
+  const xs = segments.flatMap((segment) => [segment.startX, segment.endX])
+  const zs = segments.flatMap((segment) => [segment.startZ, segment.endZ])
+  const heights = segments.map((segment) => segment.height)
+
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: 0,
+    maxY: Math.max(...heights, 2.55),
+    minZ: Math.min(...zs),
+    maxZ: Math.max(...zs),
+  }
+}
+
+function boundsForScene(segments, pointCloud) {
+  const roomBounds = floorplanBounds(segments)
+  if (roomBounds) return roomBounds
+  const pointBounds = robustPointBounds(pointCloud)
+  if (pointCloud.length > 0) return pointBounds
+  return {minX: -5, maxX: 5, minY: 0, maxY: 3, minZ: -5, maxZ: 5}
+}
+
+function viewStateForBounds(bounds) {
+  const centerX = (bounds.minX + bounds.maxX) / 2
+  const centerY = (bounds.minZ + bounds.maxZ) / 2
+  const centerZ = Math.max(0.8, (bounds.minY + bounds.maxY) / 2)
+  const span = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ, 3)
+
+  return {
+    target: [centerX, centerY, centerZ],
+    zoom: Math.max(1.6, Math.min(5.2, 5.8 - Math.log2(span))),
+    rotationX: 58,
+    rotationOrbit: 38,
+  }
 }
 
 function floorplanColor(kind) {
@@ -293,19 +364,31 @@ function floorplanColor(kind) {
   return [103, 232, 249, 220]
 }
 
-function referenceGridLines() {
-  const lines = []
-  const extent = 20
+function wallFillColor(kind) {
+  if (kind === "door") return [226, 232, 240, 85]
+  if (kind === "window") return [125, 211, 252, 95]
+  return [103, 232, 249, 80]
+}
 
-  for (let value = -extent; value <= extent; value += 5) {
+function referenceGridLines(bounds) {
+  const lines = []
+  const minX = Math.floor((bounds.minX - 4) / 2) * 2
+  const maxX = Math.ceil((bounds.maxX + 4) / 2) * 2
+  const minZ = Math.floor((bounds.minZ - 4) / 2) * 2
+  const maxZ = Math.ceil((bounds.maxZ + 4) / 2) * 2
+
+  for (let value = minZ; value <= maxZ; value += 2) {
     lines.push({
-      source: [-extent, value, 0],
-      target: [extent, value, 0],
+      source: [minX, value, 0],
+      target: [maxX, value, 0],
       axis: value === 0,
     })
+  }
+
+  for (let value = minX; value <= maxX; value += 2) {
     lines.push({
-      source: [value, -extent, 0],
-      target: [value, extent, 0],
+      source: [value, minZ, 0],
+      target: [value, maxZ, 0],
       axis: value === 0,
     })
   }
