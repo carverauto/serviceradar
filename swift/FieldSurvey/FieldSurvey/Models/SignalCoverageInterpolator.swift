@@ -34,9 +34,9 @@ public enum SignalCoverageInterpolator {
         let models = trainedModels(from: validPoints)
         guard !models.isEmpty else { return [] }
 
-        let cellSize = max(preferredCellSize, 0.25)
-        let columns = min(max(Int(ceil((maxX - minX) / cellSize)), 8), 30)
-        let rows = min(max(Int(ceil((maxZ - minZ) / cellSize)), 8), 30)
+        let cellSize = max(preferredCellSize, 0.22)
+        let columns = min(max(Int(ceil((maxX - minX) / cellSize)), 10), 56)
+        let rows = min(max(Int(ceil((maxZ - minZ) / cellSize)), 10), 56)
         let stepX = (maxX - minX) / Float(columns)
         let stepZ = (maxZ - minZ) / Float(rows)
 
@@ -74,7 +74,7 @@ public enum SignalCoverageInterpolator {
                 }
                 return lhs.count > rhs.count
             }
-            .prefix(4)
+            .prefix(8)
             .compactMap { apPoints in
                 let samples = bucketedTrainingSamples(apPoints)
                 guard samples.count >= 3 else { return nil }
@@ -125,7 +125,7 @@ public enum SignalCoverageInterpolator {
 
         return samples
             .sorted { $0.latestTimestamp > $1.latestTimestamp }
-            .prefix(64)
+            .prefix(96)
             .map { $0 }
     }
 
