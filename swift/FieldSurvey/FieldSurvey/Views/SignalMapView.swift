@@ -584,7 +584,7 @@ private final class SignalCoverageRenderStore: ObservableObject {
                 maxX: signature.maxX,
                 minZ: signature.minZ,
                 maxZ: signature.maxZ,
-                preferredCellSize: 0.48
+                preferredCellSize: 0.38
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -980,30 +980,30 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        let baseSize = projection.screenSize(widthMeters: 0.68, heightMeters: 0.68)
+        let baseSize = projection.screenSize(widthMeters: 0.55, heightMeters: 0.55)
+        let mapDiagonalMeters = hypot(projection.maxX - projection.minX, projection.maxZ - projection.minZ)
         let maxPredictionDistanceMeters: Float
         switch signalBuckets.count {
         case 0..<12:
-            maxPredictionDistanceMeters = 3.5
+            maxPredictionDistanceMeters = min(max(mapDiagonalMeters * 0.35, 4.0), 8.0)
         case 12..<30:
-            maxPredictionDistanceMeters = 5.0
+            maxPredictionDistanceMeters = min(max(mapDiagonalMeters * 0.45, 6.0), 12.0)
         default:
-            maxPredictionDistanceMeters = 7.0
+            maxPredictionDistanceMeters = min(max(mapDiagonalMeters * 0.65, 9.0), 18.0)
         }
 
         let heatSamples = predictions
             .filter {
-                $0.confidence >= 0.04 &&
-                    $0.nearestSampleDistance <= maxPredictionDistanceMeters
+                $0.nearestSampleDistance <= maxPredictionDistanceMeters
             }
-            .prefix(1_400)
+            .prefix(3_600)
             .map { prediction -> MetalHeatmapSample in
                 let center = projection.screenPoint(for: prediction.position)
-                let radius = min(max(max(baseSize.width, baseSize.height) * 0.68, 8), 34)
+                let radius = min(max(max(baseSize.width, baseSize.height) * 1.18, 9), 42)
                 let distanceFade = max(0, 1 - prediction.nearestSampleDistance / maxPredictionDistanceMeters)
                 let confidence = Float(min(max(prediction.confidence, 0.0), 1.0))
                 let strength = Float(SignalColor.normalized(prediction.rssi))
-                let alpha = (0.12 + strength * 0.30 + confidence * 0.24) * max(distanceFade, 0.22)
+                let alpha = (0.08 + strength * 0.24 + confidence * 0.16) * max(distanceFade, 0.32)
                 let color = SignalColor.rgba(for: prediction.rssi)
                 return MetalHeatmapSample(
                     center: SIMD2<Float>(Float(center.x), Float(center.y)),
@@ -1120,7 +1120,7 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
     fragment float4 heatmapFragment(HeatmapVertexOut in [[stage_in]]) {
         float distanceFromCenter = distance(in.pixel, in.center);
         float normalized = saturate(1.0 - distanceFromCenter / max(in.radius, 1.0));
-        float falloff = normalized * normalized * (3.0 - 2.0 * normalized);
+        float falloff = smoothstep(0.0, 0.72, normalized);
         float alpha = in.alpha * falloff;
         return float4(in.color.rgb, alpha);
     }
