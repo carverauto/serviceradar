@@ -147,12 +147,20 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
             .replacingOccurrences(of: "http://", with: "ws://")
             .replacingOccurrences(of: "https://", with: "wss://")
 
-        guard let url = URL(string: "\(trimmedBaseURL)/v1/field-survey/\(sessionID)/\(stream.rawValue)") else {
+        let trimmedAuthToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAuthToken.isEmpty, trimmedAuthToken != "OFFLINE_MODE" else {
             return nil
         }
 
-        let trimmedAuthToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedAuthToken.isEmpty, trimmedAuthToken != "OFFLINE_MODE" else {
+        guard var components = URLComponents(string: "\(trimmedBaseURL)/v1/field-survey/\(sessionID)/\(stream.rawValue)") else {
+            return nil
+        }
+
+        components.queryItems = (components.queryItems ?? []) + [
+            URLQueryItem(name: "ws_token", value: trimmedAuthToken)
+        ]
+
+        guard let url = components.url else {
             return nil
         }
 
