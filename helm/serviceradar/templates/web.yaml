@@ -218,6 +218,16 @@ spec:
           value: {{ $gatewayAddress | quote }}
         - name: NATS_URL
           value: {{ $natsUrl | quote }}
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+        - name: NATS_ENABLED
+          value: "true"
+        - name: NATS_TLS
+          value: "true"
+        - name: NATS_SERVER_NAME
+          value: {{ default "serviceradar-nats" $webNg.natsServerName | quote }}
+        - name: NATS_CREDS_FILE
+          value: "/etc/serviceradar/creds/platform.creds"
+        {{- end }}
         - name: CORE_ADDRESS
           value: {{ $coreAddress | quote }}
         - name: CLUSTER_ENABLED
@@ -420,6 +430,11 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
@@ -465,6 +480,11 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      {{- end }}
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
