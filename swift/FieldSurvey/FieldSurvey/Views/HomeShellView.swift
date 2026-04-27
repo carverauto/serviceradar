@@ -243,11 +243,14 @@ public struct SessionLibraryView: View {
     @ObservedObject var roomScanner: RoomScanner
     @ObservedObject var wifiScanner: RealWiFiScanner
     @ObservedObject var sessionStore: SurveySessionStore
+    @ObservedObject private var settings = SettingsManager.shared
 
     let onResume: ((SurveySessionSnapshot) -> Void)?
 
     @State private var compareMessage: String?
     @State private var loadMessage: String?
+    @State private var artifactUploadMessage: String?
+    @State private var uploadingArtifactSessionIDs: Set<String> = []
     @State private var reviewSnapshot: SurveySessionSnapshot?
 
     public init(
@@ -298,6 +301,12 @@ public struct SessionLibraryView: View {
                                 }
                                 .buttonStyle(.bordered)
 
+                                Button(uploadingArtifactSessionIDs.contains(session.id) ? "Uploading" : "Upload") {
+                                    uploadSavedArtifacts(session)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(uploadingArtifactSessionIDs.contains(session.id))
+
                                 Button("Delete", role: .destructive) {
                                     sessionStore.deleteSession(id: session.id)
                                 }
@@ -330,6 +339,14 @@ public struct SessionLibraryView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(loadMessage ?? "")
+            }
+            .alert("Artifact Upload", isPresented: Binding(
+                get: { artifactUploadMessage != nil },
+                set: { if !$0 { artifactUploadMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(artifactUploadMessage ?? "")
             }
             .sheet(item: $reviewSnapshot) { snapshot in
                 SignalMapView(
@@ -373,6 +390,71 @@ public struct SessionLibraryView: View {
         }
 
         compareMessage = "Overlap: \(result.overlapCount) APs\nAvg RSSI delta: \(String(format: "%.1f", result.averageRSSIDelta)) dBm\nImproved: \(result.improvedCount) • Degraded: \(result.degradedCount)"
+    }
+
+    private func uploadSavedArtifacts(_ session: SurveySessionRecord) {
+        let authToken = settings.authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !settings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !authToken.isEmpty,
+              authToken != "OFFLINE_MODE" else {
+            artifactUploadMessage = "Sign in to ServiceRadar before retrying artifact upload."
+            return
+        }
+
+        guard let snapshot = sessionStore.loadSession(id: session.id) else {
+            artifactUploadMessage = "Failed to load saved session."
+            return
+        }
+
+        let meshURL = sessionStore.meshFileURL(for: session)
+        guard meshURL != nil || !snapshot.floorplanSegments.isEmpty else {
+            artifactUploadMessage = "This saved session has no room scan or floorplan artifact to upload."
+            return
+        }
+
+        uploadingArtifactSessionIDs.insert(session.id)
+        Task { @MainActor in
+            defer { uploadingArtifactSessionIDs.remove(session.id) }
+
+            do {
+                let uploader = FieldSurveyRoomArtifactUploader()
+                var uploadedTypes: [String] = []
+                let capturedAt = Date(timeIntervalSince1970: session.updatedAt)
+
+                if let meshURL {
+                    let result = try await uploader.uploadRoomPlanUSDZ(
+                        fileURL: meshURL,
+                        baseURL: settings.apiURL,
+                        authToken: authToken,
+                        sessionID: session.id,
+                        capturedAt: capturedAt
+                    )
+                    if result.ok {
+                        uploadedTypes.append("RoomPlan USDZ")
+                    }
+                }
+
+                if !snapshot.floorplanSegments.isEmpty {
+                    let floorplanURL = try sessionStore.writeFloorplanGeoJSON(for: snapshot)
+                    let result = try await uploader.uploadFloorplanGeoJSON(
+                        fileURL: floorplanURL,
+                        baseURL: settings.apiURL,
+                        authToken: authToken,
+                        sessionID: session.id,
+                        capturedAt: capturedAt
+                    )
+                    if result.ok {
+                        uploadedTypes.append("2D floorplan")
+                    }
+                }
+
+                artifactUploadMessage = uploadedTypes.isEmpty
+                    ? "No room artifacts were uploaded."
+                    : "Uploaded \(uploadedTypes.joined(separator: " + ")) for \(session.name)."
+            } catch {
+                artifactUploadMessage = "Artifact upload failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func sessionDate(_ timestamp: TimeInterval) -> String {
