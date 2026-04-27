@@ -38,7 +38,7 @@
 - [x] 5.3 Document FieldSurvey pairing and survey workflow.
 
 ## 6. Ekahau-Class RF Fidelity
-- [ ] 6.1 Add HackRF waterfall/spectrogram surfaces from the last N sweep rows, rendered in iOS and web review as frequency X time X power.
+- [ ] 6.1 Add HackRF waterfall/spectrogram surfaces from the last N sweep rows, rendered in iOS and web review as frequency X time X power. Web review has the first persisted waterfall surface; iOS live/review rendering remains.
 - [x] 6.2 Persist a backend-derived RF interference raster separately from the Wi-Fi RSSI raster so operators can compare coverage versus noise.
 - [x] 6.3 Add per-band/per-channel noise-floor baseline calibration and score interference as power above baseline, not raw dBm only.
 - [x] 6.4 Correlate HackRF channel energy with observed Wi-Fi AP channels to flag conflicts such as strong RSSI on a noisy channel.
@@ -49,10 +49,18 @@
 - [ ] 6.9 Add active survey hooks for latency/throughput tests that can be tied to the same LiDAR pose timeline.
 - [ ] 6.10 Add export/reporting surfaces for standard heatmap output and future ESX-like interchange.
 
-## 7. Verification
-- [x] 7.1 Run Rust `cargo fmt`, `cargo test -p serviceradar-fieldsurvey-sidekick`, and clippy for the new crate.
-- [x] 7.2 Run Swift FieldSurvey tests. Added a real `FieldSurveyTests` target plus shared scheme test action; `xcodebuild -project swift/FieldSurvey/FieldSurvey.xcodeproj -scheme FieldSurvey -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.4.1' test CODE_SIGNING_ALLOWED=NO` passed.
-- [x] 7.3 Run focused Elixir/web-ng compile checks and Rust NIF tests for raw RF, pose, and spectrum Arrow decoding.
-- [ ] 7.4 Perform an end-to-end iPhone/Pi/backend survey smoke test and confirm inserted rows in `platform.survey_rf_observations`, `platform.survey_pose_samples`, `platform.survey_spectrum_observations`, and the `platform.survey_rf_pose_matches` fusion view. The backend raw RF/pose/spectrum ingest path has been validated against the shared CNPG fixture, and the live Pi emitted Arrow IPC frames for both Wi-Fi radios plus HackRF spectrum; a physical iPhone survey run is still required.
-- [x] 7.5 Run the FieldSurvey iOS simulator build with Xcode after installing iOS 26.4 platform support.
-- [x] 7.6 Smoke test the deployed Pi daemon against live hardware: `wlan1` and `wlan2` entered monitor mode and emitted binary Arrow IPC RF WebSocket frames; HackRF emitted a binary Arrow IPC spectrum frame after adding explicit `sweep_count` support for this `hackrf_sweep` build.
+## 7. Live Survey UX, AP Placement, and Rasters
+- [ ] 7.1 Expose Sidekick adaptive scan visibility: current weighted channel plan, spectrum-prioritized channels, per-channel observed BSSID counts, and stale/unseen channels.
+- [ ] 7.2 Render adaptive scan status in FieldSurvey so an operator can verify the radio is sweeping the expected channels during capture.
+- [ ] 7.3 Improve AP placement by combining manual AP marks, per-BSSID RSSI gradients, strongest-observation clusters, and path diversity into confidence-scored AP candidates.
+- [ ] 7.4 Surface AP placement confidence and supporting observations in iOS and web review.
+- [ ] 7.5 Ensure web dashboard/review uses persisted backend-derived `wifi_rssi` and `rf_interference` rasters as the post-survey source of truth.
+- [ ] 7.6 Add persisted raster regeneration/retry controls for sessions whose artifacts or rasters failed during upload/review.
+
+## 8. Verification
+- [x] 8.1 Run Rust `cargo fmt`, `cargo test -p serviceradar-fieldsurvey-sidekick`, and clippy for the new crate.
+- [x] 8.2 Run Swift FieldSurvey tests. Added a real `FieldSurveyTests` target plus shared scheme test action; `xcodebuild -project swift/FieldSurvey/FieldSurvey.xcodeproj -scheme FieldSurvey -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.4.1' test CODE_SIGNING_ALLOWED=NO` passed.
+- [x] 8.3 Run focused Elixir/web-ng compile checks and Rust NIF tests for raw RF, pose, and spectrum Arrow decoding.
+- [ ] 8.4 Perform an end-to-end iPhone/Pi/backend survey smoke test and confirm inserted rows in `platform.survey_rf_observations`, `platform.survey_pose_samples`, `platform.survey_spectrum_observations`, and the `platform.survey_rf_pose_matches` fusion view. The backend raw RF/pose/spectrum ingest path has been validated against the shared CNPG fixture, and the live Pi emitted Arrow IPC frames for both Wi-Fi radios plus HackRF spectrum; a physical iPhone survey run is still required.
+- [x] 8.5 Run the FieldSurvey iOS simulator build with Xcode after installing iOS 26.4 platform support.
+- [x] 8.6 Smoke test the deployed Pi daemon against live hardware: `wlan1` and `wlan2` entered monitor mode and emitted binary Arrow IPC RF WebSocket frames; HackRF emitted a binary Arrow IPC spectrum frame after adding explicit `sweep_count` support for this `hackrf_sweep` build.

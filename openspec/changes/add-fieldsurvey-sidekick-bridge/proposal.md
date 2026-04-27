@@ -6,8 +6,10 @@ iOS cannot provide monitor-mode Wi-Fi scans or high-rate RSSI/channel metadata f
 ## What Changes
 - Add a Raspberry Pi "Sidekick" architecture for FieldSurvey with two USB Wi-Fi adapters in monitor mode.
 - Add a Rust daemon on the Pi to configure radios, hop channels, parse 802.11 management frames, and expose a paired local control/data API to iOS.
+- Keep RF scheduling daemon-owned: the Sidekick uses HackRF channel energy plus decoded per-BSSID observations to adapt channel dwell while still doing periodic full passes.
 - Update the iOS FieldSurvey app plan so `RealWiFiScanner` can ingest Sidekick observations over a USB or local IP link and map them into existing `SurveySample`/Arrow upload flows.
 - Extend the survey data contract to carry external-radio metadata such as source, radio ID, channel, observed timestamp, noise floor, and frame type.
+- Persist backend-derived Wi-Fi RSSI and RF interference rasters, expose spectrum/waterfall review surfaces, and keep LiDAR/floorplan artifacts linked to surveys for 2D/3D review.
 - Keep Kismet optional for lab verification, not as the production daemon dependency.
 
 ## Impact
