@@ -10,6 +10,7 @@ public struct SignalMapView: View {
     public let title: String
     public let points: [WiFiHeatmapPoint]
     public let landmarks: [ManualAPLandmark]
+    public let floorplanSegments: [SurveyFloorplanSegment]
     public let currentPose: SIMD3<Float>?
     public let rfBatchCount: Int?
     public let spectrumBatchCount: Int?
@@ -35,6 +36,7 @@ public struct SignalMapView: View {
         title: String,
         points: [WiFiHeatmapPoint],
         landmarks: [ManualAPLandmark],
+        floorplanSegments: [SurveyFloorplanSegment] = [],
         currentPose: SIMD3<Float>? = nil,
         rfBatchCount: Int? = nil,
         spectrumBatchCount: Int? = nil,
@@ -50,6 +52,7 @@ public struct SignalMapView: View {
         self.title = title
         self.points = points
         self.landmarks = landmarks
+        self.floorplanSegments = floorplanSegments
         self.currentPose = currentPose
         self.rfBatchCount = rfBatchCount
         self.spectrumBatchCount = spectrumBatchCount
@@ -84,6 +87,7 @@ public struct SignalMapView: View {
             SignalMapCanvas(
                 signalBuckets: signalBuckets,
                 landmarks: renderState.visibleLandmarks,
+                floorplanSegments: renderState.floorplanSegments,
                 currentPose: renderState.visibleCurrentPose,
                 predictions: coverageStore.predictions,
                 zoom: mapScale,
@@ -485,6 +489,7 @@ public struct SignalMapView: View {
             floorPoints: floorPoints,
             visiblePoints: visiblePoints,
             visibleLandmarks: visibleLandmarks,
+            floorplanSegments: floorplanSegments,
             visibleCurrentPose: visibleCurrentPose,
             apSummaries: SignalAPSummary.summarize(points: floorPoints)
         )
@@ -497,6 +502,7 @@ private struct SignalMapRenderState {
     let floorPoints: [WiFiHeatmapPoint]
     let visiblePoints: [WiFiHeatmapPoint]
     let visibleLandmarks: [ManualAPLandmark]
+    let floorplanSegments: [SurveyFloorplanSegment]
     let visibleCurrentPose: SIMD3<Float>?
     let apSummaries: [SignalAPSummary]
 }
@@ -595,6 +601,7 @@ private final class SignalCoverageRenderStore: ObservableObject {
 private struct SignalMapCanvas: View {
     let signalBuckets: [SignalBucket]
     let landmarks: [ManualAPLandmark]
+    let floorplanSegments: [SurveyFloorplanSegment]
     let currentPose: SIMD3<Float>?
     let predictions: [SignalCoveragePrediction]
     let zoom: CGFloat
@@ -608,18 +615,20 @@ private struct SignalMapCanvas: View {
 
                 drawBackground(context: context, rect: plotRect)
 
-                guard SignalMapProjection(
+                guard let projection = SignalMapProjection(
                     signalBuckets: signalBuckets,
                     landmarks: landmarks,
+                    floorplanSegments: floorplanSegments,
                     currentPose: currentPose,
                     rect: plotRect,
                     zoom: zoom,
                     pan: pan
-                ) != nil else {
+                ) else {
                     return
                 }
 
                 drawGrid(context: context, rect: plotRect)
+                drawFloorplan(context: context, projection: projection)
             }
 
             if !predictions.isEmpty {
@@ -627,6 +636,7 @@ private struct SignalMapCanvas: View {
                     predictions: predictions,
                     signalBuckets: signalBuckets,
                     landmarks: landmarks,
+                    floorplanSegments: floorplanSegments,
                     currentPose: currentPose,
                     zoom: zoom,
                     pan: pan
@@ -640,6 +650,7 @@ private struct SignalMapCanvas: View {
                 guard let projection = SignalMapProjection(
                     signalBuckets: signalBuckets,
                     landmarks: landmarks,
+                    floorplanSegments: floorplanSegments,
                     currentPose: currentPose,
                     rect: plotRect,
                     zoom: zoom,
@@ -691,6 +702,29 @@ private struct SignalMapCanvas: View {
         }
 
         context.stroke(path, with: .color(.white.opacity(0.08)), lineWidth: 0.6)
+    }
+
+    private func drawFloorplan(context: GraphicsContext, projection: SignalMapProjection) {
+        guard !floorplanSegments.isEmpty else { return }
+
+        var wallPath = Path()
+        var openingPath = Path()
+
+        for segment in floorplanSegments {
+            let start = projection.screenPoint(for: segment.start)
+            let end = projection.screenPoint(for: segment.end)
+
+            if segment.kind == "wall" {
+                wallPath.move(to: start)
+                wallPath.addLine(to: end)
+            } else {
+                openingPath.move(to: start)
+                openingPath.addLine(to: end)
+            }
+        }
+
+        context.stroke(wallPath, with: .color(Color.cyan.opacity(0.62)), lineWidth: max(1.2, 2.4 * projection.zoom))
+        context.stroke(openingPath, with: .color(Color.white.opacity(0.72)), lineWidth: max(1.0, 1.8 * projection.zoom))
     }
 
     private func drawMeasuredBuckets(
@@ -817,6 +851,7 @@ private struct MetalSignalHeatmapView: UIViewRepresentable {
     let predictions: [SignalCoveragePrediction]
     let signalBuckets: [SignalBucket]
     let landmarks: [ManualAPLandmark]
+    let floorplanSegments: [SurveyFloorplanSegment]
     let currentPose: SIMD3<Float>?
     let zoom: CGFloat
     let pan: CGSize
@@ -851,6 +886,7 @@ private struct MetalSignalHeatmapView: UIViewRepresentable {
             predictions: predictions,
             signalBuckets: signalBuckets,
             landmarks: landmarks,
+            floorplanSegments: floorplanSegments,
             currentPose: currentPose,
             zoom: zoom,
             pan: pan,
@@ -917,6 +953,7 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
         predictions: [SignalCoveragePrediction],
         signalBuckets: [SignalBucket],
         landmarks: [ManualAPLandmark],
+        floorplanSegments: [SurveyFloorplanSegment],
         currentPose: SIMD3<Float>?,
         zoom: CGFloat,
         pan: CGSize,
@@ -928,6 +965,7 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
               let projection = SignalMapProjection(
                 signalBuckets: signalBuckets,
                 landmarks: landmarks,
+                floorplanSegments: floorplanSegments,
                 currentPose: currentPose,
                 rect: rect,
                 zoom: zoom,
@@ -1152,6 +1190,7 @@ private struct SignalMapProjection {
     init?(
         signalBuckets: [SignalBucket],
         landmarks: [ManualAPLandmark],
+        floorplanSegments: [SurveyFloorplanSegment],
         currentPose: SIMD3<Float>?,
         rect: CGRect,
         zoom: CGFloat,
@@ -1159,6 +1198,8 @@ private struct SignalMapProjection {
     ) {
         var xs = signalBuckets.map { $0.position.x }.filter(\.isFinite) + landmarks.map(\.x).filter(\.isFinite)
         var zs = signalBuckets.map { $0.position.z }.filter(\.isFinite) + landmarks.map(\.z).filter(\.isFinite)
+        xs += floorplanSegments.flatMap { [$0.start.x, $0.end.x] }.filter(\.isFinite)
+        zs += floorplanSegments.flatMap { [$0.start.y, $0.end.y] }.filter(\.isFinite)
 
         if xs.isEmpty, let currentPose, currentPose.isValidMapPosition {
             xs.append(currentPose.x)
@@ -1189,6 +1230,21 @@ private struct SignalMapProjection {
         let height = max(maxZ - minZ, 0.01)
         let nx = CGFloat((position.x - minX) / width)
         let nz = CGFloat((position.z - minZ) / height)
+        let base = CGPoint(
+            x: rect.minX + nx * rect.width,
+            y: rect.maxY - nz * rect.height
+        )
+        return CGPoint(
+            x: rect.midX + (base.x - rect.midX) * zoom + pan.width,
+            y: rect.midY + (base.y - rect.midY) * zoom + pan.height
+        )
+    }
+
+    func screenPoint(for position: SIMD2<Float>) -> CGPoint {
+        let width = max(maxX - minX, 0.01)
+        let height = max(maxZ - minZ, 0.01)
+        let nx = CGFloat((position.x - minX) / width)
+        let nz = CGFloat((position.y - minZ) / height)
         let base = CGPoint(
             x: rect.minX + nx * rect.width,
             y: rect.maxY - nz * rect.height
