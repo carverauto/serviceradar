@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @default_recent_limit 3_000
   @default_session_limit 4_000
   @default_spectrum_limit 2_000
+  @default_spatial_limit 10_000
   @default_cell_size_m 0.75
 
   @type session_summary :: %{
@@ -57,6 +58,15 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
          {:ok, pose_samples} <- read_pose_samples(scope, session_id, pose_limit),
          {:ok, spectrum_rows} <- read_spectrum_rows(scope, session_id, spectrum_limit) do
       {:ok, build_review(session_id, rf_matches, pose_samples, spectrum_rows, cell_size_m: cell_size_m)}
+    end
+  end
+
+  @spec spatial_samples(any(), keyword()) :: {:ok, [map()]} | {:error, any()}
+  def spatial_samples(scope, opts \\ []) do
+    limit = Keyword.get(opts, :limit, @default_spatial_limit)
+
+    with {:ok, rows} <- read_spatial_rf_pose_matches(scope, limit) do
+      {:ok, Enum.map(rows, &spatial_sample/1)}
     end
   end
 
@@ -147,6 +157,33 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Ash.Query.limit(limit)
     |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
     |> Page.unwrap()
+  end
+
+  defp read_spatial_rf_pose_matches(scope, limit) do
+    SurveyRfPoseMatch
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(not is_nil(x) and not is_nil(z) and not is_nil(rssi_dbm))
+    |> Ash.Query.sort(rf_captured_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+  end
+
+  defp spatial_sample(row) do
+    %{
+      id: field(row, :rf_observation_id),
+      session_id: field(row, :session_id),
+      bssid: field(row, :bssid),
+      ssid: field(row, :ssid) || "Hidden",
+      rssi: field(row, :rssi_dbm),
+      frequency: field(row, :frequency_mhz),
+      x: field(row, :x),
+      y: field(row, :y) || 0.0,
+      z: field(row, :z),
+      latitude: field(row, :latitude),
+      longitude: field(row, :longitude),
+      timestamp: field(row, :rf_captured_at)
+    }
   end
 
   defp build_session_summaries(rf_rows, spectrum_rows) do

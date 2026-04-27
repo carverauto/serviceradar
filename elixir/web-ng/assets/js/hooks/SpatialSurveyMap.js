@@ -166,17 +166,17 @@ export default {
 
 function normalizeSample(sample) {
   const x = Number(sample?.x)
-  const y = Number(sample?.y)
-  const z = Number(sample?.z || 0)
+  const floorY = Number(sample?.z)
+  const height = Number(sample?.y || 0)
   const rssi = Number(sample?.rssi)
 
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  if (!Number.isFinite(x) || !Number.isFinite(floorY)) return null
 
   return {
     ...sample,
     x,
-    y,
-    z: Number.isFinite(z) ? z : 0,
+    y: floorY,
+    z: Number.isFinite(height) ? height : 0,
     rssi: Number.isFinite(rssi) ? rssi : -90,
   }
 }
