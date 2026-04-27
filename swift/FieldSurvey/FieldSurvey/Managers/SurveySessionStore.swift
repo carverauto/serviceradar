@@ -72,6 +72,7 @@ public final class SurveySessionStore: ObservableObject {
         let heatmapPoints = wifiScanner.heatmapPoints
         let manualLandmarks = wifiScanner.manualAPLandmarks
         let floorplanSegments = roomScanner.currentFloorplanSegments()
+        try Task.checkCancellation()
         let roamRecords = wifiScanner.roamEvents.map { roam in
             SurveyRoamEventRecord(
                 timestamp: roam.timestamp,
@@ -89,6 +90,7 @@ public final class SurveySessionStore: ObservableObject {
         let meshFilename: String?
         let pointCloudFilename: String?
         if includeMesh, let meshURL = try? roomScanner.exportCurrentRoomToUSDZ() {
+            try Task.checkCancellation()
             let targetName = "\(id).usdz"
             let targetURL = sessionsDirectoryURL().appendingPathComponent(targetName)
             if fileManager.fileExists(atPath: targetURL.path) {
@@ -100,6 +102,7 @@ public final class SurveySessionStore: ObservableObject {
             meshFilename = existing?.meshFilename
         }
         if includeMesh, let pointCloudURL = try? roomScanner.exportPointCloudPLY() {
+            try Task.checkCancellation()
             let targetName = "\(id).ply"
             let targetURL = sessionsDirectoryURL().appendingPathComponent(targetName)
             if fileManager.fileExists(atPath: targetURL.path) {
@@ -134,7 +137,9 @@ public final class SurveySessionStore: ObservableObject {
             floorplanSegments: floorplanSegments
         )
 
+        try Task.checkCancellation()
         try await diskWriter.writeSnapshot(snapshot, to: sessionFileURL(for: id))
+        try Task.checkCancellation()
 
         sessions.removeAll { $0.id == id }
         sessions.insert(record, at: 0)
