@@ -38,12 +38,16 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
   def room_artifacts(conn, %{"session_id" => session_id} = params) do
     case conn.assigns[:current_scope] do
       %{user: %{id: user_id}} = scope ->
+        artifact_type = artifact_type(conn, params)
+        content_type = content_type(conn)
+        content_length = conn |> get_req_header("content-length") |> List.first()
+
         with {:ok, session_id} <- FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)),
              {:ok, body, conn} <- read_artifact_body(conn),
              {:ok, artifact} <-
                FieldSurveyRoomArtifacts.store(session_id, to_string(user_id), body,
-                 artifact_type: artifact_type(conn, params),
-                 content_type: content_type(conn),
+                 artifact_type: artifact_type,
+                 content_type: content_type,
                  captured_at: captured_at(conn),
                  metadata: artifact_metadata(conn),
                  scope: scope
@@ -61,27 +65,45 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
           })
         else
           {:error, :invalid_session_id} ->
+            Logger.warning(
+              "Rejecting FieldSurvey room artifact upload: invalid session_id=#{inspect(session_id)}, artifact_type=#{inspect(artifact_type)}"
+            )
+
             conn
             |> put_status(:bad_request)
             |> json(%{ok: false, error: "invalid_session_id"})
 
           {:error, :forbidden} ->
+            Logger.warning(
+              "Rejecting FieldSurvey room artifact upload: forbidden [session: #{session_id}, user: #{user_id}, artifact_type: #{inspect(artifact_type)}]"
+            )
+
             conn
             |> put_status(:forbidden)
             |> json(%{ok: false, error: "session_owned_by_another_user"})
 
           {:error, :artifact_too_large} ->
+            Logger.warning(
+              "Rejecting FieldSurvey room artifact upload: too large [session: #{session_id}, artifact_type: #{inspect(artifact_type)}, content_type: #{inspect(content_type)}, content_length: #{inspect(content_length)}]"
+            )
+
             conn
             |> put_status(:payload_too_large)
             |> json(%{ok: false, error: "artifact_too_large"})
 
           {:error, :empty_artifact} ->
+            Logger.warning(
+              "Rejecting FieldSurvey room artifact upload: empty body [session: #{session_id}, artifact_type: #{inspect(artifact_type)}, content_type: #{inspect(content_type)}, content_length: #{inspect(content_length)}]"
+            )
+
             conn
             |> put_status(:bad_request)
             |> json(%{ok: false, error: "empty_artifact"})
 
           {:error, reason} ->
-            Logger.error("FieldSurvey room artifact upload failed: #{inspect(reason)}")
+            Logger.error(
+              "FieldSurvey room artifact upload failed [session: #{session_id}, artifact_type: #{inspect(artifact_type)}, content_type: #{inspect(content_type)}, content_length: #{inspect(content_length)}]: #{inspect(reason)}"
+            )
 
             conn
             |> put_status(:internal_server_error)

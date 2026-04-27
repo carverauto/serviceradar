@@ -13,8 +13,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   require Ash.Query
 
-  @default_recent_limit 3_000
-  @default_session_limit 4_000
+  @default_recent_limit 100_000
+  @default_session_limit 25_000
   @default_spectrum_limit 2_000
   @default_spatial_limit 10_000
   @default_artifact_limit 200

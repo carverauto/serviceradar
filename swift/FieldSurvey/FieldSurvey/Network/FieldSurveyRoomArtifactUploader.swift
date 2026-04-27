@@ -99,12 +99,15 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
             throw URLError(.badURL)
         }
 
+        let fileSize = try artifactFileSize(fileURL: fileURL, artifactType: artifactType)
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 90
         request.setValue("Bearer \(trimmedAuthToken)", forHTTPHeaderField: "Authorization")
         request.setValue(artifactType, forHTTPHeaderField: "X-FieldSurvey-Artifact-Type")
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(String(fileSize), forHTTPHeaderField: "X-FieldSurvey-Artifact-Bytes")
         request.setValue(String(Self.unixNanos(from: capturedAt)), forHTTPHeaderField: "X-FieldSurvey-Captured-At-Unix-Nanos")
 
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: fileURL)
@@ -117,7 +120,7 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
             throw NSError(
                 domain: "FieldSurveyRoomArtifactUploader",
                 code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: detail]
+                userInfo: [NSLocalizedDescriptionKey: "\(artifactType) upload failed (\(httpResponse.statusCode), \(Self.formattedBytes(fileSize))): \(detail)"]
             )
         }
 
@@ -144,5 +147,30 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
 
     private static func unixNanos(from date: Date) -> Int64 {
         Int64((date.timeIntervalSince1970 * 1_000_000_000).rounded())
+    }
+
+    private func artifactFileSize(fileURL: URL, artifactType: String) throws -> Int64 {
+        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        guard values.isRegularFile == true else {
+            throw NSError(
+                domain: "FieldSurveyRoomArtifactUploader",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "\(artifactType) artifact is not a regular file."]
+            )
+        }
+
+        let size = Int64(values.fileSize ?? 0)
+        guard size > 0 else {
+            throw NSError(
+                domain: "FieldSurveyRoomArtifactUploader",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "\(artifactType) artifact is empty."]
+            )
+        }
+        return size
+    }
+
+    private static func formattedBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }

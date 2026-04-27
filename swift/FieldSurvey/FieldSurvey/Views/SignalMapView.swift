@@ -71,7 +71,10 @@ public struct SignalMapView: View {
         let renderPoints = renderState.visiblePoints
         let summaries = renderState.apSummaries
         let signalBuckets = SignalBucket.build(from: renderPoints)
-        let coverageSignature = SignalCoverageRenderSignature(points: renderPoints)
+        let coverageSignature = SignalCoverageRenderSignature(
+            points: renderPoints,
+            floorplanSegments: renderState.floorplanSegments
+        )
 
         VStack(spacing: 12) {
             headerControls
@@ -515,13 +518,15 @@ private struct SignalCoverageRenderSignature: Equatable, Sendable {
     let minZ: Float
     let maxZ: Float
 
-    init(points: [WiFiHeatmapPoint]) {
+    init(points: [WiFiHeatmapPoint], floorplanSegments: [SurveyFloorplanSegment]) {
         let validPoints = points.filter { $0.position.isValidMapPosition && $0.rssi.isFinite }
         count = validPoints.count
         latestTimestampBucket = Int(((validPoints.map(\.timestamp).max() ?? 0) * 2).rounded())
 
         let xs = validPoints.map(\.x).filter(\.isFinite)
+            + floorplanSegments.flatMap { [$0.start.x, $0.end.x] }.filter(\.isFinite)
         let zs = validPoints.map(\.z).filter(\.isFinite)
+            + floorplanSegments.flatMap { [$0.start.y, $0.end.y] }.filter(\.isFinite)
         guard let rawMinX = xs.min(),
               let rawMaxX = xs.max(),
               let rawMinZ = zs.min(),
@@ -579,7 +584,7 @@ private final class SignalCoverageRenderStore: ObservableObject {
                 maxX: signature.maxX,
                 minZ: signature.minZ,
                 maxZ: signature.maxZ,
-                preferredCellSize: 0.75
+                preferredCellSize: 0.48
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -979,26 +984,26 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
         let maxPredictionDistanceMeters: Float
         switch signalBuckets.count {
         case 0..<12:
-            maxPredictionDistanceMeters = 1.25
+            maxPredictionDistanceMeters = 3.5
         case 12..<30:
-            maxPredictionDistanceMeters = 1.8
+            maxPredictionDistanceMeters = 5.0
         default:
-            maxPredictionDistanceMeters = 2.4
+            maxPredictionDistanceMeters = 7.0
         }
 
         let heatSamples = predictions
             .filter {
-                $0.confidence >= 0.18 &&
+                $0.confidence >= 0.04 &&
                     $0.nearestSampleDistance <= maxPredictionDistanceMeters
             }
-            .prefix(900)
+            .prefix(1_400)
             .map { prediction -> MetalHeatmapSample in
                 let center = projection.screenPoint(for: prediction.position)
-                let radius = min(max(max(baseSize.width, baseSize.height) * 0.45, 7), 28)
+                let radius = min(max(max(baseSize.width, baseSize.height) * 0.68, 8), 34)
                 let distanceFade = max(0, 1 - prediction.nearestSampleDistance / maxPredictionDistanceMeters)
                 let confidence = Float(min(max(prediction.confidence, 0.0), 1.0))
                 let strength = Float(SignalColor.normalized(prediction.rssi))
-                let alpha = (0.10 + strength * 0.28 + confidence * 0.22) * distanceFade
+                let alpha = (0.12 + strength * 0.30 + confidence * 0.24) * max(distanceFade, 0.22)
                 let color = SignalColor.rgba(for: prediction.rssi)
                 return MetalHeatmapSample(
                     center: SIMD2<Float>(Float(center.x), Float(center.y)),

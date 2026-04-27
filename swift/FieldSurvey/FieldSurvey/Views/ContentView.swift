@@ -615,9 +615,7 @@ public struct SurveyView: View {
         beginAutosaveSession()
         guard let autosaveSessionID else { return }
 
-        if !includeMesh {
-            checkpointTask?.cancel()
-        }
+        checkpointTask?.cancel()
 
         let sessionName = autosaveSessionName
         let spectrumSummaries = currentSpectrumSummaries
