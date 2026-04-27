@@ -142,7 +142,9 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
           label: camera_label(source),
           detail: profile_label(profile),
           source_status: Map.get(source, :availability_status),
-          insecure_skip_verify: insecure_skip_verify?(profile) or insecure_skip_verify?(source),
+          insecure_skip_verify:
+            insecure_skip_verify?(profile) or insecure_skip_verify?(source) or
+              protect_bootstrap_rtsps?(source, profile),
           session: nil,
           error: nil
         }
@@ -281,4 +283,30 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   defp truthy?("1"), do: true
   defp truthy?(1), do: true
   defp truthy?(_value), do: false
+
+  defp protect_bootstrap_rtsps?(source, profile) do
+    source_url =
+      [
+        Map.get(source, :source_url),
+        Map.get(profile, :source_url)
+      ]
+      |> first_present()
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    String.starts_with?(source_url, "rtsps://") and
+      (metadata_value(source, "source") == "protect-bootstrap" or
+         metadata_value(profile, "source") == "protect-bootstrap" or
+         metadata_contains?(source, "plugin_id", "unifi-protect") or
+         metadata_contains?(profile, "plugin_id", "unifi-protect"))
+  end
+
+  defp metadata_contains?(value, key, needle) do
+    value
+    |> metadata_value(key)
+    |> to_string()
+    |> String.downcase()
+    |> String.contains?(needle)
+  end
 end
