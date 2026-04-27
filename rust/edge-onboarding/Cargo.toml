@@ -17,7 +17,7 @@ ed25519-dalek = "2"
 hex = "0.4"
 thiserror = "1"
 tracing = "0.1"
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }
 urlencoding = "2"
 libc = "0.2"
 
