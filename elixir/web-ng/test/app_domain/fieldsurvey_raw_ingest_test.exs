@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
   alias ServiceRadar.Spatial.SurveyPoseSample
   alias ServiceRadar.Spatial.SurveyRfObservation
   alias ServiceRadar.Spatial.SurveySpectrumObservation
+  alias ServiceRadarWebNG.FieldSurveyReview
 
   test "bulk raw ingest persists RF, pose, and spectrum rows and exposes nearest pose matches" do
     session_id = "fieldsurvey-test-#{System.unique_integer([:positive])}"
@@ -212,5 +213,16 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
     assert position_wkt == "POINT Z (1.25 0.5 -2)"
     assert longitude == -122.0
     assert rf_feature_vector =~ "["
+
+    assert {:ok, spatial_samples} = FieldSurveyReview.spatial_samples(nil)
+
+    assert Enum.any?(spatial_samples, fn sample ->
+             sample.session_id == session_id &&
+               sample.bssid == "02:11:22:33:44:55" &&
+               sample.rssi == -47 &&
+               sample.x == 1.25 &&
+               sample.y == 0.5 &&
+               sample.z == -2.0
+           end)
   end
 end

@@ -842,30 +842,58 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp survey_summary(_scope) do
-    if relation_exists?("platform.survey_samples") do
-      sql = """
-      SELECT
-        COUNT(*)::bigint AS sample_count,
-        COUNT(DISTINCT session_id)::bigint AS session_count,
-        COALESCE(AVG(rssi), 0)::float8 AS avg_rssi,
-        COUNT(*) FILTER (WHERE is_secure = true)::bigint AS secure_count
-      FROM platform.survey_samples
-      """
+    cond do
+      relation_exists?("platform.survey_rf_pose_matches") ->
+        sql = """
+        SELECT
+          COUNT(*)::bigint AS sample_count,
+          COUNT(DISTINCT session_id)::bigint AS session_count,
+          COALESCE(AVG(rssi_dbm), 0)::float8 AS avg_rssi,
+          COUNT(DISTINCT bssid)::bigint AS secure_count
+        FROM platform.survey_rf_pose_matches
+        WHERE x IS NOT NULL
+          AND z IS NOT NULL
+          AND rssi_dbm IS NOT NULL
+        """
 
-      case Repo.query(sql, []) do
-        {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
-          %{
-            sample_count: to_int(samples),
-            session_count: to_int(sessions),
-            avg_rssi: avg_rssi |> to_float() |> Float.round(1),
-            secure_count: to_int(secure)
-          }
+        case Repo.query(sql, []) do
+          {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
+            %{
+              sample_count: to_int(samples),
+              session_count: to_int(sessions),
+              avg_rssi: avg_rssi |> to_float() |> Float.round(1),
+              secure_count: to_int(secure)
+            }
 
-        _ ->
-          empty_survey_summary()
-      end
-    else
-      empty_survey_summary()
+          _ ->
+            empty_survey_summary()
+        end
+
+      relation_exists?("platform.survey_samples") ->
+        sql = """
+        SELECT
+          COUNT(*)::bigint AS sample_count,
+          COUNT(DISTINCT session_id)::bigint AS session_count,
+          COALESCE(AVG(rssi), 0)::float8 AS avg_rssi,
+          COUNT(*) FILTER (WHERE is_secure = true)::bigint AS secure_count
+        FROM platform.survey_samples
+        """
+
+        case Repo.query(sql, []) do
+          {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
+            %{
+              sample_count: to_int(samples),
+              session_count: to_int(sessions),
+              avg_rssi: avg_rssi |> to_float() |> Float.round(1),
+              secure_count: to_int(secure)
+            }
+
+          _ ->
+            empty_survey_summary()
+        end
+
+      true ->
+        empty_survey_summary()
     end
   rescue
     _ -> empty_survey_summary()
@@ -1152,21 +1180,40 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp survey_sample_sparkline(time_window) do
-    if relation_exists?("platform.survey_samples") do
-      sql = """
-      SELECT
-        time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, timestamp) AS bucket,
-        COUNT(*)::float8 AS value
-      FROM platform.survey_samples
-      WHERE timestamp >= $1
-      GROUP BY 1
-      ORDER BY 1 ASC
-      LIMIT $2
-      """
+    cond do
+      relation_exists?("platform.survey_rf_pose_matches") ->
+        sql = """
+        SELECT
+          time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, rf_captured_at) AS bucket,
+          COUNT(*)::float8 AS value
+        FROM platform.survey_rf_pose_matches
+        WHERE rf_captured_at >= $1
+          AND x IS NOT NULL
+          AND z IS NOT NULL
+          AND rssi_dbm IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1 ASC
+        LIMIT $2
+        """
 
-      one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
-    else
-      []
+        one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+
+      relation_exists?("platform.survey_samples") ->
+        sql = """
+        SELECT
+          time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, timestamp) AS bucket,
+          COUNT(*)::float8 AS value
+        FROM platform.survey_samples
+        WHERE timestamp >= $1
+        GROUP BY 1
+        ORDER BY 1 ASC
+        LIMIT $2
+        """
+
+        one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+
+      true ->
+        []
     end
   rescue
     _ -> []
