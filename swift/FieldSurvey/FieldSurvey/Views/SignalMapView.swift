@@ -703,9 +703,12 @@ private struct SignalMapCanvas: View {
 
         for bucket in buckets {
             let center = projection.screenPoint(for: bucket.position)
+            let strength = SignalColor.normalized(bucket.rssi)
+            let density = min(Double(bucket.count), 8.0) / 8.0
+            let radiusScale = 0.34 + CGFloat(strength) * 0.24 + CGFloat(density) * 0.08
             let radius = min(
-                max(max(baseSize.width, baseSize.height) * (0.42 + CGFloat(min(bucket.count, 8)) * 0.03), 8),
-                34
+                max(max(baseSize.width, baseSize.height) * radiusScale, 7),
+                30
             )
             let circle = CGRect(
                 x: center.x - radius,
@@ -713,7 +716,7 @@ private struct SignalMapCanvas: View {
                 width: radius * 2,
                 height: radius * 2
             )
-            let opacity = min(0.7, 0.36 + Double(bucket.count) * 0.03) * opacityScale
+            let opacity = (0.18 + strength * 0.46 + density * 0.10) * opacityScale
             context.fill(
                 Path(ellipseIn: circle),
                 with: .color(SignalColor.color(for: bucket.rssi).opacity(opacity))
@@ -955,7 +958,9 @@ private final class MetalSignalHeatmapRenderer: NSObject, MTKViewDelegate {
                 let center = projection.screenPoint(for: prediction.position)
                 let radius = min(max(max(baseSize.width, baseSize.height) * 0.45, 7), 28)
                 let distanceFade = max(0, 1 - prediction.nearestSampleDistance / maxPredictionDistanceMeters)
-                let alpha = (0.12 + Float(min(max(prediction.confidence, 0.0), 1.0)) * 0.42) * distanceFade
+                let confidence = Float(min(max(prediction.confidence, 0.0), 1.0))
+                let strength = Float(SignalColor.normalized(prediction.rssi))
+                let alpha = (0.10 + strength * 0.28 + confidence * 0.22) * distanceFade
                 let color = SignalColor.rgba(for: prediction.rssi)
                 return MetalHeatmapSample(
                     center: SIMD2<Float>(Float(center.x), Float(center.y)),
