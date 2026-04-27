@@ -14,7 +14,7 @@
 - [x] 1.13 Use all monitor-capable USB radios in automatic Sidekick radio assignment, splitting 5 GHz and 2.4 GHz work across adapters.
 
 ## 2. Capture Workflow
-- [ ] 2.1 Split the current survey screen into explicit setup, capture, and review states.
+- [x] 2.1 Split the current survey screen into explicit setup, capture, and review states.
 - [x] 2.2 Add capture status counters for Sidekick connection, active radios, RF batches, RF observations, pose samples, elapsed time, and backend/offline mode.
 - [x] 2.3 Make start/stop survey state deterministic for offline preview and backend streaming.
 - [x] 2.4 Add a "discard live RF preview" action that clears derived preview state without deleting saved sessions.
