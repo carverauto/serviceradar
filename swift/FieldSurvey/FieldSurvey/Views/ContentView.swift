@@ -111,6 +111,18 @@ public struct SurveyView: View {
                             .font(.caption2)
                             .foregroundColor(.cyan.opacity(0.85))
 
+                        CaptureStatusPanel(
+                            sidekickStatus: sidekickRelay.status,
+                            rfBatches: sidekickRelay.rfBatchCount,
+                            rfObservations: sidekickRelay.previewObservationCount,
+                            poseSamples: wifiScanner.poseStreamFrameCount,
+                            backendFrames: sidekickRelay.backendFrameCount,
+                            isStreaming: isStreaming,
+                            isPreviewing: isSidekickPreviewing,
+                            backendEnabled: backendStreamingEnabled
+                        )
+                        .padding(.top, 4)
+
                         if let summary = sidekickRelay.latestSpectrumSummary {
                             SpectrumAnalyzerMiniPanel(
                                 summary: summary,
@@ -318,6 +330,18 @@ public struct SurveyView: View {
                             .clipShape(Circle())
                     }
                     .disabled(isExportingOfflineBundle)
+
+                    Button(action: {
+                        discardLiveRFPreview()
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 22))
+                            .foregroundColor(hasLivePreviewData ? .orange : .gray)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Circle())
+                    }
+                    .disabled(!hasLivePreviewData)
                 }
                 .padding(.bottom, 40)
             }
@@ -374,7 +398,6 @@ public struct SurveyView: View {
             applyRFState(settings.rfScanningEnabled)
             beginAutosaveSession()
             checkpointSession(includeMesh: false, showStatus: false)
-            startOfflineSidekickPreviewIfNeeded()
         }
         .onDisappear {
             checkpointSession(includeMesh: true, showStatus: false)
@@ -467,11 +490,6 @@ public struct SurveyView: View {
         }
     }
 
-    private func startOfflineSidekickPreviewIfNeeded() {
-        guard settings.rfScanningEnabled, !backendStreamingEnabled, !isSidekickPreviewing else { return }
-        startSidekickPreview()
-    }
-
     private var backendStreamingEnabled: Bool {
         settings.backendUploadEnabled
     }
@@ -485,6 +503,18 @@ public struct SurveyView: View {
             return backendStreamingEnabled ? "Stop Live Stream" : "Stop Sidekick Preview"
         }
         return backendStreamingEnabled ? "Stream to God-View" : "Start Sidekick Preview"
+    }
+
+    private var hasLivePreviewData: Bool {
+        wifiScanner.heatmapPoints.contains { !$0.bssid.hasPrefix("manual-ap-") } ||
+            wifiScanner.accessPoints.keys.contains { !$0.hasPrefix("manual-ap-") }
+    }
+
+    private func discardLiveRFPreview() {
+        wifiScanner.discardLiveRFPreview()
+        checkpointSession(includeMesh: false, showStatus: false)
+        saveStatusMessage = "Discarded live RF preview data."
+        clearSaveStatus(after: 2.4)
     }
 
     private func beginAutosaveSession() {
@@ -651,6 +681,67 @@ public struct SurveyView: View {
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter
     }()
+}
+
+@available(iOS 16.0, *)
+private struct CaptureStatusPanel: View {
+    let sidekickStatus: SidekickRelayStatus
+    let rfBatches: Int
+    let rfObservations: Int
+    let poseSamples: Int
+    let backendFrames: Int
+    let isStreaming: Bool
+    let isPreviewing: Bool
+    let backendEnabled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(modeLabel)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(modeColor)
+            Text("Sidekick: \(sidekickLabel)")
+            Text("RF: \(rfBatches) batches / \(rfObservations) obs")
+            Text("Pose: \(poseSamples) frames")
+            Text("Backend: \(backendLabel)")
+        }
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        .foregroundColor(.white.opacity(0.82))
+    }
+
+    private var modeLabel: String {
+        if isStreaming {
+            return "CAPTURE: BACKEND STREAM"
+        }
+        if isPreviewing {
+            return "CAPTURE: LOCAL PREVIEW"
+        }
+        return "SETUP: CAPTURE STOPPED"
+    }
+
+    private var modeColor: Color {
+        if isStreaming || isPreviewing {
+            return .green
+        }
+        return .orange
+    }
+
+    private var sidekickLabel: String {
+        switch sidekickStatus {
+        case .idle:
+            return "idle"
+        case .connecting:
+            return "connecting"
+        case .streaming(let radios, let spectrum):
+            return spectrum ? "\(radios) radios + SDR" : "\(radios) radios"
+        case .failed:
+            return "failed"
+        }
+    }
+
+    private var backendLabel: String {
+        guard backendEnabled else { return "offline" }
+        return backendFrames > 0 ? "\(backendFrames) frames" : "pending"
+    }
 }
 
 @available(iOS 16.0, *)
