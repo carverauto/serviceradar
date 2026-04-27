@@ -27,8 +27,11 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private let manualAPStoreKey = "manualAPLandmarks"
     private var lastHeatmapSampleByBSSID: [String: (timestamp: TimeInterval, position: SIMD3<Float>)] = [:]
     private let maxHeatmapPoints = 3200
-    private let stationaryHeatmapRadiusMeters: Float = 0.55
+    private let stationaryHeatmapRadiusMeters: Float = 0.75
+    private let maxPoseJumpMeters: Float = 1.35
+    private let maxPoseSpeedMetersPerSecond: Float = 3.5
     private var lastAcceptedHeatmapPose: SIMD3<Float>?
+    private var lastAcceptedPoseUpdateTime: TimeInterval?
     private var lastPoseHeatmapCaptureTime: TimeInterval = 0
     private var pendingPoseHeatmapPosition: SIMD3<Float>?
     private var poseHeatmapFlushScheduled = false
@@ -55,7 +58,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public var currentDevicePose: SIMD3<Float>? {
-        latestStableMapPose ?? latestDevicePose
+        latestStableMapPose
     }
     
     public func startScanning() {
@@ -88,6 +91,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             lastHeatmapSampleByBSSID.removeAll()
             lastAcceptedHeatmapPose = nil
             latestStableMapPose = nil
+            lastAcceptedPoseUpdateTime = nil
         }
     }
 
@@ -101,7 +105,13 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
 
     public func updateDevicePose(position: SIMD3<Float>) {
         latestDevicePose = position
-        latestStableMapPose = stabilizedHeatmapPosition(for: position)
+        if let stablePose = stabilizedHeatmapPosition(
+            for: position,
+            timestamp: Date().timeIntervalSince1970,
+            trackingQuality: nil
+        ) {
+            latestStableMapPose = stablePose
+        }
     }
 
     public func updateDevicePose(
@@ -111,9 +121,16 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         trackingQuality: String?
     ) {
         latestDevicePose = position
-        latestStableMapPose = stabilizedHeatmapPosition(for: position)
+        guard let stablePose = stabilizedHeatmapPosition(
+            for: position,
+            timestamp: Date().timeIntervalSince1970,
+            trackingQuality: trackingQuality
+        ) else {
+            return
+        }
+        latestStableMapPose = stablePose
         streamPoseIfNeeded(
-            position: position,
+            position: stablePose,
             orientation: orientation,
             monotonicTimestampSeconds: monotonicTimestampSeconds,
             trackingQuality: trackingQuality
@@ -148,13 +165,23 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         roamEvents.removeAll()
         lastHeatmapSampleByBSSID.removeAll()
         lastAcceptedHeatmapPose = nil
-        latestStableMapPose = latestDevicePose.map { stabilizedHeatmapPosition(for: $0) }
+        lastAcceptedPoseUpdateTime = nil
+        if let latestDevicePose {
+            latestStableMapPose = stabilizedHeatmapPosition(
+                for: latestDevicePose,
+                timestamp: Date().timeIntervalSince1970,
+                trackingQuality: nil
+            )
+        } else {
+            latestStableMapPose = nil
+        }
         lastPoseHeatmapCaptureTime = 0
         restoreManualLandmarksToSamples()
     }
 
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
-        pendingPoseHeatmapPosition = latestStableMapPose ?? stabilizedHeatmapPosition(for: position)
+        guard let heatmapPosition = latestStableMapPose else { return }
+        pendingPoseHeatmapPosition = heatmapPosition
         guard !poseHeatmapFlushScheduled else { return }
         poseHeatmapFlushScheduled = true
 
@@ -195,7 +222,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     public func ingestSidekickObservations(_ observations: [SidekickObservation]) {
         guard SettingsManager.shared.rfScanningEnabled else { return }
         guard !observations.isEmpty else { return }
-        let heatmapPose = latestStableMapPose ?? latestDevicePose.map { stabilizedHeatmapPosition(for: $0) }
+        let heatmapPose = latestStableMapPose
 
         ingestSampleEvents(
             sidekickAdapter.events(
@@ -373,6 +400,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
         lastAcceptedHeatmapPose = snapshot.heatmapPoints.last?.position
         latestStableMapPose = lastAcceptedHeatmapPose
+        lastAcceptedPoseUpdateTime = nil
 
         manualAPLandmarks = snapshot.manualLandmarks
         persistManualAPLandmarks()
@@ -556,18 +584,40 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         )
     }
 
-    private func stabilizedHeatmapPosition(for position: SIMD3<Float>) -> SIMD3<Float> {
+    private func stabilizedHeatmapPosition(
+        for position: SIMD3<Float>,
+        timestamp: TimeInterval,
+        trackingQuality: String?
+    ) -> SIMD3<Float>? {
+        guard position.isValidSurveyPosition else {
+            return latestStableMapPose
+        }
+
+        if let trackingQuality,
+           trackingQuality != "normal" {
+            return latestStableMapPose
+        }
+
         guard let previous = lastAcceptedHeatmapPose else {
             lastAcceptedHeatmapPose = position
+            lastAcceptedPoseUpdateTime = timestamp
             return position
         }
 
         let horizontalDelta = SIMD2<Float>(position.x - previous.x, position.z - previous.z)
-        if simd_length(horizontalDelta) < stationaryHeatmapRadiusMeters {
+        let movement = simd_length(horizontalDelta)
+        if movement < stationaryHeatmapRadiusMeters {
+            return previous
+        }
+
+        let elapsed = max(Float(timestamp - (lastAcceptedPoseUpdateTime ?? timestamp)), 0.1)
+        let speed = movement / elapsed
+        if movement > maxPoseJumpMeters && speed > maxPoseSpeedMetersPerSecond {
             return previous
         }
 
         lastAcceptedHeatmapPose = position
+        lastAcceptedPoseUpdateTime = timestamp
         return position
     }
 
@@ -613,5 +663,11 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
+}
+
+private extension SIMD3 where Scalar == Float {
+    var isValidSurveyPosition: Bool {
+        x.isFinite && y.isFinite && z.isFinite
+    }
 }
 #endif
