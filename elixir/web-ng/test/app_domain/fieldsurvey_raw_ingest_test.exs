@@ -7,6 +7,42 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
   alias ServiceRadar.Spatial.SurveySpectrumObservation
   alias ServiceRadarWebNG.FieldSurveyReview
 
+  test "review projection includes floorplan segments in bounds" do
+    review =
+      FieldSurveyReview.build_review(
+        "floorplan-review-test",
+        [
+          %{
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            rssi_dbm: -54,
+            bssid: "02:00:00:00:00:01",
+            ssid: "SurveyNet",
+            captured_at_unix_nanos: 1
+          }
+        ],
+        [],
+        [],
+        floorplan_segments: [
+          %{kind: "wall", start_x: -4.0, start_z: -2.0, end_x: 4.0, end_z: -2.0, height: 2.4},
+          %{kind: "door", start_x: 4.0, start_z: -2.0, end_x: 4.0, end_z: 2.0, height: 2.1}
+        ]
+      )
+
+    assert review.metrics.floorplan_segment_count == 2
+    assert length(review.floorplan_segments) == 2
+    assert review.bounds.min_x < -4.0
+    assert review.bounds.max_x > 4.0
+
+    assert Enum.all?(review.floorplan_segments, fn segment ->
+             segment.start_x_pct >= 0.0 and segment.start_x_pct <= 100.0 and
+               segment.start_z_pct >= 0.0 and segment.start_z_pct <= 100.0 and
+               segment.end_x_pct >= 0.0 and segment.end_x_pct <= 100.0 and
+               segment.end_z_pct >= 0.0 and segment.end_z_pct <= 100.0
+           end)
+  end
+
   test "bulk raw ingest persists RF, pose, and spectrum rows and exposes nearest pose matches" do
     session_id = "fieldsurvey-test-#{System.unique_integer([:positive])}"
     rf_unix_nanos = 1_800_000_000_050_000_000

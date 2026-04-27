@@ -134,6 +134,23 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     <div class="absolute inset-0 opacity-40 [background-image:linear-gradient(to_right,hsl(var(--bc)/0.12)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--bc)/0.12)_1px,transparent_1px)] [background-size:2rem_2rem]">
                     </div>
 
+                    <svg
+                      :if={@review.floorplan_segments != []}
+                      class="absolute inset-0 h-full w-full"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <line
+                        :for={segment <- @review.floorplan_segments}
+                        x1={segment.start_x_pct}
+                        y1={segment.start_z_pct}
+                        x2={segment.end_x_pct}
+                        y2={segment.end_z_pct}
+                        style={floorplan_line_style(segment)}
+                      />
+                    </svg>
+
                     <span
                       :for={point <- @review.path_points}
                       class="absolute size-1 rounded-full bg-base-content/30"
@@ -343,6 +360,18 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp bar_style(score) do
     "width: #{min(max(score || 0, 0), 100)}%; background: #{interference_color(score || 0)};"
+  end
+
+  defp floorplan_line_style(%{kind: "door"}) do
+    "stroke: rgba(255,255,255,0.78); stroke-width: 0.32; stroke-dasharray: 1.4 0.9; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+  end
+
+  defp floorplan_line_style(%{kind: "window"}) do
+    "stroke: rgba(125,211,252,0.88); stroke-width: 0.26; stroke-dasharray: 0.9 0.7; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+  end
+
+  defp floorplan_line_style(_segment) do
+    "stroke: rgba(103,232,249,0.72); stroke-width: 0.36; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp point_title(point, "interference") do
