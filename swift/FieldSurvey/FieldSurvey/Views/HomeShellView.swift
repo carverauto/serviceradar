@@ -237,6 +237,65 @@ public struct HomeDashboardView: View {
 }
 
 @available(iOS 16.0, *)
+private struct ArtifactUploadState: Equatable {
+    enum Phase: Equatable {
+        case idle
+        case uploading
+        case complete
+        case failed
+
+        var iconName: String {
+            switch self {
+            case .idle:
+                return "arrow.up.doc"
+            case .uploading:
+                return "arrow.triangle.2.circlepath"
+            case .complete:
+                return "checkmark.circle.fill"
+            case .failed:
+                return "exclamationmark.triangle.fill"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .idle:
+                return .secondary
+            case .uploading:
+                return .cyan
+            case .complete:
+                return .green
+            case .failed:
+                return .orange
+            }
+        }
+    }
+
+    let phase: Phase
+    let message: String
+    let completed: Int
+    let total: Int
+
+    var isUploading: Bool {
+        phase == .uploading
+    }
+
+    static let idle = ArtifactUploadState(phase: .idle, message: "", completed: 0, total: 0)
+
+    static func uploading(message: String, completed: Int, total: Int) -> ArtifactUploadState {
+        ArtifactUploadState(phase: .uploading, message: message, completed: completed, total: total)
+    }
+
+    static func complete(message: String, completed: Int, total: Int) -> ArtifactUploadState {
+        ArtifactUploadState(phase: .complete, message: message, completed: completed, total: total)
+    }
+
+    static func failed(message: String) -> ArtifactUploadState {
+        ArtifactUploadState(phase: .failed, message: message, completed: 0, total: 0)
+    }
+}
+
+@available(iOS 16.0, *)
 public struct SessionLibraryView: View {
     @Environment(\.dismiss) var dismiss
 
@@ -250,7 +309,7 @@ public struct SessionLibraryView: View {
     @State private var compareMessage: String?
     @State private var loadMessage: String?
     @State private var artifactUploadMessage: String?
-    @State private var uploadingArtifactSessionIDs: Set<String> = []
+    @State private var artifactUploadStates: [String: ArtifactUploadState] = [:]
     @State private var reviewSnapshot: SurveySessionSnapshot?
 
     public init(
@@ -301,11 +360,19 @@ public struct SessionLibraryView: View {
                                 }
                                 .buttonStyle(.bordered)
 
-                                Button(uploadingArtifactSessionIDs.contains(session.id) ? "Uploading" : "Upload") {
+                                Button {
                                     uploadSavedArtifacts(session)
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        if uploadState(for: session).isUploading {
+                                            ProgressView()
+                                                .controlSize(.mini)
+                                        }
+                                        Text(uploadButtonTitle(for: session))
+                                    }
                                 }
                                 .buttonStyle(.bordered)
-                                .disabled(uploadingArtifactSessionIDs.contains(session.id))
+                                .disabled(uploadState(for: session).isUploading)
 
                                 Button("Delete", role: .destructive) {
                                     sessionStore.deleteSession(id: session.id)
@@ -313,6 +380,10 @@ public struct SessionLibraryView: View {
                                 .buttonStyle(.bordered)
                             }
                             .font(.caption)
+
+                            if let uploadState = artifactUploadStates[session.id] {
+                                artifactUploadStatusView(uploadState)
+                            }
                         }
                         .padding(.vertical, 4)
                     }
@@ -397,31 +468,48 @@ public struct SessionLibraryView: View {
         guard !settings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !authToken.isEmpty,
               authToken != "OFFLINE_MODE" else {
-            artifactUploadMessage = "Sign in to ServiceRadar before retrying artifact upload."
+            setArtifactUploadState(
+                .failed(message: "Sign in to ServiceRadar before retrying artifact upload."),
+                for: session.id
+            )
+            artifactUploadMessage = artifactUploadStates[session.id]?.message
             return
         }
 
         guard let snapshot = sessionStore.loadSession(id: session.id) else {
-            artifactUploadMessage = "Failed to load saved session."
+            setArtifactUploadState(.failed(message: "Failed to load saved session."), for: session.id)
+            artifactUploadMessage = artifactUploadStates[session.id]?.message
             return
         }
 
         let meshURL = sessionStore.meshFileURL(for: session)
         guard meshURL != nil || !snapshot.floorplanSegments.isEmpty else {
-            artifactUploadMessage = "This saved session has no room scan or floorplan artifact to upload."
+            setArtifactUploadState(
+                .failed(message: "This saved session has no room scan or floorplan artifact to upload."),
+                for: session.id
+            )
+            artifactUploadMessage = artifactUploadStates[session.id]?.message
             return
         }
 
-        uploadingArtifactSessionIDs.insert(session.id)
-        Task { @MainActor in
-            defer { uploadingArtifactSessionIDs.remove(session.id) }
+        let totalArtifacts = (meshURL == nil ? 0 : 1) + (snapshot.floorplanSegments.isEmpty ? 0 : 1)
+        setArtifactUploadState(
+            .uploading(message: "Preparing saved room artifacts", completed: 0, total: totalArtifacts),
+            for: session.id
+        )
 
+        Task { @MainActor in
             do {
                 let uploader = FieldSurveyRoomArtifactUploader()
                 var uploadedTypes: [String] = []
+                var completed = 0
                 let capturedAt = Date(timeIntervalSince1970: session.updatedAt)
 
                 if let meshURL {
+                    setArtifactUploadState(
+                        .uploading(message: "Uploading RoomPlan USDZ", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
                     let result = try await uploader.uploadRoomPlanUSDZ(
                         fileURL: meshURL,
                         baseURL: settings.apiURL,
@@ -430,12 +518,29 @@ public struct SessionLibraryView: View {
                         capturedAt: capturedAt
                     )
                     if result.ok {
+                        completed += 1
                         uploadedTypes.append("RoomPlan USDZ")
+                        setArtifactUploadState(
+                            .uploading(
+                                message: "RoomPlan uploaded; preparing floorplan",
+                                completed: completed,
+                                total: totalArtifacts
+                            ),
+                            for: session.id
+                        )
                     }
                 }
 
                 if !snapshot.floorplanSegments.isEmpty {
+                    setArtifactUploadState(
+                        .uploading(message: "Building 2D floorplan GeoJSON", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
                     let floorplanURL = try sessionStore.writeFloorplanGeoJSON(for: snapshot)
+                    setArtifactUploadState(
+                        .uploading(message: "Uploading 2D floorplan", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
                     let result = try await uploader.uploadFloorplanGeoJSON(
                         fileURL: floorplanURL,
                         baseURL: settings.apiURL,
@@ -444,17 +549,80 @@ public struct SessionLibraryView: View {
                         capturedAt: capturedAt
                     )
                     if result.ok {
+                        completed += 1
                         uploadedTypes.append("2D floorplan")
                     }
                 }
 
-                artifactUploadMessage = uploadedTypes.isEmpty
+                let message = uploadedTypes.isEmpty
                     ? "No room artifacts were uploaded."
                     : "Uploaded \(uploadedTypes.joined(separator: " + ")) for \(session.name)."
+                setArtifactUploadState(.complete(message: message, completed: completed, total: totalArtifacts), for: session.id)
+                artifactUploadMessage = message
             } catch {
-                artifactUploadMessage = "Artifact upload failed: \(error.localizedDescription)"
+                let message = "Artifact upload failed: \(error.localizedDescription)"
+                setArtifactUploadState(.failed(message: message), for: session.id)
+                artifactUploadMessage = message
             }
         }
+    }
+
+    private func uploadState(for session: SurveySessionRecord) -> ArtifactUploadState {
+        artifactUploadStates[session.id] ?? .idle
+    }
+
+    private func uploadButtonTitle(for session: SurveySessionRecord) -> String {
+        switch uploadState(for: session).phase {
+        case .idle:
+            return "Upload"
+        case .uploading:
+            return "Uploading"
+        case .complete:
+            return "Uploaded"
+        case .failed:
+            return "Retry"
+        }
+    }
+
+    private func setArtifactUploadState(_ state: ArtifactUploadState, for sessionID: String) {
+        artifactUploadStates[sessionID] = state
+    }
+
+    @ViewBuilder
+    private func artifactUploadStatusView(_ state: ArtifactUploadState) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                if state.isUploading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: state.phase.iconName)
+                        .foregroundColor(state.phase.tint)
+                }
+
+                Text(state.message)
+                    .font(.caption2)
+                    .foregroundColor(state.phase.tint)
+                    .lineLimit(2)
+
+                Spacer()
+
+                if state.total > 0 {
+                    Text("\(state.completed)/\(state.total)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if state.total > 0 {
+                ProgressView(value: Double(state.completed), total: Double(state.total))
+                    .tint(state.phase.tint)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(state.phase.tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func sessionDate(_ timestamp: TimeInterval) -> String {
