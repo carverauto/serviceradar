@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadar.Spatial.SurveyRfPoseMatch
   alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadar.Spatial.SurveySpectrumObservation
+  alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
 
   require Ash.Query
 
@@ -35,6 +36,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           wifi_points: [map()],
           interference_points: [map()],
           path_points: [map()],
+          floorplan_segments: [map()],
           ap_summaries: [map()],
           channel_scores: [map()]
         }
@@ -59,7 +61,13 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     with {:ok, rf_matches} <- read_rf_pose_matches(scope, session_id, rf_limit),
          {:ok, pose_samples} <- read_pose_samples(scope, session_id, pose_limit),
          {:ok, spectrum_rows} <- read_spectrum_rows(scope, session_id, spectrum_limit) do
-      {:ok, build_review(session_id, rf_matches, pose_samples, spectrum_rows, cell_size_m: cell_size_m)}
+      floorplan_segments = load_floorplan_segments(scope, session_id)
+
+      {:ok,
+       build_review(session_id, rf_matches, pose_samples, spectrum_rows,
+         cell_size_m: cell_size_m,
+         floorplan_segments: floorplan_segments
+       )}
     end
   end
 
@@ -106,11 +114,12 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @spec build_review(String.t(), list(), list(), list(), keyword()) :: review()
   def build_review(session_id, rf_matches, pose_samples, spectrum_rows, opts \\ []) do
     cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
+    floorplan_segments = Keyword.get(opts, :floorplan_segments, [])
     wifi_points = build_wifi_points(rf_matches, cell_size_m)
     path_points = build_path_points(pose_samples, rf_matches)
     channel_scores = build_channel_scores(spectrum_rows)
     interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
-    bounds = bounds_for(wifi_points, interference_points, path_points)
+    bounds = bounds_for(wifi_points, interference_points, path_points, floorplan_segments)
     ap_summaries = build_ap_summaries(rf_matches)
 
     %{
@@ -121,6 +130,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         spectrum_count: length(spectrum_rows),
         wifi_point_count: length(wifi_points),
         interference_point_count: length(interference_points),
+        floorplan_segment_count: length(floorplan_segments),
         ap_count: length(ap_summaries),
         channel_count: length(channel_scores)
       },
@@ -128,6 +138,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       wifi_points: project_points(wifi_points, bounds),
       interference_points: project_points(interference_points, bounds),
       path_points: project_points(path_points, bounds),
+      floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
       ap_summaries: ap_summaries,
       channel_scores: channel_scores
     }
@@ -200,6 +211,21 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Ash.Query.limit(limit)
     |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
     |> Page.unwrap()
+  end
+
+  defp read_latest_floorplan_artifact(scope, session_id) do
+    SurveyRoomArtifact
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(session_id == ^session_id and artifact_type == "floorplan_geojson")
+    |> Ash.Query.sort(uploaded_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+    |> case do
+      {:ok, [artifact | _]} -> {:ok, artifact}
+      {:ok, []} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp spatial_sample(row) do
@@ -423,6 +449,58 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Enum.sort_by(& &1.count, :desc)
   end
 
+  defp load_floorplan_segments(scope, session_id) do
+    with {:ok, artifact} when not is_nil(artifact) <- read_latest_floorplan_artifact(scope, session_id),
+         {:ok, payload} <- FieldSurveyRoomArtifacts.fetch(field(artifact, :object_key)),
+         {:ok, geojson} <- Jason.decode(payload) do
+      decode_floorplan_geojson(geojson)
+    else
+      {:ok, nil} -> []
+      _error -> []
+    end
+  end
+
+  defp decode_floorplan_geojson(%{"type" => "FeatureCollection", "features" => features}) when is_list(features) do
+    features
+    |> Enum.flat_map(&decode_floorplan_feature/1)
+    |> Enum.reject(&zero_length_segment?/1)
+  end
+
+  defp decode_floorplan_geojson(_geojson), do: []
+
+  defp decode_floorplan_feature(%{
+         "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
+         "properties" => properties
+       }) do
+    with {:ok, start_x, start_z} <- decode_coordinate(start_coord),
+         {:ok, end_x, end_z} <- decode_coordinate(end_coord) do
+      [
+        %{
+          kind: normalize_floorplan_kind(Map.get(properties || %{}, "kind")),
+          start_x: start_x,
+          start_z: start_z,
+          end_x: end_x,
+          end_z: end_z,
+          height: number_or_nil(Map.get(properties || %{}, "height_m"))
+        }
+      ]
+    else
+      _error -> []
+    end
+  end
+
+  defp decode_floorplan_feature(_feature), do: []
+
+  defp decode_coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
+  defp decode_coordinate(_coord), do: :error
+
+  defp normalize_floorplan_kind(kind) when kind in ["wall", "door", "window"], do: kind
+  defp normalize_floorplan_kind(_kind), do: "wall"
+
+  defp zero_length_segment?(segment) do
+    segment.start_x == segment.end_x and segment.start_z == segment.end_z
+  end
+
   defp summarize_spectrum(row) do
     powers = field(row, :power_bins_dbm) || []
     peak_power_dbm = Enum.max(powers, fn -> nil end)
@@ -506,8 +584,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     end
   end
 
-  defp bounds_for(wifi_points, interference_points, path_points) do
-    points = wifi_points ++ interference_points ++ path_points
+  defp bounds_for(wifi_points, interference_points, path_points, floorplan_segments) do
+    points = wifi_points ++ interference_points ++ path_points ++ floorplan_segment_points(floorplan_segments)
     xs = Enum.map(points, & &1.x)
     zs = Enum.map(points, & &1.z)
 
@@ -531,6 +609,28 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       point
       |> Map.put(:x_pct, (point.x - bounds.min_x) / width * 100.0)
       |> Map.put(:z_pct, 100.0 - (point.z - bounds.min_z) / height * 100.0)
+    end)
+  end
+
+  defp floorplan_segment_points(floorplan_segments) do
+    Enum.flat_map(floorplan_segments, fn segment ->
+      [
+        %{x: segment.start_x, z: segment.start_z},
+        %{x: segment.end_x, z: segment.end_z}
+      ]
+    end)
+  end
+
+  defp project_floorplan_segments(floorplan_segments, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+
+    Enum.map(floorplan_segments, fn segment ->
+      segment
+      |> Map.put(:start_x_pct, (segment.start_x - bounds.min_x) / width * 100.0)
+      |> Map.put(:start_z_pct, 100.0 - (segment.start_z - bounds.min_z) / height * 100.0)
+      |> Map.put(:end_x_pct, (segment.end_x - bounds.min_x) / width * 100.0)
+      |> Map.put(:end_z_pct, 100.0 - (segment.end_z - bounds.min_z) / height * 100.0)
     end)
   end
 
@@ -583,6 +683,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp average(rows, field_name), do: rows |> Enum.map(&field(&1, field_name)) |> average_numbers()
   defp average_maps(rows, field_name), do: rows |> Enum.map(&Map.get(&1, field_name)) |> average_numbers()
+
+  defp number_or_nil(value) when is_number(value), do: value * 1.0
+  defp number_or_nil(_value), do: nil
 
   defp average_numbers(values) do
     numbers = Enum.filter(values, &number?/1)
