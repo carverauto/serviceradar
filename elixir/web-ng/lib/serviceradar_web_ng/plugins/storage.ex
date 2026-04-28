@@ -421,10 +421,52 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
         {:ok, :exists}
 
       {:error, %{"code" => 404}} ->
-        Object.create_bucket(conn, bucket_name(), bucket_opts())
+        create_bucket(conn)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp create_bucket(conn) do
+    stream_name = "OBJ_#{bucket_name()}"
+
+    with {:ok, %{body: body}} <-
+           Gnat.request(conn, "$JS.API.STREAM.CREATE.#{stream_name}", Jason.encode!(bucket_stream_config())),
+         {:ok, decoded} <- Jason.decode(body) do
+      case decoded do
+        %{"error" => reason} -> {:error, reason}
+        response -> {:ok, response}
+      end
+    end
+  end
+
+  defp bucket_stream_config do
+    opts = bucket_opts()
+    ttl = Keyword.get(opts, :ttl, 0)
+
+    [
+      name: "OBJ_#{bucket_name()}",
+      subjects: ["$O.#{bucket_name()}.C.>", "$O.#{bucket_name()}.M.>"],
+      description: Keyword.get(opts, :description),
+      discard: :new,
+      allow_rollup_hdrs: true,
+      max_age: ttl,
+      max_bytes: Keyword.get(opts, :max_bucket_size, -1),
+      max_msg_size: Keyword.get(opts, :max_chunk_size, -1),
+      max_consumers: -1,
+      max_msgs: -1,
+      max_msgs_per_subject: -1,
+      num_replicas: Keyword.get(opts, :replicas, 1),
+      retention: :limits,
+      storage: Keyword.get(opts, :storage, :file),
+      duplicate_window: duplicate_window_for_ttl(ttl)
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  @two_minutes_in_nanoseconds 1_200_000_000
+  defp duplicate_window_for_ttl(ttl) when ttl > 0 and ttl < @two_minutes_in_nanoseconds, do: ttl
+  defp duplicate_window_for_ttl(_ttl), do: @two_minutes_in_nanoseconds
 end
