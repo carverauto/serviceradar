@@ -54,6 +54,20 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
             <button class="btn btn-sm btn-outline" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </button>
+            <.link
+              :if={@selected_session_id}
+              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=svg"}
+              class="btn btn-sm btn-outline"
+            >
+              <.icon name="hero-photo" class="size-4" /> Export SVG
+            </.link>
+            <.link
+              :if={@selected_session_id}
+              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=json"}
+              class="btn btn-sm btn-outline"
+            >
+              <.icon name="hero-arrow-down-tray" class="size-4" /> Export JSON
+            </.link>
             <.link navigate={~p"/spatial"} class="btn btn-sm btn-ghost">
               <.icon name="hero-cube-transparent" class="size-4" /> 3D View
             </.link>
