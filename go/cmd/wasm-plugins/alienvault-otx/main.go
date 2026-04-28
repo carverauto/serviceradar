@@ -155,12 +155,10 @@ func runOTXCheck() (string, string, string) {
 		return string(sdk.StatusCritical), httpFailureSummary(resp), ""
 	}
 
-	var body subscribedPulsesResponse
-	if err := json.Unmarshal(resp.Body, &body); err != nil {
+	page, err := parseOTXPage(resp.Body, cfg)
+	if err != nil {
 		return string(sdk.StatusCritical), "OTX response could not be decoded", ""
 	}
-
-	page := buildCTIPage(body, cfg)
 	details := ctiPageDetailsJSON(page)
 
 	summary := fmt.Sprintf(
@@ -192,22 +190,45 @@ func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
 }
 
 func decodeOTXHTTPResponse(payload []byte) (*sdk.HTTPResponse, error) {
-	var decoded otxHTTPResponsePayload
-	if err := json.Unmarshal(payload, &decoded); err != nil {
+	var status int
+	var bodyBase64 string
+
+	scanner := otxJSONScanner{data: payload}
+	if err := scanner.consumeObject(func(key string) error {
+		switch key {
+		case "status":
+			value, err := scanner.readInt()
+			if err != nil {
+				return err
+			}
+			status = value
+		case "body_base64":
+			value, err := scanner.readStringOrNull()
+			if err != nil {
+				return err
+			}
+			bodyBase64 = value
+		default:
+			if err := scanner.skipValue(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
-	var body []byte
-	if decoded.BodyBase64 != "" {
-		var err error
-		body, err = base64.StdEncoding.DecodeString(decoded.BodyBase64)
-		if err != nil {
+	body, err := base64.StdEncoding.DecodeString(bodyBase64)
+	if err != nil {
+		if bodyBase64 == "" {
+			body = nil
+		} else {
 			return nil, err
 		}
 	}
 
 	return &sdk.HTTPResponse{
-		Status: decoded.Status,
+		Status: status,
 		Body:   body,
 	}, nil
 }
@@ -333,6 +354,406 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 
 	page.Counts.Indicators = len(page.Indicators)
 	return page
+}
+
+func parseOTXPage(data []byte, cfg Config) (ctiPage, error) {
+	page := ctiPage{
+		SchemaVersion: 1,
+		Provider:      sourceAlienVaultOTX,
+		Source:        sourceAlienVaultOTX,
+		CollectionID:  "otx:pulses:subscribed",
+		Cursor: map[string]string{
+			"modified_since": cfg.ModifiedSince,
+		},
+		Counts: ctiCounts{
+			SkippedByType: make(map[string]int),
+		},
+		Indicators: make([]ctiIndicator, 0),
+	}
+
+	scanner := otxJSONScanner{data: data}
+	if err := scanner.consumeObject(func(key string) error {
+		switch key {
+		case "count":
+			value, err := scanner.readInt()
+			if err != nil {
+				return err
+			}
+			page.Counts.Total = value
+		case "next":
+			value, err := scanner.readStringOrNull()
+			if err != nil {
+				return err
+			}
+			page.Cursor["next"] = value
+		case "results":
+			if err := parsePulseArray(&scanner, &page, cfg); err != nil {
+				return err
+			}
+		default:
+			if err := scanner.skipValue(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return ctiPage{}, err
+	}
+
+	page.Counts.Indicators = len(page.Indicators)
+	return page, nil
+}
+
+func parsePulseArray(scanner *otxJSONScanner, page *ctiPage, cfg Config) error {
+	if err := scanner.expectByte('['); err != nil {
+		return err
+	}
+	if scanner.consumeByte(']') {
+		return nil
+	}
+
+	for {
+		pulse, err := parsePulse(scanner)
+		if err != nil {
+			return err
+		}
+		page.Counts.Objects++
+
+		for _, indicator := range pulse.Indicators {
+			if len(page.Indicators) >= cfg.MaxIndicators {
+				page.Counts.addSkipped("max_indicators")
+				continue
+			}
+
+			normalized, ok := normalizeIndicator(pulse, indicator)
+			if !ok {
+				page.Counts.addSkipped(skipType(indicator))
+				continue
+			}
+
+			page.Indicators = append(page.Indicators, normalized)
+		}
+
+		if scanner.consumeByte(']') {
+			return nil
+		}
+		if err := scanner.expectByte(','); err != nil {
+			return err
+		}
+	}
+}
+
+func parsePulse(scanner *otxJSONScanner) (otxPulse, error) {
+	var pulse otxPulse
+
+	err := scanner.consumeObject(func(key string) error {
+		switch key {
+		case "id":
+			return scanner.readStringField(&pulse.ID)
+		case "name":
+			return scanner.readStringField(&pulse.Name)
+		case "author_name":
+			return scanner.readStringField(&pulse.AuthorName)
+		case "created":
+			return scanner.readStringField(&pulse.Created)
+		case "modified":
+			return scanner.readStringField(&pulse.Modified)
+		case "indicators":
+			indicators, err := parseIndicatorArray(scanner)
+			if err != nil {
+				return err
+			}
+			pulse.Indicators = indicators
+		default:
+			return scanner.skipValue()
+		}
+		return nil
+	})
+
+	return pulse, err
+}
+
+func parseIndicatorArray(scanner *otxJSONScanner) ([]otxIndicator, error) {
+	if err := scanner.expectByte('['); err != nil {
+		return nil, err
+	}
+	if scanner.consumeByte(']') {
+		return nil, nil
+	}
+
+	indicators := make([]otxIndicator, 0)
+	for {
+		indicator, err := parseIndicator(scanner)
+		if err != nil {
+			return nil, err
+		}
+		indicators = append(indicators, indicator)
+
+		if scanner.consumeByte(']') {
+			return indicators, nil
+		}
+		if err := scanner.expectByte(','); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func parseIndicator(scanner *otxJSONScanner) (otxIndicator, error) {
+	var indicator otxIndicator
+
+	err := scanner.consumeObject(func(key string) error {
+		switch key {
+		case "indicator":
+			return scanner.readStringField(&indicator.Indicator)
+		case "type":
+			return scanner.readStringField(&indicator.Type)
+		case "title":
+			return scanner.readStringField(&indicator.Title)
+		case "created":
+			return scanner.readStringField(&indicator.Created)
+		case "expiration":
+			value, err := scanner.readStringOrNull()
+			if err != nil {
+				return err
+			}
+			if value != "" {
+				indicator.Expiration = &value
+			}
+		default:
+			return scanner.skipValue()
+		}
+		return nil
+	})
+
+	return indicator, err
+}
+
+type otxJSONScanner struct {
+	data []byte
+	pos  int
+}
+
+func (scanner *otxJSONScanner) consumeObject(handle func(string) error) error {
+	if err := scanner.expectByte('{'); err != nil {
+		return err
+	}
+	if scanner.consumeByte('}') {
+		return nil
+	}
+
+	for {
+		key, err := scanner.readString()
+		if err != nil {
+			return err
+		}
+		if err := scanner.expectByte(':'); err != nil {
+			return err
+		}
+		if err := handle(key); err != nil {
+			return err
+		}
+		if scanner.consumeByte('}') {
+			return nil
+		}
+		if err := scanner.expectByte(','); err != nil {
+			return err
+		}
+	}
+}
+
+func (scanner *otxJSONScanner) readStringField(target *string) error {
+	value, err := scanner.readStringOrNull()
+	if err != nil {
+		return err
+	}
+	*target = value
+	return nil
+}
+
+func (scanner *otxJSONScanner) readStringOrNull() (string, error) {
+	scanner.skipWhitespace()
+	if scanner.hasPrefix("null") {
+		scanner.pos += len("null")
+		return "", nil
+	}
+	return scanner.readString()
+}
+
+func (scanner *otxJSONScanner) readString() (string, error) {
+	scanner.skipWhitespace()
+	if scanner.pos >= len(scanner.data) || scanner.data[scanner.pos] != '"' {
+		return "", fmt.Errorf("expected json string at byte %d", scanner.pos)
+	}
+	scanner.pos++
+
+	var b strings.Builder
+	for scanner.pos < len(scanner.data) {
+		ch := scanner.data[scanner.pos]
+		scanner.pos++
+		switch ch {
+		case '"':
+			return b.String(), nil
+		case '\\':
+			if scanner.pos >= len(scanner.data) {
+				return "", fmt.Errorf("unterminated json escape at byte %d", scanner.pos)
+			}
+			esc := scanner.data[scanner.pos]
+			scanner.pos++
+			switch esc {
+			case '"', '\\', '/':
+				b.WriteByte(esc)
+			case 'b':
+				b.WriteByte('\b')
+			case 'f':
+				b.WriteByte('\f')
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case 'u':
+				if scanner.pos+4 > len(scanner.data) {
+					return "", fmt.Errorf("short unicode escape at byte %d", scanner.pos)
+				}
+				b.WriteByte('?')
+				scanner.pos += 4
+			default:
+				return "", fmt.Errorf("invalid json escape at byte %d", scanner.pos)
+			}
+		default:
+			b.WriteByte(ch)
+		}
+	}
+
+	return "", fmt.Errorf("unterminated json string")
+}
+
+func (scanner *otxJSONScanner) readInt() (int, error) {
+	scanner.skipWhitespace()
+	start := scanner.pos
+	if scanner.pos < len(scanner.data) && scanner.data[scanner.pos] == '-' {
+		scanner.pos++
+	}
+	for scanner.pos < len(scanner.data) && scanner.data[scanner.pos] >= '0' && scanner.data[scanner.pos] <= '9' {
+		scanner.pos++
+	}
+	if start == scanner.pos {
+		return 0, fmt.Errorf("expected json integer at byte %d", start)
+	}
+	return strconv.Atoi(string(scanner.data[start:scanner.pos]))
+}
+
+func (scanner *otxJSONScanner) skipValue() error {
+	scanner.skipWhitespace()
+	if scanner.pos >= len(scanner.data) {
+		return fmt.Errorf("unexpected end of json")
+	}
+
+	switch scanner.data[scanner.pos] {
+	case '{':
+		return scanner.skipObject()
+	case '[':
+		return scanner.skipArray()
+	case '"':
+		_, err := scanner.readString()
+		return err
+	case 't':
+		return scanner.consumeLiteral("true")
+	case 'f':
+		return scanner.consumeLiteral("false")
+	case 'n':
+		return scanner.consumeLiteral("null")
+	default:
+		return scanner.skipNumber()
+	}
+}
+
+func (scanner *otxJSONScanner) skipObject() error {
+	return scanner.consumeObject(func(_ string) error {
+		return scanner.skipValue()
+	})
+}
+
+func (scanner *otxJSONScanner) skipArray() error {
+	if err := scanner.expectByte('['); err != nil {
+		return err
+	}
+	if scanner.consumeByte(']') {
+		return nil
+	}
+	for {
+		if err := scanner.skipValue(); err != nil {
+			return err
+		}
+		if scanner.consumeByte(']') {
+			return nil
+		}
+		if err := scanner.expectByte(','); err != nil {
+			return err
+		}
+	}
+}
+
+func (scanner *otxJSONScanner) skipNumber() error {
+	scanner.skipWhitespace()
+	start := scanner.pos
+	if scanner.pos < len(scanner.data) && scanner.data[scanner.pos] == '-' {
+		scanner.pos++
+	}
+	for scanner.pos < len(scanner.data) {
+		ch := scanner.data[scanner.pos]
+		if (ch >= '0' && ch <= '9') || ch == '.' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-' {
+			scanner.pos++
+			continue
+		}
+		break
+	}
+	if start == scanner.pos {
+		return fmt.Errorf("expected json value at byte %d", start)
+	}
+	return nil
+}
+
+func (scanner *otxJSONScanner) consumeLiteral(literal string) error {
+	if !scanner.hasPrefix(literal) {
+		return fmt.Errorf("expected %s at byte %d", literal, scanner.pos)
+	}
+	scanner.pos += len(literal)
+	return nil
+}
+
+func (scanner *otxJSONScanner) expectByte(want byte) error {
+	scanner.skipWhitespace()
+	if scanner.pos >= len(scanner.data) || scanner.data[scanner.pos] != want {
+		return fmt.Errorf("expected %q at byte %d", want, scanner.pos)
+	}
+	scanner.pos++
+	return nil
+}
+
+func (scanner *otxJSONScanner) consumeByte(want byte) bool {
+	scanner.skipWhitespace()
+	if scanner.pos < len(scanner.data) && scanner.data[scanner.pos] == want {
+		scanner.pos++
+		return true
+	}
+	return false
+}
+
+func (scanner *otxJSONScanner) hasPrefix(prefix string) bool {
+	return len(scanner.data)-scanner.pos >= len(prefix) && string(scanner.data[scanner.pos:scanner.pos+len(prefix)]) == prefix
+}
+
+func (scanner *otxJSONScanner) skipWhitespace() {
+	for scanner.pos < len(scanner.data) {
+		switch scanner.data[scanner.pos] {
+		case ' ', '\n', '\r', '\t':
+			scanner.pos++
+		default:
+			return
+		}
+	}
 }
 
 func (c *ctiCounts) addSkipped(kind string) {
