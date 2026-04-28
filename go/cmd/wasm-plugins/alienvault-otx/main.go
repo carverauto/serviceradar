@@ -14,7 +14,7 @@ const (
 	defaultBaseURL       = "https://otx.alienvault.com"
 	defaultLimit         = 10
 	defaultPage          = 1
-	defaultTimeoutMS     = 20000
+	defaultTimeoutMS     = 60000
 	defaultMaxIndicators = 2000
 	maxLimit             = 100
 	maxIndicators        = 5000

@@ -1915,7 +1915,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		httpReq.Header.Set(key, value)
 	}
 
-	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify).Do(httpReq)
+	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return pluginErrTimeout
@@ -1967,20 +1967,19 @@ func decodeBody(payload httpRequestPayload) ([]byte, error) {
 	return nil, nil
 }
 
-func pluginHTTPClient(base *http.Client, insecureSkipVerify bool) *http.Client {
-	if !insecureSkipVerify {
-		if base != nil {
-			return base
-		}
-		return http.DefaultClient
-	}
-
+func pluginHTTPClient(base *http.Client, insecureSkipVerify bool, timeout time.Duration) *http.Client {
 	client := http.DefaultClient
 	if base != nil {
 		client = base
 	}
 
 	cloned := *client
+	cloned.Timeout = timeout
+
+	if !insecureSkipVerify {
+		return &cloned
+	}
+
 	transport := cloned.Transport
 	if baseTransport, ok := transport.(*http.Transport); ok {
 		transport = baseTransport.Clone()

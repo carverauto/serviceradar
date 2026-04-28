@@ -56,6 +56,32 @@ func TestPluginDownloadUsesHeaderToken(t *testing.T) {
 	}
 }
 
+func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	base := &http.Client{Timeout: 20 * time.Millisecond}
+	client := pluginHTTPClient(base, false, 500*time.Millisecond)
+
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("request should use plugin request timeout instead of base timeout: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if base.Timeout != 20*time.Millisecond {
+		t.Fatalf("base client timeout was mutated: %s", base.Timeout)
+	}
+}
+
 func TestExecuteWithWasmHarness(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping: WASM execution is too slow for short mode")
