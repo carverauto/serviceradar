@@ -205,8 +205,10 @@ pub(super) async fn spectrum_stream(
     let request = build_spectrum_sweep_request(query)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let capture_control = state.capture_control();
+    let adaptive_scan = state.adaptive_scan();
 
-    Ok(ws.on_upgrade(move |socket| stream_spectrum(socket, request, capture_control)))
+    Ok(ws
+        .on_upgrade(move |socket| stream_spectrum(socket, request, capture_control, adaptive_scan)))
 }
 
 pub(super) async fn spectrum_summary_stream(

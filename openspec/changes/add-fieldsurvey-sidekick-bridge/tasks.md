@@ -41,7 +41,7 @@
 - [x] 5.3 Document FieldSurvey pairing and survey workflow.
 
 ## 6. Ekahau-Class RF Fidelity
-- [ ] 6.1 Add HackRF waterfall/spectrogram surfaces from the last N sweep rows, rendered in iOS and web review as frequency X time X power. Web review has the first persisted waterfall surface; iOS live/review rendering remains.
+- [ ] 6.1 Add HackRF waterfall/spectrogram surfaces from the last N sweep rows, rendered in iOS and web review as frequency X time X power. iOS Live Signal Map now renders a rolling channel waterfall from HackRF summaries, and web review has the first persisted waterfall surface; remaining work is the final retention/downsampling policy and full review polish.
 - [x] 6.2 Persist a backend-derived RF interference raster separately from the Wi-Fi RSSI raster so operators can compare coverage versus noise.
 - [x] 6.3 Add per-band/per-channel noise-floor baseline calibration and score interference as power above baseline, not raw dBm only.
 - [x] 6.4 Correlate HackRF channel energy with observed Wi-Fi AP channels to flag conflicts such as strong RSSI on a noisy channel.
