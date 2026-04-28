@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
      |> assign(:page_title, "FieldSurvey Review")
      |> assign(:current_path, "/spatial/field-surveys")
      |> assign(:sessions, [])
+     |> assign(:floor_options, [])
+     |> assign(:selected_floor_key, "all")
      |> assign(:review, nil)
      |> assign(:selected_session_id, nil)
      |> assign(:overlay, "wifi")
@@ -30,8 +32,18 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   def handle_event("refresh", _params, socket) do
     params =
       case socket.assigns.selected_session_id do
-        nil -> %{}
-        session_id -> %{"session_id" => session_id}
+        nil -> %{"floor" => socket.assigns.selected_floor_key}
+        session_id -> %{"session_id" => session_id, "floor" => socket.assigns.selected_floor_key}
+      end
+
+    {:noreply, load_review(socket, params)}
+  end
+
+  def handle_event("floor_filter", %{"floor" => floor_key}, socket) do
+    params =
+      case socket.assigns.selected_session_id do
+        nil -> %{"floor" => floor_key}
+        session_id -> %{"session_id" => session_id, "floor" => floor_key}
       end
 
     {:noreply, load_review(socket, params)}
@@ -88,10 +100,31 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               </div>
             </:header>
 
+            <div :if={length(@floor_options) > 1} class="border-b border-base-200 p-3">
+              <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+                Floor
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  :for={floor <- @floor_options}
+                  type="button"
+                  phx-click="floor_filter"
+                  phx-value-floor={floor.key}
+                  class={[
+                    "btn btn-xs",
+                    floor.key == @selected_floor_key && "btn-primary",
+                    floor.key != @selected_floor_key && "btn-outline"
+                  ]}
+                >
+                  {floor.label}
+                </button>
+              </div>
+            </div>
+
             <div class="divide-y divide-base-200">
               <.link
                 :for={session <- @sessions}
-                navigate={~p"/spatial/field-surveys/#{session.id}"}
+                navigate={field_survey_review_path(session.id, @selected_floor_key)}
                 class={[
                   "block px-4 py-3 transition hover:bg-base-200/60",
                   session.id == @selected_session_id && "bg-primary/10"
@@ -456,20 +489,39 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp load_review(socket, params) do
     scope = socket.assigns.current_scope
     requested_id = params["session_id"]
+    requested_floor_key = params["floor"] || "all"
 
     case FieldSurveyReview.list_sessions(scope, limit: 300) do
       {:ok, sessions} ->
-        selected_id = requested_id || List.first(sessions, %{})[:id]
+        floor_options = floor_options_for_sessions(sessions)
+        selected_floor_key = normalize_floor_key(requested_floor_key, floor_options)
+        visible_sessions = filter_sessions_by_floor(sessions, selected_floor_key)
+
+        selected_id =
+          if Enum.any?(visible_sessions, &(&1.id == requested_id)) do
+            requested_id
+          else
+            List.first(visible_sessions, %{})[:id]
+          end
 
         case selected_id do
           nil ->
-            assign(socket, sessions: sessions, selected_session_id: nil, review: nil, error: nil)
+            assign(socket,
+              sessions: visible_sessions,
+              floor_options: floor_options,
+              selected_floor_key: selected_floor_key,
+              selected_session_id: nil,
+              review: nil,
+              error: nil
+            )
 
           session_id ->
             case FieldSurveyReview.get_review(scope, session_id) do
               {:ok, review} ->
                 assign(socket,
-                  sessions: sessions,
+                  sessions: visible_sessions,
+                  floor_options: floor_options,
+                  selected_floor_key: selected_floor_key,
                   selected_session_id: session_id,
                   review: review,
                   error: nil
@@ -477,7 +529,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
               {:error, error} ->
                 assign(socket,
-                  sessions: sessions,
+                  sessions: visible_sessions,
+                  floor_options: floor_options,
+                  selected_floor_key: selected_floor_key,
                   selected_session_id: session_id,
                   review: nil,
                   error: "Could not load FieldSurvey review: #{inspect(error)}"
@@ -488,6 +542,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       {:error, error} ->
         assign(socket,
           sessions: [],
+          floor_options: [],
+          selected_floor_key: "all",
           selected_session_id: nil,
           review: nil,
           error: "Could not load sessions: #{inspect(error)}"
@@ -515,6 +571,79 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     |> Enum.reject(&invalid_bssid?(Map.get(&1, :bssid)))
     |> Enum.take(12)
   end
+
+  defp floor_options_for_sessions(sessions) do
+    floor_options =
+      sessions
+      |> Enum.map(&floor_option_for_session/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq_by(& &1.key)
+      |> Enum.sort_by(& &1.sort)
+
+    if floor_options == [] do
+      []
+    else
+      [%{key: "all", label: "All", sort: {-9_999, "All"}} | floor_options]
+    end
+  end
+
+  defp floor_option_for_session(%{metadata: metadata}) when is_map(metadata) do
+    floor_id = metadata[:floor_id] || metadata["floor_id"]
+    floor_name = metadata[:floor_name] || metadata["floor_name"]
+    floor_index = metadata[:floor_index] || metadata["floor_index"]
+
+    cond do
+      nonempty_string?(floor_id) ->
+        %{
+          key: "floor_id:#{floor_id}",
+          label: floor_label(floor_name, floor_index),
+          sort: floor_sort(floor_index, floor_name)
+        }
+
+      is_integer(floor_index) ->
+        %{
+          key: "floor_index:#{floor_index}",
+          label: floor_label(floor_name, floor_index),
+          sort: floor_sort(floor_index, floor_name)
+        }
+
+      nonempty_string?(floor_name) ->
+        %{key: "floor_name:#{floor_name}", label: floor_name, sort: floor_sort(nil, floor_name)}
+
+      true ->
+        nil
+    end
+  end
+
+  defp floor_option_for_session(_session), do: nil
+
+  defp normalize_floor_key(floor_key, floor_options) when is_binary(floor_key) do
+    if Enum.any?(floor_options, &(&1.key == floor_key)), do: floor_key, else: "all"
+  end
+
+  defp normalize_floor_key(_floor_key, _floor_options), do: "all"
+
+  defp filter_sessions_by_floor(sessions, "all"), do: sessions
+
+  defp filter_sessions_by_floor(sessions, floor_key) do
+    Enum.filter(sessions, &(floor_option_for_session(&1)[:key] == floor_key))
+  end
+
+  defp field_survey_review_path(session_id, "all"), do: ~p"/spatial/field-surveys/#{session_id}"
+
+  defp field_survey_review_path(session_id, floor_key) do
+    query = URI.encode_query(%{"floor" => floor_key})
+    "#{~p"/spatial/field-surveys/#{session_id}"}?#{query}"
+  end
+
+  defp floor_label(floor_name, _floor_index) when is_binary(floor_name) and floor_name != "", do: floor_name
+  defp floor_label(_floor_name, floor_index) when is_integer(floor_index), do: "Floor #{floor_index}"
+  defp floor_label(_floor_name, _floor_index), do: "Floor"
+
+  defp floor_sort(floor_index, floor_name) when is_integer(floor_index), do: {floor_index, floor_name || ""}
+  defp floor_sort(_floor_index, floor_name), do: {9_999, floor_name || ""}
+
+  defp nonempty_string?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp valid_ap_marker?(ap) do
     number?(Map.get(ap, :x_pct)) and
