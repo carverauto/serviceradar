@@ -41,14 +41,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{page_path: @current_path}}>
-      <div class="mx-auto max-w-7xl p-6 space-y-5">
+      <div class="sr-fieldsurvey-review-page mx-auto max-w-7xl p-6 space-y-5">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <.header>
-            FieldSurvey Review
-            <:subtitle>
+          <div>
+            <h1 class="sr-spatial-title">FieldSurvey Review</h1>
+            <p class="sr-spatial-subtitle">
               Wi-Fi RSSI coverage, AP observations, walking path, and SDR interference from persisted survey rows.
-            </:subtitle>
-          </.header>
+            </p>
+          </div>
 
           <div class="flex flex-wrap items-center gap-2">
             <button class="btn btn-sm btn-outline" phx-click="refresh">
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
         </div>
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_1fr]">
-          <.ui_panel body_class="p-0">
+          <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header" body_class="p-0">
             <:header>
               <div>
                 <div class="text-sm font-semibold">Survey Sessions</div>
@@ -102,7 +102,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           <div class="space-y-4">
             <.metric_strip :if={@review} metrics={@review.metrics} />
 
-            <.ui_panel :if={@review} body_class="p-0">
+            <.ui_panel
+              :if={@review}
+              class="sr-spatial-panel"
+              header_class="sr-spatial-panel-header"
+              body_class="p-0"
+            >
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Live Signal Map Review</div>
@@ -129,21 +134,22 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               </:header>
 
               <div class="grid grid-cols-1 gap-0 xl:grid-cols-[1fr_20rem]">
-                <div class="relative min-h-[34rem] overflow-hidden bg-base-200/40">
-                  <div class="absolute inset-5 rounded border border-base-300 bg-base-100 shadow-inner">
-                    <div class="absolute inset-0 opacity-40 [background-image:linear-gradient(to_right,hsl(var(--bc)/0.12)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--bc)/0.12)_1px,transparent_1px)] [background-size:2rem_2rem]">
-                    </div>
+                <div class="sr-fieldsurvey-review-map-shell">
+                  <div class="sr-fieldsurvey-review-map">
+                    <div class="sr-fieldsurvey-review-grid"></div>
 
-                    <span
-                      :for={cell <- coverage_cells(@review, @overlay)}
-                      class="absolute rounded-full pointer-events-none"
-                      style={coverage_cell_style(cell, @overlay)}
-                    >
-                    </span>
+                    <div class={["sr-fieldsurvey-review-coverage", "overlay-#{@overlay}"]}>
+                      <span
+                        :for={cell <- coverage_cells(@review, @overlay)}
+                        class="sr-fieldsurvey-review-coverage-cell"
+                        style={coverage_cell_style(cell, @overlay)}
+                      >
+                      </span>
+                    </div>
 
                     <svg
                       :if={@review.floorplan_segments != []}
-                      class="absolute inset-0 h-full w-full pointer-events-none"
+                      class="sr-fieldsurvey-review-floorplan"
                       viewBox="0 0 100 100"
                       preserveAspectRatio="none"
                       aria-hidden="true"
@@ -160,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
                     <span
                       :for={point <- @review.path_points}
-                      class="absolute size-1 rounded-full bg-base-content/30"
+                      class="sr-fieldsurvey-review-path-point"
                       style={path_style(point)}
                     >
                     </span>
@@ -175,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
                     <span
                       :for={ap <- ap_markers(@review)}
-                      class="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-sky-200/90 bg-base-100/95 px-2 py-1 text-[0.65rem] font-semibold text-sky-100 shadow-lg"
+                      class="sr-fieldsurvey-review-ap-marker"
                       title={ap_marker_title(ap)}
                       style={ap_marker_style(ap)}
                     >
@@ -194,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
             </.ui_panel>
 
             <div :if={@review} class="grid grid-cols-1 gap-4 xl:grid-cols-3">
-              <.ui_panel>
+              <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
                 <:header>
                   <div class="text-sm font-semibold">Room Artifacts</div>
                 </:header>
@@ -225,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </div>
               </.ui_panel>
 
-              <.ui_panel>
+              <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
                 <:header>
                   <div class="text-sm font-semibold">Observed APs</div>
                 </:header>
@@ -270,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </div>
               </.ui_panel>
 
-              <.ui_panel>
+              <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
                 <:header>
                   <div class="text-sm font-semibold">Spectrum Summary</div>
                 </:header>
@@ -293,7 +299,11 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
             <.spectrum_waterfall :if={@review} waterfall={@review.spectrum_waterfall} />
 
-            <.ui_panel :if={!@review && @sessions != []}>
+            <.ui_panel
+              :if={!@review && @sessions != []}
+              class="sr-spatial-panel"
+              header_class="sr-spatial-panel-header"
+            >
               <div class="py-10 text-center text-sm text-base-content/60">
                 Select a survey session to review captured Wi-Fi and spectrum data.
               </div>
@@ -333,7 +343,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp summary_cell(assigns) do
     ~H"""
-    <div class="rounded border border-base-200 bg-base-100 px-3 py-2">
+    <div class="sr-fieldsurvey-review-summary-cell rounded border px-3 py-2">
       <div class="text-xs uppercase text-base-content/50">{@label}</div>
       <div class="mt-1 text-xl font-semibold">{@value}</div>
     </div>
@@ -498,19 +508,19 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp invalid_bssid?(_bssid), do: true
 
   defp coverage_cell_style(cell, "interference") do
-    diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
+    diameter = max((cell.radius_pct || 1.0) * 2.75, 2.7)
     color = interference_color(cell.score || 0)
-    opacity = 0.12 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.48
+    opacity = 0.14 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.42
 
-    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 50%, transparent 78%); opacity: #{Float.round(opacity, 3)}; filter: blur(3px);"
+    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 58%, transparent 86%); opacity: #{Float.round(opacity, 3)};"
   end
 
   defp coverage_cell_style(cell, _overlay) do
-    diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
+    diameter = max((cell.radius_pct || 1.0) * 3.0, 2.8)
     color = rssi_color(cell.rssi || -95)
-    opacity = 0.14 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.42
+    opacity = 0.16 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.34
 
-    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 52%, transparent 78%); opacity: #{Float.round(opacity, 3)}; filter: blur(3px);"
+    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 62%, transparent 88%); opacity: #{Float.round(opacity, 3)};"
   end
 
   defp point_style(point, "interference") do
@@ -549,7 +559,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp spectrum_waterfall(assigns) do
     ~H"""
-    <.ui_panel>
+    <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
       <:header>
         <div>
           <div class="text-sm font-semibold">Spectrum Waterfall</div>
@@ -591,15 +601,15 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   end
 
   defp floorplan_line_style(%{kind: "door"}) do
-    "stroke: rgba(255,255,255,0.78); stroke-width: 0.32; stroke-dasharray: 1.4 0.9; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+    "stroke: rgba(248,253,255,0.96); stroke-width: 0.46; stroke-dasharray: 1.4 0.9; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp floorplan_line_style(%{kind: "window"}) do
-    "stroke: rgba(125,211,252,0.88); stroke-width: 0.26; stroke-dasharray: 0.9 0.7; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+    "stroke: rgba(94,214,255,0.96); stroke-width: 0.42; stroke-dasharray: 0.9 0.7; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp floorplan_line_style(_segment) do
-    "stroke: rgba(103,232,249,0.72); stroke-width: 0.36; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+    "stroke: rgba(205,250,255,0.96); stroke-width: 0.52; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp point_title(point, "interference") do

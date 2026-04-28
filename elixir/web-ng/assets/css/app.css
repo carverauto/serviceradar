@@ -2599,6 +2599,126 @@
   line-height: 1.4;
 }
 
+.sr-fieldsurvey-review-page {
+  min-height: calc(100vh - 5rem);
+  color: #e2e8f0;
+}
+
+.sr-fieldsurvey-review-page .text-base-content\/40 {
+  color: #64748b !important;
+}
+
+.sr-fieldsurvey-review-page .text-base-content\/50,
+.sr-fieldsurvey-review-page .text-base-content\/60,
+.sr-fieldsurvey-review-page .text-base-content\/65,
+.sr-fieldsurvey-review-page .text-base-content\/70 {
+  color: #94a3b8 !important;
+}
+
+.sr-fieldsurvey-review-page .border-base-200 {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+}
+
+.sr-fieldsurvey-review-page .divide-base-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+}
+
+.sr-fieldsurvey-review-summary-cell {
+  border-color: rgba(51, 65, 85, 0.72);
+  background: rgba(15, 23, 42, 0.74);
+  color: #e2e8f0;
+}
+
+.sr-fieldsurvey-review-map-shell {
+  position: relative;
+  min-height: 34rem;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.sr-fieldsurvey-review-map {
+  position: absolute;
+  inset: 1.25rem;
+  overflow: hidden;
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  border-radius: 0.35rem;
+  background: rgba(2, 8, 23, 0.54);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.72);
+}
+
+.sr-fieldsurvey-review-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0.44;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.16) 1px, transparent 1px);
+  background-size: 2rem 2rem;
+}
+
+.sr-fieldsurvey-review-coverage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  filter: saturate(1.2) blur(3.2px);
+}
+
+.sr-fieldsurvey-review-coverage.overlay-interference {
+  filter: saturate(1.25) blur(2.6px);
+}
+
+.sr-fieldsurvey-review-coverage-cell {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.sr-fieldsurvey-review-floorplan {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 0 0.12rem rgba(2, 8, 23, 0.94))
+    drop-shadow(0 0 0.22rem rgba(14, 165, 233, 0.42));
+}
+
+.sr-fieldsurvey-review-path-point {
+  position: absolute;
+  z-index: 6;
+  width: 0.24rem;
+  height: 0.24rem;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.42);
+  transform: translate(-50%, -50%);
+}
+
+.sr-fieldsurvey-review-ap-marker {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(186, 230, 253, 0.92);
+  border-radius: 999px;
+  background: rgba(2, 8, 23, 0.88);
+  padding: 0.28rem 0.45rem;
+  color: rgba(224, 242, 254, 0.96);
+  font-size: 0.65rem;
+  font-weight: 700;
+  box-shadow:
+    0 0 0 2px rgba(14, 165, 233, 0.24),
+    0 0.45rem 1rem rgba(2, 8, 23, 0.34);
+}
+
 @media (max-width: 1180px) {
   .sr-ops-kpi-grid,
   .sr-ops-grid-primary,
