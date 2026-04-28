@@ -83,8 +83,9 @@
 - [x] 7.28 Make dashboard AP candidate markers hoverable/focusable and link them to matching inventory device pages when a BSSID can be resolved through MAC identifiers.
 
 ## 9. Survey Organization and Site/Floor Model
-- [ ] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.
+- [x] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.
 - [x] 9.1a Add the initial `survey_session_metadata` table/resource/helper so session attribution has a real backend anchor before the upload and settings UI are wired.
+- [x] 9.1b Persist FieldSurvey site/building/floor/tag metadata from upload/WebSocket headers and display the resolved label in FieldSurvey Review session lists.
 - [ ] 9.2 Add settings UI to define dashboard FieldSurvey groups from SRQL-backed filters, such as airport/site, terminal/building, floor, or tag combinations.
 - [ ] 9.3 Add floor selectors in FieldSurvey Review and dashboard cards so multi-floor surveys can be cycled without mixing AP/raster data from different floors.
 - [ ] 9.4 Add backend queries that summarize latest Wi-Fi/RF rasters by configured survey group instead of globally selecting one latest session.
