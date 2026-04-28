@@ -207,6 +207,13 @@ end
 plugin_storage_signing_secret =
   read_secret_env.("PLUGIN_STORAGE_SIGNING_SECRET", "PLUGIN_STORAGE_SIGNING_SECRET_FILE")
 
+edge_crypto_secret =
+  read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE")
+
+if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
+  config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)
+end
+
 to_int = fn value ->
   cond do
     is_integer(value) ->
