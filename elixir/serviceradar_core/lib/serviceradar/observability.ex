@@ -48,6 +48,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.IpRdnsCache
     resource ServiceRadar.Observability.IpIpinfoCache
     resource ServiceRadar.Observability.ThreatIntelIndicator
+    resource ServiceRadar.Observability.ThreatIntelSourceObject
     resource ServiceRadar.Observability.IpThreatIntelCache
     resource ServiceRadar.Observability.NetflowPortScanFlag
     resource ServiceRadar.Observability.NetflowPortAnomalyFlag

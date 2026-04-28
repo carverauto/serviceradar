@@ -7,9 +7,9 @@
 ## 2. Data Model
 - [ ] 2.1 Extend existing NetFlow threat-intel settings with OTX enabled/base URL/API key/sync status fields, or add a narrowly scoped companion singleton if that is cleaner.
 - [x] 2.2 Reuse `platform.threat_intel_indicators` for OTX IPv4/IPv6/CIDR indicators with source `alienvault_otx`.
-- [ ] 2.3 Add provider/source object metadata storage for TAXII/STIX object ids, versions, collection ids, raw object keys, and OTX pulse metadata if needed for richer hit explanation.
+- [x] 2.3 Add provider/source object metadata storage for TAXII/STIX object ids, versions, collection ids, raw object keys, and OTX pulse metadata if needed for richer hit explanation.
 - [ ] 2.4 Add encrypted OTX API key handling with "present" calculations and clear/update actions.
-- [ ] 2.5 Add indexes or constraints for any new provider metadata/sync tables.
+- [x] 2.5 Add indexes or constraints for any new provider metadata/sync tables.
 - [ ] 2.6 Track provider execution mode (`edge_plugin` or `core_worker`), plugin assignment identity, cursor/high-water state, and sync status.
 
 ## 3. TAXII/STIX Provider Boundary And OTX Sync
