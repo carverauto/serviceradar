@@ -595,11 +595,47 @@ if config_env() == :prod do
       []
     end
 
+  otx_env = fn env_name ->
+    case System.get_env(env_name) do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+  end
+
+  otx_api_key =
+    read_secret_env.(
+      "SERVICERADAR_OTX_API_KEY",
+      "SERVICERADAR_OTX_API_KEY_FILE"
+    )
+
+  otx_provider_config =
+    %{
+      "api_key" => otx_api_key,
+      "base_url" => otx_env.("SERVICERADAR_OTX_BASE_URL"),
+      "modified_since" => otx_env.("SERVICERADAR_OTX_MODIFIED_SINCE"),
+      "limit" => parse_int_env.("SERVICERADAR_OTX_PAGE_SIZE", nil),
+      "page" => parse_int_env.("SERVICERADAR_OTX_PAGE", nil),
+      "timeout_ms" => parse_int_env.("SERVICERADAR_OTX_TIMEOUT_MS", nil),
+      "max_indicators" => parse_int_env.("SERVICERADAR_OTX_MAX_INDICATORS", nil),
+      "max_retries" => parse_int_env.("SERVICERADAR_OTX_MAX_RETRIES", nil),
+      "backoff_ms" => parse_int_env.("SERVICERADAR_OTX_BACKOFF_MS", nil)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
 
   config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
     reschedule_seconds: netflow_security_refresh_reschedule_seconds,
     cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds
+
+  if otx_provider_config != %{} do
+    config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker,
+      provider_config: otx_provider_config,
+      plugin_id: "alienvault-otx-core",
+      partition: System.get_env("SERVICERADAR_OTX_PARTITION", "default")
+  end
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name

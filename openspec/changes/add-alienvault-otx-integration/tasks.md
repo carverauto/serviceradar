@@ -66,7 +66,7 @@
 - [ ] 8.3 Register current/recent NetFlow matching work with uniqueness and bounded batch sizes.
 - [x] 8.4 Use safe enqueue behavior when Oban or plugin scheduling is unavailable.
 - [ ] 8.5 Emit logs/telemetry for sync, NetFlow matching, edge plugin runs, and retrohunt lifecycle without leaking secrets.
-- [ ] 8.6 Document deployment secret/env var options, plugin secret references, egress allowlist review, and API key rotation expectations.
+- [x] 8.6 Document deployment secret/env var options, plugin secret references, egress allowlist review, and API key rotation expectations.
 
 ## 9. Validation
 - [x] 9.1 Add unit tests for TAXII/STIX page normalization and STIX Indicator pattern extraction.
