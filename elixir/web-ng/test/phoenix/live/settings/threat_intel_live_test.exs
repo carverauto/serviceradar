@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
       "assignment" => %{
         "agent_uid" => agent.uid,
         "enabled" => "true",
-        "interval_seconds" => "600",
+        "interval_seconds" => "21600",
         "timeout_seconds" => "25",
         "base_url" => "https://otx.alienvault.com",
         "api_key_secret_ref" => "edge-liveview-secret",
@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
       |> Ash.read_one!(scope: scope)
 
     assert %PluginAssignment{
-             interval_seconds: 600,
+             interval_seconds: 21_600,
              timeout_seconds: 25,
              enabled: true
            } = assignment

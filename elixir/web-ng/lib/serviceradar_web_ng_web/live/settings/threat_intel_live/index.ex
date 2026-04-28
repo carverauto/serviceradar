@@ -30,13 +30,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   @default_form %{
     "agent_uid" => "",
     "enabled" => "true",
-    "interval_seconds" => "3600",
-    "timeout_seconds" => "60",
+    "interval_seconds" => "21600",
+    "timeout_seconds" => "120",
     "base_url" => "https://otx.alienvault.com",
     "api_key_secret_ref" => "",
     "limit" => "100",
     "page" => "1",
-    "timeout_ms" => "60000",
+    "timeout_ms" => "120000",
     "max_pages" => "100",
     "max_indicators" => "5000"
   }
@@ -46,9 +46,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "otx_base_url" => "https://otx.alienvault.com",
     "otx_api_key" => "",
     "clear_otx_api_key" => "false",
-    "otx_sync_interval_seconds" => "3600",
+    "otx_sync_interval_seconds" => "21600",
     "otx_page_size" => "10",
-    "otx_timeout_ms" => "60000",
+    "otx_timeout_ms" => "120000",
     "otx_max_indicators" => "2000",
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
@@ -597,7 +597,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       name="settings[otx_sync_interval_seconds]"
                       label="Sync Interval"
                       value={@otx_settings_form["otx_sync_interval_seconds"]}
-                      min="60"
+                      min="3600"
                     />
                     <.number_input
                       name="settings[threat_intel_match_window_seconds]"
@@ -711,7 +711,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       name="assignment[interval_seconds]"
                       label="Interval"
                       value={@assignment_form["interval_seconds"]}
-                      min="60"
+                      min="3600"
                       disabled={is_nil(@approved_package)}
                     />
                     <.number_input
@@ -1050,9 +1050,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "otx_base_url" => settings.otx_base_url || "https://otx.alienvault.com",
       "otx_api_key" => "",
       "clear_otx_api_key" => "false",
-      "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 3_600),
+      "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 21_600),
       "otx_page_size" => to_string(settings.otx_page_size || 10),
-      "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 60_000),
+      "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 120_000),
       "otx_max_indicators" => to_string(settings.otx_max_indicators || 2_000),
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
@@ -1070,9 +1070,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
         |> Map.get("otx_base_url", "https://otx.alienvault.com")
         |> to_string()
         |> String.trim(),
-      otx_sync_interval_seconds: to_int(Map.get(params, "otx_sync_interval_seconds"), 3_600),
+      otx_sync_interval_seconds: max(to_int(Map.get(params, "otx_sync_interval_seconds"), 21_600), 3_600),
       otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 10, 1, 100),
-      otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 60_000),
+      otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 120_000),
       otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 2_000, 1, 5_000),
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
@@ -1137,8 +1137,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp parse_assignment(params, package) when is_map(params) do
     with {:ok, agent_uid} <- required_string(params["agent_uid"], "Agent is required"),
-         {:ok, interval_seconds} <- parse_positive_int(params["interval_seconds"], 3600),
-         {:ok, timeout_seconds} <- parse_positive_int(params["timeout_seconds"], 60),
+         {:ok, interval_seconds} <- parse_min_int(params["interval_seconds"], 21_600, 3_600),
+         {:ok, timeout_seconds} <- parse_positive_int(params["timeout_seconds"], 120),
          {:ok, params_map} <- parse_plugin_params(params, package.config_schema || %{}) do
       {:ok,
        %{
@@ -1191,6 +1191,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       {parsed, ""} when parsed > 0 -> {:ok, parsed}
       _ when is_integer(default) and default > 0 -> {:ok, default}
       _ -> {:error, "Expected a positive integer"}
+    end
+  end
+
+  defp parse_min_int(value, default, minimum) do
+    case parse_positive_int(value, default) do
+      {:ok, parsed} -> {:ok, max(parsed, minimum)}
+      error -> error
     end
   end
 
