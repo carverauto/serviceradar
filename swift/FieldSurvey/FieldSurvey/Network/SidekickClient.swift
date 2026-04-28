@@ -552,6 +552,59 @@ public struct SidekickSpectrumSummary: Codable, Equatable, Identifiable, Sendabl
         case sweepRateHz = "sweep_rate_hz"
         case channelScores = "channel_scores"
     }
+
+    public init(
+        sidekickID: String,
+        sdrID: String,
+        deviceKind: String,
+        serialNumber: String?,
+        sweepID: UInt64,
+        capturedAtUnixNanos: Int64,
+        startFrequencyHz: UInt64,
+        stopFrequencyHz: UInt64,
+        binWidthHz: Float,
+        sampleCount: UInt32,
+        averagePowerDBM: Float,
+        peakPowerDBM: Float,
+        peakFrequencyHz: UInt64,
+        sweepRateHz: Float?,
+        channelScores: [SidekickSpectrumChannelScore]
+    ) {
+        self.sidekickID = sidekickID
+        self.sdrID = sdrID
+        self.deviceKind = deviceKind
+        self.serialNumber = serialNumber
+        self.sweepID = sweepID
+        self.capturedAtUnixNanos = capturedAtUnixNanos
+        self.startFrequencyHz = startFrequencyHz
+        self.stopFrequencyHz = stopFrequencyHz
+        self.binWidthHz = binWidthHz
+        self.sampleCount = sampleCount
+        self.averagePowerDBM = averagePowerDBM
+        self.peakPowerDBM = peakPowerDBM
+        self.peakFrequencyHz = peakFrequencyHz
+        self.sweepRateHz = sweepRateHz
+        self.channelScores = channelScores
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sidekickID = try container.decode(String.self, forKey: .sidekickID)
+        self.sdrID = try container.decode(String.self, forKey: .sdrID)
+        self.deviceKind = try container.decode(String.self, forKey: .deviceKind)
+        self.serialNumber = try container.decodeIfPresent(String.self, forKey: .serialNumber)
+        self.sweepID = try container.decode(UInt64.self, forKey: .sweepID)
+        self.capturedAtUnixNanos = try container.decode(Int64.self, forKey: .capturedAtUnixNanos)
+        self.startFrequencyHz = try container.decode(UInt64.self, forKey: .startFrequencyHz)
+        self.stopFrequencyHz = try container.decode(UInt64.self, forKey: .stopFrequencyHz)
+        self.binWidthHz = try container.decode(Float.self, forKey: .binWidthHz)
+        self.sampleCount = try container.decode(UInt32.self, forKey: .sampleCount)
+        self.averagePowerDBM = try container.decode(Float.self, forKey: .averagePowerDBM)
+        self.peakPowerDBM = try container.decode(Float.self, forKey: .peakPowerDBM)
+        self.peakFrequencyHz = try container.decode(UInt64.self, forKey: .peakFrequencyHz)
+        self.sweepRateHz = try container.decodeIfPresent(Float.self, forKey: .sweepRateHz)
+        self.channelScores = try container.decodeIfPresent([SidekickSpectrumChannelScore].self, forKey: .channelScores) ?? []
+    }
 }
 
 public struct SidekickSpectrumChannelScore: Codable, Equatable, Identifiable, Sendable {

@@ -623,7 +623,7 @@ public struct SurveyView: View {
         checkpointTask?.cancel()
 
         let sessionName = autosaveSessionName
-        let spectrumSummaries = currentSpectrumSummaries
+        let spectrumSummaries = persistedSpectrumSummaries
         checkpointTask = Task { @MainActor in
             do {
                 let record = try await sessionStore.autosaveCurrentSession(
@@ -827,6 +827,28 @@ public struct SurveyView: View {
             return sidekickRelay.spectrumSummaries
         }
         return recoveredSnapshot?.spectrumSummaries ?? []
+    }
+
+    private var persistedSpectrumSummaries: [SidekickSpectrumSummary] {
+        currentSpectrumSummaries.suffix(48).map { summary in
+            SidekickSpectrumSummary(
+                sidekickID: summary.sidekickID,
+                sdrID: summary.sdrID,
+                deviceKind: summary.deviceKind,
+                serialNumber: summary.serialNumber,
+                sweepID: summary.sweepID,
+                capturedAtUnixNanos: summary.capturedAtUnixNanos,
+                startFrequencyHz: summary.startFrequencyHz,
+                stopFrequencyHz: summary.stopFrequencyHz,
+                binWidthHz: summary.binWidthHz,
+                sampleCount: summary.sampleCount,
+                averagePowerDBM: summary.averagePowerDBM,
+                peakPowerDBM: summary.peakPowerDBM,
+                peakFrequencyHz: summary.peakFrequencyHz,
+                sweepRateHz: summary.sweepRateHz,
+                channelScores: summary.channelScores
+            )
+        }
     }
 
     private func resumeLoadedSession(_ snapshot: SurveySessionSnapshot) {
