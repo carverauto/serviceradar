@@ -136,6 +136,11 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: edge-onboarding-key
+        - name: SERVICERADAR_EDGE_CRYPTO_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: web-ng-secret-key-base
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
         {{- if .Values.spire.enabled }}
