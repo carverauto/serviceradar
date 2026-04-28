@@ -1,0 +1,222 @@
+- generic [ref=e3]:
+  - complementary "Primary navigation" [ref=e4]:
+    - navigation [ref=e5]:
+      - link "Dashboard" [ref=e6] [cursor=pointer]:
+        - /url: /dashboard
+      - link "Devices" [ref=e8] [cursor=pointer]:
+        - /url: /devices
+      - link "Topology" [ref=e10] [cursor=pointer]:
+        - /url: /topology
+      - link "Flows" [ref=e12] [cursor=pointer]:
+        - /url: /observability/flows
+      - link "Events" [ref=e14] [cursor=pointer]:
+        - /url: /events
+      - link "Cameras" [ref=e16] [cursor=pointer]:
+        - /url: /cameras
+      - link "FieldSurvey" [ref=e18] [cursor=pointer]:
+        - /url: /spatial
+      - link "Observability" [ref=e20] [cursor=pointer]:
+        - /url: /observability
+      - link "Settings" [ref=e22] [cursor=pointer]:
+        - /url: /settings/cluster
+    - link "Log out" [ref=e25] [cursor=pointer]:
+      - /url: /users/log-out
+  - generic [ref=e27]:
+    - banner [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e31]: ServiceRadar
+        - heading "Unified Operations Dashboard" [level=1] [ref=e33]
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - button [ref=e37] [cursor=pointer]
+          - button [ref=e39] [cursor=pointer]
+          - button [ref=e41] [cursor=pointer]
+        - link "Events" [ref=e43] [cursor=pointer]:
+          - /url: /events
+          - generic [ref=e45]: "0"
+        - link "Account" [ref=e46] [cursor=pointer]:
+          - /url: /settings/profile
+          - generic [ref=e47]: "?"
+    - main [ref=e48]:
+      - generic [ref=e49]:
+        - region "Operational summary" [ref=e50]:
+          - article [ref=e51]:
+            - generic [ref=e54]:
+              - paragraph [ref=e55]: Total Assets
+              - strong [ref=e56]: "0"
+              - generic [ref=e57]: 0 available
+            - img
+          - article [ref=e58]:
+            - generic [ref=e61]:
+              - paragraph [ref=e62]: Threat Level
+              - strong [ref=e63]: Normal
+              - generic [ref=e64]: 0 active alerts
+            - img
+          - article [ref=e65]:
+            - generic [ref=e68]:
+              - paragraph [ref=e69]: Network Health
+              - strong [ref=e70]: No signal
+              - generic [ref=e71]: No health or flow summaries
+            - img
+          - article [ref=e72]:
+            - generic [ref=e75]:
+              - paragraph [ref=e76]: Camera Fleet
+              - strong [ref=e77]: "0"
+              - generic [ref=e78]: 0 available
+            - img
+          - article [ref=e79]:
+            - generic [ref=e82]:
+              - paragraph [ref=e83]: Wi-Fi Coverage
+              - strong [ref=e84]: No survey
+              - generic [ref=e85]: FieldSurvey summary unavailable
+            - img
+        - generic [ref=e86]:
+          - article [ref=e87]:
+            - generic [ref=e88]:
+              - heading "NetFlow Map" [level=2] [ref=e89]
+              - link "Full Topology" [ref=e91] [cursor=pointer]:
+                - /url: /topology
+            - generic [ref=e92]:
+              - generic:
+                - list "NetFlow map legend":
+                  - listitem: Network cluster
+                  - listitem: Private/public flow
+                  - listitem: Busy flow
+                  - listitem: High volume flow
+                  - listitem: External-only flow
+                - generic: Last 15 min
+              - generic "Network traffic map" [ref=e93]
+              - generic [ref=e94]:
+                - paragraph [ref=e95]: No NetFlow paths
+                - generic [ref=e96]: Recent flow conversations need GeoIP enrichment or private-network anchors before they can be mapped.
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - generic [ref=e99]: Window
+                - strong [ref=e100]: Last 15 min
+              - generic [ref=e101]:
+                - generic [ref=e102]: Conversations
+                - strong [ref=e103]: "0"
+              - generic [ref=e104]:
+                - generic [ref=e105]: Flow Records
+                - strong [ref=e106]: "0"
+              - generic [ref=e107]:
+                - generic [ref=e108]: Traffic
+                - strong [ref=e109]: No data
+              - generic [ref=e110]:
+                - generic [ref=e111]: Geo Mapped
+                - strong [ref=e112]: 0.0%
+          - article [ref=e113]:
+            - generic [ref=e114]:
+              - heading "Events Over Time" [level=2] [ref=e115]
+              - generic [ref=e117]: Last 24 hours
+            - generic [ref=e118]:
+              - paragraph [ref=e120]: No event trend data
+              - generic [ref=e121]: OCSF events will populate this chart when recent records exist.
+        - generic [ref=e122]:
+          - article [ref=e123]:
+            - generic [ref=e124]:
+              - heading "FieldSurvey Heatmap" [level=2] [ref=e125]
+              - link "Open FieldSurvey" [ref=e127] [cursor=pointer]:
+                - /url: /spatial
+            - generic [ref=e148]:
+              - paragraph [ref=e150]: No FieldSurvey heatmap data
+              - generic [ref=e151]: Survey overlays will render here when floorplan samples exist.
+          - article [ref=e152]:
+            - generic [ref=e153]:
+              - heading "Camera Operations" [level=2] [ref=e154]
+              - link "View All Cameras" [ref=e156] [cursor=pointer]:
+                - /url: /cameras
+            - generic [ref=e157]:
+              - generic [ref=e158]:
+                - generic [ref=e159]:
+                  - generic [ref=e160]: Available
+                  - strong [ref=e162]: "0"
+                - generic [ref=e163]:
+                  - generic [ref=e164]: Offline
+                  - strong [ref=e166]: "0"
+                - generic [ref=e167]:
+                  - generic [ref=e168]: Recording
+                  - strong [ref=e170]: "0"
+                - generic [ref=e171]:
+                  - generic [ref=e172]: Total Cameras
+                  - strong [ref=e174]: "0"
+              - generic [ref=e175]:
+                - link "Open No preview" [ref=e176] [cursor=pointer]:
+                  - /url: /cameras
+                  - generic [ref=e179]:
+                    - generic [ref=e180]: No preview
+                    - generic [ref=e182]: No relay
+                - link "Open No preview" [ref=e183] [cursor=pointer]:
+                  - /url: /cameras
+                  - generic [ref=e186]:
+                    - generic [ref=e187]: No preview
+                    - generic [ref=e189]: No relay
+                - link "Open No preview" [ref=e190] [cursor=pointer]:
+                  - /url: /cameras
+                  - generic [ref=e193]:
+                    - generic [ref=e194]: No preview
+                    - generic [ref=e196]: No relay
+                - link "Open No preview" [ref=e197] [cursor=pointer]:
+                  - /url: /cameras
+                  - generic [ref=e200]:
+                    - generic [ref=e201]: No preview
+                    - generic [ref=e203]: No relay
+        - generic [ref=e204]:
+          - article [ref=e205]:
+            - heading "Observability Metrics" [level=2] [ref=e207]
+            - generic [ref=e208]:
+              - generic [ref=e209]:
+                - generic [ref=e210]: Latency (Avg)
+                - strong [ref=e212]: No MTR
+                - generic [ref=e213]:
+                  - generic: "150"
+                  - generic: "75"
+                  - generic: "0"
+                  - img [ref=e214]
+              - generic [ref=e216]:
+                - generic [ref=e217]: Packet Loss
+                - strong [ref=e219]: No MTR
+                - generic [ref=e220]:
+                  - generic: 1%
+                  - generic: 0.5%
+                  - generic: 0%
+                  - img [ref=e221]
+              - generic [ref=e223]:
+                - generic [ref=e224]: Throughput
+                - strong [ref=e226]: No data
+                - generic [ref=e227]:
+                  - generic: 10G
+                  - generic: 5G
+                  - generic: "0"
+                  - img [ref=e228]
+              - generic [ref=e230]:
+                - generic [ref=e231]: Service Health
+                - strong [ref=e233]: No data
+                - generic [ref=e234]:
+                  - generic: 100%
+                  - generic: 95%
+                  - generic: 90%
+                  - img [ref=e235]
+          - article [ref=e237]:
+            - heading "Top Vulnerable Assets" [level=2] [ref=e239]
+            - generic [ref=e240]:
+              - generic [ref=e242]:
+                - generic [ref=e243]: Asset
+                - generic [ref=e244]: Risk
+                - generic [ref=e245]: Status
+              - generic [ref=e251]:
+                - paragraph [ref=e253]: Vulnerability tracking is not connected
+                - generic [ref=e254]: No fabricated risk counts are displayed.
+          - article [ref=e255]:
+            - generic [ref=e256]:
+              - heading "Alerts Feed" [level=2] [ref=e257]
+              - link "View All Alerts" [ref=e259] [cursor=pointer]:
+                - /url: /alerts
+            - generic [ref=e260]:
+              - generic [ref=e262]:
+                - generic [ref=e263]: Time
+                - generic [ref=e264]: Alert
+                - generic [ref=e265]: Status
+              - generic [ref=e271]:
+                - paragraph [ref=e273]: No recent alerts
+                - generic [ref=e274]: Live alerts from the existing alert stream will appear here.
