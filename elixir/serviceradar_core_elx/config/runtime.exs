@@ -39,6 +39,14 @@ read_secret_env = fn env_name, file_env_name ->
   end
 end
 
+edge_crypto_secret =
+  read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE") ||
+    read_secret_env.("EDGE_ONBOARDING_ENCRYPTION_KEY", "EDGE_ONBOARDING_ENCRYPTION_KEY_FILE")
+
+if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
+  config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)
+end
+
 netflow_security_refresh_reschedule_seconds =
   "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
   |> System.get_env()
