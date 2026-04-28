@@ -3,8 +3,8 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
   Operator-triggered retroactive hunts for imported OTX indicators.
 
   The first supported path matches active OTX CIDR indicators against retained
-  NetFlow source and destination IPs. Domain/DNS matching remains a later slice
-  once the canonical DNS aggregate source is selected.
+  canonical NetFlow source and destination IPs. Domain/DNS matching remains a
+  later slice once the canonical DNS aggregate source is selected.
   """
 
   use Oban.Worker,
@@ -158,20 +158,20 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         i.label,
         i.severity,
         i.confidence,
-        m.src_ip AS observed_ip,
+        NULLIF(m.src_endpoint_ip, '')::inet AS observed_ip,
         'source'::text AS direction,
-        MIN(m.timestamp) AS first_seen_at,
-        MAX(m.timestamp) AS last_seen_at,
+        MIN(m.time) AS first_seen_at,
+        MAX(m.time) AS last_seen_at,
         COUNT(*)::int AS evidence_count,
         COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
         COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
       FROM selected_indicators i
-      JOIN platform.netflow_metrics m
-        ON m.timestamp >= $1
-       AND m.timestamp <= $2
-       AND m.src_ip IS NOT NULL
-       AND i.indicator >>= m.src_ip
-      GROUP BY i.id, i.indicator, i.indicator_type, i.source, i.label, i.severity, i.confidence, m.src_ip
+      JOIN platform.ocsf_network_activity m
+        ON m.time >= $1
+       AND m.time <= $2
+       AND NULLIF(m.src_endpoint_ip, '') IS NOT NULL
+       AND i.indicator >>= NULLIF(m.src_endpoint_ip, '')::inet
+      GROUP BY i.id, i.indicator, i.indicator_type, i.source, i.label, i.severity, i.confidence, NULLIF(m.src_endpoint_ip, '')::inet
     ),
     destination_matches AS (
       SELECT
@@ -182,20 +182,20 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         i.label,
         i.severity,
         i.confidence,
-        m.dst_ip AS observed_ip,
+        NULLIF(m.dst_endpoint_ip, '')::inet AS observed_ip,
         'destination'::text AS direction,
-        MIN(m.timestamp) AS first_seen_at,
-        MAX(m.timestamp) AS last_seen_at,
+        MIN(m.time) AS first_seen_at,
+        MAX(m.time) AS last_seen_at,
         COUNT(*)::int AS evidence_count,
         COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
         COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
       FROM selected_indicators i
-      JOIN platform.netflow_metrics m
-        ON m.timestamp >= $1
-       AND m.timestamp <= $2
-       AND m.dst_ip IS NOT NULL
-       AND i.indicator >>= m.dst_ip
-      GROUP BY i.id, i.indicator, i.indicator_type, i.source, i.label, i.severity, i.confidence, m.dst_ip
+      JOIN platform.ocsf_network_activity m
+        ON m.time >= $1
+       AND m.time <= $2
+       AND NULLIF(m.dst_endpoint_ip, '') IS NOT NULL
+       AND i.indicator >>= NULLIF(m.dst_endpoint_ip, '')::inet
+      GROUP BY i.id, i.indicator, i.indicator_type, i.source, i.label, i.severity, i.confidence, NULLIF(m.dst_endpoint_ip, '')::inet
     ),
     matches AS (
       SELECT * FROM source_matches
@@ -224,7 +224,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         updated_at
       )
       SELECT
-        $5::uuid,
+        ($5::text)::uuid,
         indicator_id,
         source,
         indicator,
@@ -242,7 +242,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         jsonb_build_object(
           'window_start', $1::text,
           'window_end', $2::text,
-          'matcher', 'netflow_metrics'
+          'matcher', 'ocsf_network_activity'
         ),
         now(),
         now()
@@ -306,7 +306,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       unsupported_count = $6,
       error = $7,
       updated_at = $3
-    WHERE id = $1::uuid
+    WHERE id = ($1::text)::uuid
     """
 
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)

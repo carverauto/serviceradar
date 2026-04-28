@@ -73,6 +73,6 @@
 - [x] 9.2 Add unit tests for OTX client pagination, auth header use, and error handling.
 - [x] 9.3 Add plugin contract tests for bounded CTI page payloads, config decoding, secret redaction, and allowlist failures.
 - [x] 9.4 Add Ash resource tests for encrypted key updates and redacted reads.
-- [ ] 9.5 Add worker/ingestor tests for OTX import idempotency, unsupported type counts, NetFlow cache matching, and retrohunt deduplication.
+- [x] 9.5 Add worker/ingestor tests for OTX import idempotency, unsupported type counts, NetFlow cache matching, and retrohunt deduplication.
 - [ ] 9.6 Add LiveView tests for RBAC, save/clear key behavior, findings visibility, plugin assignment controls, and manual job enqueue.
 - [ ] 9.7 Run `MIX_ENV=test mix compile --warnings-as-errors`, focused tests, plugin build/tests, and `mix precommit` where applicable.

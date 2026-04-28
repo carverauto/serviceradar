@@ -128,10 +128,10 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
     %{
       provider: page.provider,
       source: page.source,
-      collection_id: page.collection_id || "",
-      agent_id: string_value(status, [:agent_id, "agent_id"]) || "",
-      gateway_id: string_value(status, [:gateway_id, "gateway_id"]) || "",
-      plugin_id: string_value(status, [:plugin_id, "plugin_id"]) || "",
+      collection_id: page.collection_id || "default",
+      agent_id: string_value(status, [:agent_id, "agent_id"]) || "none",
+      gateway_id: string_value(status, [:gateway_id, "gateway_id"]) || "none",
+      plugin_id: string_value(status, [:plugin_id, "plugin_id"]) || "none",
       execution_mode:
         string_value(page.raw, ["execution_mode", "executionMode"]) || "edge_plugin",
       last_status: last_status,
