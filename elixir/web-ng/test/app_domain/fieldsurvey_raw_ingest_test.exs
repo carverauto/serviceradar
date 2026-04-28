@@ -69,6 +69,42 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
            end)
   end
 
+  test "review exposes confidence-scored AP placement candidates" do
+    bssid = "02:00:00:00:00:01"
+
+    rows =
+      for {x, z, rssi} <- [
+            {0.0, 0.0, -44},
+            {0.2, 0.1, -45},
+            {0.4, 0.2, -47},
+            {1.6, 0.8, -62},
+            {3.0, 1.7, -74},
+            {4.5, 2.2, -82}
+          ] do
+        %{
+          x: x,
+          y: 0.0,
+          z: z,
+          rssi_dbm: rssi,
+          bssid: bssid,
+          ssid: "SurveyNet",
+          channel: 149,
+          frequency_mhz: 5745
+        }
+      end
+
+    review = FieldSurveyReview.build_review("ap-confidence-test", rows, [], [])
+    [ap | _] = review.ap_summaries
+
+    assert ap.bssid == bssid
+    assert ap.positioned_count == 6
+    assert ap.support_count >= 3
+    assert ap.confidence > 0.45
+    assert ap.x_pct >= 0.0 and ap.x_pct <= 100.0
+    assert ap.z_pct >= 0.0 and ap.z_pct <= 100.0
+    assert length(ap.supporting_observations) >= 3
+  end
+
   test "bulk raw ingest persists RF, pose, and spectrum rows and exposes nearest pose matches" do
     session_id = "fieldsurvey-test-#{System.unique_integer([:positive])}"
     rf_unix_nanos = 1_800_000_000_050_000_000
