@@ -193,6 +193,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 "sr-ops-heatmap-placeholder",
                 @survey_summary.raster_cell_count > 0 && "sr-ops-heatmap-real"
               ]}
+              style={fieldsurvey_heatmap_style(@survey_summary)}
               data-testid="fieldsurvey-heatmap"
             >
               <svg
@@ -491,6 +492,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     </div>
     """
   end
+
+  defp fieldsurvey_heatmap_style(%{raster_aspect_ratio: ratio}) when is_number(ratio) do
+    ratio =
+      ratio
+      |> max(0.72)
+      |> min(3.2)
+      |> Float.round(3)
+
+    "aspect-ratio: #{ratio} / 1;"
+  end
+
+  defp fieldsurvey_heatmap_style(_summary), do: nil
 
   attr(:label, :string, required: true)
   attr(:value, :string, required: true)

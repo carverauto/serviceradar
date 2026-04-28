@@ -135,7 +135,9 @@ ServiceRadar SHALL persist backend-derived coverage artifacts for post-survey re
 - **GIVEN** ServiceRadar has persisted FieldSurvey raster cells and 2D floorplan geometry with an arbitrary ARKit world heading
 - **WHEN** the dashboard renders the FieldSurvey overview card
 - **THEN** it applies one shared projection transform to the floorplan geometry and Wi-Fi raster cells
-- **AND** it rotates the overview to a card-friendly horizontal or vertical floorplan orientation rather than showing the raw capture heading.
+- **AND** it prefers floorplan-backed persisted rasters over raster-only rows
+- **AND** it rotates the overview to a card-friendly landscape floorplan orientation rather than showing the raw capture heading
+- **AND** it preserves the transformed floorplan aspect ratio so the heat surface is not stretched into an unrelated shape.
 
 ### Requirement: AP placement support
 FieldSurvey SHALL support both manual and inferred AP placement without relying on HackRF as a BSSID identity source.

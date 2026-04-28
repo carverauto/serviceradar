@@ -906,12 +906,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp latest_survey_raster_summary(_scope) do
     if relation_exists?("platform.survey_coverage_rasters") do
       sql = """
-      SELECT session_id, min_x, max_x, min_z, max_z, cells, metadata, generated_at
-      FROM platform.survey_coverage_rasters
-      WHERE overlay_type = 'wifi_rssi'
-        AND selector_type = 'all'
-        AND selector_value = '*'
-      ORDER BY generated_at DESC
+      SELECT r.session_id, r.min_x, r.max_x, r.min_z, r.max_z, r.cells, r.metadata, r.generated_at
+      FROM platform.survey_coverage_rasters r
+      WHERE r.overlay_type = 'wifi_rssi'
+        AND r.selector_type = 'all'
+        AND r.selector_value = '*'
+      ORDER BY EXISTS (
+        SELECT 1
+        FROM platform.survey_room_artifacts a
+        WHERE a.session_id = r.session_id
+          AND a.artifact_type = 'floorplan_geojson'
+      ) DESC,
+      r.generated_at DESC
       LIMIT 1
       """
 
@@ -920,7 +926,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           raw_cells = map_value(cells || %{}, "cells") || []
           raw_raster_cells = raw_cells |> Enum.map(&dashboard_raw_raster_cell/1) |> Enum.reject(&is_nil/1)
           raw_floorplan_segments = latest_dashboard_floorplan_segments(session_id)
-          {raster_cells, floorplan_segments} = normalize_dashboard_survey(raw_raster_cells, raw_floorplan_segments)
+
+          {raster_cells, floorplan_segments, aspect_ratio} =
+            normalize_dashboard_survey(raw_raster_cells, raw_floorplan_segments)
+
           surface_svg = dashboard_surface_svg(raster_cells)
 
           %{
@@ -929,6 +938,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             raster_cell_count: length(raw_cells),
             raster_cells: raster_cells,
             raster_surface_data_uri: svg_data_uri(surface_svg),
+            raster_aspect_ratio: aspect_ratio,
             floorplan_segment_count: length(floorplan_segments),
             floorplan_segments: floorplan_segments,
             raster_metadata: metadata || %{}
@@ -968,9 +978,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp normalize_dashboard_survey(raw_cells, raw_segments) do
     angle = dashboard_rotation_angle(raw_cells, raw_segments)
-    rotated_cells = Enum.map(raw_cells, &rotate_dashboard_point(&1, angle))
-    rotated_segments = Enum.map(raw_segments, &rotate_dashboard_segment(&1, angle))
-    bounds = dashboard_projection_bounds(rotated_cells, rotated_segments)
+
+    {rotated_cells, rotated_segments, bounds} =
+      case dashboard_rotated_projection(raw_cells, raw_segments, angle) do
+        {cells, segments, %{aspect_ratio: aspect_ratio} = bounds} when aspect_ratio < 1.0 ->
+          if raw_cells == [] and raw_segments == [] do
+            {cells, segments, bounds}
+          else
+            dashboard_rotated_projection(raw_cells, raw_segments, angle + :math.pi() / 2.0)
+          end
+
+        projection ->
+          projection
+      end
 
     raster_cells =
       rotated_cells
@@ -984,7 +1004,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       |> Enum.reject(&zero_dashboard_segment?/1)
       |> Enum.take(180)
 
-    {raster_cells, floorplan_segments}
+    {raster_cells, floorplan_segments, Map.get(bounds, :aspect_ratio, 1.78)}
+  end
+
+  defp dashboard_rotated_projection(raw_cells, raw_segments, angle) do
+    rotated_cells = Enum.map(raw_cells, &rotate_dashboard_point(&1, angle))
+    rotated_segments = Enum.map(raw_segments, &rotate_dashboard_segment(&1, angle))
+    bounds = dashboard_projection_bounds(rotated_cells, rotated_segments)
+
+    {rotated_cells, rotated_segments, bounds}
   end
 
   defp dashboard_rotation_angle(_raw_cells, [_ | _] = raw_segments) do
@@ -1067,26 +1095,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     case {Enum.min(xs, fn -> nil end), Enum.max(xs, fn -> nil end), Enum.min(zs, fn -> nil end),
           Enum.max(zs, fn -> nil end)} do
       {nil, _, _, _} ->
-        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0}
+        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0, aspect_ratio: 1.0}
 
       {min_x, max_x, min_z, max_z} ->
         x_pad = max((max_x - min_x) * 0.08, 0.6)
         z_pad = max((max_z - min_z) * 0.08, 0.6)
-        padded_min_x = min_x - x_pad
-        padded_max_x = max_x + x_pad
-        padded_min_z = min_z - z_pad
-        padded_max_z = max_z + z_pad
-        width = padded_max_x - padded_min_x
-        height = padded_max_z - padded_min_z
-        side = max(width, height)
-        center_x = (padded_min_x + padded_max_x) / 2.0
-        center_z = (padded_min_z + padded_max_z) / 2.0
+        min_x = min_x - x_pad
+        max_x = max_x + x_pad
+        min_z = min_z - z_pad
+        max_z = max_z + z_pad
+        width = max(max_x - min_x, 0.01)
+        height = max(max_z - min_z, 0.01)
 
         %{
-          min_x: center_x - side / 2.0,
-          max_x: center_x + side / 2.0,
-          min_z: center_z - side / 2.0,
-          max_z: center_z + side / 2.0
+          min_x: min_x,
+          max_x: max_x,
+          min_z: min_z,
+          max_z: max_z,
+          aspect_ratio: clamp(width / height, 0.72, 3.2)
         }
     end
   end
@@ -1844,6 +1870,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       raster_cell_count: 0,
       raster_cells: [],
       raster_surface_data_uri: nil,
+      raster_aspect_ratio: 1.78,
       floorplan_segment_count: 0,
       floorplan_segments: [],
       raster_metadata: %{}
