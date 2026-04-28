@@ -72,8 +72,8 @@ Existing implementation baseline:
 - Decision: Use `Req` for OTX HTTP calls.
   Rationale: `elixir/web-ng/AGENTS.md` requires `Req` for Phoenix app HTTP clients, and it supports simple JSON, timeout, and retry handling without introducing a new dependency.
 
-- Decision: Keep the edge collector SDK choice open between `serviceradar-sdk-go` and `serviceradar-sdk-rust`.
-  Rationale: Both SDK repositories are available and expose the host ABI surface needed for this work: config loading, result construction, logging, HTTP/TCP/UDP/WebSocket helpers, and policy input handling. TAXII 2.1 and OTX DirectConnect are REST/JSON, so either SDK can implement the first collector. The implementation should choose the SDK that gives the best STIX/TAXII parsing ergonomics and smallest maintenance burden, while core remains responsible for persistence and matching.
+- Decision: Use `serviceradar-sdk-go` for the first built-in edge collector.
+  Rationale: Both SDK repositories expose the host ABI surface needed for this work, but the Go SDK is already used by existing first-party plugins and has more exercised examples in this repo. The CTI payload contract remains SDK-neutral so a future Rust collector can emit the same shape.
 
 ## Data Model Sketch
 - Extend `platform.netflow_settings` or add a small companion singleton if migration risk is lower:
@@ -96,7 +96,7 @@ All tables must use `prefix: "platform"` in migrations and AshPostgres resources
 - Edge plugin mode:
   1. Operator creates or selects a threat-intel provider and assigns the built-in collector plugin to one or more agents that can reach the feed/SIEM.
   2. The plugin manifest declares only the needed host capabilities, typically `get_config`, `log`, `submit_result`, and `http_request`, with approved domains/networks/ports for the TAXII/OTX/SIEM endpoint.
-  3. The plugin may be implemented with `serviceradar-sdk-go` or `serviceradar-sdk-rust`; both implementations must emit the same CTI payload contract.
+  3. The first plugin is implemented with `serviceradar-sdk-go`; any future Rust implementation must emit the same CTI payload contract.
   4. The agent executes the plugin on schedule, enforces resource limits and allowlists, and forwards bounded normalized CTI pages to core through the existing plugin result path.
   5. Core validates the CTI page schema, redacts secrets, persists normalized indicators/source metadata, and updates provider cursor/status.
 - Core worker mode:

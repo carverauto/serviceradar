@@ -8,7 +8,7 @@ ServiceRadar already stores and analyzes NetFlow telemetry and runs sandboxed Wa
 - Support two provider execution modes:
   - edge Wasm collector plugins assigned to agents, using approved HTTP/TCP/UDP allowlists to reach TAXII servers, AlienVault OTX, and customer-local SIEM APIs.
   - core-hosted sync workers for deployment-level feeds that do not require edge-local reachability.
-- Allow first-party edge collectors to be authored with either `serviceradar-sdk-go` or `serviceradar-sdk-rust`, as long as they use the same ServiceRadar plugin ABI, host network bridge, config loading, logging, and result/CTI page contract.
+- Use `serviceradar-sdk-go` for the first built-in edge collector because it is already exercised by existing first-party plugins. The CTI page contract remains SDK-neutral for future Rust collectors.
 - Ship AlienVault OTX as the first built-in provider/preset. OTX imports subscribed pulses and IPv4/IPv6/CIDR indicators through the OTX DirectConnect API, translating them into the shared provider boundary.
 - Add a normalized CTI ingestion path from plugin results or core workers into CNPG threat-intel tables.
 - Extend the existing NetFlow threat-intel settings with provider controls, AlienVault OTX credentials, plugin assignment/status UI, and sync health.

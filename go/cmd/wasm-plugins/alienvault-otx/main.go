@@ -1,0 +1,303 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
+)
+
+const (
+	defaultBaseURL       = "https://otx.alienvault.com"
+	defaultLimit         = 50
+	defaultPage          = 1
+	defaultTimeoutMS     = 20000
+	defaultMaxIndicators = 2000
+	maxLimit             = 100
+	maxIndicators        = 5000
+	sourceAlienVaultOTX  = "alienvault_otx"
+)
+
+type Config struct {
+	BaseURL         string `json:"base_url"`
+	APIKeySecretRef string `json:"api_key_secret_ref"`
+	APIKey          string `json:"api_key"`
+	ModifiedSince   string `json:"modified_since"`
+	Limit           int    `json:"limit"`
+	Page            int    `json:"page"`
+	TimeoutMS       int    `json:"timeout_ms"`
+	MaxIndicators   int    `json:"max_indicators"`
+}
+
+type subscribedPulsesResponse struct {
+	Count    int        `json:"count"`
+	Next     string     `json:"next"`
+	Previous string     `json:"previous"`
+	Results  []otxPulse `json:"results"`
+}
+
+type otxPulse struct {
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	AuthorName string         `json:"author_name"`
+	TLP        string         `json:"TLP"`
+	Tags       []string       `json:"tags"`
+	References []string       `json:"references"`
+	Created    string         `json:"created"`
+	Modified   string         `json:"modified"`
+	Indicators []otxIndicator `json:"indicators"`
+}
+
+type otxIndicator struct {
+	Indicator   string `json:"indicator"`
+	Type        string `json:"type"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Created     string `json:"created"`
+	Expiration  string `json:"expiration"`
+}
+
+type ctiPageEnvelope struct {
+	ThreatIntel ctiPage `json:"threat_intel"`
+}
+
+type ctiPage struct {
+	SchemaVersion int               `json:"schema_version"`
+	Provider      string            `json:"provider"`
+	Source        string            `json:"source"`
+	CollectionID  string            `json:"collection_id"`
+	Cursor        map[string]string `json:"cursor,omitempty"`
+	Counts        ctiCounts         `json:"counts"`
+	Indicators    []ctiIndicator    `json:"indicators"`
+}
+
+type ctiCounts struct {
+	Objects    int `json:"objects"`
+	Indicators int `json:"indicators"`
+	Skipped    int `json:"skipped"`
+	Total      int `json:"total,omitempty"`
+}
+
+type ctiIndicator struct {
+	Indicator     string `json:"indicator"`
+	Type          string `json:"type"`
+	Source        string `json:"source"`
+	Label         string `json:"label,omitempty"`
+	Confidence    int    `json:"confidence,omitempty"`
+	FirstSeenAt   string `json:"first_seen_at,omitempty"`
+	LastSeenAt    string `json:"last_seen_at,omitempty"`
+	ExpiresAt     string `json:"expires_at,omitempty"`
+	SourceObject  string `json:"source_object_id,omitempty"`
+	SourceContext string `json:"source_context,omitempty"`
+}
+
+//export run_check
+func run_check() {
+	_ = sdk.Execute(func() (*sdk.Result, error) {
+		primeTinyGoJSON()
+
+		cfg := defaultConfig()
+		if err := sdk.LoadConfig(&cfg); err != nil {
+			return sdk.Unknown("OTX configuration could not be loaded"), nil
+		}
+
+		cfg.applyDefaults()
+		if strings.TrimSpace(cfg.APIKey) == "" {
+			return sdk.Unknown("OTX API key is not configured"), nil
+		}
+
+		apiURL, err := subscribedPulsesURL(cfg)
+		if err != nil {
+			return sdk.Unknown("OTX base URL is invalid"), nil
+		}
+
+		resp, err := sdk.HTTP.DoContext(context.Background(), sdk.HTTPRequest{
+			Method: http.MethodGet,
+			URL:    apiURL,
+			Headers: map[string]string{
+				"accept":        "application/json",
+				"X-OTX-API-KEY": cfg.APIKey,
+			},
+			TimeoutMS: cfg.TimeoutMS,
+		})
+		if err != nil {
+			return sdk.Critical("OTX request failed"), nil
+		}
+
+		if resp.Status < 200 || resp.Status >= 300 {
+			return sdk.Critical(fmt.Sprintf("OTX request returned HTTP %d", resp.Status)), nil
+		}
+
+		var body subscribedPulsesResponse
+		if err := json.Unmarshal(resp.Body, &body); err != nil {
+			return sdk.Critical("OTX response could not be decoded"), nil
+		}
+
+		page := buildCTIPage(body, cfg)
+		details, err := json.Marshal(ctiPageEnvelope{ThreatIntel: page})
+		if err != nil {
+			return sdk.Critical("OTX threat-intel payload could not be encoded"), nil
+		}
+
+		summary := fmt.Sprintf(
+			"OTX pulses: %d objects, %d indicators, %d skipped",
+			page.Counts.Objects,
+			page.Counts.Indicators,
+			page.Counts.Skipped,
+		)
+
+		return sdk.NewResult().
+			WithStatus(sdk.StatusOK).
+			WithSummary(summary).
+			WithDetails(string(details)).
+			WithLabel("provider", sourceAlienVaultOTX).
+			WithMetric("otx_indicators", float64(page.Counts.Indicators), "count", nil).
+			WithMetric("otx_skipped_indicators", float64(page.Counts.Skipped), "count", nil), nil
+	})
+}
+
+func defaultConfig() Config {
+	return Config{
+		BaseURL:       defaultBaseURL,
+		Limit:         defaultLimit,
+		Page:          defaultPage,
+		TimeoutMS:     defaultTimeoutMS,
+		MaxIndicators: defaultMaxIndicators,
+	}
+}
+
+func (c *Config) applyDefaults() {
+	if strings.TrimSpace(c.BaseURL) == "" {
+		c.BaseURL = defaultBaseURL
+	}
+	if c.Limit <= 0 {
+		c.Limit = defaultLimit
+	}
+	if c.Limit > maxLimit {
+		c.Limit = maxLimit
+	}
+	if c.Page <= 0 {
+		c.Page = defaultPage
+	}
+	if c.TimeoutMS <= 0 {
+		c.TimeoutMS = defaultTimeoutMS
+	}
+	if c.MaxIndicators <= 0 {
+		c.MaxIndicators = defaultMaxIndicators
+	}
+	if c.MaxIndicators > maxIndicators {
+		c.MaxIndicators = maxIndicators
+	}
+}
+
+func subscribedPulsesURL(cfg Config) (string, error) {
+	base, err := url.Parse(strings.TrimRight(cfg.BaseURL, "/"))
+	if err != nil {
+		return "", err
+	}
+
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/pulses/subscribed"
+	query := base.Query()
+	query.Set("limit", fmt.Sprintf("%d", cfg.Limit))
+	query.Set("page", fmt.Sprintf("%d", cfg.Page))
+	if strings.TrimSpace(cfg.ModifiedSince) != "" {
+		query.Set("modified_since", strings.TrimSpace(cfg.ModifiedSince))
+	}
+	base.RawQuery = query.Encode()
+
+	return base.String(), nil
+}
+
+func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
+	page := ctiPage{
+		SchemaVersion: 1,
+		Provider:      sourceAlienVaultOTX,
+		Source:        sourceAlienVaultOTX,
+		CollectionID:  "otx:pulses:subscribed",
+		Cursor: map[string]string{
+			"next":           resp.Next,
+			"modified_since": cfg.ModifiedSince,
+		},
+		Counts: ctiCounts{
+			Objects: len(resp.Results),
+			Total:   resp.Count,
+		},
+		Indicators: make([]ctiIndicator, 0),
+	}
+
+	for _, pulse := range resp.Results {
+		for _, indicator := range pulse.Indicators {
+			if len(page.Indicators) >= cfg.MaxIndicators {
+				page.Counts.Skipped++
+				continue
+			}
+
+			normalized, ok := normalizeIndicator(pulse, indicator)
+			if !ok {
+				page.Counts.Skipped++
+				continue
+			}
+
+			page.Indicators = append(page.Indicators, normalized)
+		}
+	}
+
+	page.Counts.Indicators = len(page.Indicators)
+	return page
+}
+
+func normalizeIndicator(pulse otxPulse, indicator otxIndicator) (ctiIndicator, bool) {
+	value := strings.TrimSpace(indicator.Indicator)
+	if value == "" || !supportedIndicatorType(indicator.Type) {
+		return ctiIndicator{}, false
+	}
+
+	label := pulse.Name
+	if label == "" {
+		label = indicator.Title
+	}
+
+	return ctiIndicator{
+		Indicator:     value,
+		Type:          "cidr",
+		Source:        sourceAlienVaultOTX,
+		Label:         label,
+		Confidence:    50,
+		FirstSeenAt:   firstNonEmpty(indicator.Created, pulse.Created),
+		LastSeenAt:    firstNonEmpty(pulse.Modified, indicator.Created, pulse.Created),
+		ExpiresAt:     indicator.Expiration,
+		SourceObject:  pulse.ID,
+		SourceContext: pulse.AuthorName,
+	}, true
+}
+
+func supportedIndicatorType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "ipv4", "ipv6", "cidr", "ipv4-cidr", "ipv6-cidr":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func primeTinyGoJSON() {
+	var cfg Config
+	_ = json.Unmarshal([]byte(`{"base_url":"https://otx.alienvault.com","api_key":"x"}`), &cfg)
+	var resp subscribedPulsesResponse
+	_ = json.Unmarshal([]byte(`{"results":[{"id":"p","indicators":[{"indicator":"192.0.2.1","type":"IPv4"}]}]}`), &resp)
+}
+
+func main() {}

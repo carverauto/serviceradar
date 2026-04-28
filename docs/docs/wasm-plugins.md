@@ -46,6 +46,7 @@ Each published artifact uses an immutable `sha-<git-commit>` tag under a determi
 - `registry.carverauto.dev/serviceradar/wasm-plugin-unifi-protect-camera`
 - `registry.carverauto.dev/serviceradar/wasm-plugin-unifi-protect-camera-stream`
 - `registry.carverauto.dev/serviceradar/wasm-plugin-dusk-checker`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-alienvault-otx-threat-intel`
 
 The bundle payload is a zip archive that contains the canonical import shape:
 
