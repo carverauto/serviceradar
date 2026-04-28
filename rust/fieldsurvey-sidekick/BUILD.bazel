@@ -6,6 +6,7 @@ package(default_visibility = ["//visibility:public"])
 rust_library(
     name = "fieldsurvey_sidekick_lib",
     srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_name = "serviceradar_fieldsurvey_sidekick",
     crate_root = "src/lib.rs",
     edition = "2024",
     deps = all_crate_deps(normal = True),
@@ -14,10 +15,10 @@ rust_library(
 
 rust_binary(
     name = "fieldsurvey-sidekick",
-    srcs = glob(["src/**/*.rs"]),
+    srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     edition = "2024",
-    deps = all_crate_deps(normal = True),
+    deps = all_crate_deps(normal = True) + [":fieldsurvey_sidekick_lib"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 

@@ -467,10 +467,10 @@ pub fn parse_iw_dev(raw: &str) -> HashMap<String, String> {
             continue;
         }
 
-        if let Some(interface) = trimmed.strip_prefix("Interface ")
-            && let Some(phy) = &current_phy
-        {
-            result.insert(interface.trim().to_string(), phy.clone());
+        if let Some(interface) = trimmed.strip_prefix("Interface ") {
+            if let Some(phy) = &current_phy {
+                result.insert(interface.trim().to_string(), phy.clone());
+            }
         }
     }
 
@@ -541,12 +541,12 @@ pub fn parse_iw_list_frequencies_mhz(raw: &str) -> HashMap<String, Vec<u32>> {
                     continue;
                 }
 
-                if let Some(frequency) = parse_frequency_mhz_token(raw_frequency)
-                    && let Some(phy) = &current_phy
-                {
-                    let frequencies = result.entry(phy.clone()).or_default();
-                    if !frequencies.contains(&frequency) {
-                        frequencies.push(frequency);
+                if let Some(frequency) = parse_frequency_mhz_token(raw_frequency) {
+                    if let Some(phy) = &current_phy {
+                        let frequencies = result.entry(phy.clone()).or_default();
+                        if !frequencies.contains(&frequency) {
+                            frequencies.push(frequency);
+                        }
                     }
                 }
                 continue;
