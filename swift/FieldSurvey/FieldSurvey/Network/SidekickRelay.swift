@@ -139,6 +139,7 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         authToken: String,
         sessionID: String,
         stream: FieldSurveyBackendStream,
+        metadata: FieldSurveySessionUploadMetadata? = nil,
         urlSession: URLSession? = nil
     ) {
         let trimmedBaseURL = baseURL
@@ -167,6 +168,7 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
         request.setValue("Bearer \(trimmedAuthToken)", forHTTPHeaderField: "Authorization")
+        FieldSurveyRoomArtifactUploader.applySessionMetadataHeaders(metadata, to: &request)
 
         let webSocketDelegate = FieldSurveyBackendWebSocketDelegate()
         let session = urlSession ?? URLSession(
@@ -303,7 +305,8 @@ public final class SidekickRelay: ObservableObject {
     public func start(
         sessionID: String,
         wifiScanner: RealWiFiScanner? = nil,
-        forwardToBackend: Bool = true
+        forwardToBackend: Bool = true,
+        metadata: FieldSurveySessionUploadMetadata? = nil
     ) {
         stop()
         relayGeneration += 1
@@ -345,7 +348,8 @@ public final class SidekickRelay: ObservableObject {
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
                 sessionID: sessionID,
-                stream: .rfObservations
+                stream: .rfObservations,
+                metadata: metadata
             ) else {
                 status = .failed("Invalid ServiceRadar RF ingest URL")
                 return

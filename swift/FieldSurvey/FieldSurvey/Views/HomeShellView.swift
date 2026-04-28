@@ -507,6 +507,8 @@ public struct SessionLibraryView: View {
                 var uploadedTypes: [String] = []
                 var completed = 0
                 let capturedAt = Date(timeIntervalSince1970: session.updatedAt)
+                let uploadMetadata = (snapshot.uploadMetadata ?? settings.currentSurveyUploadMetadata)
+                    .merged(record: session, snapshot: snapshot)
 
                 if !snapshot.floorplanSegments.isEmpty {
                     setArtifactUploadState(
@@ -523,7 +525,8 @@ public struct SessionLibraryView: View {
                         baseURL: settings.apiURL,
                         authToken: authToken,
                         sessionID: session.id,
-                        capturedAt: capturedAt
+                        capturedAt: capturedAt,
+                        metadata: uploadMetadata
                     )
                     if result.ok {
                         completed += 1
@@ -541,7 +544,8 @@ public struct SessionLibraryView: View {
                         baseURL: settings.apiURL,
                         authToken: authToken,
                         sessionID: session.id,
-                        capturedAt: capturedAt
+                        capturedAt: capturedAt,
+                        metadata: uploadMetadata
                     )
                     if result.ok {
                         completed += 1
@@ -567,7 +571,8 @@ public struct SessionLibraryView: View {
                         baseURL: settings.apiURL,
                         authToken: authToken,
                         sessionID: session.id,
-                        capturedAt: capturedAt
+                        capturedAt: capturedAt,
+                        metadata: uploadMetadata
                     )
                     if result.ok {
                         completed += 1
