@@ -17,6 +17,13 @@ pub enum Entity {
     GraphCypher,
     Events,
     BmpEvents,
+    FieldSurveySessions,
+    FieldSurveyRasters,
+    FieldSurveyArtifacts,
+    FieldSurveyRfObservations,
+    FieldSurveyPoseSamples,
+    FieldSurveyRfPoseMatches,
+    FieldSurveySpectrumObservations,
     Logs,
     Services,
     Gateways,
@@ -379,6 +386,29 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
+        "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {
+            Ok(Entity::FieldSurveySessions)
+        }
+        "field_survey_rasters"
+        | "fieldsurvey_rasters"
+        | "survey_coverage_rasters"
+        | "survey_rasters" => Ok(Entity::FieldSurveyRasters),
+        "field_survey_artifacts"
+        | "fieldsurvey_artifacts"
+        | "survey_room_artifacts"
+        | "survey_artifacts" => Ok(Entity::FieldSurveyArtifacts),
+        "field_survey_rf_observations"
+        | "fieldsurvey_rf_observations"
+        | "survey_rf_observations" => Ok(Entity::FieldSurveyRfObservations),
+        "field_survey_pose_samples" | "fieldsurvey_pose_samples" | "survey_pose_samples" => {
+            Ok(Entity::FieldSurveyPoseSamples)
+        }
+        "field_survey_rf_pose_matches"
+        | "fieldsurvey_rf_pose_matches"
+        | "survey_rf_pose_matches" => Ok(Entity::FieldSurveyRfPoseMatches),
+        "field_survey_spectrum_observations"
+        | "fieldsurvey_spectrum_observations"
+        | "survey_spectrum_observations" => Ok(Entity::FieldSurveySpectrumObservations),
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
         "gateways" | "gateway" => Ok(Entity::Gateways),
