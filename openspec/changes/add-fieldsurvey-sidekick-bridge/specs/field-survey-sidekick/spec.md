@@ -153,3 +153,24 @@ FieldSurvey SHALL support both manual and inferred AP placement without relying 
 - **WHEN** the app or backend estimates AP location candidates
 - **THEN** the estimate uses per-BSSID RSSI gradients, strongest-observation clusters, and path diversity
 - **AND** HackRF channel energy may affect confidence/noise explanation but SHALL NOT identify BSSID by itself.
+
+### Requirement: Survey organization and floor grouping
+ServiceRadar SHALL organize FieldSurvey captures by operator-defined site, building/area, floor, and metadata tags so dashboards can show the right survey context for large multi-site deployments.
+
+#### Scenario: Survey is attributed to a site and floor
+- **GIVEN** an operator starts or resumes a FieldSurvey capture
+- **WHEN** they assign site/building/floor metadata such as `ORD`, `Terminal B`, and `Floor 2`
+- **THEN** ServiceRadar persists that attribution with the survey session, RF rows, pose rows, rasters, and room artifacts
+- **AND** upload retries preserve the same attribution instead of creating orphaned global sessions.
+
+#### Scenario: Dashboard selects FieldSurvey groups by configured query
+- **GIVEN** an administrator configures a dashboard FieldSurvey group using SRQL-backed filters or saved metadata tags
+- **WHEN** the dashboard renders FieldSurvey coverage
+- **THEN** it selects the latest matching persisted floorplan/raster set for that configured group
+- **AND** it does not globally mix unrelated sites, buildings, floors, or sessions.
+
+#### Scenario: Multi-floor review is separated
+- **GIVEN** a site has FieldSurvey sessions for more than one floor
+- **WHEN** an operator opens FieldSurvey Review
+- **THEN** the UI exposes floor/group selection
+- **AND** Wi-Fi RSSI, RF interference, AP candidates, and RoomPlan floor geometry are shown only for the selected floor/group.

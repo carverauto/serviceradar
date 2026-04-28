@@ -21,15 +21,35 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     socket =
       if connected?(socket) do
+        scope = socket.assigns.current_scope
+
         socket
-        |> assign_dashboard(Data.load(socket.assigns.current_scope))
-        |> maybe_start_camera_previews()
+        |> start_async(:dashboard_load, fn -> Data.load(scope) end)
+        |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
       else
         socket
       end
 
     {:ok, socket}
   end
+
+  @impl true
+  def handle_async(:dashboard_load, {:ok, dashboard_assigns}, socket) do
+    dashboard_assigns = preserve_loaded_survey_summary(socket, dashboard_assigns)
+
+    socket =
+      socket
+      |> assign_dashboard(dashboard_assigns)
+      |> maybe_start_camera_previews()
+
+    {:noreply, socket}
+  end
+
+  def handle_async(:fieldsurvey_summary_load, {:ok, survey_summary}, socket) do
+    {:noreply, assign_survey_summary(socket, survey_summary)}
+  end
+
+  def handle_async(_name, {:exit, _reason}, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do
@@ -191,6 +211,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             <div
               class={[
                 "sr-ops-heatmap-placeholder",
+                "sr-ops-field-survey-card-map",
                 @survey_summary.raster_cell_count > 0 && "sr-ops-heatmap-real"
               ]}
               style={fieldsurvey_heatmap_style(@survey_summary)}
@@ -212,17 +233,53 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   class={"sr-ops-floorplan-line sr-ops-floorplan-line-#{segment.kind}"}
                 />
               </svg>
+              <div :if={@survey_summary.ap_marker_count > 0} class="sr-ops-field-survey-ap-layer">
+                <div
+                  :for={ap <- @survey_summary.ap_markers}
+                  class="sr-ops-field-survey-ap-marker"
+                  style={fieldsurvey_ap_marker_style(ap)}
+                  title={fieldsurvey_ap_marker_title(ap)}
+                  aria-label={fieldsurvey_ap_marker_title(ap)}
+                >
+                  <.icon name="hero-wifi" class="size-3.5" />
+                </div>
+              </div>
               <img
                 :if={@survey_summary.raster_surface_data_uri}
                 class="sr-ops-field-survey-raster"
                 src={@survey_summary.raster_surface_data_uri}
                 alt="Latest FieldSurvey Wi-Fi RSSI raster"
               />
+              <div
+                :if={@survey_summary.raster_cell_count > 0}
+                class="sr-ops-field-survey-legend"
+                aria-label="FieldSurvey signal strength legend"
+              >
+                <span><i class="excellent"></i>-55+</span>
+                <span><i class="good"></i>-65</span>
+                <span><i class="fair"></i>-75</span>
+                <span><i class="poor"></i>-82</span>
+                <span><i class="weak"></i>weak</span>
+              </div>
               <div :if={@survey_summary.raster_cell_count == 0} class="sr-ops-floor-grid">
                 <span :for={_ <- 1..18}></span>
               </div>
               <div
-                :if={@survey_summary.sample_count == 0 and @survey_summary.raster_cell_count == 0}
+                :if={
+                  @module_states.fieldsurvey == :loading and @survey_summary.sample_count == 0 and
+                    @survey_summary.raster_cell_count == 0
+                }
+                class="sr-ops-heatmap-empty sr-ops-heatmap-summary"
+              >
+                <.icon name="hero-wifi" class="size-8" />
+                <p>Loading FieldSurvey heatmap</p>
+                <span>Checking persisted Wi-Fi rasters and floorplan artifacts.</span>
+              </div>
+              <div
+                :if={
+                  @module_states.fieldsurvey != :loading and @survey_summary.sample_count == 0 and
+                    @survey_summary.raster_cell_count == 0
+                }
                 class="sr-ops-heatmap-empty"
               >
                 <.icon name="hero-wifi" class="size-8" />
@@ -505,6 +562,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp fieldsurvey_heatmap_style(_summary), do: nil
 
+  defp fieldsurvey_ap_marker_style(%{x_pct: x, z_pct: z}) when is_number(x) and is_number(z) do
+    "left: #{Float.round(x, 3)}%; top: #{Float.round(z, 3)}%;"
+  end
+
+  defp fieldsurvey_ap_marker_style(_ap), do: nil
+
+  defp fieldsurvey_ap_marker_title(ap) do
+    ssid = Map.get(ap, :ssid) || "Hidden"
+    bssid = Map.get(ap, :bssid) || "unknown BSSID"
+    rssi = Map.get(ap, :strongest_rssi)
+    samples = Map.get(ap, :sample_count, 0)
+
+    "#{ssid} #{bssid}: strongest #{format_ap_rssi(rssi)} dBm, #{samples} samples"
+  end
+
+  defp format_ap_rssi(rssi) when is_number(rssi), do: rssi |> Kernel.*(1.0) |> Float.round(1) |> to_string()
+  defp format_ap_rssi(_rssi), do: "unknown"
+
   attr(:label, :string, required: true)
   attr(:value, :string, required: true)
   attr(:icon, :string, required: true)
@@ -567,6 +642,60 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       assign(acc, key, value)
     end)
   end
+
+  defp assign_survey_summary(socket, survey_summary) do
+    survey_sparkline =
+      socket.assigns.kpi_cards
+      |> Enum.find(%{}, &(&1.title == "Wi-Fi Coverage"))
+      |> Map.get(:sparkline, [])
+
+    survey_card = Data.survey_kpi_card(survey_summary, survey_sparkline)
+
+    kpi_cards =
+      Enum.map(socket.assigns.kpi_cards, fn
+        %{title: "Wi-Fi Coverage"} -> survey_card
+        card -> card
+      end)
+
+    socket
+    |> assign(:survey_summary, survey_summary)
+    |> assign(:kpi_cards, kpi_cards)
+  end
+
+  defp preserve_loaded_survey_summary(socket, dashboard_assigns) do
+    current = socket.assigns.survey_summary
+    incoming = Map.get(dashboard_assigns, :survey_summary)
+
+    if survey_raster_cell_count(current) > survey_raster_cell_count(incoming) do
+      survey_card = Data.survey_kpi_card(current, survey_sparkline_from(dashboard_assigns))
+
+      dashboard_assigns
+      |> Map.put(:survey_summary, current)
+      |> Map.put(:kpi_cards, replace_survey_kpi_card(Map.get(dashboard_assigns, :kpi_cards, []), survey_card))
+    else
+      dashboard_assigns
+    end
+  end
+
+  defp survey_sparkline_from(%{kpi_cards: kpi_cards}) when is_list(kpi_cards) do
+    kpi_cards
+    |> Enum.find(%{}, &(&1.title == "Wi-Fi Coverage"))
+    |> Map.get(:sparkline, [])
+  end
+
+  defp survey_sparkline_from(_assigns), do: []
+
+  defp replace_survey_kpi_card(kpi_cards, survey_card) when is_list(kpi_cards) do
+    Enum.map(kpi_cards, fn
+      %{title: "Wi-Fi Coverage"} -> survey_card
+      card -> card
+    end)
+  end
+
+  defp replace_survey_kpi_card(_kpi_cards, _survey_card), do: []
+
+  defp survey_raster_cell_count(%{raster_cell_count: count}) when is_integer(count), do: count
+  defp survey_raster_cell_count(_summary), do: 0
 
   defp camera_tiles(tiles, preview_tiles) do
     remaining = max(4 - length(preview_tiles), 0)
