@@ -1,10 +1,9 @@
 package main
 
 import (
-	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -115,6 +114,12 @@ type ctiIndicator struct {
 	SourceContext string `json:"source_context,omitempty"`
 }
 
+type otxHTTPResponsePayload struct {
+	Status       int    `json:"status"`
+	BodyBase64   string `json:"body_base64"`
+	BodyEncoding string `json:"body_encoding,omitempty"`
+}
+
 //export run_check
 func run_check() {
 	primeTinyGoJSON()
@@ -141,15 +146,7 @@ func runOTXCheck() (string, string, string) {
 		return string(sdk.StatusUnknown), "OTX base URL is invalid", ""
 	}
 
-	resp, err := sdk.HTTP.DoContext(context.Background(), sdk.HTTPRequest{
-		Method: http.MethodGet,
-		URL:    apiURL,
-		Headers: map[string]string{
-			"accept":        "application/json",
-			"X-OTX-API-KEY": cfg.APIKey,
-		},
-		TimeoutMS: cfg.TimeoutMS,
-	})
+	resp, err := doOTXHostHTTPRequest(apiURL, cfg.APIKey, cfg.TimeoutMS)
 	if err != nil {
 		return string(sdk.StatusCritical), "OTX request failed: " + sanitizeError(err), ""
 	}
@@ -174,6 +171,45 @@ func runOTXCheck() (string, string, string) {
 	)
 
 	return string(sdk.StatusOK), summary, details
+}
+
+func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
+	var b strings.Builder
+
+	b.Grow(len(apiURL) + len(apiKey) + 160)
+	b.WriteString(`{"method":"GET","url":`)
+	writeJSONString(&b, apiURL)
+	b.WriteString(`,"headers":{"accept":"application/json","X-OTX-API-KEY":`)
+	writeJSONString(&b, apiKey)
+	b.WriteByte('}')
+	if timeoutMS > 0 {
+		b.WriteString(`,"timeout_ms":`)
+		b.WriteString(strconv.Itoa(timeoutMS))
+	}
+	b.WriteByte('}')
+
+	return b.String()
+}
+
+func decodeOTXHTTPResponse(payload []byte) (*sdk.HTTPResponse, error) {
+	var decoded otxHTTPResponsePayload
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, err
+	}
+
+	var body []byte
+	if decoded.BodyBase64 != "" {
+		var err error
+		body, err = base64.StdEncoding.DecodeString(decoded.BodyBase64)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &sdk.HTTPResponse{
+		Status: decoded.Status,
+		Body:   body,
+	}, nil
 }
 
 func sanitizeError(err error) string {
