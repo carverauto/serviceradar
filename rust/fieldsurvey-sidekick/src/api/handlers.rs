@@ -375,11 +375,11 @@ pub fn build_spectrum_sweep_request(
         return Err("bin_width_hz must be between 2445 and 5000000".to_string());
     }
 
-    if query.lna_gain_db > 40 || !query.lna_gain_db.is_multiple_of(8) {
+    if query.lna_gain_db > 40 || query.lna_gain_db % 8 != 0 {
         return Err("lna_gain_db must be 0-40 in 8 dB steps".to_string());
     }
 
-    if query.vga_gain_db > 62 || !query.vga_gain_db.is_multiple_of(2) {
+    if query.vga_gain_db > 62 || query.vga_gain_db % 2 != 0 {
         return Err("vga_gain_db must be 0-62 in 2 dB steps".to_string());
     }
 
