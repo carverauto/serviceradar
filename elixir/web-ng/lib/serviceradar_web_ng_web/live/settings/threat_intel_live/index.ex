@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelOTXSyncWorker
   alias ServiceRadar.Observability.ThreatIntelSourceObject
@@ -35,6 +36,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "timeout_ms" => "20000",
     "max_indicators" => "5000"
   }
+  @default_settings_form %{
+    "otx_enabled" => "false",
+    "otx_execution_mode" => "edge_plugin",
+    "otx_base_url" => "https://otx.alienvault.com",
+    "otx_api_key" => "",
+    "clear_otx_api_key" => "false",
+    "otx_sync_interval_seconds" => "3600",
+    "otx_page_size" => "50",
+    "otx_timeout_ms" => "20000",
+    "otx_max_indicators" => "2000",
+    "otx_modified_since" => "",
+    "otx_raw_payload_archive_enabled" => "false",
+    "otx_retrohunt_window_seconds" => "604800",
+    "threat_intel_match_window_seconds" => "3600"
+  }
 
   @impl true
   def mount(_params, _session, socket) do
@@ -53,6 +69,25 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   @impl true
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
     {:noreply, assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
+  end
+
+  def handle_event("settings_change", %{"settings" => params}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :otx_settings_form,
+       Map.merge(socket.assigns.otx_settings_form || @default_settings_form, params)
+     )}
+  end
+
+  def handle_event("save_settings", %{"settings" => params}, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.netflow.manage") do
+      save_otx_settings(socket, scope, params)
+    else
+      {:noreply, put_flash(socket, :error, "Not authorized")}
+    end
   end
 
   def handle_event("save_assignment", %{"assignment" => params}, socket) do
@@ -357,122 +392,285 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
               </div>
             </div>
 
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-              <div class="mb-3 text-sm font-semibold">OTX Assignment</div>
-              <form phx-change="assignment_change" phx-submit="save_assignment" class="space-y-3">
-                <div>
-                  <label class="label">
-                    <span class="label-text">Agent</span>
-                  </label>
-                  <select
-                    name="assignment[agent_uid]"
-                    class="select select-bordered w-full"
-                    disabled={is_nil(@approved_package)}
-                  >
-                    <option value="">Select an agent</option>
-                    <%= for agent <- @agents do %>
-                      <option value={agent.uid} selected={@assignment_form["agent_uid"] == agent.uid}>
-                        {agent_label(agent)}
+            <div class="space-y-4">
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold">OTX Settings</div>
+                  <.ui_badge :if={otx_api_key_present?(@otx_settings)} size="xs" variant="success">
+                    key saved
+                  </.ui_badge>
+                </div>
+                <form phx-change="settings_change" phx-submit="save_settings" class="space-y-3">
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="flex items-center gap-2 text-sm">
+                      <input type="hidden" name="settings[otx_enabled]" value="false" />
+                      <input
+                        type="checkbox"
+                        name="settings[otx_enabled]"
+                        value="true"
+                        class="toggle toggle-sm"
+                        checked={@otx_settings_form["otx_enabled"] == "true"}
+                      /> OTX enabled
+                    </label>
+                    <label class="flex items-center gap-2 text-sm">
+                      <input
+                        type="hidden"
+                        name="settings[otx_raw_payload_archive_enabled]"
+                        value="false"
+                      />
+                      <input
+                        type="checkbox"
+                        name="settings[otx_raw_payload_archive_enabled]"
+                        value="true"
+                        class="toggle toggle-sm"
+                        checked={@otx_settings_form["otx_raw_payload_archive_enabled"] == "true"}
+                      /> Raw archive
+                    </label>
+                  </div>
+
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Execution Mode</span>
+                    </label>
+                    <select
+                      name="settings[otx_execution_mode]"
+                      class="select select-bordered w-full"
+                    >
+                      <option
+                        value="edge_plugin"
+                        selected={@otx_settings_form["otx_execution_mode"] == "edge_plugin"}
+                      >
+                        Edge Plugin
                       </option>
-                    <% end %>
-                  </select>
-                </div>
+                      <option
+                        value="core_worker"
+                        selected={@otx_settings_form["otx_execution_mode"] == "core_worker"}
+                      >
+                        Core Worker
+                      </option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label class="label">
-                    <span class="label-text">OTX API Key</span>
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Core OTX API Key</span>
+                    </label>
+                    <input
+                      type="password"
+                      name="settings[otx_api_key]"
+                      value=""
+                      class="input input-bordered w-full"
+                      autocomplete="off"
+                      placeholder={
+                        if otx_api_key_present?(@otx_settings),
+                          do: "Leave blank to keep stored key",
+                          else: ""
+                      }
+                    />
+                    <label
+                      :if={otx_api_key_present?(@otx_settings)}
+                      class="mt-2 flex items-center gap-2 text-xs text-base-content/70"
+                    >
+                      <input type="hidden" name="settings[clear_otx_api_key]" value="false" />
+                      <input
+                        type="checkbox"
+                        name="settings[clear_otx_api_key]"
+                        value="true"
+                        class="checkbox checkbox-xs"
+                        checked={@otx_settings_form["clear_otx_api_key"] == "true"}
+                      /> Clear stored key
+                    </label>
+                  </div>
+
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Base URL</span>
+                    </label>
+                    <input
+                      type="url"
+                      name="settings[otx_base_url]"
+                      value={@otx_settings_form["otx_base_url"]}
+                      class="input input-bordered w-full"
+                    />
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-3">
+                    <.number_input
+                      name="settings[otx_sync_interval_seconds]"
+                      label="Sync Interval"
+                      value={@otx_settings_form["otx_sync_interval_seconds"]}
+                      min="60"
+                    />
+                    <.number_input
+                      name="settings[threat_intel_match_window_seconds]"
+                      label="Match Window"
+                      value={@otx_settings_form["threat_intel_match_window_seconds"]}
+                      min="60"
+                    />
+                    <.number_input
+                      name="settings[otx_page_size]"
+                      label="Page Size"
+                      value={@otx_settings_form["otx_page_size"]}
+                      min="1"
+                    />
+                    <.number_input
+                      name="settings[otx_timeout_ms]"
+                      label="HTTP Timeout"
+                      value={@otx_settings_form["otx_timeout_ms"]}
+                      min="1000"
+                    />
+                    <.number_input
+                      name="settings[otx_max_indicators]"
+                      label="Max IOCs"
+                      value={@otx_settings_form["otx_max_indicators"]}
+                      min="1"
+                    />
+                    <.number_input
+                      name="settings[otx_retrohunt_window_seconds]"
+                      label="Retrohunt Window"
+                      value={@otx_settings_form["otx_retrohunt_window_seconds"]}
+                      min="3600"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Modified Since</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="settings[otx_modified_since]"
+                      value={@otx_settings_form["otx_modified_since"]}
+                      class="input input-bordered w-full"
+                    />
+                  </div>
+
+                  <div class="flex justify-end pt-2">
+                    <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 text-sm font-semibold">OTX Assignment</div>
+                <form phx-change="assignment_change" phx-submit="save_assignment" class="space-y-3">
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Agent</span>
+                    </label>
+                    <select
+                      name="assignment[agent_uid]"
+                      class="select select-bordered w-full"
+                      disabled={is_nil(@approved_package)}
+                    >
+                      <option value="">Select an agent</option>
+                      <%= for agent <- @agents do %>
+                        <option
+                          value={agent.uid}
+                          selected={@assignment_form["agent_uid"] == agent.uid}
+                        >
+                          {agent_label(agent)}
+                        </option>
+                      <% end %>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="label">
+                      <span class="label-text">OTX API Key</span>
+                    </label>
+                    <input
+                      type="password"
+                      name="assignment[api_key_secret_ref]"
+                      value=""
+                      class="input input-bordered w-full"
+                      autocomplete="off"
+                      disabled={is_nil(@approved_package)}
+                      placeholder={api_key_placeholder(@assignment_form["agent_uid"], @assignments)}
+                    />
+                  </div>
+
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Base URL</span>
+                    </label>
+                    <input
+                      type="url"
+                      name="assignment[base_url]"
+                      value={@assignment_form["base_url"]}
+                      class="input input-bordered w-full"
+                      disabled={is_nil(@approved_package)}
+                    />
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-3">
+                    <.number_input
+                      name="assignment[interval_seconds]"
+                      label="Interval"
+                      value={@assignment_form["interval_seconds"]}
+                      min="60"
+                      disabled={is_nil(@approved_package)}
+                    />
+                    <.number_input
+                      name="assignment[timeout_seconds]"
+                      label="Timeout"
+                      value={@assignment_form["timeout_seconds"]}
+                      min="1"
+                      disabled={is_nil(@approved_package)}
+                    />
+                    <.number_input
+                      name="assignment[limit]"
+                      label="Page Size"
+                      value={@assignment_form["limit"]}
+                      min="1"
+                      disabled={is_nil(@approved_package)}
+                    />
+                    <.number_input
+                      name="assignment[max_indicators]"
+                      label="Max IOCs"
+                      value={@assignment_form["max_indicators"]}
+                      min="1"
+                      disabled={is_nil(@approved_package)}
+                    />
+                    <.number_input
+                      name="assignment[page]"
+                      label="Page"
+                      value={@assignment_form["page"]}
+                      min="1"
+                      disabled={is_nil(@approved_package)}
+                    />
+                    <.number_input
+                      name="assignment[timeout_ms]"
+                      label="HTTP Timeout"
+                      value={@assignment_form["timeout_ms"]}
+                      min="1000"
+                      disabled={is_nil(@approved_package)}
+                    />
+                  </div>
+
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="hidden" name="assignment[enabled]" value="false" />
+                    <input
+                      type="checkbox"
+                      name="assignment[enabled]"
+                      value="true"
+                      class="toggle toggle-sm"
+                      checked={@assignment_form["enabled"] == "true"}
+                      disabled={is_nil(@approved_package)}
+                    /> Enabled
                   </label>
-                  <input
-                    type="password"
-                    name="assignment[api_key_secret_ref]"
-                    value=""
-                    class="input input-bordered w-full"
-                    autocomplete="off"
-                    disabled={is_nil(@approved_package)}
-                    placeholder={api_key_placeholder(@assignment_form["agent_uid"], @assignments)}
-                  />
-                </div>
 
-                <div>
-                  <label class="label">
-                    <span class="label-text">Base URL</span>
-                  </label>
-                  <input
-                    type="url"
-                    name="assignment[base_url]"
-                    value={@assignment_form["base_url"]}
-                    class="input input-bordered w-full"
-                    disabled={is_nil(@approved_package)}
-                  />
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                  <.number_input
-                    name="assignment[interval_seconds]"
-                    label="Interval"
-                    value={@assignment_form["interval_seconds"]}
-                    min="60"
-                    disabled={is_nil(@approved_package)}
-                  />
-                  <.number_input
-                    name="assignment[timeout_seconds]"
-                    label="Timeout"
-                    value={@assignment_form["timeout_seconds"]}
-                    min="1"
-                    disabled={is_nil(@approved_package)}
-                  />
-                  <.number_input
-                    name="assignment[limit]"
-                    label="Page Size"
-                    value={@assignment_form["limit"]}
-                    min="1"
-                    disabled={is_nil(@approved_package)}
-                  />
-                  <.number_input
-                    name="assignment[max_indicators]"
-                    label="Max IOCs"
-                    value={@assignment_form["max_indicators"]}
-                    min="1"
-                    disabled={is_nil(@approved_package)}
-                  />
-                  <.number_input
-                    name="assignment[page]"
-                    label="Page"
-                    value={@assignment_form["page"]}
-                    min="1"
-                    disabled={is_nil(@approved_package)}
-                  />
-                  <.number_input
-                    name="assignment[timeout_ms]"
-                    label="HTTP Timeout"
-                    value={@assignment_form["timeout_ms"]}
-                    min="1000"
-                    disabled={is_nil(@approved_package)}
-                  />
-                </div>
-
-                <label class="flex items-center gap-2 text-sm">
-                  <input type="hidden" name="assignment[enabled]" value="false" />
-                  <input
-                    type="checkbox"
-                    name="assignment[enabled]"
-                    value="true"
-                    class="toggle toggle-sm"
-                    checked={@assignment_form["enabled"] == "true"}
-                    disabled={is_nil(@approved_package)}
-                  /> Enabled
-                </label>
-
-                <div class="flex justify-end pt-2">
-                  <button
-                    class="btn btn-sm btn-primary"
-                    type="submit"
-                    disabled={is_nil(@approved_package)}
-                  >
-                    Save Assignment
-                  </button>
-                </div>
-              </form>
+                  <div class="flex justify-end pt-2">
+                    <button
+                      class="btn btn-sm btn-primary"
+                      type="submit"
+                      disabled={is_nil(@approved_package)}
+                    >
+                      Save Assignment
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         </section>
@@ -538,6 +736,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     packages = Packages.list(%{"plugin_id" => @plugin_id, "limit" => 20}, scope: scope)
     approved_package = Enum.find(packages, &(&1.status == :approved))
     latest_package = List.first(packages)
+    otx_settings = load_otx_settings(scope)
 
     socket
     |> assign(:page_title, "Threat Intel")
@@ -551,7 +750,42 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> assign(:netflow_findings, netflow_findings_summary(scope))
     |> assign(:indicators, list_indicators(scope))
     |> assign(:source_objects, list_source_objects(scope))
+    |> assign(:otx_settings, otx_settings)
+    |> assign(:otx_settings_form, otx_settings_to_form(otx_settings))
     |> assign(:assignment_form, @default_form)
+  end
+
+  defp save_otx_settings(socket, scope, params) do
+    settings = socket.assigns.otx_settings || load_otx_settings(scope)
+    attrs = build_otx_settings_attrs(params)
+
+    result =
+      case settings do
+        %NetflowSettings{} = record ->
+          record
+          |> Ash.Changeset.for_update(:update, attrs)
+          |> Ash.update(scope: scope)
+
+        _ ->
+          NetflowSettings
+          |> Ash.Changeset.for_create(:create, attrs)
+          |> Ash.create(scope: scope)
+      end
+
+    case result do
+      {:ok, %NetflowSettings{} = _updated} ->
+        reloaded = load_otx_settings(scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Saved OTX settings")
+         |> assign(:otx_settings, reloaded)
+         |> assign(:otx_settings_form, otx_settings_to_form(reloaded))}
+
+      {:error, error} ->
+        Logger.warning("Threat intel settings save failed", error: inspect(error))
+        {:noreply, put_flash(socket, :error, "Failed to save OTX settings")}
+    end
   end
 
   defp reload_assignments(socket) do
@@ -649,6 +883,73 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   rescue
     _ -> []
   end
+
+  defp load_otx_settings(scope) do
+    result =
+      NetflowSettings
+      |> Ash.Query.for_read(:get_singleton)
+      |> Ash.read_one(scope: scope)
+
+    case result do
+      {:ok, %NetflowSettings{} = settings} ->
+        settings
+
+      _ ->
+        nil
+    end
+  rescue
+    error ->
+      Logger.debug("Failed to load OTX settings", error: inspect(error))
+      nil
+  end
+
+  defp otx_settings_to_form(nil), do: @default_settings_form
+
+  defp otx_settings_to_form(%NetflowSettings{} = settings) do
+    %{
+      "otx_enabled" => settings.otx_enabled |> truthy() |> to_string(),
+      "otx_execution_mode" => settings.otx_execution_mode || "edge_plugin",
+      "otx_base_url" => settings.otx_base_url || "https://otx.alienvault.com",
+      "otx_api_key" => "",
+      "clear_otx_api_key" => "false",
+      "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 3_600),
+      "otx_page_size" => to_string(settings.otx_page_size || 50),
+      "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 20_000),
+      "otx_max_indicators" => to_string(settings.otx_max_indicators || 2_000),
+      "otx_modified_since" => settings.otx_modified_since || "",
+      "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
+      "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 604_800),
+      "threat_intel_match_window_seconds" => to_string(settings.threat_intel_match_window_seconds || 3_600)
+    }
+  end
+
+  defp build_otx_settings_attrs(params) when is_map(params) do
+    attrs = %{
+      otx_enabled: truthy_param?(Map.get(params, "otx_enabled")),
+      otx_execution_mode: normalize_execution_mode(Map.get(params, "otx_execution_mode")),
+      otx_base_url:
+        params
+        |> Map.get("otx_base_url", "https://otx.alienvault.com")
+        |> to_string()
+        |> String.trim(),
+      otx_sync_interval_seconds: to_int(Map.get(params, "otx_sync_interval_seconds"), 3_600),
+      otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 50, 1, 100),
+      otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 20_000),
+      otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 2_000, 1, 5_000),
+      otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
+      otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
+      otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 604_800),
+      threat_intel_match_window_seconds: to_int(Map.get(params, "threat_intel_match_window_seconds"), 3_600),
+      clear_otx_api_key: truthy_param?(Map.get(params, "clear_otx_api_key"))
+    }
+
+    case blank_to_nil(Map.get(params, "otx_api_key")) do
+      nil -> attrs
+      api_key -> Map.put(attrs, :otx_api_key, api_key)
+    end
+  end
+
+  defp build_otx_settings_attrs(_params), do: %{}
 
   defp netflow_findings_summary(scope) do
     now = DateTime.utc_now()
@@ -797,6 +1098,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp status_badge_variant(status) when status in ["critical", "error", "failed"], do: "error"
   defp status_badge_variant(_status), do: "ghost"
 
+  defp otx_api_key_present?(%NetflowSettings{otx_api_key_present: true}), do: true
+  defp otx_api_key_present?(_settings), do: false
+
   defp skipped_by_type(%ThreatIntelSyncStatus{metadata: %{} = metadata}) do
     metadata
     |> Map.get("skipped_by_type", %{})
@@ -822,8 +1126,49 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp format_optional_int(nil), do: "-"
   defp format_optional_int(value), do: to_string(value)
 
+  defp truthy(true), do: true
+  defp truthy("true"), do: true
+  defp truthy("1"), do: true
+  defp truthy(_), do: false
+
+  defp truthy_param?(true), do: true
+  defp truthy_param?("true"), do: true
+  defp truthy_param?("1"), do: true
+  defp truthy_param?("on"), do: true
+  defp truthy_param?(_), do: false
+
   defp normalize_int(value) when is_integer(value), do: value
   defp normalize_int(_value), do: 0
+
+  defp to_int(value, _default) when is_integer(value) and value > 0, do: value
+
+  defp to_int(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> default
+    end
+  end
+
+  defp to_int(_value, default), do: default
+
+  defp clamp_int(value, default, min, max) do
+    value
+    |> to_int(default)
+    |> Kernel.max(min)
+    |> Kernel.min(max)
+  end
+
+  defp normalize_execution_mode(value) when value in ["edge_plugin", "core_worker"], do: value
+  defp normalize_execution_mode(_value), do: "edge_plugin"
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
 
   defp source_object_label(%ThreatIntelSourceObject{metadata: metadata}) when is_map(metadata) do
     metadata["name"] || metadata["label"] || metadata["source_context"]

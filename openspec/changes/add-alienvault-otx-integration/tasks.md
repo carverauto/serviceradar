@@ -5,10 +5,10 @@
 - [x] 1.4 Get proposal approval before implementation.
 
 ## 2. Data Model
-- [ ] 2.1 Extend existing NetFlow threat-intel settings with OTX enabled/base URL/API key/sync status fields, or add a narrowly scoped companion singleton if that is cleaner.
+- [x] 2.1 Extend existing NetFlow threat-intel settings with OTX enabled/base URL/API key/sync status fields, or add a narrowly scoped companion singleton if that is cleaner.
 - [x] 2.2 Reuse `platform.threat_intel_indicators` for OTX IPv4/IPv6/CIDR indicators with source `alienvault_otx`.
 - [x] 2.3 Add provider/source object metadata storage for TAXII/STIX object ids, versions, collection ids, raw object keys, and OTX pulse metadata if needed for richer hit explanation.
-- [ ] 2.4 Add encrypted OTX API key handling with "present" calculations and clear/update actions.
+- [x] 2.4 Add encrypted OTX API key handling with "present" calculations and clear/update actions.
 - [x] 2.5 Add indexes or constraints for any new provider metadata/sync tables.
 - [x] 2.6 Track provider execution mode (`edge_plugin` or `core_worker`), plugin assignment identity, cursor/high-water state, and sync status.
 
@@ -52,7 +52,7 @@
 ## 7. Settings And Visibility UI
 - [x] 7.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
 - [x] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
-- [ ] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
+- [x] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
 - [x] 7.4 Add status panels for last sync, indicator counts, latest errors, and edge agent/plugin health.
 - [ ] 7.6 Add manual "Retrohunt now" actions.
 - [x] 7.8 Add manual OTX "Sync now" action.

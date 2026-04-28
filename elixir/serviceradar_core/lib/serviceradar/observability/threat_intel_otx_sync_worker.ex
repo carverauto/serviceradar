@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
     ]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -100,7 +101,49 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
   end
 
   defp provider_config do
-    Application.get_env(:serviceradar_core, __MODULE__, [])
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+    env_provider_config = config |> Keyword.get(:provider_config, %{}) |> Map.new()
+
+    provider_config =
+      if has_api_key?(env_provider_config) do
+        env_provider_config
+      else
+        Map.merge(settings_provider_config(), env_provider_config)
+      end
+
+    Keyword.put(config, :provider_config, provider_config)
+  end
+
+  defp settings_provider_config do
+    actor = SystemActor.system(:threat_intel_otx_sync_worker)
+
+    case NetflowSettings.get_settings(actor: actor) do
+      {:ok, %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"} = settings} ->
+        %{
+          "api_key" => settings.otx_api_key,
+          "base_url" => settings.otx_base_url,
+          "modified_since" => settings.otx_modified_since,
+          "limit" => settings.otx_page_size,
+          "timeout_ms" => settings.otx_timeout_ms,
+          "max_indicators" => settings.otx_max_indicators
+        }
+        |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+        |> Map.new()
+
+      _ ->
+        %{}
+    end
+  rescue
+    error ->
+      Logger.debug("AlienVault OTX settings unavailable", reason: inspect(error))
+      %{}
+  end
+
+  defp has_api_key?(%{} = config) do
+    case Map.get(config, "api_key") || Map.get(config, :api_key) do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
   end
 
   defp payload_for(page) do
