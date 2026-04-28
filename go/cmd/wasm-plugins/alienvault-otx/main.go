@@ -35,31 +35,49 @@ type Config struct {
 }
 
 type subscribedPulsesResponse struct {
-	Count    int        `json:"count"`
-	Next     string     `json:"next"`
-	Previous string     `json:"previous"`
-	Results  []otxPulse `json:"results"`
+	Count            int        `json:"count"`
+	Next             *string    `json:"next"`
+	Previous         *string    `json:"previous"`
+	PrefetchPulseIDs bool       `json:"prefetch_pulse_ids"`
+	T                float64    `json:"t"`
+	T2               float64    `json:"t2"`
+	T3               float64    `json:"t3"`
+	Results          []otxPulse `json:"results"`
 }
 
 type otxPulse struct {
-	ID         string         `json:"id"`
-	Name       string         `json:"name"`
-	AuthorName string         `json:"author_name"`
-	TLP        string         `json:"TLP"`
-	Tags       []string       `json:"tags"`
-	References []string       `json:"references"`
-	Created    string         `json:"created"`
-	Modified   string         `json:"modified"`
-	Indicators []otxIndicator `json:"indicators"`
+	ID                string         `json:"id"`
+	Name              string         `json:"name"`
+	Description       string         `json:"description"`
+	AuthorName        string         `json:"author_name"`
+	Adversary         string         `json:"adversary"`
+	TLP               string         `json:"tlp"`
+	Public            int            `json:"public"`
+	Revision          int            `json:"revision"`
+	Tags              []string       `json:"tags"`
+	References        []string       `json:"references"`
+	AttackIDs         []string       `json:"attack_ids"`
+	Industries        []string       `json:"industries"`
+	MalwareFamilies   []string       `json:"malware_families"`
+	TargetedCountries []string       `json:"targeted_countries"`
+	ExtractSource     []string       `json:"extract_source"`
+	Created           string         `json:"created"`
+	Modified          string         `json:"modified"`
+	MoreIndicators    bool           `json:"more_indicators"`
+	Indicators        []otxIndicator `json:"indicators"`
 }
 
 type otxIndicator struct {
-	Indicator   string `json:"indicator"`
-	Type        string `json:"type"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Created     string `json:"created"`
-	Expiration  string `json:"expiration"`
+	ID          int64   `json:"id"`
+	Indicator   string  `json:"indicator"`
+	Type        string  `json:"type"`
+	Content     string  `json:"content"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Created     string  `json:"created"`
+	Expiration  *string `json:"expiration"`
+	IsActive    int     `json:"is_active"`
+	Role        *string `json:"role"`
 }
 
 type ctiPageEnvelope struct {
@@ -249,7 +267,7 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 		Source:        sourceAlienVaultOTX,
 		CollectionID:  "otx:pulses:subscribed",
 		Cursor: map[string]string{
-			"next":           resp.Next,
+			"next":           stringPtrValue(resp.Next),
 			"modified_since": cfg.ModifiedSince,
 		},
 		Counts: ctiCounts{
@@ -312,7 +330,7 @@ func normalizeIndicator(pulse otxPulse, indicator otxIndicator) (ctiIndicator, b
 		Confidence:    50,
 		FirstSeenAt:   firstNonEmpty(indicator.Created, pulse.Created),
 		LastSeenAt:    firstNonEmpty(pulse.Modified, indicator.Created, pulse.Created),
-		ExpiresAt:     indicator.Expiration,
+		ExpiresAt:     stringPtrValue(indicator.Expiration),
 		SourceObject:  pulse.ID,
 		SourceContext: pulse.AuthorName,
 	}, true
@@ -344,6 +362,13 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func ctiPageDetailsJSON(page ctiPage) string {

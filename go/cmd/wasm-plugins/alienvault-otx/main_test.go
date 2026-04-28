@@ -12,7 +12,7 @@ import (
 func TestBuildCTIPageNormalizesSupportedIndicators(t *testing.T) {
 	resp := subscribedPulsesResponse{
 		Count: 1,
-		Next:  "https://otx.alienvault.com/api/v1/pulses/subscribed?page=2",
+		Next:  stringPtr("https://otx.alienvault.com/api/v1/pulses/subscribed?page=2"),
 		Results: []otxPulse{
 			{
 				ID:         "pulse-1",
@@ -114,6 +114,91 @@ func TestHTTPFailureSummaryIncludesSanitizedDetails(t *testing.T) {
 	}
 }
 
+func TestSubscribedPulsesResponseMatchesObservedOTXShape(t *testing.T) {
+	body := []byte(`{
+		"count": 2,
+		"next": "https://otx.alienvault.com/api/v1/pulses/subscribed?page=2",
+		"previous": null,
+		"prefetch_pulse_ids": false,
+		"t": 0.1,
+		"t2": 0.2,
+		"t3": 0.3,
+		"results": [
+			{
+				"id": "pulse-1",
+				"name": "Parser Pulse",
+				"description": "Observed OTX pulse shape",
+				"author_name": "otx-user",
+				"adversary": "",
+				"tlp": "white",
+				"public": 1,
+				"revision": 3,
+				"more_indicators": false,
+				"references": ["https://example.invalid/ref"],
+				"attack_ids": [],
+				"industries": [],
+				"malware_families": [],
+				"targeted_countries": [],
+				"extract_source": [],
+				"created": "2026-04-27T10:00:00Z",
+				"modified": "2026-04-27T11:00:00Z",
+				"indicators": [
+					{"id": 1001, "indicator": "192.0.2.10", "type": "IPv4", "content": "", "title": "", "description": "", "created": "2026-04-27T10:10:00Z", "expiration": null, "is_active": 1, "role": null},
+					{"id": 1002, "indicator": "example.invalid", "type": "domain", "expiration": null, "is_active": 1, "role": null}
+				]
+			},
+			{
+				"id": "pulse-2",
+				"name": "Second Pulse",
+				"indicators": [
+					{"id": 1003, "indicator": "198.51.100.0/24", "type": "CIDR", "expiration": "2026-05-27T10:00:00Z", "is_active": 1, "role": null}
+				]
+			}
+		]
+	}`)
+
+	var resp subscribedPulsesResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal subscribed pulses response: %v", err)
+	}
+
+	if resp.Next == nil || *resp.Next == "" {
+		t.Fatalf("next cursor was not decoded")
+	}
+	if resp.Previous != nil {
+		t.Fatalf("previous = %q, want nil", *resp.Previous)
+	}
+	if resp.Results[0].TLP != "white" {
+		t.Fatalf("tlp = %q, want white", resp.Results[0].TLP)
+	}
+	if resp.Results[0].Indicators[0].Expiration != nil {
+		t.Fatalf("first indicator expiration = %q, want nil", *resp.Results[0].Indicators[0].Expiration)
+	}
+
+	page := buildCTIPage(resp, Config{MaxIndicators: 10})
+	if page.Counts.Objects != 2 {
+		t.Fatalf("objects = %d, want 2", page.Counts.Objects)
+	}
+	if page.Counts.Total != 2 {
+		t.Fatalf("total = %d, want 2", page.Counts.Total)
+	}
+	if page.Counts.Indicators != 2 {
+		t.Fatalf("indicators = %d, want 2", page.Counts.Indicators)
+	}
+	if page.Counts.SkippedByType["domain"] != 1 {
+		t.Fatalf("domain skipped = %d, want 1", page.Counts.SkippedByType["domain"])
+	}
+	if page.Indicators[0].SourceObject != "pulse-1" {
+		t.Fatalf("source object = %q, want pulse-1", page.Indicators[0].SourceObject)
+	}
+	if page.Indicators[1].Indicator != "198.51.100.0/24" {
+		t.Fatalf("second indicator = %q", page.Indicators[1].Indicator)
+	}
+	if page.Indicators[1].ExpiresAt != "2026-05-27T10:00:00Z" {
+		t.Fatalf("expires_at = %q", page.Indicators[1].ExpiresAt)
+	}
+}
+
 func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 	resp := subscribedPulsesResponse{
 		Count: 1,
@@ -154,7 +239,7 @@ func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 func TestCTIPageDetailsJSONEncodesPayloadWithoutSecrets(t *testing.T) {
 	resp := subscribedPulsesResponse{
 		Count: 1,
-		Next:  "https://otx.alienvault.com/api/v1/pulses/subscribed?page=2",
+		Next:  stringPtr("https://otx.alienvault.com/api/v1/pulses/subscribed?page=2"),
 		Results: []otxPulse{
 			{
 				ID:         "pulse-1",
@@ -306,4 +391,8 @@ func requiredField(schema map[string]any, field string) bool {
 		}
 	}
 	return false
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
