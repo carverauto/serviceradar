@@ -1,10 +1,10 @@
 ## 1. SRQL FieldSurvey Entities
-- [ ] 1.1 Add parser/entity support for `in:field_survey_sessions`, `in:field_survey_rasters`, `in:field_survey_artifacts`, `in:field_survey_rf_observations`, `in:field_survey_pose_samples`, `in:field_survey_rf_pose_matches`, and `in:field_survey_spectrum_observations`.
-- [ ] 1.2 Implement Rust SRQL query modules for FieldSurvey summary entities with filters for session, site, building, floor, tags, overlay type, artifact type, and generated/uploaded times.
-- [ ] 1.3 Implement Rust SRQL query modules for raw RF, pose, fused RF/pose, and spectrum investigation entities with strict default time windows and limits.
-- [ ] 1.4 Add SRQL response fields needed by dashboard/review: `session_id`, `raster_id`, `overlay_type`, `generated_at`, `site_id`, `site_name`, `building_id`, `building_name`, `floor_id`, `floor_name`, `floor_index`, `tags`, `has_floorplan`, `artifact_count`, and bounded render metadata.
-- [ ] 1.5 Add SRQL viz/catalog metadata and builder filter fields for the FieldSurvey entities.
-- [ ] 1.6 Add Rust parser/query tests for FieldSurvey filters, ordering, pagination, and unsupported raw-table dashboard fields.
+- [x] 1.1 Add parser/entity support for `in:field_survey_sessions`, `in:field_survey_rasters`, `in:field_survey_artifacts`, `in:field_survey_rf_observations`, `in:field_survey_pose_samples`, `in:field_survey_rf_pose_matches`, and `in:field_survey_spectrum_observations`.
+- [x] 1.2 Implement Rust SRQL query modules for FieldSurvey summary entities with filters for session, site, building, floor, tags, overlay type, artifact type, and generated/uploaded times.
+- [x] 1.3 Implement Rust SRQL query modules for raw RF, pose, fused RF/pose, and spectrum investigation entities with strict default time windows and limits.
+- [x] 1.4 Add SRQL response fields needed by dashboard/review: `session_id`, `raster_id`, `overlay_type`, `generated_at`, `site_id`, `site_name`, `building_id`, `building_name`, `floor_id`, `floor_name`, `floor_index`, `tags`, `has_floorplan`, `artifact_count`, and bounded render metadata.
+- [x] 1.5 Add SRQL viz/catalog metadata and builder filter fields for the FieldSurvey entities.
+- [x] 1.6 Add Rust parser/query tests for FieldSurvey filters, ordering, pagination, and unsupported raw-table dashboard fields.
 
 ## 2. Playlist Storage and Settings UI
 - [ ] 2.1 Add `platform.fieldsurvey_dashboard_playlist_entries` migration/resource in Elixir with Ash-backed CRUD actions.
@@ -22,7 +22,7 @@
 
 ## 4. Validation
 - [ ] 4.1 Add Elixir tests for playlist CRUD, validation, and fallback behavior.
-- [ ] 4.2 Add SRQL tests for all new FieldSurvey entities.
+- [x] 4.2 Add SRQL tests for all new FieldSurvey entities.
 - [ ] 4.3 Add Playwright coverage for settings preview and dashboard playlist rendering against demo FieldSurvey data.
 - [ ] 4.4 Validate local web-ng dashboard screenshots with the `fieldsurvey-local-web-ng` workflow.
-- [ ] 4.5 Run `openspec validate add-fieldsurvey-srql-playlists --strict`.
+- [x] 4.5 Run `openspec validate add-fieldsurvey-srql-playlists --strict`.
