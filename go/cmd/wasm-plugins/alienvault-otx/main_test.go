@@ -135,6 +135,51 @@ func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestCTIPageDetailsJSONEncodesPayloadWithoutSecrets(t *testing.T) {
+	resp := subscribedPulsesResponse{
+		Count: 1,
+		Next:  "https://otx.alienvault.com/api/v1/pulses/subscribed?page=2",
+		Results: []otxPulse{
+			{
+				ID:         "pulse-1",
+				Name:       "Quoted \"Pulse\"",
+				AuthorName: "otx-user",
+				Created:    "2026-04-27T10:00:00Z",
+				Modified:   "2026-04-27T11:00:00Z",
+				Indicators: []otxIndicator{
+					{Indicator: "192.0.2.10", Type: "IPv4"},
+					{Indicator: "example.invalid", Type: "domain"},
+				},
+			},
+		},
+	}
+
+	page := buildCTIPage(resp, Config{
+		APIKey:        "secret-api-key",
+		ModifiedSince: "2026-04-27T00:00:00Z",
+		MaxIndicators: 10,
+	})
+	encoded := ctiPageDetailsJSON(page)
+
+	if strings.Contains(encoded, "secret-api-key") {
+		t.Fatalf("CTI payload leaked API key: %s", encoded)
+	}
+
+	var decoded ctiPageEnvelope
+	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+		t.Fatalf("manual CTI JSON did not decode: %v\n%s", err, encoded)
+	}
+	if decoded.ThreatIntel.Counts.Indicators != 1 {
+		t.Fatalf("indicators = %d, want 1", decoded.ThreatIntel.Counts.Indicators)
+	}
+	if decoded.ThreatIntel.Counts.SkippedByType["domain"] != 1 {
+		t.Fatalf("skipped domain count = %d, want 1", decoded.ThreatIntel.Counts.SkippedByType["domain"])
+	}
+	if decoded.ThreatIntel.Indicators[0].Label != `Quoted "Pulse"` {
+		t.Fatalf("label = %q", decoded.ThreatIntel.Indicators[0].Label)
+	}
+}
+
 func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 	const raw = `{
 		"base_url": "https://otx.example.test",

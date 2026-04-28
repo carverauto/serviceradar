@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/carverauto/serviceradar-sdk-go/sdk"
@@ -139,10 +140,7 @@ func run_check() {
 		}
 
 		page := buildCTIPage(body, cfg)
-		details, err := json.Marshal(ctiPageEnvelope{ThreatIntel: page})
-		if err != nil {
-			return sdk.Critical("OTX threat-intel payload could not be encoded"), nil
-		}
+		details := ctiPageDetailsJSON(page)
 
 		summary := fmt.Sprintf(
 			"OTX pulses: %d objects, %d indicators, %d skipped",
@@ -154,10 +152,7 @@ func run_check() {
 		return sdk.NewResult().
 			WithStatus(sdk.StatusOK).
 			WithSummary(summary).
-			WithDetails(string(details)).
-			WithLabel("provider", sourceAlienVaultOTX).
-			WithMetric("otx_indicators", float64(page.Counts.Indicators), "count", nil).
-			WithMetric("otx_skipped_indicators", float64(page.Counts.Skipped), "count", nil), nil
+			WithDetails(details), nil
 	})
 }
 
@@ -315,6 +310,127 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func ctiPageDetailsJSON(page ctiPage) string {
+	var b strings.Builder
+	b.Grow(512 + len(page.Indicators)*180)
+	b.WriteString(`{"threat_intel":{`)
+	writeJSONIntField(&b, "schema_version", page.SchemaVersion, false)
+	writeJSONStringField(&b, "provider", page.Provider, true)
+	writeJSONStringField(&b, "source", page.Source, true)
+	writeJSONStringField(&b, "collection_id", page.CollectionID, true)
+	writeCursorJSON(&b, page.Cursor)
+	writeCountsJSON(&b, page.Counts)
+	writeIndicatorsJSON(&b, page.Indicators)
+	b.WriteString(`}}`)
+	return b.String()
+}
+
+func writeCursorJSON(b *strings.Builder, cursor map[string]string) {
+	b.WriteString(`,"cursor":{`)
+	i := 0
+	for _, key := range []string{"next", "modified_since"} {
+		value := cursor[key]
+		if value == "" {
+			continue
+		}
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		writeJSONString(b, key)
+		b.WriteByte(':')
+		writeJSONString(b, value)
+		i++
+	}
+	b.WriteByte('}')
+}
+
+func writeCountsJSON(b *strings.Builder, counts ctiCounts) {
+	b.WriteString(`,"counts":{`)
+	writeJSONIntField(b, "objects", counts.Objects, false)
+	writeJSONIntField(b, "indicators", counts.Indicators, true)
+	writeJSONIntField(b, "skipped", counts.Skipped, true)
+	writeJSONIntField(b, "total", counts.Total, true)
+	b.WriteString(`,"skipped_by_type":{`)
+	i := 0
+	for kind, count := range counts.SkippedByType {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		writeJSONString(b, kind)
+		b.WriteByte(':')
+		b.WriteString(strconv.Itoa(count))
+		i++
+	}
+	b.WriteString(`}}`)
+}
+
+func writeIndicatorsJSON(b *strings.Builder, indicators []ctiIndicator) {
+	b.WriteString(`,"indicators":[`)
+	for i, indicator := range indicators {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('{')
+		writeJSONStringField(b, "indicator", indicator.Indicator, false)
+		writeJSONStringField(b, "type", indicator.Type, true)
+		writeJSONStringField(b, "source", indicator.Source, true)
+		writeJSONStringField(b, "label", indicator.Label, true)
+		writeJSONIntField(b, "confidence", indicator.Confidence, true)
+		writeJSONStringField(b, "first_seen_at", indicator.FirstSeenAt, true)
+		writeJSONStringField(b, "last_seen_at", indicator.LastSeenAt, true)
+		writeJSONStringField(b, "expires_at", indicator.ExpiresAt, true)
+		writeJSONStringField(b, "source_object_id", indicator.SourceObject, true)
+		writeJSONStringField(b, "source_context", indicator.SourceContext, true)
+		b.WriteByte('}')
+	}
+	b.WriteByte(']')
+}
+
+func writeJSONStringField(b *strings.Builder, key, value string, comma bool) {
+	if comma {
+		b.WriteByte(',')
+	}
+	writeJSONString(b, key)
+	b.WriteByte(':')
+	writeJSONString(b, value)
+}
+
+func writeJSONIntField(b *strings.Builder, key string, value int, comma bool) {
+	if comma {
+		b.WriteByte(',')
+	}
+	writeJSONString(b, key)
+	b.WriteByte(':')
+	b.WriteString(strconv.Itoa(value))
+}
+
+func writeJSONString(b *strings.Builder, value string) {
+	b.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
+		case '\\', '"':
+			b.WriteByte('\\')
+			b.WriteByte(value[i])
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if value[i] < 0x20 {
+				b.WriteString(`\u00`)
+				const hex = "0123456789abcdef"
+				b.WriteByte(hex[value[i]>>4])
+				b.WriteByte(hex[value[i]&0x0f])
+			} else {
+				b.WriteByte(value[i])
+			}
+		}
+	}
+	b.WriteByte('"')
 }
 
 func primeTinyGoJSON() {
