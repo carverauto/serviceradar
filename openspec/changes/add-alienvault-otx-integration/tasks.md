@@ -39,7 +39,7 @@
 - [x] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
 - [x] 5.2 Make the current/recent NetFlow match lookback configurable instead of hard-coded where needed.
 - [x] 5.3 Ensure OTX/source names and max severity appear in `IpThreatIntelCache` results.
-- [ ] 5.4 Surface OTX/TAXII/SIEM hit counts and source context in NetFlow analysis views.
+- [x] 5.4 Surface OTX/TAXII/SIEM hit counts and source context in NetFlow analysis views.
 - [ ] 5.5 Make unsupported indicator types visible in sync status as imported/skipped but not NetFlow-match supported.
 
 ## 6. Optional Retroactive Hunting
@@ -54,10 +54,11 @@
 - [x] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
 - [ ] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
 - [x] 7.4 Add status panels for last sync, indicator counts, latest errors, and edge agent/plugin health.
-- [ ] 7.6 Add manual "Retrohunt now" actions and current NetFlow finding counts.
+- [ ] 7.6 Add manual "Retrohunt now" actions.
 - [x] 7.8 Add manual OTX "Sync now" action.
-- [ ] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
+- [x] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
 - [x] 7.7 Add operator visibility for imported OTX indicators and source-object metadata.
+- [x] 7.9 Add current NetFlow finding counts to the Threat Intel settings page.
 
 ## 8. Scheduling And Operations
 - [x] 8.1 Register core-hosted OTX sync jobs with Oban uniqueness settings.
