@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelIndicator
+  alias ServiceRadar.Observability.ThreatIntelSourceObject
 
   require Logger
 
@@ -58,8 +59,14 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   def ingest(_payload, _status, _opts), do: :ok
 
   defp do_ingest(page, status, actor, observed_at) do
-    %{"threat_intel" => page}
-    |> normalize_indicators(status, observed_at)
+    threat_intel_page = Page.from_map(page, status)
+
+    threat_intel_page
+    |> Page.source_object_attrs(observed_at, max_objects: @max_indicators_per_page)
+    |> Enum.each(&upsert_source_object(&1, actor))
+
+    threat_intel_page
+    |> Page.indicator_attrs(observed_at, max_indicators: @max_indicators_per_page)
     |> Enum.each(&upsert_indicator(&1, actor))
 
     :ok
@@ -97,6 +104,26 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         Logger.warning("Plugin threat-intel indicator upsert failed",
           source: attrs.source,
           indicator: attrs.indicator,
+          reason: inspect(reason)
+        )
+
+        :error
+    end
+  end
+
+  defp upsert_source_object(attrs, actor) do
+    case Ash.create(ThreatIntelSourceObject, attrs,
+           action: :upsert,
+           actor: actor,
+           domain: ServiceRadar.Observability
+         ) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Plugin threat-intel source object upsert failed",
+          source: attrs.source,
+          object_id: attrs.object_id,
           reason: inspect(reason)
         )
 

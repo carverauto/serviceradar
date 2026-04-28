@@ -85,6 +85,33 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
 
   def indicator_attrs(_page, _observed_at, _opts), do: []
 
+  @doc """
+  Converts provider page objects into source-object metadata attrs.
+  """
+  @spec source_object_attrs(t(), DateTime.t(), keyword()) :: [map()]
+  def source_object_attrs(page, observed_at, opts \\ [])
+
+  def source_object_attrs(%__MODULE__{} = page, observed_at, opts)
+      when is_struct(observed_at, DateTime) do
+    max_objects = Keyword.get(opts, :max_objects, @default_max_indicators)
+
+    stix_objects =
+      page.objects
+      |> Enum.map(&object_attrs_from_stix(&1, page, observed_at))
+      |> Enum.reject(&is_nil/1)
+
+    inline_objects =
+      page.indicators
+      |> Enum.map(&object_attrs_from_indicator(&1, page, observed_at))
+      |> Enum.reject(&is_nil/1)
+
+    (stix_objects ++ inline_objects)
+    |> Enum.take(max_objects)
+    |> Enum.uniq_by(&{&1.source, &1.collection_id, &1.object_id, &1.object_version})
+  end
+
+  def source_object_attrs(_page, _observed_at, _opts), do: []
+
   defp normalize_indicator(entry, page, observed_at) when is_map(entry) do
     with indicator when is_binary(indicator) and indicator != "" <-
            string_value(entry, ["indicator", "value"]),
@@ -108,6 +135,95 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
   end
 
   defp normalize_indicator(_entry, _page, _observed_at), do: nil
+
+  defp object_attrs_from_stix(object, page, observed_at) when is_map(object) do
+    object_id = string_value(object, ["id"])
+
+    if is_binary(object_id) and object_id != "" do
+      object_type = string_value(object, ["type"]) || "stix-object"
+      modified_at = datetime_value(object, ["modified"]) || observed_at
+
+      %{
+        provider: page.provider,
+        source: page.source,
+        collection_id: page.collection_id,
+        object_id: object_id,
+        object_type: object_type,
+        object_version: object_version(object, modified_at),
+        spec_version: string_value(object, ["spec_version", "specVersion"]),
+        date_added: datetime_value(object, ["date_added", "dateAdded", "created"]),
+        modified_at: modified_at,
+        raw_object_key: string_value(object, ["raw_object_key", "rawObjectKey"]),
+        metadata: object_metadata(object)
+      }
+    end
+  end
+
+  defp object_attrs_from_stix(_object, _page, _observed_at), do: nil
+
+  defp object_attrs_from_indicator(indicator, page, observed_at) when is_map(indicator) do
+    object_id = string_value(indicator, ["source_object_id", "sourceObjectId"])
+
+    if is_binary(object_id) and object_id != "" do
+      modified_at =
+        datetime_value(indicator, ["last_seen_at", "lastSeenAt", "modified"]) || observed_at
+
+      %{
+        provider: page.provider,
+        source: string_value(indicator, ["source"]) || page.source,
+        collection_id: page.collection_id,
+        object_id: object_id,
+        object_type:
+          string_value(indicator, ["source_object_type", "sourceObjectType"]) || "provider-object",
+        object_version: object_version(indicator, modified_at),
+        spec_version: nil,
+        date_added: datetime_value(indicator, ["first_seen_at", "firstSeenAt", "created"]),
+        modified_at: modified_at,
+        raw_object_key: string_value(indicator, ["raw_object_key", "rawObjectKey"]),
+        metadata: indicator_object_metadata(indicator)
+      }
+    end
+  end
+
+  defp object_attrs_from_indicator(_indicator, _page, _observed_at), do: nil
+
+  defp object_version(map, modified_at) do
+    string_value(map, ["object_version", "objectVersion", "version", "modified"]) ||
+      DateTime.to_iso8601(modified_at)
+  end
+
+  defp object_metadata(object) do
+    object
+    |> Map.take([
+      "name",
+      "description",
+      "created_by_ref",
+      "labels",
+      "pattern",
+      "pattern_type",
+      "pattern_version",
+      "valid_from",
+      "valid_until",
+      "revoked",
+      "confidence",
+      "lang"
+    ])
+    |> drop_nil_values()
+  end
+
+  defp indicator_object_metadata(indicator) do
+    drop_nil_values(%{
+      "label" => string_value(indicator, ["label", "title", "pulse_name", "pulseName"]),
+      "source_context" => string_value(indicator, ["source_context", "sourceContext"]),
+      "indicator" => string_value(indicator, ["indicator", "value"])
+    })
+  end
+
+  defp drop_nil_values(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 
   defp source_for(page, status) do
     string_value(page, ["source", "provider", "provider_id", "providerId"]) ||
