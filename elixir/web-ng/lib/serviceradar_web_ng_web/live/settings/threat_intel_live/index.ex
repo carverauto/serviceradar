@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.ThreatIntelIndicator
+  alias ServiceRadar.Observability.ThreatIntelOTXSyncWorker
   alias ServiceRadar.Observability.ThreatIntelSourceObject
   alias ServiceRadar.Observability.ThreatIntelSyncStatus
   alias ServiceRadar.Plugins.ConfigSchema
@@ -96,6 +97,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     end
   end
 
+  def handle_event("sync_now", _params, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "plugins.assign") do
+      case ThreatIntelOTXSyncWorker.ensure_scheduled(schedule_in: 1) do
+        {:ok, _job} ->
+          {:noreply, put_flash(socket, :info, "OTX sync queued")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply, put_flash(socket, :error, "Job scheduler is unavailable")}
+
+        {:error, error} ->
+          Logger.warning("Threat intel sync enqueue failed", error: inspect(error))
+          {:noreply, put_flash(socket, :error, "Failed to queue OTX sync")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Not authorized")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -120,6 +139,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
             <.link navigate={~p"/settings/agents/plugins"} class="btn btn-sm btn-ghost">
               Plugin Registry
             </.link>
+            <button type="button" class="btn btn-sm btn-primary" phx-click="sync_now">
+              Sync Now
+            </button>
           </div>
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">

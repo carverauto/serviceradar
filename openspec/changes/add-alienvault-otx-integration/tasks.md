@@ -54,12 +54,13 @@
 - [x] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
 - [ ] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
 - [x] 7.4 Add status panels for last sync, indicator counts, latest errors, and edge agent/plugin health.
-- [ ] 7.6 Add manual "Sync now" / "Retrohunt now" actions and current NetFlow finding counts.
+- [ ] 7.6 Add manual "Retrohunt now" actions and current NetFlow finding counts.
+- [x] 7.8 Add manual OTX "Sync now" action.
 - [ ] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
 - [x] 7.7 Add operator visibility for imported OTX indicators and source-object metadata.
 
 ## 8. Scheduling And Operations
-- [ ] 8.1 Register core-hosted OTX sync jobs with Oban cron and uniqueness settings.
+- [x] 8.1 Register core-hosted OTX sync jobs with Oban uniqueness settings.
 - [ ] 8.2 Register edge plugin schedules through plugin assignments/target policies.
 - [ ] 8.3 Register current/recent NetFlow matching work with uniqueness and bounded batch sizes.
 - [x] 8.4 Use safe enqueue behavior when Oban or plugin scheduling is unavailable.
