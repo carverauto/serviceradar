@@ -950,14 +950,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             |> normalize_dashboard_survey(raw_floorplan_segments)
             |> add_dashboard_ap_markers(raw_ap_markers)
 
-          surface_svg = dashboard_surface_svg(raster_cells, floorplan_segments)
-
           %{
             raster_session_id: session_id,
             raster_generated_at: generated_at,
             raster_cell_count: length(raw_cells),
             raster_cells: raster_cells,
-            raster_surface_data_uri: svg_data_uri(surface_svg),
+            raster_surface_data_uri: nil,
             raster_aspect_ratio: aspect_ratio,
             floorplan_segment_count: length(floorplan_segments),
             floorplan_segments: floorplan_segments,
@@ -1036,7 +1034,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     ap_markers =
       raw_ap_markers
       |> Enum.map(&score_dashboard_ap_marker/1)
-      |> Enum.filter(&(&1.confidence >= 0.7))
+      |> Enum.filter(&dashboard_ap_marker_candidate?/1)
+      |> Enum.sort_by(
+        fn marker ->
+          {marker.confidence || 0.0, marker.sample_count || 0, marker.strongest_rssi || -120}
+        end,
+        :desc
+      )
+      |> cluster_dashboard_ap_markers()
       |> Enum.map(&rotate_dashboard_point(&1, angle))
       |> Enum.map(&project_dashboard_ap_marker(&1, bounds))
       |> Enum.reject(&is_nil/1)
@@ -1192,149 +1197,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     :math.sqrt(:math.pow(end_x - start_x, 2) + :math.pow(end_z - start_z, 2))
   end
 
-  defp dashboard_surface_svg([], _floorplan_segments), do: nil
-
-  defp dashboard_surface_svg(cells, floorplan_segments) do
-    {clip_defs, clip_attr} = dashboard_floorplan_clip(floorplan_segments)
-
-    circles =
-      Enum.map_join(cells, "\n", fn cell ->
-        ~s(<circle cx="#{svg_number(cell.x_pct)}" cy="#{svg_number(cell.z_pct)}" r="#{svg_number(dashboard_surface_radius(cell))}" fill="#{dashboard_surface_color(cell.rssi)}" opacity="#{svg_number(dashboard_surface_opacity(cell))}"/>)
-      end)
-
-    """
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-      <defs>
-        <filter id="heat-soften" x="-12" y="-12" width="124" height="124" filterUnits="userSpaceOnUse">
-          <feGaussianBlur stdDeviation="1.45"/>
-          <feComponentTransfer>
-            <feFuncA type="gamma" amplitude="1.08" exponent="0.92" offset="0"/>
-          </feComponentTransfer>
-        </filter>
-    #{clip_defs}
-      </defs>
-      <g filter="url(#heat-soften)"#{clip_attr}>
-    #{circles}
-      </g>
-    </svg>
-    """
-  end
-
-  defp dashboard_floorplan_clip([]), do: {"", ""}
-
-  defp dashboard_floorplan_clip(floorplan_segments) do
-    case floorplan_clip_polygon(floorplan_segments) do
-      points when length(points) >= 3 ->
-        polygon = Enum.map_join(points, " ", fn {x, z} -> "#{svg_number(x)},#{svg_number(z)}" end)
-
-        {
-          ~s(<clipPath id="floorplan-footprint"><polygon points="#{polygon}"/></clipPath>),
-          ~s| clip-path="url(#floorplan-footprint)"|
-        }
-
-      _ ->
-        {"", ""}
-    end
-  end
-
-  defp floorplan_clip_polygon(floorplan_segments) do
-    floorplan_segments
-    |> Enum.flat_map(fn segment ->
-      [
-        {segment.start_x_pct, segment.start_z_pct},
-        {segment.end_x_pct, segment.end_z_pct}
-      ]
-    end)
-    |> Enum.filter(fn {x, z} -> is_number(x) and is_number(z) end)
-    |> Enum.map(fn {x, z} -> {Float.round(x * 1.0, 3), Float.round(z * 1.0, 3)} end)
-    |> Enum.uniq()
-    |> convex_hull()
-    |> expand_polygon(1.3)
-  end
-
-  defp convex_hull(points) when length(points) < 3, do: points
-
-  defp convex_hull(points) do
-    sorted = Enum.sort(points)
-    lower = hull_half(sorted)
-    upper = sorted |> Enum.reverse() |> hull_half()
-
-    Enum.uniq(Enum.drop(lower, -1) ++ Enum.drop(upper, -1))
-  end
-
-  defp hull_half(points) do
-    Enum.reduce(points, [], fn point, hull ->
-      trim_hull(hull, point) ++ [point]
-    end)
-  end
-
-  defp trim_hull(hull, point) when length(hull) >= 2 do
-    previous = Enum.at(hull, -2)
-    last = List.last(hull)
-
-    if cross(previous, last, point) <= 0 do
-      hull
-      |> Enum.drop(-1)
-      |> trim_hull(point)
-    else
-      hull
-    end
-  end
-
-  defp trim_hull(hull, _point), do: hull
-
-  defp cross({ax, ay}, {bx, by}, {cx, cy}), do: (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
-
-  defp expand_polygon(points, _padding) when length(points) < 3, do: points
-
-  defp expand_polygon(points, padding) do
-    center_x = points |> Enum.map(&elem(&1, 0)) |> Enum.sum() |> Kernel./(length(points))
-    center_z = points |> Enum.map(&elem(&1, 1)) |> Enum.sum() |> Kernel./(length(points))
-
-    Enum.map(points, fn {x, z} ->
-      dx = x - center_x
-      dz = z - center_z
-      distance = :math.sqrt(dx * dx + dz * dz)
-
-      if distance > 0.001 do
-        {
-          clamp(x + dx / distance * padding, 0.0, 100.0),
-          clamp(z + dz / distance * padding, 0.0, 100.0)
-        }
-      else
-        {x, z}
-      end
-    end)
-  end
-
-  defp svg_data_uri(svg) when is_binary(svg) and byte_size(svg) > 0 do
-    "data:image/svg+xml;base64,#{Base.encode64(svg)}"
-  end
-
-  defp svg_data_uri(_svg), do: nil
-
-  defp dashboard_surface_radius(cell) do
-    cell.radius_pct
-    |> max(1.6)
-    |> min(5.4)
-    |> Kernel.*(1.08)
-  end
-
-  defp dashboard_surface_opacity(%{confidence: confidence, rssi: rssi}) do
-    signal = min(max((rssi + 90.0) / 60.0, 0.0), 1.0)
-    confidence = min(max(confidence, 0.15), 1.0)
-    0.14 + signal * 0.16 + confidence * 0.14
-  end
-
-  defp dashboard_surface_color(rssi) when rssi >= -55, do: "#5fd38a"
-  defp dashboard_surface_color(rssi) when rssi >= -65, do: "#8bd94f"
-  defp dashboard_surface_color(rssi) when rssi >= -75, do: "#ffd25a"
-  defp dashboard_surface_color(rssi) when rssi >= -82, do: "#ff7d3f"
-  defp dashboard_surface_color(_rssi), do: "#ef4444"
-
-  defp svg_number(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 3)
-  defp svg_number(_value), do: "0.000"
-
   defp latest_dashboard_ap_markers(session_id) do
     if relation_exists?("platform.survey_rf_pose_matches") do
       sql = """
@@ -1430,6 +1292,50 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
     Map.put(marker, :confidence, Float.round(confidence, 3))
   end
+
+  defp dashboard_ap_marker_candidate?(marker) do
+    (Map.get(marker, :confidence) || 0.0) >= 0.82 and
+      (Map.get(marker, :support_count) || 0) >= 20 and
+      is_number(Map.get(marker, :x)) and
+      is_number(Map.get(marker, :z)) and
+      not invalid_dashboard_bssid?(Map.get(marker, :bssid))
+  end
+
+  defp cluster_dashboard_ap_markers(markers) do
+    Enum.reduce(markers, [], fn marker, selected ->
+      if Enum.any?(selected, &same_dashboard_ap_candidate?(&1, marker)) do
+        selected
+      else
+        selected ++ [marker]
+      end
+    end)
+  end
+
+  defp same_dashboard_ap_candidate?(left, right) do
+    distance =
+      :math.sqrt(
+        :math.pow((Map.get(left, :x) || 0.0) - (Map.get(right, :x) || 0.0), 2) +
+          :math.pow((Map.get(left, :z) || 0.0) - (Map.get(right, :z) || 0.0), 2)
+      )
+
+    same_dashboard_radio_family?(Map.get(left, :bssid), Map.get(right, :bssid)) or distance <= 1.8
+  end
+
+  defp same_dashboard_radio_family?(left, right) when is_binary(left) and is_binary(right) do
+    left_parts = left |> String.downcase() |> String.split(":")
+    right_parts = right |> String.downcase() |> String.split(":")
+
+    length(left_parts) == 6 and length(right_parts) == 6 and Enum.take(left_parts, 4) == Enum.take(right_parts, 4)
+  end
+
+  defp same_dashboard_radio_family?(_left, _right), do: false
+
+  defp invalid_dashboard_bssid?(bssid) when is_binary(bssid) do
+    normalized = String.downcase(String.trim(bssid))
+    normalized in ["", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"]
+  end
+
+  defp invalid_dashboard_bssid?(_bssid), do: true
 
   defp latest_dashboard_floorplan_segments(session_id) do
     if relation_exists?("platform.survey_room_artifacts") do

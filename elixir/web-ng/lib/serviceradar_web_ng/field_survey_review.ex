@@ -213,7 +213,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @spec build_review(String.t(), list(), list(), list(), keyword()) :: review()
   def build_review(session_id, rf_matches, pose_samples, spectrum_rows, opts \\ []) do
     cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
-    floorplan_segments = Keyword.get(opts, :floorplan_segments, [])
+    floorplan_segments = opts |> Keyword.get(:floorplan_segments, []) |> FieldSurveyFloorplan.rectify_segments()
     room_artifacts = Keyword.get(opts, :room_artifacts, [])
     wifi_points = Keyword.get_lazy(opts, :wifi_points, fn -> build_wifi_points(rf_matches, cell_size_m) end)
     wifi_raster = Keyword.get(opts, :wifi_raster) || build_wifi_raster(rf_matches, floorplan_segments)
