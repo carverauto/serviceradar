@@ -88,9 +88,10 @@ The system SHALL synchronize subscribed AlienVault OTX pulses and indicators usi
 - **GIVEN** OTX ingestion is enabled in edge plugin mode
 - **AND** a valid OTX API key or secret reference is available to the assigned collector
 - **WHEN** the assigned agent runs the OTX collector plugin
-- **THEN** the plugin SHALL fetch subscribed OTX pulses through the agent host network bridge
+- **THEN** the plugin SHALL fetch paginated OTX export results through the agent host network bridge
 - **AND** core SHALL persist supported IPv4, IPv6, and CIDR indicators in `platform.threat_intel_indicators` with source `alienvault_otx`
 - **AND** core SHALL record sync counts and completion status for the provider and agent assignment
+- **AND** the plugin SHALL stop at configured page, timeout, and indicator budgets while returning a cursor for the next continuation point
 
 #### Scenario: Incremental sync uses high-water mark
 - **GIVEN** a previous OTX sync completed successfully

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func TestBuildCTIPageNormalizesSupportedIndicators(t *testing.T) {
@@ -42,8 +42,8 @@ func TestBuildCTIPageNormalizesSupportedIndicators(t *testing.T) {
 	if page.Counts.Skipped != 1 {
 		t.Fatalf("skipped = %d, want 1", page.Counts.Skipped)
 	}
-	if page.Counts.SkippedByType["domain"] != 1 {
-		t.Fatalf("skipped_by_type[domain] = %d, want 1", page.Counts.SkippedByType["domain"])
+	if page.Counts.SkippedByType.get("domain") != 1 {
+		t.Fatalf("skipped_by_type[domain] = %d, want 1", page.Counts.SkippedByType.get("domain"))
 	}
 	if page.Indicators[0].SourceObject != "pulse-1" {
 		t.Fatalf("source object = %q, want pulse-1", page.Indicators[0].SourceObject)
@@ -64,7 +64,7 @@ func TestSubscribedPulsesURL(t *testing.T) {
 		t.Fatalf("subscribedPulsesURL returned error: %v", err)
 	}
 
-	want := "https://otx.alienvault.com/api/v1/indicators/export?limit=25&modified_since=2026-04-27T10%3A00%3A00Z&page=3"
+	want := "https://otx.alienvault.com/api/v1/indicators/export?limit=25&page=3&modified_since=2026-04-27T10%3A00%3A00Z"
 	if got != want {
 		t.Fatalf("url = %q, want %q", got, want)
 	}
@@ -80,6 +80,7 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 		Page:          -1,
 		TimeoutMS:     -1,
 		MaxIndicators: maxIndicators + 50,
+		MaxPages:      maxPages + 50,
 	}
 
 	cfg.applyDefaults()
@@ -98,6 +99,9 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 	}
 	if cfg.MaxIndicators != maxIndicators {
 		t.Fatalf("max indicators = %d, want %d", cfg.MaxIndicators, maxIndicators)
+	}
+	if cfg.MaxPages != maxPages {
+		t.Fatalf("max pages = %d, want %d", cfg.MaxPages, maxPages)
 	}
 }
 
@@ -186,8 +190,8 @@ func TestSubscribedPulsesResponseMatchesObservedOTXShape(t *testing.T) {
 	if page.Counts.Indicators != 2 {
 		t.Fatalf("indicators = %d, want 2", page.Counts.Indicators)
 	}
-	if page.Counts.SkippedByType["domain"] != 1 {
-		t.Fatalf("domain skipped = %d, want 1", page.Counts.SkippedByType["domain"])
+	if page.Counts.SkippedByType.get("domain") != 1 {
+		t.Fatalf("domain skipped = %d, want 1", page.Counts.SkippedByType.get("domain"))
 	}
 	if page.Indicators[0].SourceObject != "pulse-1" {
 		t.Fatalf("source object = %q, want pulse-1", page.Indicators[0].SourceObject)
@@ -229,6 +233,21 @@ func TestDecodeOTXHTTPResponseAvoidsJSONMapDecoding(t *testing.T) {
 	}
 }
 
+func TestDecodeOTXHTTPResponseSkipsEscapedHeaderControls(t *testing.T) {
+	body := []byte(`{"count":0,"results":[]}`)
+	payload := []byte(`{"status":200,"headers":{"x-weird":["prefix\bmiddle"]},"body_base64":"` +
+		base64.StdEncoding.EncodeToString(body) +
+		`","body_encoding":"base64"}`)
+
+	resp, err := decodeOTXHTTPResponse(payload)
+	if err != nil {
+		t.Fatalf("decodeOTXHTTPResponse: %v", err)
+	}
+	if string(resp.Body) != string(body) {
+		t.Fatalf("body = %q, want %q", string(resp.Body), string(body))
+	}
+}
+
 func TestParseObservedOTXFixture(t *testing.T) {
 	fixturePath := os.Getenv("OTX_RESPONSE_FIXTURE")
 	if fixturePath == "" {
@@ -246,6 +265,54 @@ func TestParseObservedOTXFixture(t *testing.T) {
 	}
 	if page.Counts.Indicators == 0 {
 		t.Fatalf("indicators = 0")
+	}
+}
+
+func TestMergeExportPagesTracksRowsIndicatorsAndCursor(t *testing.T) {
+	first := []byte(`{
+		"count": 4,
+		"next": "https://otx.alienvault.com/api/v1/indicators/export?limit=2&page=2",
+		"results": [
+			{"id": 1, "indicator": "example.invalid", "type": "domain"},
+			{"id": 2, "indicator": "192.0.2.10", "type": "IPv4"}
+		]
+	}`)
+	second := []byte(`{
+		"count": 4,
+		"next": null,
+		"results": [
+			{"id": 3, "indicator": "198.51.100.0/24", "type": "CIDR"},
+			{"id": 4, "indicator": "https://example.invalid/a", "type": "URL"}
+		]
+	}`)
+
+	cfg := Config{Limit: 2, Page: 1, MaxIndicators: 10, MaxPages: 10}
+	cfg.applyDefaults()
+
+	page1, err := parseOTXExportPage(first, cfg)
+	if err != nil {
+		t.Fatalf("parse first page: %v", err)
+	}
+	page2, err := parseOTXExportPage(second, cfg)
+	if err != nil {
+		t.Fatalf("parse second page: %v", err)
+	}
+
+	merged := newCTIPage(cfg)
+	mergeCTIPage(&merged, page1)
+	mergeCTIPage(&merged, page2)
+
+	if merged.Counts.Objects != 4 {
+		t.Fatalf("objects = %d, want 4", merged.Counts.Objects)
+	}
+	if merged.Counts.Indicators != 2 {
+		t.Fatalf("indicators = %d, want 2", merged.Counts.Indicators)
+	}
+	if merged.Counts.SkippedByType.get("domain") != 1 || merged.Counts.SkippedByType.get("url") != 1 {
+		t.Fatalf("skipped_by_type = %#v", merged.Counts.SkippedByType)
+	}
+	if got := pageFromURL(page1.Cursor.Next); got != 2 {
+		t.Fatalf("next page = %d, want 2", got)
 	}
 }
 
@@ -273,8 +340,8 @@ func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 	if page.Counts.Skipped != 1 {
 		t.Fatalf("skipped = %d, want 1", page.Counts.Skipped)
 	}
-	if page.Counts.SkippedByType["max_indicators"] != 1 {
-		t.Fatalf("skipped_by_type[max_indicators] = %d, want 1", page.Counts.SkippedByType["max_indicators"])
+	if page.Counts.SkippedByType.get("max_indicators") != 1 {
+		t.Fatalf("skipped_by_type[max_indicators] = %d, want 1", page.Counts.SkippedByType.get("max_indicators"))
 	}
 
 	encoded, err := json.Marshal(ctiPageEnvelope{ThreatIntel: page})
@@ -323,8 +390,8 @@ func TestCTIPageDetailsJSONEncodesPayloadWithoutSecrets(t *testing.T) {
 	if decoded.ThreatIntel.Counts.Indicators != 1 {
 		t.Fatalf("indicators = %d, want 1", decoded.ThreatIntel.Counts.Indicators)
 	}
-	if decoded.ThreatIntel.Counts.SkippedByType["domain"] != 1 {
-		t.Fatalf("skipped domain count = %d, want 1", decoded.ThreatIntel.Counts.SkippedByType["domain"])
+	if decoded.ThreatIntel.Counts.SkippedByType.get("domain") != 1 {
+		t.Fatalf("skipped domain count = %d, want 1", decoded.ThreatIntel.Counts.SkippedByType.get("domain"))
 	}
 	if decoded.ThreatIntel.Indicators[0].Label != `Quoted "Pulse"` {
 		t.Fatalf("label = %q", decoded.ThreatIntel.Indicators[0].Label)
@@ -359,6 +426,7 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 		"api_key": "resolved-secret",
 		"limit": 10,
 		"timeout_ms": 30000,
+		"max_pages": 5,
 		"max_indicators": 25
 	}`
 
@@ -373,7 +441,7 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 	if cfg.APIKey != "resolved-secret" {
 		t.Fatalf("api_key was not decoded from runtime secret field")
 	}
-	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxIndicators != 25 {
+	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxPages != 5 || cfg.MaxIndicators != 25 {
 		t.Fatalf("decoded numeric config = %+v", cfg)
 	}
 }
@@ -406,6 +474,10 @@ func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
 	bound := properties["max_indicators"].(map[string]any)
 	if got := int(bound["maximum"].(float64)); got != maxIndicators {
 		t.Fatalf("max_indicators maximum = %d, want %d", got, maxIndicators)
+	}
+	pages := properties["max_pages"].(map[string]any)
+	if got := int(pages["maximum"].(float64)); got != maxPages {
+		t.Fatalf("max_pages maximum = %d, want %d", got, maxPages)
 	}
 }
 

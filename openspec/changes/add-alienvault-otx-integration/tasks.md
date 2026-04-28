@@ -34,6 +34,7 @@
 - [x] 4.7 Route edge plugin CTI pages through core validation, normalization, and indicator upsert.
 - [x] 4.8 Add UI affordances to assign the collector plugin to reachable agents with secret-reference OTX credentials.
 - [x] 4.9 Display per-agent sync health for threat-intel collector assignments.
+- [ ] 4.10 Page through OTX export results from a single assigned edge collector with bounded page, timeout, and indicator budgets to avoid duplicate API pressure.
 
 ## 5. NetFlow Threat Matching
 - [x] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.

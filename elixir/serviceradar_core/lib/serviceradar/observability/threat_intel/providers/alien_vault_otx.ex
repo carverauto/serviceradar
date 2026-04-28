@@ -15,7 +15,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
   @provider "alienvault_otx"
   @collection_id "otx:pulses:subscribed"
   @default_base_url "https://otx.alienvault.com"
-  @default_limit 10
+  @default_limit 100
   @default_page 1
   @default_timeout_ms 60_000
   @default_max_indicators 2_000
