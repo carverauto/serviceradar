@@ -1,7 +1,64 @@
 ## ADDED Requirements
 
+### Requirement: TAXII/STIX-Shaped Provider Boundary
+The system SHALL model threat-intel ingestion around TAXII 2.1 collection/object semantics and STIX 2.1 indicator normalization so AlienVault OTX is not hard-coded as the only provider shape.
+
+#### Scenario: Provider returns paged collection objects
+- **GIVEN** a threat-intel provider supports incremental collection retrieval
+- **WHEN** the sync worker requests a page with a cursor, limit, or high-water mark
+- **THEN** the provider SHALL return objects with collection identity, object identity, object type, version or modified metadata when available, raw payload reference, and next-page state
+- **AND** the sync worker SHALL persist the next-page or high-water state without depending on provider-specific field names
+
+#### Scenario: STIX indicator normalizes to NetFlow CIDR indicator
+- **GIVEN** a provider object is a STIX 2.1 Indicator with an IPv4, IPv6, or CIDR observable pattern
+- **WHEN** the normalizer processes the object
+- **THEN** it SHALL create or update a `platform.threat_intel_indicators` row compatible with existing NetFlow CIDR matching
+- **AND** it SHALL preserve source object metadata needed to explain the match where configured
+
+#### Scenario: Non-STIX provider adapts to the same boundary
+- **GIVEN** AlienVault OTX returns DirectConnect pulse JSON rather than a TAXII envelope
+- **WHEN** the OTX adapter processes the response
+- **THEN** it SHALL map OTX pulses and indicators into the same internal collection/object/indicator model used by TAXII providers
+
+#### Scenario: SIEM provider adapts to the same boundary
+- **GIVEN** a customer-local SIEM API exposes indicators or sightings in a vendor-specific schema
+- **WHEN** a provider adapter processes the SIEM response
+- **THEN** it SHALL map supported indicators into the same internal collection/object/indicator model used by TAXII providers
+- **AND** it SHALL preserve source system and query context needed to explain the imported intelligence
+
+### Requirement: Edge Wasm Threat-Intel Collectors
+The system SHALL support threat-intel collectors running as signed Wasm plugins on assigned agents so ServiceRadar can ingest feeds and SIEM intelligence from networks that are only reachable at the edge.
+
+#### Scenario: Collector uses supported ServiceRadar SDK
+- **GIVEN** a first-party threat-intel collector is implemented with `serviceradar-sdk-go` or `serviceradar-sdk-rust`
+- **WHEN** the collector is built as a Wasm plugin
+- **THEN** it SHALL use the ServiceRadar host ABI for config loading, logging, network calls, and result submission
+- **AND** it SHALL emit the same CTI page contract regardless of SDK language
+- **AND** core ingestion SHALL NOT depend on whether the plugin was authored in Go or Rust
+
+#### Scenario: Edge collector fetches provider page
+- **GIVEN** a threat-intel collector plugin is assigned to an agent
+- **AND** the plugin package is approved with HTTP/TCP/UDP capabilities and allowlists for the target provider
+- **WHEN** the plugin runs on schedule
+- **THEN** the agent SHALL enforce the approved resource limits and network allowlists
+- **AND** the plugin SHALL emit a bounded CTI page containing provider identity, collection identity, object metadata, normalized indicators, skipped counts, and cursor or high-water hints
+
+#### Scenario: Core ingests edge collector page
+- **GIVEN** an agent submits a CTI page from a threat-intel collector plugin
+- **WHEN** core receives the plugin result
+- **THEN** core SHALL validate the CTI payload schema
+- **AND** core SHALL upsert supported IP/CIDR indicators into `platform.threat_intel_indicators`
+- **AND** core SHALL record source metadata and provider sync status without requiring the core service to contact the external provider directly
+
+#### Scenario: Edge collector egress is denied
+- **GIVEN** a collector plugin attempts to call a provider endpoint outside its approved allowlist
+- **WHEN** the plugin requests the network call through the host
+- **THEN** the agent SHALL deny the call
+- **AND** the plugin run SHALL report a redacted failure status
+- **AND** no provider secret SHALL be logged or returned in UI payloads
+
 ### Requirement: AlienVault OTX Settings
-The system SHALL provide deployment-scoped AlienVault OTX settings that allow an authorized operator to enable OTX ingestion, configure the OTX base URL, configure sync cadence, configure retrohunt window length, configure raw payload archival, and store an OTX API key encrypted at rest.
+The system SHALL provide deployment-scoped AlienVault OTX settings that allow an authorized operator to enable OTX ingestion, configure execution mode, configure the OTX base URL, configure edge plugin assignment or core worker execution, configure sync cadence, configure current NetFlow match lookback, configure retrohunt window length, configure raw payload archival, and store an OTX API key or secret reference encrypted at rest.
 
 #### Scenario: Operator saves OTX API key
 - **GIVEN** an operator has permission to manage threat intelligence settings
@@ -17,21 +74,35 @@ The system SHALL provide deployment-scoped AlienVault OTX settings that allow an
 - **AND** no settings data SHALL be returned to the user
 
 ### Requirement: OTX Subscribed Pulse Synchronization
-The system SHALL synchronize subscribed AlienVault OTX pulses and indicators using the configured API key and SHALL persist normalized pulse and indicator records in CNPG.
+The system SHALL synchronize subscribed AlienVault OTX pulses and indicators using the configured API key and SHALL persist supported NetFlow-matchable indicators in the existing CNPG threat-intel indicator table.
 
 #### Scenario: Initial sync imports subscribed pulses
 - **GIVEN** OTX ingestion is enabled
 - **AND** a valid OTX API key is configured
 - **WHEN** the OTX sync job runs for the first time
 - **THEN** the system SHALL fetch subscribed OTX pulses
-- **AND** the system SHALL store pulse metadata and indicators in normalized platform tables
+- **AND** the system SHALL store IPv4, IPv6, and CIDR indicators in `platform.threat_intel_indicators` with source `alienvault_otx`
 - **AND** the system SHALL record sync counts and completion status
+
+#### Scenario: Edge OTX sync imports subscribed pulses
+- **GIVEN** OTX ingestion is enabled in edge plugin mode
+- **AND** a valid OTX API key or secret reference is available to the assigned collector
+- **WHEN** the assigned agent runs the OTX collector plugin
+- **THEN** the plugin SHALL fetch subscribed OTX pulses through the agent host network bridge
+- **AND** core SHALL persist supported IPv4, IPv6, and CIDR indicators in `platform.threat_intel_indicators` with source `alienvault_otx`
+- **AND** core SHALL record sync counts and completion status for the provider and agent assignment
 
 #### Scenario: Incremental sync uses high-water mark
 - **GIVEN** a previous OTX sync completed successfully
 - **WHEN** the next scheduled sync runs
 - **THEN** the system SHALL request only pulses modified since the previous high-water mark when supported by the API
 - **AND** unchanged normalized indicators SHALL NOT create duplicate records
+
+#### Scenario: Unsupported OTX indicator types are counted
+- **GIVEN** an OTX pulse contains URL, domain, hostname, or file hash indicators
+- **WHEN** the OTX sync job imports the pulse
+- **THEN** the system SHALL record skipped or deferred counts for those indicator types
+- **AND** the unsupported indicators SHALL NOT break IP/CIDR import
 
 #### Scenario: OTX API failure is recorded
 - **GIVEN** OTX ingestion is enabled
@@ -57,8 +128,31 @@ The system SHALL optionally archive raw OTX API payloads for audit and replay wi
 - **THEN** the system SHALL continue storing normalized CNPG records
 - **AND** the sync run SHALL record that raw archival was skipped or failed
 
-### Requirement: Retroactive Threat Hunting
-The system SHALL run retroactive hunts for newly imported or reactivated OTX indicators against retained NetFlow and DNS history over a configurable window that defaults to 90 days.
+### Requirement: Current NetFlow Threat Matching
+The system SHALL match active OTX IP/CIDR indicators against current or recent NetFlow data through the existing NetFlow security refresh and IP threat-intel cache path.
+
+#### Scenario: IP indicator matches recent NetFlow
+- **GIVEN** an imported active OTX IPv4 or IPv6 indicator
+- **AND** recent NetFlow data contains traffic involving that IP during the configured current match lookback
+- **WHEN** the NetFlow matching worker runs
+- **THEN** the system SHALL update the per-IP threat-intel cache for the observed IP
+- **AND** the cache entry SHALL include match count, max severity, source `alienvault_otx`, lookup time, and expiration
+
+#### Scenario: NetFlow view shows OTX context
+- **GIVEN** OTX NetFlow findings exist for traffic visible in a NetFlow analysis view
+- **WHEN** an authorized operator opens that NetFlow view
+- **THEN** the UI SHALL surface OTX hit counts or markers
+- **AND** the operator SHALL be able to inspect source `alienvault_otx`, match count, max severity, and pulse context when available
+
+#### Scenario: Current matching is disabled
+- **GIVEN** OTX ingestion is enabled
+- **AND** current NetFlow matching is disabled
+- **WHEN** the OTX sync job imports indicators
+- **THEN** the system SHALL store the indicators
+- **AND** the system SHALL NOT enqueue current NetFlow match work
+
+### Requirement: Optional Retroactive Threat Hunting
+The system SHALL support optional retroactive hunts for imported or reactivated OTX indicators against retained NetFlow and DNS history over a configurable window that defaults to 90 days.
 
 #### Scenario: IP indicator matches historical NetFlow
 - **GIVEN** an imported OTX IPv4 or IPv6 indicator
@@ -81,12 +175,19 @@ The system SHALL run retroactive hunts for newly imported or reactivated OTX ind
 - **AND** the system SHALL mark it as not retrohunt-supported rather than failing the run
 
 ### Requirement: OTX Job Scheduling And Manual Runs
-The system SHALL schedule OTX sync and retrohunt work through Oban with uniqueness constraints and SHALL provide authorized manual run controls.
+The system SHALL schedule OTX sync, edge collector runs, current NetFlow matching, and optional retrohunt work with uniqueness/bounds appropriate to the execution mode and SHALL provide authorized manual run controls.
 
 #### Scenario: Scheduled sync enqueues once
 - **GIVEN** OTX ingestion is enabled
 - **WHEN** the scheduled sync interval elapses on a multi-node deployment
 - **THEN** exactly one OTX sync job SHALL be enqueued for the interval
+
+#### Scenario: Scheduled edge collector assignment runs once per interval
+- **GIVEN** OTX ingestion is enabled in edge plugin mode
+- **AND** an OTX collector plugin assignment exists for a reachable agent
+- **WHEN** the scheduled sync interval elapses
+- **THEN** the system SHALL schedule bounded plugin execution for that assignment
+- **AND** duplicate concurrent runs for the same provider/assignment interval SHALL be prevented
 
 #### Scenario: Operator triggers manual sync
 - **GIVEN** an operator has permission to manage threat intelligence settings
@@ -94,15 +195,22 @@ The system SHALL schedule OTX sync and retrohunt work through Oban with uniquene
 - **THEN** the system SHALL enqueue an OTX sync job
 - **AND** the UI SHALL show whether the job was enqueued or the scheduler is unavailable
 
+#### Scenario: Operator triggers current NetFlow matching
+- **GIVEN** active OTX indicators are available
+- **AND** an operator has permission to manage threat intelligence settings
+- **WHEN** the operator selects "Match recent NetFlow now"
+- **THEN** the system SHALL enqueue current NetFlow match work
+- **AND** the UI SHALL show whether the job was enqueued or the scheduler is unavailable
+
 ### Requirement: OTX Findings Visibility
-The system SHALL provide operator visibility into OTX sync health, imported indicator inventory, and retroactive findings.
+The system SHALL provide operator visibility into OTX sync health, imported indicator inventory, current NetFlow findings, and retroactive findings.
 
 #### Scenario: Operator views OTX status
 - **GIVEN** OTX ingestion has run at least once
 - **WHEN** an authorized operator opens the OTX settings or threat intelligence page
-- **THEN** the UI SHALL show last attempt time, last success time, imported pulse count, imported indicator count, latest error summary, and active job status where available
+- **THEN** the UI SHALL show execution mode, assigned agent/plugin health where applicable, last attempt time, last success time, imported pulse count, imported indicator count, current NetFlow finding count, latest error summary, and active job status where available
 
-#### Scenario: Operator reviews historical finding
-- **GIVEN** a retrohunt finding exists
+#### Scenario: Operator reviews NetFlow finding
+- **GIVEN** an OTX NetFlow finding exists
 - **WHEN** an authorized operator opens the findings view
-- **THEN** the UI SHALL show the indicator value, indicator type, pulse context, observed host or entity, observed time window, source telemetry kind, and evidence count
+- **THEN** the UI SHALL show the indicator value, indicator type, pulse context, observed host or entity, first observed time, last observed time, source telemetry kind, and evidence count

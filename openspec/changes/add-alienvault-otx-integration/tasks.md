@@ -1,45 +1,73 @@
 ## 1. Proposal
-- [ ] 1.1 Review existing settings, Oban, NetFlow, and DNS query patterns.
-- [ ] 1.2 Draft OpenSpec proposal, design, tasks, and spec deltas.
-- [ ] 1.3 Validate the change with `openspec validate add-alienvault-otx-integration --strict`.
+- [x] 1.1 Review existing settings, Oban, NetFlow, and DNS query patterns.
+- [x] 1.2 Draft OpenSpec proposal, design, tasks, and spec deltas.
+- [x] 1.3 Validate the change with `openspec validate add-alienvault-otx-integration --strict`.
 - [ ] 1.4 Get proposal approval before implementation.
 
 ## 2. Data Model
-- [ ] 2.1 Add platform-schema migrations for OTX settings, sync runs, pulses, indicators, retrohunt runs, and findings.
-- [ ] 2.2 Add Ash resources/actions/policies for the new tables.
-- [ ] 2.3 Add encrypted API key handling with "present" calculations and clear/update actions.
-- [ ] 2.4 Add indexes for indicator type/value, pulse modified time, active/expiration state, and finding lookup.
+- [ ] 2.1 Extend existing NetFlow threat-intel settings with OTX enabled/base URL/API key/sync status fields, or add a narrowly scoped companion singleton if that is cleaner.
+- [ ] 2.2 Reuse `platform.threat_intel_indicators` for OTX IPv4/IPv6/CIDR indicators with source `alienvault_otx`.
+- [ ] 2.3 Add provider/source object metadata storage for TAXII/STIX object ids, versions, collection ids, raw object keys, and OTX pulse metadata if needed for richer hit explanation.
+- [ ] 2.4 Add encrypted OTX API key handling with "present" calculations and clear/update actions.
+- [ ] 2.5 Add indexes or constraints for any new provider metadata/sync tables.
+- [ ] 2.6 Track provider execution mode (`edge_plugin` or `core_worker`), plugin assignment identity, cursor/high-water state, and sync status.
 
-## 3. OTX Client And Sync
-- [ ] 3.1 Implement a project-owned OTX client using `Req`.
-- [ ] 3.2 Support `X-OTX-API-KEY`, configurable base URL, timeouts, retry/backoff for 429/5xx, pagination, and `modified_since`.
-- [ ] 3.3 Normalize pulse and indicator payloads into Ash resources.
-- [ ] 3.4 Record sync lifecycle status, counts, and redacted errors.
-- [ ] 3.5 Archive raw payload snapshots to NATS Object Store when enabled.
+## 3. TAXII/STIX Provider Boundary And OTX Sync
+- [ ] 3.1 Define a project-owned threat-intel provider behaviour modeled after TAXII 2.1 collections, object pages, `added_after`, `limit`, `next`, and object metadata.
+- [ ] 3.2 Implement STIX 2.1 Indicator normalization for supported IP/CIDR patterns.
+- [ ] 3.3 Implement a project-owned OTX client using `Req`.
+- [ ] 3.4 Support `X-OTX-API-KEY`, configurable base URL, timeouts, retry/backoff for 429/5xx, pagination, and `modified_since`.
+- [ ] 3.5 Extend `ThreatIntelFeedRefreshWorker` or add a sibling worker to fetch `/api/v1/pulses/subscribed` through the provider boundary.
+- [ ] 3.6 Normalize OTX IPv4/IPv6/CIDR indicators into `ThreatIntelIndicator` rows.
+- [ ] 3.7 Record skipped counts for unsupported OTX types such as URL, domain, hostname, and file hash until matching sources are implemented.
+- [ ] 3.8 Record sync lifecycle status, counts, and redacted errors.
+- [ ] 3.9 Archive raw payload snapshots to NATS Object Store when enabled.
+- [ ] 3.10 Optionally implement a generic TAXII 2.1 collection provider if approved for this slice.
 
-## 4. Retroactive Hunting
-- [ ] 4.1 Implement an Oban worker that batches newly imported indicators.
-- [ ] 4.2 Query the configured historical window for IP indicators against NetFlow source/destination data.
-- [ ] 4.3 Query domain/hostname indicators against the canonical DNS aggregate data.
-- [ ] 4.4 Store deduplicated retrohunt findings with enough evidence to explain the match.
-- [ ] 4.5 Make unsupported indicator types visible as imported but not retrohunt matched.
+## 4. Edge Wasm Collector
+- [ ] 4.1 Define the CTI plugin output contract as either a typed enrichment block inside `serviceradar.plugin_result.v1` or a new `serviceradar.threat_intel_page.v1` output.
+- [ ] 4.2 Extend plugin manifest validation and ingestion if a dedicated CTI output type is selected.
+- [ ] 4.3 Evaluate `serviceradar-sdk-go` and `serviceradar-sdk-rust` for STIX/TAXII parsing ergonomics, Wasm build size, dependency risk, and host ABI coverage.
+- [ ] 4.4 Build a first-party AlienVault OTX/TAXII collector plugin using the selected SDK.
+- [ ] 4.5 Add plugin config schema fields for provider URL, auth secret reference, collection ids, poll interval, page size, lookback/high-water options, and source labels.
+- [ ] 4.6 Ensure the plugin uses only approved host capabilities and allowlists for HTTP/TCP/UDP access to OTX, TAXII, and customer SIEM endpoints.
+- [ ] 4.7 Route edge plugin CTI pages through core validation, normalization, indicator upsert, source metadata persistence, and sync status updates.
+- [ ] 4.8 Add UI affordances to assign the collector plugin to reachable agents and display per-agent sync health.
 
-## 5. Settings And Visibility UI
-- [ ] 5.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
-- [ ] 5.2 Add an encrypted API key form that never echoes the saved key.
-- [ ] 5.3 Add toggles and numeric controls for sync interval, retrohunt window, raw archival, and enabled state.
-- [ ] 5.4 Add status panels for last sync, indicator counts, latest errors, and manual "Sync now" / "Retrohunt now" actions.
-- [ ] 5.5 Add an operator findings view or panel for historical matches.
+## 5. NetFlow Threat Matching
+- [ ] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
+- [ ] 5.2 Make the current/recent NetFlow match lookback configurable instead of hard-coded where needed.
+- [ ] 5.3 Ensure OTX/source names and max severity appear in `IpThreatIntelCache` results.
+- [ ] 5.4 Surface OTX/TAXII/SIEM hit counts and source context in NetFlow analysis views.
+- [ ] 5.5 Make unsupported indicator types visible in sync status as imported/skipped but not NetFlow-match supported.
 
-## 6. Scheduling And Operations
-- [ ] 6.1 Register the OTX sync job with Oban cron and uniqueness settings.
-- [ ] 6.2 Use safe enqueue behavior when Oban is unavailable.
-- [ ] 6.3 Emit logs/telemetry for sync and retrohunt lifecycle without leaking secrets.
-- [ ] 6.4 Document deployment secret/env var options and API key rotation expectations.
+## 6. Optional Retroactive Hunting
+- [ ] 6.1 Implement an operator-triggered retrohunt worker for historical backfill.
+- [ ] 6.2 Query the configured historical window for IP indicators against NetFlow source/destination data.
+- [ ] 6.3 Query domain/hostname indicators against the canonical DNS aggregate data where available.
+- [ ] 6.4 Store deduplicated retrohunt findings with enough evidence to explain the match.
+- [ ] 6.5 Keep retrohunt disabled or manual by default unless settings explicitly enable scheduled backfill.
 
-## 7. Validation
-- [ ] 7.1 Add unit tests for OTX client pagination, auth header use, and error handling.
-- [ ] 7.2 Add Ash resource tests for encrypted key updates and redacted reads.
-- [ ] 7.3 Add worker tests for import idempotency and retrohunt deduplication.
-- [ ] 7.4 Add LiveView tests for RBAC, save/clear key behavior, and manual job enqueue.
-- [ ] 7.5 Run `MIX_ENV=test mix compile --warnings-as-errors`, focused tests, and `mix precommit` where applicable.
+## 7. Settings And Visibility UI
+- [ ] 7.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
+- [ ] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
+- [ ] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
+- [ ] 7.4 Add status panels for last sync, indicator counts, latest errors, current NetFlow findings, edge agent/plugin health, and manual "Sync now" / "Retrohunt now" actions.
+- [ ] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
+
+## 8. Scheduling And Operations
+- [ ] 8.1 Register core-hosted OTX sync jobs with Oban cron and uniqueness settings.
+- [ ] 8.2 Register edge plugin schedules through plugin assignments/target policies.
+- [ ] 8.3 Register current/recent NetFlow matching work with uniqueness and bounded batch sizes.
+- [ ] 8.4 Use safe enqueue behavior when Oban or plugin scheduling is unavailable.
+- [ ] 8.5 Emit logs/telemetry for sync, NetFlow matching, edge plugin runs, and retrohunt lifecycle without leaking secrets.
+- [ ] 8.6 Document deployment secret/env var options, plugin secret references, egress allowlist review, and API key rotation expectations.
+
+## 9. Validation
+- [ ] 9.1 Add unit tests for TAXII/STIX page normalization and STIX Indicator pattern extraction.
+- [ ] 9.2 Add unit tests for OTX client pagination, auth header use, and error handling.
+- [ ] 9.3 Add plugin contract tests for bounded CTI page payloads, config decoding, secret redaction, and allowlist failures.
+- [ ] 9.4 Add Ash resource tests for encrypted key updates and redacted reads.
+- [ ] 9.5 Add worker/ingestor tests for OTX import idempotency, unsupported type counts, NetFlow cache matching, and retrohunt deduplication.
+- [ ] 9.6 Add LiveView tests for RBAC, save/clear key behavior, findings visibility, plugin assignment controls, and manual job enqueue.
+- [ ] 9.7 Run `MIX_ENV=test mix compile --warnings-as-errors`, focused tests, plugin build/tests, and `mix precommit` where applicable.
