@@ -104,11 +104,16 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           interference_raster: interference_raster
         )
 
-      if wifi_raster_source == :persisted and interference_raster_source == :persisted do
-        {:ok, review}
-      else
-        {:ok, maybe_persist_coverage_rasters(scope, review)}
-      end
+      display_base_review =
+        if wifi_raster_source == :persisted and interference_raster_source == :persisted do
+          review
+        else
+          maybe_persist_coverage_rasters(scope, review)
+        end
+
+      display_review = orient_review_projection(display_base_review)
+
+      {:ok, display_review}
     end
   end
 
@@ -139,7 +144,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         )
 
       case persist_coverage_rasters(scope, review) do
-        {:ok, _count} -> {:ok, review}
+        {:ok, _count} -> {:ok, orient_review_projection(review)}
         {:error, reason} -> {:error, reason}
       end
     end
@@ -1555,6 +1560,170 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp valid_polygon_point?(_point), do: false
 
   defp distance_2d(x1, z1, x2, z2), do: :math.sqrt(:math.pow(x1 - x2, 2) + :math.pow(z1 - z2, 2))
+
+  defp orient_review_projection(review) do
+    angle = review_orientation_angle(review)
+
+    {oriented, bounds} =
+      review
+      |> rotated_review_projection(angle)
+      |> maybe_landscape_review_projection(review, angle)
+
+    project_oriented_review(oriented, bounds)
+  end
+
+  defp maybe_landscape_review_projection(
+         {oriented, %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z}},
+         review,
+         angle
+       ) do
+    if max_x - min_x < max_z - min_z do
+      rotated_review_projection(review, angle + :math.pi() / 2.0)
+    else
+      {oriented, %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z}}
+    end
+  end
+
+  defp rotated_review_projection(review, angle) do
+    oriented = rotate_review(review, angle)
+
+    bounds =
+      bounds_for(
+        oriented.wifi_points,
+        oriented.wifi_raster,
+        oriented.interference_points,
+        oriented.interference_raster,
+        oriented.path_points,
+        oriented.floorplan_segments,
+        oriented.ap_summaries
+      )
+
+    {oriented, bounds}
+  end
+
+  defp project_oriented_review(review, bounds) do
+    %{
+      review
+      | bounds: bounds,
+        wifi_points: project_points(review.wifi_points, bounds),
+        wifi_raster: project_raster_cells(review.wifi_raster, bounds),
+        interference_points: project_points(review.interference_points, bounds),
+        interference_raster: project_raster_cells(review.interference_raster, bounds),
+        path_points: project_points(review.path_points, bounds),
+        floorplan_segments: project_floorplan_segments(review.floorplan_segments, bounds),
+        ap_summaries: project_ap_summaries(review.ap_summaries, bounds)
+    }
+  end
+
+  defp rotate_review(review, angle) do
+    %{
+      review
+      | wifi_points: Enum.map(review.wifi_points, &rotate_review_point(&1, angle)),
+        wifi_raster: Enum.map(review.wifi_raster, &rotate_review_point(&1, angle)),
+        interference_points: Enum.map(review.interference_points, &rotate_review_point(&1, angle)),
+        interference_raster: Enum.map(review.interference_raster, &rotate_review_point(&1, angle)),
+        path_points: Enum.map(review.path_points, &rotate_review_point(&1, angle)),
+        floorplan_segments: Enum.map(review.floorplan_segments, &rotate_review_segment(&1, angle)),
+        ap_summaries: Enum.map(review.ap_summaries, &rotate_review_ap(&1, angle))
+    }
+  end
+
+  defp review_orientation_angle(%{floorplan_segments: [_ | _] = segments}) do
+    primary_segments =
+      case Enum.filter(segments, &(&1.kind == "wall")) do
+        [] -> segments
+        walls -> walls
+      end
+
+    primary_segments
+    |> Enum.max_by(&review_segment_length/1, fn -> nil end)
+    |> case do
+      %{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z} ->
+        :math.atan2(end_z - start_z, end_x - start_x)
+
+      _ ->
+        0.0
+    end
+    |> normalize_review_angle()
+  end
+
+  defp review_orientation_angle(review) do
+    points =
+      (review.wifi_raster || []) ++
+        (review.wifi_points || []) ++
+        (review.path_points || [])
+
+    case Enum.filter(points, &(number?(Map.get(&1, :x)) and number?(Map.get(&1, :z)))) do
+      [_ | _] = positioned -> positioned_review_axis(positioned)
+      [] -> 0.0
+    end
+  end
+
+  defp positioned_review_axis(points) do
+    count = length(points)
+    mean_x = points |> Enum.map(& &1.x) |> Enum.sum() |> Kernel./(count)
+    mean_z = points |> Enum.map(& &1.z) |> Enum.sum() |> Kernel./(count)
+
+    {cov_xx, cov_zz, cov_xz} =
+      Enum.reduce(points, {0.0, 0.0, 0.0}, fn point, {xx, zz, xz} ->
+        dx = point.x - mean_x
+        dz = point.z - mean_z
+        {xx + dx * dx, zz + dz * dz, xz + dx * dz}
+      end)
+
+    normalize_review_angle(0.5 * :math.atan2(2.0 * cov_xz, cov_xx - cov_zz))
+  end
+
+  defp normalize_review_angle(angle) do
+    cond do
+      angle > :math.pi() / 2.0 -> angle - :math.pi()
+      angle < -:math.pi() / 2.0 -> angle + :math.pi()
+      true -> angle
+    end
+  end
+
+  defp rotate_review_point(%{x: x, z: z} = point, angle) when is_number(x) and is_number(z) do
+    cos = :math.cos(-angle)
+    sin = :math.sin(-angle)
+
+    point
+    |> Map.put(:x, x * cos - z * sin)
+    |> Map.put(:z, x * sin + z * cos)
+  end
+
+  defp rotate_review_point(point, _angle), do: point
+
+  defp rotate_review_ap(ap, angle) do
+    rotated = rotate_review_point(ap, angle)
+
+    rotated
+    |> rotate_nested_review_point(:strongest_observation, angle)
+    |> Map.update(:supporting_observations, [], fn observations ->
+      Enum.map(observations || [], &rotate_review_point(&1, angle))
+    end)
+  end
+
+  defp rotate_nested_review_point(ap, key, angle) do
+    Map.update(ap, key, nil, fn
+      value when is_map(value) -> rotate_review_point(value, angle)
+      value -> value
+    end)
+  end
+
+  defp rotate_review_segment(segment, angle) do
+    start = rotate_review_point(%{x: segment.start_x, z: segment.start_z}, angle)
+    finish = rotate_review_point(%{x: segment.end_x, z: segment.end_z}, angle)
+
+    segment
+    |> Map.put(:start_x, start.x)
+    |> Map.put(:start_z, start.z)
+    |> Map.put(:end_x, finish.x)
+    |> Map.put(:end_z, finish.z)
+  end
+
+  defp review_segment_length(%{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z}) do
+    distance_2d(start_x, start_z, end_x, end_z)
+  end
 
   defp bounds_for(
          wifi_points,
