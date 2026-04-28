@@ -78,6 +78,7 @@
 - [x] 7.23 Rectify near-orthogonal RoomPlan floorplan linework so walls that clearly should be square render as clean right angles without destroying intentionally angled geometry.
 - [x] 7.24 Bring FieldSurvey Review map styling in line with the dashboard heatmap: continuous blurred coverage layer, stronger floorplan linework, and cleaner AP/path overlays.
 - [x] 7.25 Normalize FieldSurvey Review map orientation with the same longest-wall/landscape projection used by the dashboard while keeping persisted raster coordinates raw.
+- [x] 7.26 Preserve FieldSurvey Review map aspect ratio and move signal/channel details below the map so wide floorplans are not squeezed by the side panel.
 
 ## 9. Survey Organization and Site/Floor Model
 - [ ] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.

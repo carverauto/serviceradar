@@ -2629,9 +2629,14 @@
   color: #e2e8f0;
 }
 
+.sr-fieldsurvey-review-map-stack {
+  display: grid;
+  gap: 0;
+}
+
 .sr-fieldsurvey-review-map-shell {
   position: relative;
-  min-height: 34rem;
+  min-height: 24rem;
   overflow: hidden;
   background: rgba(15, 23, 42, 0.42);
 }
@@ -2719,6 +2724,18 @@
     0 0.45rem 1rem rgba(2, 8, 23, 0.34);
 }
 
+.sr-fieldsurvey-review-map-details {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  gap: 1rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.72);
+  padding: 1rem;
+}
+
+.sr-fieldsurvey-review-map-details .divider {
+  display: none;
+}
+
 @media (max-width: 1180px) {
   .sr-ops-kpi-grid,
   .sr-ops-grid-primary,
@@ -2736,6 +2753,12 @@
 
   .sr-ops-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .sr-fieldsurvey-review-map-details {
+    grid-template-columns: 1fr;
   }
 }
 
