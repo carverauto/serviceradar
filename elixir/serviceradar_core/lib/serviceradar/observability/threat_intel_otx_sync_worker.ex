@@ -45,6 +45,7 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
+    started_at = System.monotonic_time()
     config = provider_config()
     provider = Keyword.get(config, :provider, @default_provider)
     cursor = Map.get(args || %{}, "cursor", %{})
@@ -62,10 +63,38 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
           observed_at: observed_at
         )
 
+        emit_sync_event(:stop, started_at, %{
+          provider: page.provider,
+          source: page.source,
+          collection_id: page.collection_id || "",
+          status: "ok",
+          objects_count: count(page, "objects"),
+          indicators_count: count(page, "indicators"),
+          skipped_count: count(page, "skipped")
+        })
+
+        Logger.info("AlienVault OTX sync completed",
+          source: page.source,
+          collection_id: page.collection_id,
+          objects_count: count(page, "objects"),
+          indicators_count: count(page, "indicators"),
+          skipped_count: count(page, "skipped")
+        )
+
         :ok
 
       {:error, reason} ->
-        Logger.warning("AlienVault OTX sync failed", reason: format_reason(reason))
+        formatted_reason = format_reason(reason)
+
+        emit_sync_event(:exception, started_at, %{
+          provider: "alienvault_otx",
+          source: "alienvault_otx",
+          collection_id: "otx:pulses:subscribed",
+          status: "error",
+          error: error_kind(reason)
+        })
+
+        Logger.warning("AlienVault OTX sync failed", reason: formatted_reason)
         {:error, reason}
     end
   end
@@ -101,4 +130,17 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
+
+  defp error_kind(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_kind({kind, _detail}) when is_atom(kind), do: Atom.to_string(kind)
+  defp error_kind(%module{}), do: inspect(module)
+  defp error_kind(_reason), do: "error"
+
+  defp emit_sync_event(kind, started_at, metadata) do
+    :telemetry.execute(
+      [:serviceradar, :threat_intel, :otx_sync, kind],
+      %{duration: System.monotonic_time() - started_at},
+      metadata
+    )
+  end
 end

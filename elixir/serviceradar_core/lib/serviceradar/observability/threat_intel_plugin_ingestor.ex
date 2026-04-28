@@ -62,34 +62,55 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   @spec ingest_page(Page.t(), map(), map(), keyword()) :: :ok
   def ingest_page(%Page{} = page, payload, status, opts \\ [])
       when is_map(payload) and is_map(status) do
-    actor = Keyword.fetch!(opts, :actor)
-    observed_at = Keyword.get(opts, :observed_at) || DateTime.utc_now()
+    started_at = System.monotonic_time()
 
-    do_ingest_page(page, payload, status, actor, observed_at)
-  rescue
-    e ->
-      Logger.warning("Threat-intel page ingest failed: #{Exception.message(e)}")
-      :ok
+    try do
+      actor = Keyword.fetch!(opts, :actor)
+      observed_at = Keyword.get(opts, :observed_at) || DateTime.utc_now()
+
+      do_ingest_page(page, payload, status, actor, observed_at, started_at)
+    rescue
+      e ->
+        emit_ingest_event(:exception, started_at, %{
+          provider: page.provider,
+          source: page.source,
+          collection_id: page.collection_id || "",
+          error: exception_kind(e)
+        })
+
+        Logger.warning("Threat-intel page ingest failed: #{Exception.message(e)}")
+        :ok
+    end
   end
 
   defp do_ingest(page, payload, status, actor, observed_at) do
     page
     |> Page.from_map(status)
-    |> do_ingest_page(payload, status, actor, observed_at)
+    |> do_ingest_page(payload, status, actor, observed_at, System.monotonic_time())
   end
 
-  defp do_ingest_page(%Page{} = page, payload, status, actor, observed_at) do
-    page
-    |> Page.sync_status_attrs(status, payload, observed_at)
-    |> upsert_sync_status(actor)
+  defp do_ingest_page(%Page{} = page, payload, status, actor, observed_at, started_at) do
+    sync_status_attrs = Page.sync_status_attrs(page, status, payload, observed_at)
 
-    page
-    |> Page.source_object_attrs(observed_at, max_objects: @max_indicators_per_page)
-    |> Enum.each(&upsert_source_object(&1, actor))
+    source_object_attrs =
+      Page.source_object_attrs(page, observed_at, max_objects: @max_indicators_per_page)
 
-    page
-    |> Page.indicator_attrs(observed_at, max_indicators: @max_indicators_per_page)
-    |> Enum.each(&upsert_indicator(&1, actor))
+    indicator_attrs =
+      Page.indicator_attrs(page, observed_at, max_indicators: @max_indicators_per_page)
+
+    upsert_sync_status(sync_status_attrs, actor)
+    Enum.each(source_object_attrs, &upsert_source_object(&1, actor))
+    Enum.each(indicator_attrs, &upsert_indicator(&1, actor))
+
+    emit_ingest_event(:stop, started_at, %{
+      provider: page.provider,
+      source: page.source,
+      collection_id: page.collection_id || "",
+      objects_count: length(page.objects),
+      source_objects_count: length(source_object_attrs),
+      indicators_count: length(indicator_attrs),
+      skipped_count: Map.get(page.counts || %{}, "skipped", 0)
+    })
 
     :ok
   end
@@ -182,4 +203,14 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   end
 
   defp fetch_value(_map, _keys), do: nil
+
+  defp exception_kind(%module{}), do: inspect(module)
+
+  defp emit_ingest_event(kind, started_at, metadata) do
+    :telemetry.execute(
+      [:serviceradar, :threat_intel, :ingest, kind],
+      %{duration: System.monotonic_time() - started_at},
+      metadata
+    )
+  end
 end

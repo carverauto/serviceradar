@@ -62,10 +62,10 @@
 
 ## 8. Scheduling And Operations
 - [x] 8.1 Register core-hosted OTX sync jobs with Oban uniqueness settings.
-- [ ] 8.2 Register edge plugin schedules through plugin assignments/target policies.
-- [ ] 8.3 Register current/recent NetFlow matching work with uniqueness and bounded batch sizes.
+- [x] 8.2 Register edge plugin schedules through plugin assignments/target policies.
+- [x] 8.3 Register current/recent NetFlow matching work with uniqueness and bounded batch sizes.
 - [x] 8.4 Use safe enqueue behavior when Oban or plugin scheduling is unavailable.
-- [ ] 8.5 Emit logs/telemetry for sync, NetFlow matching, edge plugin runs, and retrohunt lifecycle without leaking secrets.
+- [x] 8.5 Emit logs/telemetry for sync, NetFlow matching, edge plugin runs, and retrohunt lifecycle without leaking secrets.
 - [x] 8.6 Document deployment secret/env var options, plugin secret references, egress allowlist review, and API key rotation expectations.
 
 ## 9. Validation

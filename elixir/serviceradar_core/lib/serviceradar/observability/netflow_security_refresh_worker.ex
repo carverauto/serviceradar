@@ -115,6 +115,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          limit,
          threat_match_window_seconds
        ) do
+    started_at = System.monotonic_time()
     time_token = window_seconds_to_token(threat_match_window_seconds, fallback: "last_1h")
     ips = discover_candidate_ips(time_token, limit)
 
@@ -139,9 +140,38 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       _ = Ash.create(changeset, actor: actor)
     end)
 
+    matched_ip_count =
+      Enum.count(matches, fn {_ip, match_count, _max_severity, _sources} -> match_count > 0 end)
+
+    indicator_match_count =
+      Enum.reduce(matches, 0, fn {_ip, match_count, _max_severity, _sources}, acc ->
+        acc + match_count
+      end)
+
+    source_count =
+      matches
+      |> Enum.flat_map(fn {_ip, _match_count, _max_severity, sources} -> sources || [] end)
+      |> Enum.uniq()
+      |> length()
+
+    :telemetry.execute(
+      [:serviceradar, :netflow, :threat_intel, :match, :stop],
+      %{duration: System.monotonic_time() - started_at},
+      %{
+        candidate_ip_count: length(ips),
+        matched_ip_count: matched_ip_count,
+        indicator_match_count: indicator_match_count,
+        source_count: source_count,
+        window_seconds: threat_match_window_seconds,
+        time_token: time_token
+      }
+    )
+
     Logger.debug("Threat intel cache refreshed",
       enabled: settings.threat_intel_enabled,
-      ip_count: length(ips)
+      ip_count: length(ips),
+      matched_ip_count: matched_ip_count,
+      indicator_match_count: indicator_match_count
     )
   end
 
