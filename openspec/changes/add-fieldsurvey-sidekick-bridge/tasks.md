@@ -80,9 +80,11 @@
 - [x] 7.25 Normalize FieldSurvey Review map orientation with the same longest-wall/landscape projection used by the dashboard while keeping persisted raster coordinates raw.
 - [x] 7.26 Preserve FieldSurvey Review map aspect ratio and move signal/channel details below the map so wide floorplans are not squeezed by the side panel.
 - [x] 7.27 Remove the dashboard FieldSurvey card's fake side gutter so the compact heatmap uses the full card width with visible floorplan linework and a compact overlay legend.
+- [x] 7.28 Make dashboard AP candidate markers hoverable/focusable and link them to matching inventory device pages when a BSSID can be resolved through MAC identifiers.
 
 ## 9. Survey Organization and Site/Floor Model
 - [ ] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.
+- [x] 9.1a Add the initial `survey_session_metadata` table/resource/helper so session attribution has a real backend anchor before the upload and settings UI are wired.
 - [ ] 9.2 Add settings UI to define dashboard FieldSurvey groups from SRQL-backed filters, such as airport/site, terminal/building, floor, or tag combinations.
 - [ ] 9.3 Add floor selectors in FieldSurvey Review and dashboard cards so multi-floor surveys can be cycled without mixing AP/raster data from different floors.
 - [ ] 9.4 Add backend queries that summarize latest Wi-Fi/RF rasters by configured survey group instead of globally selecting one latest session.

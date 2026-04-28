@@ -1248,17 +1248,105 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         counts.sample_count,
         weighted.support_count,
         weighted.x,
-        weighted.z
+        weighted.z,
+        matched_device.uid AS device_uid,
+        COALESCE(matched_device.name, matched_device.hostname) AS device_name,
+        matched_device.vendor_name AS device_vendor,
+        matched_device.model AS device_model,
+        matched_device.match_kind AS device_match_kind
       FROM strongest
       JOIN counts ON counts.bssid = strongest.bssid
       JOIN weighted ON weighted.bssid = strongest.bssid
+      LEFT JOIN LATERAL (
+        WITH normalized AS (
+          SELECT UPPER(REGEXP_REPLACE(strongest.bssid, '[^0-9A-Fa-f]', '', 'g')) AS bssid_mac
+        ),
+        candidates AS (
+          SELECT
+            d.uid,
+            d.name,
+            d.hostname,
+            d.vendor_name,
+            d.model,
+            CASE
+              WHEN di.identifier_value = normalized.bssid_mac THEN 'identifier_exact'
+              ELSE 'identifier_radio_family'
+            END AS match_kind,
+            CASE WHEN di.identifier_value = normalized.bssid_mac THEN 0 ELSE 1 END AS match_rank
+          FROM normalized
+          JOIN platform.device_identifiers di
+            ON di.identifier_type = 'mac'
+           AND (
+             di.identifier_value = normalized.bssid_mac
+             OR (
+               LENGTH(di.identifier_value) >= 8
+               AND LENGTH(normalized.bssid_mac) >= 8
+               AND LEFT(di.identifier_value, 8) = LEFT(normalized.bssid_mac, 8)
+             )
+           )
+          JOIN platform.ocsf_devices d ON d.uid = di.device_id
+          WHERE normalized.bssid_mac <> ''
+            AND d.deleted_at IS NULL
+
+          UNION ALL
+
+          SELECT
+            d.uid,
+            d.name,
+            d.hostname,
+            d.vendor_name,
+            d.model,
+            CASE
+              WHEN UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
+                THEN 'device_mac_exact'
+              ELSE 'device_mac_radio_family'
+            END AS match_kind,
+            CASE
+              WHEN UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
+                THEN 0
+              ELSE 1
+            END AS match_rank
+          FROM normalized
+          JOIN platform.ocsf_devices d
+            ON (
+              UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
+              OR (
+                LENGTH(UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g'))) >= 8
+                AND LENGTH(normalized.bssid_mac) >= 8
+                AND LEFT(UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')), 8) =
+                  LEFT(normalized.bssid_mac, 8)
+              )
+            )
+          WHERE normalized.bssid_mac <> ''
+            AND d.deleted_at IS NULL
+        )
+        SELECT uid, name, hostname, vendor_name, model, match_kind
+        FROM candidates
+        ORDER BY match_rank, uid
+        LIMIT 1
+      ) matched_device ON TRUE
       ORDER BY counts.sample_count DESC, strongest.strongest_rssi DESC
       LIMIT 12
       """
 
       case Repo.query(sql, [session_id]) do
         {:ok, %{rows: rows}} ->
-          Enum.map(rows, fn [bssid, ssid, strongest_rssi, channel, frequency_mhz, sample_count, support_count, x, z] ->
+          Enum.map(rows, fn [
+                              bssid,
+                              ssid,
+                              strongest_rssi,
+                              channel,
+                              frequency_mhz,
+                              sample_count,
+                              support_count,
+                              x,
+                              z,
+                              device_uid,
+                              device_name,
+                              device_vendor,
+                              device_model,
+                              device_match_kind
+                            ] ->
             %{
               bssid: bssid,
               ssid: ssid || "Hidden",
@@ -1267,6 +1355,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
               frequency_mhz: to_int(frequency_mhz),
               sample_count: to_int(sample_count),
               support_count: to_int(support_count),
+              device_uid: device_uid,
+              device_name: device_name,
+              device_vendor: device_vendor,
+              device_model: device_model,
+              device_match_kind: device_match_kind,
               x: to_float(x),
               z: to_float(z)
             }

@@ -13,5 +13,6 @@ defmodule ServiceRadar.Spatial do
     resource ServiceRadar.Spatial.SurveyRfPoseMatch
     resource ServiceRadar.Spatial.SurveyRoomArtifact
     resource ServiceRadar.Spatial.SurveyCoverageRaster
+    resource ServiceRadar.Spatial.SurveySessionMetadata
   end
 end
