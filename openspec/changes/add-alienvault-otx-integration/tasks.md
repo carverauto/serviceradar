@@ -56,6 +56,7 @@
 - [x] 7.4 Add status panels for last sync, indicator counts, latest errors, and edge agent/plugin health.
 - [ ] 7.6 Add manual "Sync now" / "Retrohunt now" actions and current NetFlow finding counts.
 - [ ] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
+- [x] 7.7 Add operator visibility for imported OTX indicators and source-object metadata.
 
 ## 8. Scheduling And Operations
 - [ ] 8.1 Register core-hosted OTX sync jobs with Oban cron and uniqueness settings.
