@@ -79,6 +79,7 @@
 - [x] 7.24 Bring FieldSurvey Review map styling in line with the dashboard heatmap: continuous blurred coverage layer, stronger floorplan linework, and cleaner AP/path overlays.
 - [x] 7.25 Normalize FieldSurvey Review map orientation with the same longest-wall/landscape projection used by the dashboard while keeping persisted raster coordinates raw.
 - [x] 7.26 Preserve FieldSurvey Review map aspect ratio and move signal/channel details below the map so wide floorplans are not squeezed by the side panel.
+- [x] 7.27 Remove the dashboard FieldSurvey card's fake side gutter so the compact heatmap uses the full card width with visible floorplan linework and a compact overlay legend.
 
 ## 9. Survey Organization and Site/Floor Model
 - [ ] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.
