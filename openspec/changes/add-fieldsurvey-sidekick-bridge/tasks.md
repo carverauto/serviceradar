@@ -86,9 +86,9 @@
 - [x] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.
 - [x] 9.1a Add the initial `survey_session_metadata` table/resource/helper so session attribution has a real backend anchor before the upload and settings UI are wired.
 - [x] 9.1b Persist FieldSurvey site/building/floor/tag metadata from upload/WebSocket headers and display the resolved label in FieldSurvey Review session lists.
-- [ ] 9.2 Add settings UI to define dashboard FieldSurvey groups from SRQL-backed filters, such as airport/site, terminal/building, floor, or tag combinations.
-- [ ] 9.3 Add floor selectors in FieldSurvey Review and dashboard cards so multi-floor surveys can be cycled without mixing AP/raster data from different floors. FieldSurvey Review now filters sessions by persisted floor metadata; dashboard floor selection is still pending.
-- [ ] 9.4 Add backend queries that summarize latest Wi-Fi/RF rasters by configured survey group instead of globally selecting one latest session.
+- [ ] 9.2 Add settings UI to define dashboard FieldSurvey groups from SRQL-backed filters, such as airport/site, terminal/building, floor, or tag combinations. Superseded by the dedicated `add-fieldsurvey-srql-playlists` proposal, which models this as a dashboard playlist of saved SRQL raster queries instead of ad hoc dashboard floor controls.
+- [ ] 9.3 Add floor selectors in FieldSurvey Review so multi-floor surveys can be cycled without mixing AP/raster data from different floors. FieldSurvey Review now filters sessions by persisted floor metadata; dashboard floor selection is intentionally dropped in favor of SRQL playlist configuration.
+- [ ] 9.4 Add backend queries that summarize latest Wi-Fi/RF rasters by configured survey group instead of globally selecting one latest session. Superseded by the dedicated `add-fieldsurvey-srql-playlists` proposal, where SRQL `field_survey_rasters` queries resolve the persisted raster/floorplan candidate.
 - [x] 9.5 Extend iOS upload/session metadata so resumed captures and artifact retries preserve site/building/floor/group attribution.
 
 ## 8. Verification
