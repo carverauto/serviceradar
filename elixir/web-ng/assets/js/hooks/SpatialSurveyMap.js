@@ -74,7 +74,7 @@ export default {
             ? scene.floorplan_segments.map(normalizeFloorplanSegment).filter(Boolean)
             : []
 
-          if (scene?.point_cloud_artifact?.download_url) {
+          if (floorplanSegments.length === 0 && scene?.point_cloud_artifact?.download_url) {
             pointCloud = await loadPointCloud(scene.point_cloud_artifact.download_url, floorplanSegments)
           }
         }
@@ -352,7 +352,7 @@ function viewStateForBounds(bounds) {
 
   return {
     target: [centerX, centerY, centerZ],
-    zoom: Math.max(1.6, Math.min(5.2, 5.8 - Math.log2(span))),
+    zoom: Math.max(3.4, Math.min(7.0, 8.1 - Math.log2(span))),
     rotationX: 58,
     rotationOrbit: 38,
   }

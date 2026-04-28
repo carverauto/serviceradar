@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadar.Spatial.SurveyRfPoseMatch
   alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadar.Spatial.SurveySpectrumObservation
-  alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
+  alias ServiceRadarWebNG.FieldSurveyFloorplan
 
   require Ash.Query
   require Logger
@@ -157,7 +157,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, samples} <- spatial_samples(scope, limit: sample_limit),
          {:ok, artifacts} <- room_artifacts(scope, limit: artifact_limit) do
-      selected_session_id = latest_artifact_session_id(artifacts) || latest_sample_session_id(samples)
+      selected_session_id =
+        latest_floorplan_session_id(artifacts) || latest_artifact_session_id(artifacts) ||
+          latest_sample_session_id(samples)
+
       floorplan_segments = if selected_session_id, do: load_floorplan_segments(scope, selected_session_id), else: []
 
       {:ok,
@@ -166,8 +169,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
          samples: samples,
          artifacts: artifacts,
          floorplan_segments: floorplan_segments,
-         point_cloud_artifact: Enum.find(artifacts, &(&1.artifact_type == "point_cloud_ply")),
-         roomplan_artifact: Enum.find(artifacts, &(&1.artifact_type == "roomplan_usdz"))
+         point_cloud_artifact: artifact_for_session(artifacts, selected_session_id, "point_cloud_ply"),
+         roomplan_artifact: artifact_for_session(artifacts, selected_session_id, "roomplan_usdz")
        }}
     end
   end
@@ -341,12 +344,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(session_id == ^session_id and artifact_type == "floorplan_geojson")
     |> Ash.Query.sort(uploaded_at: :desc)
-    |> Ash.Query.limit(1)
+    |> Ash.Query.limit(12)
     |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
     |> Page.unwrap()
     |> case do
-      {:ok, [artifact | _]} -> {:ok, artifact}
-      {:ok, []} -> {:ok, nil}
+      {:ok, artifacts} -> {:ok, Enum.find(artifacts, &cached_floorplan_artifact?/1)}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -653,11 +655,35 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp scope_user_id(%{user: %{id: id}}) when not is_nil(id), do: to_string(id)
   defp scope_user_id(_scope), do: "system"
 
+  defp latest_floorplan_session_id(artifacts) do
+    artifacts
+    |> Enum.find(&cached_floorplan_artifact_summary?/1)
+    |> case do
+      %{session_id: session_id} -> session_id
+      _artifact -> nil
+    end
+  end
+
   defp latest_artifact_session_id([artifact | _]), do: artifact.session_id
   defp latest_artifact_session_id([]), do: nil
 
   defp latest_sample_session_id([sample | _]), do: sample.session_id
   defp latest_sample_session_id([]), do: nil
+
+  defp artifact_for_session(artifacts, session_id, artifact_type) when is_binary(session_id) do
+    Enum.find(artifacts, &(&1.session_id == session_id and &1.artifact_type == artifact_type))
+  end
+
+  defp artifact_for_session(_artifacts, _session_id, _artifact_type), do: nil
+
+  defp cached_floorplan_artifact_summary?(%{artifact_type: "floorplan_geojson", metadata: metadata}) do
+    metadata
+    |> FieldSurveyFloorplan.segments_from_metadata()
+    |> Enum.reject(&zero_length_segment?/1)
+    |> Enum.any?()
+  end
+
+  defp cached_floorplan_artifact_summary?(_artifact), do: false
 
   defp build_session_summaries(rf_rows, spectrum_rows) do
     rf_sessions =
@@ -1248,52 +1274,27 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp load_floorplan_segments(scope, session_id) do
-    with {:ok, artifact} when not is_nil(artifact) <- read_latest_floorplan_artifact(scope, session_id),
-         {:ok, payload} <- FieldSurveyRoomArtifacts.fetch(field(artifact, :object_key)),
-         {:ok, geojson} <- Jason.decode(payload) do
-      decode_floorplan_geojson(geojson)
-    else
-      {:ok, nil} -> []
-      _error -> []
+    case read_latest_floorplan_artifact(scope, session_id) do
+      {:ok, artifact} when not is_nil(artifact) ->
+        artifact
+        |> field(:metadata)
+        |> FieldSurveyFloorplan.segments_from_metadata()
+        |> Enum.reject(&zero_length_segment?/1)
+
+      {:ok, nil} ->
+        []
+
+      _error ->
+        []
     end
   end
 
-  defp decode_floorplan_geojson(%{"type" => "FeatureCollection", "features" => features}) when is_list(features) do
-    features
-    |> Enum.flat_map(&decode_floorplan_feature/1)
-    |> Enum.reject(&zero_length_segment?/1)
+  defp cached_floorplan_artifact?(artifact) do
+    artifact
+    |> field(:metadata)
+    |> FieldSurveyFloorplan.segments_from_metadata()
+    |> Enum.any?()
   end
-
-  defp decode_floorplan_geojson(_geojson), do: []
-
-  defp decode_floorplan_feature(%{
-         "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
-         "properties" => properties
-       }) do
-    with {:ok, start_x, start_z} <- decode_coordinate(start_coord),
-         {:ok, end_x, end_z} <- decode_coordinate(end_coord) do
-      [
-        %{
-          kind: normalize_floorplan_kind(Map.get(properties || %{}, "kind")),
-          start_x: start_x,
-          start_z: start_z,
-          end_x: end_x,
-          end_z: end_z,
-          height: number_or_nil(Map.get(properties || %{}, "height_m"))
-        }
-      ]
-    else
-      _error -> []
-    end
-  end
-
-  defp decode_floorplan_feature(_feature), do: []
-
-  defp decode_coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
-  defp decode_coordinate(_coord), do: :error
-
-  defp normalize_floorplan_kind(kind) when kind in ["wall", "door", "window"], do: kind
-  defp normalize_floorplan_kind(_kind), do: "wall"
 
   defp zero_length_segment?(segment) do
     segment.start_x == segment.end_x and segment.start_z == segment.end_z
@@ -1606,9 +1607,6 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp average(rows, field_name), do: rows |> Enum.map(&field(&1, field_name)) |> average_numbers()
   defp average_maps(rows, field_name), do: rows |> Enum.map(&Map.get(&1, field_name)) |> average_numbers()
-
-  defp number_or_nil(value) when is_number(value), do: value * 1.0
-  defp number_or_nil(_value), do: nil
 
   defp average_numbers(values) do
     numbers = Enum.filter(values, &number?/1)

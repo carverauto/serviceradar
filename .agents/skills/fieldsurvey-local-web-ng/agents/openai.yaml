@@ -1,0 +1,6 @@
+interface:
+  display_name: "FieldSurvey Local Web-NG"
+  short_description: "Run web-ng locally against demo FieldSurvey data"
+  default_prompt: "Use $fieldsurvey-local-web-ng to run web-ng locally against demo FieldSurvey data and capture dashboard screenshots."
+policy:
+  allow_implicit_invocation: true

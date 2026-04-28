@@ -231,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </:header>
                 <div class="space-y-2">
                   <div
-                    :for={ap <- Enum.take(@review.ap_summaries, 12)}
+                    :for={ap <- observed_ap_summaries(@review)}
                     class="rounded border border-base-200 px-3 py-2"
                   >
                     <div class="flex items-start justify-between gap-3">
@@ -431,7 +431,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   end
 
   defp map_points(review, "interference"), do: review.interference_points
-  defp map_points(review, _overlay), do: review.wifi_points
+  defp map_points(_review, _overlay), do: []
 
   defp coverage_cells(review, "wifi"), do: Map.get(review, :wifi_raster, [])
   defp coverage_cells(review, "interference"), do: Map.get(review, :interference_raster, [])
@@ -439,9 +439,63 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp ap_markers(review) do
     review.ap_summaries
-    |> Enum.filter(&(number?(Map.get(&1, :x_pct)) and number?(Map.get(&1, :z_pct))))
-    |> Enum.take(16)
+    |> Enum.filter(&valid_ap_marker?/1)
+    |> Enum.sort_by(fn ap -> {ap.confidence || 0.0, ap.count || 0, ap.strongest_rssi || -120} end, :desc)
+    |> clustered_ap_markers()
+    |> Enum.take(6)
   end
+
+  defp observed_ap_summaries(review) do
+    review.ap_summaries
+    |> Enum.reject(&invalid_bssid?(Map.get(&1, :bssid)))
+    |> Enum.take(12)
+  end
+
+  defp valid_ap_marker?(ap) do
+    number?(Map.get(ap, :x_pct)) and
+      number?(Map.get(ap, :z_pct)) and
+      number?(Map.get(ap, :x)) and
+      number?(Map.get(ap, :z)) and
+      not invalid_bssid?(Map.get(ap, :bssid)) and
+      (Map.get(ap, :confidence) || 0.0) >= 0.78 and
+      (Map.get(ap, :positioned_count) || 0) >= 20
+  end
+
+  defp clustered_ap_markers(ap_summaries) do
+    Enum.reduce(ap_summaries, [], fn ap, selected ->
+      if Enum.any?(selected, &same_ap_candidate?(&1, ap)) do
+        selected
+      else
+        selected ++ [ap]
+      end
+    end)
+  end
+
+  defp same_ap_candidate?(left, right) do
+    distance =
+      :math.sqrt(
+        :math.pow((Map.get(left, :x) || 0.0) - (Map.get(right, :x) || 0.0), 2) +
+          :math.pow((Map.get(left, :z) || 0.0) - (Map.get(right, :z) || 0.0), 2)
+      )
+
+    same_radio_family?(Map.get(left, :bssid), Map.get(right, :bssid)) or distance <= 1.8
+  end
+
+  defp same_radio_family?(left, right) when is_binary(left) and is_binary(right) do
+    left_parts = left |> String.downcase() |> String.split(":")
+    right_parts = right |> String.downcase() |> String.split(":")
+
+    length(left_parts) == 6 and length(right_parts) == 6 and Enum.take(left_parts, 4) == Enum.take(right_parts, 4)
+  end
+
+  defp same_radio_family?(_left, _right), do: false
+
+  defp invalid_bssid?(bssid) when is_binary(bssid) do
+    normalized = String.downcase(String.trim(bssid))
+    normalized in ["", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"]
+  end
+
+  defp invalid_bssid?(_bssid), do: true
 
   defp coverage_cell_style(cell, "interference") do
     diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)

@@ -1,7 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @moduledoc false
 
-  alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
+  alias ServiceRadarWebNG.FieldSurveyFloorplan
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
@@ -144,6 +144,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       alert_feed: alert_feed,
       camera_summary: camera_summary,
       survey_summary: survey_summary
+    }
+  end
+
+  @spec load_survey_summary(term()) :: map()
+  def load_survey_summary(scope), do: survey_summary(scope)
+
+  @spec survey_kpi_card(map(), list()) :: map()
+  def survey_kpi_card(survey, sparkline \\ []) do
+    %{
+      title: "Wi-Fi Coverage",
+      value: survey_value(survey),
+      detail: survey_detail(survey),
+      icon: "hero-wifi",
+      tone: "violet",
+      sparkline: sparkline
     }
   end
 
@@ -458,8 +473,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp runtime_graph_links do
     case RuntimeGraph.get_links() do
       {:ok, []} ->
-        RuntimeGraph.refresh_now_sync()
-        RuntimeGraph.get_links()
+        RuntimeGraph.refresh_now()
+        {:ok, []}
 
       result ->
         result
@@ -916,6 +931,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         FROM platform.survey_room_artifacts a
         WHERE a.session_id = r.session_id
           AND a.artifact_type = 'floorplan_geojson'
+          AND jsonb_typeof(a.metadata->'floorplan_segments') = 'array'
+          AND jsonb_array_length(a.metadata->'floorplan_segments') > 0
       ) DESC,
       r.generated_at DESC
       LIMIT 1
@@ -926,11 +943,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           raw_cells = map_value(cells || %{}, "cells") || []
           raw_raster_cells = raw_cells |> Enum.map(&dashboard_raw_raster_cell/1) |> Enum.reject(&is_nil/1)
           raw_floorplan_segments = latest_dashboard_floorplan_segments(session_id)
+          raw_ap_markers = latest_dashboard_ap_markers(session_id)
 
-          {raster_cells, floorplan_segments, aspect_ratio} =
-            normalize_dashboard_survey(raw_raster_cells, raw_floorplan_segments)
+          {raster_cells, floorplan_segments, ap_markers, aspect_ratio} =
+            raw_raster_cells
+            |> normalize_dashboard_survey(raw_floorplan_segments)
+            |> add_dashboard_ap_markers(raw_ap_markers)
 
-          surface_svg = dashboard_surface_svg(raster_cells)
+          surface_svg = dashboard_surface_svg(raster_cells, floorplan_segments)
 
           %{
             raster_session_id: session_id,
@@ -941,6 +961,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             raster_aspect_ratio: aspect_ratio,
             floorplan_segment_count: length(floorplan_segments),
             floorplan_segments: floorplan_segments,
+            ap_marker_count: length(ap_markers),
+            ap_markers: ap_markers,
             raster_metadata: metadata || %{}
           }
 
@@ -979,17 +1001,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp normalize_dashboard_survey(raw_cells, raw_segments) do
     angle = dashboard_rotation_angle(raw_cells, raw_segments)
 
-    {rotated_cells, rotated_segments, bounds} =
+    {rotated_cells, rotated_segments, bounds, final_angle} =
       case dashboard_rotated_projection(raw_cells, raw_segments, angle) do
         {cells, segments, %{aspect_ratio: aspect_ratio} = bounds} when aspect_ratio < 1.0 ->
           if raw_cells == [] and raw_segments == [] do
-            {cells, segments, bounds}
+            {cells, segments, bounds, angle}
           else
-            dashboard_rotated_projection(raw_cells, raw_segments, angle + :math.pi() / 2.0)
+            {flipped_cells, flipped_segments, flipped_bounds} =
+              dashboard_rotated_projection(raw_cells, raw_segments, angle + :math.pi() / 2.0)
+
+            {flipped_cells, flipped_segments, flipped_bounds, angle + :math.pi() / 2.0}
           end
 
-        projection ->
-          projection
+        {cells, segments, bounds} ->
+          {cells, segments, bounds, angle}
       end
 
     raster_cells =
@@ -1004,7 +1029,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       |> Enum.reject(&zero_dashboard_segment?/1)
       |> Enum.take(180)
 
-    {raster_cells, floorplan_segments, Map.get(bounds, :aspect_ratio, 1.78)}
+    {raster_cells, floorplan_segments, bounds, final_angle, Map.get(bounds, :aspect_ratio, 1.78)}
+  end
+
+  defp add_dashboard_ap_markers({raster_cells, floorplan_segments, bounds, angle, aspect_ratio}, raw_ap_markers) do
+    ap_markers =
+      raw_ap_markers
+      |> Enum.map(&score_dashboard_ap_marker/1)
+      |> Enum.filter(&(&1.confidence >= 0.7))
+      |> Enum.map(&rotate_dashboard_point(&1, angle))
+      |> Enum.map(&project_dashboard_ap_marker(&1, bounds))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(3)
+
+    {raster_cells, floorplan_segments, ap_markers, aspect_ratio}
   end
 
   defp dashboard_rotated_projection(raw_cells, raw_segments, angle) do
@@ -1139,13 +1177,26 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     |> Map.put(:end_z_pct, 100.0 - clamp((segment.end_z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
   end
 
+  defp project_dashboard_ap_marker(marker, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+    x_pct = clamp((marker.x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0)
+    z_pct = 100.0 - clamp((marker.z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0)
+
+    marker
+    |> Map.put(:x_pct, x_pct)
+    |> Map.put(:z_pct, z_pct)
+  end
+
   defp dashboard_segment_length(%{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z}) do
     :math.sqrt(:math.pow(end_x - start_x, 2) + :math.pow(end_z - start_z, 2))
   end
 
-  defp dashboard_surface_svg([]), do: nil
+  defp dashboard_surface_svg([], _floorplan_segments), do: nil
 
-  defp dashboard_surface_svg(cells) do
+  defp dashboard_surface_svg(cells, floorplan_segments) do
+    {clip_defs, clip_attr} = dashboard_floorplan_clip(floorplan_segments)
+
     circles =
       Enum.map_join(cells, "\n", fn cell ->
         ~s(<circle cx="#{svg_number(cell.x_pct)}" cy="#{svg_number(cell.z_pct)}" r="#{svg_number(dashboard_surface_radius(cell))}" fill="#{dashboard_surface_color(cell.rssi)}" opacity="#{svg_number(dashboard_surface_opacity(cell))}"/>)
@@ -1155,17 +1206,105 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
       <defs>
         <filter id="heat-soften" x="-12" y="-12" width="124" height="124" filterUnits="userSpaceOnUse">
-          <feGaussianBlur stdDeviation="2.8"/>
+          <feGaussianBlur stdDeviation="1.45"/>
           <feComponentTransfer>
-            <feFuncA type="gamma" amplitude="1.22" exponent="0.8" offset="0"/>
+            <feFuncA type="gamma" amplitude="1.08" exponent="0.92" offset="0"/>
           </feComponentTransfer>
         </filter>
+    #{clip_defs}
       </defs>
-      <g filter="url(#heat-soften)">
+      <g filter="url(#heat-soften)"#{clip_attr}>
     #{circles}
       </g>
     </svg>
     """
+  end
+
+  defp dashboard_floorplan_clip([]), do: {"", ""}
+
+  defp dashboard_floorplan_clip(floorplan_segments) do
+    case floorplan_clip_polygon(floorplan_segments) do
+      points when length(points) >= 3 ->
+        polygon = Enum.map_join(points, " ", fn {x, z} -> "#{svg_number(x)},#{svg_number(z)}" end)
+
+        {
+          ~s(<clipPath id="floorplan-footprint"><polygon points="#{polygon}"/></clipPath>),
+          ~s| clip-path="url(#floorplan-footprint)"|
+        }
+
+      _ ->
+        {"", ""}
+    end
+  end
+
+  defp floorplan_clip_polygon(floorplan_segments) do
+    floorplan_segments
+    |> Enum.flat_map(fn segment ->
+      [
+        {segment.start_x_pct, segment.start_z_pct},
+        {segment.end_x_pct, segment.end_z_pct}
+      ]
+    end)
+    |> Enum.filter(fn {x, z} -> is_number(x) and is_number(z) end)
+    |> Enum.map(fn {x, z} -> {Float.round(x * 1.0, 3), Float.round(z * 1.0, 3)} end)
+    |> Enum.uniq()
+    |> convex_hull()
+    |> expand_polygon(1.3)
+  end
+
+  defp convex_hull(points) when length(points) < 3, do: points
+
+  defp convex_hull(points) do
+    sorted = Enum.sort(points)
+    lower = hull_half(sorted)
+    upper = sorted |> Enum.reverse() |> hull_half()
+
+    Enum.uniq(Enum.drop(lower, -1) ++ Enum.drop(upper, -1))
+  end
+
+  defp hull_half(points) do
+    Enum.reduce(points, [], fn point, hull ->
+      trim_hull(hull, point) ++ [point]
+    end)
+  end
+
+  defp trim_hull(hull, point) when length(hull) >= 2 do
+    previous = Enum.at(hull, -2)
+    last = List.last(hull)
+
+    if cross(previous, last, point) <= 0 do
+      hull
+      |> Enum.drop(-1)
+      |> trim_hull(point)
+    else
+      hull
+    end
+  end
+
+  defp trim_hull(hull, _point), do: hull
+
+  defp cross({ax, ay}, {bx, by}, {cx, cy}), do: (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+  defp expand_polygon(points, _padding) when length(points) < 3, do: points
+
+  defp expand_polygon(points, padding) do
+    center_x = points |> Enum.map(&elem(&1, 0)) |> Enum.sum() |> Kernel./(length(points))
+    center_z = points |> Enum.map(&elem(&1, 1)) |> Enum.sum() |> Kernel./(length(points))
+
+    Enum.map(points, fn {x, z} ->
+      dx = x - center_x
+      dz = z - center_z
+      distance = :math.sqrt(dx * dx + dz * dz)
+
+      if distance > 0.001 do
+        {
+          clamp(x + dx / distance * padding, 0.0, 100.0),
+          clamp(z + dz / distance * padding, 0.0, 100.0)
+        }
+      else
+        {x, z}
+      end
+    end)
   end
 
   defp svg_data_uri(svg) when is_binary(svg) and byte_size(svg) > 0 do
@@ -1176,15 +1315,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp dashboard_surface_radius(cell) do
     cell.radius_pct
-    |> max(2.6)
-    |> min(8.5)
-    |> Kernel.*(1.55)
+    |> max(1.6)
+    |> min(5.4)
+    |> Kernel.*(1.08)
   end
 
   defp dashboard_surface_opacity(%{confidence: confidence, rssi: rssi}) do
     signal = min(max((rssi + 90.0) / 60.0, 0.0), 1.0)
     confidence = min(max(confidence, 0.15), 1.0)
-    0.16 + signal * 0.18 + confidence * 0.16
+    0.14 + signal * 0.16 + confidence * 0.14
   end
 
   defp dashboard_surface_color(rssi) when rssi >= -55, do: "#5fd38a"
@@ -1196,25 +1335,80 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp svg_number(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 3)
   defp svg_number(_value), do: "0.000"
 
-  defp latest_dashboard_floorplan_segments(session_id) do
-    if relation_exists?("platform.survey_room_artifacts") do
+  defp latest_dashboard_ap_markers(session_id) do
+    if relation_exists?("platform.survey_rf_pose_matches") do
       sql = """
-      SELECT object_key
-      FROM platform.survey_room_artifacts
-      WHERE session_id = $1
-        AND artifact_type = 'floorplan_geojson'
-      ORDER BY uploaded_at DESC
-      LIMIT 1
+      WITH base AS (
+        SELECT bssid, NULLIF(ssid, '') AS ssid, rssi_dbm, channel, frequency_mhz, x, z
+        FROM platform.survey_rf_pose_matches
+        WHERE session_id = $1
+          AND bssid IS NOT NULL
+          AND rssi_dbm IS NOT NULL
+          AND x IS NOT NULL
+          AND z IS NOT NULL
+      ),
+      strongest AS (
+        SELECT DISTINCT ON (bssid)
+          bssid, COALESCE(ssid, 'Hidden') AS ssid, rssi_dbm AS strongest_rssi, channel, frequency_mhz
+        FROM base
+        ORDER BY bssid, rssi_dbm DESC
+      ),
+      counts AS (
+        SELECT bssid, COUNT(*)::bigint AS sample_count
+        FROM base
+        GROUP BY bssid
+      ),
+      support AS (
+        SELECT
+          base.bssid,
+          base.x,
+          base.z,
+          GREATEST((base.rssi_dbm + 100)::float8, 1.0) AS weight
+        FROM base
+        JOIN strongest ON strongest.bssid = base.bssid
+        WHERE base.rssi_dbm >= strongest.strongest_rssi - 8
+      ),
+      weighted AS (
+        SELECT
+          bssid,
+          SUM(x * weight) / NULLIF(SUM(weight), 0) AS x,
+          SUM(z * weight) / NULLIF(SUM(weight), 0) AS z,
+          COUNT(*)::bigint AS support_count
+        FROM support
+        GROUP BY bssid
+      )
+      SELECT
+        strongest.bssid,
+        strongest.ssid,
+        strongest.strongest_rssi,
+        strongest.channel,
+        strongest.frequency_mhz,
+        counts.sample_count,
+        weighted.support_count,
+        weighted.x,
+        weighted.z
+      FROM strongest
+      JOIN counts ON counts.bssid = strongest.bssid
+      JOIN weighted ON weighted.bssid = strongest.bssid
+      ORDER BY counts.sample_count DESC, strongest.strongest_rssi DESC
+      LIMIT 12
       """
 
       case Repo.query(sql, [session_id]) do
-        {:ok, %{rows: [[object_key]]}} when is_binary(object_key) ->
-          object_key
-          |> FieldSurveyRoomArtifacts.fetch()
-          |> case do
-            {:ok, payload} -> decode_dashboard_floorplan(payload)
-            _ -> []
-          end
+        {:ok, %{rows: rows}} ->
+          Enum.map(rows, fn [bssid, ssid, strongest_rssi, channel, frequency_mhz, sample_count, support_count, x, z] ->
+            %{
+              bssid: bssid,
+              ssid: ssid || "Hidden",
+              strongest_rssi: to_float(strongest_rssi),
+              channel: to_int(channel),
+              frequency_mhz: to_int(frequency_mhz),
+              sample_count: to_int(sample_count),
+              support_count: to_int(support_count),
+              x: to_float(x),
+              z: to_float(z)
+            }
+          end)
 
         _ ->
           []
@@ -1226,44 +1420,43 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> []
   end
 
-  defp decode_dashboard_floorplan(payload) do
-    with {:ok, %{"type" => "FeatureCollection", "features" => features}} <- Jason.decode(payload),
-         true <- is_list(features) do
-      features
-      |> Enum.flat_map(&dashboard_floorplan_segment/1)
-      |> Enum.take(180)
-    else
-      _ -> []
-    end
+  defp score_dashboard_ap_marker(
+         %{sample_count: sample_count, support_count: support_count, strongest_rssi: strongest_rssi} = marker
+       ) do
+    sample_score = min(:math.log10(max(sample_count, 1)) / 3.0, 1.0)
+    support_score = min(:math.log10(max(support_count, 1)) / 2.3, 1.0)
+    signal_score = min(max((strongest_rssi + 86.0) / 36.0, 0.0), 1.0)
+    confidence = sample_score * 0.36 + support_score * 0.34 + signal_score * 0.3
+
+    Map.put(marker, :confidence, Float.round(confidence, 3))
   end
 
-  defp dashboard_floorplan_segment(%{
-         "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
-         "properties" => properties
-       }) do
-    with {:ok, start_x, start_z} <- dashboard_floorplan_coordinate(start_coord),
-         {:ok, end_x, end_z} <- dashboard_floorplan_coordinate(end_coord) do
-      [
-        %{
-          kind: dashboard_floorplan_kind(Map.get(properties || %{}, "kind")),
-          start_x: start_x,
-          start_z: start_z,
-          end_x: end_x,
-          end_z: end_z
-        }
-      ]
+  defp latest_dashboard_floorplan_segments(session_id) do
+    if relation_exists?("platform.survey_room_artifacts") do
+      sql = """
+      SELECT metadata
+      FROM platform.survey_room_artifacts
+      WHERE session_id = $1
+        AND artifact_type = 'floorplan_geojson'
+        AND jsonb_typeof(metadata->'floorplan_segments') = 'array'
+        AND jsonb_array_length(metadata->'floorplan_segments') > 0
+      ORDER BY uploaded_at DESC
+      LIMIT 1
+      """
+
+      case Repo.query(sql, [session_id]) do
+        {:ok, %{rows: [[metadata]]}} ->
+          FieldSurveyFloorplan.segments_from_metadata(metadata)
+
+        _ ->
+          []
+      end
     else
-      _ -> []
+      []
     end
+  rescue
+    _ -> []
   end
-
-  defp dashboard_floorplan_segment(_feature), do: []
-
-  defp dashboard_floorplan_coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
-  defp dashboard_floorplan_coordinate(_coordinate), do: :error
-
-  defp dashboard_floorplan_kind(kind) when kind in ["wall", "door", "window"], do: kind
-  defp dashboard_floorplan_kind(_kind), do: "wall"
 
   defp zero_dashboard_segment?(segment) do
     abs(segment.start_x_pct - segment.end_x_pct) < 0.01 and abs(segment.start_z_pct - segment.end_z_pct) < 0.01
@@ -1740,14 +1933,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         tone: "info",
         sparkline: Map.get(sparklines, :camera, [])
       },
-      %{
-        title: "Wi-Fi Coverage",
-        value: survey_value(survey),
-        detail: survey_detail(survey),
-        icon: "hero-wifi",
-        tone: "violet",
-        sparkline: Map.get(sparklines, :survey, [])
-      }
+      survey_kpi_card(survey, Map.get(sparklines, :survey, []))
     ]
   end
 
@@ -1873,6 +2059,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       raster_aspect_ratio: 1.78,
       floorplan_segment_count: 0,
       floorplan_segments: [],
+      ap_marker_count: 0,
+      ap_markers: [],
       raster_metadata: %{}
     }
 

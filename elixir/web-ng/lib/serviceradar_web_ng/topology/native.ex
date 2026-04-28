@@ -86,19 +86,4 @@ defmodule ServiceRadarWebNG.Topology.Native do
   Decode Apache Arrow IPC frames into Elixir maps.
   """
   def decode_arrow_payload(_binary), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decode FieldSurvey Sidekick raw RF Apache Arrow IPC frames into Elixir maps.
-  """
-  def decode_fieldsurvey_rf_payload(_binary), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decode FieldSurvey iOS pose Apache Arrow IPC frames into Elixir maps.
-  """
-  def decode_fieldsurvey_pose_payload(_binary), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decode FieldSurvey Sidekick SDR spectrum Apache Arrow IPC frames into Elixir maps.
-  """
-  def decode_fieldsurvey_spectrum_payload(_binary), do: :erlang.nif_error(:nif_not_loaded)
 end
