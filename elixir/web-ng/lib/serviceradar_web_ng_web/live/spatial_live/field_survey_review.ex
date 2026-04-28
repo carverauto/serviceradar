@@ -297,8 +297,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     label="Waterfall"
                     value={"#{@review.metrics.waterfall_row_count}x#{@review.metrics.waterfall_bin_count}"}
                   />
+                  <.summary_cell label="Interferers" value={@review.metrics.interferer_count} />
                   <.summary_cell label="Pose Rows" value={@review.metrics.pose_count} />
                 </div>
+                <.interferer_classifications classifications={@review.interferer_classifications} />
               </.ui_panel>
             </div>
 
@@ -397,6 +399,40 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
         </div>
         <div :if={@scores == []} class="text-xs text-base-content/60">
           No spectrum channel summaries yet.
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :classifications, :list, required: true
+
+  defp interferer_classifications(assigns) do
+    assigns = assign(assigns, :classifications, Enum.take(assigns.classifications, 4))
+
+    ~H"""
+    <div class="mt-4 border-t border-base-200 pt-3">
+      <div class="text-sm font-semibold">Interferer Classification</div>
+      <div class="mt-3 space-y-2">
+        <div
+          :for={classification <- @classifications}
+          class="rounded border border-base-200 px-3 py-2 text-xs"
+          title={classification.description}
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="font-semibold">{classification.label}</div>
+            <div class={["font-mono", interferer_severity_class(classification.severity)]}>
+              {classification.severity}%
+            </div>
+          </div>
+          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-base-content/60">
+            <span>{classification.event_count} events</span>
+            <span>peak {format_number(classification.peak_power_dbm)} dBm</span>
+            <span>@ {format_number(classification.peak_frequency_mhz)} MHz</span>
+          </div>
+        </div>
+        <div :if={@classifications == []} class="text-xs text-base-content/60">
+          No coarse interferers classified yet.
         </div>
       </div>
     </div>
@@ -669,6 +705,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp interference_color(score) when score >= 55, do: "#f97316"
   defp interference_color(score) when score >= 35, do: "#facc15"
   defp interference_color(_score), do: "#22c55e"
+
+  defp interferer_severity_class(severity) when is_number(severity) and severity >= 75, do: "text-error"
+  defp interferer_severity_class(severity) when is_number(severity) and severity >= 55, do: "text-warning"
+  defp interferer_severity_class(_severity), do: "text-success"
 
   defp waterfall_bins(waterfall) do
     waterfall.rows
