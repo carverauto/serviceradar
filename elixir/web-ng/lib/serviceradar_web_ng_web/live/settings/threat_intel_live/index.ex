@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Observability.ThreatIntelIndicator
+  alias ServiceRadar.Observability.ThreatIntelSourceObject
   alias ServiceRadar.Observability.ThreatIntelSyncStatus
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.PluginAssignment
@@ -207,6 +209,73 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
                 <% end %>
               </div>
+
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 text-sm font-semibold">Imported Indicators</div>
+                <%= if @indicators == [] do %>
+                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                    No imported indicators.
+                  </div>
+                <% else %>
+                  <div class="overflow-x-auto">
+                    <table class="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Indicator</th>
+                          <th>Source</th>
+                          <th>Label</th>
+                          <th>Confidence</th>
+                          <th>Last Seen</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <%= for indicator <- @indicators do %>
+                          <tr>
+                            <td class="font-mono">{indicator.indicator}</td>
+                            <td>{indicator.source}</td>
+                            <td>{indicator.label || "-"}</td>
+                            <td>{format_optional_int(indicator.confidence)}</td>
+                            <td>{format_datetime(indicator.last_seen_at)}</td>
+                          </tr>
+                        <% end %>
+                      </tbody>
+                    </table>
+                  </div>
+                <% end %>
+              </div>
+
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 text-sm font-semibold">Source Objects</div>
+                <%= if @source_objects == [] do %>
+                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                    No source object metadata.
+                  </div>
+                <% else %>
+                  <div class="divide-y divide-base-200">
+                    <%= for object <- @source_objects do %>
+                      <div class="py-3 first:pt-0 last:pb-0">
+                        <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div class="min-w-0">
+                            <div class="truncate font-mono text-sm">{object.object_id}</div>
+                            <div class="text-xs text-base-content/60">
+                              {object.object_type} · {object.source} · {object.collection_id || "-"}
+                            </div>
+                          </div>
+                          <div class="shrink-0 text-xs text-base-content/60">
+                            {format_datetime(object.modified_at)}
+                          </div>
+                        </div>
+                        <div
+                          :if={source_object_label(object)}
+                          class="mt-2 text-xs text-base-content/70"
+                        >
+                          {source_object_label(object)}
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
             </div>
 
             <div class="rounded-xl border border-base-200 bg-base-100 p-4">
@@ -400,6 +469,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> assign(:approved_package, approved_package)
     |> assign(:assignments, list_assignments(approved_package, scope))
     |> assign(:sync_statuses, list_sync_statuses(scope))
+    |> assign(:indicators, list_indicators(scope))
+    |> assign(:source_objects, list_source_objects(scope))
     |> assign(:assignment_form, @default_form)
   end
 
@@ -472,6 +543,28 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> Ash.Query.filter(source == "alienvault_otx" or plugin_id == ^@plugin_id)
     |> Ash.Query.limit(20)
     |> Ash.Query.sort(last_attempt_at: :desc)
+    |> Ash.read!(scope: scope)
+  rescue
+    _ -> []
+  end
+
+  defp list_indicators(scope) do
+    ThreatIntelIndicator
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(source == "alienvault_otx")
+    |> Ash.Query.limit(25)
+    |> Ash.Query.sort(last_seen_at: :desc)
+    |> Ash.read!(scope: scope)
+  rescue
+    _ -> []
+  end
+
+  defp list_source_objects(scope) do
+    ThreatIntelSourceObject
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(source == "alienvault_otx" or provider == "alienvault_otx")
+    |> Ash.Query.limit(20)
+    |> Ash.Query.sort(modified_at: :desc)
     |> Ash.read!(scope: scope)
   rescue
     _ -> []
@@ -582,6 +675,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   defp format_datetime(value), do: to_string(value)
+
+  defp format_optional_int(nil), do: "-"
+  defp format_optional_int(value), do: to_string(value)
+
+  defp source_object_label(%ThreatIntelSourceObject{metadata: metadata}) when is_map(metadata) do
+    metadata["name"] || metadata["label"] || metadata["source_context"]
+  end
+
+  defp source_object_label(_object), do: nil
 
   defp format_error(value) when is_binary(value), do: value
   defp format_error(value), do: inspect(value)
