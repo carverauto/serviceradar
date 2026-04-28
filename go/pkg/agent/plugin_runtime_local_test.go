@@ -215,8 +215,26 @@ func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
 
 	const apiKey = "runtime-test-api-key"
 
+	responseBody := []byte(`{
+		"count": 1,
+		"next": null,
+		"previous": null,
+		"results": [
+			{"indicator": "198.51.100.25", "type": "IPv4", "title": "C2 host"},
+			{"indicator": "203.0.113.0/24", "type": "CIDR", "title": "Scanner range"},
+			{"indicator": "example.invalid", "type": "domain", "title": "Skipped domain"}
+		]
+	}`)
+	if fixturePath := os.Getenv("OTX_RESPONSE_FIXTURE"); fixturePath != "" {
+		fixture, err := os.ReadFile(fixturePath)
+		if err != nil {
+			t.Fatalf("read OTX response fixture: %v", err)
+		}
+		responseBody = fixture
+	}
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/pulses/subscribed" {
+		if r.URL.Path != "/api/v1/indicators/export" {
 			t.Fatalf("unexpected OTX path: %s", r.URL.Path)
 		}
 		if got := r.Header.Get("X-OTX-API-KEY"); got != apiKey {
@@ -224,26 +242,7 @@ func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"count": 1,
-			"next": null,
-			"previous": null,
-			"results": [{
-				"id": "pulse-runtime-1",
-				"name": "Runtime Pulse",
-				"author_name": "serviceradar-test",
-				"TLP": "white",
-				"tags": ["runtime"],
-				"references": ["https://example.invalid/pulse-runtime-1"],
-				"created": "2026-04-27T10:00:00.000000",
-				"modified": "2026-04-27T11:00:00.000000",
-				"indicators": [
-					{"indicator": "198.51.100.25", "type": "IPv4", "title": "C2 host"},
-					{"indicator": "203.0.113.0/24", "type": "CIDR", "title": "Scanner range"},
-					{"indicator": "example.invalid", "type": "domain", "title": "Skipped domain"}
-				]
-			}]
-		}`))
+		_, _ = w.Write(responseBody)
 	}))
 	defer server.Close()
 
@@ -322,7 +321,8 @@ func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
 	if result["status"] != "OK" {
 		t.Fatalf("status = %v, want OK; payload=%s", result["status"], string(results[0].Payload))
 	}
-	if got, _ := result["summary"].(string); !strings.Contains(got, "2 indicators") {
+	fixtureMode := os.Getenv("OTX_RESPONSE_FIXTURE") != ""
+	if got, _ := result["summary"].(string); !fixtureMode && !strings.Contains(got, "2 indicators") {
 		t.Fatalf("summary = %q, want indicator count", got)
 	}
 
@@ -342,7 +342,7 @@ func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
 	}
 
 	indicators, ok := threatIntel["indicators"].([]interface{})
-	if !ok || len(indicators) != 2 {
+	if !ok || (!fixtureMode && len(indicators) != 2) || (fixtureMode && len(indicators) == 0) {
 		t.Fatalf("indicators = %#v, want two normalized IP/CIDR indicators", threatIntel["indicators"])
 	}
 

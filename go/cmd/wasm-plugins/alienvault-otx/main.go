@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -155,9 +154,16 @@ func runOTXCheck() (string, string, string) {
 		return string(sdk.StatusCritical), httpFailureSummary(resp), ""
 	}
 
-	page, err := parseOTXPage(resp.Body, cfg)
+	page, err := parseOTXExportPage(resp.Body, cfg)
 	if err != nil {
-		return string(sdk.StatusCritical), "OTX response could not be decoded", ""
+		return string(sdk.StatusCritical),
+			fmt.Sprintf(
+				"OTX response could not be decoded: %s body_len=%d body_prefix=%s",
+				sanitizeError(err),
+				len(resp.Body),
+				previewBytes(resp.Body, 40),
+			),
+			""
 	}
 	details := ctiPageDetailsJSON(page)
 
@@ -190,47 +196,99 @@ func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
 }
 
 func decodeOTXHTTPResponse(payload []byte) (*sdk.HTTPResponse, error) {
-	var status int
-	var bodyBase64 string
-
-	scanner := otxJSONScanner{data: payload}
-	if err := scanner.consumeObject(func(key string) error {
-		switch key {
-		case "status":
-			value, err := scanner.readInt()
-			if err != nil {
-				return err
-			}
-			status = value
-		case "body_base64":
-			value, err := scanner.readStringOrNull()
-			if err != nil {
-				return err
-			}
-			bodyBase64 = value
-		default:
-			if err := scanner.skipValue(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
+	var decoded otxHTTPResponsePayload
+	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return nil, err
 	}
+	if decoded.BodyBase64 == "" {
+		return nil, fmt.Errorf("missing response body_base64 in %s", previewBytes(payload, 180))
+	}
 
-	body, err := base64.StdEncoding.DecodeString(bodyBase64)
+	body, err := decodeStandardBase64([]byte(decoded.BodyBase64))
 	if err != nil {
-		if bodyBase64 == "" {
+		if decoded.BodyBase64 == "" {
 			body = nil
 		} else {
 			return nil, err
 		}
 	}
+	if len(body) > 0 && body[0] != '{' && body[0] != '[' {
+		return nil, fmt.Errorf("decoded body is not JSON body_b64_prefix=%s body_prefix=%s", previewBytes([]byte(decoded.BodyBase64), 32), previewBytes(body, 32))
+	}
 
 	return &sdk.HTTPResponse{
-		Status: status,
+		Status: decoded.Status,
 		Body:   body,
 	}, nil
+}
+
+func decodeStandardBase64(input []byte) ([]byte, error) {
+	output := make([]byte, 0, len(input)*3/4)
+	values := [4]int{}
+	count := 0
+
+	for _, ch := range input {
+		if ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' {
+			continue
+		}
+
+		value, ok := base64Value(ch)
+		if !ok {
+			return nil, fmt.Errorf("invalid base64 byte %q", ch)
+		}
+
+		values[count] = value
+		count++
+		if count != 4 {
+			continue
+		}
+
+		if values[0] < 0 || values[1] < 0 {
+			return nil, fmt.Errorf("invalid base64 padding")
+		}
+
+		output = append(output, byte(values[0]<<2|values[1]>>4))
+		if values[2] >= 0 {
+			output = append(output, byte((values[1]&0x0f)<<4|values[2]>>2))
+		}
+		if values[3] >= 0 {
+			output = append(output, byte((values[2]&0x03)<<6|values[3]))
+		}
+
+		count = 0
+	}
+
+	if count != 0 {
+		return nil, fmt.Errorf("truncated base64 input")
+	}
+
+	return output, nil
+}
+
+func base64Value(ch byte) (int, bool) {
+	switch {
+	case ch >= 'A' && ch <= 'Z':
+		return int(ch - 'A'), true
+	case ch >= 'a' && ch <= 'z':
+		return int(ch-'a') + 26, true
+	case ch >= '0' && ch <= '9':
+		return int(ch-'0') + 52, true
+	case ch == '+':
+		return 62, true
+	case ch == '/':
+		return 63, true
+	case ch == '=':
+		return -1, true
+	default:
+		return 0, false
+	}
+}
+
+func previewBytes(value []byte, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return string(value)
+	}
+	return string(value[:limit])
 }
 
 func sanitizeError(err error) string {
@@ -305,7 +363,7 @@ func subscribedPulsesURL(cfg Config) (string, error) {
 		return "", err
 	}
 
-	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/pulses/subscribed"
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/indicators/export"
 	query := base.Query()
 	query.Set("limit", fmt.Sprintf("%d", cfg.Limit))
 	query.Set("page", fmt.Sprintf("%d", cfg.Page))
@@ -402,6 +460,91 @@ func parseOTXPage(data []byte, cfg Config) (ctiPage, error) {
 
 	page.Counts.Indicators = len(page.Indicators)
 	return page, nil
+}
+
+func parseOTXExportPage(data []byte, cfg Config) (ctiPage, error) {
+	page := ctiPage{
+		SchemaVersion: 1,
+		Provider:      sourceAlienVaultOTX,
+		Source:        sourceAlienVaultOTX,
+		CollectionID:  "otx:indicators:export",
+		Cursor: map[string]string{
+			"modified_since": cfg.ModifiedSince,
+		},
+		Counts: ctiCounts{
+			SkippedByType: make(map[string]int),
+		},
+		Indicators: make([]ctiIndicator, 0),
+	}
+
+	scanner := otxJSONScanner{data: data}
+	if err := scanner.consumeObject(func(key string) error {
+		switch key {
+		case "count":
+			value, err := scanner.readInt()
+			if err != nil {
+				return err
+			}
+			page.Counts.Total = value
+		case "next":
+			value, err := scanner.readStringOrNull()
+			if err != nil {
+				return err
+			}
+			page.Cursor["next"] = value
+		case "results":
+			if err := parseExportIndicatorArray(&scanner, &page, cfg); err != nil {
+				return err
+			}
+		default:
+			if err := scanner.skipValue(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return ctiPage{}, err
+	}
+
+	page.Counts.Indicators = len(page.Indicators)
+	return page, nil
+}
+
+func parseExportIndicatorArray(scanner *otxJSONScanner, page *ctiPage, cfg Config) error {
+	if err := scanner.expectByte('['); err != nil {
+		return err
+	}
+	if scanner.consumeByte(']') {
+		return nil
+	}
+
+	pulse := otxPulse{
+		ID:         "otx:indicators:export",
+		Name:       "AlienVault OTX indicator export",
+		AuthorName: sourceAlienVaultOTX,
+	}
+
+	for {
+		indicator, err := parseIndicator(scanner)
+		if err != nil {
+			return err
+		}
+
+		if len(page.Indicators) >= cfg.MaxIndicators {
+			page.Counts.addSkipped("max_indicators")
+		} else if normalized, ok := normalizeIndicator(pulse, indicator); ok {
+			page.Indicators = append(page.Indicators, normalized)
+		} else {
+			page.Counts.addSkipped(skipType(indicator))
+		}
+
+		if scanner.consumeByte(']') {
+			return nil
+		}
+		if err := scanner.expectByte(','); err != nil {
+			return err
+		}
+	}
 }
 
 func parsePulseArray(scanner *otxJSONScanner, page *ctiPage, cfg Config) error {
@@ -850,8 +993,7 @@ func submitPluginResult(status, summary, details string) error {
 func pluginResultJSON(status, summary, details string) string {
 	var b strings.Builder
 	b.Grow(128 + len(summary) + len(details))
-	b.WriteByte('{')
-	writeJSONIntField(&b, "schema_version", 1, false)
+	b.WriteString(`{"schema_version":1`)
 	writeJSONStringField(&b, "status", status, true)
 	writeJSONStringField(&b, "summary", summary, true)
 	if details != "" {

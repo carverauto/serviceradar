@@ -64,7 +64,7 @@ func TestSubscribedPulsesURL(t *testing.T) {
 		t.Fatalf("subscribedPulsesURL returned error: %v", err)
 	}
 
-	want := "https://otx.alienvault.com/api/v1/pulses/subscribed?limit=25&modified_since=2026-04-27T10%3A00%3A00Z&page=3"
+	want := "https://otx.alienvault.com/api/v1/indicators/export?limit=25&modified_since=2026-04-27T10%3A00%3A00Z&page=3"
 	if got != want {
 		t.Fatalf("url = %q, want %q", got, want)
 	}
@@ -226,6 +226,26 @@ func TestDecodeOTXHTTPResponseAvoidsJSONMapDecoding(t *testing.T) {
 	}
 	if string(resp.Body) != body {
 		t.Fatalf("body did not round-trip")
+	}
+}
+
+func TestParseObservedOTXFixture(t *testing.T) {
+	fixturePath := os.Getenv("OTX_RESPONSE_FIXTURE")
+	if fixturePath == "" {
+		t.Skip("set OTX_RESPONSE_FIXTURE to a captured OTX response")
+	}
+
+	body, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	page, err := parseOTXExportPage(body, Config{MaxIndicators: 2000})
+	if err != nil {
+		t.Fatalf("parseOTXPage: %v", err)
+	}
+	if page.Counts.Indicators == 0 {
+		t.Fatalf("indicators = 0")
 	}
 }
 
