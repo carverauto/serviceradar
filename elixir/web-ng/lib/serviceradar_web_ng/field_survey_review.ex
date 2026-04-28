@@ -52,7 +52,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           path_points: [map()],
           floorplan_segments: [map()],
           ap_summaries: [map()],
-          channel_scores: [map()]
+          channel_scores: [map()],
+          interferer_classifications: [map()]
         }
 
   @spec list_sessions(any(), keyword()) :: {:ok, [session_summary()]} | {:error, any()}
@@ -235,6 +236,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       Keyword.get(opts, :interference_raster) || build_interference_raster(interference_points, floorplan_segments)
 
     spectrum_waterfall = build_spectrum_waterfall(spectrum_rows)
+    interferer_classifications = build_interferer_classifications(spectrum_rows)
 
     ap_summaries = build_ap_summaries(rf_matches)
 
@@ -264,7 +266,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         waterfall_bin_count: Map.get(spectrum_waterfall, :bin_count, 0),
         floorplan_segment_count: length(floorplan_segments),
         ap_count: length(ap_summaries),
-        channel_count: length(channel_scores)
+        channel_count: length(channel_scores),
+        interferer_count: length(interferer_classifications)
       },
       bounds: bounds,
       wifi_points: project_points(wifi_points, bounds),
@@ -276,7 +279,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
       room_artifacts: Enum.map(room_artifacts, &room_artifact_summary/1),
       ap_summaries: project_ap_summaries(ap_summaries, bounds),
-      channel_scores: channel_scores
+      channel_scores: channel_scores,
+      interferer_classifications: interferer_classifications
     }
   end
 
@@ -1213,6 +1217,105 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       max_power_dbm: rows |> Enum.flat_map(& &1.bins) |> Enum.map(& &1.power_dbm) |> Enum.max(fn -> nil end)
     }
   end
+
+  defp build_interferer_classifications(spectrum_rows) do
+    spectrum_rows
+    |> Enum.map(&classify_spectrum_row/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(& &1.kind)
+    |> Enum.map(fn {kind, events} ->
+      peak = Enum.max_by(events, & &1.peak_power_dbm)
+
+      %{
+        kind: kind,
+        label: interferer_label(kind),
+        description: interferer_description(kind),
+        severity: events |> Enum.map(& &1.severity) |> Enum.max(fn -> 0 end),
+        event_count: length(events),
+        peak_power_dbm: peak.peak_power_dbm,
+        peak_frequency_mhz: peak.peak_frequency_mhz,
+        average_active_fraction: average_maps(events, :active_fraction),
+        average_excess_db: average_maps(events, :average_excess_db),
+        last_seen_unix_nanos: events |> Enum.map(& &1.captured_at_unix_nanos) |> Enum.max(fn -> nil end)
+      }
+    end)
+    |> Enum.sort_by(& &1.severity, :desc)
+  end
+
+  defp classify_spectrum_row(row) do
+    powers = field(row, :power_bins_dbm) || []
+
+    with [_ | _] <- powers,
+         baseline when is_number(baseline) <- percentile(powers, 0.5),
+         average_power when is_number(average_power) <- average_numbers(powers) do
+      peak_power = Enum.max(powers)
+      peak_index = Enum.find_index(powers, &(&1 == peak_power)) || 0
+      active_threshold = max(baseline + 8.0, -82.0)
+      active_bins = Enum.count(powers, &(&1 >= active_threshold))
+      active_fraction = active_bins / max(length(powers), 1)
+      peak_excess = peak_power - baseline
+      average_excess = average_power - baseline
+
+      kind =
+        cond do
+          active_fraction >= 0.35 and average_excess >= 5.0 ->
+            :broad_continuous_noise
+
+          active_fraction <= 0.10 and peak_excess >= 16.0 ->
+            :narrow_spike
+
+          active_fraction < 0.35 and peak_excess >= 10.0 ->
+            :bursty_activity
+
+          true ->
+            nil
+        end
+
+      if is_nil(kind) do
+        nil
+      else
+        %{
+          kind: kind,
+          severity: interferer_severity(kind, active_fraction, peak_excess, average_excess),
+          active_fraction: active_fraction,
+          average_excess_db: average_excess,
+          peak_power_dbm: peak_power,
+          baseline_power_dbm: baseline,
+          peak_frequency_mhz: peak_frequency_mhz(row, peak_index),
+          captured_at_unix_nanos: field(row, :captured_at_unix_nanos)
+        }
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp interferer_severity(:broad_continuous_noise, active_fraction, peak_excess, average_excess) do
+    normalize_interferer_severity(active_fraction * 70.0 + average_excess * 3.0 + peak_excess)
+  end
+
+  defp interferer_severity(:narrow_spike, active_fraction, peak_excess, _average_excess) do
+    normalize_interferer_severity(peak_excess * 3.8 + (1.0 - active_fraction) * 18.0)
+  end
+
+  defp interferer_severity(:bursty_activity, active_fraction, peak_excess, average_excess) do
+    normalize_interferer_severity(peak_excess * 2.7 + average_excess * 2.0 + active_fraction * 45.0)
+  end
+
+  defp normalize_interferer_severity(value), do: value |> min(100.0) |> max(0.0) |> round()
+
+  defp interferer_label(:broad_continuous_noise), do: "Broad continuous noise"
+  defp interferer_label(:narrow_spike), do: "Narrow spike"
+  defp interferer_label(:bursty_activity), do: "Bursty activity"
+
+  defp interferer_description(:broad_continuous_noise),
+    do: "Wide RF energy across many bins, consistent with a high noise floor or broadband interferer."
+
+  defp interferer_description(:narrow_spike),
+    do: "Strong energy concentrated into a small frequency slice, consistent with a narrowband interferer."
+
+  defp interferer_description(:bursty_activity),
+    do: "Intermittent elevated RF energy, consistent with bursty emitters such as Bluetooth or Zigbee-like traffic."
 
   defp waterfall_row(row) do
     powers = field(row, :power_bins_dbm) || []
