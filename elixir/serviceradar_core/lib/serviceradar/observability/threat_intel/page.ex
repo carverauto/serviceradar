@@ -112,6 +112,46 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
 
   def source_object_attrs(_page, _observed_at, _opts), do: []
 
+  @doc """
+  Builds latest sync-status attrs for a provider page and plugin/core run.
+  """
+  @spec sync_status_attrs(t(), map(), map(), DateTime.t()) :: map()
+  def sync_status_attrs(%__MODULE__{} = page, status, payload, observed_at)
+      when is_map(status) and is_map(payload) and is_struct(observed_at, DateTime) do
+    last_status =
+      normalize_status(
+        string_value(payload, ["status"]) || string_value(status, [:status, "status"])
+      )
+
+    success? = last_status in ["ok", "success"]
+
+    %{
+      provider: page.provider,
+      source: page.source,
+      collection_id: page.collection_id || "",
+      agent_id: string_value(status, [:agent_id, "agent_id"]) || "",
+      gateway_id: string_value(status, [:gateway_id, "gateway_id"]) || "",
+      plugin_id: string_value(status, [:plugin_id, "plugin_id"]) || "",
+      execution_mode:
+        string_value(page.raw, ["execution_mode", "executionMode"]) || "edge_plugin",
+      last_status: last_status,
+      last_message: string_value(payload, ["summary", "message"]),
+      last_error:
+        if(success?, do: nil, else: string_value(payload, ["summary", "message", "error"])),
+      last_attempt_at: observed_at,
+      last_success_at: if(success?, do: observed_at),
+      last_failure_at: if(success?, do: nil, else: observed_at),
+      objects_count: count_value(page, ["objects"]),
+      indicators_count: count_value(page, ["indicators"]),
+      skipped_count: count_value(page, ["skipped", "skipped_indicators", "skippedIndicators"]),
+      total_count: count_value(page, ["total"]),
+      cursor: page.cursor,
+      metadata: sync_metadata(page, status, payload)
+    }
+  end
+
+  def sync_status_attrs(_page, _status, _payload, _observed_at), do: %{}
+
   defp normalize_indicator(entry, page, observed_at) when is_map(entry) do
     with indicator when is_binary(indicator) and indicator != "" <-
            string_value(entry, ["indicator", "value"]),
@@ -234,6 +274,38 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
   defp label_for(entry, page) do
     string_value(entry, ["label", "title", "pulse_name", "pulseName"]) ||
       page.collection_id
+  end
+
+  defp count_value(%__MODULE__{} = page, keys) do
+    case int_value(page.counts, keys) do
+      value when is_integer(value) -> value
+      _ -> 0
+    end
+  end
+
+  defp normalize_status(nil), do: "unknown"
+
+  defp normalize_status(status) when is_binary(status) do
+    status
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> "unknown"
+      "healthy" -> "ok"
+      "up" -> "ok"
+      "warning" -> "warn"
+      other -> other
+    end
+  end
+
+  defp sync_metadata(page, status, payload) do
+    drop_nil_values(%{
+      "schema_version" => page.schema_version,
+      "service_name" => string_value(status, [:service_name, "service_name"]),
+      "service_type" => string_value(status, [:service_type, "service_type"]),
+      "partition" => string_value(status, [:partition, "partition"]),
+      "labels" => map_value(payload, ["labels", "label"])
+    })
   end
 
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do

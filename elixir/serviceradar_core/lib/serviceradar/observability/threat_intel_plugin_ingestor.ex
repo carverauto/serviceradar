@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelSourceObject
+  alias ServiceRadar.Observability.ThreatIntelSyncStatus
 
   require Logger
 
@@ -44,7 +45,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         :ok
 
       page when is_map(page) ->
-        do_ingest(page, status, actor, observed_at)
+        do_ingest(page, payload, status, actor, observed_at)
 
       _ ->
         Logger.warning("Ignoring invalid plugin threat-intel payload")
@@ -58,8 +59,12 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   def ingest(_payload, _status, _opts), do: :ok
 
-  defp do_ingest(page, status, actor, observed_at) do
+  defp do_ingest(page, payload, status, actor, observed_at) do
     threat_intel_page = Page.from_map(page, status)
+
+    threat_intel_page
+    |> Page.sync_status_attrs(status, payload, observed_at)
+    |> upsert_sync_status(actor)
 
     threat_intel_page
     |> Page.source_object_attrs(observed_at, max_objects: @max_indicators_per_page)
@@ -130,6 +135,28 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         :error
     end
   end
+
+  defp upsert_sync_status(attrs, actor) when is_map(attrs) and map_size(attrs) > 0 do
+    case Ash.create(ThreatIntelSyncStatus, attrs,
+           action: :upsert,
+           actor: actor,
+           domain: ServiceRadar.Observability
+         ) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Plugin threat-intel sync status upsert failed",
+          source: attrs.source,
+          collection_id: attrs.collection_id,
+          reason: inspect(reason)
+        )
+
+        :error
+    end
+  end
+
+  defp upsert_sync_status(_attrs, _actor), do: :ok
 
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, fn key ->
