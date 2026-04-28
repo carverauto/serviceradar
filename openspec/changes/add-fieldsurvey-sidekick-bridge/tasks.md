@@ -50,7 +50,7 @@
 - [x] 6.7 Keep `hackrf_sweep` for broad 2.4/5 GHz survey mode; defer optional raw-IQ/rustfft analyzer work until focused channel classification needs raw samples.
 - [x] 6.8 Apply temporal averaging and outlier rejection before feeding Wi-Fi RSSI and RF interference points into backend rasters.
 - [ ] 6.9 Add active survey hooks for latency/throughput tests that can be tied to the same LiDAR pose timeline.
-- [ ] 6.10 Add export/reporting surfaces for standard heatmap output and future ESX-like interchange.
+- [x] 6.10 Add export/reporting surfaces for standard heatmap output and future ESX-like interchange.
 
 ## 7. Live Survey UX, AP Placement, and Rasters
 - [x] 7.1 Expose Sidekick adaptive scan visibility: current weighted channel plan, spectrum-prioritized channels, per-channel observed BSSID counts, and stale/unseen channels.
