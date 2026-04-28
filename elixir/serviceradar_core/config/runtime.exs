@@ -637,6 +637,20 @@ if config_env() == :prod do
       partition: System.get_env("SERVICERADAR_OTX_PARTITION", "default")
   end
 
+  otx_raw_storage =
+    case System.get_env("SERVICERADAR_OTX_RAW_STORAGE", "file") do
+      "memory" -> :memory
+      _ -> :file
+    end
+
+  config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
+    jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
+    jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
+    jetstream_max_bucket_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES", nil),
+    jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
+    jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
+    jetstream_storage: otx_raw_storage
+
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id

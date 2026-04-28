@@ -21,7 +21,7 @@
 - [x] 3.6 Normalize OTX IPv4/IPv6/CIDR indicators into `ThreatIntelIndicator` rows.
 - [x] 3.7 Record skipped counts for unsupported OTX types such as URL, domain, hostname, and file hash until matching sources are implemented.
 - [x] 3.8 Record sync lifecycle status, counts, and redacted errors.
-- [ ] 3.9 Archive raw payload snapshots to NATS Object Store when enabled.
+- [x] 3.9 Archive raw payload snapshots to NATS Object Store when enabled.
 - [ ] 3.10 Optionally implement a generic TAXII 2.1 collection provider if approved for this slice.
 
 ## 4. Edge Wasm Collector
