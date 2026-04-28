@@ -108,6 +108,39 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     end
   end
 
+  @spec regenerate_coverage_rasters(any(), String.t(), keyword()) :: {:ok, review()} | {:error, any()}
+  def regenerate_coverage_rasters(scope, session_id, opts \\ []) when is_binary(session_id) do
+    rf_limit = Keyword.get(opts, :rf_limit, @default_session_limit)
+    pose_limit = Keyword.get(opts, :pose_limit, @default_session_limit)
+    spectrum_limit = Keyword.get(opts, :spectrum_limit, @default_spectrum_limit)
+    cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
+
+    with {:ok, rf_matches} <- read_rf_pose_matches(scope, session_id, rf_limit),
+         {:ok, pose_samples} <- read_pose_samples(scope, session_id, pose_limit),
+         {:ok, spectrum_rows} <- read_spectrum_rows(scope, session_id, spectrum_limit),
+         {:ok, room_artifacts} <- read_room_artifacts(scope, session_id) do
+      floorplan_segments = load_floorplan_segments(scope, session_id)
+      wifi_points = build_wifi_points(rf_matches, cell_size_m)
+      interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
+
+      review =
+        build_review(session_id, rf_matches, pose_samples, spectrum_rows,
+          cell_size_m: cell_size_m,
+          floorplan_segments: floorplan_segments,
+          room_artifacts: room_artifacts,
+          wifi_points: wifi_points,
+          wifi_raster: build_wifi_raster(rf_matches, floorplan_segments),
+          interference_points: interference_points,
+          interference_raster: build_interference_raster(interference_points, floorplan_segments)
+        )
+
+      case persist_coverage_rasters(scope, review) do
+        {:ok, _count} -> {:ok, review}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
   @spec spatial_samples(any(), keyword()) :: {:ok, [map()]} | {:error, any()}
   def spatial_samples(scope, opts \\ []) do
     limit = Keyword.get(opts, :limit, @default_spatial_limit)
@@ -438,30 +471,48 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp persisted_raster_cell(_cell), do: nil
 
   defp maybe_persist_coverage_rasters(scope, review) do
+    _result = persist_coverage_rasters(scope, review)
+    review
+  end
+
+  defp persist_coverage_rasters(scope, review) do
     user_id = scope_user_id(scope)
 
-    [
-      coverage_raster_attrs(
-        review,
-        user_id,
-        "wifi_rssi",
-        review.wifi_raster,
-        "wifi_point_count",
-        review.metrics.wifi_point_count
-      ),
-      coverage_raster_attrs(
-        review,
-        user_id,
-        "rf_interference",
-        review.interference_raster,
-        "interference_point_count",
-        review.metrics.interference_point_count
+    attrs =
+      Enum.reject(
+        [
+          coverage_raster_attrs(
+            review,
+            user_id,
+            "wifi_rssi",
+            review.wifi_raster,
+            "wifi_point_count",
+            review.metrics.wifi_point_count
+          ),
+          coverage_raster_attrs(
+            review,
+            user_id,
+            "rf_interference",
+            review.interference_raster,
+            "interference_point_count",
+            review.metrics.interference_point_count
+          )
+        ],
+        &is_nil/1
       )
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.each(&persist_coverage_raster(scope, &1))
 
-    review
+    if attrs == [] do
+      {:error, :no_raster_cells}
+    else
+      results = Enum.map(attrs, &persist_coverage_raster(scope, &1))
+      failures = Enum.count(results, &(&1 == :error))
+
+      if failures == 0 do
+        {:ok, length(results)}
+      else
+        {:error, {:raster_persistence_failed, failures}}
+      end
+    end
   end
 
   defp persist_coverage_raster(scope, attrs) do
