@@ -84,6 +84,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 ]}
               >
                 <div class="truncate text-sm font-semibold">{session.id}</div>
+                <div
+                  :if={session[:metadata] && session.metadata[:label]}
+                  class="mt-1 truncate text-xs text-primary/80"
+                >
+                  {session.metadata.label}
+                </div>
                 <div class="mt-1 flex items-center justify-between text-xs text-base-content/60">
                   <span>{format_time(session.last_seen)}</span>
                   <span>{session.rf_count} RF</span>

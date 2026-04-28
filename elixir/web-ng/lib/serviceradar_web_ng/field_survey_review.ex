@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadar.Spatial.SurveySpectrumObservation
   alias ServiceRadarWebNG.FieldSurveyFloorplan
+  alias ServiceRadarWebNG.FieldSurveySessionMetadata
 
   require Ash.Query
   require Logger
@@ -60,7 +61,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, rf_rows} <- read_rf_rows(scope, limit),
          {:ok, spectrum_rows} <- read_spectrum_rows(scope, limit) do
-      {:ok, build_session_summaries(rf_rows, spectrum_rows)}
+      {:ok, merge_session_metadata(scope, build_session_summaries(rf_rows, spectrum_rows))}
     end
   end
 
@@ -730,6 +731,21 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp base_session(session_id) do
     %{id: session_id, first_seen: nil, last_seen: nil, rf_count: 0, spectrum_count: 0, ap_set: MapSet.new()}
+  end
+
+  defp merge_session_metadata(scope, sessions) do
+    session_ids = Enum.map(sessions, & &1.id)
+
+    case FieldSurveySessionMetadata.for_sessions(scope, session_ids) do
+      {:ok, metadata_by_session} ->
+        Enum.map(sessions, fn session ->
+          Map.put(session, :metadata, Map.get(metadata_by_session, session.id))
+        end)
+
+      {:error, reason} ->
+        Logger.warning("FieldSurvey session metadata lookup failed: #{inspect(reason)}")
+        sessions
+    end
   end
 
   defp bump(session, key), do: Map.update!(session, key, &(&1 + 1))
