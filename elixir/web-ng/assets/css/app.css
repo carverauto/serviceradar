@@ -1645,12 +1645,8 @@
   inset: 0.85rem 1.15rem;
   width: calc(100% - 2.3rem);
   height: calc(100% - 1.7rem);
-  filter: blur(4px) saturate(1.22);
-  opacity: 0.94;
-}
-
-.sr-ops-field-survey-raster circle {
-  mix-blend-mode: screen;
+  filter: saturate(1.32);
+  opacity: 0.96;
 }
 
 .sr-ops-field-survey-floorplan {
@@ -1726,32 +1722,6 @@
 
 .sr-ops-heatmap-empty span {
   line-height: 1.25;
-}
-
-.sr-ops-heatmap-meta {
-  left: 0.95rem;
-  right: auto;
-  bottom: 0.55rem;
-  top: auto;
-  display: flex;
-  max-width: min(38rem, calc(100% - 1.9rem));
-  min-height: 0;
-  transform: none;
-  align-items: center;
-  gap: 0.95rem;
-  padding: 0.38rem 0.62rem;
-  border-color: rgba(30, 64, 111, 0.78);
-  background: rgba(2, 8, 23, 0.74);
-  text-align: left;
-}
-
-.sr-ops-heatmap-meta span:first-child {
-  max-width: 15rem;
-  overflow: hidden;
-  color: rgba(226, 232, 240, 0.92);
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sr-ops-camera-operations {

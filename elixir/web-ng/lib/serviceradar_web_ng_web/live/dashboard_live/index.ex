@@ -219,14 +219,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 role="img"
                 aria-label="Latest FieldSurvey Wi-Fi RSSI raster"
               >
-                <circle
-                  :for={cell <- @survey_summary.raster_cells}
-                  cx={cell.x_pct}
-                  cy={cell.z_pct}
-                  r={cell.radius_pct}
-                  fill={field_survey_rssi_color(cell.rssi)}
-                  opacity={field_survey_raster_opacity(cell)}
-                />
+                <defs>
+                  <filter
+                    id="fieldsurvey-heatmap-soften"
+                    x="-12"
+                    y="-12"
+                    width="124"
+                    height="124"
+                    filterUnits="userSpaceOnUse"
+                  >
+                    <feGaussianBlur stdDeviation="2.6" />
+                    <feComponentTransfer>
+                      <feFuncA type="gamma" amplitude="1.18" exponent="0.82" offset="0" />
+                    </feComponentTransfer>
+                  </filter>
+                </defs>
+                <g filter="url(#fieldsurvey-heatmap-soften)">
+                  <circle
+                    :for={cell <- @survey_summary.raster_cells}
+                    cx={cell.x_pct}
+                    cy={cell.z_pct}
+                    r={field_survey_raster_radius(cell)}
+                    fill={field_survey_rssi_color(cell.rssi)}
+                    opacity={field_survey_raster_opacity(cell)}
+                  />
+                </g>
               </svg>
               <div :if={@survey_summary.raster_cell_count == 0} class="sr-ops-floor-grid">
                 <span :for={_ <- 1..18}></span>
@@ -240,32 +257,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 <span>Survey overlays will render here when floorplan samples exist.</span>
               </div>
               <div
-                :if={@survey_summary.sample_count > 0 or @survey_summary.raster_cell_count > 0}
-                class={[
-                  "sr-ops-heatmap-empty",
-                  @survey_summary.raster_cell_count > 0 && "sr-ops-heatmap-meta",
-                  @survey_summary.raster_cell_count == 0 && "sr-ops-heatmap-summary"
-                ]}
+                :if={@survey_summary.sample_count > 0 and @survey_summary.raster_cell_count == 0}
+                class="sr-ops-heatmap-empty sr-ops-heatmap-summary"
                 data-testid="fieldsurvey-summary"
               >
-                <%= if @survey_summary.raster_cell_count > 0 do %>
-                  <span>Survey: {@survey_summary.raster_session_id}</span>
-                  <span>
-                    {@survey_summary.sample_count} samples · {@survey_summary.raster_cell_count} raster cells · {@survey_summary.avg_rssi} dBm avg
-                  </span>
-                <% else %>
-                  <.icon name="hero-wifi" class="size-8" />
-                  <p>
-                    <%= if @survey_summary.session_count > 0 do %>
-                      {@survey_summary.session_count} survey sessions
-                    <% else %>
-                      Persisted survey raster
-                    <% end %>
-                  </p>
-                  <span>
-                    {@survey_summary.sample_count} samples, {@survey_summary.avg_rssi} dBm average RSSI
-                  </span>
-                <% end %>
+                <.icon name="hero-wifi" class="size-8" />
+                <p>{@survey_summary.session_count} survey sessions</p>
+                <span>
+                  {@survey_summary.sample_count} samples, {@survey_summary.avg_rssi} dBm average RSSI
+                </span>
               </div>
             </div>
           </.panel>
@@ -682,10 +682,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp field_survey_rssi_color(rssi) when rssi >= -82, do: "#ff7d3f"
   defp field_survey_rssi_color(_rssi), do: "#ef4444"
 
+  defp field_survey_raster_radius(%{radius_pct: radius}) do
+    radius
+    |> max(2.6)
+    |> min(8.5)
+    |> Kernel.*(1.55)
+  end
+
   defp field_survey_raster_opacity(%{confidence: confidence, rssi: rssi}) do
     signal = min(max((rssi + 90.0) / 60.0, 0.0), 1.0)
     confidence = min(max(confidence, 0.15), 1.0)
-    0.24 + signal * 0.34 + confidence * 0.18
+    0.16 + signal * 0.18 + confidence * 0.16
   end
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
