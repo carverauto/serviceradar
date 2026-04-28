@@ -68,6 +68,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       |> normalize_reschedule_seconds()
 
     cache_ttl_seconds = Keyword.get(config, :cache_ttl_seconds, @default_cache_ttl_seconds)
+    threat_match_window_seconds = Keyword.get(config, :threat_match_window_seconds, 3_600)
 
     now = DateTime.utc_now()
     cache_expires_at = DateTime.add(now, cache_ttl_seconds, :second)
@@ -83,7 +84,15 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds))
       :ok
     else
-      maybe_refresh_threat(settings, actor, now, cache_expires_at, limit)
+      maybe_refresh_threat(
+        settings,
+        actor,
+        now,
+        cache_expires_at,
+        limit,
+        threat_match_window_seconds
+      )
+
       maybe_refresh_port_scan(settings, actor, now, cache_expires_at, limit)
       maybe_refresh_anomalies(settings, actor, now, cache_expires_at, limit)
 
@@ -103,10 +112,11 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          actor,
          now,
          expires_at,
-         limit
+         limit,
+         threat_match_window_seconds
        ) do
-    # Use flows to discover the IPs we should care about.
-    ips = discover_candidate_ips("last_1h", limit)
+    time_token = window_seconds_to_token(threat_match_window_seconds, fallback: "last_1h")
+    ips = discover_candidate_ips(time_token, limit)
 
     # For now, keep matching simple: if threat intel is enabled, mark IPs as matched if any
     # indicator contains the IP. We do the match via SQL for index-backed CIDR containment.
@@ -135,7 +145,14 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     )
   end
 
-  defp maybe_refresh_threat(_settings, _actor, _now, _expires_at, _limit), do: :skip
+  defp maybe_refresh_threat(
+         _settings,
+         _actor,
+         _now,
+         _expires_at,
+         _limit,
+         _threat_match_window_seconds
+       ), do: :skip
 
   defp maybe_refresh_port_scan(
          %NetflowSettings{

@@ -36,9 +36,9 @@
 - [x] 4.9 Display per-agent sync health for threat-intel collector assignments.
 
 ## 5. NetFlow Threat Matching
-- [ ] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
-- [ ] 5.2 Make the current/recent NetFlow match lookback configurable instead of hard-coded where needed.
-- [ ] 5.3 Ensure OTX/source names and max severity appear in `IpThreatIntelCache` results.
+- [x] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
+- [x] 5.2 Make the current/recent NetFlow match lookback configurable instead of hard-coded where needed.
+- [x] 5.3 Ensure OTX/source names and max severity appear in `IpThreatIntelCache` results.
 - [ ] 5.4 Surface OTX/TAXII/SIEM hit counts and source context in NetFlow analysis views.
 - [ ] 5.5 Make unsupported indicator types visible in sync status as imported/skipped but not NetFlow-match supported.
 
