@@ -50,6 +50,8 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.ThreatIntelIndicator
     resource ServiceRadar.Observability.ThreatIntelSourceObject
     resource ServiceRadar.Observability.ThreatIntelSyncStatus
+    resource ServiceRadar.Observability.OTXRetrohuntRun
+    resource ServiceRadar.Observability.OTXRetrohuntFinding
     resource ServiceRadar.Observability.IpThreatIntelCache
     resource ServiceRadar.Observability.NetflowPortScanFlag
     resource ServiceRadar.Observability.NetflowPortAnomalyFlag

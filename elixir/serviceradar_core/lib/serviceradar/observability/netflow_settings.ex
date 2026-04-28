@@ -290,7 +290,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     attribute :otx_retrohunt_window_seconds, :integer do
       allow_nil? false
-      default 604_800
+      default 7_776_000
       public? true
     end
 

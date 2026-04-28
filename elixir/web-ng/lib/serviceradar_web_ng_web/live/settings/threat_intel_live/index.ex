@@ -10,8 +10,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.OTXRetrohuntFinding
+  alias ServiceRadar.Observability.OTXRetrohuntRun
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelOTXSyncWorker
+  alias ServiceRadar.Observability.ThreatIntelRetrohuntWorker
   alias ServiceRadar.Observability.ThreatIntelSourceObject
   alias ServiceRadar.Observability.ThreatIntelSyncStatus
   alias ServiceRadar.Plugins.ConfigSchema
@@ -48,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "otx_max_indicators" => "2000",
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
-    "otx_retrohunt_window_seconds" => "604800",
+    "otx_retrohunt_window_seconds" => "7776000",
     "threat_intel_match_window_seconds" => "3600"
   }
 
@@ -151,6 +154,33 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     end
   end
 
+  def handle_event("retrohunt_now", _params, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "plugins.assign") do
+      opts =
+        case socket.assigns.otx_settings do
+          %NetflowSettings{otx_retrohunt_window_seconds: seconds, otx_max_indicators: limit} ->
+            [window_seconds: seconds, max_indicators: limit]
+
+          _ ->
+            []
+        end
+
+      case ThreatIntelRetrohuntWorker.enqueue_manual(opts) do
+        {:ok, _job} ->
+          {:noreply, put_flash(socket, :info, "OTX retrohunt queued")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply, put_flash(socket, :error, "Job scheduler is unavailable")}
+
+        {:error, error} ->
+          Logger.warning("Threat intel retrohunt enqueue failed", error: inspect(error))
+          {:noreply, put_flash(socket, :error, "Failed to queue OTX retrohunt")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Not authorized")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -175,9 +205,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
             <.link navigate={~p"/settings/agents/plugins"} class="btn btn-sm btn-ghost">
               Plugin Registry
             </.link>
-            <button type="button" class="btn btn-sm btn-primary" phx-click="sync_now">
-              Sync Now
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-sm btn-outline" phx-click="retrohunt_now">
+                Retrohunt Now
+              </button>
+              <button type="button" class="btn btn-sm btn-primary" phx-click="sync_now">
+                Sync Now
+              </button>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
@@ -322,6 +357,63 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     </table>
                   </div>
                 <% end %>
+              </div>
+
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 text-sm font-semibold">Retrohunt Runs</div>
+                <%= if @retrohunt_runs == [] do %>
+                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                    No retrohunt runs recorded.
+                  </div>
+                <% else %>
+                  <div class="divide-y divide-base-200">
+                    <%= for run <- @retrohunt_runs do %>
+                      <div class="py-3 first:pt-0 last:pb-0 space-y-2">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div class="font-mono text-sm">{run.source}</div>
+                            <div class="text-xs text-base-content/60">
+                              {format_datetime(run.window_start)} - {format_datetime(run.window_end)}
+                            </div>
+                          </div>
+                          <.ui_badge size="xs" variant={status_badge_variant(run.status)}>
+                            {run.status}
+                          </.ui_badge>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                          <.status_count label="Indicators" value={run.indicators_evaluated} />
+                          <.status_count label="Findings" value={run.findings_count} />
+                          <.status_count label="Unsupported" value={run.unsupported_count} />
+                          <.status_count label="Age" value={run_age_seconds(run)} />
+                        </div>
+                        <div :if={run.error} class="text-xs text-error">{run.error}</div>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <div :if={@retrohunt_findings != []} class="mt-4 overflow-x-auto">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Observed IP</th>
+                        <th>Indicator</th>
+                        <th>Direction</th>
+                        <th>Evidence</th>
+                        <th>Last Seen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr :for={finding <- @retrohunt_findings}>
+                        <td class="font-mono">{finding.observed_ip}</td>
+                        <td class="font-mono">{finding.indicator}</td>
+                        <td>{finding.direction}</td>
+                        <td>{finding.evidence_count}</td>
+                        <td>{format_datetime(finding.last_seen_at)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <div class="rounded-xl border border-base-200 bg-base-100 p-4">
@@ -747,6 +839,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> assign(:approved_package, approved_package)
     |> assign(:assignments, list_assignments(approved_package, scope))
     |> assign(:sync_statuses, list_sync_statuses(scope))
+    |> assign(:retrohunt_runs, list_retrohunt_runs(scope))
+    |> assign(:retrohunt_findings, list_retrohunt_findings(scope))
     |> assign(:netflow_findings, netflow_findings_summary(scope))
     |> assign(:indicators, list_indicators(scope))
     |> assign(:source_objects, list_source_objects(scope))
@@ -862,6 +956,32 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     _ -> []
   end
 
+  defp list_retrohunt_runs(scope) do
+    OTXRetrohuntRun
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(source == "alienvault_otx")
+    |> Ash.Query.limit(6)
+    |> Ash.Query.sort(started_at: :desc)
+    |> Ash.read!(scope: scope)
+  rescue
+    error ->
+      Logger.debug("Failed to load OTX retrohunt runs", error: inspect(error))
+      []
+  end
+
+  defp list_retrohunt_findings(scope) do
+    OTXRetrohuntFinding
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(source == "alienvault_otx")
+    |> Ash.Query.limit(12)
+    |> Ash.Query.sort(last_seen_at: :desc)
+    |> Ash.read!(scope: scope)
+  rescue
+    error ->
+      Logger.debug("Failed to load OTX retrohunt findings", error: inspect(error))
+      []
+  end
+
   defp list_indicators(scope) do
     ThreatIntelIndicator
     |> Ash.Query.for_read(:read)
@@ -918,7 +1038,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "otx_max_indicators" => to_string(settings.otx_max_indicators || 2_000),
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
-      "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 604_800),
+      "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 7_776_000),
       "threat_intel_match_window_seconds" => to_string(settings.threat_intel_match_window_seconds || 3_600)
     }
   end
@@ -938,7 +1058,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 2_000, 1, 5_000),
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
-      otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 604_800),
+      otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 7_776_000),
       threat_intel_match_window_seconds: to_int(Map.get(params, "threat_intel_match_window_seconds"), 3_600),
       clear_otx_api_key: truthy_param?(Map.get(params, "clear_otx_api_key"))
     }
@@ -1125,6 +1245,16 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp format_optional_int(nil), do: "-"
   defp format_optional_int(value), do: to_string(value)
+
+  defp run_age_seconds(%OTXRetrohuntRun{started_at: %DateTime{} = started_at, finished_at: %DateTime{} = finished_at}) do
+    max(DateTime.diff(finished_at, started_at, :second), 0)
+  end
+
+  defp run_age_seconds(%OTXRetrohuntRun{started_at: %DateTime{} = started_at}) do
+    max(DateTime.diff(DateTime.utc_now(), started_at, :second), 0)
+  end
+
+  defp run_age_seconds(_run), do: 0
 
   defp truthy(true), do: true
   defp truthy("true"), do: true
