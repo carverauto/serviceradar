@@ -52,6 +52,8 @@ config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWork
   reschedule_seconds: 86_400,
   cache_ttl_seconds: 86_400
 
+config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker, []
+
 # Plugin blob storage download configuration (used to generate signed download URLs)
 config :serviceradar_core, :plugin_storage,
   public_url: nil,
