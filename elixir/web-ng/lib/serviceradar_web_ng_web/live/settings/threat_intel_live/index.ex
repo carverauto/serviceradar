@@ -492,7 +492,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     key saved
                   </.ui_badge>
                 </div>
-                <form phx-change="settings_change" phx-submit="save_settings" class="space-y-3">
+                <form
+                  id="otx-settings-form"
+                  phx-change="settings_change"
+                  phx-submit="save_settings"
+                  class="space-y-3"
+                >
                   <div class="grid grid-cols-2 gap-3">
                     <label class="flex items-center gap-2 text-sm">
                       <input type="hidden" name="settings[otx_enabled]" value="false" />
@@ -645,7 +650,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
               <div class="rounded-xl border border-base-200 bg-base-100 p-4">
                 <div class="mb-3 text-sm font-semibold">OTX Assignment</div>
-                <form phx-change="assignment_change" phx-submit="save_assignment" class="space-y-3">
+                <form
+                  id="otx-assignment-form"
+                  phx-change="assignment_change"
+                  phx-submit="save_assignment"
+                  class="space-y-3"
+                >
                   <div>
                     <label class="label">
                       <span class="label-text">Agent</span>

@@ -6,9 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,6 +200,155 @@ func TestDuskCheckerWithConfig(t *testing.T) {
 	const expectedStatus = "CRITICAL"
 	if status != expectedStatus {
 		t.Logf("Expected %s status (no server), got %s", expectedStatus, status)
+	}
+}
+
+func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
+	wasmPath := os.Getenv("OTX_WASM_PATH")
+	if wasmPath == "" {
+		t.Skip("set OTX_WASM_PATH to alienvault-otx plugin.wasm")
+	}
+
+	if _, err := os.Stat(wasmPath); err != nil {
+		t.Skipf("wasm file not found at %s", wasmPath)
+	}
+
+	const apiKey = "runtime-test-api-key"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/pulses/subscribed" {
+			t.Fatalf("unexpected OTX path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-OTX-API-KEY"); got != apiKey {
+			t.Fatalf("unexpected OTX API key header: %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"count": 1,
+			"next": null,
+			"previous": null,
+			"results": [{
+				"id": "pulse-runtime-1",
+				"name": "Runtime Pulse",
+				"author_name": "serviceradar-test",
+				"TLP": "white",
+				"tags": ["runtime"],
+				"references": ["https://example.invalid/pulse-runtime-1"],
+				"created": "2026-04-27T10:00:00.000000",
+				"modified": "2026-04-27T11:00:00.000000",
+				"indicators": [
+					{"indicator": "198.51.100.25", "type": "IPv4", "title": "C2 host"},
+					{"indicator": "203.0.113.0/24", "type": "CIDR", "title": "Scanner range"},
+					{"indicator": "example.invalid", "type": "domain", "title": "Skipped domain"}
+				]
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	port, err := strconv.Atoi(serverURL.Port())
+	if err != nil {
+		t.Fatalf("parse test server port: %v", err)
+	}
+
+	configJSON, err := json.Marshal(map[string]interface{}{
+		"base_url":       server.URL,
+		"api_key":        apiKey,
+		"limit":          10,
+		"page":           1,
+		"timeout_ms":     5000,
+		"max_indicators": 10,
+	})
+	if err != nil {
+		t.Fatalf("marshal plugin config: %v", err)
+	}
+
+	wasm, err := os.ReadFile(wasmPath)
+	if err != nil {
+		t.Fatalf("read wasm: %v", err)
+	}
+
+	manager := NewPluginManager(context.Background(), PluginManagerConfig{
+		Logger: logger.NewTestLogger(),
+	})
+	defer manager.Stop()
+
+	assignment := &pluginAssignment{
+		AssignmentID: "otx-runtime-test",
+		PluginID:     "alienvault-otx-threat-intel",
+		Name:         "AlienVault OTX Threat Intel",
+		Entrypoint:   "run_check",
+		Runtime:      "wasi-preview1",
+		ParamsJSON:   configJSON,
+		Capabilities: map[string]bool{
+			"get_config":    true,
+			"log":           true,
+			"submit_result": true,
+			"http_request":  true,
+		},
+		Permissions: pluginPermissions{
+			AllowedDomains: []string{serverURL.Hostname()},
+			AllowedPorts:   []int{port},
+		},
+		Resources: pluginResources{
+			RequestedMemoryMB:  64,
+			MaxOpenConnections: 1,
+		},
+		Timeout: 10 * time.Second,
+	}
+	assignment.Permissions.normalize()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+		t.Fatalf("executeWithWasm: %v", err)
+	}
+
+	results := manager.DrainResults(1)
+	if len(results) == 0 {
+		t.Fatalf("expected OTX plugin result, got none")
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(results[0].Payload, &result); err != nil {
+		t.Fatalf("unmarshal plugin result: %v\n%s", err, string(results[0].Payload))
+	}
+	if result["status"] != "OK" {
+		t.Fatalf("status = %v, want OK; payload=%s", result["status"], string(results[0].Payload))
+	}
+	if got, _ := result["summary"].(string); !strings.Contains(got, "2 indicators") {
+		t.Fatalf("summary = %q, want indicator count", got)
+	}
+
+	detailsRaw, _ := result["details"].(string)
+	if detailsRaw == "" {
+		t.Fatalf("missing threat-intel details in payload: %s", string(results[0].Payload))
+	}
+
+	var details map[string]interface{}
+	if err := json.Unmarshal([]byte(detailsRaw), &details); err != nil {
+		t.Fatalf("unmarshal details: %v\n%s", err, detailsRaw)
+	}
+
+	threatIntel, ok := details["threat_intel"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("missing threat_intel page: %#v", details)
+	}
+
+	indicators, ok := threatIntel["indicators"].([]interface{})
+	if !ok || len(indicators) != 2 {
+		t.Fatalf("indicators = %#v, want two normalized IP/CIDR indicators", threatIntel["indicators"])
+	}
+
+	payloadText := string(results[0].Payload)
+	if strings.Contains(payloadText, apiKey) {
+		t.Fatalf("plugin result leaked API key: %s", payloadText)
 	}
 }
 
