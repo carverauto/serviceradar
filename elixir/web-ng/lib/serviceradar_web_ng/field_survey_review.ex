@@ -551,9 +551,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       max_z: bounds.max_z,
       columns: columns,
       rows: rows,
-      cells: %{"cells" => cells},
+      cells: %{"cells" => cells, "surface_svg" => coverage_surface_svg(cells, overlay_type)},
       metadata: %{
         "algorithm" => "rbf_kernel_raster_v1",
+        "surface_algorithm" => "svg_kernel_surface_v1",
         "masked_by" => "floorplan_convex_hull",
         "cell_count" => length(cells),
         count_key => source_count
@@ -577,6 +578,74 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       "count" => cell.count
     }
   end
+
+  defp coverage_surface_svg(cells, overlay_type) do
+    cells =
+      cells
+      |> Enum.filter(&(is_number(Map.get(&1, "x_pct")) and is_number(Map.get(&1, "z_pct"))))
+      |> Enum.sort_by(&(Map.get(&1, "confidence") || 0.0), :desc)
+      |> Enum.take(900)
+
+    circles =
+      Enum.map_join(cells, "\n", fn cell ->
+        value = Map.get(cell, if(overlay_type == "rf_interference", do: "score", else: "rssi"))
+        radius = surface_radius_pct(cell)
+        color = surface_color(value, overlay_type)
+        opacity = surface_opacity(cell, value, overlay_type)
+
+        ~s(<circle cx="#{surface_number(cell["x_pct"])}" cy="#{surface_number(cell["z_pct"])}" r="#{surface_number(radius)}" fill="#{color}" opacity="#{surface_number(opacity)}"/>)
+      end)
+
+    """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <defs>
+        <filter id="heat-soften" x="-12" y="-12" width="124" height="124" filterUnits="userSpaceOnUse">
+          <feGaussianBlur stdDeviation="2.8"/>
+          <feComponentTransfer>
+            <feFuncA type="gamma" amplitude="1.22" exponent="0.8" offset="0"/>
+          </feComponentTransfer>
+        </filter>
+      </defs>
+      <g filter="url(#heat-soften)">
+    #{circles}
+      </g>
+    </svg>
+    """
+  end
+
+  defp surface_radius_pct(cell) do
+    cell
+    |> Map.get("radius_pct", 3.0)
+    |> number_or_default(3.0)
+    |> max(2.6)
+    |> min(8.5)
+    |> Kernel.*(1.55)
+  end
+
+  defp surface_opacity(cell, value, "rf_interference") do
+    confidence = cell |> Map.get("confidence", 0.5) |> number_or_default(0.5) |> min(1.0) |> max(0.15)
+    intensity = (number_or_default(value, 0.0) / 100.0) |> min(1.0) |> max(0.0)
+    0.12 + intensity * 0.26 + confidence * 0.14
+  end
+
+  defp surface_opacity(cell, value, _overlay_type) do
+    confidence = cell |> Map.get("confidence", 0.5) |> number_or_default(0.5) |> min(1.0) |> max(0.15)
+    signal = ((number_or_default(value, -90.0) + 90.0) / 60.0) |> min(1.0) |> max(0.0)
+    0.16 + signal * 0.18 + confidence * 0.16
+  end
+
+  defp surface_color(score, "rf_interference") when is_number(score) and score >= 75, do: "#ef4444"
+  defp surface_color(score, "rf_interference") when is_number(score) and score >= 55, do: "#f97316"
+  defp surface_color(score, "rf_interference") when is_number(score) and score >= 35, do: "#facc15"
+  defp surface_color(_score, "rf_interference"), do: "#22c55e"
+  defp surface_color(rssi, _overlay_type) when is_number(rssi) and rssi >= -55, do: "#5fd38a"
+  defp surface_color(rssi, _overlay_type) when is_number(rssi) and rssi >= -65, do: "#8bd94f"
+  defp surface_color(rssi, _overlay_type) when is_number(rssi) and rssi >= -75, do: "#ffd25a"
+  defp surface_color(rssi, _overlay_type) when is_number(rssi) and rssi >= -82, do: "#ff7d3f"
+  defp surface_color(_rssi, _overlay_type), do: "#ef4444"
+
+  defp surface_number(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 3)
+  defp surface_number(_value), do: "0.000"
 
   defp inferred_cell_size_m([cell | _]), do: max((cell.radius_m || @default_raster_cell_size_m * 0.72) / 0.72, 0.01)
   defp inferred_cell_size_m([]), do: @default_raster_cell_size_m

@@ -920,16 +920,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           raw_cells = map_value(cells || %{}, "cells") || []
           floorplan_segments = latest_dashboard_floorplan_segments(session_id, min_x, max_x, min_z, max_z)
 
+          raster_cells =
+            raw_cells
+            |> Enum.map(&dashboard_raster_cell(&1, min_x, max_x, min_z, max_z))
+            |> Enum.reject(&is_nil/1)
+            |> Enum.sort_by(& &1.confidence, :desc)
+            |> Enum.take(900)
+
+          surface_svg = map_value(cells || %{}, "surface_svg") || dashboard_surface_svg(raster_cells)
+
           %{
             raster_session_id: session_id,
             raster_generated_at: generated_at,
             raster_cell_count: length(raw_cells),
-            raster_cells:
-              raw_cells
-              |> Enum.map(&dashboard_raster_cell(&1, min_x, max_x, min_z, max_z))
-              |> Enum.reject(&is_nil/1)
-              |> Enum.sort_by(& &1.confidence, :desc)
-              |> Enum.take(900),
+            raster_cells: raster_cells,
+            raster_surface_data_uri: svg_data_uri(surface_svg),
             floorplan_segment_count: length(floorplan_segments),
             floorplan_segments: floorplan_segments,
             raster_metadata: metadata || %{}
@@ -954,12 +959,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
          true <- is_number(z),
          true <- is_number(rssi) do
       x_pct = map_value(cell, "x_pct") || percent_between(x, min_x, max_x)
-      z_pct = map_value(cell, "z_pct") || percent_between(z, min_z, max_z)
+      z_pct = map_value(cell, "z_pct") || 100.0 - percent_between(z, min_z, max_z)
       radius_pct = map_value(cell, "radius_pct") || 3.0
 
       %{
         x_pct: clamp(to_float(x_pct), 0.0, 100.0),
-        z_pct: 100.0 - clamp(to_float(z_pct), 0.0, 100.0),
+        z_pct: clamp(to_float(z_pct), 0.0, 100.0),
         radius_pct: clamp(to_float(radius_pct), 1.6, 7.0),
         rssi: Float.round(to_float(rssi), 1),
         confidence: clamp(to_float(map_value(cell, "confidence") || 0.5), 0.15, 1.0)
@@ -970,6 +975,59 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp dashboard_raster_cell(_cell, _min_x, _max_x, _min_z, _max_z), do: nil
+
+  defp dashboard_surface_svg([]), do: nil
+
+  defp dashboard_surface_svg(cells) do
+    circles =
+      Enum.map_join(cells, "\n", fn cell ->
+        ~s(<circle cx="#{svg_number(cell.x_pct)}" cy="#{svg_number(cell.z_pct)}" r="#{svg_number(dashboard_surface_radius(cell))}" fill="#{dashboard_surface_color(cell.rssi)}" opacity="#{svg_number(dashboard_surface_opacity(cell))}"/>)
+      end)
+
+    """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <defs>
+        <filter id="heat-soften" x="-12" y="-12" width="124" height="124" filterUnits="userSpaceOnUse">
+          <feGaussianBlur stdDeviation="2.8"/>
+          <feComponentTransfer>
+            <feFuncA type="gamma" amplitude="1.22" exponent="0.8" offset="0"/>
+          </feComponentTransfer>
+        </filter>
+      </defs>
+      <g filter="url(#heat-soften)">
+    #{circles}
+      </g>
+    </svg>
+    """
+  end
+
+  defp svg_data_uri(svg) when is_binary(svg) and byte_size(svg) > 0 do
+    "data:image/svg+xml;base64,#{Base.encode64(svg)}"
+  end
+
+  defp svg_data_uri(_svg), do: nil
+
+  defp dashboard_surface_radius(cell) do
+    cell.radius_pct
+    |> max(2.6)
+    |> min(8.5)
+    |> Kernel.*(1.55)
+  end
+
+  defp dashboard_surface_opacity(%{confidence: confidence, rssi: rssi}) do
+    signal = min(max((rssi + 90.0) / 60.0, 0.0), 1.0)
+    confidence = min(max(confidence, 0.15), 1.0)
+    0.16 + signal * 0.18 + confidence * 0.16
+  end
+
+  defp dashboard_surface_color(rssi) when rssi >= -55, do: "#5fd38a"
+  defp dashboard_surface_color(rssi) when rssi >= -65, do: "#8bd94f"
+  defp dashboard_surface_color(rssi) when rssi >= -75, do: "#ffd25a"
+  defp dashboard_surface_color(rssi) when rssi >= -82, do: "#ff7d3f"
+  defp dashboard_surface_color(_rssi), do: "#ef4444"
+
+  defp svg_number(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 3)
+  defp svg_number(_value), do: "0.000"
 
   defp latest_dashboard_floorplan_segments(session_id, min_x, max_x, min_z, max_z) do
     if relation_exists?("platform.survey_room_artifacts") do
@@ -1658,6 +1716,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       raster_generated_at: nil,
       raster_cell_count: 0,
       raster_cells: [],
+      raster_surface_data_uri: nil,
       floorplan_segment_count: 0,
       floorplan_segments: [],
       raster_metadata: %{}

@@ -211,40 +211,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   class={"sr-ops-floorplan-line sr-ops-floorplan-line-#{segment.kind}"}
                 />
               </svg>
-              <svg
-                :if={@survey_summary.raster_cell_count > 0}
+              <img
+                :if={@survey_summary.raster_surface_data_uri}
                 class="sr-ops-field-survey-raster"
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-                role="img"
-                aria-label="Latest FieldSurvey Wi-Fi RSSI raster"
-              >
-                <defs>
-                  <filter
-                    id="fieldsurvey-heatmap-soften"
-                    x="-12"
-                    y="-12"
-                    width="124"
-                    height="124"
-                    filterUnits="userSpaceOnUse"
-                  >
-                    <feGaussianBlur stdDeviation="2.6" />
-                    <feComponentTransfer>
-                      <feFuncA type="gamma" amplitude="1.18" exponent="0.82" offset="0" />
-                    </feComponentTransfer>
-                  </filter>
-                </defs>
-                <g filter="url(#fieldsurvey-heatmap-soften)">
-                  <circle
-                    :for={cell <- @survey_summary.raster_cells}
-                    cx={cell.x_pct}
-                    cy={cell.z_pct}
-                    r={field_survey_raster_radius(cell)}
-                    fill={field_survey_rssi_color(cell.rssi)}
-                    opacity={field_survey_raster_opacity(cell)}
-                  />
-                </g>
-              </svg>
+                src={@survey_summary.raster_surface_data_uri}
+                alt="Latest FieldSurvey Wi-Fi RSSI raster"
+              />
               <div :if={@survey_summary.raster_cell_count == 0} class="sr-ops-floor-grid">
                 <span :for={_ <- 1..18}></span>
               </div>
@@ -675,25 +647,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp normalize_map_view(_), do: "netflow"
 
   defp map_panel_title(_), do: "NetFlow Map"
-
-  defp field_survey_rssi_color(rssi) when rssi >= -55, do: "#5fd38a"
-  defp field_survey_rssi_color(rssi) when rssi >= -65, do: "#8bd94f"
-  defp field_survey_rssi_color(rssi) when rssi >= -75, do: "#ffd25a"
-  defp field_survey_rssi_color(rssi) when rssi >= -82, do: "#ff7d3f"
-  defp field_survey_rssi_color(_rssi), do: "#ef4444"
-
-  defp field_survey_raster_radius(%{radius_pct: radius}) do
-    radius
-    |> max(2.6)
-    |> min(8.5)
-    |> Kernel.*(1.55)
-  end
-
-  defp field_survey_raster_opacity(%{confidence: confidence, rssi: rssi}) do
-    signal = min(max((rssi + 90.0) / 60.0, 0.0), 1.0)
-    confidence = min(max(confidence, 0.15), 1.0)
-    0.16 + signal * 0.18 + confidence * 0.16
-  end
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 

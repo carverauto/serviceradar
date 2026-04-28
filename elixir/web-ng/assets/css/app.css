@@ -1643,8 +1643,10 @@
   position: absolute;
   z-index: 3;
   inset: 0.85rem 1.15rem;
+  display: block;
   width: calc(100% - 2.3rem);
   height: calc(100% - 1.7rem);
+  object-fit: fill;
   filter: saturate(1.32);
   opacity: 0.96;
 }
