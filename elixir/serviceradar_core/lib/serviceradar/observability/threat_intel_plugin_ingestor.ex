@@ -16,6 +16,28 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   @max_indicators_per_page 5_000
   @default_source "plugin_threat_intel"
 
+  @doc false
+  @spec normalize_indicators(map(), map(), DateTime.t()) :: [map()]
+  def normalize_indicators(payload, status, observed_at)
+      when is_map(payload) and is_map(status) and is_struct(observed_at, DateTime) do
+    case extract_page(payload) do
+      page when is_map(page) ->
+        source = source_for(page, status)
+
+        page
+        |> list_value(["indicators"])
+        |> Enum.take(@max_indicators_per_page)
+        |> Enum.map(&normalize_indicator(&1, page, source, observed_at))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(&{&1.source, &1.indicator})
+
+      _ ->
+        []
+    end
+  end
+
+  def normalize_indicators(_payload, _status, _observed_at), do: []
+
   @spec ingest(map(), map(), keyword()) :: :ok
   def ingest(payload, status, opts \\ [])
 
@@ -43,14 +65,8 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   def ingest(_payload, _status, _opts), do: :ok
 
   defp do_ingest(page, status, actor, observed_at) do
-    source = source_for(page, status)
-    indicators = list_value(page, ["indicators"])
-
-    indicators
-    |> Enum.take(@max_indicators_per_page)
-    |> Enum.map(&normalize_indicator(&1, page, source, observed_at))
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq_by(&{&1.source, &1.indicator})
+    %{"threat_intel" => page}
+    |> normalize_indicators(status, observed_at)
     |> Enum.each(&upsert_indicator(&1, actor))
 
     :ok
@@ -153,7 +169,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
           trimmed -> trimmed
         end
 
-      value when is_atom(value) ->
+      value when is_atom(value) and not is_nil(value) ->
         Atom.to_string(value)
 
       value when is_integer(value) ->
