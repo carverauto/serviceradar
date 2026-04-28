@@ -99,61 +99,63 @@ type ctiIndicator struct {
 
 //export run_check
 func run_check() {
-	_ = sdk.Execute(func() (*sdk.Result, error) {
-		primeTinyGoJSON()
+	primeTinyGoJSON()
 
-		cfg := defaultConfig()
-		if err := sdk.LoadConfig(&cfg); err != nil {
-			return sdk.Unknown("OTX configuration could not be loaded"), nil
-		}
+	status, summary, details := runOTXCheck()
+	if err := submitPluginResult(status, summary, details); err != nil {
+		sdk.Log.Error("failed to submit OTX plugin result")
+	}
+}
 
-		cfg.applyDefaults()
-		if strings.TrimSpace(cfg.APIKey) == "" {
-			return sdk.Unknown("OTX API key is not configured"), nil
-		}
+func runOTXCheck() (string, string, string) {
+	cfg := defaultConfig()
+	if err := sdk.LoadConfig(&cfg); err != nil {
+		return string(sdk.StatusUnknown), "OTX configuration could not be loaded", ""
+	}
 
-		apiURL, err := subscribedPulsesURL(cfg)
-		if err != nil {
-			return sdk.Unknown("OTX base URL is invalid"), nil
-		}
+	cfg.applyDefaults()
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return string(sdk.StatusUnknown), "OTX API key is not configured", ""
+	}
 
-		resp, err := sdk.HTTP.DoContext(context.Background(), sdk.HTTPRequest{
-			Method: http.MethodGet,
-			URL:    apiURL,
-			Headers: map[string]string{
-				"accept":        "application/json",
-				"X-OTX-API-KEY": cfg.APIKey,
-			},
-			TimeoutMS: cfg.TimeoutMS,
-		})
-		if err != nil {
-			return sdk.Critical("OTX request failed"), nil
-		}
+	apiURL, err := subscribedPulsesURL(cfg)
+	if err != nil {
+		return string(sdk.StatusUnknown), "OTX base URL is invalid", ""
+	}
 
-		if resp.Status < 200 || resp.Status >= 300 {
-			return sdk.Critical(fmt.Sprintf("OTX request returned HTTP %d", resp.Status)), nil
-		}
-
-		var body subscribedPulsesResponse
-		if err := json.Unmarshal(resp.Body, &body); err != nil {
-			return sdk.Critical("OTX response could not be decoded"), nil
-		}
-
-		page := buildCTIPage(body, cfg)
-		details := ctiPageDetailsJSON(page)
-
-		summary := fmt.Sprintf(
-			"OTX pulses: %d objects, %d indicators, %d skipped",
-			page.Counts.Objects,
-			page.Counts.Indicators,
-			page.Counts.Skipped,
-		)
-
-		return sdk.NewResult().
-			WithStatus(sdk.StatusOK).
-			WithSummary(summary).
-			WithDetails(details), nil
+	resp, err := sdk.HTTP.DoContext(context.Background(), sdk.HTTPRequest{
+		Method: http.MethodGet,
+		URL:    apiURL,
+		Headers: map[string]string{
+			"accept":        "application/json",
+			"X-OTX-API-KEY": cfg.APIKey,
+		},
+		TimeoutMS: cfg.TimeoutMS,
 	})
+	if err != nil {
+		return string(sdk.StatusCritical), "OTX request failed", ""
+	}
+
+	if resp.Status < 200 || resp.Status >= 300 {
+		return string(sdk.StatusCritical), fmt.Sprintf("OTX request returned HTTP %d", resp.Status), ""
+	}
+
+	var body subscribedPulsesResponse
+	if err := json.Unmarshal(resp.Body, &body); err != nil {
+		return string(sdk.StatusCritical), "OTX response could not be decoded", ""
+	}
+
+	page := buildCTIPage(body, cfg)
+	details := ctiPageDetailsJSON(page)
+
+	summary := fmt.Sprintf(
+		"OTX pulses: %d objects, %d indicators, %d skipped",
+		page.Counts.Objects,
+		page.Counts.Indicators,
+		page.Counts.Skipped,
+	)
+
+	return string(sdk.StatusOK), summary, details
 }
 
 func defaultConfig() Config {
@@ -324,6 +326,24 @@ func ctiPageDetailsJSON(page ctiPage) string {
 	writeCountsJSON(&b, page.Counts)
 	writeIndicatorsJSON(&b, page.Indicators)
 	b.WriteString(`}}`)
+	return b.String()
+}
+
+func submitPluginResult(status, summary, details string) error {
+	return sdk.SubmitResult([]byte(pluginResultJSON(status, summary, details)))
+}
+
+func pluginResultJSON(status, summary, details string) string {
+	var b strings.Builder
+	b.Grow(128 + len(summary) + len(details))
+	b.WriteByte('{')
+	writeJSONIntField(&b, "schema_version", 1, false)
+	writeJSONStringField(&b, "status", status, true)
+	writeJSONStringField(&b, "summary", summary, true)
+	if details != "" {
+		writeJSONStringField(&b, "details", details, true)
+	}
+	b.WriteByte('}')
 	return b.String()
 }
 
