@@ -10,7 +10,7 @@
 - [x] 2.3 Add provider/source object metadata storage for TAXII/STIX object ids, versions, collection ids, raw object keys, and OTX pulse metadata if needed for richer hit explanation.
 - [ ] 2.4 Add encrypted OTX API key handling with "present" calculations and clear/update actions.
 - [x] 2.5 Add indexes or constraints for any new provider metadata/sync tables.
-- [ ] 2.6 Track provider execution mode (`edge_plugin` or `core_worker`), plugin assignment identity, cursor/high-water state, and sync status.
+- [x] 2.6 Track provider execution mode (`edge_plugin` or `core_worker`), plugin assignment identity, cursor/high-water state, and sync status.
 
 ## 3. TAXII/STIX Provider Boundary And OTX Sync
 - [x] 3.1 Define a project-owned threat-intel provider behaviour modeled after TAXII 2.1 collections, object pages, `added_after`, `limit`, `next`, and object metadata.
@@ -19,8 +19,8 @@
 - [ ] 3.4 Support `X-OTX-API-KEY`, configurable base URL, timeouts, retry/backoff for 429/5xx, pagination, and `modified_since`.
 - [ ] 3.5 Extend `ThreatIntelFeedRefreshWorker` or add a sibling worker to fetch `/api/v1/pulses/subscribed` through the provider boundary.
 - [ ] 3.6 Normalize OTX IPv4/IPv6/CIDR indicators into `ThreatIntelIndicator` rows.
-- [ ] 3.7 Record skipped counts for unsupported OTX types such as URL, domain, hostname, and file hash until matching sources are implemented.
-- [ ] 3.8 Record sync lifecycle status, counts, and redacted errors.
+- [x] 3.7 Record skipped counts for unsupported OTX types such as URL, domain, hostname, and file hash until matching sources are implemented.
+- [x] 3.8 Record sync lifecycle status, counts, and redacted errors.
 - [ ] 3.9 Archive raw payload snapshots to NATS Object Store when enabled.
 - [ ] 3.10 Optionally implement a generic TAXII 2.1 collection provider if approved for this slice.
 
@@ -33,7 +33,7 @@
 - [x] 4.6 Ensure the plugin uses only approved host capabilities and allowlists for HTTP access to OTX.
 - [x] 4.7 Route edge plugin CTI pages through core validation, normalization, and indicator upsert.
 - [x] 4.8 Add UI affordances to assign the collector plugin to reachable agents with secret-reference OTX credentials.
-- [ ] 4.9 Display per-agent sync health for threat-intel collector assignments.
+- [x] 4.9 Display per-agent sync health for threat-intel collector assignments.
 
 ## 5. NetFlow Threat Matching
 - [ ] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
@@ -53,7 +53,8 @@
 - [x] 7.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
 - [x] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
 - [ ] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
-- [ ] 7.4 Add status panels for last sync, indicator counts, latest errors, current NetFlow findings, edge agent/plugin health, and manual "Sync now" / "Retrohunt now" actions.
+- [x] 7.4 Add status panels for last sync, indicator counts, latest errors, and edge agent/plugin health.
+- [ ] 7.6 Add manual "Sync now" / "Retrohunt now" actions and current NetFlow finding counts.
 - [ ] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
 
 ## 8. Scheduling And Operations

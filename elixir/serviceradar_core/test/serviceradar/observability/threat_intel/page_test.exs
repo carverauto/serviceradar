@@ -131,4 +131,80 @@ defmodule ServiceRadar.Observability.ThreatIntel.PageTest do
              }
            ] = Page.source_object_attrs(page, observed_at)
   end
+
+  test "builds sync status attrs from page counts and plugin run context" do
+    observed_at = ~U[2026-04-27 12:00:00Z]
+
+    page =
+      Page.from_map(
+        %{
+          "provider" => "alienvault_otx",
+          "source" => "alienvault_otx",
+          "collection_id" => "otx:pulses:subscribed",
+          "cursor" => %{"next" => "https://otx.example/next"},
+          "counts" => %{"objects" => 2, "indicators" => 7, "skipped" => 3, "total" => 12}
+        },
+        %{}
+      )
+
+    status = %{
+      agent_id: "edge-agent-1",
+      gateway_id: "edge-gateway-1",
+      plugin_id: "alienvault-otx-threat-intel",
+      service_name: "AlienVault OTX",
+      service_type: "plugin",
+      partition: "default"
+    }
+
+    payload = %{
+      "status" => "ok",
+      "summary" => "OTX pulses: 2 objects, 7 indicators, 3 skipped",
+      "labels" => %{"provider" => "alienvault_otx"}
+    }
+
+    assert %{
+             provider: "alienvault_otx",
+             source: "alienvault_otx",
+             collection_id: "otx:pulses:subscribed",
+             agent_id: "edge-agent-1",
+             gateway_id: "edge-gateway-1",
+             plugin_id: "alienvault-otx-threat-intel",
+             execution_mode: "edge_plugin",
+             last_status: "ok",
+             last_message: "OTX pulses: 2 objects, 7 indicators, 3 skipped",
+             last_error: nil,
+             last_attempt_at: ^observed_at,
+             last_success_at: ^observed_at,
+             last_failure_at: nil,
+             objects_count: 2,
+             indicators_count: 7,
+             skipped_count: 3,
+             total_count: 12,
+             cursor: %{"next" => "https://otx.example/next"},
+             metadata: %{
+               "service_name" => "AlienVault OTX",
+               "service_type" => "plugin",
+               "partition" => "default",
+               "labels" => %{"provider" => "alienvault_otx"}
+             }
+           } = Page.sync_status_attrs(page, status, payload, observed_at)
+  end
+
+  test "marks sync status failures with redacted message fields" do
+    observed_at = ~U[2026-04-27 12:00:00Z]
+    page = Page.from_map(%{"source" => "taxii-feed"}, %{})
+
+    assert %{
+             last_status: "critical",
+             last_success_at: nil,
+             last_failure_at: ^observed_at,
+             last_error: "request returned HTTP 500"
+           } =
+             Page.sync_status_attrs(
+               page,
+               %{},
+               %{"status" => "critical", "summary" => "request returned HTTP 500"},
+               observed_at
+             )
+  end
 end

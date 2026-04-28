@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Observability.ThreatIntelSyncStatus
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -162,6 +163,44 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           >
                             Remove
                           </button>
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 text-sm font-semibold">Sync Health</div>
+                <%= if @sync_statuses == [] do %>
+                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                    No sync runs recorded.
+                  </div>
+                <% else %>
+                  <div class="divide-y divide-base-200">
+                    <%= for status <- @sync_statuses do %>
+                      <div class="py-3 first:pt-0 last:pb-0 space-y-2">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div class="font-mono text-sm">{status_agent_label(status)}</div>
+                            <div class="text-xs text-base-content/60">
+                              {status.collection_id || "collection"} · {format_datetime(
+                                status.last_attempt_at
+                              )}
+                            </div>
+                          </div>
+                          <.ui_badge size="xs" variant={status_badge_variant(status.last_status)}>
+                            {status.last_status}
+                          </.ui_badge>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                          <.status_count label="Objects" value={status.objects_count} />
+                          <.status_count label="IOCs" value={status.indicators_count} />
+                          <.status_count label="Skipped" value={status.skipped_count} />
+                          <.status_count label="Total" value={status.total_count} />
+                        </div>
+                        <div :if={status.last_error} class="text-xs text-error">
+                          {status.last_error}
                         </div>
                       </div>
                     <% end %>
@@ -334,6 +373,18 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     """
   end
 
+  attr :label, :string, required: true
+  attr :value, :integer, required: true
+
+  defp status_count(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-2">
+      <div class="text-base-content/50">{@label}</div>
+      <div class="font-mono text-sm">{@value}</div>
+    </div>
+    """
+  end
+
   defp load_page(socket) do
     scope = socket.assigns.current_scope
     packages = Packages.list(%{"plugin_id" => @plugin_id, "limit" => 20}, scope: scope)
@@ -348,6 +399,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> assign(:latest_package, latest_package)
     |> assign(:approved_package, approved_package)
     |> assign(:assignments, list_assignments(approved_package, scope))
+    |> assign(:sync_statuses, list_sync_statuses(scope))
     |> assign(:assignment_form, @default_form)
   end
 
@@ -412,6 +464,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp list_assignments(%PluginPackage{id: package_id}, scope) do
     Assignments.list(%{"plugin_package_id" => package_id, "limit" => 200}, scope: scope)
+  end
+
+  defp list_sync_statuses(scope) do
+    ThreatIntelSyncStatus
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(source == "alienvault_otx" or plugin_id == ^@plugin_id)
+    |> Ash.Query.limit(20)
+    |> Ash.Query.sort(last_attempt_at: :desc)
+    |> Ash.read!(scope: scope)
+  rescue
+    _ -> []
   end
 
   defp parse_assignment(params, package) when is_map(params) do
@@ -501,6 +564,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       ""
     end
   end
+
+  defp status_agent_label(%ThreatIntelSyncStatus{} = status) do
+    cond do
+      status.agent_id != "" -> status.agent_id
+      status.plugin_id != "" -> status.plugin_id
+      true -> status.source
+    end
+  end
+
+  defp status_badge_variant(status) when status in ["ok", "success"], do: "success"
+  defp status_badge_variant(status) when status in ["warn", "warning"], do: "warning"
+  defp status_badge_variant(status) when status in ["critical", "error", "failed"], do: "error"
+  defp status_badge_variant(_status), do: "ghost"
+
+  defp format_datetime(nil), do: "-"
+  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  defp format_datetime(value), do: to_string(value)
 
   defp format_error(value) when is_binary(value), do: value
   defp format_error(value), do: inspect(value)
