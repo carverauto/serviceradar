@@ -59,18 +59,35 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   def ingest(_payload, _status, _opts), do: :ok
 
-  defp do_ingest(page, payload, status, actor, observed_at) do
-    threat_intel_page = Page.from_map(page, status)
+  @spec ingest_page(Page.t(), map(), map(), keyword()) :: :ok
+  def ingest_page(%Page{} = page, payload, status, opts \\ [])
+      when is_map(payload) and is_map(status) do
+    actor = Keyword.fetch!(opts, :actor)
+    observed_at = Keyword.get(opts, :observed_at) || DateTime.utc_now()
 
-    threat_intel_page
+    do_ingest_page(page, payload, status, actor, observed_at)
+  rescue
+    e ->
+      Logger.warning("Threat-intel page ingest failed: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp do_ingest(page, payload, status, actor, observed_at) do
+    page
+    |> Page.from_map(status)
+    |> do_ingest_page(payload, status, actor, observed_at)
+  end
+
+  defp do_ingest_page(%Page{} = page, payload, status, actor, observed_at) do
+    page
     |> Page.sync_status_attrs(status, payload, observed_at)
     |> upsert_sync_status(actor)
 
-    threat_intel_page
+    page
     |> Page.source_object_attrs(observed_at, max_objects: @max_indicators_per_page)
     |> Enum.each(&upsert_source_object(&1, actor))
 
-    threat_intel_page
+    page
     |> Page.indicator_attrs(observed_at, max_indicators: @max_indicators_per_page)
     |> Enum.each(&upsert_indicator(&1, actor))
 
