@@ -472,6 +472,15 @@ Core-hosted OTX sync is also available for deployments that prefer the control p
 
 Prefer the `*_FILE` form for Kubernetes secrets. Rotate OTX keys through the secret backend or Kubernetes secret, then restart or roll the affected pod so runtime config is refreshed. After rotation, use **Sync Now** on the Threat Intel settings page and verify Sync Health shows a fresh successful run. The sync status records skipped unsupported types such as domains or URLs separately from IP/CIDR indicators, because current NetFlow matching only uses IP/CIDR data.
 
+When raw payload archival is enabled in Threat Intel settings, core stores decoded OTX page payload snapshots in NATS Object Store and records the resulting object key on source-object metadata. Archival is optional; if NATS Object Store is unavailable, normalized indicator ingest continues and the archive failure is logged. The core defaults are:
+
+- `SERVICERADAR_OTX_RAW_BUCKET=serviceradar_threat_intel`
+- `SERVICERADAR_OTX_RAW_TTL_SECONDS=0`
+- `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`
+- `SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES`
+- `SERVICERADAR_OTX_RAW_REPLICAS=1`
+- `SERVICERADAR_OTX_RAW_STORAGE=file`
+
 ### Filesystem backend (default)
 
 - Storage path: `/var/lib/serviceradar/plugin-packages`
