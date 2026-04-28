@@ -60,6 +60,7 @@
 - [x] 7.8 Render dashboard Wi-Fi coverage as a continuous blurred heat surface rather than visible per-cell marker dots.
 - [x] 7.9 Persist a backend-generated SVG heat surface with coverage raster records, while allowing dashboard cards to regenerate a card-local surface from persisted cells when they need a different projection.
 - [x] 7.10 Normalize the dashboard FieldSurvey projection so floorplan geometry and Wi-Fi raster cells render squared to the dashboard card instead of preserving arbitrary ARKit heading.
+- [x] 7.11 Preserve the dashboard FieldSurvey map aspect ratio and prefer floorplan-backed rasters so the overview card matches the review/floorplan source of truth.
 
 ## 8. Verification
 - [x] 8.1 Run Rust `cargo fmt`, `cargo test -p serviceradar-fieldsurvey-sidekick`, and clippy for the new crate.
