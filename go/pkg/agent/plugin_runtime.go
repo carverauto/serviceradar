@@ -1846,6 +1846,7 @@ type httpRequestPayload struct {
 	Headers            map[string]string `json:"headers"`
 	Body               string            `json:"body"`
 	BodyBase64         string            `json:"body_base64"`
+	ResponseMode       string            `json:"response_mode"`
 	TimeoutMS          int               `json:"timeout_ms"`
 	InsecureSkipVerify bool              `json:"insecure_skip_verify"`
 }
@@ -1933,6 +1934,18 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 	if int64(len(bodyBytes)) > pluginMaxHTTPBodyBytes {
 		return pluginErrTooLarge
+	}
+
+	if strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "status_body") {
+		responseBytes := []byte(strconv.Itoa(resp.StatusCode) + "\n")
+		responseBytes = append(responseBytes, bodyBytes...)
+		if len(responseBytes) > int(respLen) {
+			return pluginErrTooLarge
+		}
+		if !writeMemory(mod, respPtr, responseBytes) {
+			return pluginErrInvalid
+		}
+		return int32(len(responseBytes))
 	}
 
 	responsePayload := httpResponsePayload{

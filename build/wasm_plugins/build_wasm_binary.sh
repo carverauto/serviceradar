@@ -169,7 +169,7 @@ cmd=(
   build
   -o "${out}"
   -target=wasi
-  -gc=leaking
+  -gc=conservative
   -scheduler=none
   -no-debug
 )

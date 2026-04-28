@@ -2,23 +2,30 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 const (
 	defaultBaseURL       = "https://otx.alienvault.com"
-	defaultLimit         = 10
+	defaultLimit         = 100
 	defaultPage          = 1
 	defaultTimeoutMS     = 60000
 	defaultMaxIndicators = 2000
+	defaultMaxPages      = 100
 	maxLimit             = 100
 	maxIndicators        = 5000
+	maxPages             = 500
 	sourceAlienVaultOTX  = "alienvault_otx"
+)
+
+var (
+	errJSONField = errors.New("json field not found")
+	errJSONParse = errors.New("json parse failed")
 )
 
 type Config struct {
@@ -30,6 +37,7 @@ type Config struct {
 	Page            int    `json:"page"`
 	TimeoutMS       int    `json:"timeout_ms"`
 	MaxIndicators   int    `json:"max_indicators"`
+	MaxPages        int    `json:"max_pages"`
 }
 
 type subscribedPulsesResponse struct {
@@ -83,21 +91,60 @@ type ctiPageEnvelope struct {
 }
 
 type ctiPage struct {
-	SchemaVersion int               `json:"schema_version"`
-	Provider      string            `json:"provider"`
-	Source        string            `json:"source"`
-	CollectionID  string            `json:"collection_id"`
-	Cursor        map[string]string `json:"cursor,omitempty"`
-	Counts        ctiCounts         `json:"counts"`
-	Indicators    []ctiIndicator    `json:"indicators"`
+	SchemaVersion int            `json:"schema_version"`
+	Provider      string         `json:"provider"`
+	Source        string         `json:"source"`
+	CollectionID  string         `json:"collection_id"`
+	Cursor        ctiCursor      `json:"cursor,omitempty"`
+	Counts        ctiCounts      `json:"counts"`
+	Indicators    []ctiIndicator `json:"indicators"`
+}
+
+type ctiCursor struct {
+	Next          string `json:"next,omitempty"`
+	ModifiedSince string `json:"modified_since,omitempty"`
+	StartPage     string `json:"start_page,omitempty"`
+	Limit         string `json:"limit,omitempty"`
+	MaxPages      string `json:"max_pages,omitempty"`
+	PagesFetched  string `json:"pages_fetched,omitempty"`
+	LastPage      string `json:"last_page,omitempty"`
+	NextPage      string `json:"next_page,omitempty"`
+	Complete      string `json:"complete,omitempty"`
 }
 
 type ctiCounts struct {
-	Objects       int            `json:"objects"`
-	Indicators    int            `json:"indicators"`
-	Skipped       int            `json:"skipped"`
-	SkippedByType map[string]int `json:"skipped_by_type,omitempty"`
-	Total         int            `json:"total,omitempty"`
+	Objects       int              `json:"objects"`
+	Indicators    int              `json:"indicators"`
+	Skipped       int              `json:"skipped"`
+	SkippedByType ctiSkippedCounts `json:"skipped_by_type,omitempty"`
+	Total         int              `json:"total,omitempty"`
+}
+
+type ctiSkippedCounts struct {
+	Domain        int
+	URL           int
+	Hostname      int
+	MaxIndicators int
+	PageBudget    int
+	Empty         int
+	Unknown       int
+	Other         int
+}
+
+type jsonBuilder struct {
+	buf []byte
+}
+
+func (b *jsonBuilder) WriteString(value string) {
+	b.buf = append(b.buf, value...)
+}
+
+func (b *jsonBuilder) WriteByte(value byte) {
+	b.buf = append(b.buf, value)
+}
+
+func (b *jsonBuilder) String() string {
+	return string(b.buf)
 }
 
 type ctiIndicator struct {
@@ -115,7 +162,7 @@ type ctiIndicator struct {
 
 type otxHTTPResponsePayload struct {
 	Status       int    `json:"status"`
-	BodyBase64   string `json:"body_base64"`
+	BodyBase64   []byte `json:"body_base64"`
 	BodyEncoding string `json:"body_encoding,omitempty"`
 }
 
@@ -140,52 +187,103 @@ func runOTXCheck() (string, string, string) {
 		return string(sdk.StatusUnknown), "OTX API key is not configured", ""
 	}
 
-	apiURL, err := subscribedPulsesURL(cfg)
+	page, err := fetchOTXExportPages(cfg)
 	if err != nil {
-		return string(sdk.StatusUnknown), "OTX base URL is invalid", ""
+		return string(sdk.StatusCritical), sanitizeError(err), ""
 	}
 
-	resp, err := doOTXHostHTTPRequest(apiURL, cfg.APIKey, cfg.TimeoutMS)
-	if err != nil {
-		return string(sdk.StatusCritical), "OTX request failed: " + sanitizeError(err), ""
-	}
-
-	if resp.Status < 200 || resp.Status >= 300 {
-		return string(sdk.StatusCritical), httpFailureSummary(resp), ""
-	}
-
-	page, err := parseOTXExportPage(resp.Body, cfg)
-	if err != nil {
-		return string(sdk.StatusCritical),
-			fmt.Sprintf(
-				"OTX response could not be decoded: %s body_len=%d body_prefix=%s",
-				sanitizeError(err),
-				len(resp.Body),
-				previewBytes(resp.Body, 40),
-			),
-			""
-	}
 	details := ctiPageDetailsJSON(page)
 
-	summary := fmt.Sprintf(
-		"OTX pulses: %d objects, %d indicators, %d skipped",
-		page.Counts.Objects,
-		page.Counts.Indicators,
-		page.Counts.Skipped,
-	)
+	summary := "OTX export: " + page.Cursor.PagesFetched + " pages, " +
+		strconv.Itoa(page.Counts.Objects) + " rows, " +
+		strconv.Itoa(page.Counts.Indicators) + " indicators, " +
+		strconv.Itoa(page.Counts.Skipped) + " skipped"
 
 	return string(sdk.StatusOK), summary, details
 }
 
-func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
-	var b strings.Builder
+func fetchOTXExportPages(cfg Config) (ctiPage, error) {
+	aggregate := newCTIPage(cfg)
+	currentPage := cfg.Page
+	pagesFetched := 0
 
-	b.Grow(len(apiURL) + len(apiKey) + 160)
+	for pagesFetched < cfg.MaxPages && len(aggregate.Indicators) < cfg.MaxIndicators {
+		pageCfg := cfg
+		pageCfg.Page = currentPage
+		pageCfg.MaxIndicators = cfg.MaxIndicators - len(aggregate.Indicators)
+
+		page, err := fetchSingleOTXExportPage(pageCfg)
+		if err != nil {
+			return ctiPage{}, err
+		}
+
+		pagesFetched++
+		mergeCTIPage(&aggregate, page)
+		aggregate.Cursor.PagesFetched = strconv.Itoa(pagesFetched)
+		aggregate.Cursor.LastPage = strconv.Itoa(currentPage)
+
+		next := strings.TrimSpace(page.Cursor.Next)
+		aggregate.Cursor.Next = next
+		if next == "" {
+			aggregate.Cursor.Complete = "true"
+			break
+		}
+
+		nextPage := pageFromURL(next)
+		if nextPage <= currentPage {
+			nextPage = currentPage + 1
+		}
+		currentPage = nextPage
+		aggregate.Cursor.NextPage = strconv.Itoa(currentPage)
+	}
+
+	if pagesFetched == cfg.MaxPages && aggregate.Cursor.Next != "" {
+		aggregate.Cursor.Complete = "false"
+		aggregate.Counts.addSkipped("page_budget")
+	}
+	if len(aggregate.Indicators) >= cfg.MaxIndicators && aggregate.Cursor.Next != "" {
+		aggregate.Cursor.Complete = "false"
+	}
+	if aggregate.Cursor.PagesFetched == "" {
+		aggregate.Cursor.PagesFetched = "0"
+	}
+
+	aggregate.Counts.Indicators = len(aggregate.Indicators)
+	return aggregate, nil
+}
+
+func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
+	apiURL, err := subscribedPulsesURL(cfg)
+	if err != nil {
+		return ctiPage{}, errors.New("OTX base URL is invalid")
+	}
+
+	resp, err := doOTXHostHTTPRequest(apiURL, cfg.APIKey, cfg.TimeoutMS)
+	if err != nil {
+		return ctiPage{}, errors.New("OTX request failed: " + sanitizeError(err))
+	}
+
+	if resp.Status < 200 || resp.Status >= 300 {
+		return ctiPage{}, errors.New(httpFailureSummary(resp))
+	}
+
+	page, err := parseOTXExportPage(resp.Body, cfg)
+	if err != nil {
+		return ctiPage{}, errors.New("OTX response could not be decoded")
+	}
+
+	return page, nil
+}
+
+func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
+	b := jsonBuilder{buf: make([]byte, 0, 512)}
+
 	b.WriteString(`{"method":"GET","url":`)
 	writeJSONString(&b, apiURL)
 	b.WriteString(`,"headers":{"accept":"application/json","X-OTX-API-KEY":`)
 	writeJSONString(&b, apiKey)
 	b.WriteByte('}')
+	b.WriteString(`,"response_mode":"status_body"`)
 	if timeoutMS > 0 {
 		b.WriteString(`,"timeout_ms":`)
 		b.WriteString(strconv.Itoa(timeoutMS))
@@ -196,30 +294,167 @@ func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
 }
 
 func decodeOTXHTTPResponse(payload []byte) (*sdk.HTTPResponse, error) {
-	var decoded otxHTTPResponsePayload
-	if err := json.Unmarshal(payload, &decoded); err != nil {
+	if resp, ok, err := decodeStatusBodyHTTPResponse(payload); ok || err != nil {
+		return resp, err
+	}
+
+	decoded, err := parseOTXHTTPResponsePayload(payload)
+	if err != nil {
 		return nil, err
 	}
-	if decoded.BodyBase64 == "" {
+	if len(decoded.BodyBase64) == 0 {
 		return nil, fmt.Errorf("missing response body_base64 in %s", previewBytes(payload, 180))
 	}
 
-	body, err := decodeStandardBase64([]byte(decoded.BodyBase64))
+	body, err := decodeStandardBase64(decoded.BodyBase64)
 	if err != nil {
-		if decoded.BodyBase64 == "" {
+		if len(decoded.BodyBase64) == 0 {
 			body = nil
 		} else {
 			return nil, err
 		}
 	}
 	if len(body) > 0 && body[0] != '{' && body[0] != '[' {
-		return nil, fmt.Errorf("decoded body is not JSON body_b64_prefix=%s body_prefix=%s", previewBytes([]byte(decoded.BodyBase64), 32), previewBytes(body, 32))
+		return nil, fmt.Errorf("decoded body is not JSON body_b64_prefix=%s body_prefix=%s", previewBytes(decoded.BodyBase64, 32), previewBytes(body, 32))
 	}
 
 	return &sdk.HTTPResponse{
 		Status: decoded.Status,
 		Body:   body,
 	}, nil
+}
+
+func decodeStatusBodyHTTPResponse(payload []byte) (*sdk.HTTPResponse, bool, error) {
+	lineEnd := -1
+	for i, ch := range payload {
+		if ch == '\n' {
+			lineEnd = i
+			break
+		}
+		if ch < '0' || ch > '9' {
+			return nil, false, nil
+		}
+	}
+	if lineEnd <= 0 {
+		return nil, false, nil
+	}
+
+	status, err := strconv.Atoi(string(payload[:lineEnd]))
+	if err != nil {
+		return nil, true, err
+	}
+
+	body := payload[lineEnd+1:]
+	if len(body) > 0 && body[0] != '{' && body[0] != '[' {
+		return nil, true, fmt.Errorf("decoded body is not JSON body_prefix=%s", previewBytes(body, 32))
+	}
+
+	return &sdk.HTTPResponse{Status: status, Body: body}, true, nil
+}
+
+func parseOTXHTTPResponsePayload(payload []byte) (otxHTTPResponsePayload, error) {
+	status, err := extractJSONIntField(payload, "status")
+	if err != nil {
+		return otxHTTPResponsePayload{}, err
+	}
+
+	bodyBase64, err := extractJSONStringBytes(payload, "body_base64")
+	if err != nil {
+		return otxHTTPResponsePayload{}, err
+	}
+
+	bodyEncoding, _ := extractJSONString(payload, "body_encoding")
+
+	return otxHTTPResponsePayload{
+		Status:       status,
+		BodyBase64:   bodyBase64,
+		BodyEncoding: bodyEncoding,
+	}, nil
+}
+
+func extractJSONIntField(payload []byte, field string) (int, error) {
+	pos, err := fieldValueOffset(payload, field)
+	if err != nil {
+		return 0, err
+	}
+
+	scanner := otxJSONScanner{data: payload, pos: pos}
+	return scanner.readInt()
+}
+
+func extractJSONString(payload []byte, field string) (string, error) {
+	pos, err := fieldValueOffset(payload, field)
+	if err != nil {
+		return "", err
+	}
+
+	scanner := otxJSONScanner{data: payload, pos: pos}
+	return scanner.readString()
+}
+
+func extractJSONStringOrNull(payload []byte, field string) (string, error) {
+	pos, err := fieldValueOffset(payload, field)
+	if err != nil {
+		return "", err
+	}
+
+	scanner := otxJSONScanner{data: payload, pos: pos}
+	return scanner.readStringOrNull()
+}
+
+func extractJSONStringBytes(payload []byte, field string) ([]byte, error) {
+	pos, err := fieldValueOffset(payload, field)
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := otxJSONScanner{data: payload, pos: pos}
+	return scanner.readRawStringBytes()
+}
+
+func fieldValueOffset(payload []byte, field string) (int, error) {
+	pattern := []byte(`"` + field + `"`)
+	pos := indexBytes(payload, pattern)
+	if pos < 0 {
+		return 0, errJSONField
+	}
+
+	pos += len(pattern)
+	for pos < len(payload) {
+		switch payload[pos] {
+		case ' ', '\n', '\r', '\t':
+			pos++
+		case ':':
+			return pos + 1, nil
+		default:
+			return 0, errJSONField
+		}
+	}
+
+	return 0, errJSONField
+}
+
+func indexBytes(haystack, needle []byte) int {
+	if len(needle) == 0 {
+		return 0
+	}
+	if len(needle) > len(haystack) {
+		return -1
+	}
+	last := len(haystack) - len(needle)
+	for i := 0; i <= last; i++ {
+		matched := true
+		for j := range needle {
+			if haystack[i+j] != needle[j] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return i
+		}
+	}
+	return -1
 }
 
 func decodeStandardBase64(input []byte) ([]byte, error) {
@@ -330,6 +565,7 @@ func defaultConfig() Config {
 		Page:          defaultPage,
 		TimeoutMS:     defaultTimeoutMS,
 		MaxIndicators: defaultMaxIndicators,
+		MaxPages:      defaultMaxPages,
 	}
 }
 
@@ -355,24 +591,65 @@ func (c *Config) applyDefaults() {
 	if c.MaxIndicators > maxIndicators {
 		c.MaxIndicators = maxIndicators
 	}
+	if c.MaxPages <= 0 {
+		c.MaxPages = defaultMaxPages
+	}
+	if c.MaxPages > maxPages {
+		c.MaxPages = maxPages
+	}
 }
 
 func subscribedPulsesURL(cfg Config) (string, error) {
-	base, err := url.Parse(strings.TrimRight(cfg.BaseURL, "/"))
-	if err != nil {
-		return "", err
+	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if base == "" || !(strings.HasPrefix(base, "http://") || strings.HasPrefix(base, "https://")) {
+		return "", errJSONParse
 	}
-
-	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/indicators/export"
-	query := base.Query()
-	query.Set("limit", fmt.Sprintf("%d", cfg.Limit))
-	query.Set("page", fmt.Sprintf("%d", cfg.Page))
+	b := jsonBuilder{buf: make([]byte, 0, 512)}
+	b.WriteString(base)
+	b.WriteString("/api/v1/indicators/export?limit=")
+	b.WriteString(strconv.Itoa(cfg.Limit))
+	b.WriteString("&page=")
+	b.WriteString(strconv.Itoa(cfg.Page))
 	if strings.TrimSpace(cfg.ModifiedSince) != "" {
-		query.Set("modified_since", strings.TrimSpace(cfg.ModifiedSince))
+		b.WriteString("&modified_since=")
+		writeQueryEscaped(&b, strings.TrimSpace(cfg.ModifiedSince))
 	}
-	base.RawQuery = query.Encode()
 
-	return base.String(), nil
+	return b.String(), nil
+}
+
+func pageFromURL(rawURL string) int {
+	key := "page="
+	idx := strings.Index(rawURL, key)
+	if idx < 0 {
+		return 0
+	}
+	start := idx + len(key)
+	end := start
+	for end < len(rawURL) && rawURL[end] >= '0' && rawURL[end] <= '9' {
+		end++
+	}
+	page, err := strconv.Atoi(rawURL[start:end])
+	if err != nil || page < 1 {
+		return 0
+	}
+
+	return page
+}
+
+func writeQueryEscaped(b *jsonBuilder, value string) {
+	const hex = "0123456789ABCDEF"
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+			ch == '-' || ch == '_' || ch == '.' || ch == '~' {
+			b.WriteByte(ch)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(hex[ch>>4])
+		b.WriteByte(hex[ch&0x0f])
+	}
 }
 
 func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
@@ -381,17 +658,14 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 		Provider:      sourceAlienVaultOTX,
 		Source:        sourceAlienVaultOTX,
 		CollectionID:  "otx:pulses:subscribed",
-		Cursor: map[string]string{
-			"next":           stringPtrValue(resp.Next),
-			"modified_since": cfg.ModifiedSince,
-		},
 		Counts: ctiCounts{
-			Objects:       len(resp.Results),
-			SkippedByType: make(map[string]int),
-			Total:         resp.Count,
+			Objects: len(resp.Results),
+			Total:   resp.Count,
 		},
 		Indicators: make([]ctiIndicator, 0),
 	}
+	page.Cursor.Next = stringPtrValue(resp.Next)
+	page.Cursor.ModifiedSince = cfg.ModifiedSince
 
 	for _, pulse := range resp.Results {
 		for _, indicator := range pulse.Indicators {
@@ -415,19 +689,8 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 }
 
 func parseOTXPage(data []byte, cfg Config) (ctiPage, error) {
-	page := ctiPage{
-		SchemaVersion: 1,
-		Provider:      sourceAlienVaultOTX,
-		Source:        sourceAlienVaultOTX,
-		CollectionID:  "otx:pulses:subscribed",
-		Cursor: map[string]string{
-			"modified_since": cfg.ModifiedSince,
-		},
-		Counts: ctiCounts{
-			SkippedByType: make(map[string]int),
-		},
-		Indicators: make([]ctiIndicator, 0),
-	}
+	page := newCTIPage(cfg)
+	page.CollectionID = "otx:pulses:subscribed"
 
 	scanner := otxJSONScanner{data: data}
 	if err := scanner.consumeObject(func(key string) error {
@@ -443,7 +706,7 @@ func parseOTXPage(data []byte, cfg Config) (ctiPage, error) {
 			if err != nil {
 				return err
 			}
-			page.Cursor["next"] = value
+			page.Cursor.Next = value
 		case "results":
 			if err := parsePulseArray(&scanner, &page, cfg); err != nil {
 				return err
@@ -463,51 +726,112 @@ func parseOTXPage(data []byte, cfg Config) (ctiPage, error) {
 }
 
 func parseOTXExportPage(data []byte, cfg Config) (ctiPage, error) {
+	page := newCTIPage(cfg)
+	page.CollectionID = "otx:indicators:export"
+	if total, err := extractJSONIntField(data, "count"); err == nil {
+		page.Counts.Total = total
+	}
+	if next, err := extractJSONStringOrNull(data, "next"); err == nil {
+		page.Cursor.Next = next
+	}
+
+	resultsOffset, err := fieldValueOffset(data, "results")
+	if err != nil {
+		return ctiPage{}, err
+	}
+
+	scanner := otxJSONScanner{data: data, pos: resultsOffset}
+	if err := scanner.expectByte('['); err != nil {
+		return ctiPage{}, err
+	}
+	if scanner.consumeByte(']') {
+		return page, nil
+	}
+
+	pulse := otxPulse{
+		ID:         "otx:indicators:export",
+		Name:       "AlienVault OTX indicator export",
+		AuthorName: sourceAlienVaultOTX,
+	}
+
+	for {
+		objectStart, objectEnd, err := scanner.nextObjectBytes()
+		if err != nil {
+			return ctiPage{}, err
+		}
+		indicator := parseFlatExportIndicator(data[objectStart:objectEnd])
+
+		page.Counts.Objects++
+		if len(page.Indicators) >= cfg.MaxIndicators {
+			page.Counts.addSkipped("max_indicators")
+		} else if normalized, ok := normalizeIndicator(pulse, indicator); ok {
+			page.Indicators = append(page.Indicators, normalized)
+		} else {
+			page.Counts.addSkipped(skipType(indicator))
+		}
+
+		if scanner.consumeByte(']') {
+			break
+		}
+		if err := scanner.expectByte(','); err != nil {
+			return ctiPage{}, err
+		}
+	}
+
+	page.Counts.Indicators = len(page.Indicators)
+	return page, nil
+}
+
+func parseFlatExportIndicator(data []byte) otxIndicator {
+	indicator := otxIndicator{}
+	if id, err := extractJSONIntField(data, "id"); err == nil {
+		indicator.ID = int64(id)
+	}
+	indicator.Indicator, _ = extractJSONStringOrNull(data, "indicator")
+	indicator.Type, _ = extractJSONStringOrNull(data, "type")
+	indicator.Content, _ = extractJSONStringOrNull(data, "content")
+	indicator.Title, _ = extractJSONStringOrNull(data, "title")
+	indicator.Description, _ = extractJSONStringOrNull(data, "description")
+	indicator.Created, _ = extractJSONStringOrNull(data, "created")
+	if expiration, err := extractJSONStringOrNull(data, "expiration"); err == nil && expiration != "" {
+		indicator.Expiration = &expiration
+	}
+	if isActive, err := extractJSONIntField(data, "is_active"); err == nil {
+		indicator.IsActive = isActive
+	}
+	if role, err := extractJSONStringOrNull(data, "role"); err == nil && role != "" {
+		indicator.Role = &role
+	}
+
+	return indicator
+}
+
+func newCTIPage(cfg Config) ctiPage {
 	page := ctiPage{
 		SchemaVersion: 1,
 		Provider:      sourceAlienVaultOTX,
 		Source:        sourceAlienVaultOTX,
 		CollectionID:  "otx:indicators:export",
-		Cursor: map[string]string{
-			"modified_since": cfg.ModifiedSince,
-		},
-		Counts: ctiCounts{
-			SkippedByType: make(map[string]int),
-		},
-		Indicators: make([]ctiIndicator, 0),
+		Counts:        ctiCounts{},
+		Indicators:    make([]ctiIndicator, 0),
 	}
+	page.Cursor.ModifiedSince = cfg.ModifiedSince
+	page.Cursor.StartPage = strconv.Itoa(cfg.Page)
+	page.Cursor.Limit = strconv.Itoa(cfg.Limit)
+	page.Cursor.MaxPages = strconv.Itoa(cfg.MaxPages)
+	return page
+}
 
-	scanner := otxJSONScanner{data: data}
-	if err := scanner.consumeObject(func(key string) error {
-		switch key {
-		case "count":
-			value, err := scanner.readInt()
-			if err != nil {
-				return err
-			}
-			page.Counts.Total = value
-		case "next":
-			value, err := scanner.readStringOrNull()
-			if err != nil {
-				return err
-			}
-			page.Cursor["next"] = value
-		case "results":
-			if err := parseExportIndicatorArray(&scanner, &page, cfg); err != nil {
-				return err
-			}
-		default:
-			if err := scanner.skipValue(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return ctiPage{}, err
+func mergeCTIPage(dst *ctiPage, src ctiPage) {
+	dst.Counts.Objects += src.Counts.Objects
+	dst.Counts.Skipped += src.Counts.Skipped
+	if src.Counts.Total > 0 {
+		dst.Counts.Total = src.Counts.Total
 	}
+	dst.Counts.SkippedByType.merge(src.Counts.SkippedByType)
 
-	page.Counts.Indicators = len(page.Indicators)
-	return page, nil
+	dst.Indicators = append(dst.Indicators, src.Indicators...)
+	dst.Counts.Indicators = len(dst.Indicators)
 }
 
 func parseExportIndicatorArray(scanner *otxJSONScanner, page *ctiPage, cfg Config) error {
@@ -529,6 +853,7 @@ func parseExportIndicatorArray(scanner *otxJSONScanner, page *ctiPage, cfg Confi
 		if err != nil {
 			return err
 		}
+		page.Counts.Objects++
 
 		if len(page.Indicators) >= cfg.MaxIndicators {
 			page.Counts.addSkipped("max_indicators")
@@ -646,12 +971,18 @@ func parseIndicator(scanner *otxJSONScanner) (otxIndicator, error) {
 
 	err := scanner.consumeObject(func(key string) error {
 		switch key {
+		case "id":
+			_, err := scanner.readInt()
+			return err
 		case "indicator":
 			return scanner.readStringField(&indicator.Indicator)
 		case "type":
 			return scanner.readStringField(&indicator.Type)
 		case "title":
 			return scanner.readStringField(&indicator.Title)
+		case "description", "content":
+			_, err := scanner.readStringOrNull()
+			return err
 		case "created":
 			return scanner.readStringField(&indicator.Created)
 		case "expiration":
@@ -713,6 +1044,36 @@ func (scanner *otxJSONScanner) readStringField(target *string) error {
 	return nil
 }
 
+func (scanner *otxJSONScanner) readRawStringBytes() ([]byte, error) {
+	scanner.skipWhitespace()
+	if scanner.pos >= len(scanner.data) || scanner.data[scanner.pos] != '"' {
+		return nil, errJSONParse
+	}
+	scanner.pos++
+
+	start := scanner.pos
+	for scanner.pos < len(scanner.data) {
+		ch := scanner.data[scanner.pos]
+		switch ch {
+		case '"':
+			value := scanner.data[start:scanner.pos]
+			scanner.pos++
+			return value, nil
+		case '\\':
+			scanner.pos = start - 1
+			value, err := scanner.readString()
+			if err != nil {
+				return nil, err
+			}
+			return []byte(value), nil
+		default:
+			scanner.pos++
+		}
+	}
+
+	return nil, errJSONParse
+}
+
 func (scanner *otxJSONScanner) readStringOrNull() (string, error) {
 	scanner.skipWhitespace()
 	if scanner.hasPrefix("null") {
@@ -725,51 +1086,60 @@ func (scanner *otxJSONScanner) readStringOrNull() (string, error) {
 func (scanner *otxJSONScanner) readString() (string, error) {
 	scanner.skipWhitespace()
 	if scanner.pos >= len(scanner.data) || scanner.data[scanner.pos] != '"' {
-		return "", fmt.Errorf("expected json string at byte %d", scanner.pos)
+		return "", errJSONParse
 	}
 	scanner.pos++
 
-	var b strings.Builder
+	start := scanner.pos
+	var b []byte
 	for scanner.pos < len(scanner.data) {
 		ch := scanner.data[scanner.pos]
 		scanner.pos++
 		switch ch {
 		case '"':
-			return b.String(), nil
+			if b == nil {
+				return string(scanner.data[start : scanner.pos-1]), nil
+			}
+			return string(b), nil
 		case '\\':
+			if b == nil {
+				b = append([]byte{}, scanner.data[start:scanner.pos-1]...)
+			}
 			if scanner.pos >= len(scanner.data) {
-				return "", fmt.Errorf("unterminated json escape at byte %d", scanner.pos)
+				return "", errJSONParse
 			}
 			esc := scanner.data[scanner.pos]
 			scanner.pos++
 			switch esc {
 			case '"', '\\', '/':
-				b.WriteByte(esc)
+				b = append(b, esc)
 			case 'b':
-				b.WriteByte('\b')
+				b = append(b, '\b')
 			case 'f':
-				b.WriteByte('\f')
+				b = append(b, '\f')
 			case 'n':
-				b.WriteByte('\n')
+				b = append(b, '\n')
 			case 'r':
-				b.WriteByte('\r')
+				b = append(b, '\r')
 			case 't':
-				b.WriteByte('\t')
+				b = append(b, '\t')
 			case 'u':
 				if scanner.pos+4 > len(scanner.data) {
-					return "", fmt.Errorf("short unicode escape at byte %d", scanner.pos)
+					return "", errJSONParse
 				}
-				b.WriteByte('?')
+				b = append(b, '?')
 				scanner.pos += 4
 			default:
-				return "", fmt.Errorf("invalid json escape at byte %d", scanner.pos)
+				return "", errJSONParse
 			}
 		default:
-			b.WriteByte(ch)
+			if b != nil {
+				b = append(b, ch)
+			}
 		}
 	}
 
-	return "", fmt.Errorf("unterminated json string")
+	return "", errJSONParse
 }
 
 func (scanner *otxJSONScanner) readInt() (int, error) {
@@ -782,7 +1152,7 @@ func (scanner *otxJSONScanner) readInt() (int, error) {
 		scanner.pos++
 	}
 	if start == scanner.pos {
-		return 0, fmt.Errorf("expected json integer at byte %d", start)
+		return 0, errJSONParse
 	}
 	return strconv.Atoi(string(scanner.data[start:scanner.pos]))
 }
@@ -790,7 +1160,7 @@ func (scanner *otxJSONScanner) readInt() (int, error) {
 func (scanner *otxJSONScanner) skipValue() error {
 	scanner.skipWhitespace()
 	if scanner.pos >= len(scanner.data) {
-		return fmt.Errorf("unexpected end of json")
+		return errJSONParse
 	}
 
 	switch scanner.data[scanner.pos] {
@@ -838,6 +1208,51 @@ func (scanner *otxJSONScanner) skipArray() error {
 	}
 }
 
+func (scanner *otxJSONScanner) nextObjectBytes() (int, int, error) {
+	scanner.skipWhitespace()
+	if scanner.pos >= len(scanner.data) || scanner.data[scanner.pos] != '{' {
+		return 0, 0, errJSONParse
+	}
+
+	start := scanner.pos
+	depth := 0
+	inString := false
+	escaped := false
+
+	for scanner.pos < len(scanner.data) {
+		ch := scanner.data[scanner.pos]
+		scanner.pos++
+
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return start, scanner.pos, nil
+			}
+		}
+	}
+
+	return 0, 0, errJSONParse
+}
+
 func (scanner *otxJSONScanner) skipNumber() error {
 	scanner.skipWhitespace()
 	start := scanner.pos
@@ -853,14 +1268,14 @@ func (scanner *otxJSONScanner) skipNumber() error {
 		break
 	}
 	if start == scanner.pos {
-		return fmt.Errorf("expected json value at byte %d", start)
+		return errJSONParse
 	}
 	return nil
 }
 
 func (scanner *otxJSONScanner) consumeLiteral(literal string) error {
 	if !scanner.hasPrefix(literal) {
-		return fmt.Errorf("expected %s at byte %d", literal, scanner.pos)
+		return errJSONParse
 	}
 	scanner.pos += len(literal)
 	return nil
@@ -869,7 +1284,7 @@ func (scanner *otxJSONScanner) consumeLiteral(literal string) error {
 func (scanner *otxJSONScanner) expectByte(want byte) error {
 	scanner.skipWhitespace()
 	if scanner.pos >= len(scanner.data) || scanner.data[scanner.pos] != want {
-		return fmt.Errorf("expected %q at byte %d", want, scanner.pos)
+		return errJSONParse
 	}
 	scanner.pos++
 	return nil
@@ -901,14 +1316,79 @@ func (scanner *otxJSONScanner) skipWhitespace() {
 
 func (c *ctiCounts) addSkipped(kind string) {
 	c.Skipped++
-	kind = strings.ToLower(strings.TrimSpace(kind))
+	kind = lowerASCII(strings.TrimSpace(kind))
 	if kind == "" {
 		kind = "unknown"
 	}
-	if c.SkippedByType == nil {
-		c.SkippedByType = make(map[string]int)
+	c.SkippedByType.add(kind, 1)
+}
+
+func (counts *ctiSkippedCounts) add(kind string, count int) {
+	if count <= 0 {
+		return
 	}
-	c.SkippedByType[kind]++
+	switch kind {
+	case "domain":
+		counts.Domain += count
+	case "url":
+		counts.URL += count
+	case "hostname":
+		counts.Hostname += count
+	case "max_indicators":
+		counts.MaxIndicators += count
+	case "page_budget":
+		counts.PageBudget += count
+	case "empty":
+		counts.Empty += count
+	case "unknown":
+		counts.Unknown += count
+	default:
+		counts.Other += count
+	}
+}
+
+func (counts ctiSkippedCounts) get(kind string) int {
+	switch kind {
+	case "domain":
+		return counts.Domain
+	case "url":
+		return counts.URL
+	case "hostname":
+		return counts.Hostname
+	case "max_indicators":
+		return counts.MaxIndicators
+	case "page_budget":
+		return counts.PageBudget
+	case "empty":
+		return counts.Empty
+	case "unknown":
+		return counts.Unknown
+	default:
+		return counts.Other
+	}
+}
+
+func (counts *ctiSkippedCounts) UnmarshalJSON(data []byte) error {
+	var raw map[string]int
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*counts = ctiSkippedCounts{}
+	for kind, count := range raw {
+		counts.add(kind, count)
+	}
+	return nil
+}
+
+func (counts *ctiSkippedCounts) merge(other ctiSkippedCounts) {
+	counts.Domain += other.Domain
+	counts.URL += other.URL
+	counts.Hostname += other.Hostname
+	counts.MaxIndicators += other.MaxIndicators
+	counts.PageBudget += other.PageBudget
+	counts.Empty += other.Empty
+	counts.Unknown += other.Unknown
+	counts.Other += other.Other
 }
 
 func normalizeIndicator(pulse otxPulse, indicator otxIndicator) (ctiIndicator, bool) {
@@ -937,12 +1417,32 @@ func normalizeIndicator(pulse otxPulse, indicator otxIndicator) (ctiIndicator, b
 }
 
 func supportedIndicatorType(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	switch lowerASCII(strings.TrimSpace(value)) {
 	case "ipv4", "ipv6", "cidr", "ipv4-cidr", "ipv6-cidr":
 		return true
 	default:
 		return false
 	}
+}
+
+func lowerASCII(value string) string {
+	var out []byte
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if ch >= 'A' && ch <= 'Z' {
+			if out == nil {
+				out = append([]byte{}, value[:i]...)
+			}
+			ch += 'a' - 'A'
+		}
+		if out != nil {
+			out = append(out, ch)
+		}
+	}
+	if out == nil {
+		return value
+	}
+	return string(out)
 }
 
 func skipType(indicator otxIndicator) string {
@@ -972,8 +1472,7 @@ func stringPtrValue(value *string) string {
 }
 
 func ctiPageDetailsJSON(page ctiPage) string {
-	var b strings.Builder
-	b.Grow(512 + len(page.Indicators)*180)
+	b := jsonBuilder{buf: make([]byte, 0, 64*1024)}
 	b.WriteString(`{"threat_intel":{`)
 	writeJSONIntField(&b, "schema_version", page.SchemaVersion, false)
 	writeJSONStringField(&b, "provider", page.Provider, true)
@@ -991,8 +1490,7 @@ func submitPluginResult(status, summary, details string) error {
 }
 
 func pluginResultJSON(status, summary, details string) string {
-	var b strings.Builder
-	b.Grow(128 + len(summary) + len(details))
+	b := jsonBuilder{buf: make([]byte, 0, len(details)+len(summary)+128)}
 	b.WriteString(`{"schema_version":1`)
 	writeJSONStringField(&b, "status", status, true)
 	writeJSONStringField(&b, "summary", summary, true)
@@ -1003,18 +1501,31 @@ func pluginResultJSON(status, summary, details string) string {
 	return b.String()
 }
 
-func writeCursorJSON(b *strings.Builder, cursor map[string]string) {
+func writeCursorJSON(b *jsonBuilder, cursor ctiCursor) {
 	b.WriteString(`,"cursor":{`)
 	i := 0
-	for _, key := range []string{"next", "modified_since"} {
-		value := cursor[key]
+	for _, entry := range []struct {
+		key   string
+		value string
+	}{
+		{"next", cursor.Next},
+		{"modified_since", cursor.ModifiedSince},
+		{"start_page", cursor.StartPage},
+		{"limit", cursor.Limit},
+		{"max_pages", cursor.MaxPages},
+		{"pages_fetched", cursor.PagesFetched},
+		{"last_page", cursor.LastPage},
+		{"next_page", cursor.NextPage},
+		{"complete", cursor.Complete},
+	} {
+		value := entry.value
 		if value == "" {
 			continue
 		}
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		writeJSONString(b, key)
+		writeJSONString(b, entry.key)
 		b.WriteByte(':')
 		writeJSONString(b, value)
 		i++
@@ -1022,7 +1533,7 @@ func writeCursorJSON(b *strings.Builder, cursor map[string]string) {
 	b.WriteByte('}')
 }
 
-func writeCountsJSON(b *strings.Builder, counts ctiCounts) {
+func writeCountsJSON(b *jsonBuilder, counts ctiCounts) {
 	b.WriteString(`,"counts":{`)
 	writeJSONIntField(b, "objects", counts.Objects, false)
 	writeJSONIntField(b, "indicators", counts.Indicators, true)
@@ -1030,19 +1541,34 @@ func writeCountsJSON(b *strings.Builder, counts ctiCounts) {
 	writeJSONIntField(b, "total", counts.Total, true)
 	b.WriteString(`,"skipped_by_type":{`)
 	i := 0
-	for kind, count := range counts.SkippedByType {
+	for _, skipped := range []struct {
+		kind  string
+		count int
+	}{
+		{"domain", counts.SkippedByType.Domain},
+		{"url", counts.SkippedByType.URL},
+		{"hostname", counts.SkippedByType.Hostname},
+		{"max_indicators", counts.SkippedByType.MaxIndicators},
+		{"page_budget", counts.SkippedByType.PageBudget},
+		{"empty", counts.SkippedByType.Empty},
+		{"unknown", counts.SkippedByType.Unknown},
+		{"other", counts.SkippedByType.Other},
+	} {
+		if skipped.count == 0 {
+			continue
+		}
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		writeJSONString(b, kind)
+		writeJSONString(b, skipped.kind)
 		b.WriteByte(':')
-		b.WriteString(strconv.Itoa(count))
+		b.WriteString(strconv.Itoa(skipped.count))
 		i++
 	}
 	b.WriteString(`}}`)
 }
 
-func writeIndicatorsJSON(b *strings.Builder, indicators []ctiIndicator) {
+func writeIndicatorsJSON(b *jsonBuilder, indicators []ctiIndicator) {
 	b.WriteString(`,"indicators":[`)
 	for i, indicator := range indicators {
 		if i > 0 {
@@ -1064,7 +1590,7 @@ func writeIndicatorsJSON(b *strings.Builder, indicators []ctiIndicator) {
 	b.WriteByte(']')
 }
 
-func writeJSONStringField(b *strings.Builder, key, value string, comma bool) {
+func writeJSONStringField(b *jsonBuilder, key, value string, comma bool) {
 	if comma {
 		b.WriteByte(',')
 	}
@@ -1073,7 +1599,7 @@ func writeJSONStringField(b *strings.Builder, key, value string, comma bool) {
 	writeJSONString(b, value)
 }
 
-func writeJSONIntField(b *strings.Builder, key string, value int, comma bool) {
+func writeJSONIntField(b *jsonBuilder, key string, value int, comma bool) {
 	if comma {
 		b.WriteByte(',')
 	}
@@ -1082,7 +1608,7 @@ func writeJSONIntField(b *strings.Builder, key string, value int, comma bool) {
 	b.WriteString(strconv.Itoa(value))
 }
 
-func writeJSONString(b *strings.Builder, value string) {
+func writeJSONString(b *jsonBuilder, value string) {
 	b.WriteByte('"')
 	for i := 0; i < len(value); i++ {
 		switch value[i] {

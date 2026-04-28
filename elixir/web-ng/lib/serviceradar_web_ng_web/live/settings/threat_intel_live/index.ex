@@ -31,12 +31,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "agent_uid" => "",
     "enabled" => "true",
     "interval_seconds" => "3600",
-    "timeout_seconds" => "30",
+    "timeout_seconds" => "60",
     "base_url" => "https://otx.alienvault.com",
     "api_key_secret_ref" => "",
-    "limit" => "10",
+    "limit" => "100",
     "page" => "1",
     "timeout_ms" => "60000",
+    "max_pages" => "100",
     "max_indicators" => "5000"
   }
   @default_settings_form %{
@@ -748,6 +749,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       min="1000"
                       disabled={is_nil(@approved_package)}
                     />
+                    <.number_input
+                      name="assignment[max_pages]"
+                      label="Max Pages"
+                      value={@assignment_form["max_pages"]}
+                      min="1"
+                      disabled={is_nil(@approved_package)}
+                    />
                   </div>
 
                   <label class="flex items-center gap-2 text-sm">
@@ -1130,7 +1138,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp parse_assignment(params, package) when is_map(params) do
     with {:ok, agent_uid} <- required_string(params["agent_uid"], "Agent is required"),
          {:ok, interval_seconds} <- parse_positive_int(params["interval_seconds"], 3600),
-         {:ok, timeout_seconds} <- parse_positive_int(params["timeout_seconds"], 30),
+         {:ok, timeout_seconds} <- parse_positive_int(params["timeout_seconds"], 60),
          {:ok, params_map} <- parse_plugin_params(params, package.config_schema || %{}) do
       {:ok,
        %{
@@ -1152,6 +1160,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
         "limit" => params["limit"],
         "page" => params["page"],
         "timeout_ms" => params["timeout_ms"],
+        "max_pages" => params["max_pages"],
         "max_indicators" => params["max_indicators"]
       }
       |> Enum.reject(fn

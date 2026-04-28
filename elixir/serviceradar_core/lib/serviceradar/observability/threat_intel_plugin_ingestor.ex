@@ -14,7 +14,9 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
   alias ServiceRadar.Observability.ThreatIntelSourceObject
   alias ServiceRadar.Observability.ThreatIntelSyncStatus
+  alias ServiceRadar.Plugins.PluginAssignment
 
+  require Ash.Query
   require Logger
 
   @max_indicators_per_page 5_000
@@ -110,6 +112,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
     upsert_sync_status(sync_status_attrs, actor)
     Enum.each(source_object_attrs, &upsert_source_object(&1, actor))
     Enum.each(indicator_attrs, &upsert_indicator(&1, actor))
+    maybe_persist_edge_cursor(page, status, actor)
 
     emit_ingest_event(:stop, started_at, %{
       provider: page.provider,
@@ -204,6 +207,94 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   end
 
   defp upsert_sync_status(_attrs, _actor), do: :ok
+
+  defp maybe_persist_edge_cursor(%Page{} = page, status, actor) when is_map(status) do
+    with true <- otx_page?(page),
+         assignment_id when is_binary(assignment_id) and assignment_id != "" <-
+           fetch_value(status, [:assignment_id, "assignment_id"]),
+         params <- cursor_params(page.cursor),
+         true <- map_size(params) > 0,
+         {:ok, assignment} <- fetch_assignment(assignment_id, actor),
+         %PluginAssignment{} <- assignment do
+      updated_params =
+        assignment.params
+        |> normalize_assignment_params()
+        |> Map.merge(params)
+
+      assignment
+      |> Ash.Changeset.for_update(:update, %{params: updated_params})
+      |> Ash.update(actor: actor, domain: ServiceRadar.Plugins)
+      |> case do
+        {:ok, _updated} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Threat-intel assignment cursor update failed",
+            assignment_id: assignment_id,
+            reason: inspect(reason)
+          )
+
+          :error
+      end
+    else
+      _ -> :ok
+    end
+  rescue
+    error ->
+      Logger.warning("Threat-intel assignment cursor update failed", reason: inspect(error))
+      :ok
+  end
+
+  defp maybe_persist_edge_cursor(_page, _status, _actor), do: :ok
+
+  defp cursor_params(cursor) when is_map(cursor) do
+    complete? = fetch_value(cursor, ["complete"]) == "true"
+    next_page = fetch_value(cursor, ["next_page"])
+    next = fetch_value(cursor, ["next"])
+
+    cond do
+      complete? ->
+        %{"page" => 1, "cursor_complete" => true, "cursor_next" => nil}
+
+      is_binary(next_page) and next_page != "" ->
+        %{"page" => parse_positive_int(next_page, next_page), "cursor_complete" => false}
+        |> maybe_put_cursor_next(next)
+
+      true ->
+        %{}
+    end
+  end
+
+  defp cursor_params(_cursor), do: %{}
+
+  defp maybe_put_cursor_next(params, next) when is_binary(next) and next != "" do
+    Map.put(params, "cursor_next", next)
+  end
+
+  defp maybe_put_cursor_next(params, _next), do: params
+
+  defp fetch_assignment(assignment_id, actor) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^assignment_id)
+    |> Ash.read_one(actor: actor, domain: ServiceRadar.Plugins)
+  end
+
+  defp normalize_assignment_params(params) when is_map(params) do
+    Map.new(params, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp normalize_assignment_params(_params), do: %{}
+
+  defp parse_positive_int(value, fallback) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> fallback
+    end
+  end
+
+  defp parse_positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
+  defp parse_positive_int(_value, fallback), do: fallback
 
   defp maybe_archive_raw_payload(%Page{} = page, payload, actor, observed_at)
        when is_map(payload) do

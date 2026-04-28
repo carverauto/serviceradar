@@ -20,7 +20,7 @@
       "description": "OTX page size",
       "minimum": 1,
       "maximum": 100,
-      "default": 10
+      "default": 100
     },
     "page": {
       "type": "integer",
@@ -34,6 +34,13 @@
       "minimum": 1000,
       "maximum": 120000,
       "default": 60000
+    },
+    "max_pages": {
+      "type": "integer",
+      "description": "Maximum OTX pages fetched in one plugin run",
+      "minimum": 1,
+      "maximum": 500,
+      "default": 100
     },
     "max_indicators": {
       "type": "integer",
