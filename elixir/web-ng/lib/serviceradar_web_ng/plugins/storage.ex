@@ -356,13 +356,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp fetch_blob_jetstream(object_key) do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
-           {:ok, io} <- StringIO.open(""),
-           :ok <-
-             Object.get(conn, bucket_name(), object_key, fn chunk ->
-               IO.binwrite(io, chunk)
-             end) do
-        {_input, output} = StringIO.contents(io)
-        {:ok, {:binary, output}}
+           {:ok, payload} <- get_object_payload(conn, object_key) do
+        {:ok, {:binary, payload}}
       else
         {:error, %{"code" => 404}} -> {:error, :not_found}
         {:error, reason} -> {:error, reason}
@@ -467,6 +462,32 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp duplicate_window_for_ttl(_ttl), do: @two_minutes_in_nanoseconds
 
   @object_chunk_size 128 * 1024
+
+  defp get_object_payload(conn, object_key) do
+    bucket = bucket_name()
+
+    with {:ok, collector} <- Agent.start_link(fn -> [] end) do
+      try do
+        case Object.get(conn, bucket, object_key, fn chunk ->
+               Agent.update(collector, &[chunk | &1])
+             end) do
+          :ok ->
+            payload =
+              collector
+              |> Agent.get(& &1)
+              |> Enum.reverse()
+              |> IO.iodata_to_binary()
+
+            {:ok, payload}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      after
+        Agent.stop(collector)
+      end
+    end
+  end
 
   defp put_object_payload(conn, object_key, payload) when is_binary(payload) do
     bucket = bucket_name()
