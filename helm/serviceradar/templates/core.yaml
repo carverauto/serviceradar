@@ -157,6 +157,8 @@ spec:
         {{- end }}
         - name: SERVICERADAR_CLUSTER_COORDINATOR
           value: "true"
+        - name: SERVICERADAR_COORDINATOR_DB_HOST
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
           value: "false"
         - name: SERVICERADAR_CORE_OBAN_ENABLED

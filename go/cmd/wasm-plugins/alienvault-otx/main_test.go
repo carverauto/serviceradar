@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func TestBuildCTIPageNormalizesSupportedIndicators(t *testing.T) {
@@ -95,6 +97,20 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 	}
 	if cfg.MaxIndicators != maxIndicators {
 		t.Fatalf("max indicators = %d, want %d", cfg.MaxIndicators, maxIndicators)
+	}
+}
+
+func TestHTTPFailureSummaryIncludesSanitizedDetails(t *testing.T) {
+	got := httpFailureSummary(&sdk.HTTPResponse{
+		Status: 403,
+		Body:   []byte(`{"detail":"Authentication required"}`),
+	})
+
+	if !strings.Contains(got, "HTTP 403") {
+		t.Fatalf("summary = %q, want HTTP status", got)
+	}
+	if !strings.Contains(got, "Authentication required") {
+		t.Fatalf("summary = %q, want response detail", got)
 	}
 }
 
