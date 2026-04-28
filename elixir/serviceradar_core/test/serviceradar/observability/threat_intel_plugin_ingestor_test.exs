@@ -97,4 +97,34 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
                observed_at
              )
   end
+
+  test "normalizes STIX indicator objects from plugin CTI pages" do
+    observed_at = ~U[2026-04-27 12:00:00Z]
+
+    payload = %{
+      "threat_intel" => %{
+        "source" => "taxii-feed",
+        "objects" => [
+          %{
+            "type" => "indicator",
+            "name" => "C2 subnet",
+            "confidence" => 65,
+            "pattern" => "[ipv4-addr:value ISSUBSET '203.0.113.0/24']"
+          }
+        ]
+      }
+    }
+
+    assert [
+             %{
+               indicator: "203.0.113.0/24",
+               indicator_type: "cidr",
+               source: "taxii-feed",
+               label: "C2 subnet",
+               confidence: 65,
+               first_seen_at: ^observed_at,
+               last_seen_at: ^observed_at
+             }
+           ] = ThreatIntelPluginIngestor.normalize_indicators(payload, %{}, observed_at)
+  end
 end

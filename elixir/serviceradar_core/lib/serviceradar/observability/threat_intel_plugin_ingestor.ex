@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   """
 
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Observability.ThreatIntel.StixIndicator
   alias ServiceRadar.Observability.ThreatIntelIndicator
 
   require Logger
@@ -25,10 +26,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         source = source_for(page, status)
 
         page
-        |> list_value(["indicators"])
-        |> Enum.take(@max_indicators_per_page)
-        |> Enum.map(&normalize_indicator(&1, page, source, observed_at))
-        |> Enum.reject(&is_nil/1)
+        |> normalized_entries(source, observed_at)
         |> Enum.uniq_by(&{&1.source, &1.indicator})
 
       _ ->
@@ -114,6 +112,23 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   end
 
   defp normalize_indicator(_entry, _page, _source, _observed_at), do: nil
+
+  defp normalized_entries(page, source, observed_at) do
+    normalized_indicators =
+      page
+      |> list_value(["indicators"])
+      |> Enum.take(@max_indicators_per_page)
+      |> Enum.map(&normalize_indicator(&1, page, source, observed_at))
+      |> Enum.reject(&is_nil/1)
+
+    normalized_stix_objects =
+      page
+      |> list_value(["objects"])
+      |> Enum.flat_map(&StixIndicator.attrs_from_object(&1, source, observed_at))
+      |> Enum.take(@max_indicators_per_page)
+
+    normalized_indicators ++ normalized_stix_objects
+  end
 
   defp upsert_indicator(attrs, actor) do
     case Ash.create(ThreatIntelIndicator, attrs,
