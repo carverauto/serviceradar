@@ -56,6 +56,47 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
              )
   end
 
+  test "admin can set and clear encrypted OTX API key" do
+    system = SystemActor.system(:netflow_otx_settings_test_seed)
+    settings = ensure_settings(system)
+    admin = %{id: "user:admin", role: :admin, permissions: ["settings.netflow.manage"]}
+    token = "otx_test_token_#{System.unique_integer([:positive])}"
+
+    assert {:ok, %NetflowSettings{} = updated} =
+             NetflowSettings.update_settings(
+               settings,
+               %{
+                 otx_enabled: true,
+                 otx_execution_mode: "core_worker",
+                 otx_api_key: token,
+                 otx_base_url: "https://otx.alienvault.com",
+                 otx_retrohunt_window_seconds: 7_776_000
+               },
+               actor: admin
+             )
+
+    assert updated.otx_enabled == true
+    assert updated.otx_execution_mode == "core_worker"
+    assert updated.otx_api_key == token
+    assert is_binary(updated.encrypted_otx_api_key)
+    refute updated.encrypted_otx_api_key == token
+
+    assert {:ok, %NetflowSettings{} = fetched} = NetflowSettings.get_settings(actor: admin)
+    assert fetched.otx_api_key == token
+    assert fetched.otx_api_key_present == true
+
+    assert {:ok, %NetflowSettings{}} =
+             NetflowSettings.update_settings(
+               fetched,
+               %{clear_otx_api_key: true},
+               actor: admin
+             )
+
+    assert {:ok, %NetflowSettings{} = cleared} = NetflowSettings.get_settings(actor: admin)
+    refute cleared.otx_api_key_present
+    assert cleared.otx_api_key in [nil, ""]
+  end
+
   test "actor without settings permission cannot read settings" do
     system = SystemActor.system(:netflow_geoip_test_seed)
     _settings = ensure_settings(system)
