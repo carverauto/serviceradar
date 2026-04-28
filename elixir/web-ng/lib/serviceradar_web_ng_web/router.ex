@@ -535,6 +535,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new)
       live("/settings/networks/integrations/:id", Settings.IntegrationsLive.Index, :show)
       live("/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit)
+      live("/settings/networks/threat-intel", Settings.ThreatIntelLive.Index, :index)
 
       # Sysmon profiles configuration
       live("/settings/sysmon", Settings.SysmonProfilesLive.Index, :index)

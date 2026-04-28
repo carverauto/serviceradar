@@ -32,7 +32,8 @@
 - [x] 4.5 Add plugin config schema fields for provider URL, auth secret reference, page size, high-water cursor, timeout, and bounded indicator count.
 - [x] 4.6 Ensure the plugin uses only approved host capabilities and allowlists for HTTP access to OTX.
 - [x] 4.7 Route edge plugin CTI pages through core validation, normalization, and indicator upsert.
-- [ ] 4.8 Add UI affordances to assign the collector plugin to reachable agents and display per-agent sync health.
+- [x] 4.8 Add UI affordances to assign the collector plugin to reachable agents with secret-reference OTX credentials.
+- [ ] 4.9 Display per-agent sync health for threat-intel collector assignments.
 
 ## 5. NetFlow Threat Matching
 - [ ] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
@@ -49,8 +50,8 @@
 - [ ] 6.5 Keep retrohunt disabled or manual by default unless settings explicitly enable scheduled backfill.
 
 ## 7. Settings And Visibility UI
-- [ ] 7.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
-- [ ] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
+- [x] 7.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
+- [x] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
 - [ ] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
 - [ ] 7.4 Add status panels for last sync, indicator counts, latest errors, current NetFlow findings, edge agent/plugin health, and manual "Sync now" / "Retrohunt now" actions.
 - [ ] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
