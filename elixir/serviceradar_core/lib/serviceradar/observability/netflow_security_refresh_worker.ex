@@ -68,8 +68,6 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       |> normalize_reschedule_seconds()
 
     cache_ttl_seconds = Keyword.get(config, :cache_ttl_seconds, @default_cache_ttl_seconds)
-    threat_match_window_seconds = Keyword.get(config, :threat_match_window_seconds, 3_600)
-
     now = DateTime.utc_now()
     cache_expires_at = DateTime.add(now, cache_ttl_seconds, :second)
     actor = SystemActor.system(:netflow_security_refresh)
@@ -84,6 +82,10 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds))
       :ok
     else
+      threat_match_window_seconds =
+        settings.threat_intel_match_window_seconds ||
+          Keyword.get(config, :threat_match_window_seconds, 3_600)
+
       maybe_refresh_threat(
         settings,
         actor,

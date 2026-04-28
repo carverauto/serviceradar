@@ -28,8 +28,8 @@ defmodule ServiceRadar.Observability.NetflowSettings do
   cloak do
     vault(ServiceRadar.Vault)
     # AshCloak stores ciphertext in `encrypted_{attr}` and exposes the plaintext via `attr`.
-    attributes([:ipinfo_api_key])
-    decrypt_by_default([:ipinfo_api_key])
+    attributes([:ipinfo_api_key, :otx_api_key])
+    decrypt_by_default([:ipinfo_api_key, :otx_api_key])
   end
 
   code_interface do
@@ -50,7 +50,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         |> Ash.Query.limit(1)
         # Ensure the settings UI can render "token saved" state without needing
         # to decrypt or expose the token itself.
-        |> Ash.Query.load([:ipinfo_api_key_present])
+        |> Ash.Query.load([:ipinfo_api_key_present, :otx_api_key_present])
       end
     end
 
@@ -59,8 +59,19 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         :geoip_enabled,
         :ipinfo_enabled,
         :ipinfo_base_url,
+        :otx_enabled,
+        :otx_execution_mode,
+        :otx_base_url,
+        :otx_sync_interval_seconds,
+        :otx_page_size,
+        :otx_timeout_ms,
+        :otx_max_indicators,
+        :otx_modified_since,
+        :otx_raw_payload_archive_enabled,
+        :otx_retrohunt_window_seconds,
         :threat_intel_enabled,
         :threat_intel_feed_urls,
+        :threat_intel_match_window_seconds,
         :anomaly_enabled,
         :anomaly_baseline_window_seconds,
         :anomaly_threshold_percent,
@@ -79,10 +90,22 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         description "When true, clears the stored ipinfo.io token"
       end
 
+      argument :otx_api_key, :string do
+        sensitive? true
+        description "AlienVault OTX API key (will be encrypted)"
+      end
+
+      argument :clear_otx_api_key, :boolean do
+        default false
+        description "When true, clears the stored AlienVault OTX API key"
+      end
+
       change fn changeset, _ ->
         changeset
         |> maybe_set_secret(:ipinfo_api_key)
         |> maybe_clear_secret(:clear_ipinfo_api_key, :encrypted_ipinfo_api_key)
+        |> maybe_set_secret(:otx_api_key)
+        |> maybe_clear_secret(:clear_otx_api_key, :encrypted_otx_api_key)
       end
     end
 
@@ -93,8 +116,19 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         :geoip_enabled,
         :ipinfo_enabled,
         :ipinfo_base_url,
+        :otx_enabled,
+        :otx_execution_mode,
+        :otx_base_url,
+        :otx_sync_interval_seconds,
+        :otx_page_size,
+        :otx_timeout_ms,
+        :otx_max_indicators,
+        :otx_modified_since,
+        :otx_raw_payload_archive_enabled,
+        :otx_retrohunt_window_seconds,
         :threat_intel_enabled,
         :threat_intel_feed_urls,
+        :threat_intel_match_window_seconds,
         :anomaly_enabled,
         :anomaly_baseline_window_seconds,
         :anomaly_threshold_percent,
@@ -113,10 +147,22 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         description "When true, clears the stored ipinfo.io token"
       end
 
+      argument :otx_api_key, :string do
+        sensitive? true
+        description "AlienVault OTX API key (will be encrypted). Leave blank to keep existing."
+      end
+
+      argument :clear_otx_api_key, :boolean do
+        default false
+        description "When true, clears the stored AlienVault OTX API key"
+      end
+
       change fn changeset, _ ->
         changeset
         |> maybe_set_secret(:ipinfo_api_key)
         |> maybe_clear_secret(:clear_ipinfo_api_key, :encrypted_ipinfo_api_key)
+        |> maybe_set_secret(:otx_api_key)
+        |> maybe_clear_secret(:clear_otx_api_key, :encrypted_otx_api_key)
       end
     end
 
@@ -183,9 +229,80 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       public? true
     end
 
+    attribute :otx_enabled, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
+    attribute :otx_execution_mode, :string do
+      allow_nil? false
+      default "edge_plugin"
+      public? true
+    end
+
+    attribute :otx_base_url, :string do
+      allow_nil? false
+      default "https://otx.alienvault.com"
+      public? true
+    end
+
+    attribute :otx_api_key, :string do
+      allow_nil? true
+      public? false
+      sensitive? true
+      description "AlienVault OTX API key (encrypted at rest)"
+    end
+
+    attribute :otx_sync_interval_seconds, :integer do
+      allow_nil? false
+      default 3_600
+      public? true
+    end
+
+    attribute :otx_page_size, :integer do
+      allow_nil? false
+      default 50
+      public? true
+    end
+
+    attribute :otx_timeout_ms, :integer do
+      allow_nil? false
+      default 20_000
+      public? true
+    end
+
+    attribute :otx_max_indicators, :integer do
+      allow_nil? false
+      default 2_000
+      public? true
+    end
+
+    attribute :otx_modified_since, :string do
+      public? true
+    end
+
+    attribute :otx_raw_payload_archive_enabled, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
+    attribute :otx_retrohunt_window_seconds, :integer do
+      allow_nil? false
+      default 604_800
+      public? true
+    end
+
     attribute :threat_intel_feed_urls, {:array, :string} do
       allow_nil? false
       default []
+      public? true
+    end
+
+    attribute :threat_intel_match_window_seconds, :integer do
+      allow_nil? false
+      default 3_600
       public? true
     end
 
@@ -259,6 +376,15 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         # Prefer checking the ciphertext field (generated by AshCloak), so we don't require
         # decrypting the token just to show "saved" state in the UI.
         case Map.get(record, :encrypted_ipinfo_api_key) do
+          value when is_binary(value) -> byte_size(value) > 0
+          _ -> false
+        end
+      end)
+    end
+
+    calculate :otx_api_key_present, :boolean, fn records, _opts ->
+      Enum.map(records, fn record ->
+        case Map.get(record, :encrypted_otx_api_key) do
           value when is_binary(value) -> byte_size(value) > 0
           _ -> false
         end
