@@ -17,7 +17,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
   @default_base_url "https://otx.alienvault.com"
   @default_limit 10
   @default_page 1
-  @default_timeout_ms 20_000
+  @default_timeout_ms 60_000
   @default_max_indicators 2_000
   @max_limit 100
   @max_indicators 5_000

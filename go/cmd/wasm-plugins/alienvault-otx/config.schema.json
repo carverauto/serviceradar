@@ -33,7 +33,7 @@
       "description": "Request timeout in milliseconds",
       "minimum": 1000,
       "maximum": 120000,
-      "default": 20000
+      "default": 60000
     },
     "max_indicators": {
       "type": "integer",

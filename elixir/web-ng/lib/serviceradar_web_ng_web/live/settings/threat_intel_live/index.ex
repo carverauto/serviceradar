@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "api_key_secret_ref" => "",
     "limit" => "10",
     "page" => "1",
-    "timeout_ms" => "20000",
+    "timeout_ms" => "60000",
     "max_indicators" => "5000"
   }
   @default_settings_form %{
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "clear_otx_api_key" => "false",
     "otx_sync_interval_seconds" => "3600",
     "otx_page_size" => "10",
-    "otx_timeout_ms" => "20000",
+    "otx_timeout_ms" => "60000",
     "otx_max_indicators" => "2000",
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
@@ -1044,7 +1044,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "clear_otx_api_key" => "false",
       "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 3_600),
       "otx_page_size" => to_string(settings.otx_page_size || 10),
-      "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 20_000),
+      "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 60_000),
       "otx_max_indicators" => to_string(settings.otx_max_indicators || 2_000),
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
@@ -1064,7 +1064,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
         |> String.trim(),
       otx_sync_interval_seconds: to_int(Map.get(params, "otx_sync_interval_seconds"), 3_600),
       otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 10, 1, 100),
-      otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 20_000),
+      otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 60_000),
       otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 2_000, 1, 5_000),
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
