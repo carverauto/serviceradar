@@ -180,6 +180,27 @@ func TestCTIPageDetailsJSONEncodesPayloadWithoutSecrets(t *testing.T) {
 	}
 }
 
+func TestPluginResultJSONEncodesMinimalResult(t *testing.T) {
+	encoded := pluginResultJSON("OK", `OTX "ready"`, `{"threat_intel":{"indicators":[]}}`)
+
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+		t.Fatalf("result JSON did not decode: %v\n%s", err, encoded)
+	}
+	if decoded["schema_version"].(float64) != 1 {
+		t.Fatalf("schema_version = %v", decoded["schema_version"])
+	}
+	if decoded["status"] != "OK" {
+		t.Fatalf("status = %v", decoded["status"])
+	}
+	if decoded["summary"] != `OTX "ready"` {
+		t.Fatalf("summary = %v", decoded["summary"])
+	}
+	if decoded["details"] != `{"threat_intel":{"indicators":[]}}` {
+		t.Fatalf("details = %v", decoded["details"])
+	}
+}
+
 func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 	const raw = `{
 		"base_url": "https://otx.example.test",
