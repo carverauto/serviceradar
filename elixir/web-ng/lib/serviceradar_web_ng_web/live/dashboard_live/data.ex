@@ -916,18 +916,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       """
 
       case Repo.query(sql, []) do
-        {:ok, %{rows: [[session_id, min_x, max_x, min_z, max_z, cells, metadata, generated_at]]}} ->
+        {:ok, %{rows: [[session_id, _min_x, _max_x, _min_z, _max_z, cells, metadata, generated_at]]}} ->
           raw_cells = map_value(cells || %{}, "cells") || []
-          floorplan_segments = latest_dashboard_floorplan_segments(session_id, min_x, max_x, min_z, max_z)
-
-          raster_cells =
-            raw_cells
-            |> Enum.map(&dashboard_raster_cell(&1, min_x, max_x, min_z, max_z))
-            |> Enum.reject(&is_nil/1)
-            |> Enum.sort_by(& &1.confidence, :desc)
-            |> Enum.take(900)
-
-          surface_svg = map_value(cells || %{}, "surface_svg") || dashboard_surface_svg(raster_cells)
+          raw_raster_cells = raw_cells |> Enum.map(&dashboard_raw_raster_cell/1) |> Enum.reject(&is_nil/1)
+          raw_floorplan_segments = latest_dashboard_floorplan_segments(session_id)
+          {raster_cells, floorplan_segments} = normalize_dashboard_survey(raw_raster_cells, raw_floorplan_segments)
+          surface_svg = dashboard_surface_svg(raster_cells)
 
           %{
             raster_session_id: session_id,
@@ -950,7 +944,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> empty_survey_raster_summary()
   end
 
-  defp dashboard_raster_cell(cell, min_x, max_x, min_z, max_z) when is_map(cell) do
+  defp dashboard_raw_raster_cell(cell) when is_map(cell) do
     x = map_value(cell, "x")
     z = map_value(cell, "z")
     rssi = map_value(cell, "rssi")
@@ -958,14 +952,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     with true <- is_number(x),
          true <- is_number(z),
          true <- is_number(rssi) do
-      x_pct = map_value(cell, "x_pct") || percent_between(x, min_x, max_x)
-      z_pct = map_value(cell, "z_pct") || 100.0 - percent_between(z, min_z, max_z)
-      radius_pct = map_value(cell, "radius_pct") || 3.0
-
       %{
-        x_pct: clamp(to_float(x_pct), 0.0, 100.0),
-        z_pct: clamp(to_float(z_pct), 0.0, 100.0),
-        radius_pct: clamp(to_float(radius_pct), 1.6, 7.0),
+        x: to_float(x),
+        z: to_float(z),
+        radius_m: clamp(to_float(map_value(cell, "radius_m") || 0.32), 0.08, 2.5),
         rssi: Float.round(to_float(rssi), 1),
         confidence: clamp(to_float(map_value(cell, "confidence") || 0.5), 0.15, 1.0)
       }
@@ -974,7 +964,158 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     end
   end
 
-  defp dashboard_raster_cell(_cell, _min_x, _max_x, _min_z, _max_z), do: nil
+  defp dashboard_raw_raster_cell(_cell), do: nil
+
+  defp normalize_dashboard_survey(raw_cells, raw_segments) do
+    angle = dashboard_rotation_angle(raw_cells, raw_segments)
+    rotated_cells = Enum.map(raw_cells, &rotate_dashboard_point(&1, angle))
+    rotated_segments = Enum.map(raw_segments, &rotate_dashboard_segment(&1, angle))
+    bounds = dashboard_projection_bounds(rotated_cells, rotated_segments)
+
+    raster_cells =
+      rotated_cells
+      |> Enum.map(&project_dashboard_cell(&1, bounds))
+      |> Enum.sort_by(& &1.confidence, :desc)
+      |> Enum.take(900)
+
+    floorplan_segments =
+      rotated_segments
+      |> Enum.map(&project_dashboard_segment(&1, bounds))
+      |> Enum.reject(&zero_dashboard_segment?/1)
+      |> Enum.take(180)
+
+    {raster_cells, floorplan_segments}
+  end
+
+  defp dashboard_rotation_angle(_raw_cells, [_ | _] = raw_segments) do
+    primary_segments =
+      case Enum.filter(raw_segments, &(&1.kind == "wall")) do
+        [] -> raw_segments
+        walls -> walls
+      end
+
+    primary_segments
+    |> Enum.max_by(&dashboard_segment_length/1, fn -> nil end)
+    |> case do
+      %{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z} ->
+        :math.atan2(end_z - start_z, end_x - start_x)
+
+      _ ->
+        0.0
+    end
+    |> normalize_dashboard_angle()
+  end
+
+  defp dashboard_rotation_angle([_ | _] = raw_cells, _raw_segments) do
+    count = length(raw_cells)
+    mean_x = raw_cells |> Enum.map(& &1.x) |> Enum.sum() |> Kernel./(count)
+    mean_z = raw_cells |> Enum.map(& &1.z) |> Enum.sum() |> Kernel./(count)
+
+    {cov_xx, cov_zz, cov_xz} =
+      Enum.reduce(raw_cells, {0.0, 0.0, 0.0}, fn cell, {xx, zz, xz} ->
+        dx = cell.x - mean_x
+        dz = cell.z - mean_z
+        {xx + dx * dx, zz + dz * dz, xz + dx * dz}
+      end)
+
+    normalize_dashboard_angle(0.5 * :math.atan2(2.0 * cov_xz, cov_xx - cov_zz))
+  end
+
+  defp dashboard_rotation_angle(_raw_cells, _raw_segments), do: 0.0
+
+  defp normalize_dashboard_angle(angle) do
+    cond do
+      angle > :math.pi() / 2.0 -> angle - :math.pi()
+      angle < -:math.pi() / 2.0 -> angle + :math.pi()
+      true -> angle
+    end
+  end
+
+  defp rotate_dashboard_point(%{x: x, z: z} = point, angle) do
+    cos = :math.cos(-angle)
+    sin = :math.sin(-angle)
+
+    point
+    |> Map.put(:x_rot, x * cos - z * sin)
+    |> Map.put(:z_rot, x * sin + z * cos)
+  end
+
+  defp rotate_dashboard_segment(segment, angle) do
+    start = rotate_dashboard_point(%{x: segment.start_x, z: segment.start_z}, angle)
+    finish = rotate_dashboard_point(%{x: segment.end_x, z: segment.end_z}, angle)
+
+    segment
+    |> Map.put(:start_x_rot, start.x_rot)
+    |> Map.put(:start_z_rot, start.z_rot)
+    |> Map.put(:end_x_rot, finish.x_rot)
+    |> Map.put(:end_z_rot, finish.z_rot)
+  end
+
+  defp dashboard_projection_bounds(rotated_cells, rotated_segments) do
+    points =
+      Enum.map(rotated_cells, &%{x: &1.x_rot, z: &1.z_rot}) ++
+        Enum.flat_map(rotated_segments, fn segment ->
+          [
+            %{x: segment.start_x_rot, z: segment.start_z_rot},
+            %{x: segment.end_x_rot, z: segment.end_z_rot}
+          ]
+        end)
+
+    xs = Enum.map(points, & &1.x)
+    zs = Enum.map(points, & &1.z)
+
+    case {Enum.min(xs, fn -> nil end), Enum.max(xs, fn -> nil end), Enum.min(zs, fn -> nil end),
+          Enum.max(zs, fn -> nil end)} do
+      {nil, _, _, _} ->
+        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0}
+
+      {min_x, max_x, min_z, max_z} ->
+        x_pad = max((max_x - min_x) * 0.08, 0.6)
+        z_pad = max((max_z - min_z) * 0.08, 0.6)
+        padded_min_x = min_x - x_pad
+        padded_max_x = max_x + x_pad
+        padded_min_z = min_z - z_pad
+        padded_max_z = max_z + z_pad
+        width = padded_max_x - padded_min_x
+        height = padded_max_z - padded_min_z
+        side = max(width, height)
+        center_x = (padded_min_x + padded_max_x) / 2.0
+        center_z = (padded_min_z + padded_max_z) / 2.0
+
+        %{
+          min_x: center_x - side / 2.0,
+          max_x: center_x + side / 2.0,
+          min_z: center_z - side / 2.0,
+          max_z: center_z + side / 2.0
+        }
+    end
+  end
+
+  defp project_dashboard_cell(cell, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+    meters_per_pct = max(width, height) / 100.0
+
+    cell
+    |> Map.put(:x_pct, clamp((cell.x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0))
+    |> Map.put(:z_pct, 100.0 - clamp((cell.z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
+    |> Map.put(:radius_pct, clamp(cell.radius_m / max(meters_per_pct, 0.01), 1.6, 7.0))
+  end
+
+  defp project_dashboard_segment(segment, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+
+    segment
+    |> Map.put(:start_x_pct, clamp((segment.start_x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0))
+    |> Map.put(:start_z_pct, 100.0 - clamp((segment.start_z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
+    |> Map.put(:end_x_pct, clamp((segment.end_x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0))
+    |> Map.put(:end_z_pct, 100.0 - clamp((segment.end_z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
+  end
+
+  defp dashboard_segment_length(%{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z}) do
+    :math.sqrt(:math.pow(end_x - start_x, 2) + :math.pow(end_z - start_z, 2))
+  end
 
   defp dashboard_surface_svg([]), do: nil
 
@@ -1029,7 +1170,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp svg_number(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 3)
   defp svg_number(_value), do: "0.000"
 
-  defp latest_dashboard_floorplan_segments(session_id, min_x, max_x, min_z, max_z) do
+  defp latest_dashboard_floorplan_segments(session_id) do
     if relation_exists?("platform.survey_room_artifacts") do
       sql = """
       SELECT object_key
@@ -1045,7 +1186,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           object_key
           |> FieldSurveyRoomArtifacts.fetch()
           |> case do
-            {:ok, payload} -> decode_dashboard_floorplan(payload, min_x, max_x, min_z, max_z)
+            {:ok, payload} -> decode_dashboard_floorplan(payload)
             _ -> []
           end
 
@@ -1059,37 +1200,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> []
   end
 
-  defp decode_dashboard_floorplan(payload, min_x, max_x, min_z, max_z) do
+  defp decode_dashboard_floorplan(payload) do
     with {:ok, %{"type" => "FeatureCollection", "features" => features}} <- Jason.decode(payload),
          true <- is_list(features) do
       features
-      |> Enum.flat_map(&dashboard_floorplan_segment(&1, min_x, max_x, min_z, max_z))
-      |> Enum.reject(&zero_dashboard_segment?/1)
+      |> Enum.flat_map(&dashboard_floorplan_segment/1)
       |> Enum.take(180)
     else
       _ -> []
     end
   end
 
-  defp dashboard_floorplan_segment(
-         %{
-           "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
-           "properties" => properties
-         },
-         min_x,
-         max_x,
-         min_z,
-         max_z
-       ) do
+  defp dashboard_floorplan_segment(%{
+         "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
+         "properties" => properties
+       }) do
     with {:ok, start_x, start_z} <- dashboard_floorplan_coordinate(start_coord),
          {:ok, end_x, end_z} <- dashboard_floorplan_coordinate(end_coord) do
       [
         %{
           kind: dashboard_floorplan_kind(Map.get(properties || %{}, "kind")),
-          start_x_pct: clamp(percent_between(start_x, min_x, max_x), 0.0, 100.0),
-          start_z_pct: 100.0 - clamp(percent_between(start_z, min_z, max_z), 0.0, 100.0),
-          end_x_pct: clamp(percent_between(end_x, min_x, max_x), 0.0, 100.0),
-          end_z_pct: 100.0 - clamp(percent_between(end_z, min_z, max_z), 0.0, 100.0)
+          start_x: start_x,
+          start_z: start_z,
+          end_x: end_x,
+          end_z: end_z
         }
       ]
     else
@@ -1097,7 +1231,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     end
   end
 
-  defp dashboard_floorplan_segment(_feature, _min_x, _max_x, _min_z, _max_z), do: []
+  defp dashboard_floorplan_segment(_feature), do: []
 
   defp dashboard_floorplan_coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
   defp dashboard_floorplan_coordinate(_coordinate), do: :error
@@ -1107,13 +1241,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp zero_dashboard_segment?(segment) do
     abs(segment.start_x_pct - segment.end_x_pct) < 0.01 and abs(segment.start_z_pct - segment.end_z_pct) < 0.01
-  end
-
-  defp percent_between(value, min_value, max_value) do
-    min_value = to_float(min_value)
-    max_value = to_float(max_value)
-    width = max(max_value - min_value, 0.0001)
-    (to_float(value) - min_value) / width * 100.0
   end
 
   defp security_trend(time_window) do
