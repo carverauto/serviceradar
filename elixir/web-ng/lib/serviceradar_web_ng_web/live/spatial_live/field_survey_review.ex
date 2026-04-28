@@ -37,30 +37,6 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     {:noreply, load_review(socket, params)}
   end
 
-  def handle_event("regenerate_rasters", _params, %{assigns: %{selected_session_id: nil}} = socket) do
-    {:noreply, put_flash(socket, :error, "Select a survey session before regenerating rasters.")}
-  end
-
-  def handle_event("regenerate_rasters", _params, socket) do
-    session_id = socket.assigns.selected_session_id
-    scope = socket.assigns.current_scope
-
-    case FieldSurveyReview.regenerate_coverage_rasters(scope, session_id) do
-      {:ok, review} ->
-        {:noreply,
-         socket
-         |> assign(:review, review)
-         |> put_flash(:info, "Regenerated persisted FieldSurvey rasters for this session.")}
-
-      {:error, :no_raster_cells} ->
-        {:noreply,
-         put_flash(socket, :error, "No positioned Wi-Fi or RF interference points are available for raster generation.")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Raster regeneration failed: #{inspect(reason)}")}
-    end
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -77,13 +53,6 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           <div class="flex flex-wrap items-center gap-2">
             <button class="btn btn-sm btn-outline" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
-            <button
-              class="btn btn-sm btn-outline"
-              phx-click="regenerate_rasters"
-              disabled={is_nil(@selected_session_id)}
-            >
-              <.icon name="hero-arrow-path" class="size-4" /> Regenerate Rasters
             </button>
             <.link navigate={~p"/spatial"} class="btn btn-sm btn-ghost">
               <.icon name="hero-cube-transparent" class="size-4" /> 3D View

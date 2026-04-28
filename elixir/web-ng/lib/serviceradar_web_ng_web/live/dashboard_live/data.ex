@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @moduledoc false
 
+  alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
@@ -841,7 +842,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> 0
   end
 
-  defp survey_summary(_scope) do
+  defp survey_summary(scope) do
     summary =
       cond do
         relation_exists?("platform.survey_rf_pose_matches") ->
@@ -897,12 +898,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           empty_survey_summary()
       end
 
-    Map.merge(summary, latest_survey_raster_summary())
+    Map.merge(summary, latest_survey_raster_summary(scope))
   rescue
     _ -> empty_survey_summary()
   end
 
-  defp latest_survey_raster_summary do
+  defp latest_survey_raster_summary(_scope) do
     if relation_exists?("platform.survey_coverage_rasters") do
       sql = """
       SELECT session_id, min_x, max_x, min_z, max_z, cells, metadata, generated_at
@@ -917,6 +918,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       case Repo.query(sql, []) do
         {:ok, %{rows: [[session_id, min_x, max_x, min_z, max_z, cells, metadata, generated_at]]}} ->
           raw_cells = map_value(cells || %{}, "cells") || []
+          floorplan_segments = latest_dashboard_floorplan_segments(session_id, min_x, max_x, min_z, max_z)
 
           %{
             raster_session_id: session_id,
@@ -927,7 +929,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
               |> Enum.map(&dashboard_raster_cell(&1, min_x, max_x, min_z, max_z))
               |> Enum.reject(&is_nil/1)
               |> Enum.sort_by(& &1.confidence, :desc)
-              |> Enum.take(260),
+              |> Enum.take(900),
+            floorplan_segment_count: length(floorplan_segments),
+            floorplan_segments: floorplan_segments,
             raster_metadata: metadata || %{}
           }
 
@@ -966,6 +970,86 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp dashboard_raster_cell(_cell, _min_x, _max_x, _min_z, _max_z), do: nil
+
+  defp latest_dashboard_floorplan_segments(session_id, min_x, max_x, min_z, max_z) do
+    if relation_exists?("platform.survey_room_artifacts") do
+      sql = """
+      SELECT object_key
+      FROM platform.survey_room_artifacts
+      WHERE session_id = $1
+        AND artifact_type = 'floorplan_geojson'
+      ORDER BY uploaded_at DESC
+      LIMIT 1
+      """
+
+      case Repo.query(sql, [session_id]) do
+        {:ok, %{rows: [[object_key]]}} when is_binary(object_key) ->
+          object_key
+          |> FieldSurveyRoomArtifacts.fetch()
+          |> case do
+            {:ok, payload} -> decode_dashboard_floorplan(payload, min_x, max_x, min_z, max_z)
+            _ -> []
+          end
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp decode_dashboard_floorplan(payload, min_x, max_x, min_z, max_z) do
+    with {:ok, %{"type" => "FeatureCollection", "features" => features}} <- Jason.decode(payload),
+         true <- is_list(features) do
+      features
+      |> Enum.flat_map(&dashboard_floorplan_segment(&1, min_x, max_x, min_z, max_z))
+      |> Enum.reject(&zero_dashboard_segment?/1)
+      |> Enum.take(180)
+    else
+      _ -> []
+    end
+  end
+
+  defp dashboard_floorplan_segment(
+         %{
+           "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
+           "properties" => properties
+         },
+         min_x,
+         max_x,
+         min_z,
+         max_z
+       ) do
+    with {:ok, start_x, start_z} <- dashboard_floorplan_coordinate(start_coord),
+         {:ok, end_x, end_z} <- dashboard_floorplan_coordinate(end_coord) do
+      [
+        %{
+          kind: dashboard_floorplan_kind(Map.get(properties || %{}, "kind")),
+          start_x_pct: clamp(percent_between(start_x, min_x, max_x), 0.0, 100.0),
+          start_z_pct: 100.0 - clamp(percent_between(start_z, min_z, max_z), 0.0, 100.0),
+          end_x_pct: clamp(percent_between(end_x, min_x, max_x), 0.0, 100.0),
+          end_z_pct: 100.0 - clamp(percent_between(end_z, min_z, max_z), 0.0, 100.0)
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp dashboard_floorplan_segment(_feature, _min_x, _max_x, _min_z, _max_z), do: []
+
+  defp dashboard_floorplan_coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
+  defp dashboard_floorplan_coordinate(_coordinate), do: :error
+
+  defp dashboard_floorplan_kind(kind) when kind in ["wall", "door", "window"], do: kind
+  defp dashboard_floorplan_kind(_kind), do: "wall"
+
+  defp zero_dashboard_segment?(segment) do
+    abs(segment.start_x_pct - segment.end_x_pct) < 0.01 and abs(segment.start_z_pct - segment.end_z_pct) < 0.01
+  end
 
   defp percent_between(value, min_value, max_value) do
     min_value = to_float(min_value)
@@ -1569,7 +1653,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     do: Map.merge(%{sample_count: 0, session_count: 0, avg_rssi: 0.0, secure_count: 0}, empty_survey_raster_summary())
 
   defp empty_survey_raster_summary,
-    do: %{raster_session_id: nil, raster_generated_at: nil, raster_cell_count: 0, raster_cells: [], raster_metadata: %{}}
+    do: %{
+      raster_session_id: nil,
+      raster_generated_at: nil,
+      raster_cell_count: 0,
+      raster_cells: [],
+      floorplan_segment_count: 0,
+      floorplan_segments: [],
+      raster_metadata: %{}
+    }
 
   defp empty_alert_summary, do: Stats.empty_alerts_summary()
   defp empty_event_summary, do: Stats.empty_events_summary()
