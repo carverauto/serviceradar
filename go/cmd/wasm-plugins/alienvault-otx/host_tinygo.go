@@ -14,7 +14,7 @@ func hostHTTPRequest(reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint3
 
 func doOTXHostHTTPRequest(apiURL, apiKey string, timeoutMS int) (*sdk.HTTPResponse, error) {
 	request := []byte(otxHTTPRequestPayload(apiURL, apiKey, timeoutMS))
-	response := make([]byte, sdk.MaxHTTPResponseBytes)
+	response := make([]byte, 512*1024)
 
 	result := hostHTTPRequest(bytesPtr(request), uint32(len(request)), bytesPtr(response), uint32(len(response)))
 	if result < 0 {
