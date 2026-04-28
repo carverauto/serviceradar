@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelOTXSyncWorker
   alias ServiceRadar.Observability.ThreatIntelSourceObject
@@ -228,6 +229,50 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         </div>
                       </div>
                     <% end %>
+                  </div>
+                <% end %>
+              </div>
+
+              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+                <div class="mb-3 text-sm font-semibold">Current NetFlow Findings</div>
+                <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <.status_count label="Matched IPs" value={@netflow_findings.matched_ips} />
+                  <.status_count label="IOC Hits" value={@netflow_findings.indicator_matches} />
+                  <.status_count label="Max Severity" value={@netflow_findings.max_severity || 0} />
+                  <.status_count label="Sources" value={length(@netflow_findings.sources)} />
+                </div>
+                <div :if={@netflow_findings.sources != []} class="mt-3 flex flex-wrap gap-1">
+                  <span
+                    :for={source <- @netflow_findings.sources}
+                    class="badge badge-xs badge-outline"
+                  >
+                    {source}
+                  </span>
+                </div>
+                <%= if @netflow_findings.recent == [] do %>
+                  <div class="mt-3 rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                    No current NetFlow IOC matches.
+                  </div>
+                <% else %>
+                  <div class="mt-3 overflow-x-auto">
+                    <table class="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>IP</th>
+                          <th>Hits</th>
+                          <th>Severity</th>
+                          <th>Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr :for={finding <- @netflow_findings.recent}>
+                          <td class="font-mono">{finding.ip}</td>
+                          <td>{finding.match_count}</td>
+                          <td>{finding.max_severity || 0}</td>
+                          <td>{format_datetime(finding.looked_up_at)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 <% end %>
               </div>
@@ -491,6 +536,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> assign(:approved_package, approved_package)
     |> assign(:assignments, list_assignments(approved_package, scope))
     |> assign(:sync_statuses, list_sync_statuses(scope))
+    |> assign(:netflow_findings, netflow_findings_summary(scope))
     |> assign(:indicators, list_indicators(scope))
     |> assign(:source_objects, list_source_objects(scope))
     |> assign(:assignment_form, @default_form)
@@ -590,6 +636,52 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> Ash.read!(scope: scope)
   rescue
     _ -> []
+  end
+
+  defp netflow_findings_summary(scope) do
+    now = DateTime.utc_now()
+
+    findings =
+      IpThreatIntelCache
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(matched == true and expires_at > ^now)
+      |> Ash.Query.limit(200)
+      |> Ash.Query.sort(looked_up_at: :desc)
+      |> Ash.read!(scope: scope)
+
+    %{
+      matched_ips: length(findings),
+      indicator_matches: Enum.reduce(findings, 0, &(&2 + normalize_int(&1.match_count))),
+      max_severity: max_threat_severity(findings),
+      sources:
+        findings
+        |> Enum.flat_map(&List.wrap(&1.sources))
+        |> Enum.reject(&(&1 in [nil, ""]))
+        |> Enum.uniq()
+        |> Enum.sort(),
+      recent: Enum.take(findings, 8)
+    }
+  rescue
+    error ->
+      Logger.debug("Failed to load threat intel NetFlow finding summary", error: inspect(error))
+
+      %{
+        matched_ips: 0,
+        indicator_matches: 0,
+        max_severity: nil,
+        sources: [],
+        recent: []
+      }
+  end
+
+  defp max_threat_severity(findings) do
+    findings
+    |> Enum.map(& &1.max_severity)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      severities -> Enum.max(severities)
+    end
   end
 
   defp parse_assignment(params, package) when is_map(params) do
@@ -700,6 +792,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp format_optional_int(nil), do: "-"
   defp format_optional_int(value), do: to_string(value)
+
+  defp normalize_int(value) when is_integer(value), do: value
+  defp normalize_int(_value), do: 0
 
   defp source_object_label(%ThreatIntelSourceObject{metadata: metadata}) when is_map(metadata) do
     metadata["name"] || metadata["label"] || metadata["source_context"]

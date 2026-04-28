@@ -2554,6 +2554,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <%= if match = Map.get(@context, :src_threat) do %>
                     <span class="ml-2 badge badge-xs badge-warning">match</span>
                     <span class="ml-2 font-mono">{match.match_count} indicators</span>
+                    <span
+                      :if={match.max_severity}
+                      class={"ml-2 badge badge-xs #{threat_severity_badge_class(match.max_severity)}"}
+                    >
+                      severity {match.max_severity}
+                    </span>
+                    <span
+                      :for={source <- threat_sources(match)}
+                      class="ml-1 badge badge-xs badge-outline"
+                    >
+                      {source}
+                    </span>
                   <% else %>
                     <span class="ml-2 badge badge-xs badge-ghost">none</span>
                   <% end %>
@@ -2563,6 +2575,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <%= if match = Map.get(@context, :dst_threat) do %>
                     <span class="ml-2 badge badge-xs badge-warning">match</span>
                     <span class="ml-2 font-mono">{match.match_count} indicators</span>
+                    <span
+                      :if={match.max_severity}
+                      class={"ml-2 badge badge-xs #{threat_severity_badge_class(match.max_severity)}"}
+                    >
+                      severity {match.max_severity}
+                    </span>
+                    <span
+                      :for={source <- threat_sources(match)}
+                      class="ml-1 badge badge-xs badge-outline"
+                    >
+                      {source}
+                    </span>
                   <% else %>
                     <span class="ml-2 badge badge-xs badge-ghost">none</span>
                   <% end %>
@@ -2999,6 +3023,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       _ -> nil
     end
   end
+
+  defp threat_sources(%{sources: sources}) do
+    sources
+    |> List.wrap()
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.take(4)
+  end
+
+  defp threat_sources(_match), do: []
+
+  defp threat_severity_badge_class(severity) when is_integer(severity) and severity >= 80, do: "badge-error"
+
+  defp threat_severity_badge_class(severity) when is_integer(severity) and severity >= 50, do: "badge-warning"
+
+  defp threat_severity_badge_class(_severity), do: "badge-info"
 
   defp read_port_scan(nil, _ip), do: nil
   defp read_port_scan(_user, nil), do: nil
