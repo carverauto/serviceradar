@@ -76,10 +76,11 @@ type ctiPage struct {
 }
 
 type ctiCounts struct {
-	Objects    int `json:"objects"`
-	Indicators int `json:"indicators"`
-	Skipped    int `json:"skipped"`
-	Total      int `json:"total,omitempty"`
+	Objects       int            `json:"objects"`
+	Indicators    int            `json:"indicators"`
+	Skipped       int            `json:"skipped"`
+	SkippedByType map[string]int `json:"skipped_by_type,omitempty"`
+	Total         int            `json:"total,omitempty"`
 }
 
 type ctiIndicator struct {
@@ -223,8 +224,9 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 			"modified_since": cfg.ModifiedSince,
 		},
 		Counts: ctiCounts{
-			Objects: len(resp.Results),
-			Total:   resp.Count,
+			Objects:       len(resp.Results),
+			SkippedByType: make(map[string]int),
+			Total:         resp.Count,
 		},
 		Indicators: make([]ctiIndicator, 0),
 	}
@@ -232,13 +234,13 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 	for _, pulse := range resp.Results {
 		for _, indicator := range pulse.Indicators {
 			if len(page.Indicators) >= cfg.MaxIndicators {
-				page.Counts.Skipped++
+				page.Counts.addSkipped("max_indicators")
 				continue
 			}
 
 			normalized, ok := normalizeIndicator(pulse, indicator)
 			if !ok {
-				page.Counts.Skipped++
+				page.Counts.addSkipped(skipType(indicator))
 				continue
 			}
 
@@ -248,6 +250,18 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 
 	page.Counts.Indicators = len(page.Indicators)
 	return page
+}
+
+func (c *ctiCounts) addSkipped(kind string) {
+	c.Skipped++
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		kind = "unknown"
+	}
+	if c.SkippedByType == nil {
+		c.SkippedByType = make(map[string]int)
+	}
+	c.SkippedByType[kind]++
 }
 
 func normalizeIndicator(pulse otxPulse, indicator otxIndicator) (ctiIndicator, bool) {
@@ -282,6 +296,16 @@ func supportedIndicatorType(value string) bool {
 	default:
 		return false
 	}
+}
+
+func skipType(indicator otxIndicator) string {
+	if strings.TrimSpace(indicator.Indicator) == "" {
+		return "empty"
+	}
+	if strings.TrimSpace(indicator.Type) == "" {
+		return "unknown"
+	}
+	return indicator.Type
 }
 
 func firstNonEmpty(values ...string) string {

@@ -66,7 +66,14 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
     assert page.source == "alienvault_otx"
     assert page.collection_id == "otx:pulses:subscribed"
     assert page.cursor["next"] == "https://otx.example/api/v1/pulses/subscribed?page=2"
-    assert page.counts == %{"objects" => 1, "indicators" => 1, "skipped" => 1, "total" => 2}
+
+    assert page.counts == %{
+             "objects" => 1,
+             "indicators" => 1,
+             "skipped" => 1,
+             "skipped_by_type" => %{"domain" => 1},
+             "total" => 2
+           }
 
     assert [
              %{

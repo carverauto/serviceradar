@@ -142,7 +142,13 @@ defmodule ServiceRadar.Observability.ThreatIntel.PageTest do
           "source" => "alienvault_otx",
           "collection_id" => "otx:pulses:subscribed",
           "cursor" => %{"next" => "https://otx.example/next"},
-          "counts" => %{"objects" => 2, "indicators" => 7, "skipped" => 3, "total" => 12}
+          "counts" => %{
+            "objects" => 2,
+            "indicators" => 7,
+            "skipped" => 3,
+            "skipped_by_type" => %{"domain" => 2, "url" => 1},
+            "total" => 12
+          }
         },
         %{}
       )
@@ -185,6 +191,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.PageTest do
                "service_name" => "AlienVault OTX",
                "service_type" => "plugin",
                "partition" => "default",
+               "skipped_by_type" => %{"domain" => 2, "url" => 1},
                "labels" => %{"provider" => "alienvault_otx"}
              }
            } = Page.sync_status_attrs(page, status, payload, observed_at)

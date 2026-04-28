@@ -224,6 +224,18 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <.status_count label="Skipped" value={status.skipped_count} />
                           <.status_count label="Total" value={status.total_count} />
                         </div>
+                        <div
+                          :if={skipped_by_type(status) != []}
+                          class="flex flex-wrap items-center gap-1 text-xs text-base-content/60"
+                        >
+                          <span>Skipped types:</span>
+                          <span
+                            :for={{type, count} <- skipped_by_type(status)}
+                            class="badge badge-xs badge-outline"
+                          >
+                            {type}: {count}
+                          </span>
+                        </div>
                         <div :if={status.last_error} class="text-xs text-error">
                           {status.last_error}
                         </div>
@@ -784,6 +796,23 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp status_badge_variant(status) when status in ["warn", "warning"], do: "warning"
   defp status_badge_variant(status) when status in ["critical", "error", "failed"], do: "error"
   defp status_badge_variant(_status), do: "ghost"
+
+  defp skipped_by_type(%ThreatIntelSyncStatus{metadata: %{} = metadata}) do
+    metadata
+    |> Map.get("skipped_by_type", %{})
+    |> case do
+      %{} = counts ->
+        counts
+        |> Enum.map(fn {type, count} -> {to_string(type), normalize_int(count)} end)
+        |> Enum.reject(fn {_type, count} -> count <= 0 end)
+        |> Enum.sort_by(fn {type, _count} -> type end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp skipped_by_type(_status), do: []
 
   defp format_datetime(nil), do: "-"
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")

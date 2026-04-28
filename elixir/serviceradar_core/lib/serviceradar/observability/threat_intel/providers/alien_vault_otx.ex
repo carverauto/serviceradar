@@ -156,16 +156,16 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
   defp page_map(body, cfg) do
     results = list_value(body, ["results"])
 
-    {indicators, skipped} =
+    {indicators, skipped, skipped_by_type} =
       results
       |> Enum.flat_map(&pulse_indicators/1)
-      |> Enum.reduce({[], 0}, fn {pulse, indicator}, {rows, skipped} ->
+      |> Enum.reduce({[], 0, %{}}, fn {pulse, indicator}, {rows, skipped, skipped_by_type} ->
         if length(rows) >= cfg.max_indicators do
-          {rows, skipped + 1}
+          {rows, skipped + 1, increment_skip(skipped_by_type, "max_indicators")}
         else
           case normalize_indicator(pulse, indicator) do
-            {:ok, row} -> {[row | rows], skipped}
-            :skip -> {rows, skipped + 1}
+            {:ok, row} -> {[row | rows], skipped, skipped_by_type}
+            :skip -> {rows, skipped + 1, increment_skip(skipped_by_type, skip_type(indicator))}
           end
         end
       end)
@@ -187,6 +187,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
         "objects" => length(results),
         "indicators" => length(indicators),
         "skipped" => skipped,
+        "skipped_by_type" => skipped_by_type,
         "total" => int_value(body, ["count"], 0)
       },
       "indicators" => indicators,
@@ -238,6 +239,30 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
   end
 
   defp supported_indicator_type?(_type), do: false
+
+  defp increment_skip(counts, type) when is_map(counts) do
+    type =
+      type
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+      |> case do
+        "" -> "unknown"
+        value -> value
+      end
+
+    Map.update(counts, type, 1, &(&1 + 1))
+  end
+
+  defp skip_type(indicator) when is_map(indicator) do
+    cond do
+      string_value(indicator, ["indicator"]) in [nil, ""] -> "empty"
+      is_binary(string_value(indicator, ["type"])) -> string_value(indicator, ["type"])
+      true -> "unknown"
+    end
+  end
+
+  defp skip_type(_indicator), do: "unknown"
 
   defp list_value(map, keys) do
     case fetch_value(map, keys) do
