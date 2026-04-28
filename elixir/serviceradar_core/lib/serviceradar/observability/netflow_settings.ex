@@ -262,7 +262,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     attribute :otx_page_size, :integer do
       allow_nil? false
-      default 50
+      default 10
       public? true
     end
 

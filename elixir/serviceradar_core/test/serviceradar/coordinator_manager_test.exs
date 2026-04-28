@@ -21,4 +21,20 @@ defmodule ServiceRadar.CoordinatorManagerTest do
     assert new_state.coordinator_child == nil
     assert new_state.coordinator_child_mon == nil
   end
+
+  test "coordinator connection can bypass pooled repo host" do
+    opts = [
+      url: "ecto://serviceradar:secret@cnpg-pooler-rw.demo.svc.cluster.local:5432/serviceradar",
+      ssl: true
+    ]
+
+    new_opts =
+      CoordinatorManager.coordinator_connection_opts(
+        opts,
+        "cnpg-rw.demo.svc.cluster.local"
+      )
+
+    assert Keyword.fetch!(new_opts, :url) ==
+             "ecto://serviceradar:secret@cnpg-rw.demo.svc.cluster.local:5432/serviceradar"
+  end
 end

@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultBaseURL       = "https://otx.alienvault.com"
-	defaultLimit         = 50
+	defaultLimit         = 10
 	defaultPage          = 1
 	defaultTimeoutMS     = 20000
 	defaultMaxIndicators = 2000
@@ -133,11 +133,11 @@ func runOTXCheck() (string, string, string) {
 		TimeoutMS: cfg.TimeoutMS,
 	})
 	if err != nil {
-		return string(sdk.StatusCritical), "OTX request failed", ""
+		return string(sdk.StatusCritical), "OTX request failed: " + sanitizeError(err), ""
 	}
 
 	if resp.Status < 200 || resp.Status >= 300 {
-		return string(sdk.StatusCritical), fmt.Sprintf("OTX request returned HTTP %d", resp.Status), ""
+		return string(sdk.StatusCritical), httpFailureSummary(resp), ""
 	}
 
 	var body subscribedPulsesResponse
@@ -156,6 +156,38 @@ func runOTXCheck() (string, string, string) {
 	)
 
 	return string(sdk.StatusOK), summary, details
+}
+
+func sanitizeError(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return "unknown"
+	}
+	if len(message) > 180 {
+		message = message[:180]
+	}
+
+	return message
+}
+
+func httpFailureSummary(resp *sdk.HTTPResponse) string {
+	if resp == nil {
+		return "OTX request failed: empty response"
+	}
+
+	body := strings.TrimSpace(string(resp.Body))
+	if body == "" {
+		return fmt.Sprintf("OTX request returned HTTP %d", resp.Status)
+	}
+	if len(body) > 180 {
+		body = body[:180]
+	}
+
+	return fmt.Sprintf("OTX request returned HTTP %d: %s", resp.Status, body)
 }
 
 func defaultConfig() Config {
