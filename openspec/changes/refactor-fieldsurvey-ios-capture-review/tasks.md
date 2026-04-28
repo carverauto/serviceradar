@@ -45,6 +45,6 @@
 
 ## 5. Verification
 - [x] 5.1 Run FieldSurvey iPhone build and install.
-- [ ] 5.2 Run focused Swift tests for Sidekick URL/error handling and session review projection.
+- [x] 5.2 Run focused Swift tests for Sidekick URL/error handling and session review projection. `SidekickClientTests` and `SignalCoverageInterpolatorTests` passed on the iPhone 17 / iOS 26.4.1 simulator; the broader suite still has a separate `ArrowStreamerTests.testArrowEncoding()` simulator trap to investigate.
 - [ ] 5.3 Perform an iPhone/Pi capture smoke test and verify local save/review.
 - [ ] 5.4 Perform an iPhone/Pi/backend smoke test and verify ServiceRadar saved-survey review.
