@@ -8,26 +8,21 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   provider pages from edge-reachable networks.
   """
 
-  alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.ThreatIntel.StixIndicator
+  alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelIndicator
 
   require Logger
 
   @max_indicators_per_page 5_000
-  @default_source "plugin_threat_intel"
-
   @doc false
   @spec normalize_indicators(map(), map(), DateTime.t()) :: [map()]
   def normalize_indicators(payload, status, observed_at)
       when is_map(payload) and is_map(status) and is_struct(observed_at, DateTime) do
     case extract_page(payload) do
       page when is_map(page) ->
-        source = source_for(page, status)
-
         page
-        |> normalized_entries(source, observed_at)
-        |> Enum.uniq_by(&{&1.source, &1.indicator})
+        |> Page.from_map(status)
+        |> Page.indicator_attrs(observed_at, max_indicators: @max_indicators_per_page)
 
       _ ->
         []
@@ -89,47 +84,6 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   defp decode_details(_), do: %{}
 
-  defp normalize_indicator(entry, page, source, observed_at) when is_map(entry) do
-    with indicator when is_binary(indicator) and indicator != "" <-
-           string_value(entry, ["indicator", "value"]),
-         {:ok, cidr} <- ServiceRadar.Types.Cidr.cast_input(indicator, []) do
-      %{
-        indicator: cidr,
-        indicator_type: "cidr",
-        source: string_value(entry, ["source"]) || source,
-        label: label_for(entry, page),
-        severity: int_value(entry, ["severity", "severity_id", "severityId"]),
-        confidence: int_value(entry, ["confidence"]),
-        first_seen_at:
-          datetime_value(entry, ["first_seen_at", "firstSeenAt", "created"]) || observed_at,
-        last_seen_at:
-          datetime_value(entry, ["last_seen_at", "lastSeenAt", "modified"]) || observed_at,
-        expires_at: datetime_value(entry, ["expires_at", "expiresAt", "expiration"])
-      }
-    else
-      _ -> nil
-    end
-  end
-
-  defp normalize_indicator(_entry, _page, _source, _observed_at), do: nil
-
-  defp normalized_entries(page, source, observed_at) do
-    normalized_indicators =
-      page
-      |> list_value(["indicators"])
-      |> Enum.take(@max_indicators_per_page)
-      |> Enum.map(&normalize_indicator(&1, page, source, observed_at))
-      |> Enum.reject(&is_nil/1)
-
-    normalized_stix_objects =
-      page
-      |> list_value(["objects"])
-      |> Enum.flat_map(&StixIndicator.attrs_from_object(&1, source, observed_at))
-      |> Enum.take(@max_indicators_per_page)
-
-    normalized_indicators ++ normalized_stix_objects
-  end
-
   defp upsert_indicator(attrs, actor) do
     case Ash.create(ThreatIntelIndicator, attrs,
            action: :upsert,
@@ -150,17 +104,6 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
     end
   end
 
-  defp source_for(page, status) do
-    string_value(page, ["source", "provider", "provider_id", "providerId"]) ||
-      string_value(status, [:plugin_id, "plugin_id"]) ||
-      @default_source
-  end
-
-  defp label_for(entry, page) do
-    string_value(entry, ["label", "title", "pulse_name", "pulseName"]) ||
-      string_value(page, ["label", "collection_id", "collectionId"])
-  end
-
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, fn key ->
       Map.get(map, key) || Map.get(map, to_string(key))
@@ -168,59 +111,4 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   end
 
   defp fetch_value(_map, _keys), do: nil
-
-  defp list_value(map, keys) do
-    case fetch_value(map, keys) do
-      value when is_list(value) -> value
-      _ -> []
-    end
-  end
-
-  defp string_value(map, keys) do
-    case fetch_value(map, keys) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      value when is_atom(value) and not is_nil(value) ->
-        Atom.to_string(value)
-
-      value when is_integer(value) ->
-        Integer.to_string(value)
-
-      value when is_float(value) ->
-        Float.to_string(value)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp int_value(map, keys) do
-    case fetch_value(map, keys) do
-      value when is_integer(value) -> value
-      value when is_float(value) -> trunc(value)
-      value when is_binary(value) -> parse_int(value)
-      _ -> nil
-    end
-  end
-
-  defp parse_int(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, ""} -> parsed
-      _ -> nil
-    end
-  end
-
-  defp datetime_value(map, keys) do
-    case fetch_value(map, keys) do
-      nil -> nil
-      "" -> nil
-      value -> FieldParser.parse_timestamp(value)
-    end
-  rescue
-    _ -> nil
-  end
 end

@@ -13,7 +13,7 @@
 - [ ] 2.6 Track provider execution mode (`edge_plugin` or `core_worker`), plugin assignment identity, cursor/high-water state, and sync status.
 
 ## 3. TAXII/STIX Provider Boundary And OTX Sync
-- [ ] 3.1 Define a project-owned threat-intel provider behaviour modeled after TAXII 2.1 collections, object pages, `added_after`, `limit`, `next`, and object metadata.
+- [x] 3.1 Define a project-owned threat-intel provider behaviour modeled after TAXII 2.1 collections, object pages, `added_after`, `limit`, `next`, and object metadata.
 - [x] 3.2 Implement STIX 2.1 Indicator normalization for supported IP/CIDR patterns.
 - [ ] 3.3 Implement a project-owned OTX client using `Req`.
 - [ ] 3.4 Support `X-OTX-API-KEY`, configurable base URL, timeouts, retry/backoff for 429/5xx, pagination, and `modified_since`.
