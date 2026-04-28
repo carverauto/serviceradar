@@ -15,10 +15,10 @@
 ## 3. TAXII/STIX Provider Boundary And OTX Sync
 - [x] 3.1 Define a project-owned threat-intel provider behaviour modeled after TAXII 2.1 collections, object pages, `added_after`, `limit`, `next`, and object metadata.
 - [x] 3.2 Implement STIX 2.1 Indicator normalization for supported IP/CIDR patterns.
-- [ ] 3.3 Implement a project-owned OTX client using `Req`.
-- [ ] 3.4 Support `X-OTX-API-KEY`, configurable base URL, timeouts, retry/backoff for 429/5xx, pagination, and `modified_since`.
-- [ ] 3.5 Extend `ThreatIntelFeedRefreshWorker` or add a sibling worker to fetch `/api/v1/pulses/subscribed` through the provider boundary.
-- [ ] 3.6 Normalize OTX IPv4/IPv6/CIDR indicators into `ThreatIntelIndicator` rows.
+- [x] 3.3 Implement a project-owned OTX client using `Req`.
+- [x] 3.4 Support `X-OTX-API-KEY`, configurable base URL, timeouts, retry/backoff for 429/5xx, pagination, and `modified_since`.
+- [x] 3.5 Extend `ThreatIntelFeedRefreshWorker` or add a sibling worker to fetch `/api/v1/pulses/subscribed` through the provider boundary.
+- [x] 3.6 Normalize OTX IPv4/IPv6/CIDR indicators into `ThreatIntelIndicator` rows.
 - [x] 3.7 Record skipped counts for unsupported OTX types such as URL, domain, hostname, and file hash until matching sources are implemented.
 - [x] 3.8 Record sync lifecycle status, counts, and redacted errors.
 - [ ] 3.9 Archive raw payload snapshots to NATS Object Store when enabled.
@@ -62,13 +62,13 @@
 - [ ] 8.1 Register core-hosted OTX sync jobs with Oban cron and uniqueness settings.
 - [ ] 8.2 Register edge plugin schedules through plugin assignments/target policies.
 - [ ] 8.3 Register current/recent NetFlow matching work with uniqueness and bounded batch sizes.
-- [ ] 8.4 Use safe enqueue behavior when Oban or plugin scheduling is unavailable.
+- [x] 8.4 Use safe enqueue behavior when Oban or plugin scheduling is unavailable.
 - [ ] 8.5 Emit logs/telemetry for sync, NetFlow matching, edge plugin runs, and retrohunt lifecycle without leaking secrets.
 - [ ] 8.6 Document deployment secret/env var options, plugin secret references, egress allowlist review, and API key rotation expectations.
 
 ## 9. Validation
 - [x] 9.1 Add unit tests for TAXII/STIX page normalization and STIX Indicator pattern extraction.
-- [ ] 9.2 Add unit tests for OTX client pagination, auth header use, and error handling.
+- [x] 9.2 Add unit tests for OTX client pagination, auth header use, and error handling.
 - [ ] 9.3 Add plugin contract tests for bounded CTI page payloads, config decoding, secret redaction, and allowlist failures.
 - [ ] 9.4 Add Ash resource tests for encrypted key updates and redacted reads.
 - [ ] 9.5 Add worker/ingestor tests for OTX import idempotency, unsupported type counts, NetFlow cache matching, and retrohunt deduplication.
