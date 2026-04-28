@@ -128,7 +128,8 @@ ServiceRadar SHALL persist backend-derived coverage artifacts for post-survey re
 - **GIVEN** ServiceRadar has a persisted `wifi_rssi` raster and a matching 2D floorplan artifact for a FieldSurvey session
 - **WHEN** the operator opens the main dashboard
 - **THEN** the FieldSurvey card renders the latest floorplan geometry with the Wi-Fi RSSI raster overlaid
-- **AND** it uses the persisted raster and artifact data rather than synthetic placeholder heatmap shapes.
+- **AND** it uses the persisted raster and artifact data rather than synthetic placeholder heatmap shapes
+- **AND** it renders coverage as a continuous heat surface rather than visible per-cell marker dots.
 
 ### Requirement: AP placement support
 FieldSurvey SHALL support both manual and inferred AP placement without relying on HackRF as a BSSID identity source.

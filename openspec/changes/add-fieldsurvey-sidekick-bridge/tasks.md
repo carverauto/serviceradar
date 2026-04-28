@@ -57,6 +57,7 @@
 - [x] 7.5 Ensure web dashboard/review uses persisted backend-derived `wifi_rssi` and `rf_interference` rasters as the post-survey source of truth.
 - [x] 7.6 Add automatic persisted raster regeneration/retry on review load for sessions whose artifacts or rasters failed during upload/review.
 - [x] 7.7 Render the dashboard FieldSurvey card as a real floorplan plus persisted Wi-Fi RSSI raster instead of a synthetic placeholder or summary overlay.
+- [x] 7.8 Render dashboard Wi-Fi coverage as a continuous blurred heat surface rather than visible per-cell marker dots.
 
 ## 8. Verification
 - [x] 8.1 Run Rust `cargo fmt`, `cargo test -p serviceradar-fieldsurvey-sidekick`, and clippy for the new crate.
