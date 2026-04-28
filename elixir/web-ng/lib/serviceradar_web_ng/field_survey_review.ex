@@ -1573,14 +1573,14 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp maybe_landscape_review_projection(
-         {oriented, %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z}},
+         {oriented, %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} = bounds},
          review,
          angle
        ) do
     if max_x - min_x < max_z - min_z do
       rotated_review_projection(review, angle + :math.pi() / 2.0)
     else
-      {oriented, %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z}}
+      {oriented, bounds}
     end
   end
 
@@ -1747,12 +1747,25 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     case {Enum.min(xs, fn -> nil end), Enum.max(xs, fn -> nil end), Enum.min(zs, fn -> nil end),
           Enum.max(zs, fn -> nil end)} do
       {nil, _, _, _} ->
-        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0}
+        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0, aspect_ratio: 1.0}
 
       {min_x, max_x, min_z, max_z} ->
         x_pad = max((max_x - min_x) * 0.12, 1.0)
         z_pad = max((max_z - min_z) * 0.12, 1.0)
-        %{min_x: min_x - x_pad, max_x: max_x + x_pad, min_z: min_z - z_pad, max_z: max_z + z_pad}
+        min_x = min_x - x_pad
+        max_x = max_x + x_pad
+        min_z = min_z - z_pad
+        max_z = max_z + z_pad
+        width = max(max_x - min_x, 0.01)
+        height = max(max_z - min_z, 0.01)
+
+        %{
+          min_x: min_x,
+          max_x: max_x,
+          min_z: min_z,
+          max_z: max_z,
+          aspect_ratio: width / height
+        }
     end
   end
 

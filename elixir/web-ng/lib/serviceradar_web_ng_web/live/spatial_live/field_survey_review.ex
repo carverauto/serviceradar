@@ -133,8 +133,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </div>
               </:header>
 
-              <div class="grid grid-cols-1 gap-0 xl:grid-cols-[1fr_20rem]">
-                <div class="sr-fieldsurvey-review-map-shell">
+              <div class="sr-fieldsurvey-review-map-stack">
+                <div class="sr-fieldsurvey-review-map-shell" style={review_map_shell_style(@review)}>
                   <div class="sr-fieldsurvey-review-map">
                     <div class="sr-fieldsurvey-review-grid"></div>
 
@@ -191,9 +191,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                   </div>
                 </div>
 
-                <div class="border-t border-base-200 p-4 xl:border-l xl:border-t-0">
+                <div class="sr-fieldsurvey-review-map-details">
                   <.map_legend overlay={@overlay} />
-                  <div class="divider my-4"></div>
                   <.channel_scores scores={@review.channel_scores} />
                 </div>
               </div>
@@ -522,6 +521,18 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
     "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 62%, transparent 88%); opacity: #{Float.round(opacity, 3)};"
   end
+
+  defp review_map_shell_style(%{bounds: %{aspect_ratio: ratio}}) when is_number(ratio) do
+    ratio =
+      ratio
+      |> max(0.72)
+      |> min(3.4)
+      |> Float.round(3)
+
+    "aspect-ratio: #{ratio} / 1;"
+  end
+
+  defp review_map_shell_style(_review), do: nil
 
   defp point_style(point, "interference") do
     size = 18 + (point.score || 0) * 0.22
