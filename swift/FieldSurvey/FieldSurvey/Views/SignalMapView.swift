@@ -87,7 +87,12 @@ public struct SignalMapView: View {
             floorControls(floors: renderState.floors, activeIndex: renderState.activeFloorIndex)
             apControls(summaries: summaries, floorPointCount: renderState.floorPoints.count)
             if let summary = displaySpectrumSummary {
-                SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
+                SpectrumAnalyzerMiniPanel(
+                    summary: summary,
+                    summaries: spectrumSummaries,
+                    sweepCount: spectrumBatchCount,
+                    compact: false
+                )
             }
 
             SignalMapCanvas(
@@ -1451,11 +1456,18 @@ private enum SpectrumColor {
 
 public struct SpectrumAnalyzerMiniPanel: View {
     let summary: SidekickSpectrumSummary
+    let summaries: [SidekickSpectrumSummary]
     let sweepCount: Int?
     let compact: Bool
 
-    public init(summary: SidekickSpectrumSummary, sweepCount: Int? = nil, compact: Bool = false) {
+    public init(
+        summary: SidekickSpectrumSummary,
+        summaries: [SidekickSpectrumSummary] = [],
+        sweepCount: Int? = nil,
+        compact: Bool = false
+    ) {
         self.summary = summary
+        self.summaries = summaries
         self.sweepCount = sweepCount
         self.compact = compact
     }
@@ -1482,6 +1494,11 @@ public struct SpectrumAnalyzerMiniPanel: View {
 
             SpectrumBars(scores: visibleScores, compact: compact)
                 .frame(height: compact ? 34 : 52)
+
+            if !compact {
+                SpectrumWaterfall(summaries: waterfallSummaries)
+                    .frame(height: 74)
+            }
         }
         .padding(compact ? 8 : 10)
         .background(Color.black.opacity(compact ? 0.62 : 0.42))
@@ -1506,6 +1523,11 @@ public struct SpectrumAnalyzerMiniPanel: View {
         return compact ? Array(fiveGHz.prefix(12)) : Array(fiveGHz.prefix(18))
     }
 
+    private var waterfallSummaries: [SidekickSpectrumSummary] {
+        let source = summaries.isEmpty ? [summary] : summaries
+        return Array(source.suffix(48))
+    }
+
     private var sweepRateText: String {
         if let rate = summary.sweepRateHz, rate.isFinite, rate > 0 {
             return String(format: "%.1f/s", rate)
@@ -1514,6 +1536,82 @@ public struct SpectrumAnalyzerMiniPanel: View {
             return "\(sweepCount) sweeps"
         }
         return "warming"
+    }
+}
+
+private struct SpectrumWaterfall: View {
+    let summaries: [SidekickSpectrumSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Canvas { context, size in
+                let channelIDs = visibleChannelIDs
+                guard !summaries.isEmpty, !channelIDs.isEmpty else { return }
+
+                let rowHeight = max(size.height / CGFloat(summaries.count), 1)
+                let columnWidth = max(size.width / CGFloat(channelIDs.count), 1)
+
+                for (rowIndex, summary) in summaries.enumerated() {
+                    let scores = Dictionary(uniqueKeysWithValues: summary.channelScores.map { ($0.id, $0) })
+                    let y = size.height - CGFloat(rowIndex + 1) * rowHeight
+
+                    for (columnIndex, channelID) in channelIDs.enumerated() {
+                        guard let score = scores[channelID] else { continue }
+                        let strength = Double(score.interferenceScore) / 100.0
+                        let rect = CGRect(
+                            x: CGFloat(columnIndex) * columnWidth,
+                            y: y,
+                            width: max(columnWidth - 0.5, 0.5),
+                            height: max(rowHeight - 0.5, 0.5)
+                        )
+                        context.fill(
+                            Path(rect),
+                            with: .color(SpectrumColor.color(forScore: strength).opacity(0.86))
+                        )
+                    }
+                }
+            }
+            .background(Color.black.opacity(0.42))
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(Color.white.opacity(0.11), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+
+            HStack {
+                Text("time")
+                Spacer()
+                Text("frequency ->")
+                Spacer()
+                Text("newer")
+            }
+            .font(.system(size: 7, weight: .bold, design: .monospaced))
+            .foregroundColor(.white.opacity(0.42))
+        }
+    }
+
+    private var visibleChannelIDs: [String] {
+        let allScores = summaries.flatMap(\.channelScores)
+        let twoGHzIDs = orderedChannelIDs(from: allScores.filter { $0.band == "2.4GHz" })
+        if !twoGHzIDs.isEmpty {
+            return twoGHzIDs
+        }
+        return orderedChannelIDs(from: allScores.filter { $0.band == "5GHz" })
+    }
+
+    private func orderedChannelIDs(from scores: [SidekickSpectrumChannelScore]) -> [String] {
+        scores
+            .reduce(into: [String: SidekickSpectrumChannelScore]()) { result, score in
+                result[score.id] = score
+            }
+            .values
+            .sorted {
+                if $0.centerFrequencyMHz == $1.centerFrequencyMHz {
+                    return $0.channel < $1.channel
+                }
+                return $0.centerFrequencyMHz < $1.centerFrequencyMHz
+            }
+            .map(\.id)
     }
 }
 
