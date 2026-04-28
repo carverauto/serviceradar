@@ -32,7 +32,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         baseURL: String,
         authToken: String,
         sessionID: String,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(),
+        metadata: FieldSurveySessionUploadMetadata? = nil
     ) async throws -> FieldSurveyRoomArtifactUploadResult {
         try await uploadArtifact(
             fileURL: fileURL,
@@ -41,7 +42,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
             sessionID: sessionID,
             artifactType: "roomplan_usdz",
             contentType: "model/vnd.usdz+zip",
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            metadata: metadata
         )
     }
 
@@ -50,7 +52,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         baseURL: String,
         authToken: String,
         sessionID: String,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(),
+        metadata: FieldSurveySessionUploadMetadata? = nil
     ) async throws -> FieldSurveyRoomArtifactUploadResult {
         try await uploadArtifact(
             fileURL: fileURL,
@@ -59,7 +62,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
             sessionID: sessionID,
             artifactType: "floorplan_geojson",
             contentType: "application/geo+json",
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            metadata: metadata
         )
     }
 
@@ -68,7 +72,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         baseURL: String,
         authToken: String,
         sessionID: String,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(),
+        metadata: FieldSurveySessionUploadMetadata? = nil
     ) async throws -> FieldSurveyRoomArtifactUploadResult {
         try await uploadArtifact(
             fileURL: fileURL,
@@ -77,7 +82,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
             sessionID: sessionID,
             artifactType: "point_cloud_ply",
             contentType: "application/octet-stream",
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            metadata: metadata
         )
     }
 
@@ -88,7 +94,8 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         sessionID: String,
         artifactType: String,
         contentType: String,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(),
+        metadata: FieldSurveySessionUploadMetadata? = nil
     ) async throws -> FieldSurveyRoomArtifactUploadResult {
         let trimmedAuthToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAuthToken.isEmpty, trimmedAuthToken != "OFFLINE_MODE" else {
@@ -109,6 +116,7 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue(String(fileSize), forHTTPHeaderField: "X-FieldSurvey-Artifact-Bytes")
         request.setValue(String(Self.unixNanos(from: capturedAt)), forHTTPHeaderField: "X-FieldSurvey-Captured-At-Unix-Nanos")
+        Self.applySessionMetadataHeaders(metadata, to: &request)
 
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: fileURL)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -147,6 +155,35 @@ public struct FieldSurveyRoomArtifactUploader: Sendable {
 
     private static func unixNanos(from date: Date) -> Int64 {
         Int64((date.timeIntervalSince1970 * 1_000_000_000).rounded())
+    }
+
+    public static func applySessionMetadataHeaders(
+        _ metadata: FieldSurveySessionUploadMetadata?,
+        to request: inout URLRequest
+    ) {
+        guard let metadata, !metadata.isEmpty else { return }
+        setHeader(metadata.siteID, name: "X-FieldSurvey-Site-Id", request: &request)
+        setHeader(metadata.siteName, name: "X-FieldSurvey-Site-Name", request: &request)
+        setHeader(metadata.buildingID, name: "X-FieldSurvey-Building-Id", request: &request)
+        setHeader(metadata.buildingName, name: "X-FieldSurvey-Building-Name", request: &request)
+        setHeader(metadata.floorID, name: "X-FieldSurvey-Floor-Id", request: &request)
+        setHeader(metadata.floorName, name: "X-FieldSurvey-Floor-Name", request: &request)
+        if let floorIndex = metadata.floorIndex {
+            request.setValue(String(floorIndex), forHTTPHeaderField: "X-FieldSurvey-Floor-Index")
+        }
+        if !metadata.tags.isEmpty {
+            request.setValue(metadata.tags.joined(separator: ","), forHTTPHeaderField: "X-FieldSurvey-Tags")
+        }
+        if !metadata.metadata.isEmpty,
+           let data = try? JSONEncoder().encode(metadata.metadata),
+           let value = String(data: data, encoding: .utf8) {
+            request.setValue(value, forHTTPHeaderField: "X-FieldSurvey-Session-Metadata")
+        }
+    }
+
+    private static func setHeader(_ value: String?, name: String, request: inout URLRequest) {
+        guard let value, !value.isEmpty else { return }
+        request.setValue(value, forHTTPHeaderField: name)
     }
 
     private func artifactFileSize(fileURL: URL, artifactType: String) throws -> Int64 {

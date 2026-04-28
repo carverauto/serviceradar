@@ -480,7 +480,8 @@ public struct SurveyView: View {
         sidekickRelay.start(
             sessionID: sessionID,
             wifiScanner: wifiScanner,
-            forwardToBackend: false
+            forwardToBackend: false,
+            metadata: activeSessionUploadMetadata()
         )
     }
 
@@ -498,11 +499,13 @@ public struct SurveyView: View {
         saveStatusMessage = "Starting FieldSurvey backend upload..."
         clearSaveStatus(after: 3.0)
         sessionID = autosaveSessionID ?? UUID().uuidString
-        wifiScanner.startPoseStreaming(sessionID: sessionID)
+        let uploadMetadata = activeSessionUploadMetadata()
+        wifiScanner.startPoseStreaming(sessionID: sessionID, metadata: uploadMetadata)
         sidekickRelay.start(
             sessionID: sessionID,
             wifiScanner: wifiScanner,
-            forwardToBackend: true
+            forwardToBackend: true,
+            metadata: uploadMetadata
         )
     }
 
@@ -635,7 +638,7 @@ public struct SurveyView: View {
                 autosaveSessionName = record.name
                 let roomArtifactUploaded: Bool?
                 if includeMesh {
-                    roomArtifactUploaded = await uploadRoomArtifact(sessionID: record.id, showStatus: showStatus)
+                    roomArtifactUploaded = await uploadRoomArtifact(record: record, showStatus: showStatus)
                     guard !Task.isCancelled else { return }
                 } else {
                     roomArtifactUploaded = false
@@ -657,11 +660,13 @@ public struct SurveyView: View {
         }
     }
 
-    private func uploadRoomArtifact(sessionID: String, showStatus: Bool) async -> Bool? {
+    private func uploadRoomArtifact(record: SurveySessionRecord, showStatus: Bool) async -> Bool? {
         guard backendStreamingEnabled else { return false }
 
         var uploaded: [String] = []
         var failures: [String] = []
+        let snapshot = sessionStore.loadSession(id: record.id)
+        let uploadMetadata = activeSessionUploadMetadata(record: record, snapshot: snapshot)
 
         do {
             let floorplanURL = try roomScanner.exportCurrentFloorplanGeoJSON()
@@ -669,7 +674,8 @@ public struct SurveyView: View {
                 fileURL: floorplanURL,
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
-                sessionID: sessionID
+                sessionID: record.id,
+                metadata: uploadMetadata
             )
             if floorplanResult.ok {
                 uploaded.append("floorplan")
@@ -684,7 +690,8 @@ public struct SurveyView: View {
                 fileURL: roomPlanURL,
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
-                sessionID: sessionID
+                sessionID: record.id,
+                metadata: uploadMetadata
             )
             if roomPlanResult.ok {
                 uploaded.append("RoomPlan")
@@ -699,7 +706,8 @@ public struct SurveyView: View {
                 fileURL: pointCloudURL,
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
-                sessionID: sessionID
+                sessionID: record.id,
+                metadata: uploadMetadata
             )
             if pointCloudResult.ok {
                 uploaded.append("point cloud")
@@ -725,6 +733,15 @@ public struct SurveyView: View {
             return nil
         }
         return failures.isEmpty ? true : nil
+    }
+
+    private func activeSessionUploadMetadata(
+        record: SurveySessionRecord? = nil,
+        snapshot: SurveySessionSnapshot? = nil
+    ) -> FieldSurveySessionUploadMetadata {
+        let base = snapshot?.uploadMetadata ?? recoveredSnapshot?.uploadMetadata ?? settings.currentSurveyUploadMetadata
+        guard let record else { return base }
+        return base.merged(record: record, snapshot: snapshot)
     }
 
     private func markManualAccessPoint() {

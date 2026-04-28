@@ -89,7 +89,7 @@
 - [ ] 9.2 Add settings UI to define dashboard FieldSurvey groups from SRQL-backed filters, such as airport/site, terminal/building, floor, or tag combinations.
 - [ ] 9.3 Add floor selectors in FieldSurvey Review and dashboard cards so multi-floor surveys can be cycled without mixing AP/raster data from different floors.
 - [ ] 9.4 Add backend queries that summarize latest Wi-Fi/RF rasters by configured survey group instead of globally selecting one latest session.
-- [ ] 9.5 Extend iOS upload/session metadata so resumed captures and artifact retries preserve site/building/floor/group attribution.
+- [x] 9.5 Extend iOS upload/session metadata so resumed captures and artifact retries preserve site/building/floor/group attribution.
 
 ## 8. Verification
 - [x] 8.1 Run Rust `cargo fmt`, `cargo test -p serviceradar-fieldsurvey-sidekick`, and clippy for the new crate.

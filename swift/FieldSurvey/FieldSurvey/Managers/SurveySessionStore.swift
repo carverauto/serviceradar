@@ -72,6 +72,7 @@ public final class SurveySessionStore: ObservableObject {
         let heatmapPoints = wifiScanner.heatmapPoints
         let manualLandmarks = wifiScanner.manualAPLandmarks
         let floorplanSegments = roomScanner.currentFloorplanSegments()
+        let uploadMetadata = SettingsManager.shared.currentSurveyUploadMetadata
         try Task.checkCancellation()
         let roamRecords = wifiScanner.roamEvents.map { roam in
             SurveyRoamEventRecord(
@@ -134,7 +135,8 @@ public final class SurveySessionStore: ObservableObject {
             manualLandmarks: manualLandmarks,
             roamEvents: roamRecords,
             spectrumSummaries: spectrumSummaries,
-            floorplanSegments: floorplanSegments
+            floorplanSegments: floorplanSegments,
+            uploadMetadata: uploadMetadata
         )
 
         try Task.checkCancellation()
