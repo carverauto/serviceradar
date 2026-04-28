@@ -1580,10 +1580,16 @@
 }
 
 .sr-ops-field-survey-card-map {
+  width: 100%;
   height: 9.35rem;
   min-height: 9.35rem;
   max-height: 9.35rem;
   aspect-ratio: auto !important;
+  background:
+    linear-gradient(to right, rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    rgba(2, 8, 23, 0.72);
+  background-size: 2rem 2rem;
 }
 
 .sr-ops-floor-grid {
@@ -1649,10 +1655,10 @@
 .sr-ops-field-survey-raster-cells {
   position: absolute;
   z-index: 3;
-  inset: 0.85rem 8rem 0.85rem 1.15rem;
+  inset: 0.72rem 0.84rem;
   overflow: hidden;
   pointer-events: none;
-  filter: saturate(1.2) blur(3.2px);
+  filter: saturate(1.18) blur(5.2px);
 }
 
 .sr-ops-field-survey-raster-cell {
@@ -1665,19 +1671,19 @@
 .sr-ops-field-survey-floorplan {
   position: absolute;
   z-index: 5;
-  inset: 0.85rem 8rem 0.85rem 1.15rem;
-  width: calc(100% - 9.15rem);
-  height: calc(100% - 1.7rem);
+  inset: 0.72rem 0.84rem;
+  width: calc(100% - 1.68rem);
+  height: calc(100% - 1.44rem);
   pointer-events: none;
   filter:
-    drop-shadow(0 0 0.1rem rgba(2, 8, 23, 0.88))
-    drop-shadow(0 0 0.18rem rgba(14, 165, 233, 0.42));
+    drop-shadow(0 0 0.1rem rgba(2, 8, 23, 0.94))
+    drop-shadow(0 0 0.22rem rgba(14, 165, 233, 0.54));
 }
 
 .sr-ops-field-survey-ap-layer {
   position: absolute;
   z-index: 7;
-  inset: 0.85rem 8rem 0.85rem 1.15rem;
+  inset: 0.72rem 0.84rem;
   pointer-events: none;
 }
 
@@ -1704,41 +1710,42 @@
 
 .sr-ops-floorplan-line-wall {
   stroke: rgba(205, 250, 255, 0.98);
-  stroke-width: 0.82;
+  stroke-width: 1.08;
 }
 
 .sr-ops-floorplan-line-door {
   stroke: rgba(248, 253, 255, 0.96);
-  stroke-width: 0.7;
+  stroke-width: 0.88;
   stroke-dasharray: 1.3 0.82;
 }
 
 .sr-ops-floorplan-line-window {
   stroke: rgba(94, 214, 255, 0.96);
-  stroke-width: 0.66;
+  stroke-width: 0.82;
   stroke-dasharray: 0.92 0.66;
 }
 
 .sr-ops-field-survey-legend {
   position: absolute;
-  z-index: 5;
-  top: 0.95rem;
-  right: 1.05rem;
-  bottom: 0.95rem;
+  z-index: 8;
+  right: 0.72rem;
+  bottom: 0.72rem;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 0.42rem;
-  width: 6.1rem;
-  padding: 0.42rem 0.55rem;
+  gap: 0.36rem 0.52rem;
+  max-width: min(22rem, calc(100% - 1.44rem));
+  padding: 0.38rem 0.52rem;
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 0.45rem;
-  background: rgba(2, 8, 23, 0.5);
+  background: rgba(2, 8, 23, 0.62);
   color: rgba(226, 232, 240, 0.92);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   line-height: 1;
   box-shadow: 0 0.65rem 1.6rem rgba(2, 8, 23, 0.24);
+  backdrop-filter: blur(8px);
 }
 
 .sr-ops-field-survey-legend span {
@@ -1749,8 +1756,8 @@
 }
 
 .sr-ops-field-survey-legend i {
-  width: 0.62rem;
-  height: 0.62rem;
+  width: 0.54rem;
+  height: 0.54rem;
   border-radius: 0.14rem;
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.38);
 }
@@ -1778,8 +1785,8 @@
 .sr-ops-heatmap-placeholder::after {
   content: "";
   position: absolute;
-  z-index: 3;
-  inset: 0.85rem 8rem 0.85rem 1.15rem;
+  z-index: 2;
+  inset: 0.72rem 0.84rem;
   border: 1px solid rgba(125, 211, 252, 0.34);
   background:
     linear-gradient(90deg, transparent 0 18%, rgba(125, 211, 252, 0.28) 18% calc(18% + 1px), transparent calc(18% + 1px) 37%, rgba(125, 211, 252, 0.28) 37% calc(37% + 1px), transparent calc(37% + 1px) 62%, rgba(125, 211, 252, 0.28) 62% calc(62% + 1px), transparent calc(62% + 1px) 82%, rgba(125, 211, 252, 0.28) 82% calc(82% + 1px), transparent calc(82% + 1px)),
