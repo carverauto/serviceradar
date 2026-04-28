@@ -1,3 +1,5 @@
+> Remaining unchecked items are intentional follow-up work, not missed checkoffs. They require additional product/backend/iOS work beyond the current Sidekick + persisted-raster implementation: iOS waterfall rendering, interferer classification, active survey/export flows, site/floor grouping, and a final physical iPhone/Pi/backend smoke test.
+
 ## 1. Planning and Validation
 - [x] 1.1 Confirm the Pi hardware model, OS, kernel, attached Wi-Fi chipsets, and monitor-mode/radiotap support.
 - [x] 1.2 Verify the first usable iPhone-to-Pi IP link option. Current lab validation uses LAN reachability on `eth0`/`wlan0`; no USB network interface was visible yet.

@@ -1,3 +1,5 @@
+> Remaining unchecked items are intentional follow-up work, not missed checkoffs. RF Update/relocalization and final physical iPhone/Pi smoke tests still need dedicated implementation and validation; they should not be marked complete until tested on-device.
+
 ## 1. Stabilize Capture
 - [x] 1.1 Stop using iPhone Wi-Fi APIs for RF survey measurements.
 - [x] 1.2 Remove BLE RF survey ingestion from the capture path.
