@@ -186,7 +186,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <section class="sr-ops-grid-secondary">
           <.panel title="FieldSurvey Heatmap" class="lg:col-span-6">
             <:actions>
-              <.link href={~p"/spatial"} class="sr-ops-button">Open FieldSurvey</.link>
+              <.link href={~p"/spatial/field-surveys"} class="sr-ops-button">Open FieldSurvey</.link>
             </:actions>
             <div
               class={[
@@ -195,6 +195,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               ]}
               data-testid="fieldsurvey-heatmap"
             >
+              <svg
+                :if={@survey_summary.floorplan_segment_count > 0}
+                class="sr-ops-field-survey-floorplan"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <line
+                  :for={segment <- @survey_summary.floorplan_segments}
+                  x1={segment.start_x_pct}
+                  y1={segment.start_z_pct}
+                  x2={segment.end_x_pct}
+                  y2={segment.end_z_pct}
+                  class={"sr-ops-floorplan-line sr-ops-floorplan-line-#{segment.kind}"}
+                />
+              </svg>
               <svg
                 :if={@survey_summary.raster_cell_count > 0}
                 class="sr-ops-field-survey-raster"
@@ -225,23 +241,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               </div>
               <div
                 :if={@survey_summary.sample_count > 0 or @survey_summary.raster_cell_count > 0}
-                class="sr-ops-heatmap-empty sr-ops-heatmap-summary"
+                class={[
+                  "sr-ops-heatmap-empty",
+                  @survey_summary.raster_cell_count > 0 && "sr-ops-heatmap-meta",
+                  @survey_summary.raster_cell_count == 0 && "sr-ops-heatmap-summary"
+                ]}
                 data-testid="fieldsurvey-summary"
               >
-                <.icon name="hero-wifi" class="size-8" />
-                <p>
-                  <%= if @survey_summary.session_count > 0 do %>
-                    {@survey_summary.session_count} survey sessions
-                  <% else %>
-                    Persisted survey raster
-                  <% end %>
-                </p>
-                <span>
-                  {@survey_summary.sample_count} samples, {@survey_summary.avg_rssi} dBm average RSSI
-                  <span :if={@survey_summary.raster_cell_count > 0}>
-                    · {@survey_summary.raster_cell_count} raster cells
+                <%= if @survey_summary.raster_cell_count > 0 do %>
+                  <span>Survey: {@survey_summary.raster_session_id}</span>
+                  <span>
+                    {@survey_summary.sample_count} samples · {@survey_summary.raster_cell_count} raster cells · {@survey_summary.avg_rssi} dBm avg
                   </span>
-                </span>
+                <% else %>
+                  <.icon name="hero-wifi" class="size-8" />
+                  <p>
+                    <%= if @survey_summary.session_count > 0 do %>
+                      {@survey_summary.session_count} survey sessions
+                    <% else %>
+                      Persisted survey raster
+                    <% end %>
+                  </p>
+                  <span>
+                    {@survey_summary.sample_count} samples, {@survey_summary.avg_rssi} dBm average RSSI
+                  </span>
+                <% end %>
               </div>
             </div>
           </.panel>

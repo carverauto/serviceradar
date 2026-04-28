@@ -10,6 +10,7 @@ iOS cannot provide monitor-mode Wi-Fi scans or high-rate RSSI/channel metadata f
 - Update the iOS FieldSurvey app plan so `RealWiFiScanner` can ingest Sidekick observations over a USB or local IP link and map them into existing `SurveySample`/Arrow upload flows.
 - Extend the survey data contract to carry external-radio metadata such as source, radio ID, channel, observed timestamp, noise floor, and frame type.
 - Persist backend-derived Wi-Fi RSSI and RF interference rasters, expose spectrum/waterfall review surfaces, and keep LiDAR/floorplan artifacts linked to surveys for 2D/3D review.
+- Render dashboard FieldSurvey summaries from the persisted floorplan plus backend-derived Wi-Fi raster so the overview card matches the same source of truth as detailed review.
 - Keep Kismet optional for lab verification, not as the production daemon dependency.
 
 ## Impact
