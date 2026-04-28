@@ -849,8 +849,8 @@ public final class SidekickRelay: ObservableObject {
             channelScores: mergedSpectrumScores()
         )
         spectrumSummaries.append(summary)
-        if spectrumSummaries.count > 180 {
-            spectrumSummaries.removeFirst(spectrumSummaries.count - 180)
+        if spectrumSummaries.count > 96 {
+            spectrumSummaries.removeFirst(spectrumSummaries.count - 96)
         }
     }
 
