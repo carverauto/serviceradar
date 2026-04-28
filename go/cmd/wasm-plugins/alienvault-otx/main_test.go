@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -132,4 +133,95 @@ func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 	if strings.Contains(string(encoded), "secret-api-key") {
 		t.Fatalf("CTI payload leaked API key: %s", string(encoded))
 	}
+}
+
+func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
+	const raw = `{
+		"base_url": "https://otx.example.test",
+		"api_key_secret_ref": "secret://api-key",
+		"api_key": "resolved-secret",
+		"limit": 10,
+		"timeout_ms": 30000,
+		"max_indicators": 25
+	}`
+
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+
+	if cfg.APIKeySecretRef != "secret://api-key" {
+		t.Fatalf("api_key_secret_ref = %q", cfg.APIKeySecretRef)
+	}
+	if cfg.APIKey != "resolved-secret" {
+		t.Fatalf("api_key was not decoded from runtime secret field")
+	}
+	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxIndicators != 25 {
+		t.Fatalf("decoded numeric config = %+v", cfg)
+	}
+}
+
+func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
+	body, err := os.ReadFile("config.schema.json")
+	if err != nil {
+		t.Fatalf("read config schema: %v", err)
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(body, &schema); err != nil {
+		t.Fatalf("decode config schema: %v", err)
+	}
+
+	properties := schema["properties"].(map[string]any)
+	apiKey := properties["api_key_secret_ref"].(map[string]any)
+	if apiKey["secretRef"] != true {
+		t.Fatalf("api_key_secret_ref.secretRef = %v, want true", apiKey["secretRef"])
+	}
+	if !requiredField(schema, "api_key_secret_ref") {
+		t.Fatalf("api_key_secret_ref must remain required")
+	}
+
+	limit := properties["limit"].(map[string]any)
+	if got := int(limit["maximum"].(float64)); got != maxLimit {
+		t.Fatalf("limit maximum = %d, want %d", got, maxLimit)
+	}
+
+	bound := properties["max_indicators"].(map[string]any)
+	if got := int(bound["maximum"].(float64)); got != maxIndicators {
+		t.Fatalf("max_indicators maximum = %d, want %d", got, maxIndicators)
+	}
+}
+
+func TestPluginManifestRestrictsHTTPAllowlist(t *testing.T) {
+	body, err := os.ReadFile("plugin.yaml")
+	if err != nil {
+		t.Fatalf("read plugin manifest: %v", err)
+	}
+	manifest := string(body)
+
+	for _, want := range []string{
+		"- http_request",
+		"allowed_domains:",
+		"- otx.alienvault.com",
+		"allowed_ports:",
+		"- 443",
+		"max_open_connections: 2",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("plugin manifest missing %q", want)
+		}
+	}
+}
+
+func requiredField(schema map[string]any, field string) bool {
+	values, ok := schema["required"].([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range values {
+		if value == field {
+			return true
+		}
+	}
+	return false
 }
