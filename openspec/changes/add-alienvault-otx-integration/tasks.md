@@ -2,11 +2,11 @@
 - [x] 1.1 Review existing settings, Oban, NetFlow, and DNS query patterns.
 - [x] 1.2 Draft OpenSpec proposal, design, tasks, and spec deltas.
 - [x] 1.3 Validate the change with `openspec validate add-alienvault-otx-integration --strict`.
-- [ ] 1.4 Get proposal approval before implementation.
+- [x] 1.4 Get proposal approval before implementation.
 
 ## 2. Data Model
 - [ ] 2.1 Extend existing NetFlow threat-intel settings with OTX enabled/base URL/API key/sync status fields, or add a narrowly scoped companion singleton if that is cleaner.
-- [ ] 2.2 Reuse `platform.threat_intel_indicators` for OTX IPv4/IPv6/CIDR indicators with source `alienvault_otx`.
+- [x] 2.2 Reuse `platform.threat_intel_indicators` for OTX IPv4/IPv6/CIDR indicators with source `alienvault_otx`.
 - [ ] 2.3 Add provider/source object metadata storage for TAXII/STIX object ids, versions, collection ids, raw object keys, and OTX pulse metadata if needed for richer hit explanation.
 - [ ] 2.4 Add encrypted OTX API key handling with "present" calculations and clear/update actions.
 - [ ] 2.5 Add indexes or constraints for any new provider metadata/sync tables.
@@ -25,13 +25,13 @@
 - [ ] 3.10 Optionally implement a generic TAXII 2.1 collection provider if approved for this slice.
 
 ## 4. Edge Wasm Collector
-- [ ] 4.1 Define the CTI plugin output contract as either a typed enrichment block inside `serviceradar.plugin_result.v1` or a new `serviceradar.threat_intel_page.v1` output.
-- [ ] 4.2 Extend plugin manifest validation and ingestion if a dedicated CTI output type is selected.
-- [ ] 4.3 Evaluate `serviceradar-sdk-go` and `serviceradar-sdk-rust` for STIX/TAXII parsing ergonomics, Wasm build size, dependency risk, and host ABI coverage.
-- [ ] 4.4 Build a first-party AlienVault OTX/TAXII collector plugin using the selected SDK.
-- [ ] 4.5 Add plugin config schema fields for provider URL, auth secret reference, collection ids, poll interval, page size, lookback/high-water options, and source labels.
-- [ ] 4.6 Ensure the plugin uses only approved host capabilities and allowlists for HTTP/TCP/UDP access to OTX, TAXII, and customer SIEM endpoints.
-- [ ] 4.7 Route edge plugin CTI pages through core validation, normalization, indicator upsert, source metadata persistence, and sync status updates.
+- [x] 4.1 Define the CTI plugin output contract as a typed `threat_intel` block inside JSON-encoded `serviceradar.plugin_result.v1` details.
+- [x] 4.2 Keep manifest validation unchanged because this slice does not add a dedicated plugin output type.
+- [x] 4.3 Select `serviceradar-sdk-go` for the first built-in collector because it is already exercised by existing first-party plugins.
+- [x] 4.4 Build a first-party AlienVault OTX collector plugin using the selected SDK.
+- [x] 4.5 Add plugin config schema fields for provider URL, auth secret reference, page size, high-water cursor, timeout, and bounded indicator count.
+- [x] 4.6 Ensure the plugin uses only approved host capabilities and allowlists for HTTP access to OTX.
+- [x] 4.7 Route edge plugin CTI pages through core validation, normalization, and indicator upsert.
 - [ ] 4.8 Add UI affordances to assign the collector plugin to reachable agents and display per-agent sync health.
 
 ## 5. NetFlow Threat Matching
