@@ -34,6 +34,9 @@ func TestBuildCTIPageNormalizesSupportedIndicators(t *testing.T) {
 	if page.Counts.Skipped != 1 {
 		t.Fatalf("skipped = %d, want 1", page.Counts.Skipped)
 	}
+	if page.Counts.SkippedByType["domain"] != 1 {
+		t.Fatalf("skipped_by_type[domain] = %d, want 1", page.Counts.SkippedByType["domain"])
+	}
 	if page.Indicators[0].SourceObject != "pulse-1" {
 		t.Fatalf("source object = %q, want pulse-1", page.Indicators[0].SourceObject)
 	}

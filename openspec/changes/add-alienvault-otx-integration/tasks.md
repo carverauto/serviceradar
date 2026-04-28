@@ -40,7 +40,7 @@
 - [x] 5.2 Make the current/recent NetFlow match lookback configurable instead of hard-coded where needed.
 - [x] 5.3 Ensure OTX/source names and max severity appear in `IpThreatIntelCache` results.
 - [x] 5.4 Surface OTX/TAXII/SIEM hit counts and source context in NetFlow analysis views.
-- [ ] 5.5 Make unsupported indicator types visible in sync status as imported/skipped but not NetFlow-match supported.
+- [x] 5.5 Make unsupported indicator types visible in sync status as imported/skipped but not NetFlow-match supported.
 
 ## 6. Optional Retroactive Hunting
 - [ ] 6.1 Implement an operator-triggered retrohunt worker for historical backfill.

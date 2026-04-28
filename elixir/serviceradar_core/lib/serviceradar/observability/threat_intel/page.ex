@@ -304,6 +304,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
       "service_name" => string_value(status, [:service_name, "service_name"]),
       "service_type" => string_value(status, [:service_type, "service_type"]),
       "partition" => string_value(status, [:partition, "partition"]),
+      "skipped_by_type" => non_empty_map_value(page.counts, ["skipped_by_type", "skippedByType"]),
       "labels" => map_value(payload, ["labels", "label"])
     })
   end
@@ -327,6 +328,13 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
     case fetch_value(map, keys) do
       value when is_map(value) -> value
       _ -> %{}
+    end
+  end
+
+  defp non_empty_map_value(map, keys) do
+    case map_value(map, keys) do
+      value when map_size(value) > 0 -> value
+      _ -> nil
     end
   end
 
