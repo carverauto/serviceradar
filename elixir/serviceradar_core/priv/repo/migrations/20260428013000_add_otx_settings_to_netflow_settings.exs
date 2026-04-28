@@ -14,7 +14,7 @@ defmodule ServiceRadar.Repo.Migrations.AddOtxSettingsToNetflowSettings do
       add :otx_max_indicators, :integer, null: false, default: 2_000
       add :otx_modified_since, :text
       add :otx_raw_payload_archive_enabled, :boolean, null: false, default: false
-      add :otx_retrohunt_window_seconds, :integer, null: false, default: 604_800
+      add :otx_retrohunt_window_seconds, :integer, null: false, default: 7_776_000
       add :threat_intel_match_window_seconds, :integer, null: false, default: 3_600
     end
   end

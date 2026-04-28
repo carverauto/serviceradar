@@ -43,18 +43,18 @@
 - [x] 5.5 Make unsupported indicator types visible in sync status as imported/skipped but not NetFlow-match supported.
 
 ## 6. Optional Retroactive Hunting
-- [ ] 6.1 Implement an operator-triggered retrohunt worker for historical backfill.
-- [ ] 6.2 Query the configured historical window for IP indicators against NetFlow source/destination data.
+- [x] 6.1 Implement an operator-triggered retrohunt worker for historical backfill.
+- [x] 6.2 Query the configured historical window for IP indicators against NetFlow source/destination data.
 - [ ] 6.3 Query domain/hostname indicators against the canonical DNS aggregate data where available.
-- [ ] 6.4 Store deduplicated retrohunt findings with enough evidence to explain the match.
-- [ ] 6.5 Keep retrohunt disabled or manual by default unless settings explicitly enable scheduled backfill.
+- [x] 6.4 Store deduplicated retrohunt findings with enough evidence to explain the match.
+- [x] 6.5 Keep retrohunt disabled or manual by default unless settings explicitly enable scheduled backfill.
 
 ## 7. Settings And Visibility UI
 - [x] 7.1 Add an authenticated Settings route and navigation entry for OTX/Threat Intel.
 - [x] 7.2 Add encrypted API key/secret-reference forms that never echo saved secrets.
 - [x] 7.3 Add toggles and numeric controls for execution mode, sync interval, recent NetFlow lookback, retrohunt window, raw archival, and enabled state.
 - [x] 7.4 Add status panels for last sync, indicator counts, latest errors, and edge agent/plugin health.
-- [ ] 7.6 Add manual "Retrohunt now" actions.
+- [x] 7.6 Add manual "Retrohunt now" actions.
 - [x] 7.8 Add manual OTX "Sync now" action.
 - [x] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
 - [x] 7.7 Add operator visibility for imported OTX indicators and source-object metadata.
