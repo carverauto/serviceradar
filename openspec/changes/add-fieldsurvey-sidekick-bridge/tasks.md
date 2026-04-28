@@ -48,7 +48,7 @@
 - [x] 6.5 Move channel scheduling toward the Sidekick daemon with adaptive channel weighting from HackRF spectrum energy plus confirmed per-BSSID Wi-Fi observations.
 - [ ] 6.6 Add coarse interferer classification for broad continuous noise, narrow spikes, and bursty activity.
 - [ ] 6.7 Keep `hackrf_sweep` for broad 2.4/5 GHz survey mode; defer optional raw-IQ/rustfft analyzer work until focused channel classification needs raw samples.
-- [ ] 6.8 Apply temporal averaging and outlier rejection before feeding Wi-Fi RSSI and RF interference points into backend rasters.
+- [x] 6.8 Apply temporal averaging and outlier rejection before feeding Wi-Fi RSSI and RF interference points into backend rasters.
 - [ ] 6.9 Add active survey hooks for latency/throughput tests that can be tied to the same LiDAR pose timeline.
 - [ ] 6.10 Add export/reporting surfaces for standard heatmap output and future ESX-like interchange.
 

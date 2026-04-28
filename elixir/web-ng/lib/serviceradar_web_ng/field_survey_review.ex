@@ -24,6 +24,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @default_raster_cell_size_m 0.42
   @default_waterfall_rows 80
   @default_waterfall_bins 96
+  @wifi_temporal_bucket_nanos 1_000_000_000
+  @spectrum_temporal_bucket_nanos 2_000_000_000
+  @wifi_outlier_floor_db 12.0
+  @interference_outlier_floor_score 28.0
   @max_raster_cells 1_400
 
   @type session_summary :: %{
@@ -751,42 +755,97 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp build_wifi_points(rf_matches, cell_size_m) do
     rf_matches
-    |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
-    |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), cell_size_m) end)
-    |> Enum.map(fn {_bucket, rows} -> summarize_wifi_bucket(rows) end)
+    |> wifi_observations(cell_size_m)
     |> Enum.sort_by(& &1.rssi, :desc)
   end
 
-  defp summarize_wifi_bucket(rows) do
-    count = length(rows)
-    strongest = Enum.max_by(rows, &field(&1, :rssi_dbm))
+  defp wifi_observations(rf_matches, cell_size_m) do
+    rf_matches
+    |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
+    |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), cell_size_m) end)
+    |> Enum.map(fn {_bucket, rows} -> summarize_wifi_bucket(rows) end)
+    |> Enum.reject(&is_nil/1)
+  end
 
-    %{
-      x: average(rows, :x),
-      y: average(rows, :y),
-      z: average(rows, :z),
-      rssi: average(rows, :rssi_dbm),
-      strongest_rssi: field(strongest, :rssi_dbm),
-      bssid: field(strongest, :bssid),
-      ssid: field(strongest, :ssid) || "Hidden",
-      count: count
-    }
+  defp summarize_wifi_bucket(rows) do
+    candidates =
+      rows
+      |> Enum.group_by(&(field(&1, :bssid) || "unknown"))
+      |> Enum.map(fn {_bssid, bssid_rows} -> summarize_wifi_bssid_bucket(bssid_rows) end)
+      |> Enum.reject(&is_nil/1)
+
+    case candidates do
+      [] ->
+        nil
+
+      [_ | _] ->
+        strongest = Enum.max_by(candidates, & &1.rssi)
+
+        %{
+          x: strongest.x,
+          y: strongest.y,
+          z: strongest.z,
+          rssi: strongest.rssi,
+          strongest_rssi: strongest.strongest_rssi,
+          bssid: strongest.bssid,
+          ssid: strongest.ssid,
+          count: Enum.sum(Enum.map(candidates, & &1.count))
+        }
+    end
+  end
+
+  defp summarize_wifi_bssid_bucket(rows) do
+    rows =
+      rows
+      |> temporal_average_wifi_rows()
+      |> reject_numeric_outliers(:rssi_dbm, @wifi_outlier_floor_db)
+
+    case rows do
+      [] ->
+        nil
+
+      [_ | _] ->
+        strongest = Enum.max_by(rows, &field(&1, :rssi_dbm))
+        count = Enum.sum(Enum.map(rows, &(field(&1, :count) || 1)))
+
+        %{
+          x: weighted_average(rows, :x, :count),
+          y: weighted_average(rows, :y, :count),
+          z: weighted_average(rows, :z, :count),
+          rssi: weighted_average(rows, :rssi_dbm, :count),
+          strongest_rssi: field(strongest, :strongest_rssi) || field(strongest, :rssi_dbm),
+          bssid: field(strongest, :bssid),
+          ssid: field(strongest, :ssid) || "Hidden",
+          count: count
+        }
+    end
+  end
+
+  defp temporal_average_wifi_rows(rows) do
+    rows
+    |> Enum.with_index()
+    |> Enum.group_by(fn {row, index} ->
+      temporal_bucket_key(row, :captured_at_unix_nanos, index, @wifi_temporal_bucket_nanos)
+    end)
+    |> Enum.map(fn {_bucket, indexed_rows} ->
+      bucket_rows = Enum.map(indexed_rows, &elem(&1, 0))
+      strongest = Enum.max_by(bucket_rows, &field(&1, :rssi_dbm))
+
+      %{
+        x: average(bucket_rows, :x),
+        y: average(bucket_rows, :y),
+        z: average(bucket_rows, :z),
+        rssi_dbm: average(bucket_rows, :rssi_dbm),
+        strongest_rssi: field(strongest, :rssi_dbm),
+        bssid: field(strongest, :bssid),
+        ssid: field(strongest, :ssid),
+        count: length(bucket_rows)
+      }
+    end)
   end
 
   defp build_wifi_raster(rf_matches, floorplan_segments) do
-    observations =
-      rf_matches
-      |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
-      |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), @default_raster_cell_size_m) end)
-      |> Enum.map(fn {_bucket, rows} ->
-        %{
-          x: average(rows, :x),
-          y: average(rows, :y) || 0.0,
-          z: average(rows, :z),
-          rssi: average(rows, :rssi_dbm),
-          count: length(rows)
-        }
-      end)
+    observations = wifi_observations(rf_matches, @default_raster_cell_size_m)
 
     with [_ | _] <- observations,
          %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} <- raster_bounds(observations, floorplan_segments) do
@@ -935,11 +994,18 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         average_power_dbm: summary.average_power_dbm,
         peak_power_dbm: summary.peak_power_dbm,
         peak_frequency_mhz: summary.peak_frequency_mhz,
+        captured_at_unix_nanos: field(row, :captured_at_unix_nanos),
         count: 1
       }
     end)
     |> Enum.group_by(fn point -> bucket_key(point.x, point.z, cell_size_m) end)
-    |> Enum.map(fn {_bucket, points} -> summarize_interference_bucket(points) end)
+    |> Enum.map(fn {_bucket, points} ->
+      points
+      |> temporal_average_interference_points()
+      |> reject_numeric_outliers(:score, @interference_outlier_floor_score)
+      |> summarize_interference_bucket()
+    end)
+    |> Enum.reject(&is_nil/1)
     |> Enum.sort_by(& &1.score, :desc)
   end
 
@@ -1014,18 +1080,48 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp summarize_interference_bucket(points) do
-    peak = Enum.max_by(points, & &1.peak_power_dbm)
+    case points do
+      [] ->
+        nil
 
-    %{
-      x: average_maps(points, :x),
-      y: average_maps(points, :y),
-      z: average_maps(points, :z),
-      score: average_maps(points, :score),
-      average_power_dbm: average_maps(points, :average_power_dbm),
-      peak_power_dbm: peak.peak_power_dbm,
-      peak_frequency_mhz: peak.peak_frequency_mhz,
-      count: length(points)
-    }
+      [_ | _] ->
+        peak = Enum.max_by(points, & &1.peak_power_dbm)
+
+        %{
+          x: weighted_average_maps(points, :x, :count),
+          y: weighted_average_maps(points, :y, :count),
+          z: weighted_average_maps(points, :z, :count),
+          score: weighted_average_maps(points, :score, :count),
+          average_power_dbm: weighted_average_maps(points, :average_power_dbm, :count),
+          peak_power_dbm: peak.peak_power_dbm,
+          peak_frequency_mhz: peak.peak_frequency_mhz,
+          count: Enum.sum(Enum.map(points, &(Map.get(&1, :count) || 1)))
+        }
+    end
+  end
+
+  defp temporal_average_interference_points(points) do
+    points
+    |> Enum.with_index()
+    |> Enum.group_by(fn {point, index} ->
+      temporal_bucket_key(point, :captured_at_unix_nanos, index, @spectrum_temporal_bucket_nanos)
+    end)
+    |> Enum.map(fn {_bucket, indexed_points} ->
+      bucket_points = Enum.map(indexed_points, &elem(&1, 0))
+      peak = Enum.max_by(bucket_points, & &1.peak_power_dbm)
+
+      %{
+        x: average_maps(bucket_points, :x),
+        y: average_maps(bucket_points, :y),
+        z: average_maps(bucket_points, :z),
+        score: average_maps(bucket_points, :score),
+        average_power_dbm: average_maps(bucket_points, :average_power_dbm),
+        peak_power_dbm: peak.peak_power_dbm,
+        peak_frequency_mhz: peak.peak_frequency_mhz,
+        captured_at_unix_nanos: Map.get(peak, :captured_at_unix_nanos),
+        count: length(bucket_points)
+      }
+    end)
   end
 
   defp build_channel_scores(spectrum_rows, rf_matches) do
@@ -1607,6 +1703,73 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp average(rows, field_name), do: rows |> Enum.map(&field(&1, field_name)) |> average_numbers()
   defp average_maps(rows, field_name), do: rows |> Enum.map(&Map.get(&1, field_name)) |> average_numbers()
+
+  defp weighted_average(rows, field_name, weight_field) do
+    rows
+    |> Enum.reduce({0.0, 0.0}, fn row, {value_acc, weight_acc} ->
+      value = field(row, field_name)
+      weight = max(number_or_default(field(row, weight_field), 1.0), 1.0)
+
+      if number?(value) do
+        {value_acc + value * weight, weight_acc + weight}
+      else
+        {value_acc, weight_acc}
+      end
+    end)
+    |> weighted_average_result()
+  end
+
+  defp weighted_average_maps(rows, field_name, weight_field) do
+    rows
+    |> Enum.reduce({0.0, 0.0}, fn row, {value_acc, weight_acc} ->
+      value = Map.get(row, field_name)
+      weight = max(number_or_default(Map.get(row, weight_field), 1.0), 1.0)
+
+      if number?(value) do
+        {value_acc + value * weight, weight_acc + weight}
+      else
+        {value_acc, weight_acc}
+      end
+    end)
+    |> weighted_average_result()
+  end
+
+  defp weighted_average_result({_value_acc, weight_acc}) when weight_acc <= 0.0, do: nil
+  defp weighted_average_result({value_acc, weight_acc}), do: value_acc / weight_acc
+
+  defp reject_numeric_outliers(rows, _field_name, _floor_threshold) when length(rows) < 4, do: rows
+
+  defp reject_numeric_outliers(rows, field_name, floor_threshold) do
+    values = Enum.map(rows, &field_or_map_value(&1, field_name))
+    median = percentile(values, 0.5)
+
+    if is_nil(median) do
+      rows
+    else
+      deviations =
+        values
+        |> Enum.filter(&number?/1)
+        |> Enum.map(&abs(&1 - median))
+
+      mad = percentile(deviations, 0.5) || 0.0
+      threshold = max(floor_threshold, mad * 4.0)
+
+      Enum.filter(rows, fn row ->
+        value = field_or_map_value(row, field_name)
+        not number?(value) or abs(value - median) <= threshold
+      end)
+    end
+  end
+
+  defp temporal_bucket_key(row, field_name, fallback_index, bucket_nanos) do
+    case field_or_map_value(row, field_name) do
+      timestamp when is_integer(timestamp) -> div(timestamp, bucket_nanos)
+      timestamp when is_float(timestamp) -> trunc(timestamp / bucket_nanos)
+      _ -> {:row, fallback_index}
+    end
+  end
+
+  defp field_or_map_value(row, field_name), do: field(row, field_name)
 
   defp average_numbers(values) do
     numbers = Enum.filter(values, &number?/1)

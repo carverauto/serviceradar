@@ -69,6 +69,27 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
            end)
   end
 
+  test "review raster rejects isolated Wi-Fi RSSI outliers before interpolation" do
+    rows =
+      for {rssi, index} <- Enum.with_index([-50, -51, -49, -95]) do
+        %{
+          x: 0.0,
+          y: 0.0,
+          z: 0.0,
+          rssi_dbm: rssi,
+          bssid: "02:00:00:00:00:01",
+          ssid: "SurveyNet",
+          captured_at_unix_nanos: 1_800_000_000_000_000_000 + index * 1_000_000_000
+        }
+      end
+
+    review = FieldSurveyReview.build_review("wifi-outlier-test", rows, [], [])
+    [point | _] = review.wifi_points
+
+    assert_in_delta point.rssi, -50.0, 1.0
+    assert Enum.all?(review.wifi_raster, &(&1.rssi > -60.0))
+  end
+
   test "review exposes confidence-scored AP placement candidates" do
     bssid = "02:00:00:00:00:01"
 
