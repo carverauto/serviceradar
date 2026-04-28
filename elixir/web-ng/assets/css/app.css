@@ -1646,16 +1646,20 @@
   display: none;
 }
 
-.sr-ops-field-survey-raster {
+.sr-ops-field-survey-raster-cells {
   position: absolute;
   z-index: 3;
   inset: 0.85rem 8rem 0.85rem 1.15rem;
+  overflow: hidden;
+  pointer-events: none;
+  filter: saturate(1.2) blur(3.2px);
+}
+
+.sr-ops-field-survey-raster-cell {
+  position: absolute;
   display: block;
-  width: calc(100% - 9.15rem);
-  height: calc(100% - 1.7rem);
-  object-fit: fill;
-  filter: saturate(1.18) contrast(0.98);
-  opacity: 0.88;
+  border-radius: 999px;
+  mix-blend-mode: screen;
 }
 
 .sr-ops-field-survey-floorplan {

@@ -244,12 +244,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   <.icon name="hero-wifi" class="size-3.5" />
                 </div>
               </div>
-              <img
-                :if={@survey_summary.raster_surface_data_uri}
-                class="sr-ops-field-survey-raster"
-                src={@survey_summary.raster_surface_data_uri}
-                alt="Latest FieldSurvey Wi-Fi RSSI raster"
-              />
+              <div
+                :if={@survey_summary.raster_cell_count > 0}
+                class="sr-ops-field-survey-raster-cells"
+                aria-label="Latest FieldSurvey Wi-Fi RSSI raster"
+              >
+                <span
+                  :for={cell <- @survey_summary.raster_cells}
+                  class="sr-ops-field-survey-raster-cell"
+                  style={fieldsurvey_raster_cell_style(cell)}
+                >
+                </span>
+              </div>
               <div
                 :if={@survey_summary.raster_cell_count > 0}
                 class="sr-ops-field-survey-legend"
@@ -567,6 +573,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp fieldsurvey_ap_marker_style(_ap), do: nil
+
+  defp fieldsurvey_raster_cell_style(%{x_pct: x, z_pct: z, radius_pct: radius, rssi: rssi, confidence: confidence})
+       when is_number(x) and is_number(z) do
+    diameter = max((radius || 1.0) * 3.0, 2.8)
+    opacity = 0.16 + min(max((confidence || 0.0) * 1.0, 0.0), 1.0) * 0.34
+    color = fieldsurvey_rssi_color(rssi || -95)
+
+    "left: calc(#{Float.round(x, 3)}% - #{Float.round(diameter / 2, 3)}%); top: calc(#{Float.round(z, 3)}% - #{Float.round(diameter / 2, 3)}%); width: #{Float.round(diameter, 3)}%; height: #{Float.round(diameter, 3)}%; background: radial-gradient(circle, #{color} 0%, #{color} 62%, transparent 88%); opacity: #{Float.round(opacity, 3)};"
+  end
+
+  defp fieldsurvey_raster_cell_style(_cell), do: nil
+
+  defp fieldsurvey_rssi_color(rssi) when is_number(rssi) and rssi >= -55, do: "#5fd38a"
+  defp fieldsurvey_rssi_color(rssi) when is_number(rssi) and rssi >= -65, do: "#8bd94f"
+  defp fieldsurvey_rssi_color(rssi) when is_number(rssi) and rssi >= -75, do: "#ffd25a"
+  defp fieldsurvey_rssi_color(rssi) when is_number(rssi) and rssi >= -82, do: "#ff7d3f"
+  defp fieldsurvey_rssi_color(_rssi), do: "#ef4444"
 
   defp fieldsurvey_ap_marker_title(ap) do
     ssid = Map.get(ap, :ssid) || "Hidden"

@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNG.FieldSurveyFloorplan do
 
   @allowed_kinds MapSet.new(["wall", "door", "window"])
   @max_cached_segments 240
+  @orthogonal_snap_tolerance_rad 0.24
+  @min_snap_segment_length_m 0.35
 
   @type segment :: %{
           kind: String.t(),
@@ -20,7 +22,7 @@ defmodule ServiceRadarWebNG.FieldSurveyFloorplan do
 
   @spec enrich_metadata(String.t(), binary(), map()) :: map()
   def enrich_metadata("floorplan_geojson", payload, metadata) when is_binary(payload) and is_map(metadata) do
-    segments = payload |> decode_segments() |> Enum.take(@max_cached_segments)
+    segments = payload |> decode_segments() |> rectify_segments() |> Enum.take(@max_cached_segments)
 
     if segments == [] do
       metadata
@@ -49,6 +51,17 @@ defmodule ServiceRadarWebNG.FieldSurveyFloorplan do
 
   def decode_segments(_payload), do: []
 
+  @spec rectify_segments([segment()]) :: [segment()]
+  def rectify_segments(segments) when is_list(segments) do
+    axis = dominant_axis_angle(segments)
+
+    Enum.map(segments, fn segment ->
+      rectify_segment(segment, axis)
+    end)
+  end
+
+  def rectify_segments(_segments), do: []
+
   @spec segments_from_metadata(map() | nil) :: [segment()]
   def segments_from_metadata(metadata) when is_map(metadata) do
     metadata
@@ -58,6 +71,7 @@ defmodule ServiceRadarWebNG.FieldSurveyFloorplan do
         segments
         |> Enum.map(&stored_segment/1)
         |> Enum.reject(&is_nil/1)
+        |> rectify_segments()
         |> Enum.take(@max_cached_segments)
 
       _ ->
@@ -119,6 +133,82 @@ defmodule ServiceRadarWebNG.FieldSurveyFloorplan do
       "end_z" => segment.end_z,
       "height" => Map.get(segment, :height)
     }
+  end
+
+  defp dominant_axis_angle(segments) do
+    weighted =
+      segments
+      |> Enum.filter(&(&1.kind == "wall"))
+      |> Enum.map(fn segment -> {segment_angle(segment), segment_length(segment)} end)
+      |> Enum.filter(fn {_angle, length} -> length >= @min_snap_segment_length_m end)
+
+    case weighted do
+      [] ->
+        0.0
+
+      [_ | _] ->
+        {x_sum, z_sum} =
+          Enum.reduce(weighted, {0.0, 0.0}, fn {angle, length}, {x_acc, z_acc} ->
+            {x_acc + :math.cos(angle * 4.0) * length, z_acc + :math.sin(angle * 4.0) * length}
+          end)
+
+        if abs(x_sum) + abs(z_sum) < 0.001 do
+          0.0
+        else
+          normalize_angle(:math.atan2(z_sum, x_sum) / 4.0)
+        end
+    end
+  end
+
+  defp rectify_segment(segment, axis) do
+    length = segment_length(segment)
+
+    if length < @min_snap_segment_length_m do
+      segment
+    else
+      angle = segment_angle(segment)
+      {target, delta} = nearest_orthogonal_axis(angle, axis)
+
+      if delta <= @orthogonal_snap_tolerance_rad do
+        midpoint_x = (segment.start_x + segment.end_x) / 2.0
+        midpoint_z = (segment.start_z + segment.end_z) / 2.0
+        half_x = :math.cos(target) * length / 2.0
+        half_z = :math.sin(target) * length / 2.0
+
+        %{
+          segment
+          | start_x: midpoint_x - half_x,
+            start_z: midpoint_z - half_z,
+            end_x: midpoint_x + half_x,
+            end_z: midpoint_z + half_z
+        }
+      else
+        segment
+      end
+    end
+  end
+
+  defp nearest_orthogonal_axis(angle, axis) do
+    -4..4
+    |> Enum.map(fn step ->
+      target = axis + step * :math.pi() / 2.0
+      {target, abs(normalize_angle(angle - target))}
+    end)
+    |> Enum.min_by(fn {_target, delta} -> delta end)
+  end
+
+  defp segment_angle(segment), do: :math.atan2(segment.end_z - segment.start_z, segment.end_x - segment.start_x)
+
+  defp segment_length(segment) do
+    :math.sqrt(:math.pow(segment.end_x - segment.start_x, 2) + :math.pow(segment.end_z - segment.start_z, 2))
+  end
+
+  defp normalize_angle(angle) do
+    cond do
+      angle > :math.pi() -> normalize_angle(angle - 2.0 * :math.pi())
+      angle <= -:math.pi() -> normalize_angle(angle + 2.0 * :math.pi())
+      true -> angle
+    end
   end
 
   defp coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
