@@ -55,7 +55,7 @@
 - [x] 7.3 Improve AP placement by combining manual AP marks, per-BSSID RSSI gradients, strongest-observation clusters, and path diversity into confidence-scored AP candidates.
 - [x] 7.4 Surface AP placement confidence and supporting observations in iOS and web review.
 - [x] 7.5 Ensure web dashboard/review uses persisted backend-derived `wifi_rssi` and `rf_interference` rasters as the post-survey source of truth.
-- [ ] 7.6 Add persisted raster regeneration/retry controls for sessions whose artifacts or rasters failed during upload/review.
+- [x] 7.6 Add persisted raster regeneration/retry controls for sessions whose artifacts or rasters failed during upload/review.
 
 ## 8. Verification
 - [x] 8.1 Run Rust `cargo fmt`, `cargo test -p serviceradar-fieldsurvey-sidekick`, and clippy for the new crate.
