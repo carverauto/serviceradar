@@ -190,10 +190,18 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     spectrum_waterfall = build_spectrum_waterfall(spectrum_rows)
 
-    bounds =
-      bounds_for(wifi_points, wifi_raster, interference_points, interference_raster, path_points, floorplan_segments)
-
     ap_summaries = build_ap_summaries(rf_matches)
+
+    bounds =
+      bounds_for(
+        wifi_points,
+        wifi_raster,
+        interference_points,
+        interference_raster,
+        path_points,
+        floorplan_segments,
+        ap_summaries
+      )
 
     %{
       session_id: session_id,
@@ -221,7 +229,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       path_points: project_points(path_points, bounds),
       floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
       room_artifacts: Enum.map(room_artifacts, &room_artifact_summary/1),
-      ap_summaries: ap_summaries,
+      ap_summaries: project_ap_summaries(ap_summaries, bounds),
       channel_scores: channel_scores
     }
   end
@@ -998,19 +1006,125 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     rf_matches
     |> Enum.filter(&(is_binary(field(&1, :bssid)) and number?(field(&1, :rssi_dbm))))
     |> Enum.group_by(&field(&1, :bssid))
-    |> Enum.map(fn {bssid, rows} ->
-      strongest = Enum.max_by(rows, &field(&1, :rssi_dbm))
+    |> Enum.map(fn {bssid, rows} -> summarize_ap_candidate(bssid, rows) end)
+    |> Enum.sort_by(fn ap -> {ap.confidence, ap.count, ap.strongest_rssi || -120} end, :desc)
+  end
 
+  defp summarize_ap_candidate(bssid, rows) do
+    strongest = Enum.max_by(rows, &field(&1, :rssi_dbm))
+    positioned_rows = Enum.filter(rows, &(number?(field(&1, :x)) and number?(field(&1, :z))))
+    strongest_rssi = field(strongest, :rssi_dbm)
+    support_rows = candidate_support_rows(positioned_rows, strongest_rssi)
+    candidate = weighted_position(support_rows) || strongest_position(strongest)
+    path_spread_m = positioned_spread(positioned_rows)
+    residual_error_m = average_candidate_error(support_rows, candidate)
+
+    base = %{
+      bssid: bssid,
+      ssid: field(strongest, :ssid) || "Hidden",
+      count: length(rows),
+      positioned_count: length(positioned_rows),
+      support_count: length(support_rows),
+      strongest_rssi: strongest_rssi,
+      channel: field(strongest, :channel),
+      frequency_mhz: field(strongest, :frequency_mhz),
+      confidence: ap_candidate_confidence(rows, positioned_rows, strongest_rssi, path_spread_m, residual_error_m),
+      path_spread_m: path_spread_m,
+      residual_error_m: residual_error_m,
+      strongest_observation: strongest_position(strongest),
+      supporting_observations: supporting_observations(support_rows)
+    }
+
+    if is_map(candidate) do
+      Map.merge(base, %{x: candidate.x, y: candidate.y, z: candidate.z})
+    else
+      base
+    end
+  end
+
+  defp candidate_support_rows([], _strongest_rssi), do: []
+
+  defp candidate_support_rows(positioned_rows, strongest_rssi) do
+    threshold = strongest_rssi - 8.0
+
+    positioned_rows
+    |> Enum.filter(&(field(&1, :rssi_dbm) >= threshold))
+    |> Enum.sort_by(&field(&1, :rssi_dbm), :desc)
+    |> Enum.take(40)
+  end
+
+  defp weighted_position([]), do: nil
+
+  defp weighted_position(rows) do
+    {x_sum, y_sum, z_sum, weight_sum} =
+      Enum.reduce(rows, {0.0, 0.0, 0.0, 0.0}, fn row, {x_acc, y_acc, z_acc, weight_acc} ->
+        weight = :math.pow(10.0, (field(row, :rssi_dbm) + 100.0) / 20.0)
+
+        {
+          x_acc + field(row, :x) * weight,
+          y_acc + number_or_default(field(row, :y), 0.0) * weight,
+          z_acc + field(row, :z) * weight,
+          weight_acc + weight
+        }
+      end)
+
+    if weight_sum > 0.0 do
+      %{x: x_sum / weight_sum, y: y_sum / weight_sum, z: z_sum / weight_sum}
+    end
+  end
+
+  defp strongest_position(row) do
+    if number?(field(row, :x)) and number?(field(row, :z)) do
+      %{x: field(row, :x), y: number_or_default(field(row, :y), 0.0), z: field(row, :z), rssi: field(row, :rssi_dbm)}
+    end
+  end
+
+  defp positioned_spread([]), do: 0.0
+
+  defp positioned_spread(rows) do
+    min_x = rows |> Enum.map(&field(&1, :x)) |> Enum.min()
+    max_x = rows |> Enum.map(&field(&1, :x)) |> Enum.max()
+    min_z = rows |> Enum.map(&field(&1, :z)) |> Enum.min()
+    max_z = rows |> Enum.map(&field(&1, :z)) |> Enum.max()
+
+    distance_2d(min_x, min_z, max_x, max_z)
+  end
+
+  defp average_candidate_error([], _candidate), do: nil
+  defp average_candidate_error(_rows, nil), do: nil
+
+  defp average_candidate_error(rows, candidate) do
+    rows
+    |> Enum.map(&distance_2d(field(&1, :x), field(&1, :z), candidate.x, candidate.z))
+    |> average_numbers()
+  end
+
+  defp ap_candidate_confidence(rows, positioned_rows, strongest_rssi, path_spread_m, residual_error_m) do
+    count_score = min(length(rows) / 36.0, 1.0)
+    positioned_score = min(length(positioned_rows) / 24.0, 1.0)
+    diversity_score = min(path_spread_m / 5.0, 1.0)
+    strength_score = min(max((strongest_rssi + 90.0) / 45.0, 0.0), 1.0)
+    residual_penalty = min(max((residual_error_m || 0.0) / 4.0, 0.0), 0.22)
+
+    (0.18 + count_score * 0.22 + positioned_score * 0.24 + diversity_score * 0.18 + strength_score * 0.18 -
+       residual_penalty)
+    |> min(0.96)
+    |> max(0.05)
+  end
+
+  defp supporting_observations(rows) do
+    rows
+    |> Enum.take(5)
+    |> Enum.map(fn row ->
       %{
-        bssid: bssid,
-        ssid: field(strongest, :ssid) || "Hidden",
-        count: length(rows),
-        strongest_rssi: field(strongest, :rssi_dbm),
-        channel: field(strongest, :channel),
-        frequency_mhz: field(strongest, :frequency_mhz)
+        x: field(row, :x),
+        y: number_or_default(field(row, :y), 0.0),
+        z: field(row, :z),
+        rssi: field(row, :rssi_dbm),
+        channel: field(row, :channel),
+        captured_at_unix_nanos: field(row, :captured_at_unix_nanos)
       }
     end)
-    |> Enum.sort_by(& &1.count, :desc)
   end
 
   defp load_floorplan_segments(scope, session_id) do
@@ -1225,11 +1339,21 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp distance_2d(x1, z1, x2, z2), do: :math.sqrt(:math.pow(x1 - x2, 2) + :math.pow(z1 - z2, 2))
 
-  defp bounds_for(wifi_points, wifi_raster, interference_points, interference_raster, path_points, floorplan_segments) do
+  defp bounds_for(
+         wifi_points,
+         wifi_raster,
+         interference_points,
+         interference_raster,
+         path_points,
+         floorplan_segments,
+         ap_summaries
+       ) do
     points =
       wifi_points ++
         wifi_raster ++
-        interference_points ++ interference_raster ++ path_points ++ floorplan_segment_points(floorplan_segments)
+        interference_points ++
+        interference_raster ++
+        path_points ++ floorplan_segment_points(floorplan_segments) ++ ap_position_points(ap_summaries)
 
     xs = Enum.map(points, & &1.x)
     zs = Enum.map(points, & &1.z)
@@ -1255,6 +1379,27 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       |> Map.put(:x_pct, (point.x - bounds.min_x) / width * 100.0)
       |> Map.put(:z_pct, 100.0 - (point.z - bounds.min_z) / height * 100.0)
     end)
+  end
+
+  defp project_ap_summaries(ap_summaries, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+
+    Enum.map(ap_summaries, fn ap ->
+      if number?(Map.get(ap, :x)) and number?(Map.get(ap, :z)) do
+        ap
+        |> Map.put(:x_pct, (ap.x - bounds.min_x) / width * 100.0)
+        |> Map.put(:z_pct, 100.0 - (ap.z - bounds.min_z) / height * 100.0)
+      else
+        ap
+      end
+    end)
+  end
+
+  defp ap_position_points(ap_summaries) do
+    ap_summaries
+    |> Enum.filter(&(number?(Map.get(&1, :x)) and number?(Map.get(&1, :z))))
+    |> Enum.map(&%{x: &1.x, z: &1.z})
   end
 
   defp project_raster_cells(cells, bounds) do

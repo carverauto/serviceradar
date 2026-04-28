@@ -172,6 +172,16 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                       style={point_style(point, @overlay)}
                     >
                     </span>
+
+                    <span
+                      :for={ap <- ap_markers(@review)}
+                      class="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-sky-200/90 bg-base-100/95 px-2 py-1 text-[0.65rem] font-semibold text-sky-100 shadow-lg"
+                      title={ap_marker_title(ap)}
+                      style={ap_marker_style(ap)}
+                    >
+                      <.icon name="hero-wifi" class="size-3 text-sky-300" />
+                      {confidence_percent(ap.confidence)}
+                    </span>
                   </div>
                 </div>
 
@@ -222,16 +232,40 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 <div class="space-y-2">
                   <div
                     :for={ap <- Enum.take(@review.ap_summaries, 12)}
-                    class="flex items-center justify-between gap-3 rounded border border-base-200 px-3 py-2"
+                    class="rounded border border-base-200 px-3 py-2"
                   >
-                    <div class="min-w-0">
-                      <div class="truncate text-sm font-semibold">{ap.ssid}</div>
-                      <div class="truncate text-xs text-base-content/60">{ap.bssid}</div>
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-semibold">{ap.ssid}</div>
+                        <div class="truncate text-xs text-base-content/60">{ap.bssid}</div>
+                      </div>
+                      <div class="text-right text-xs">
+                        <div class="font-semibold">{ap.strongest_rssi} dBm</div>
+                        <div class="text-base-content/60">ch {ap.channel || "?"}</div>
+                      </div>
                     </div>
-                    <div class="text-right text-xs">
-                      <div class="font-semibold">{ap.strongest_rssi} dBm</div>
-                      <div class="text-base-content/60">ch {ap.channel || "?"}</div>
+
+                    <div class="mt-2 grid grid-cols-3 gap-2 text-[0.68rem] text-base-content/65">
+                      <div>
+                        <div class="uppercase text-base-content/40">Confidence</div>
+                        <div class={["font-semibold", ap_confidence_class(ap.confidence)]}>
+                          {confidence_percent(ap.confidence)}
+                        </div>
+                      </div>
+                      <div>
+                        <div class="uppercase text-base-content/40">Positioned</div>
+                        <div class="font-semibold">
+                          {ap.positioned_count}/{ap.count}
+                        </div>
+                      </div>
+                      <div>
+                        <div class="uppercase text-base-content/40">Spread</div>
+                        <div class="font-semibold">{format_number(ap.path_spread_m)} m</div>
+                      </div>
                     </div>
+                  </div>
+                  <div :if={@review.ap_summaries == []} class="text-sm text-base-content/60">
+                    No AP observations for this session.
                   </div>
                 </div>
               </.ui_panel>
@@ -403,6 +437,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp coverage_cells(review, "interference"), do: Map.get(review, :interference_raster, [])
   defp coverage_cells(_review, _overlay), do: []
 
+  defp ap_markers(review) do
+    review.ap_summaries
+    |> Enum.filter(&(number?(Map.get(&1, :x_pct)) and number?(Map.get(&1, :z_pct))))
+    |> Enum.take(16)
+  end
+
   defp coverage_cell_style(cell, "interference") do
     diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
     color = interference_color(cell.score || 0)
@@ -431,6 +471,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     color = rssi_color(point.rssi || -95)
 
     "left: calc(#{point.x_pct}% - #{size / 2}px); top: calc(#{point.z_pct}% - #{size / 2}px); width: #{size}px; height: #{size}px; background: #{color}; opacity: 0.76;"
+  end
+
+  defp ap_marker_style(ap) do
+    "left: #{ap.x_pct}%; top: #{ap.z_pct}%;"
   end
 
   defp path_style(point) do
@@ -512,6 +556,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     "#{point.ssid} #{format_number(point.rssi)} dBm, #{point.count} samples"
   end
 
+  defp ap_marker_title(ap) do
+    "#{ap.ssid} #{ap.bssid}: #{confidence_percent(ap.confidence)} confidence, #{ap.positioned_count}/#{ap.count} positioned observations, strongest #{format_number(ap.strongest_rssi)} dBm"
+  end
+
+  defp ap_confidence_class(confidence) when is_number(confidence) and confidence >= 0.72, do: "text-success"
+  defp ap_confidence_class(confidence) when is_number(confidence) and confidence >= 0.45, do: "text-warning"
+  defp ap_confidence_class(_confidence), do: "text-error"
+
   defp legend("interference") do
     [{"Low", "#22c55e"}, {"Moderate", "#facc15"}, {"High", "#f97316"}, {"Severe", "#ef4444"}]
   end
@@ -573,6 +625,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp format_number(value) when is_integer(value), do: Integer.to_string(value)
   defp format_number(_value), do: "?"
 
+  defp confidence_percent(value) when is_number(value), do: "#{round(value * 100)}%"
+  defp confidence_percent(_value), do: "?%"
+
   defp format_frequency(value) when is_number(value), do: "#{format_number(value)} MHz"
   defp format_frequency(_value), do: "? MHz"
 
@@ -591,4 +646,6 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
   defp format_bytes(_bytes), do: "unknown size"
+
+  defp number?(value), do: is_integer(value) or is_float(value)
 end
