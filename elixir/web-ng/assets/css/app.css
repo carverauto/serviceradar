@@ -1703,6 +1703,70 @@
     0 0.35rem 1.1rem rgba(2, 8, 23, 0.38);
 }
 
+.sr-ops-field-survey-ap-marker.is-linked {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sr-ops-field-survey-ap-marker:is(:hover, :focus-visible) {
+  z-index: 12;
+  border-color: rgba(186, 230, 253, 1);
+  background: rgba(8, 17, 34, 0.96);
+  box-shadow:
+    0 0 0 3px rgba(56, 189, 248, 0.38),
+    0 0.55rem 1.45rem rgba(2, 8, 23, 0.46);
+}
+
+.sr-ops-field-survey-ap-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.54rem);
+  width: max-content;
+  max-width: 16rem;
+  display: none;
+  transform: translateX(-50%);
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  border-radius: 0.45rem;
+  background: rgba(2, 8, 23, 0.92);
+  box-shadow: 0 0.8rem 1.8rem rgba(2, 8, 23, 0.42);
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  padding: 0.48rem 0.58rem;
+  pointer-events: none;
+  text-align: left;
+  white-space: normal;
+}
+
+.sr-ops-field-survey-ap-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: translate(-50%, -50%) rotate(45deg);
+  border-bottom: 1px solid rgba(125, 211, 252, 0.38);
+  border-right: 1px solid rgba(125, 211, 252, 0.38);
+  background: rgba(2, 8, 23, 0.92);
+}
+
+.sr-ops-field-survey-ap-marker:is(:hover, :focus-visible) .sr-ops-field-survey-ap-tooltip {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.sr-ops-field-survey-ap-tooltip strong {
+  color: #f8fafc;
+  font-size: 0.72rem;
+}
+
+.sr-ops-field-survey-ap-device {
+  margin-top: 0.16rem;
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
 .sr-ops-floorplan-line {
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
