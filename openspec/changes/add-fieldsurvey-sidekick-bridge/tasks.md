@@ -77,6 +77,7 @@
 - [x] 7.22 Suppress raw Wi-Fi observation dots in FieldSurvey Review so the persisted/interpolated heat surface is the primary coverage visual, and cluster AP candidates so virtual BSSIDs do not render as separate physical AP markers.
 - [x] 7.23 Rectify near-orthogonal RoomPlan floorplan linework so walls that clearly should be square render as clean right angles without destroying intentionally angled geometry.
 - [x] 7.24 Bring FieldSurvey Review map styling in line with the dashboard heatmap: continuous blurred coverage layer, stronger floorplan linework, and cleaner AP/path overlays.
+- [x] 7.25 Normalize FieldSurvey Review map orientation with the same longest-wall/landscape projection used by the dashboard while keeping persisted raster coordinates raw.
 
 ## 9. Survey Organization and Site/Floor Model
 - [ ] 9.1 Add a survey organization model that associates FieldSurvey sessions with site/building/floor labels and arbitrary metadata tags.
