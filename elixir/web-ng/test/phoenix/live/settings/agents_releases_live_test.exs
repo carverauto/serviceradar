@@ -35,8 +35,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v7.0.0",
                  "name" => "ServiceRadar 7.0.0",
                  "body" => "Imported release notes",
-                 "html_url" =>
-                   "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                  "published_at" => "2026-03-28T20:00:00Z",
                  "assets" => [
                    %{
@@ -55,8 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                  "tag_name" => "v6.9.9",
                  "name" => "ServiceRadar 6.9.9",
                  "body" => "Missing manifest",
-                 "html_url" =>
-                   "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
                  "published_at" => "2026-03-27T20:00:00Z",
                  "assets" => [
                    %{
@@ -77,8 +75,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
                "tag_name" => "v7.0.0",
                "name" => "ServiceRadar 7.0.0",
                "body" => "Imported release notes",
-               "html_url" =>
-                 "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
+               "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
                "assets" => [
                  %{
                    "name" => "serviceradar-agent-release-manifest.json",

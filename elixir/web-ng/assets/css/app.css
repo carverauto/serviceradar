@@ -794,6 +794,14 @@
   vector-effect: non-scaling-stroke;
 }
 
+.sr-ops-traffic-link-hit:hover,
+.sr-ops-traffic-link-hit:focus,
+.sr-ops-traffic-link-hit:active {
+  opacity: 0;
+  stroke: transparent;
+  outline: none;
+}
+
 .sr-ops-traffic-arrow {
   pointer-events: none;
   opacity: 0.94;
@@ -911,8 +919,8 @@
 .sr-ops-traffic-cluster-hit {
   cursor: pointer;
   pointer-events: all;
-  fill: rgba(2, 8, 23, 0.68);
-  stroke: rgba(45, 212, 191, 0.42);
+  fill: transparent;
+  stroke: transparent;
   stroke-width: 0.35px;
   vector-effect: non-scaling-stroke;
 }
@@ -920,25 +928,40 @@
 .sr-ops-traffic-endpoint-hit {
   cursor: pointer;
   pointer-events: all;
-  fill: rgba(2, 8, 23, 0.22);
-  stroke: rgba(71, 85, 105, 0.28);
+  fill: transparent;
+  stroke: transparent;
   stroke-width: 0.2px;
   vector-effect: non-scaling-stroke;
 }
 
 .sr-ops-traffic-endpoint-hit.is-network-endpoint {
-  fill: rgba(13, 148, 136, 0.16);
-  stroke: rgba(45, 212, 191, 0.28);
+  fill: transparent;
+  stroke: transparent;
 }
 
 .sr-ops-traffic-endpoint-hit.is-external-endpoint {
-  fill: rgba(15, 23, 42, 0.34);
+  fill: transparent;
 }
 
+.sr-ops-traffic-cluster-hit:hover,
+.sr-ops-traffic-cluster-hit:focus,
 .sr-ops-traffic-endpoint-hit:hover {
-  fill: rgba(15, 23, 42, 0.42);
-  stroke: rgba(125, 211, 252, 0.28);
-  stroke-width: 0.26px;
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+}
+
+.sr-ops-traffic-endpoint-hit:focus {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  outline: none;
+}
+
+.sr-ops-traffic-endpoint-hit:focus {
+  fill: rgba(15, 23, 42, 0.34);
+  stroke: rgba(125, 211, 252, 0.24);
+  outline: none;
 }
 
 @keyframes sr-ops-traffic-flow {
@@ -1109,7 +1132,7 @@
   box-shadow: 0 18px 38px rgba(2, 8, 23, 0.32);
   color: #e2e8f0;
   padding: 0.72rem 0.78rem;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .sr-ops-anchor-details.is-flow-details {
@@ -1153,6 +1176,63 @@
 .sr-ops-anchor-details .is-endpoint-row b {
   text-align: left;
   line-height: 1.22;
+}
+
+.sr-ops-anchor-flow-list {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(45, 212, 191, 0.22);
+}
+
+.sr-ops-anchor-flow-list > em {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.sr-ops-anchor-flow-link {
+  display: grid;
+  gap: 0.12rem;
+  border: 1px solid rgba(51, 65, 85, 0.72);
+  border-radius: 0.375rem;
+  background: rgba(15, 23, 42, 0.64);
+  color: #dbeafe;
+  padding: 0.42rem 0.5rem;
+  text-decoration: none;
+}
+
+.sr-ops-anchor-flow-link:hover {
+  border-color: rgba(56, 189, 248, 0.66);
+  background: rgba(14, 165, 233, 0.13);
+}
+
+.sr-ops-anchor-flow-link span {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+}
+
+.sr-ops-anchor-flow-link i {
+  color: #67e8f9;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.sr-ops-anchor-flow-link b {
+  color: #f8fafc;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.sr-ops-anchor-flow-link small {
+  color: #94a3b8;
+  font-size: 0.64rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .sr-ops-map-empty,
@@ -1499,6 +1579,19 @@
   background-size: 2rem 2rem;
 }
 
+.sr-ops-field-survey-card-map {
+  width: 100%;
+  height: 9.35rem;
+  min-height: 9.35rem;
+  max-height: 9.35rem;
+  aspect-ratio: auto !important;
+  background:
+    linear-gradient(to right, rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    rgba(2, 8, 23, 0.72);
+  background-size: 2rem 2rem;
+}
+
 .sr-ops-floor-grid {
   position: absolute;
   z-index: 2;
@@ -1554,11 +1647,236 @@
   opacity: 0.92;
 }
 
+.sr-ops-heatmap-placeholder.sr-ops-heatmap-real::before,
+.sr-ops-heatmap-placeholder.sr-ops-heatmap-real::after {
+  display: none;
+}
+
+.sr-ops-field-survey-raster-cells {
+  position: absolute;
+  z-index: 3;
+  inset: 0.72rem 0.84rem;
+  overflow: hidden;
+  pointer-events: none;
+  filter: saturate(1.18) blur(5.2px);
+}
+
+.sr-ops-field-survey-raster-cell {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  mix-blend-mode: screen;
+}
+
+.sr-ops-field-survey-floorplan {
+  position: absolute;
+  z-index: 5;
+  inset: 0.72rem 0.84rem;
+  width: calc(100% - 1.68rem);
+  height: calc(100% - 1.44rem);
+  pointer-events: none;
+  filter:
+    drop-shadow(0 0 0.1rem rgba(2, 8, 23, 0.94))
+    drop-shadow(0 0 0.22rem rgba(14, 165, 233, 0.54));
+}
+
+.sr-ops-field-survey-ap-layer {
+  position: absolute;
+  z-index: 7;
+  inset: 0.72rem 0.84rem;
+  pointer-events: none;
+}
+
+.sr-ops-field-survey-ap-marker {
+  position: absolute;
+  display: grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  color: #e0f2fe;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(224, 242, 254, 0.96);
+  border-radius: 999px;
+  background: rgba(2, 8, 23, 0.82);
+  box-shadow:
+    0 0 0 2px rgba(14, 165, 233, 0.42),
+    0 0.35rem 1.1rem rgba(2, 8, 23, 0.38);
+}
+
+.sr-ops-field-survey-ap-marker.is-linked {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sr-ops-field-survey-ap-marker:is(:hover, :focus-visible) {
+  z-index: 12;
+  border-color: rgba(186, 230, 253, 1);
+  background: rgba(8, 17, 34, 0.96);
+  box-shadow:
+    0 0 0 3px rgba(56, 189, 248, 0.38),
+    0 0.55rem 1.45rem rgba(2, 8, 23, 0.46);
+}
+
+.sr-ops-field-survey-ap-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.54rem);
+  width: max-content;
+  max-width: 16rem;
+  display: none;
+  transform: translateX(-50%);
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  border-radius: 0.45rem;
+  background: rgba(2, 8, 23, 0.92);
+  box-shadow: 0 0.8rem 1.8rem rgba(2, 8, 23, 0.42);
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  padding: 0.48rem 0.58rem;
+  pointer-events: none;
+  text-align: left;
+  white-space: normal;
+}
+
+.sr-ops-field-survey-ap-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: translate(-50%, -50%) rotate(45deg);
+  border-bottom: 1px solid rgba(125, 211, 252, 0.38);
+  border-right: 1px solid rgba(125, 211, 252, 0.38);
+  background: rgba(2, 8, 23, 0.92);
+}
+
+.sr-ops-field-survey-ap-marker:is(:hover, :focus-visible) .sr-ops-field-survey-ap-tooltip {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.sr-ops-field-survey-ap-tooltip strong {
+  color: #f8fafc;
+  font-size: 0.72rem;
+}
+
+.sr-ops-field-survey-ap-device {
+  margin-top: 0.16rem;
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
+.sr-ops-floorplan-line {
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sr-ops-floorplan-line-wall {
+  stroke: rgba(205, 250, 255, 0.98);
+  stroke-width: 1.08;
+}
+
+.sr-ops-floorplan-line-door {
+  stroke: rgba(248, 253, 255, 0.96);
+  stroke-width: 0.88;
+  stroke-dasharray: 1.3 0.82;
+}
+
+.sr-ops-floorplan-line-window {
+  stroke: rgba(94, 214, 255, 0.96);
+  stroke-width: 0.82;
+  stroke-dasharray: 0.92 0.66;
+}
+
+.sr-ops-field-survey-legend {
+  position: absolute;
+  z-index: 8;
+  right: 0.72rem;
+  bottom: 0.72rem;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.36rem 0.52rem;
+  max-width: min(22rem, calc(100% - 1.44rem));
+  padding: 0.38rem 0.52rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 0.45rem;
+  background: rgba(2, 8, 23, 0.62);
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 0.66rem;
+  line-height: 1;
+  box-shadow: 0 0.65rem 1.6rem rgba(2, 8, 23, 0.24);
+  backdrop-filter: blur(8px);
+}
+
+.sr-ops-field-survey-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  white-space: nowrap;
+}
+
+.sr-ops-field-survey-legend i {
+  width: 0.54rem;
+  height: 0.54rem;
+  border-radius: 0.14rem;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.38);
+}
+
+.sr-ops-field-survey-legend .excellent {
+  background: #4ade80;
+}
+
+.sr-ops-field-survey-legend .good {
+  background: #8ee24b;
+}
+
+.sr-ops-field-survey-legend .fair {
+  background: #facc15;
+}
+
+.sr-ops-field-survey-legend .poor {
+  background: #fb7a3d;
+}
+
+.sr-ops-field-survey-legend .weak {
+  background: #ef4444;
+}
+
+.sr-ops-field-survey-diagnostics {
+  position: absolute;
+  z-index: 9;
+  left: 0.72rem;
+  top: 0.72rem;
+  display: inline-flex;
+  max-width: min(24rem, calc(100% - 1.44rem));
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.34rem 0.48rem;
+  border: 1px solid rgba(250, 204, 21, 0.38);
+  border-radius: 0.45rem;
+  background: rgba(24, 20, 3, 0.68);
+  color: rgba(254, 240, 138, 0.96);
+  font-size: 0.66rem;
+  line-height: 1.15;
+  box-shadow: 0 0.65rem 1.6rem rgba(2, 8, 23, 0.24);
+  backdrop-filter: blur(8px);
+}
+
+.sr-ops-field-survey-diagnostics span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sr-ops-heatmap-placeholder::after {
   content: "";
   position: absolute;
-  z-index: 3;
-  inset: 0.85rem 1.15rem;
+  z-index: 2;
+  inset: 0.72rem 0.84rem;
   border: 1px solid rgba(125, 211, 252, 0.34);
   background:
     linear-gradient(90deg, transparent 0 18%, rgba(125, 211, 252, 0.28) 18% calc(18% + 1px), transparent calc(18% + 1px) 37%, rgba(125, 211, 252, 0.28) 37% calc(37% + 1px), transparent calc(37% + 1px) 62%, rgba(125, 211, 252, 0.28) 62% calc(62% + 1px), transparent calc(62% + 1px) 82%, rgba(125, 211, 252, 0.28) 82% calc(82% + 1px), transparent calc(82% + 1px)),
@@ -2280,6 +2598,241 @@
   font-style: normal;
 }
 
+.sr-spatial-title {
+  color: #f8fafc;
+  font-size: 1.35rem;
+  font-weight: 780;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.sr-spatial-subtitle {
+  margin-top: 0.45rem;
+  max-width: 44rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.sr-spatial-panel {
+  border-color: rgba(30, 41, 59, 0.92);
+  background: rgba(2, 8, 23, 0.78);
+  color: #e2e8f0;
+}
+
+.sr-spatial-panel-header {
+  border-bottom: 1px solid rgba(30, 41, 59, 0.86);
+  background: rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
+}
+
+.sr-spatial-panel-body {
+  padding: 1rem;
+}
+
+.sr-spatial-stage {
+  min-height: 600px;
+  height: 75vh;
+  overflow: hidden;
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(rgba(45, 212, 191, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 212, 191, 0.06) 1px, transparent 1px),
+    radial-gradient(circle at 50% 42%, rgba(56, 189, 248, 0.12), transparent 38%),
+    linear-gradient(180deg, #020817, #030c1b 58%, #020617);
+  background-size: 28px 28px, 28px 28px, auto, auto;
+}
+
+.sr-spatial-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: transparent;
+  outline: none;
+}
+
+.sr-spatial-stage.is-spatial-empty .sr-spatial-canvas,
+.sr-spatial-stage.is-spatial-error .sr-spatial-canvas {
+  display: none;
+  opacity: 0;
+}
+
+.sr-spatial-legend {
+  border: 1px solid rgba(51, 65, 85, 0.82);
+  background: rgba(2, 8, 23, 0.84);
+  color: #cbd5e1;
+}
+
+.sr-spatial-empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 15;
+  display: grid;
+  width: min(28rem, calc(100% - 3rem));
+  gap: 0.35rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 0.5rem;
+  background: rgba(2, 8, 23, 0.72);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+  color: #cbd5e1;
+  padding: 1rem 1.1rem;
+  pointer-events: none;
+  text-align: center;
+}
+
+.sr-spatial-empty-state strong {
+  color: #f8fafc;
+  font-size: 0.95rem;
+}
+
+.sr-spatial-empty-state span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.sr-fieldsurvey-review-page {
+  min-height: calc(100vh - 5rem);
+  color: #e2e8f0;
+}
+
+.sr-fieldsurvey-review-page .text-base-content\/40 {
+  color: #64748b !important;
+}
+
+.sr-fieldsurvey-review-page .text-base-content\/50,
+.sr-fieldsurvey-review-page .text-base-content\/60,
+.sr-fieldsurvey-review-page .text-base-content\/65,
+.sr-fieldsurvey-review-page .text-base-content\/70 {
+  color: #94a3b8 !important;
+}
+
+.sr-fieldsurvey-review-page .border-base-200 {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+}
+
+.sr-fieldsurvey-review-page .divide-base-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(51, 65, 85, 0.72) !important;
+}
+
+.sr-fieldsurvey-review-summary-cell {
+  border-color: rgba(51, 65, 85, 0.72);
+  background: rgba(15, 23, 42, 0.74);
+  color: #e2e8f0;
+}
+
+.sr-fieldsurvey-review-map-stack {
+  display: grid;
+  gap: 0;
+}
+
+.sr-fieldsurvey-review-map-shell {
+  position: relative;
+  min-height: 24rem;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.sr-fieldsurvey-review-map {
+  position: absolute;
+  inset: 1.25rem;
+  overflow: hidden;
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  border-radius: 0.35rem;
+  background: rgba(2, 8, 23, 0.54);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.72);
+}
+
+.sr-fieldsurvey-review-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0.44;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.16) 1px, transparent 1px);
+  background-size: 2rem 2rem;
+}
+
+.sr-fieldsurvey-review-coverage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  filter: saturate(1.2) blur(3.2px);
+}
+
+.sr-fieldsurvey-review-coverage.overlay-interference {
+  filter: saturate(1.25) blur(2.6px);
+}
+
+.sr-fieldsurvey-review-coverage-cell {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.sr-fieldsurvey-review-floorplan {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 0 0.12rem rgba(2, 8, 23, 0.94))
+    drop-shadow(0 0 0.22rem rgba(14, 165, 233, 0.42));
+}
+
+.sr-fieldsurvey-review-path-point {
+  position: absolute;
+  z-index: 6;
+  width: 0.24rem;
+  height: 0.24rem;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.42);
+  transform: translate(-50%, -50%);
+}
+
+.sr-fieldsurvey-review-ap-marker {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(186, 230, 253, 0.92);
+  border-radius: 999px;
+  background: rgba(2, 8, 23, 0.88);
+  padding: 0.28rem 0.45rem;
+  color: rgba(224, 242, 254, 0.96);
+  font-size: 0.65rem;
+  font-weight: 700;
+  box-shadow:
+    0 0 0 2px rgba(14, 165, 233, 0.24),
+    0 0.45rem 1rem rgba(2, 8, 23, 0.34);
+}
+
+.sr-fieldsurvey-review-map-details {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  gap: 1rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.72);
+  padding: 1rem;
+}
+
+.sr-fieldsurvey-review-map-details .divider {
+  display: none;
+}
+
 @media (max-width: 1180px) {
   .sr-ops-kpi-grid,
   .sr-ops-grid-primary,
@@ -2297,6 +2850,12 @@
 
   .sr-ops-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .sr-fieldsurvey-review-map-details {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2428,5 +2987,10 @@
   .sr-ops-camera-operations,
   .sr-ops-camera-wall {
     grid-template-columns: 1fr;
+  }
+
+  .sr-ops-field-survey-card-map {
+    height: 13rem;
+    max-height: none;
   }
 }

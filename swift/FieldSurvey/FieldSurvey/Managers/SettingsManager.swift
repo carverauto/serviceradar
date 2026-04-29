@@ -1,19 +1,11 @@
 import Foundation
 import Combine
 
-/// Manages application-wide settings for the FieldSurvey app, persisting them to UserDefaults.
+/// Manages application-wide settings for the FieldSurvey app.
 @MainActor
 public class SettingsManager: ObservableObject {
     @MainActor public static let shared = SettingsManager()
-    
-    // The rate (in seconds) at which the Wi-Fi scanner polls for new networks/RSSI updates.
-    // Lower interval = higher resolution data, but higher battery drain.
-    @Published public var sampleRateSeconds: Double {
-        didSet {
-            UserDefaults.standard.set(sampleRateSeconds, forKey: "sampleRateSeconds")
-        }
-    }
-    
+
     @Published public var apiURL: String {
         didSet {
             UserDefaults.standard.set(apiURL, forKey: "apiURL")
@@ -22,25 +14,125 @@ public class SettingsManager: ObservableObject {
     
     @Published public var authToken: String {
         didSet {
-            UserDefaults.standard.set(authToken, forKey: "authToken")
+            Self.persistSecret(authToken, account: Self.backendAuthTokenKeychainAccount)
         }
     }
-    
-    @Published public var showBLEBeacons: Bool {
+
+    @Published public var backendUsername: String {
         didSet {
-            UserDefaults.standard.set(showBLEBeacons, forKey: "showBLEBeacons")
+            UserDefaults.standard.set(backendUsername, forKey: "backendUsername")
+        }
+    }
+
+    @Published public var backendPassword: String {
+        didSet {
+            if backendPassword.isEmpty {
+                KeychainStore.deleteString(for: Self.backendPasswordKeychainAccount)
+            } else {
+                KeychainStore.setString(backendPassword, for: Self.backendPasswordKeychainAccount)
+            }
+        }
+    }
+
+    @Published public var backendAuthenticatedAt: TimeInterval {
+        didSet {
+            UserDefaults.standard.set(backendAuthenticatedAt, forKey: "backendAuthenticatedAt")
+        }
+    }
+
+    @Published public var sidekickURL: String {
+        didSet {
+            UserDefaults.standard.set(sidekickURL, forKey: "sidekickURL")
+        }
+    }
+
+    @Published public var sidekickAuthToken: String {
+        didSet {
+            Self.persistSecret(sidekickAuthToken, account: Self.sidekickAuthTokenKeychainAccount)
+        }
+    }
+
+    @Published public var sidekickSetupToken: String {
+        didSet {
+            Self.persistSecret(sidekickSetupToken, account: Self.sidekickSetupTokenKeychainAccount)
+        }
+    }
+
+    @Published public var sidekickRadioConfig: String {
+        didSet {
+            UserDefaults.standard.set(sidekickRadioConfig, forKey: "sidekickRadioConfig")
+        }
+    }
+
+    @Published public var sidekickUplinkInterface: String {
+        didSet {
+            UserDefaults.standard.set(sidekickUplinkInterface, forKey: "sidekickUplinkInterface")
+        }
+    }
+
+    @Published public var sidekickUplinkSSID: String {
+        didSet {
+            UserDefaults.standard.set(sidekickUplinkSSID, forKey: "sidekickUplinkSSID")
+        }
+    }
+
+    @Published public var sidekickUplinkCountryCode: String {
+        didSet {
+            UserDefaults.standard.set(sidekickUplinkCountryCode, forKey: "sidekickUplinkCountryCode")
+        }
+    }
+
+    @Published public var sidekickSpectrumEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumEnabled, forKey: "sidekickSpectrumEnabled")
+        }
+    }
+
+    @Published public var sidekickSpectrumSDRID: String {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumSDRID, forKey: "sidekickSpectrumSDRID")
+        }
+    }
+
+    @Published public var sidekickSpectrumSerialNumber: String {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumSerialNumber, forKey: "sidekickSpectrumSerialNumber")
+        }
+    }
+
+    @Published public var sidekickSpectrumMinMHz: Int {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumMinMHz, forKey: "sidekickSpectrumMinMHz")
+        }
+    }
+
+    @Published public var sidekickSpectrumMaxMHz: Int {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumMaxMHz, forKey: "sidekickSpectrumMaxMHz")
+        }
+    }
+
+    @Published public var sidekickSpectrumBinWidthHz: Int {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumBinWidthHz, forKey: "sidekickSpectrumBinWidthHz")
+        }
+    }
+
+    @Published public var sidekickSpectrumLNAGainDB: Int {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumLNAGainDB, forKey: "sidekickSpectrumLNAGainDB")
+        }
+    }
+
+    @Published public var sidekickSpectrumVGAGainDB: Int {
+        didSet {
+            UserDefaults.standard.set(sidekickSpectrumVGAGainDB, forKey: "sidekickSpectrumVGAGainDB")
         }
     }
 
     @Published public var rfScanningEnabled: Bool {
         didSet {
             UserDefaults.standard.set(rfScanningEnabled, forKey: "rfScanningEnabled")
-        }
-    }
-
-    @Published public var aiObjectDetectionEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(aiObjectDetectionEnabled, forKey: "aiObjectDetectionEnabled")
         }
     }
 
@@ -56,36 +148,235 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    @Published public var surveySiteID: String {
+        didSet {
+            UserDefaults.standard.set(surveySiteID, forKey: "surveySiteID")
+        }
+    }
+
+    @Published public var surveySiteName: String {
+        didSet {
+            UserDefaults.standard.set(surveySiteName, forKey: "surveySiteName")
+        }
+    }
+
+    @Published public var surveyBuildingID: String {
+        didSet {
+            UserDefaults.standard.set(surveyBuildingID, forKey: "surveyBuildingID")
+        }
+    }
+
+    @Published public var surveyBuildingName: String {
+        didSet {
+            UserDefaults.standard.set(surveyBuildingName, forKey: "surveyBuildingName")
+        }
+    }
+
+    @Published public var surveyFloorID: String {
+        didSet {
+            UserDefaults.standard.set(surveyFloorID, forKey: "surveyFloorID")
+        }
+    }
+
+    @Published public var surveyFloorName: String {
+        didSet {
+            UserDefaults.standard.set(surveyFloorName, forKey: "surveyFloorName")
+        }
+    }
+
+    @Published public var surveyFloorIndex: String {
+        didSet {
+            UserDefaults.standard.set(surveyFloorIndex, forKey: "surveyFloorIndex")
+        }
+    }
+
+    @Published public var surveyTags: String {
+        didSet {
+            UserDefaults.standard.set(surveyTags, forKey: "surveyTags")
+        }
+    }
+
     @Published public private(set) var arPriorityLoadShedActive: Bool = false
     
-    public let scannerDeviceId: String
+    private let scannerDeviceIdValue: String
+    private static let offlineToken = "OFFLINE_MODE"
+    private static let backendAuthTokenKeychainAccount = "serviceradar-backend-auth-token"
+    private static let backendPasswordKeychainAccount = "serviceradar-backend-password"
+    private static let sidekickAuthTokenKeychainAccount = "fieldsurvey-sidekick-auth-token"
+    private static let sidekickSetupTokenKeychainAccount = "fieldsurvey-sidekick-setup-token"
+
+    public var scannerDeviceId: String {
+        if UserDefaults.standard.string(forKey: "scannerDeviceId") != scannerDeviceIdValue {
+            UserDefaults.standard.set(scannerDeviceIdValue, forKey: "scannerDeviceId")
+        }
+        return scannerDeviceIdValue
+    }
+
+    public var backendUploadEnabled: Bool {
+        let trimmedAPIURL = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedAPIURL.isEmpty && trimmedAPIURL != "offline" && !trimmedToken.isEmpty && trimmedToken != Self.offlineToken
+    }
+
+    public var isOfflineMode: Bool {
+        authToken == Self.offlineToken
+    }
+
+    public var currentSurveyUploadMetadata: FieldSurveySessionUploadMetadata {
+        FieldSurveySessionUploadMetadata(
+            siteID: surveySiteID,
+            siteName: surveySiteName,
+            buildingID: surveyBuildingID,
+            buildingName: surveyBuildingName,
+            floorID: surveyFloorID,
+            floorName: surveyFloorName,
+            floorIndex: Self.parseOptionalInt(surveyFloorIndex),
+            tags: Self.parseTags(surveyTags)
+        )
+    }
     
     private init() {
-        // Default to high-resolution 1.0 second polling if not previously set
-        let storedRate = UserDefaults.standard.double(forKey: "sampleRateSeconds")
-        self.sampleRateSeconds = storedRate > 0 ? storedRate : 1.0
-        
-        self.showBLEBeacons = UserDefaults.standard.bool(forKey: "showBLEBeacons") // Defaults false
         self.rfScanningEnabled = UserDefaults.standard.object(forKey: "rfScanningEnabled") as? Bool ?? true
-        self.aiObjectDetectionEnabled = UserDefaults.standard.object(forKey: "aiObjectDetectionEnabled") as? Bool ?? true
         self.showWiFiHeatmap = UserDefaults.standard.object(forKey: "showWiFiHeatmap") as? Bool ?? true
         self.arPriorityModeEnabled = UserDefaults.standard.object(forKey: "arPriorityModeEnabled") as? Bool ?? true
+        self.surveySiteID = UserDefaults.standard.string(forKey: "surveySiteID") ?? ""
+        self.surveySiteName = UserDefaults.standard.string(forKey: "surveySiteName") ?? ""
+        self.surveyBuildingID = UserDefaults.standard.string(forKey: "surveyBuildingID") ?? ""
+        self.surveyBuildingName = UserDefaults.standard.string(forKey: "surveyBuildingName") ?? ""
+        self.surveyFloorID = UserDefaults.standard.string(forKey: "surveyFloorID") ?? ""
+        self.surveyFloorName = UserDefaults.standard.string(forKey: "surveyFloorName") ?? ""
+        self.surveyFloorIndex = UserDefaults.standard.string(forKey: "surveyFloorIndex") ?? ""
+        self.surveyTags = UserDefaults.standard.string(forKey: "surveyTags") ?? ""
         
         self.apiURL = UserDefaults.standard.string(forKey: "apiURL") ?? "https://demo.serviceradar.cloud"
-        self.authToken = UserDefaults.standard.string(forKey: "authToken") ?? ""
+        self.authToken = Self.migratedSecret(
+            account: Self.backendAuthTokenKeychainAccount,
+            legacyDefaultsKey: "authToken"
+        )
+        self.backendUsername = UserDefaults.standard.string(forKey: "backendUsername") ?? ""
+        self.backendPassword = KeychainStore.string(for: Self.backendPasswordKeychainAccount)
+        self.backendAuthenticatedAt = UserDefaults.standard.object(forKey: "backendAuthenticatedAt") as? TimeInterval ?? 0
+        let storedSidekickURL = UserDefaults.standard.string(forKey: "sidekickURL")
+        self.sidekickURL = storedSidekickURL == "http://192.168.1.74:17321"
+            ? "http://fieldsurvey-rpi.local:17321"
+            : (storedSidekickURL ?? "http://fieldsurvey-rpi.local:17321")
+        self.sidekickAuthToken = Self.migratedSecret(
+            account: Self.sidekickAuthTokenKeychainAccount,
+            legacyDefaultsKey: "sidekickAuthToken"
+        )
+        self.sidekickSetupToken = KeychainStore.string(for: Self.sidekickSetupTokenKeychainAccount)
+        self.sidekickRadioConfig = UserDefaults.standard.string(forKey: "sidekickRadioConfig") ?? "auto"
+        self.sidekickUplinkInterface = UserDefaults.standard.string(forKey: "sidekickUplinkInterface") ?? "wlan0"
+        self.sidekickUplinkSSID = UserDefaults.standard.string(forKey: "sidekickUplinkSSID") ?? ""
+        self.sidekickUplinkCountryCode = UserDefaults.standard.string(forKey: "sidekickUplinkCountryCode") ?? "US"
+        self.sidekickSpectrumEnabled = UserDefaults.standard.object(forKey: "sidekickSpectrumEnabled") as? Bool ?? true
+        self.sidekickSpectrumSDRID = UserDefaults.standard.string(forKey: "sidekickSpectrumSDRID") ?? "hackrf-0"
+        self.sidekickSpectrumSerialNumber = UserDefaults.standard.string(forKey: "sidekickSpectrumSerialNumber") ?? "0000000000000000f77c60dc299165c3"
+        let storedSpectrumMin = UserDefaults.standard.object(forKey: "sidekickSpectrumMinMHz") as? Int
+        let storedSpectrumMax = UserDefaults.standard.object(forKey: "sidekickSpectrumMaxMHz") as? Int
+        let shouldMigrateWideSpectrumDefault =
+            !UserDefaults.standard.bool(forKey: "sidekickSpectrumWideDefaultMigrated") &&
+            (storedSpectrumMin == nil || storedSpectrumMin == 2400) &&
+            (storedSpectrumMax == nil || storedSpectrumMax == 2500)
+        let shouldMigrateFiveGHzSpectrumDefault =
+            !UserDefaults.standard.bool(forKey: "sidekickSpectrumFiveGHzDefaultMigrated") &&
+            (storedSpectrumMin == nil || storedSpectrumMin == 2400) &&
+            (storedSpectrumMax == nil || storedSpectrumMax == 2500 || storedSpectrumMax == 5900)
+        if shouldMigrateFiveGHzSpectrumDefault {
+            self.sidekickSpectrumMinMHz = 5150
+            self.sidekickSpectrumMaxMHz = 5900
+            UserDefaults.standard.set(true, forKey: "sidekickSpectrumFiveGHzDefaultMigrated")
+            UserDefaults.standard.set(true, forKey: "sidekickSpectrumWideDefaultMigrated")
+            UserDefaults.standard.set(5150, forKey: "sidekickSpectrumMinMHz")
+            UserDefaults.standard.set(5900, forKey: "sidekickSpectrumMaxMHz")
+        } else if shouldMigrateWideSpectrumDefault {
+            self.sidekickSpectrumMinMHz = 5150
+            self.sidekickSpectrumMaxMHz = 5900
+            UserDefaults.standard.set(true, forKey: "sidekickSpectrumWideDefaultMigrated")
+            UserDefaults.standard.set(5150, forKey: "sidekickSpectrumMinMHz")
+            UserDefaults.standard.set(5900, forKey: "sidekickSpectrumMaxMHz")
+        } else {
+            self.sidekickSpectrumMinMHz = storedSpectrumMin ?? 5150
+            self.sidekickSpectrumMaxMHz = storedSpectrumMax ?? 5900
+        }
+        self.sidekickSpectrumBinWidthHz = UserDefaults.standard.object(forKey: "sidekickSpectrumBinWidthHz") as? Int ?? 1_000_000
+        self.sidekickSpectrumLNAGainDB = UserDefaults.standard.object(forKey: "sidekickSpectrumLNAGainDB") as? Int ?? 8
+        self.sidekickSpectrumVGAGainDB = UserDefaults.standard.object(forKey: "sidekickSpectrumVGAGainDB") as? Int ?? 8
         
         // Persist a unique identifier for this specific device/scanner
         if let existingId = UserDefaults.standard.string(forKey: "scannerDeviceId") {
-            self.scannerDeviceId = existingId
+            self.scannerDeviceIdValue = existingId
         } else {
             let newId = UUID().uuidString
             UserDefaults.standard.set(newId, forKey: "scannerDeviceId")
-            self.scannerDeviceId = newId
+            self.scannerDeviceIdValue = newId
         }
     }
 
     public func setARPriorityLoadShedActive(_ active: Bool) {
         guard arPriorityLoadShedActive != active else { return }
         arPriorityLoadShedActive = active
+    }
+
+    public func setAuthenticated(apiURL: String, token: String) {
+        self.apiURL = apiURL
+        self.authToken = token
+        self.backendAuthenticatedAt = Date().timeIntervalSince1970
+    }
+
+    public func setAuthenticated(apiURL: String, token: String, username: String) {
+        self.backendUsername = username
+        setAuthenticated(apiURL: apiURL, token: token)
+    }
+
+    public func setOfflineMode() {
+        if apiURL == "offline" || apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            apiURL = "https://demo.serviceradar.cloud"
+        }
+        authToken = Self.offlineToken
+        backendAuthenticatedAt = 0
+    }
+
+    public func signOut() {
+        authToken = ""
+        backendAuthenticatedAt = 0
+    }
+
+    private static func parseOptionalInt(_ value: String) -> Int? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Int(trimmed)
+    }
+
+    private static func parseTags(_ value: String) -> [String] {
+        value
+            .split { character in
+                character == "," || character == ";" || character == "\n"
+            }
+            .compactMap { part -> String? in
+                let tag = String(part).trimmingCharacters(in: .whitespacesAndNewlines)
+                return tag.isEmpty ? nil : tag
+            }
+    }
+
+    private static func migratedSecret(account: String, legacyDefaultsKey: String) -> String {
+        let keychainValue = KeychainStore.string(for: account)
+        let legacyValue = UserDefaults.standard.string(forKey: legacyDefaultsKey) ?? ""
+        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+
+        guard keychainValue.isEmpty, !legacyValue.isEmpty else {
+            return keychainValue
+        }
+
+        KeychainStore.setString(legacyValue, for: account)
+        return legacyValue
+    }
+
+    private static func persistSecret(_ value: String, account: String) {
+        if value.isEmpty {
+            KeychainStore.deleteString(for: account)
+        } else {
+            KeychainStore.setString(value, for: account)
+        }
     }
 }

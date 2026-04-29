@@ -5,7 +5,7 @@ import Combine
 import os.log
 
 /// Performs active subnet sweeping and Bonjour/mDNS discovery to associate
-/// Wi-Fi and BLE signals with logical IP addresses and hostnames on the local network.
+/// Associates Wi-Fi survey observations with logical IP addresses and hostnames on the local network.
 @MainActor
 public class SubnetScanner: ObservableObject {
     public static let shared = SubnetScanner()

@@ -1,8 +1,18 @@
 #if os(iOS)
 import Foundation
+import ARKit
 import RoomPlan
 import Combine
 import os.log
+import simd
+
+public struct SurveyFloorplanSegment: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public let kind: String
+    public let start: SIMD2<Float>
+    public let end: SIMD2<Float>
+    public let height: Float
+}
 
 /// Manages the RoomPlan LiDAR scanning session to build a physical 3D mesh
 /// of the environment while walking the survey.
@@ -16,6 +26,15 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     // We act as the delegate for the RoomCaptureView wrapped in our SwiftUI view.
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "RoomScanner")
     private weak var currentView: RoomCaptureView?
+    private var lastCurrentRoomPublishTime: TimeInterval = 0
+    private var pendingCurrentRoom: CapturedRoom?
+    private var currentRoomPublishScheduled = false
+    private let currentRoomPublishMinInterval: TimeInterval = 1.0
+    private var pointCloudSamples: [SIMD3<Float>] = []
+    private var pointCloudKeys = Set<String>()
+    private var lastPointCloudSampleTime: TimeInterval = 0
+    private let maxPointCloudSamples = 120_000
+    private let pointCloudSampleInterval: TimeInterval = 0.55
     
     public override init() { super.init() }
     
@@ -34,6 +53,7 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         let configuration = RoomCaptureSession.Configuration()
         view.captureSession.run(configuration: configuration)
         isScanning = true
+        resetPointCloudSamples()
         logger.info("RoomPlan session started via LiDAR.")
     }
     
@@ -45,25 +65,57 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     
     // MARK: - RoomCaptureSessionDelegate
     
-    public func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
-        DispatchQueue.main.async {
-            self.currentRoom = room
+    nonisolated public func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
+        Task { @MainActor [weak self] in
+            self?.publishCurrentRoom(room)
+        }
+    }
+
+    private func publishCurrentRoom(_ room: CapturedRoom) {
+        let now = Date().timeIntervalSince1970
+        guard now - lastCurrentRoomPublishTime >= currentRoomPublishMinInterval else {
+            pendingCurrentRoom = room
+            scheduleDeferredCurrentRoomPublish()
+            return
+        }
+
+        lastCurrentRoomPublishTime = now
+        pendingCurrentRoom = nil
+        currentRoom = room
+    }
+
+    private func scheduleDeferredCurrentRoomPublish() {
+        guard !currentRoomPublishScheduled else { return }
+        currentRoomPublishScheduled = true
+        let delay = max(0.1, currentRoomPublishMinInterval - (Date().timeIntervalSince1970 - lastCurrentRoomPublishTime))
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.currentRoomPublishScheduled = false
+            guard let pending = self.pendingCurrentRoom else { return }
+            self.pendingCurrentRoom = nil
+            self.lastCurrentRoomPublishTime = Date().timeIntervalSince1970
+            self.currentRoom = pending
         }
     }
     
     // MARK: - RoomCaptureViewDelegate
     
-    public func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
+    nonisolated public func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
         if let error = error {
-            logger.error("Capture processing error: \(error.localizedDescription)")
-            
-            // Auto-recover from tracking failures (e.g. moving too fast, poor lighting)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if self.isScanning, let view = self.currentView {
-                    self.logger.info("Auto-recovering RoomPlan session after tracking failure...")
-                    view.captureSession.stop()
-                    let configuration = RoomCaptureSession.Configuration()
-                    view.captureSession.run(configuration: configuration)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                logger.error("Capture processing error: \(error.localizedDescription)")
+
+                // Auto-recover from tracking failures (e.g. moving too fast, poor lighting).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    if isScanning, let view = currentView {
+                        logger.info("Auto-recovering RoomPlan session after tracking failure...")
+                        view.captureSession.stop()
+                        let configuration = RoomCaptureSession.Configuration()
+                        view.captureSession.run(configuration: configuration)
+                    }
                 }
             }
             return false
@@ -71,64 +123,30 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         return true
     }
     
-    public func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
-        if let error = error {
-            logger.error("Final processing error: \(error.localizedDescription)")
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if self.isScanning, let view = self.currentView {
-                    self.logger.info("Auto-recovering RoomPlan session after final processing failure...")
-                    view.captureSession.stop()
-                    let configuration = RoomCaptureSession.Configuration()
-                    view.captureSession.run(configuration: configuration)
+    nonisolated public func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            if let error = error {
+                logger.error("Final processing error: \(error.localizedDescription)")
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    if isScanning, let view = currentView {
+                        logger.info("Auto-recovering RoomPlan session after final processing failure...")
+                        view.captureSession.stop()
+                        let configuration = RoomCaptureSession.Configuration()
+                        view.captureSession.run(configuration: configuration)
+                    }
                 }
+                return
             }
-            return
-        }
-        
-        DispatchQueue.main.async {
-            self.finalResult = processedResult
-            self.logger.info("Room scan completed. Captured \(processedResult.walls.count) walls and \(processedResult.objects.count) objects.")
-            
-            // Automatically export and upload the USDZ mesh payload for the God-View backend
-            Task {
-                do {
-                    let fileURL = try self.exportUSDZ()
-                    self.uploadUSDZ(fileURL: fileURL, sessionID: UUID().uuidString)
-                } catch {
-                    self.logger.error("Failed to export USDZ for upload: \(error.localizedDescription)")
-                }
-            }
+
+            finalResult = processedResult
+            logger.info("Room scan completed. Captured \(processedResult.walls.count) walls and \(processedResult.objects.count) objects.")
         }
     }
-    
-    /// Streams the captured USDZ physical environment model to the ServiceRadar backend.
-    private func uploadUSDZ(fileURL: URL, sessionID: String) {
-        guard let url = URL(string: "https://serviceradar-api.internal/v1/topology/physical-mesh/\(sessionID)") else { return }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("model/vnd.usdz+zip", forHTTPHeaderField: "Content-Type")
-        
-        do {
-            let data = try Data(contentsOf: fileURL)
-            request.httpBody = data
-            
-            let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-                if let error = error {
-                    self?.logger.error("USDZ upload failed: \(error.localizedDescription)")
-                } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                    self?.logger.error("USDZ upload rejected by server: HTTP \(httpResponse.statusCode)")
-                } else {
-                    self?.logger.info("Successfully pushed physical USDZ mesh to backend God-View.")
-                }
-            }
-            task.resume()
-        } catch {
-            logger.error("Failed to read USDZ file for upload: \(error.localizedDescription)")
-        }
-    }
-    
+
     /// Exports the captured room to a USDZ file URL for backend upload.
     public func exportUSDZ() throws -> URL {
         guard let finalResult = finalResult else {
@@ -154,6 +172,153 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         }
         try room.export(to: fileURL)
         return fileURL
+    }
+
+    /// Exports a top-down 2D floorplan projection in the ARKit x/z coordinate plane.
+    public func exportCurrentFloorplanGeoJSON() throws -> URL {
+        guard let room = currentRoom ?? finalResult else {
+            throw NSError(domain: "RoomScanner", code: 3, userInfo: [NSLocalizedDescriptionKey: "No room data available yet."])
+        }
+
+        let features = floorplanSegments(for: room).map(floorplanFeature(for:))
+
+        let collection: [String: Any] = [
+            "type": "FeatureCollection",
+            "features": features,
+            "properties": [
+                "coordinate_system": "arkit_xz_meters",
+                "source": "RoomPlan",
+                "wall_count": room.walls.count,
+                "door_count": room.doors.count,
+                "window_count": room.windows.count
+            ]
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: collection, options: [.prettyPrinted, .sortedKeys])
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Floorplan2D_\(UUID().uuidString).geojson")
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    public func currentFloorplanSegments() -> [SurveyFloorplanSegment] {
+        guard let room = currentRoom ?? finalResult else { return [] }
+        return floorplanSegments(for: room)
+    }
+
+    public func recordFeaturePoints(from frame: ARFrame) {
+        guard pointCloudSamples.count < maxPointCloudSamples else { return }
+        guard frame.timestamp - lastPointCloudSampleTime >= pointCloudSampleInterval else { return }
+        guard case .normal = frame.camera.trackingState else { return }
+        guard let points = frame.rawFeaturePoints?.points, !points.isEmpty else { return }
+
+        lastPointCloudSampleTime = frame.timestamp
+        let remaining = maxPointCloudSamples - pointCloudSamples.count
+        let targetPerFrame = min(1_200, remaining)
+        let stride = max(points.count / max(targetPerFrame, 1), 1)
+        var added = 0
+
+        for index in Swift.stride(from: 0, to: points.count, by: stride) {
+            guard added < targetPerFrame, pointCloudSamples.count < maxPointCloudSamples else { break }
+            let point = points[index]
+            let key = pointCloudKey(point)
+            guard !pointCloudKeys.contains(key) else { continue }
+            pointCloudKeys.insert(key)
+            pointCloudSamples.append(point)
+            added += 1
+        }
+    }
+
+    public func exportPointCloudPLY() throws -> URL {
+        guard !pointCloudSamples.isEmpty else {
+            throw NSError(
+                domain: "RoomScanner",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "No ARKit feature points available to export."]
+            )
+        }
+
+        var body = """
+        ply
+        format ascii 1.0
+        element vertex \(pointCloudSamples.count)
+        property float x
+        property float y
+        property float z
+        property uchar red
+        property uchar green
+        property uchar blue
+        end_header
+
+        """
+        body.reserveCapacity(pointCloudSamples.count * 38)
+
+        for point in pointCloudSamples {
+            body += "\(point.x) \(point.y) \(point.z) 160 210 230\n"
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("PointCloud_\(UUID().uuidString).ply")
+        try body.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    private func resetPointCloudSamples() {
+        pointCloudSamples.removeAll(keepingCapacity: true)
+        pointCloudKeys.removeAll(keepingCapacity: true)
+        lastPointCloudSampleTime = 0
+    }
+
+    private func floorplanSegments(for room: CapturedRoom) -> [SurveyFloorplanSegment] {
+        room.walls.map { floorplanSegment(for: $0, kind: "wall") } +
+        room.doors.map { floorplanSegment(for: $0, kind: "door") } +
+        room.windows.map { floorplanSegment(for: $0, kind: "window") }
+    }
+
+    private func floorplanSegment(for surface: CapturedRoom.Surface, kind: String) -> SurveyFloorplanSegment {
+        SurveyFloorplanSegment(
+            id: surface.identifier,
+            kind: kind,
+            start: projectedPoint(surface.transform, xOffset: -surface.dimensions.x / 2),
+            end: projectedPoint(surface.transform, xOffset: surface.dimensions.x / 2),
+            height: surface.dimensions.y
+        )
+    }
+
+    private func floorplanFeature(for segment: SurveyFloorplanSegment) -> [String: Any] {
+        let center = (segment.start + segment.end) / 2
+        let width = simd_distance(segment.start, segment.end)
+
+        return [
+            "type": "Feature",
+            "geometry": [
+                "type": "LineString",
+                "coordinates": [
+                    [Double(segment.start.x), Double(segment.start.y)],
+                    [Double(segment.end.x), Double(segment.end.y)]
+                ]
+            ],
+            "properties": [
+                "id": segment.id.uuidString,
+                "kind": segment.kind,
+                "width_m": Double(width),
+                "height_m": Double(segment.height),
+                "center_x": Double(center.x),
+                "center_z": Double(center.y)
+            ]
+        ]
+    }
+
+    private func projectedPoint(_ transform: simd_float4x4, xOffset: Float) -> SIMD2<Float> {
+        let local = SIMD4<Float>(xOffset, 0, 0, 1)
+        let world = transform * local
+        return SIMD2<Float>(world.x, world.z)
+    }
+
+    private func pointCloudKey(_ point: SIMD3<Float>) -> String {
+        let scale: Float = 50
+        let x = Int((point.x * scale).rounded())
+        let y = Int((point.y * scale).rounded())
+        let z = Int((point.z * scale).rounded())
+        return "\(x):\(y):\(z)"
     }
 }
 #endif

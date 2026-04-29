@@ -1,9 +1,10 @@
 import XCTest
 import Combine
-@testable import FieldSurveyApp
+@testable import FieldSurvey
 
 final class NetworkMonitorTests: XCTestCase {
     
+    @MainActor
     func testNetworkMonitorInitialization() {
         let monitor = NetworkMonitor()
         // It initializes to false on everything before path updates

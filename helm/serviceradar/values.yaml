@@ -1080,6 +1080,7 @@ gatewayApi:
       - /socket/websocket
       - /v1/stream
       - /v1/camera-relay-sessions
+      - /v1/field-survey
     streamingTimeouts:
       request: 0s
       backendRequest: 0s

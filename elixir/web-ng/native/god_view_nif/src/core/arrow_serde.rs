@@ -283,69 +283,87 @@ pub(crate) fn decode_arrow_file(data: &[u8]) -> Result<Vec<SurveySampleRow>, rus
     Ok(rows)
 }
 
+fn required_string_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::array::GenericStringArray<i32>, rustler::Error> {
+    batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?
+        .as_any()
+        .downcast_ref::<arrow_array::array::GenericStringArray<i32>>()
+        .ok_or(rustler::Error::BadArg)
+}
+
+fn required_i64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Int64Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::Int64Type>(batch, column_name)
+}
+
+fn required_f64_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Float64Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::Float64Type>(batch, column_name)
+}
+
+fn required_f32_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<arrow_array::types::Float32Type>, rustler::Error> {
+    required_primitive_column::<arrow_array::types::Float32Type>(batch, column_name)
+}
+
+fn required_boolean_column<'a>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::BooleanArray, rustler::Error> {
+    batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?
+        .as_any()
+        .downcast_ref::<arrow_array::BooleanArray>()
+        .ok_or(rustler::Error::BadArg)
+}
+
+fn required_primitive_column<'a, T>(
+    batch: &'a RecordBatch,
+    column_name: &str,
+) -> Result<&'a arrow_array::PrimitiveArray<T>, rustler::Error>
+where
+    T: arrow_array::types::ArrowPrimitiveType,
+{
+    batch
+        .column_by_name(column_name)
+        .ok_or(rustler::Error::BadArg)?
+        .as_any()
+        .downcast_ref::<arrow_array::PrimitiveArray<T>>()
+        .ok_or(rustler::Error::BadArg)
+}
+
 /// Extracts strongly typed columns from a RecordBatch and populates the Elixir-facing structs.
 pub(crate) fn extract_rows(
     batch: &RecordBatch,
     rows: &mut Vec<SurveySampleRow>,
 ) -> Result<(), rustler::Error> {
-    let timestamps = batch
-        .column_by_name("timestamp")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let scanner_device_ids = batch
-        .column_by_name("scannerDeviceId")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let bssids = batch
-        .column_by_name("bssid")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let ssids = batch
-        .column_by_name("ssid")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let rssis = batch
-        .column_by_name("rssi")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let frequencies = batch
-        .column_by_name("frequency")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Int64Type>();
-    let security_types = batch
-        .column_by_name("securityType")
-        .ok_or(rustler::Error::BadArg)?
-        .as_string::<i32>();
-    let is_secures = batch
-        .column_by_name("isSecure")
-        .ok_or(rustler::Error::BadArg)?
-        .as_boolean();
+    let timestamps = required_f64_column(batch, "timestamp")?;
+    let scanner_device_ids = required_string_column(batch, "scannerDeviceId")?;
+    let bssids = required_string_column(batch, "bssid")?;
+    let ssids = required_string_column(batch, "ssid")?;
+    let rssis = required_f64_column(batch, "rssi")?;
+    let frequencies = required_i64_column(batch, "frequency")?;
+    let security_types = required_string_column(batch, "securityType")?;
+    let is_secures = required_boolean_column(batch, "isSecure")?;
     let rf_vectors = extract_vector_column(batch, "rfVector")?;
     let ble_vectors = extract_vector_column(batch, "bleVector")?;
-    let xs = batch
-        .column_by_name("x")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
-    let ys = batch
-        .column_by_name("y")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
-    let zs = batch
-        .column_by_name("z")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
-    let lats = batch
-        .column_by_name("latitude")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let lons = batch
-        .column_by_name("longitude")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float64Type>();
-    let uncertainties = batch
-        .column_by_name("uncertainty")
-        .ok_or(rustler::Error::BadArg)?
-        .as_primitive::<arrow_array::types::Float32Type>();
+    let xs = required_f32_column(batch, "x")?;
+    let ys = required_f32_column(batch, "y")?;
+    let zs = required_f32_column(batch, "z")?;
+    let lats = required_f64_column(batch, "latitude")?;
+    let lons = required_f64_column(batch, "longitude")?;
+    let uncertainties = required_f32_column(batch, "uncertainty")?;
 
     for i in 0..batch.num_rows() {
         rows.push(SurveySampleRow {
@@ -383,13 +401,19 @@ pub(crate) fn extract_vector_column(
         DataType::List(_) => list_column_to_vectors_i32(column),
         DataType::LargeList(_) => list_column_to_vectors_i64(column),
         DataType::Utf8 => {
-            let values = column.as_string::<i32>();
+            let values = column
+                .as_any()
+                .downcast_ref::<arrow_array::array::GenericStringArray<i32>>()
+                .ok_or(rustler::Error::BadArg)?;
             Ok((0..batch.num_rows())
                 .map(|i| parse_vector_csv(values.value(i)))
                 .collect())
         }
         DataType::LargeUtf8 => {
-            let values = column.as_string::<i64>();
+            let values = column
+                .as_any()
+                .downcast_ref::<arrow_array::array::GenericStringArray<i64>>()
+                .ok_or(rustler::Error::BadArg)?;
             Ok((0..batch.num_rows())
                 .map(|i| parse_vector_csv(values.value(i)))
                 .collect())
@@ -401,14 +425,20 @@ pub(crate) fn extract_vector_column(
 pub(crate) fn list_column_to_vectors_i32(
     column: &arrow_array::ArrayRef,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
-    let list = column.as_list::<i32>();
+    let list = column
+        .as_any()
+        .downcast_ref::<arrow_array::array::GenericListArray<i32>>()
+        .ok_or(rustler::Error::BadArg)?;
     list_column_to_vectors(list)
 }
 
 pub(crate) fn list_column_to_vectors_i64(
     column: &arrow_array::ArrayRef,
 ) -> Result<Vec<Vec<f32>>, rustler::Error> {
-    let list = column.as_list::<i64>();
+    let list = column
+        .as_any()
+        .downcast_ref::<arrow_array::array::GenericListArray<i64>>()
+        .ok_or(rustler::Error::BadArg)?;
     list_column_to_vectors(list)
 }
 

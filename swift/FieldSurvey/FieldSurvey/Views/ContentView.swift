@@ -5,6 +5,14 @@ import simd
 import ARKit
 import SceneKit
 import UIKit
+import Combine
+
+@available(iOS 16.0, *)
+private enum SurveyWorkflowPhase {
+    case setup
+    case capture
+    case review
+}
 
 @available(iOS 16.0, *)
 public struct SurveyView: View {
@@ -12,53 +20,92 @@ public struct SurveyView: View {
     @ObservedObject public var wifiScanner: RealWiFiScanner
     @ObservedObject public var sessionStore: SurveySessionStore
     @ObservedObject private var settings = SettingsManager.shared
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var networkMonitor = NetworkMonitor()
+    @StateObject private var sidekickRelay = SidekickRelay()
+    private let resumeSnapshot: SurveySessionSnapshot?
     public var onExit: (() -> Void)?
     
     @State private var isStreaming = false
+    @State private var isSidekickPreviewing = false
+    @State private var workflowPhase: SurveyWorkflowPhase = .setup
     @State private var showSettings = false
     @State private var showSessionLibrary = false
     @State private var showSubnetIntel = false
     @State private var showAPIntel = false
+    @State private var showSignalMap = false
     @State private var isMapView = false
     @State private var sessionID: String = UUID().uuidString
-    @State private var pendingAPCandidate: APLabelCandidate?
-    @State private var showSavePrompt = false
-    @State private var saveSessionName: String = ""
+    @State private var autosaveSessionID: String?
+    @State private var autosaveSessionName: String = ""
+    @State private var showManualAPPrompt = false
+    @State private var manualAPLabel = ""
     @State private var saveStatusMessage: String?
     @State private var isExportingOfflineBundle = false
+    @State private var recoveredSnapshot: SurveySessionSnapshot?
+    @State private var didApplyResumeSnapshot = false
+    @State private var checkpointTask: Task<Void, Never>?
+    @State private var lastAutosavedHeatmapCount = 0
+    @State private var captureStartedAt: Date?
+    private let autosaveTimer = Timer.publish(every: 12.0, on: .main, in: .common).autoconnect()
     
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
+    private let roomArtifactUploader = FieldSurveyRoomArtifactUploader()
     
     public init(
         roomScanner: RoomScanner,
         wifiScanner: RealWiFiScanner,
         sessionStore: SurveySessionStore,
+        resumeSnapshot: SurveySessionSnapshot? = nil,
         onExit: (() -> Void)? = nil
     ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
         self.sessionStore = sessionStore
+        self.resumeSnapshot = resumeSnapshot
         self.onExit = onExit
     }
 
     public var body: some View {
         ZStack {
-            CompositeSurveyView(
-                roomScanner: roomScanner,
-                wifiScanner: wifiScanner,
-                isMapView: $isMapView
-            ) { candidate in
-                if candidate.source == .tapAssist {
-                    pendingAPCandidate = candidate
-                }
-            }
+            switch workflowPhase {
+            case .setup:
+                SurveySetupPhaseView(
+                    backendEnabled: backendStreamingEnabled,
+                    rfEnabled: settings.rfScanningEnabled,
+                    sessionName: autosaveSessionName,
+                    heatmapPointCount: wifiScanner.heatmapPoints.count,
+                    onStartLocal: startSidekickPreview,
+                    onStartBackend: startBackendStreaming,
+                    onReview: { workflowPhase = .review },
+                    onSessions: { showSessionLibrary = true },
+                    onSettings: { showSettings = true },
+                    onExit: onExit
+                )
+            case .capture:
+                CompositeSurveyView(
+                    roomScanner: roomScanner,
+                    wifiScanner: wifiScanner,
+                    isMapView: $isMapView
+                )
                 .edgesIgnoringSafeArea(.all)
-            
-            VStack {
-                if settings.authToken == "OFFLINE_MODE" {
-                    Text("Real-time streaming is not available in Offline Mode")
+            case .review:
+                SurveyReviewPhaseView(
+                    sessionName: autosaveSessionName,
+                    heatmapPointCount: signalMapPoints.count,
+                    spectrumCount: currentSpectrumSummaries.count,
+                    onResumeCapture: enterCapturePhase,
+                    onOpenSignalMap: { showSignalMap = true },
+                    onSessions: { showSessionLibrary = true },
+                    onDone: onExit
+                )
+            }
+
+            if workflowPhase == .capture {
+                VStack {
+                    if !backendStreamingEnabled {
+                        Text("Backend upload is disabled in Offline Mode; Sidekick preview is still available")
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundColor(.black)
@@ -76,10 +123,14 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text(isMapView ? "Wi-Fi Space Mode" : "LiDAR / AR Mode")
+                        Text("LiDAR / AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
+
+                        Text(wifiScanner.poseTrackingStatus.label)
+                            .font(.caption2)
+                            .foregroundColor(wifiScanner.poseTrackingStatus.canPlaceRF ? .green : .orange)
 
                         Text(settings.rfScanningEnabled ? "RF Scan Enabled" : "RF Scan Paused")
                             .font(.caption2)
@@ -100,6 +151,36 @@ public struct SurveyView: View {
                         Text("Mapped APs: \(wifiScanner.resolvedAPLocations.count) • Roams: \(wifiScanner.roamEvents.count) • Heat pts: \(wifiScanner.heatmapPoints.count)")
                             .font(.caption2)
                             .foregroundColor(.cyan.opacity(0.85))
+
+                        CaptureStatusPanel(
+                            sidekickStatus: sidekickRelay.status,
+                            rfBatches: sidekickRelay.rfBatchCount,
+                            rfObservations: sidekickRelay.previewObservationCount,
+                            poseSamples: wifiScanner.poseStreamFrameCount,
+                            backendFrames: sidekickRelay.backendFrameCount,
+                            adaptiveScan: sidekickRelay.adaptiveScan,
+                            isStreaming: isStreaming,
+                            isPreviewing: isSidekickPreviewing,
+                            backendEnabled: backendStreamingEnabled,
+                            elapsedSeconds: captureElapsedSeconds
+                        )
+                        .padding(.top, 4)
+
+                        if let summary = sidekickRelay.latestSpectrumSummary {
+                            SpectrumAnalyzerMiniPanel(
+                                summary: summary,
+                                sweepCount: sidekickRelay.spectrumBatchCount,
+                                compact: true
+                            )
+                            .frame(width: 260)
+                            .padding(.top, 4)
+                        }
+
+                        if !autosaveSessionName.isEmpty {
+                            Text("Autosaving: \(autosaveSessionName)")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.72))
+                        }
                         
                         HStack(spacing: 6) {
                             Circle()
@@ -137,6 +218,7 @@ public struct SurveyView: View {
                     VStack(spacing: 12) {
                         if onExit != nil {
                             Button(action: {
+                                stopSidekickForLifecycle()
                                 onExit?()
                             }) {
                                 Image(systemName: "house.fill")
@@ -171,6 +253,18 @@ public struct SurveyView: View {
                         }
 
                         Button(action: {
+                            manualAPLabel = ""
+                            showManualAPPrompt = true
+                        }) {
+                            Image(systemName: "mappin.and.ellipse")
+                                .font(.system(size: 24))
+                                .foregroundColor(.green)
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
+
+                        Button(action: {
                             showSessionLibrary = true
                         }) {
                             Image(systemName: "folder.fill")
@@ -193,22 +287,22 @@ public struct SurveyView: View {
                         }
 
                         Button(action: {
-                            showSubnetIntel = true
+                            showSignalMap = true
                         }) {
-                            Image(systemName: "dot.radiowaves.left.and.right")
+                            Image(systemName: "chart.dots.scatter")
                                 .font(.system(size: 24))
-                                .foregroundColor(.purple.opacity(0.9))
+                                .foregroundColor(.green)
                                 .padding(12)
                                 .background(Color.black.opacity(0.7))
                                 .clipShape(Circle())
                         }
 
                         Button(action: {
-                            isMapView.toggle()
+                            showSubnetIntel = true
                         }) {
-                            Image(systemName: isMapView ? "arkit" : "map.fill")
+                            Image(systemName: "dot.radiowaves.left.and.right")
                                 .font(.system(size: 24))
-                                .foregroundColor(isMapView ? .cyan : .white)
+                                .foregroundColor(.purple.opacity(0.9))
                                 .padding(12)
                                 .background(Color.black.opacity(0.7))
                                 .clipShape(Circle())
@@ -234,9 +328,9 @@ public struct SurveyView: View {
                 // Pipeline Control Bar
                 HStack(spacing: 20) {
                     Button(action: {
-                        showSavePrompt = true
+                        checkpointSession(includeMesh: true)
                     }) {
-                        Text("Save Session")
+                        Text("Checkpoint")
                             .fontWeight(.bold)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
@@ -246,24 +340,28 @@ public struct SurveyView: View {
                     }
 
                     Button(action: {
-                        isStreaming.toggle()
-                        if isStreaming {
-                            sessionID = UUID().uuidString
-                            arrowStreamer.connect(sessionID: sessionID)
+                        if backendStreamingEnabled {
+                            if isStreaming {
+                                stopStreamingPipeline()
+                            } else {
+                                startBackendStreaming()
+                            }
                         } else {
-                            arrowStreamer.disconnect()
+                            if isSidekickPreviewing {
+                                stopSidekickPreview()
+                            } else {
+                                startSidekickPreview()
+                            }
                         }
                     }) {
-                        Text(isStreaming ? "Stop Live Stream" : "Stream to God-View")
+                        Text(streamButtonTitle)
                             .fontWeight(.bold)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
-                            .background(isStreaming ? Color.red.opacity(0.8) : Color.green.opacity(0.8))
-                            .foregroundColor(isStreaming ? .white : .black)
+                            .background(pipelineControlActive ? Color.red.opacity(0.8) : Color.green.opacity(0.8))
+                            .foregroundColor(pipelineControlActive ? .white : .black)
                             .cornerRadius(25)
                     }
-                    .disabled(settings.authToken == "OFFLINE_MODE")
-                    .opacity(settings.authToken == "OFFLINE_MODE" ? 0.5 : 1.0)
                     
                     Button(action: {
                         exportOfflineBundle()
@@ -276,19 +374,33 @@ public struct SurveyView: View {
                             .clipShape(Circle())
                     }
                     .disabled(isExportingOfflineBundle)
+
+                    Button(action: {
+                        discardLiveRFPreview()
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 22))
+                            .foregroundColor(hasLivePreviewData ? .orange : .gray)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Circle())
+                    }
+                    .disabled(!hasLivePreviewData)
                 }
                 .padding(.bottom, 40)
+            }
             }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showSettings) {
-            SettingsView(wifiScanner: wifiScanner)
+            SettingsView()
         }
         .sheet(isPresented: $showSessionLibrary) {
             SessionLibraryView(
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                onResume: resumeLoadedSession(_:)
             )
         }
         .sheet(isPresented: $showSubnetIntel) {
@@ -297,102 +409,458 @@ public struct SurveyView: View {
         .sheet(isPresented: $showAPIntel) {
             APIntelView(wifiScanner: wifiScanner)
         }
-        .sheet(item: $pendingAPCandidate) { candidate in
-            APLabelPromptSheet(
-                initialLabel: candidate.suggestedLabel,
-                confidence: candidate.confidence
-            ) { confirmedLabel in
-                wifiScanner.addManualAccessPoint(
-                    label: confirmedLabel,
-                    position: candidate.worldPosition,
-                    confidence: candidate.confidence,
-                    source: candidate.source.rawValue
-                )
-            }
+        .sheet(isPresented: $showSignalMap) {
+            SignalMapView(
+                title: "Live Signal Map",
+                points: signalMapPoints,
+                landmarks: signalMapLandmarks,
+                floorplanSegments: signalMapFloorplanSegments,
+                currentPose: wifiScanner.currentDevicePose,
+                rfBatchCount: sidekickRelay.rfBatchCount,
+                spectrumBatchCount: sidekickRelay.spectrumBatchCount,
+                spectrumSummary: currentSpectrumSummary,
+                spectrumSummaries: currentSpectrumSummaries,
+                adaptiveScan: sidekickRelay.adaptiveScan,
+                sidekickStatus: sidekickRelay.status,
+                sidekickError: sidekickRelay.lastError,
+                sidekickWarning: sidekickRelay.displayWarning,
+                backendFrameCount: sidekickRelay.backendFrameCount,
+                rfObservationCount: sidekickRelay.previewObservationCount,
+                rfDecodeError: sidekickRelay.previewDecodeError
+            )
         }
-        .alert("Save Survey Session", isPresented: $showSavePrompt) {
-            TextField("Session name (optional)", text: $saveSessionName)
+        .alert("Mark Access Point", isPresented: $showManualAPPrompt) {
+            TextField("AP label", text: $manualAPLabel)
             Button("Cancel", role: .cancel) {}
-            Button("Save") {
-                saveSession()
+            Button("Mark Here") {
+                markManualAccessPoint()
             }
         } message: {
-            Text("This captures the current RF heatmap, AP labels, roam transitions, and LiDAR room mesh.")
+            Text("Stand near the AP, then save its current LiDAR position.")
         }
-        // Lifecycle Hooks for Core Location / Network Extension / MobileWiFi
+        // Lifecycle hooks for LiDAR pose, Sidekick RF preview, and autosave.
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            applyRFState(settings.rfScanningEnabled)
+            applyResumeSnapshotIfNeeded()
+            beginAutosaveSession()
+            checkpointSession(includeMesh: false, showStatus: false)
         }
         .onDisappear {
+            checkpointSession(includeMesh: true, showStatus: false)
             UIApplication.shared.isIdleTimerDisabled = false
             wifiScanner.stopScanning(clearData: false)
-            BLEScanner.shared.stopScanning()
             SubnetScanner.shared.stopScanning()
-            if isStreaming {
-                arrowStreamer.disconnect()
-                isStreaming = false
-            }
+            stopSidekickForLifecycle()
         }
-        .onChange(of: settings.rfScanningEnabled) { enabled in
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background else { return }
+            stopSidekickForLifecycle()
+        }
+        .onChange(of: settings.rfScanningEnabled) { _, enabled in
+            guard workflowPhase == .capture else { return }
             applyRFState(enabled)
         }
-        .onChange(of: settings.showBLEBeacons) { showBLE in
-            wifiScanner.setBLEIngestionEnabled(showBLE)
-            if settings.rfScanningEnabled {
-                if showBLE {
-                    BLEScanner.shared.startScanning()
-                } else {
-                    BLEScanner.shared.stopScanning()
-                }
-            }
+        .onReceive(autosaveTimer) { _ in
+            checkpointSession(includeMesh: false, showStatus: false)
         }
-        // Continuous Zero-Copy Ingestion Flow
-        .onChange(of: wifiScanner.accessPoints) { _ in
-            guard isStreaming else { return }
-            
-            let currentSamples = Array(wifiScanner.accessPoints.values)
-            guard !currentSamples.isEmpty else { return }
-            
-            DispatchQueue.global(qos: .userInitiated).async {
-                if let payload = try? arrowStreamer.encodeBatch(samples: currentSamples) {
-                    // Fire IPC payload across the persistent WebSocket connection
-                    arrowStreamer.streamToBackend(payload: payload, sessionID: sessionID)
-                }
-            }
+        .onChange(of: wifiScanner.heatmapPoints.count) { _, count in
+            guard count >= lastAutosavedHeatmapCount + 75 else { return }
+            lastAutosavedHeatmapCount = count
+            checkpointSession(includeMesh: false, showStatus: false)
         }
+    }
+
+    private func startSidekickPreview() {
+        beginAutosaveSession()
+        checkpointSession(includeMesh: false, showStatus: false)
+        enterCapturePhase()
+        isSidekickPreviewing = true
+        captureStartedAt = Date()
+        sessionID = autosaveSessionID ?? UUID().uuidString
+        sidekickRelay.start(
+            sessionID: sessionID,
+            wifiScanner: wifiScanner,
+            forwardToBackend: false,
+            metadata: activeSessionUploadMetadata()
+        )
+    }
+
+    private func startBackendStreaming() {
+        guard settings.backendUploadEnabled else {
+            saveStatusMessage = "Backend upload is not authenticated. Sign in and run Check Backend."
+            clearSaveStatus(after: 3.5)
+            return
+        }
+        beginAutosaveSession()
+        checkpointSession(includeMesh: false, showStatus: false)
+        enterCapturePhase()
+        isStreaming = true
+        captureStartedAt = Date()
+        saveStatusMessage = "Starting FieldSurvey backend upload..."
+        clearSaveStatus(after: 3.0)
+        sessionID = autosaveSessionID ?? UUID().uuidString
+        let uploadMetadata = activeSessionUploadMetadata()
+        wifiScanner.startPoseStreaming(sessionID: sessionID, metadata: uploadMetadata)
+        sidekickRelay.start(
+            sessionID: sessionID,
+            wifiScanner: wifiScanner,
+            forwardToBackend: true,
+            metadata: uploadMetadata
+        )
+    }
+
+    private func stopStreamingPipeline() {
+        checkpointSession(includeMesh: true, showStatus: false)
+        stopCaptureSideEffects()
+        sidekickRelay.stop()
+        isStreaming = false
+        isSidekickPreviewing = false
+        captureStartedAt = nil
+        workflowPhase = .review
+    }
+
+    private func stopSidekickPreview() {
+        checkpointSession(includeMesh: true, showStatus: false)
+        stopCaptureSideEffects()
+        sidekickRelay.stop()
+        isSidekickPreviewing = false
+        captureStartedAt = nil
+        workflowPhase = .review
+    }
+
+    private func stopSidekickForLifecycle() {
+        guard isStreaming || isSidekickPreviewing else { return }
+        checkpointSession(includeMesh: true, showStatus: false)
+        stopCaptureSideEffects()
+        sidekickRelay.stop()
+        isStreaming = false
+        isSidekickPreviewing = false
+        captureStartedAt = nil
+        if workflowPhase == .capture {
+            workflowPhase = .review
+        }
+    }
+
+    private func stopCaptureSideEffects() {
+        wifiScanner.stopPoseStreaming()
+        wifiScanner.stopScanning(clearData: false)
+        SubnetScanner.shared.stopScanning()
     }
 
     private func applyRFState(_ enabled: Bool) {
         wifiScanner.setRFScanning(enabled: enabled)
         if enabled {
-            if settings.showBLEBeacons {
-                BLEScanner.shared.startScanning()
-            } else {
-                BLEScanner.shared.stopScanning()
-                wifiScanner.setBLEIngestionEnabled(false)
-            }
             SubnetScanner.shared.startScanning()
         } else {
-            BLEScanner.shared.stopScanning()
             SubnetScanner.shared.stopScanning()
         }
     }
 
-    private func saveSession() {
+    private func enterCapturePhase() {
+        workflowPhase = .capture
+        applyRFState(settings.rfScanningEnabled)
+    }
+
+    private var backendStreamingEnabled: Bool {
+        settings.backendUploadEnabled
+    }
+
+    private var pipelineControlActive: Bool {
+        backendStreamingEnabled ? isStreaming : isSidekickPreviewing
+    }
+
+    private var streamButtonTitle: String {
+        if pipelineControlActive {
+            return backendStreamingEnabled ? "Stop Live Stream" : "Stop Sidekick Preview"
+        }
+        return backendStreamingEnabled ? "Stream to God-View" : "Start Sidekick Preview"
+    }
+
+    private var hasLivePreviewData: Bool {
+        wifiScanner.heatmapPoints.contains { !$0.bssid.hasPrefix("manual-ap-") } ||
+            wifiScanner.accessPoints.keys.contains { !$0.hasPrefix("manual-ap-") }
+    }
+
+    private var captureElapsedSeconds: Int {
+        guard let captureStartedAt else { return 0 }
+        return max(0, Int(Date().timeIntervalSince(captureStartedAt)))
+    }
+
+    private func discardLiveRFPreview() {
+        wifiScanner.discardLiveRFPreview()
+        checkpointSession(includeMesh: false, showStatus: false)
+        saveStatusMessage = "Discarded live RF preview data."
+        clearSaveStatus(after: 2.4)
+    }
+
+    private func beginAutosaveSession() {
+        guard autosaveSessionID == nil else { return }
+        if let resumeSnapshot {
+            autosaveSessionID = resumeSnapshot.record.id
+            autosaveSessionName = resumeSnapshot.record.name
+            sessionID = resumeSnapshot.record.id
+            recoveredSnapshot = resumeSnapshot
+            return
+        }
+        autosaveSessionID = UUID().uuidString
+        autosaveSessionName = "Survey \(Self.sessionDateFormatter.string(from: Date()))"
+    }
+
+    private func applyResumeSnapshotIfNeeded() {
+        guard !didApplyResumeSnapshot, let resumeSnapshot else { return }
+        wifiScanner.loadSessionSnapshot(resumeSnapshot)
+        autosaveSessionID = resumeSnapshot.record.id
+        autosaveSessionName = resumeSnapshot.record.name
+        sessionID = resumeSnapshot.record.id
+        recoveredSnapshot = resumeSnapshot
+        didApplyResumeSnapshot = true
+    }
+
+    private func checkpointSession(includeMesh: Bool, showStatus: Bool = true) {
+        beginAutosaveSession()
+        guard let autosaveSessionID else { return }
+
+        checkpointTask?.cancel()
+
+        let sessionName = autosaveSessionName
+        let spectrumSummaries = persistedSpectrumSummaries
+        checkpointTask = Task { @MainActor in
+            do {
+                let record = try await sessionStore.autosaveCurrentSession(
+                    id: autosaveSessionID,
+                    name: sessionName,
+                    roomScanner: roomScanner,
+                    wifiScanner: wifiScanner,
+                    spectrumSummaries: spectrumSummaries,
+                    includeMesh: includeMesh
+                )
+                guard !Task.isCancelled else { return }
+                autosaveSessionName = record.name
+                let roomArtifactUploaded: Bool?
+                if includeMesh {
+                    roomArtifactUploaded = await uploadRoomArtifact(record: record, showStatus: showStatus)
+                    guard !Task.isCancelled else { return }
+                } else {
+                    roomArtifactUploaded = false
+                }
+                if showStatus, roomArtifactUploaded != nil {
+                    let checkpointPrefix = (roomArtifactUploaded == true)
+                        ? "Checkpoint saved + room scan uploaded"
+                        : "Checkpoint saved locally"
+                    saveStatusMessage = includeMesh ? "\(checkpointPrefix): \(record.name)" : "Autosaved: \(record.name)"
+                    clearSaveStatus(after: 2.6)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                if showStatus {
+                    saveStatusMessage = "Autosave failed: \(error.localizedDescription)"
+                    clearSaveStatus(after: 3.5)
+                }
+            }
+        }
+    }
+
+    private func uploadRoomArtifact(record: SurveySessionRecord, showStatus: Bool) async -> Bool? {
+        guard backendStreamingEnabled else { return false }
+
+        var uploaded: [String] = []
+        var failures: [String] = []
+        let snapshot = sessionStore.loadSession(id: record.id)
+        let uploadMetadata = activeSessionUploadMetadata(record: record, snapshot: snapshot)
+
         do {
-            let record = try sessionStore.saveCurrentSession(
-                name: saveSessionName,
-                roomScanner: roomScanner,
-                wifiScanner: wifiScanner
+            let floorplanURL = try roomScanner.exportCurrentFloorplanGeoJSON()
+            let floorplanResult = try await roomArtifactUploader.uploadFloorplanGeoJSON(
+                fileURL: floorplanURL,
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: record.id,
+                metadata: uploadMetadata
             )
-            saveSessionName = ""
-            saveStatusMessage = "Saved: \(record.name)"
+            if floorplanResult.ok {
+                uploaded.append("floorplan")
+            }
         } catch {
-            saveStatusMessage = "Save failed: \(error.localizedDescription)"
+            failures.append("floorplan: \(error.localizedDescription)")
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+        do {
+            let roomPlanURL = try roomScanner.exportCurrentRoomToUSDZ()
+            let roomPlanResult = try await roomArtifactUploader.uploadRoomPlanUSDZ(
+                fileURL: roomPlanURL,
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: record.id,
+                metadata: uploadMetadata
+            )
+            if roomPlanResult.ok {
+                uploaded.append("RoomPlan")
+            }
+        } catch {
+            failures.append("RoomPlan: \(error.localizedDescription)")
+        }
+
+        do {
+            let pointCloudURL = try roomScanner.exportPointCloudPLY()
+            let pointCloudResult = try await roomArtifactUploader.uploadPointCloudPLY(
+                fileURL: pointCloudURL,
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: record.id,
+                metadata: uploadMetadata
+            )
+            if pointCloudResult.ok {
+                uploaded.append("point cloud")
+            }
+        } catch {
+            failures.append("point cloud: \(error.localizedDescription)")
+        }
+
+        if showStatus {
+            if failures.isEmpty {
+                saveStatusMessage = "Uploaded \(uploaded.joined(separator: " + "))"
+                clearSaveStatus(after: 2.4)
+            } else if uploaded.isEmpty {
+                saveStatusMessage = "Room artifact upload failed: \(failures.joined(separator: "; "))"
+                clearSaveStatus(after: 3.5)
+            } else {
+                saveStatusMessage = "Uploaded \(uploaded.joined(separator: " + ")); failed \(failures.joined(separator: "; "))"
+                clearSaveStatus(after: 3.5)
+            }
+        }
+
+        if uploaded.isEmpty {
+            return nil
+        }
+        return failures.isEmpty ? true : nil
+    }
+
+    private func activeSessionUploadMetadata(
+        record: SurveySessionRecord? = nil,
+        snapshot: SurveySessionSnapshot? = nil
+    ) -> FieldSurveySessionUploadMetadata {
+        let base = snapshot?.uploadMetadata ?? recoveredSnapshot?.uploadMetadata ?? settings.currentSurveyUploadMetadata
+        guard let record else { return base }
+        return base.merged(record: record, snapshot: snapshot)
+    }
+
+    private func markManualAccessPoint() {
+        guard let pose = wifiScanner.currentDevicePose else {
+            saveStatusMessage = "No LiDAR pose yet. Move the phone until tracking starts."
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                saveStatusMessage = nil
+            }
+            return
+        }
+
+        let label = manualAPLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        wifiScanner.addManualAccessPoint(
+            label: label.isEmpty ? "Access Point" : label,
+            position: pose,
+            confidence: 1.0,
+            source: "manual"
+        )
+        checkpointSession(includeMesh: false, showStatus: false)
+        saveStatusMessage = "Marked AP: \(label.isEmpty ? "Access Point" : label)"
+        manualAPLabel = ""
+        clearSaveStatus(after: 2.5)
+    }
+
+    private var signalMapPoints: [WiFiHeatmapPoint] {
+        if !wifiScanner.heatmapPoints.isEmpty {
+            return wifiScanner.heatmapPoints
+        }
+        return recoveredSnapshot?.heatmapPoints ?? []
+    }
+
+    private var signalMapLandmarks: [ManualAPLandmark] {
+        var landmarks = wifiScanner.manualAPLandmarks
+        let autoCandidates = wifiScanner.resolvedAPLocations
+            .filter { bssid, resolved in
+                !bssid.hasPrefix("manual-ap-") &&
+                    resolved.confidence >= 0.30 &&
+                    !landmarks.contains { simd_distance($0.position, resolved.position) < 0.8 }
+            }
+            .sorted { lhs, rhs in
+                if lhs.value.confidence == rhs.value.confidence {
+                    return lhs.value.observationCount > rhs.value.observationCount
+                }
+                return lhs.value.confidence > rhs.value.confidence
+            }
+            .prefix(8)
+            .map { bssid, resolved in
+                let trimmedSSID = wifiScanner.accessPoints[bssid]?.ssid
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let displayName = trimmedSSID.isEmpty ? String(bssid.suffix(5)) : trimmedSSID
+                return ManualAPLandmark(
+                    id: "auto-\(bssid)",
+                    label: "\(displayName) \(Int((resolved.confidence * 100).rounded()))%",
+                    confidence: Double(resolved.confidence),
+                    source: "sidekick-auto",
+                    createdAt: Date().timeIntervalSince1970,
+                    updatedAt: Date().timeIntervalSince1970,
+                    position: resolved.position
+                )
+            }
+
+        landmarks.append(contentsOf: autoCandidates)
+        if !landmarks.isEmpty {
+            return landmarks
+        }
+        return recoveredSnapshot?.manualLandmarks ?? []
+    }
+
+    private var signalMapFloorplanSegments: [SurveyFloorplanSegment] {
+        let liveSegments = roomScanner.currentFloorplanSegments()
+        if !liveSegments.isEmpty {
+            return liveSegments
+        }
+        return recoveredSnapshot?.floorplanSegments ?? []
+    }
+
+    private var currentSpectrumSummary: SidekickSpectrumSummary? {
+        sidekickRelay.latestSpectrumSummary ?? recoveredSnapshot?.spectrumSummaries.last
+    }
+
+    private var currentSpectrumSummaries: [SidekickSpectrumSummary] {
+        if !sidekickRelay.spectrumSummaries.isEmpty {
+            return sidekickRelay.spectrumSummaries
+        }
+        return recoveredSnapshot?.spectrumSummaries ?? []
+    }
+
+    private var persistedSpectrumSummaries: [SidekickSpectrumSummary] {
+        currentSpectrumSummaries.suffix(48).map { summary in
+            SidekickSpectrumSummary(
+                sidekickID: summary.sidekickID,
+                sdrID: summary.sdrID,
+                deviceKind: summary.deviceKind,
+                serialNumber: summary.serialNumber,
+                sweepID: summary.sweepID,
+                capturedAtUnixNanos: summary.capturedAtUnixNanos,
+                startFrequencyHz: summary.startFrequencyHz,
+                stopFrequencyHz: summary.stopFrequencyHz,
+                binWidthHz: summary.binWidthHz,
+                sampleCount: summary.sampleCount,
+                averagePowerDBM: summary.averagePowerDBM,
+                peakPowerDBM: summary.peakPowerDBM,
+                peakFrequencyHz: summary.peakFrequencyHz,
+                sweepRateHz: summary.sweepRateHz,
+                channelScores: summary.channelScores
+            )
+        }
+    }
+
+    private func resumeLoadedSession(_ snapshot: SurveySessionSnapshot) {
+        autosaveSessionID = snapshot.record.id
+        autosaveSessionName = snapshot.record.name
+        sessionID = snapshot.record.id
+        recoveredSnapshot = snapshot
+        enterCapturePhase()
+    }
+
+    private func clearSaveStatus(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             saveStatusMessage = nil
         }
     }
@@ -436,48 +904,292 @@ public struct SurveyView: View {
             }
         }
     }
+
+    private static let sessionDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
 }
 
 @available(iOS 16.0, *)
-private struct APLabelPromptSheet: View {
-    @Environment(\.dismiss) var dismiss
-
-    @State private var label: String
-    let confidence: Double
-    let onSave: (String) -> Void
-
-    init(initialLabel: String, confidence: Double, onSave: @escaping (String) -> Void) {
-        _label = State(initialValue: initialLabel)
-        self.confidence = confidence
-        self.onSave = onSave
-    }
+private struct SurveySetupPhaseView: View {
+    let backendEnabled: Bool
+    let rfEnabled: Bool
+    let sessionName: String
+    let heatmapPointCount: Int
+    let onStartLocal: () -> Void
+    let onStartBackend: () -> Void
+    let onReview: () -> Void
+    let onSessions: () -> Void
+    let onSettings: () -> Void
+    let onExit: (() -> Void)?
 
     var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("AI Candidate")) {
-                    TextField("Access Point Label", text: $label)
-                        .textInputAutocapitalization(.words)
-                    Text("Confidence: \(Int(confidence * 100))%")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-            }
-            .navigationTitle("Label Access Point")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(label)
-                        dismiss()
+        ZStack {
+            Color(red: 0.025, green: 0.035, blue: 0.05)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("FieldSurvey")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
+                        Text(sessionName.isEmpty ? "Setup" : sessionName)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.cyan.opacity(0.86))
+                    }
+
+                    Spacer()
+
+                    if let onExit {
+                        Button(action: onExit) {
+                            Image(systemName: "house.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.cyan)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Circle())
+                        }
                     }
                 }
+
+                HStack(spacing: 10) {
+                    CaptureMetric(label: "RF", value: rfEnabled ? "ready" : "paused", tint: rfEnabled ? .green : .orange)
+                    CaptureMetric(label: "Backend", value: backendEnabled ? "ready" : "offline", tint: backendEnabled ? .green : .orange)
+                    CaptureMetric(label: "Heat", value: "\(heatmapPointCount)", tint: .cyan)
+                }
+
+                VStack(spacing: 12) {
+                    PhaseActionButton(
+                        title: backendEnabled ? "Start Backend Capture" : "Start Local Capture",
+                        icon: backendEnabled ? "antenna.radiowaves.left.and.right" : "play.fill",
+                        tint: .green,
+                        action: backendEnabled ? onStartBackend : onStartLocal
+                    )
+
+                    if backendEnabled {
+                        PhaseActionButton(
+                            title: "Start Local Preview",
+                            icon: "play",
+                            tint: .cyan,
+                            action: onStartLocal
+                        )
+                    }
+
+                    PhaseActionButton(title: "Review", icon: "chart.dots.scatter", tint: .cyan, action: onReview)
+                    PhaseActionButton(title: "Sessions", icon: "folder.fill", tint: .purple, action: onSessions)
+                    PhaseActionButton(title: "Settings", icon: "gearshape.fill", tint: .orange, action: onSettings)
+                }
+
+                Spacer()
             }
+            .padding(22)
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+@available(iOS 16.0, *)
+private struct SurveyReviewPhaseView: View {
+    let sessionName: String
+    let heatmapPointCount: Int
+    let spectrumCount: Int
+    let onResumeCapture: () -> Void
+    let onOpenSignalMap: () -> Void
+    let onSessions: () -> Void
+    let onDone: (() -> Void)?
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.025, green: 0.035, blue: 0.05)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Review")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
+                        Text(sessionName.isEmpty ? "Current survey" : sessionName)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.cyan.opacity(0.86))
+                    }
+
+                    Spacer()
+
+                    if let onDone {
+                        Button(action: onDone) {
+                            Image(systemName: "house.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.cyan)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    CaptureMetric(label: "Heat", value: "\(heatmapPointCount)", tint: .green)
+                    CaptureMetric(label: "Spectrum", value: "\(spectrumCount)", tint: .orange)
+                }
+
+                VStack(spacing: 12) {
+                    PhaseActionButton(title: "Open Signal Map", icon: "chart.dots.scatter", tint: .green, action: onOpenSignalMap)
+                    PhaseActionButton(title: "Resume Capture", icon: "camera.viewfinder", tint: .cyan, action: onResumeCapture)
+                    PhaseActionButton(title: "Sessions", icon: "folder.fill", tint: .purple, action: onSessions)
+                }
+
+                Spacer()
+            }
+            .padding(22)
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+@available(iOS 16.0, *)
+private struct PhaseActionButton: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .bold))
+                    .frame(width: 24)
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 16)
+            .frame(height: 52)
+            .background(tint)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+private struct CaptureMetric: View {
+    let label: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.58))
+            Text(value)
+                .font(.system(size: 15, weight: .bold, design: .monospaced))
+                .foregroundColor(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 54)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+@available(iOS 16.0, *)
+private struct CaptureStatusPanel: View {
+    let sidekickStatus: SidekickRelayStatus
+    let rfBatches: Int
+    let rfObservations: Int
+    let poseSamples: Int
+    let backendFrames: Int
+    let adaptiveScan: SidekickAdaptiveScanSnapshot?
+    let isStreaming: Bool
+    let isPreviewing: Bool
+    let backendEnabled: Bool
+    let elapsedSeconds: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(modeLabel)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(modeColor)
+            Text("Elapsed: \(elapsedLabel)")
+            Text("Sidekick: \(sidekickLabel)")
+            Text("RF: \(rfBatches) batches / \(rfObservations) obs")
+            if let adaptiveScan {
+                Text("Scan: \(adaptiveScanLabel(adaptiveScan))")
+            }
+            Text("Pose: \(poseSamples) frames")
+            Text("Backend: \(backendLabel)")
+        }
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        .foregroundColor(.white.opacity(0.82))
+    }
+
+    private var modeLabel: String {
+        if isStreaming {
+            return "CAPTURE: BACKEND STREAM"
+        }
+        if isPreviewing {
+            return "CAPTURE: LOCAL PREVIEW"
+        }
+        return "SETUP: CAPTURE STOPPED"
+    }
+
+    private var modeColor: Color {
+        if isStreaming || isPreviewing {
+            return .green
+        }
+        return .orange
+    }
+
+    private var sidekickLabel: String {
+        switch sidekickStatus {
+        case .idle:
+            return "idle"
+        case .connecting:
+            return "connecting"
+        case .streaming(let radios, let spectrum):
+            return spectrum ? "\(radios) radios + SDR" : "\(radios) radios"
+        case .failed:
+            return "failed"
+        }
+    }
+
+    private var backendLabel: String {
+        guard backendEnabled else { return "offline" }
+        return backendFrames > 0 ? "\(backendFrames) frames" : "pending"
+    }
+
+    private func adaptiveScanLabel(_ snapshot: SidekickAdaptiveScanSnapshot) -> String {
+        let topChannels = snapshot.channels
+            .filter { $0.observed != false }
+            .prefix(4)
+            .map { channel in
+                let channelLabel = channel.channel.map { "ch\($0)" } ?? "\(channel.frequencyMHz)"
+                return "\(channelLabel)x\(channel.weight)"
+            }
+            .joined(separator: " ")
+        let observedChannels = snapshot.channels.filter { $0.observed == true }.count
+
+        if topChannels.isEmpty {
+            return "\(snapshot.observedBSSIDCount) APs observed / \(snapshot.channelCount) ch"
+        }
+        return "\(topChannels) • \(snapshot.observedBSSIDCount) APs • \(observedChannels)/\(snapshot.channelCount) ch"
+    }
+
+    private var elapsedLabel: String {
+        let minutes = elapsedSeconds / 60
+        let seconds = elapsedSeconds % 60
+        return "\(minutes)m \(seconds)s"
     }
 }
 
@@ -526,11 +1238,9 @@ public struct ContentView: View {
 public struct LoginView: View {
     @StateObject private var settings = SettingsManager.shared
     
-    @State private var serverURL: String = SettingsManager.shared.apiURL
-    @State private var username: String = ""
-    @State private var password: String = ""
     @State private var isAuthenticating: Bool = false
     @State private var errorMessage: String?
+    @State private var showSettings = false
     
     public init() {}
     
@@ -569,7 +1279,7 @@ public struct LoginView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    TextField("https://demo.serviceradar.cloud", text: $serverURL)
+                    TextField("https://demo.serviceradar.cloud", text: $settings.apiURL)
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .padding()
@@ -583,7 +1293,7 @@ public struct LoginView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    TextField("operator@serviceradar.com", text: $username)
+                    TextField("operator@serviceradar.com", text: $settings.backendUsername)
                         .autocapitalization(.none)
                         .keyboardType(.emailAddress)
                         .padding()
@@ -597,10 +1307,14 @@ public struct LoginView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    SecureField("Enter Password", text: $password)
+                    SecureField("Enter Password", text: $settings.backendPassword)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                    
+                    Text("Password is saved in the iOS Keychain on this phone.")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
                 }
                 
                 if let error = errorMessage {
@@ -633,11 +1347,23 @@ public struct LoginView: View {
                     .foregroundColor(.black)
                     .cornerRadius(12)
                 }
-                .disabled(isAuthenticating || username.isEmpty || password.isEmpty || serverURL.isEmpty)
+                .disabled(isAuthenticating || !loginFormIsReady)
+
+                Button(action: {
+                    showSettings = true
+                }) {
+                    Text("Settings")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.systemGray5))
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .disabled(isAuthenticating)
                 
                 Button(action: {
-                    settings.apiURL = "offline"
-                    settings.authToken = "OFFLINE_MODE"
+                    settings.setOfflineMode()
                 }) {
                     Text("Work Offline")
                         .fontWeight(.semibold)
@@ -658,13 +1384,26 @@ public struct LoginView: View {
         }
         .preferredColorScheme(.dark)
         .background(Color.black.edgesIgnoringSafeArea(.all))
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+    }
+
+    private var loginFormIsReady: Bool {
+        !settings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !settings.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !settings.backendPassword.isEmpty
     }
     
     private func authenticate() {
         isAuthenticating = true
         errorMessage = nil
         
-        let cleanedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cleanedURL = settings.apiURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let username = settings.backendUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = settings.backendPassword
         guard let url = URL(string: "\(cleanedURL)/oauth/token") else {
             errorMessage = "Invalid Server URL format."
             isAuthenticating = false
@@ -675,9 +1414,12 @@ public struct LoginView: View {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        // Use standard password grant
-        let parameters = "grant_type=password&username=\(username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-        request.httpBody = parameters.data(using: .utf8)
+        request.httpBody = formEncoded([
+            "grant_type": "password",
+            "username": username,
+            "password": password,
+            "scope": "read write"
+        ])
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
@@ -697,8 +1439,7 @@ public struct LoginView: View {
                     do {
                         if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                            let token = json["access_token"] as? String {
-                            self.settings.apiURL = cleanedURL
-                            self.settings.authToken = token
+                            self.settings.setAuthenticated(apiURL: cleanedURL, token: token, username: username)
                         } else {
                             self.errorMessage = "Invalid token format received."
                         }
@@ -712,6 +1453,21 @@ public struct LoginView: View {
                 }
             }
         }.resume()
+    }
+
+    private func formEncoded(_ parameters: [String: String]) -> Data? {
+        parameters
+            .map { key, value in
+                "\(formEscape(key))=\(formEscape(value))"
+            }
+            .joined(separator: "&")
+            .data(using: .utf8)
+    }
+
+    private func formEscape(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 #endif

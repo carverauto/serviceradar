@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-public struct WiFiHeatmapPoint: Identifiable, Codable, Equatable {
+public struct WiFiHeatmapPoint: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let timestamp: TimeInterval
     public let bssid: String
