@@ -23,6 +23,12 @@ WASM_BUILD_TARGETS = [
         "main_go": "//go/cmd/wasm-plugins/dusk-checker:main.go",
         "tags": [],
     },
+    {
+        "name": "alienvault_otx",
+        "srcs": ["//go/cmd/wasm-plugins/alienvault-otx:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/alienvault-otx:main.go",
+        "tags": [],
+    },
 ]
 
 WASM_PLUGIN_BUNDLES = [
@@ -91,6 +97,17 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/dusk-checker:plugin.yaml"),
             ("plugin.wasm", ":dusk_checker_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/dusk-checker:config.schema.json"),
+        ],
+    },
+    {
+        "name": "alienvault_otx_bundle",
+        "plugin_id": "alienvault-otx-threat-intel",
+        "repository_name": "wasm-plugin-alienvault-otx-threat-intel",
+        "wasm_target": ":alienvault_otx_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/alienvault-otx:plugin.yaml"),
+            ("plugin.wasm", ":alienvault_otx_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/alienvault-otx:config.schema.json"),
         ],
     },
 ]

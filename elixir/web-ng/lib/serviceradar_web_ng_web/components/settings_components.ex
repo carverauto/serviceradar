@@ -96,7 +96,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     RBAC.can?(current_scope, "settings.networks.manage") or
       RBAC.can?(current_scope, "settings.netflow.manage") or
       RBAC.can?(current_scope, "settings.integrations.manage") or
-      RBAC.can?(current_scope, "settings.snmp_profiles.manage")
+      RBAC.can?(current_scope, "settings.snmp_profiles.manage") or
+      RBAC.can?(current_scope, "plugins.assign")
   end
 
   defp can_agents_tab?(current_scope) do
@@ -290,6 +291,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Integrations",
         navigate: ~p"/settings/networks/integrations",
         active: String.starts_with?(path, "/settings/networks/integrations")
+      },
+      %{
+        label: "Threat Intel",
+        navigate: ~p"/settings/networks/threat-intel",
+        active: String.starts_with?(path, "/settings/networks/threat-intel")
       }
     ]
   end
@@ -333,7 +339,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       String.starts_with?(path, "/settings/networks/bmp") or
       String.starts_with?(path, "/settings/networks/field-survey") or
       String.starts_with?(path, "/settings/networks/mtr") or
-      String.starts_with?(path, "/settings/networks/integrations")
+      String.starts_with?(path, "/settings/networks/integrations") or
+      String.starts_with?(path, "/settings/networks/threat-intel")
   end
 
   defp discovery_active?(path) do
@@ -343,6 +350,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       not String.starts_with?(path, "/settings/networks/bmp") and
       not String.starts_with?(path, "/settings/networks/field-survey") and
       not String.starts_with?(path, "/settings/networks/mtr") and
+      not String.starts_with?(path, "/settings/networks/threat-intel") and
       not String.starts_with?(path, "/settings/flows")
   end
 
@@ -361,6 +369,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       case label do
         "Integrations" -> "settings.integrations.manage"
         "Network Flows" -> "settings.netflow.manage"
+        "Threat Intel" -> "plugins.assign"
         _ -> "settings.networks.manage"
       end
 

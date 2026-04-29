@@ -174,7 +174,8 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   end
 
   defp repo_connection_opts do
-    Keyword.take(ServiceRadar.Repo.config(), [
+    ServiceRadar.Repo.config()
+    |> Keyword.take([
       :hostname,
       :port,
       :username,
@@ -190,5 +191,37 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
       :ipv6,
       :url
     ])
+    |> coordinator_connection_opts(System.get_env("SERVICERADAR_COORDINATOR_DB_HOST"))
   end
+
+  @doc false
+  def coordinator_connection_opts(opts, nil), do: opts
+  def coordinator_connection_opts(opts, ""), do: opts
+
+  def coordinator_connection_opts(opts, host) when is_list(opts) and is_binary(host) do
+    host = String.trim(host)
+
+    cond do
+      host == "" ->
+        opts
+
+      url = Keyword.get(opts, :url) ->
+        Keyword.put(opts, :url, replace_url_host(url, host))
+
+      true ->
+        Keyword.put(opts, :hostname, host)
+    end
+  end
+
+  defp replace_url_host(url, host) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: current_host} = parsed when is_binary(current_host) ->
+        URI.to_string(%{parsed | host: host})
+
+      _ ->
+        url
+    end
+  end
+
+  defp replace_url_host(url, _host), do: url
 end

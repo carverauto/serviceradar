@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   """
 
   alias Jetstream.API.Object
+  alias Jetstream.API.Stream
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Web.EndpointConfig
 
@@ -336,10 +337,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   defp put_blob_jetstream(object_key, payload) do
     with_jetstream(fn conn ->
-      with {:ok, _} <- ensure_bucket(conn),
-           {:ok, io} <- StringIO.open(payload),
-           {:ok, _meta} <- Object.put(conn, bucket_name(), object_key, io) do
-        :ok
+      with {:ok, _} <- ensure_bucket(conn) do
+        put_object_payload(conn, object_key, payload)
       end
     end)
   end
@@ -348,11 +347,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp put_blob_file_jetstream(object_key, source_path) do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
-           {:ok, _meta} <-
-             File.open(source_path, [:read, :binary], fn io ->
-               Object.put(conn, bucket_name(), object_key, io)
-             end) do
-        :ok
+           {:ok, payload} <- File.read(source_path) do
+        put_object_payload(conn, object_key, payload)
       end
     end)
   end
@@ -360,13 +356,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp fetch_blob_jetstream(object_key) do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
-           {:ok, io} <- StringIO.open(""),
-           :ok <-
-             Object.get(conn, bucket_name(), object_key, fn chunk ->
-               IO.binwrite(io, chunk)
-             end) do
-        {_input, output} = StringIO.contents(io)
-        {:ok, {:binary, output}}
+           {:ok, payload} <- get_object_payload(conn, object_key) do
+        {:ok, {:binary, payload}}
       else
         {:error, %{"code" => 404}} -> {:error, :not_found}
         {:error, reason} -> {:error, reason}
@@ -416,15 +407,172 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp ensure_bucket(conn) do
     stream_name = "OBJ_#{bucket_name()}"
 
-    case Jetstream.API.Stream.info(conn, stream_name) do
+    case Stream.info(conn, stream_name) do
       {:ok, _} ->
         {:ok, :exists}
 
       {:error, %{"code" => 404}} ->
-        Object.create_bucket(conn, bucket_name(), bucket_opts())
+        create_bucket(conn)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp create_bucket(conn) do
+    stream_name = "OBJ_#{bucket_name()}"
+
+    with {:ok, %{body: body}} <-
+           Gnat.request(conn, "$JS.API.STREAM.CREATE.#{stream_name}", Jason.encode!(bucket_stream_config())),
+         {:ok, decoded} <- Jason.decode(body) do
+      case decoded do
+        %{"error" => reason} -> {:error, reason}
+        response -> {:ok, response}
+      end
+    end
+  end
+
+  defp bucket_stream_config do
+    opts = bucket_opts()
+    ttl = Keyword.get(opts, :ttl, 0)
+
+    [
+      name: "OBJ_#{bucket_name()}",
+      subjects: ["$O.#{bucket_name()}.C.>", "$O.#{bucket_name()}.M.>"],
+      description: Keyword.get(opts, :description),
+      discard: :new,
+      allow_rollup_hdrs: true,
+      max_age: ttl,
+      max_bytes: Keyword.get(opts, :max_bucket_size, -1),
+      max_msg_size: Keyword.get(opts, :max_chunk_size, -1),
+      max_consumers: -1,
+      max_msgs: -1,
+      max_msgs_per_subject: -1,
+      num_replicas: Keyword.get(opts, :replicas, 1),
+      retention: :limits,
+      storage: Keyword.get(opts, :storage, :file),
+      duplicate_window: duplicate_window_for_ttl(ttl)
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  @two_minutes_in_nanoseconds 1_200_000_000
+  defp duplicate_window_for_ttl(ttl) when ttl > 0 and ttl < @two_minutes_in_nanoseconds, do: ttl
+  defp duplicate_window_for_ttl(_ttl), do: @two_minutes_in_nanoseconds
+
+  @object_chunk_size 128 * 1024
+
+  defp get_object_payload(conn, object_key) do
+    bucket = bucket_name()
+
+    with {:ok, collector} <- Agent.start_link(fn -> [] end) do
+      try do
+        case Object.get(conn, bucket, object_key, fn chunk ->
+               Agent.update(collector, &[chunk | &1])
+             end) do
+          :ok ->
+            payload =
+              collector
+              |> Agent.get(& &1)
+              |> Enum.reverse()
+              |> IO.iodata_to_binary()
+
+            {:ok, payload}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      after
+        Agent.stop(collector)
+      end
+    end
+  end
+
+  defp put_object_payload(conn, object_key, payload) when is_binary(payload) do
+    bucket = bucket_name()
+    nuid = random_object_nuid()
+    chunk_subject = object_chunk_subject(bucket, nuid)
+
+    with :ok <- purge_prior_object_chunks(conn, bucket, object_key),
+         {:ok, chunks, size, digest} <- publish_object_chunks(conn, chunk_subject, payload),
+         {:ok, _} <- publish_object_meta(conn, bucket, object_key, nuid, chunks, size, digest) do
+      :ok
+    end
+  end
+
+  defp purge_prior_object_chunks(conn, bucket, object_key) do
+    case Object.info(conn, bucket, object_key) do
+      {:ok, %{nuid: nuid}} when is_binary(nuid) ->
+        Stream.purge(conn, "OBJ_#{bucket}", nil, %{filter: object_chunk_subject(bucket, nuid)})
+
+      {:error, %{"code" => 404}} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp publish_object_chunks(conn, chunk_subject, payload) do
+    payload
+    |> chunk_binary(@object_chunk_size)
+    |> Enum.reduce_while({:ok, 0, 0, :crypto.hash_init(:sha256)}, fn chunk, {:ok, chunks, size, sha} ->
+      case Gnat.request(conn, chunk_subject, chunk) do
+        {:ok, _} ->
+          {:cont, {:ok, chunks + 1, size + byte_size(chunk), :crypto.hash_update(sha, chunk)}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, chunks, size, sha} -> {:ok, chunks, size, :crypto.hash_final(sha)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp publish_object_meta(conn, bucket, object_key, nuid, chunks, size, digest) do
+    meta = %{
+      bucket: bucket,
+      chunks: chunks,
+      deleted: false,
+      digest: "SHA-256=#{Base.url_encode64(digest)}",
+      name: object_key,
+      nuid: nuid,
+      size: size
+    }
+
+    Gnat.request(conn, object_meta_subject(bucket, object_key), Jason.encode!(meta), headers: [{"Nats-Rollup", "sub"}])
+  end
+
+  defp chunk_binary(payload, chunk_size) when byte_size(payload) <= chunk_size, do: [payload]
+
+  defp chunk_binary(payload, chunk_size) do
+    do_chunk_binary(payload, chunk_size, [])
+  end
+
+  defp do_chunk_binary(<<>>, _chunk_size, acc), do: Enum.reverse(acc)
+
+  defp do_chunk_binary(payload, chunk_size, acc) do
+    case payload do
+      <<chunk::binary-size(chunk_size), rest::binary>> ->
+        do_chunk_binary(rest, chunk_size, [chunk | acc])
+
+      chunk ->
+        Enum.reverse([chunk | acc])
+    end
+  end
+
+  defp object_chunk_subject(bucket, nuid), do: "$O.#{bucket}.C.#{nuid}"
+
+  defp object_meta_subject(bucket, object_key) do
+    "$O.#{bucket}.M.#{Base.url_encode64(object_key)}"
+  end
+
+  defp random_object_nuid do
+    18
+    |> :crypto.strong_rand_bytes()
+    |> Base.url_encode64(padding: false)
   end
 end

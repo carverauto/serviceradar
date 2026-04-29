@@ -81,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
                   <li><span class="bg-teal-400"></span>Network cluster</li>
                   <li><span class="bg-sky-400"></span>Private/public flow</li>
+                  <li><span class="bg-rose-500"></span>AlienVault IOC match</li>
                   <li><span class="bg-violet-400"></span>Busy flow</li>
                   <li><span class="bg-orange-400"></span>High volume flow</li>
                   <li><span class="bg-slate-400/60"></span>External-only flow</li>
@@ -433,20 +434,51 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
           </.panel>
 
-          <.panel title="Top Vulnerable Assets" class="lg:col-span-3">
-            <div class="sr-ops-feed-empty is-asset-feed" data-testid="vulnerable-assets-empty">
-              <div class="sr-ops-empty-feed-shell" aria-hidden="true">
-                <div class="sr-ops-empty-feed-header">
-                  <span>Asset</span>
-                  <span>Risk</span>
-                  <span>Status</span>
+          <.panel title="Threat Intel" class="lg:col-span-3">
+            <:actions>
+              <.link href={~p"/settings/networks/threat-intel"} class="sr-ops-button">
+                Manage
+              </.link>
+            </:actions>
+            <div class="sr-ops-threat-intel" data-testid="threat-intel-summary">
+              <div class="sr-ops-threat-sync">
+                <span class={[
+                  "sr-ops-threat-status",
+                  threat_status_class(@threat_intel_summary.latest_status)
+                ]}>
+                  {threat_status_label(@threat_intel_summary.latest_status)}
+                </span>
+                <div>
+                  <strong>{threat_source_label(@threat_intel_summary)}</strong>
+                  <small>{threat_sync_label(@threat_intel_summary)}</small>
                 </div>
-                <span :for={_ <- 1..5} class="sr-ops-empty-feed-row"></span>
               </div>
-              <div class="sr-ops-empty-feed-message">
-                <.icon name="hero-shield-exclamation" class="size-7 text-amber-400" />
-                <p>Vulnerability tracking is not connected</p>
-                <span>No fabricated risk counts are displayed.</span>
+
+              <div class="sr-ops-threat-stat-grid">
+                <.small_stat
+                  label="IOCs"
+                  value={format_compact_count(@threat_intel_summary.imported_indicators)}
+                />
+                <.small_stat
+                  label="Objects"
+                  value={format_compact_count(@threat_intel_summary.source_objects)}
+                />
+                <.small_stat
+                  label="Matched IPs"
+                  value={format_compact_count(@threat_intel_summary.matched_ips)}
+                />
+                <.small_stat
+                  label="IOC Hits"
+                  value={format_compact_count(@threat_intel_summary.indicator_matches)}
+                />
+              </div>
+
+              <div class="sr-ops-threat-detail">
+                <span>Max severity</span>
+                <strong>{@threat_intel_summary.max_severity}</strong>
+              </div>
+              <div class="sr-ops-threat-message">
+                {threat_message(@threat_intel_summary)}
               </div>
             </div>
           </.panel>
@@ -989,6 +1021,62 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: round(value)
   defp to_int(_value), do: 0
+
+  defp threat_status_label(nil), do: "idle"
+  defp threat_status_label(""), do: "idle"
+  defp threat_status_label("ok"), do: "ok"
+  defp threat_status_label(status) when is_binary(status), do: String.downcase(status)
+  defp threat_status_label(_), do: "idle"
+
+  defp threat_status_class("ok"), do: "is-ok"
+  defp threat_status_class("error"), do: "is-error"
+  defp threat_status_class("failed"), do: "is-error"
+  defp threat_status_class("timeout"), do: "is-warning"
+  defp threat_status_class(_), do: "is-idle"
+
+  defp threat_source_label(%{latest_provider: provider, latest_source: source}) do
+    [provider, source]
+    |> Enum.filter(&present_text?/1)
+    |> Enum.join(" / ")
+    |> case do
+      "" -> "No feed sync yet"
+      label -> label
+    end
+  end
+
+  defp threat_source_label(_), do: "No feed sync yet"
+
+  defp threat_sync_label(%{latest_success_label: label}) when is_binary(label) and label != "",
+    do: "Last success #{label} UTC"
+
+  defp threat_sync_label(%{latest_attempt_label: label}) when is_binary(label) and label != "",
+    do: "Last attempt #{label} UTC"
+
+  defp threat_sync_label(_), do: "Waiting for OTX sync"
+
+  defp threat_message(%{latest_message: message}) when is_binary(message) and message != "", do: message
+  defp threat_message(%{imported_indicators: count}) when count > 0, do: "Indicators are ready for NetFlow matching."
+  defp threat_message(_), do: "Assign the OTX plugin and sync to populate threat context."
+
+  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_text?(_), do: false
+
+  defp format_compact_count(value) do
+    value = to_int(value)
+
+    cond do
+      value >= 1_000_000 -> "#{compact_decimal(value / 1_000_000)}M"
+      value >= 1_000 -> "#{compact_decimal(value / 1_000)}K"
+      true -> Integer.to_string(value)
+    end
+  end
+
+  defp compact_decimal(value) do
+    value
+    |> Float.round(1)
+    |> :erlang.float_to_binary(decimals: 1)
+    |> String.trim_trailing(".0")
+  end
 
   defp sparkline_values(values) do
     values

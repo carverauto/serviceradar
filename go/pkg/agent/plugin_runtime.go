@@ -1846,6 +1846,7 @@ type httpRequestPayload struct {
 	Headers            map[string]string `json:"headers"`
 	Body               string            `json:"body"`
 	BodyBase64         string            `json:"body_base64"`
+	ResponseMode       string            `json:"response_mode"`
 	TimeoutMS          int               `json:"timeout_ms"`
 	InsecureSkipVerify bool              `json:"insecure_skip_verify"`
 }
@@ -1915,7 +1916,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		httpReq.Header.Set(key, value)
 	}
 
-	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify).Do(httpReq)
+	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return pluginErrTimeout
@@ -1933,6 +1934,18 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 	if int64(len(bodyBytes)) > pluginMaxHTTPBodyBytes {
 		return pluginErrTooLarge
+	}
+
+	if strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "status_body") {
+		responseBytes := []byte(strconv.Itoa(resp.StatusCode) + "\n")
+		responseBytes = append(responseBytes, bodyBytes...)
+		if len(responseBytes) > int(respLen) {
+			return pluginErrTooLarge
+		}
+		if !writeMemory(mod, respPtr, responseBytes) {
+			return pluginErrInvalid
+		}
+		return int32(len(responseBytes))
 	}
 
 	responsePayload := httpResponsePayload{
@@ -1967,20 +1980,19 @@ func decodeBody(payload httpRequestPayload) ([]byte, error) {
 	return nil, nil
 }
 
-func pluginHTTPClient(base *http.Client, insecureSkipVerify bool) *http.Client {
-	if !insecureSkipVerify {
-		if base != nil {
-			return base
-		}
-		return http.DefaultClient
-	}
-
+func pluginHTTPClient(base *http.Client, insecureSkipVerify bool, timeout time.Duration) *http.Client {
 	client := http.DefaultClient
 	if base != nil {
 		client = base
 	}
 
 	cloned := *client
+	cloned.Timeout = timeout
+
+	if !insecureSkipVerify {
+		return &cloned
+	}
+
 	transport := cloned.Transport
 	if baseTransport, ok := transport.(*http.Transport); ok {
 		transport = baseTransport.Clone()

@@ -21,6 +21,31 @@ parse_int_env = fn env_name, default ->
   end
 end
 
+read_secret_env = fn env_name, file_env_name ->
+  case System.get_env(env_name) do
+    nil ->
+      case System.get_env(file_env_name) do
+        nil -> nil
+        "" -> nil
+        path -> path |> File.read!() |> String.trim()
+      end
+
+    "" ->
+      nil
+
+    value ->
+      value
+  end
+end
+
+edge_crypto_secret =
+  read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE") ||
+    read_secret_env.("EDGE_ONBOARDING_ENCRYPTION_KEY", "EDGE_ONBOARDING_ENCRYPTION_KEY_FILE")
+
+if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
+  config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)
+end
+
 # =============================================================================
 # OpenTelemetry Configuration
 # =============================================================================
