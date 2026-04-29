@@ -92,6 +92,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_json_log(json, metadata) when is_map(json) do
+    json = normalize_external_security_log(json)
     log_id = generated_uuid()
     attributes = FieldParser.encode_jsonb(json["attributes"]) || %{}
     attributes = attach_ingest_metadata(attributes, metadata)
@@ -348,6 +349,89 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         json["observedTimeUnixNano"]
     )
   end
+
+  defp normalize_external_security_log(json) do
+    json
+    |> external_security_message()
+    |> parse_coraza_waf_event()
+    |> case do
+      {:ok, event} -> apply_coraza_waf_event(json, event)
+      :error -> json
+    end
+  end
+
+  defp external_security_message(json) do
+    Enum.find_value(["body", "message", "msg", "short_message"], fn key ->
+      case json[key] do
+        value when is_binary(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp parse_coraza_waf_event(message) when is_binary(message) do
+    with <<"envoy-coraza-waf:", payload::binary>> <- String.trim_leading(message),
+         {:ok, %{} = event} <- Jason.decode(String.trim(payload)),
+         "waf.finding" <- event["event"] do
+      {:ok, event}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_coraza_waf_event(_), do: :error
+
+  defp apply_coraza_waf_event(json, event) do
+    attributes =
+      json
+      |> Map.get("attributes")
+      |> FieldParser.encode_jsonb()
+      |> case do
+        value when is_map(value) -> value
+        _ -> %{}
+      end
+      |> Map.merge(coraza_waf_attributes(event))
+
+    resource_attributes =
+      json
+      |> resource_attributes_source()
+      |> FieldParser.encode_jsonb()
+      |> case do
+        value when is_map(value) -> value
+        _ -> %{}
+      end
+      |> Map.put("service.name", "envoy-coraza-waf")
+      |> Map.put("serviceradar.signal.kind", "waf")
+
+    json
+    |> Map.put("body", coraza_waf_summary(event))
+    |> Map.put("event_name", "waf.finding")
+    |> Map.put("source", "waf")
+    |> Map.put("service_name", "envoy-coraza-waf")
+    |> Map.put("severity_text", coraza_waf_severity(event))
+    |> Map.put("attributes", attributes)
+    |> Map.put("resource_attributes", resource_attributes)
+  end
+
+  defp coraza_waf_attributes(event) do
+    %{
+      "event_type" => "waf.finding",
+      "security.signal.kind" => "waf",
+      "security.signal.source" => "coraza-proxy-wasm",
+      "waf" => event
+    }
+  end
+
+  defp coraza_waf_summary(event) do
+    event["summary"] ||
+      "WAF #{event["rule_severity"] || "unknown"} rule #{event["rule_id"] || "unknown"}: #{event["rule_message"] || "Coraza WAF finding"}"
+  end
+
+  defp coraza_waf_severity(%{"rule_severity" => severity}) when is_binary(severity) do
+    String.upcase(severity)
+  end
+
+  defp coraza_waf_severity(_), do: "WARN"
 
   defp extract_body(json) do
     cond do

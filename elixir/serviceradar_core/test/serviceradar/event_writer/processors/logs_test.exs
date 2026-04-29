@@ -135,6 +135,51 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
                "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
     end
 
+    test "normalizes Coraza WAF syslog JSON into a structured security signal" do
+      waf_event = %{
+        "event" => "waf.finding",
+        "summary" => "WAF critical rule 941100: XSS Attack Detected via libinjection /",
+        "source" => "coraza-proxy-wasm",
+        "rule_id" => "941100",
+        "rule_message" => "XSS Attack Detected via libinjection",
+        "rule_severity" => "critical",
+        "client_ip" => "192.0.2.10",
+        "request_path" => "/",
+        "request_query" => "<redacted>",
+        "request_id" => "req-1",
+        "raw_redacted" => true
+      }
+
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "short_message" => "envoy-coraza-waf: #{Jason.encode!(waf_event)}",
+              "host" => "serviceradar-edge",
+              "level" => 4,
+              "timestamp" => "2026-04-29T14:14:52Z",
+              "version" => "1.1"
+            }),
+          metadata: %{subject: "logs.syslog.processed"}
+        })
+
+      assert result.body == "WAF critical rule 941100: XSS Attack Detected via libinjection /"
+      assert result.service_name == "envoy-coraza-waf"
+      assert result.source == "waf"
+      assert result.event_name == "waf.finding"
+      assert result.severity_text == "CRITICAL"
+      assert result.resource_attributes["service.name"] == "envoy-coraza-waf"
+      assert result.resource_attributes["serviceradar.signal.kind"] == "waf"
+      assert result.attributes["event_type"] == "waf.finding"
+      assert result.attributes["security.signal.kind"] == "waf"
+      assert result.attributes["security.signal.source"] == "coraza-proxy-wasm"
+      assert get_in(result.attributes, ["waf", "rule_id"]) == "941100"
+      assert get_in(result.attributes, ["waf", "request_query"]) == "<redacted>"
+
+      assert get_in(result.attributes, ["serviceradar.ingest", "subject"]) ==
+               "logs.syslog.processed"
+    end
+
     test "handles nanosecond timestamps" do
       timestamp_ns = 1_705_315_800_000_000_000
 
