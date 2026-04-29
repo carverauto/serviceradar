@@ -13,14 +13,15 @@ import (
 
 const (
 	defaultBaseURL       = "https://otx.alienvault.com"
-	defaultLimit         = 100
+	defaultLimit         = 1000
 	defaultPage          = 1
 	defaultTimeoutMS     = 120000
 	defaultMaxIndicators = 50000
 	defaultMaxPages      = 500
 	defaultMaxRetries    = 3
 	defaultBackoffMS     = 1000
-	maxLimit             = 100
+	defaultTypes         = "IPv4,IPv6,CIDR"
+	maxLimit             = 1000
 	maxTimeoutMS         = 600000
 	maxIndicators        = 500000
 	maxPages             = 10000
@@ -39,6 +40,7 @@ type Config struct {
 	APIKeySecretRef string `json:"api_key_secret_ref"`
 	APIKey          string `json:"api_key"`
 	ModifiedSince   string `json:"modified_since"`
+	Types           string `json:"types"`
 	Limit           int    `json:"limit"`
 	Page            int    `json:"page"`
 	TimeoutMS       int    `json:"timeout_ms"`
@@ -529,6 +531,7 @@ func httpFailureSummary(resp *sdk.HTTPResponse) string {
 func defaultConfig() Config {
 	return Config{
 		BaseURL:       defaultBaseURL,
+		Types:         defaultTypes,
 		Limit:         defaultLimit,
 		Page:          defaultPage,
 		TimeoutMS:     defaultTimeoutMS,
@@ -582,6 +585,9 @@ func (c *Config) applyDefaults() {
 	if c.BackoffMS > maxBackoffMS {
 		c.BackoffMS = maxBackoffMS
 	}
+	if strings.TrimSpace(c.Types) == "" {
+		c.Types = defaultTypes
+	}
 }
 
 func subscribedPulsesURL(cfg Config) (string, error) {
@@ -595,6 +601,10 @@ func subscribedPulsesURL(cfg Config) (string, error) {
 	b.WriteString(strconv.Itoa(cfg.Limit))
 	b.WriteString("&page=")
 	b.WriteString(strconv.Itoa(cfg.Page))
+	if strings.TrimSpace(cfg.Types) != "" {
+		b.WriteString("&types=")
+		writeQueryEscaped(&b, strings.TrimSpace(cfg.Types))
+	}
 	if strings.TrimSpace(cfg.ModifiedSince) != "" {
 		b.WriteString("&modified_since=")
 		writeQueryEscaped(&b, strings.TrimSpace(cfg.ModifiedSince))

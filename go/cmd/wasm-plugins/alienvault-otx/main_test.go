@@ -57,13 +57,14 @@ func TestSubscribedPulsesURL(t *testing.T) {
 		APIKey:        apiKey,
 		Limit:         25,
 		Page:          3,
+		Types:         "IPv4,IPv6,CIDR",
 		ModifiedSince: "2026-04-27T10:00:00Z",
 	})
 	if err != nil {
 		t.Fatalf("subscribedPulsesURL returned error: %v", err)
 	}
 
-	want := "https://otx.alienvault.com/api/v1/indicators/export?limit=25&page=3&modified_since=2026-04-27T10%3A00%3A00Z"
+	want := "https://otx.alienvault.com/api/v1/indicators/export?limit=25&page=3&types=IPv4%2CIPv6%2CCIDR&modified_since=2026-04-27T10%3A00%3A00Z"
 	if got != want {
 		t.Fatalf("url = %q, want %q", got, want)
 	}
@@ -88,6 +89,9 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 
 	if cfg.BaseURL != defaultBaseURL {
 		t.Fatalf("base url = %q, want default %q", cfg.BaseURL, defaultBaseURL)
+	}
+	if cfg.Types != defaultTypes {
+		t.Fatalf("types = %q, want default %q", cfg.Types, defaultTypes)
 	}
 	if cfg.Limit != maxLimit {
 		t.Fatalf("limit = %d, want %d", cfg.Limit, maxLimit)
@@ -446,6 +450,13 @@ func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
 	limit := properties["limit"].(map[string]any)
 	if got := int(limit["maximum"].(float64)); got != maxLimit {
 		t.Fatalf("limit maximum = %d, want %d", got, maxLimit)
+	}
+	if got := limit["default"].(float64); int(got) != defaultLimit {
+		t.Fatalf("limit default = %.0f, want %d", got, defaultLimit)
+	}
+	types := properties["types"].(map[string]any)
+	if types["default"] != defaultTypes {
+		t.Fatalf("types default = %v, want %q", types["default"], defaultTypes)
 	}
 	timeout := properties["timeout_ms"].(map[string]any)
 	if got := int(timeout["maximum"].(float64)); got != maxTimeoutMS {
