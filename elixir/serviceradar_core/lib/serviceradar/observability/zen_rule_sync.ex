@@ -264,14 +264,27 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       {:call_failed, _} ->
         true
 
-      %GRPC.RPCError{status: status}
-      when status in [:unavailable, :deadline_exceeded, :cancelled] ->
-        true
+      %GRPC.RPCError{} = error ->
+        rpc_transient_error?(error)
 
       _ ->
         false
     end
   end
+
+  defp rpc_transient_error?(%GRPC.RPCError{status: status, message: message}) do
+    status in [
+      GRPC.Status.unavailable(),
+      GRPC.Status.deadline_exceeded(),
+      GRPC.Status.cancelled()
+    ] or rpc_channel_down_message?(message)
+  end
+
+  defp rpc_channel_down_message?(message) when is_binary(message) do
+    String.contains?(message, [":down", ":noproc", "closed"])
+  end
+
+  defp rpc_channel_down_message?(_message), do: false
 
   defp format_reason(%GRPC.RPCError{} = error), do: GRPC.RPCError.message(error)
   defp format_reason({:json_encode_failed, message}), do: "json_encode_failed: #{message}"
