@@ -133,31 +133,29 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
 
   defp run_netflow_match(run_id, source, window_start, window_end, max_indicators) do
     sql = """
-    WITH selected_indicators AS (
-      SELECT
-        id,
-        indicator,
-        indicator_type,
-        source,
-        label,
-        severity,
-        confidence
+    WITH indicator_cutoff AS (
+      SELECT last_seen_at
       FROM platform.threat_intel_indicators
       WHERE source = $3
         AND indicator_type IN ('cidr', 'ipv4', 'ipv6')
         AND (expires_at IS NULL OR expires_at > now())
       ORDER BY last_seen_at DESC
-      LIMIT $4
+      OFFSET GREATEST($4::int - 1, 0)
+      LIMIT 1
     ),
-    source_matches AS (
+    selected_indicator_count AS (
+      SELECT COUNT(*)::int AS count
+      FROM platform.threat_intel_indicators ti
+      WHERE ti.source = $3
+        AND ti.indicator_type IN ('cidr', 'ipv4', 'ipv6')
+        AND (ti.expires_at IS NULL OR ti.expires_at > now())
+        AND ti.last_seen_at >= COALESCE(
+          (SELECT last_seen_at FROM indicator_cutoff),
+          '-infinity'::timestamptz
+        )
+    ),
+    observed_source_ips AS (
       SELECT
-        i.id AS indicator_id,
-        i.indicator,
-        i.indicator_type,
-        i.source,
-        i.label,
-        i.severity,
-        i.confidence,
         NULLIF(m.src_endpoint_ip, '')::inet AS observed_ip,
         'source'::text AS direction,
         MIN(m.time) AS first_seen_at,
@@ -165,15 +163,33 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         COUNT(*)::int AS evidence_count,
         COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
         COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
-      FROM selected_indicators i
-      JOIN platform.ocsf_network_activity m
-        ON m.time >= $1
-       AND m.time <= $2
-       AND NULLIF(m.src_endpoint_ip, '') IS NOT NULL
-       AND i.indicator >>= NULLIF(m.src_endpoint_ip, '')::inet
-      GROUP BY i.id, i.indicator, i.indicator_type, i.source, i.label, i.severity, i.confidence, NULLIF(m.src_endpoint_ip, '')::inet
+      FROM platform.ocsf_network_activity m
+      WHERE m.time >= $1
+        AND m.time <= $2
+        AND NULLIF(m.src_endpoint_ip, '') IS NOT NULL
+      GROUP BY NULLIF(m.src_endpoint_ip, '')::inet
     ),
-    destination_matches AS (
+    observed_destination_ips AS (
+      SELECT
+        NULLIF(m.dst_endpoint_ip, '')::inet AS observed_ip,
+        'destination'::text AS direction,
+        MIN(m.time) AS first_seen_at,
+        MAX(m.time) AS last_seen_at,
+        COUNT(*)::int AS evidence_count,
+        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
+        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
+      FROM platform.ocsf_network_activity m
+      WHERE m.time >= $1
+        AND m.time <= $2
+        AND NULLIF(m.dst_endpoint_ip, '') IS NOT NULL
+      GROUP BY NULLIF(m.dst_endpoint_ip, '')::inet
+    ),
+    observed_ips AS (
+      SELECT * FROM observed_source_ips
+      UNION ALL
+      SELECT * FROM observed_destination_ips
+    ),
+    matches AS (
       SELECT
         i.id AS indicator_id,
         i.indicator,
@@ -182,25 +198,33 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         i.label,
         i.severity,
         i.confidence,
-        NULLIF(m.dst_endpoint_ip, '')::inet AS observed_ip,
-        'destination'::text AS direction,
-        MIN(m.time) AS first_seen_at,
-        MAX(m.time) AS last_seen_at,
-        COUNT(*)::int AS evidence_count,
-        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
-        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
-      FROM selected_indicators i
-      JOIN platform.ocsf_network_activity m
-        ON m.time >= $1
-       AND m.time <= $2
-       AND NULLIF(m.dst_endpoint_ip, '') IS NOT NULL
-       AND i.indicator >>= NULLIF(m.dst_endpoint_ip, '')::inet
-      GROUP BY i.id, i.indicator, i.indicator_type, i.source, i.label, i.severity, i.confidence, NULLIF(m.dst_endpoint_ip, '')::inet
-    ),
-    matches AS (
-      SELECT * FROM source_matches
-      UNION ALL
-      SELECT * FROM destination_matches
+        observed.observed_ip,
+        observed.direction,
+        observed.first_seen_at,
+        observed.last_seen_at,
+        observed.evidence_count,
+        observed.bytes_total,
+        observed.packets_total
+      FROM observed_ips observed
+      JOIN LATERAL (
+        SELECT
+          ti.id,
+          ti.indicator,
+          ti.indicator_type,
+          ti.source,
+          ti.label,
+          ti.severity,
+          ti.confidence
+        FROM platform.threat_intel_indicators ti
+        WHERE ti.source = $3
+          AND ti.indicator_type IN ('cidr', 'ipv4', 'ipv6')
+          AND (ti.expires_at IS NULL OR ti.expires_at > now())
+          AND ti.last_seen_at >= COALESCE(
+            (SELECT last_seen_at FROM indicator_cutoff),
+            '-infinity'::timestamptz
+          )
+          AND ti.indicator >>= observed.observed_ip
+      ) i ON true
     ),
     upserted AS (
       INSERT INTO platform.otx_retrohunt_findings (
@@ -258,7 +282,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       RETURNING id
     )
     SELECT
-      (SELECT COUNT(*)::int FROM selected_indicators) AS indicators_evaluated,
+      (SELECT count FROM selected_indicator_count) AS indicators_evaluated,
       (SELECT COUNT(*)::int FROM upserted) AS findings_count
     """
 
