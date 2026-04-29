@@ -7,6 +7,10 @@
 
 # ServiceRadar
 
+<img width="1470" height="802" alt="Screenshot_2026-04-28_at_10 07 02_PM" src="https://github.com/user-attachments/assets/9e77fd49-0cb3-4016-a653-db92f69ddb99" />
+
+[!IMPORTANT]
+
 Active source development and releases now live at `https://code.carverauto.dev/carverauto/serviceradar`.
 
 [![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
