@@ -271,6 +271,30 @@ async fn coraza_waf_rule_normalizes_vector_payload() {
     assert_eq!(result["attributes"]["waf"]["request_query"], "<redacted>");
 }
 
+#[tokio::test]
+async fn cef_severity_rule_outputs_severity_delta() {
+    let path = packaging_rules_dir().join("cef_severity.json");
+    let data = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+    let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data)
+        .unwrap_or_else(|e| panic!("{} failed to parse: {e}", path.display()));
+
+    let decision = DecisionEngine::default().create_decision(parsed.into());
+    let input = json!({
+        "host": "docker-mailserver-6bbcfbc66c-p4xjt",
+        "short_message": "dovecot: disconnected",
+        "full_message": "<22>Apr 29 21:03:39 docker-mailserver dovecot: disconnected"
+    });
+
+    let response = decision
+        .evaluate(input.clone().into())
+        .await
+        .expect("evaluate cef severity rule");
+
+    let result = Value::from(response.result);
+    assert_eq!(result["severity"], "Unknown");
+}
+
 fn packaging_rules_dir() -> PathBuf {
     let runfile_rel = Path::new("build/packaging/zen/rules");
 

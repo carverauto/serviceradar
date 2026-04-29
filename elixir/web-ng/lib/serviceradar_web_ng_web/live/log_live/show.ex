@@ -232,6 +232,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
+  defp put_source_device_from_resource(log, _resource_attributes, _scope), do: log
+
   defp source_device_uid(resource_attributes, scope) when is_map(resource_attributes) do
     resource_attributes
     |> Map.get("source")
