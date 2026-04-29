@@ -39,15 +39,29 @@
       "type": "integer",
       "description": "Maximum OTX pages fetched in one plugin run",
       "minimum": 1,
-      "maximum": 500,
+      "maximum": 10000,
       "default": 500
     },
     "max_indicators": {
       "type": "integer",
-      "description": "Maximum normalized indicators emitted in one plugin result",
+      "description": "Maximum normalized indicators emitted in one plugin run",
       "minimum": 1,
-      "maximum": 5000,
-      "default": 5000
+      "maximum": 500000,
+      "default": 50000
+    },
+    "max_retries": {
+      "type": "integer",
+      "description": "Retry attempts for transient OTX page fetch failures",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 3
+    },
+    "backoff_ms": {
+      "type": "integer",
+      "description": "Base retry backoff in milliseconds",
+      "minimum": 100,
+      "maximum": 30000,
+      "default": 1000
     }
   },
   "required": ["api_key_secret_ref"]

@@ -555,7 +555,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "limit" => %{"type" => "integer", "minimum" => 1, "maximum" => 100},
         "page" => %{"type" => "integer", "minimum" => 1},
         "timeout_ms" => %{"type" => "integer", "minimum" => 1000},
-        "max_indicators" => %{"type" => "integer", "minimum" => 1, "maximum" => 5000}
+        "max_indicators" => %{"type" => "integer", "minimum" => 1, "maximum" => 500_000}
       },
       "required" => ["api_key_secret_ref"]
     }
