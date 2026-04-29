@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLiveTest do
         %{
           name: "edit-zen-#{unique}",
           subject: "logs.syslog",
-          template: :passthrough,
+          template: "passthrough",
           order: 120,
           jdm_definition: %{"nodes" => [], "edges" => []}
         },

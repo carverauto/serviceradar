@@ -32,7 +32,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
         %{
           name: syslog_name,
           subject: "logs.syslog",
-          template: :passthrough
+          template: "passthrough"
         },
         actor: actor,
         context: %{skip_zen_sync: true}
@@ -49,7 +49,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
         %{
           name: otel_name,
           subject: "logs.otel",
-          template: :passthrough
+          template: "passthrough"
         },
         actor: actor,
         context: %{skip_zen_sync: true}
@@ -67,7 +67,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
         %{
           name: "Bad Name",
           subject: "logs.syslog",
-          template: :passthrough
+          template: "passthrough"
         },
         actor: actor,
         context: %{skip_zen_sync: true}
@@ -83,7 +83,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
         %{
           name: "valid-name-" <> Ash.UUID.generate(),
           subject: "logs.bad",
-          template: :passthrough
+          template: "passthrough"
         },
         actor: actor,
         context: %{skip_zen_sync: true}

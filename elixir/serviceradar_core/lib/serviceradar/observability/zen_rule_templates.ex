@@ -1,122 +1,80 @@
 defmodule ServiceRadar.Observability.ZenRuleTemplates do
   @moduledoc """
-  Built-in Zen rule templates compiled into JSON decision models.
+  Zen rule templates compiled into JSON decision models.
+
+  Templates are data files, not code branches. Packaged defaults live under
+  `priv/zen/rules`, and operators can add template directories with
+  `SERVICERADAR_ZEN_RULE_TEMPLATE_DIRS`.
   """
 
-  @coraza_waf_rule_path Path.expand(
-                          "../../../priv/zen/rules/coraza_waf.json",
-                          __DIR__
-                        )
-  @external_resource @coraza_waf_rule_path
+  @template_name_regex ~r/^[a-z][a-z0-9_-]*$/
 
-  @passthrough Jason.decode!(~S"""
-               {
-                   "nodes": [
-                     { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
-                     { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
-                   ],
-                   "edges": [
-                     { "id": "e1", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
-                   ]
-               }
-               """)
-
-  @strip_full_message Jason.decode!(~S"""
-                      {
-                          "nodes": [
-                            { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
-                            {
-                              "id": "stripFullMessage",
-                              "type": "expressionNode",
-                              "name": "Strip Full Message",
-                              "position": { "x": 300, "y": 150 },
-                              "content": {
-                                "expressions": [
-                                  { "id": "expr1", "key": "full_message", "value": "null" }
-                                ]
-                              }
-                            },
-                            { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
-                          ],
-                          "edges": [
-                            { "id": "e1", "sourceId": "inputNode", "targetId": "stripFullMessage", "type": "edge" },
-                            { "id": "e2", "sourceId": "stripFullMessage", "targetId": "outputNode", "type": "edge" },
-                            { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
-                          ]
-                      }
-                      """)
-
-  @snmp_severity Jason.decode!(~S"""
-                 {
-                     "nodes": [
-                       { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
-                       {
-                         "id": "setSeverity",
-                         "type": "expressionNode",
-                         "name": "Set SNMP Severity",
-                         "position": { "x": 300, "y": 150 },
-                           "content": {
-                             "expressions": [
-                             { "id": "expr1", "key": "severity", "value": "severity ?? 'Unknown'" },
-                             { "id": "expr2", "key": "source", "value": "'snmp'" },
-                             { "id": "expr3", "key": "service_name", "value": "'snmp'" },
-                             { "id": "expr4", "key": "body", "value": "(((body ?? '') == '') or body == 'logs.snmp.processed') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body ?? '') : (body ?? '')) : body" }
-                             ]
-                           }
-                         },
-                       { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
-                     ],
-                     "edges": [
-                       { "id": "e1", "sourceId": "inputNode", "targetId": "setSeverity", "type": "edge" },
-                       { "id": "e2", "sourceId": "setSeverity", "targetId": "outputNode", "type": "edge" },
-                       { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
-                     ]
-                 }
-                 """)
-
-  @cef_severity Jason.decode!(~S"""
-                {
-                    "nodes": [
-                      { "id": "inputNode", "type": "inputNode", "name": "Request", "position": {"x": 80, "y": 150} },
-                      {
-                        "id": "cefTable",
-                        "type": "decisionTableNode",
-                        "name": "CEF Severity",
-                        "position": {"x": 300, "y": 150},
-                        "content": {
-                          "hitPolicy": "first",
-                          "inputs": [ {"field": "short_message", "id": "fld_msg", "name": "Short", "type": "expression"} ],
-                          "outputs": [ {"field": "severity", "id": "fld_sev", "name": "Severity", "type": "expression"} ],
-                          "rules": [
-                            {"_id": "r0", "fld_msg": "contains(short_message, '|0|') or contains(short_message, '|1|') or contains(short_message, '|2|') or contains(short_message, '|3|')", "fld_sev": "'Low'"},
-                            {"_id": "r1", "fld_msg": "contains(short_message, '|4|') or contains(short_message, '|5|') or contains(short_message, '|6|')", "fld_sev": "'Medium'"},
-                            {"_id": "r2", "fld_msg": "contains(short_message, '|7|') or contains(short_message, '|8|')", "fld_sev": "'High'"},
-                            {"_id": "r3", "fld_msg": "contains(short_message, '|9|') or contains(short_message, '|10|')", "fld_sev": "'Very High'"},
-                            {"_id": "r4", "fld_msg": "", "fld_sev": "'Unknown'"}
-                          ]
-                        }
-                      },
-                      { "id": "outputNode", "type": "outputNode", "name": "Response", "position": {"x": 560, "y": 150} }
-                    ],
-                    "edges": [
-                      {"id": "e1", "sourceId": "inputNode", "targetId": "cefTable", "type": "edge"},
-                      {"id": "e2", "sourceId": "cefTable", "targetId": "outputNode", "type": "edge"},
-                      {"id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge"}
-                    ]
-                }
-                """)
-
-  @coraza_waf @coraza_waf_rule_path |> File.read!() |> Jason.decode!()
-
-  @spec compile(atom() | nil, map()) :: {:ok, map()} | {:error, String.t()}
+  @spec compile(atom() | String.t() | nil, map()) :: {:ok, map()} | {:error, String.t()}
   def compile(template, _builder_config) do
-    case template do
-      :passthrough -> {:ok, @passthrough}
-      :strip_full_message -> {:ok, @strip_full_message}
-      :snmp_severity -> {:ok, @snmp_severity}
-      :cef_severity -> {:ok, @cef_severity}
-      :coraza_waf -> {:ok, @coraza_waf}
-      _ -> {:error, "unsupported Zen rule template"}
+    with {:ok, name} <- normalize_template_name(template),
+         {:ok, path} <- find_template_file(name),
+         {:ok, json} <- File.read(path),
+         {:ok, compiled} <- Jason.decode(json) do
+      {:ok, compiled}
+    else
+      {:error, :invalid_template_name} ->
+        {:error, "invalid Zen rule template name"}
+
+      {:error, :not_found} ->
+        {:error, "unsupported Zen rule template"}
+
+      {:error, %Jason.DecodeError{} = error} ->
+        {:error, "invalid Zen rule template JSON: #{Exception.message(error)}"}
+
+      {:error, reason} ->
+        {:error, "failed to load Zen rule template: #{inspect(reason)}"}
+    end
+  end
+
+  defp normalize_template_name(template) when is_atom(template),
+    do: template |> Atom.to_string() |> normalize_template_name()
+
+  defp normalize_template_name(template) when is_binary(template) do
+    if Regex.match?(@template_name_regex, template) do
+      {:ok, template}
+    else
+      {:error, :invalid_template_name}
+    end
+  end
+
+  defp normalize_template_name(_), do: {:error, :invalid_template_name}
+
+  defp find_template_file(name) do
+    template_dirs()
+    |> Enum.map(&Path.join(&1, "#{name}.json"))
+    |> Enum.find(&File.regular?/1)
+    |> case do
+      nil -> {:error, :not_found}
+      path -> {:ok, path}
+    end
+  end
+
+  defp template_dirs do
+    external_template_dirs() ++ [bundled_template_dir()]
+  end
+
+  defp external_template_dirs do
+    "SERVICERADAR_ZEN_RULE_TEMPLATE_DIRS"
+    |> System.get_env("")
+    |> String.split(path_separator(), trim: true)
+  end
+
+  defp path_separator do
+    case :os.type() do
+      {:win32, _} -> ";"
+      _ -> ":"
+    end
+  end
+
+  defp bundled_template_dir do
+    case :code.priv_dir(:serviceradar_core) do
+      {:error, _} -> Path.expand("../../../priv/zen/rules", __DIR__)
+      priv_dir -> Path.join(to_string(priv_dir), "zen/rules")
     end
   end
 end
