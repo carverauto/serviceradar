@@ -4,7 +4,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplates do
   """
 
   @coraza_waf_rule_path Path.expand(
-                          "../../../../../build/packaging/zen/rules/coraza_waf.json",
+                          "../../../priv/zen/rules/coraza_waf.json",
                           __DIR__
                         )
   @external_resource @coraza_waf_rule_path
