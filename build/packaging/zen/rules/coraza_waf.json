@@ -1,0 +1,125 @@
+{
+  "nodes": [
+    {
+      "id": "inputNode",
+      "type": "inputNode",
+      "name": "Request",
+      "position": { "x": 80, "y": 150 }
+    },
+    {
+      "id": "normalizeCorazaWaf",
+      "type": "expressionNode",
+      "name": "Normalize Coraza WAF",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "expressions": [
+          {
+            "id": "expr1",
+            "key": "event_name",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? 'waf.finding' : event_name"
+          },
+          {
+            "id": "expr2",
+            "key": "source",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? 'waf' : source"
+          },
+          {
+            "id": "expr3",
+            "key": "service_name",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? 'envoy-coraza-waf' : service_name"
+          },
+          {
+            "id": "expr4",
+            "key": "severity_text",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"rule_severity\"\\s*:\\s*\"([^\"]+)\"')[1] ?? severity_text ?? severity ?? 'WARN') : severity_text"
+          },
+          {
+            "id": "expr5",
+            "key": "body",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"summary\"\\s*:\\s*\"([^\"]+)\"')[1] ?? body ?? short_message) : body"
+          },
+          {
+            "id": "expr6",
+            "key": "attributes.event_type",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? 'waf.finding' : attributes.event_type"
+          },
+          {
+            "id": "expr7",
+            "key": "attributes.security.signal.kind",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? 'waf' : attributes.security.signal.kind"
+          },
+          {
+            "id": "expr8",
+            "key": "attributes.security.signal.source",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? 'coraza-proxy-wasm' : attributes.security.signal.source"
+          },
+          {
+            "id": "expr9",
+            "key": "attributes.waf.source",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"source\"\\s*:\\s*\"([^\"]+)\"')[1] ?? 'coraza-proxy-wasm') : attributes.waf.source"
+          },
+          {
+            "id": "expr10",
+            "key": "attributes.waf.rule_id",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"rule_id\"\\s*:\\s*\"([^\"]+)\"')[1] ?? 'unknown') : attributes.waf.rule_id"
+          },
+          {
+            "id": "expr11",
+            "key": "attributes.waf.rule_message",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"rule_message\"\\s*:\\s*\"([^\"]+)\"')[1] ?? 'Coraza WAF finding') : attributes.waf.rule_message"
+          },
+          {
+            "id": "expr12",
+            "key": "attributes.waf.rule_severity",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"rule_severity\"\\s*:\\s*\"([^\"]+)\"')[1] ?? 'unknown') : attributes.waf.rule_severity"
+          },
+          {
+            "id": "expr13",
+            "key": "attributes.waf.client_ip",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"client_ip\"\\s*:\\s*\"?([^\",}]+)\"?')[1] ?? null) : attributes.waf.client_ip"
+          },
+          {
+            "id": "expr14",
+            "key": "attributes.waf.request_path",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"request_path\"\\s*:\\s*\"([^\"]+)\"')[1] ?? null) : attributes.waf.request_path"
+          },
+          {
+            "id": "expr15",
+            "key": "attributes.waf.request_query",
+            "value": "contains((short_message ?? body ?? ''), '\"request_query\"') ? (extract((short_message ?? body ?? ''), '\"request_query\"\\s*:\\s*\"([^\"]+)\"')[1] ?? null) : attributes.waf.request_query"
+          },
+          {
+            "id": "expr16",
+            "key": "attributes.waf.request_id",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"request_id\"\\s*:\\s*\"([^\"]+)\"')[1] ?? null) : attributes.waf.request_id"
+          },
+          {
+            "id": "expr17",
+            "key": "attributes.waf.waf_policy",
+            "value": "contains((short_message ?? body ?? ''), 'envoy-coraza-waf:') ? (extract((short_message ?? body ?? ''), '\"waf_policy\"\\s*:\\s*\"([^\"]+)\"')[1] ?? null) : attributes.waf.waf_policy"
+          }
+        ]
+      }
+    },
+    {
+      "id": "outputNode",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 560, "y": 150 }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "sourceId": "inputNode",
+      "targetId": "normalizeCorazaWaf",
+      "type": "edge"
+    },
+    {
+      "id": "e2",
+      "sourceId": "normalizeCorazaWaf",
+      "targetId": "outputNode",
+      "type": "edge"
+    }
+  ]
+}

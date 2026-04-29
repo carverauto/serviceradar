@@ -269,6 +269,17 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         enabled: true
       },
       %{
+        name: "coraza_waf",
+        description:
+          "Normalize Coraza WAF syslog payloads into the generic WAF security signal shape.",
+        subject: "logs.syslog",
+        template: :coraza_waf,
+        order: 105,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
         name: "cef_severity",
         description: "Map CEF severity values into normalized severity.",
         subject: "logs.syslog",

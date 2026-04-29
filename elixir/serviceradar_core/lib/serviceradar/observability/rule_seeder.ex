@@ -99,12 +99,11 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         source_type: :log,
         source: %{},
         match: %{
-          "subject_prefix" => "logs.syslog",
+          "subject_prefix" => "logs.",
           "event_type" => "waf.finding"
         },
         event: %{
           "log_name" => "security.waf.finding",
-          "log_provider" => "coraza-proxy-wasm",
           "alert" => false
         }
       }

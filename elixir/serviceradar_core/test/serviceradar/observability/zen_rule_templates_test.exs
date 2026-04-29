@@ -43,4 +43,21 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
 
     refute String.contains?(severity_expression, "coalesce(")
   end
+
+  test "coraza WAF template writes the generic security signal shape" do
+    assert {:ok, compiled} = ZenRuleTemplates.compile(:coraza_waf, %{})
+
+    expressions =
+      compiled
+      |> Map.fetch!("nodes")
+      |> Enum.find(&(&1["id"] == "normalizeCorazaWaf"))
+      |> Map.fetch!("content")
+      |> Map.fetch!("expressions")
+
+    assert Enum.any?(expressions, &(&1["key"] == "attributes.event_type"))
+    assert Enum.any?(expressions, &(&1["key"] == "attributes.security.signal.kind"))
+    assert Enum.any?(expressions, &(&1["key"] == "attributes.security.signal.source"))
+    assert Enum.any?(expressions, &(&1["key"] == "attributes.waf.rule_id"))
+    assert Enum.any?(expressions, &(&1["key"] == "attributes.waf.client_ip"))
+  end
 end

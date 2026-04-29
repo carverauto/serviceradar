@@ -193,6 +193,84 @@ async fn snmp_severity_rule_sets_body_from_first_varbind_when_body_is_missing() 
     assert_eq!(result["source"], "snmp");
 }
 
+#[tokio::test]
+async fn expression_rule_can_set_nested_attribute_paths() {
+    let parsed: zen_engine::model::DecisionContent = serde_json::from_value(json!({
+        "nodes": [
+            { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
+            {
+                "id": "setNested",
+                "type": "expressionNode",
+                "name": "Set Nested",
+                "position": { "x": 300, "y": 150 },
+                "content": {
+                    "expressions": [
+                        { "id": "expr1", "key": "attributes.event_type", "value": "'waf.finding'" },
+                        { "id": "expr2", "key": "attributes.waf.rule_id", "value": "'941100'" }
+                    ]
+                }
+            },
+            { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+        ],
+        "edges": [
+            { "id": "e1", "sourceId": "inputNode", "targetId": "setNested", "type": "edge" },
+            { "id": "e2", "sourceId": "setNested", "targetId": "outputNode", "type": "edge" }
+        ]
+    }))
+    .expect("nested expression rule parses");
+
+    let decision = DecisionEngine::default().create_decision(parsed.into());
+    let response = decision
+        .evaluate(json!({}).into())
+        .await
+        .expect("evaluate nested expression rule");
+
+    let result = Value::from(response.result);
+    assert_eq!(result["attributes"]["event_type"], "waf.finding");
+    assert_eq!(result["attributes"]["waf"]["rule_id"], "941100");
+}
+
+#[tokio::test]
+async fn coraza_waf_rule_normalizes_vector_payload() {
+    let path = packaging_rules_dir().join("coraza_waf.json");
+    let data = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+    let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data)
+        .unwrap_or_else(|e| panic!("{} failed to parse: {e}", path.display()));
+
+    let decision = DecisionEngine::default().create_decision(parsed.into());
+    let response = decision
+        .evaluate(
+            json!({
+                "short_message": "envoy-coraza-waf: {\"event\":\"waf.finding\",\"source\":\"coraza-proxy-wasm\",\"waf_policy\":\"serviceradar-shared-coraza-waf\",\"summary\":\"WAF critical rule 941100: XSS Attack Detected via libinjection /\",\"rule_id\":\"941100\",\"rule_message\":\"XSS Attack Detected via libinjection\",\"rule_severity\":\"critical\",\"client_ip\":\"192.0.2.10\",\"request_path\":\"/\",\"request_query\":\"<redacted>\",\"request_id\":\"req-1\",\"raw_redacted\":true}",
+                "host": "serviceradar-edge",
+                "severity_text": "WARN"
+            })
+            .into(),
+        )
+        .await
+        .expect("evaluate coraza waf rule");
+
+    let result = Value::from(response.result);
+    assert_eq!(result["event_name"], "waf.finding");
+    assert_eq!(result["source"], "waf");
+    assert_eq!(result["service_name"], "envoy-coraza-waf");
+    assert_eq!(result["severity_text"], "critical");
+    assert_eq!(
+        result["body"],
+        "WAF critical rule 941100: XSS Attack Detected via libinjection /"
+    );
+    assert_eq!(result["attributes"]["event_type"], "waf.finding");
+    assert_eq!(result["attributes"]["security"]["signal"]["kind"], "waf");
+    assert_eq!(
+        result["attributes"]["security"]["signal"]["source"],
+        "coraza-proxy-wasm"
+    );
+    assert_eq!(result["attributes"]["waf"]["rule_id"], "941100");
+    assert_eq!(result["attributes"]["waf"]["client_ip"], "192.0.2.10");
+    assert_eq!(result["attributes"]["waf"]["request_query"], "<redacted>");
+}
+
 fn packaging_rules_dir() -> PathBuf {
     let runfile_rel = Path::new("build/packaging/zen/rules");
 
