@@ -1846,6 +1846,32 @@
   background: #ef4444;
 }
 
+.sr-ops-field-survey-diagnostics {
+  position: absolute;
+  z-index: 9;
+  left: 0.72rem;
+  top: 0.72rem;
+  display: inline-flex;
+  max-width: min(24rem, calc(100% - 1.44rem));
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.34rem 0.48rem;
+  border: 1px solid rgba(250, 204, 21, 0.38);
+  border-radius: 0.45rem;
+  background: rgba(24, 20, 3, 0.68);
+  color: rgba(254, 240, 138, 0.96);
+  font-size: 0.66rem;
+  line-height: 1.15;
+  box-shadow: 0 0.65rem 1.6rem rgba(2, 8, 23, 0.24);
+  backdrop-filter: blur(8px);
+}
+
+.sr-ops-field-survey-diagnostics span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sr-ops-heatmap-placeholder::after {
   content: "";
   position: absolute;
