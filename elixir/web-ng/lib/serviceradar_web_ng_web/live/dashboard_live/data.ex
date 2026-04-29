@@ -922,8 +922,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp latest_survey_raster_summary(scope) do
     if relation_exists?("platform.survey_coverage_rasters") do
       case playlist_survey_raster_summary(scope) do
-        {:ok, summary} -> summary
-        :fallback -> latest_survey_raster_summary_from_sql()
+        {:ok, summary} ->
+          summary
+
+        {:fallback, diagnostics} ->
+          Map.put(latest_survey_raster_summary_from_sql(), :raster_playlist_diagnostics, diagnostics)
       end
     else
       empty_survey_raster_summary()
@@ -938,23 +941,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         entries
         |> Enum.filter(& &1.enabled)
         |> rotate_playlist_entries()
-        |> Enum.find_value(fn entry ->
-          with {:ok, candidate} <- FieldSurveyDashboardPlaylist.preview(scope, entry.srql_query),
-               true <- fresh_raster_candidate?(candidate, entry.max_age_seconds) do
-            {:ok, dashboard_survey_raster_summary(candidate, entry)}
-          else
-            _ -> nil
-          end
-        end)
-        |> case do
-          {:ok, _summary} = result -> result
-          _ -> :fallback
-        end
+        |> resolve_playlist_entries(scope)
 
       _ ->
-        :fallback
+        {:fallback, [playlist_diagnostic("Playlist unavailable")]}
     end
   end
+
+  defp resolve_playlist_entries([], _scope), do: {:fallback, []}
+
+  defp resolve_playlist_entries(entries, scope) do
+    entries
+    |> Enum.reduce_while([], fn entry, diagnostics ->
+      case FieldSurveyDashboardPlaylist.preview(scope, entry.srql_query) do
+        {:ok, candidate} ->
+          if fresh_raster_candidate?(candidate, entry.max_age_seconds) do
+            {:halt, {:ok, dashboard_survey_raster_summary(candidate, entry)}}
+          else
+            {:cont, [playlist_diagnostic("#{entry.label}: raster is older than max age") | diagnostics]}
+          end
+
+        {:error, reason} ->
+          {:cont, [playlist_diagnostic("#{entry.label}: #{format_playlist_error(reason)}") | diagnostics]}
+      end
+    end)
+    |> case do
+      {:ok, _summary} = result -> result
+      diagnostics when is_list(diagnostics) -> {:fallback, Enum.reverse(diagnostics)}
+    end
+  end
+
+  defp playlist_diagnostic(message), do: %{level: :warning, message: message}
+
+  defp format_playlist_error(:playlist_query_must_target_field_survey_rasters),
+    do: "query must target field_survey_rasters"
+
+  defp format_playlist_error(:no_field_survey_raster_candidate), do: "query returned no floorplan-backed raster"
+
+  defp format_playlist_error(reason), do: inspect(reason)
 
   defp rotate_playlist_entries([]), do: []
 
@@ -1048,7 +1072,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       ap_markers: ap_markers,
       raster_metadata: metadata,
       raster_playlist_entry_id: playlist_entry && playlist_entry.id,
-      raster_playlist_label: playlist_entry && playlist_entry.label
+      raster_playlist_label: playlist_entry && playlist_entry.label,
+      raster_playlist_diagnostics: []
     }
   end
 
@@ -2163,7 +2188,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       floorplan_segments: [],
       ap_marker_count: 0,
       ap_markers: [],
-      raster_metadata: %{}
+      raster_metadata: %{},
+      raster_playlist_entry_id: nil,
+      raster_playlist_label: nil,
+      raster_playlist_diagnostics: []
     }
 
   defp empty_alert_summary, do: Stats.empty_alerts_summary()

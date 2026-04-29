@@ -18,7 +18,7 @@
 - [x] 3.2 Render the active playlist item from persisted raster cells plus cached floorplan metadata using the existing compact dashboard map styling.
 - [x] 3.3 Rotate playlist entries by configured dwell interval without adding manual floor controls to the dashboard card.
 - [x] 3.4 Keep a latest floorplan-backed `wifi_rssi` raster fallback when no playlist entries are configured.
-- [ ] 3.5 Surface concise dashboard diagnostics when a playlist entry is empty, invalid, stale, or missing floorplan/raster data.
+- [x] 3.5 Surface concise dashboard diagnostics when a playlist entry is empty, invalid, stale, or missing floorplan/raster data.
 
 ## 4. Validation
 - [ ] 4.1 Add Elixir tests for playlist CRUD, validation, and fallback behavior.

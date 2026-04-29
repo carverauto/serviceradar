@@ -86,9 +86,10 @@ defmodule ServiceRadarWebNG.FieldSurveyDashboardPlaylist do
     end
   end
 
-  defp raster_candidate?(%{"entity" => "field_survey_raster", "raster_id" => id}) when is_binary(id), do: true
+  defp raster_candidate?(%{"entity" => "field_survey_raster", "raster_id" => id} = row) when is_binary(id),
+    do: Map.get(row, "has_floorplan") == true
 
-  defp raster_candidate?(%{"raster_id" => id}) when is_binary(id), do: true
+  defp raster_candidate?(%{"raster_id" => id} = row) when is_binary(id), do: Map.get(row, "has_floorplan") == true
   defp raster_candidate?(_), do: false
 
   defp normalize_attrs(attrs) when is_map(attrs) do

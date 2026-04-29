@@ -281,6 +281,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 <span><i class="poor"></i>-82</span>
                 <span><i class="weak"></i>weak</span>
               </div>
+              <div
+                :if={@survey_summary.raster_playlist_diagnostics != []}
+                class="sr-ops-field-survey-diagnostics"
+                aria-label="FieldSurvey playlist diagnostics"
+              >
+                <.icon name="hero-exclamation-triangle" class="size-3.5" />
+                <span>{fieldsurvey_playlist_diagnostic(@survey_summary)}</span>
+              </div>
               <div :if={@survey_summary.raster_cell_count == 0} class="sr-ops-floor-grid">
                 <span :for={_ <- 1..18}></span>
               </div>
@@ -581,6 +589,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp fieldsurvey_heatmap_style(_summary), do: nil
+
+  defp fieldsurvey_playlist_diagnostic(%{raster_playlist_diagnostics: [diagnostic | _]}) do
+    Map.get(diagnostic, :message) || "Using fallback FieldSurvey heatmap"
+  end
+
+  defp fieldsurvey_playlist_diagnostic(_summary), do: "Using fallback FieldSurvey heatmap"
 
   defp fieldsurvey_ap_marker_style(%{x_pct: x, z_pct: z}) when is_number(x) and is_number(z) do
     "left: #{Float.round(x, 3)}%; top: #{Float.round(z, 3)}%;"
