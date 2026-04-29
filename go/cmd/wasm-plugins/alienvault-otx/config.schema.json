@@ -32,7 +32,7 @@
       "type": "integer",
       "description": "Request timeout in milliseconds",
       "minimum": 1000,
-      "maximum": 120000,
+      "maximum": 600000,
       "default": 120000
     },
     "max_pages": {

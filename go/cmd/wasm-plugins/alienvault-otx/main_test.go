@@ -447,6 +447,10 @@ func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
 	if got := int(limit["maximum"].(float64)); got != maxLimit {
 		t.Fatalf("limit maximum = %d, want %d", got, maxLimit)
 	}
+	timeout := properties["timeout_ms"].(map[string]any)
+	if got := int(timeout["maximum"].(float64)); got != maxTimeoutMS {
+		t.Fatalf("timeout_ms maximum = %d, want %d", got, maxTimeoutMS)
+	}
 
 	bound := properties["max_indicators"].(map[string]any)
 	if got := int(bound["maximum"].(float64)); got != maxIndicators {

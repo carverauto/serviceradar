@@ -21,6 +21,7 @@ const (
 	defaultMaxRetries    = 3
 	defaultBackoffMS     = 1000
 	maxLimit             = 100
+	maxTimeoutMS         = 600000
 	maxIndicators        = 500000
 	maxPages             = 10000
 	maxRetries           = 5
@@ -553,6 +554,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.TimeoutMS <= 0 {
 		c.TimeoutMS = defaultTimeoutMS
+	}
+	if c.TimeoutMS > maxTimeoutMS {
+		c.TimeoutMS = maxTimeoutMS
 	}
 	if c.MaxIndicators <= 0 {
 		c.MaxIndicators = defaultMaxIndicators
