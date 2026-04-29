@@ -95,6 +95,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}
+
+    :exit, {:timeout, _} ->
+      {:error, :engine_timeout}
+
+    :exit, reason ->
+      {:error, reason}
   end
 
   defp ensure_started do
