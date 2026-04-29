@@ -268,7 +268,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     {activity_id, class_uid, category_uid, type_uid} = event_uids(event_overrides)
     status_id = event_status_id(event_overrides)
 
-    %{
+    event = %{
       id: Ecto.UUID.bingenerate(),
       time: log_time,
       class_uid: class_uid,
@@ -299,7 +299,66 @@ defmodule ServiceRadar.Observability.LogPromotion do
       raw_data: nil,
       created_at: DateTime.utc_now()
     }
+
+    enrich_security_signal_event(event, log)
   end
+
+  defp enrich_security_signal_event(event, log) do
+    attributes = Map.get(log, :attributes) || %{}
+
+    case get_nested_value(attributes, "event_type") do
+      "waf.finding" -> enrich_waf_finding_event(event, attributes)
+      _ -> event
+    end
+  end
+
+  defp enrich_waf_finding_event(event, attributes) do
+    waf = get_nested_value(attributes, "waf") || %{}
+    client_ip = get_nested_value(waf, "client_ip")
+    rule_id = get_nested_value(waf, "rule_id")
+    request_path = get_nested_value(waf, "request_path")
+    request_id = get_nested_value(waf, "request_id")
+
+    source =
+      get_nested_value(waf, "source") || get_nested_value(attributes, "security.signal.source")
+
+    event
+    |> Map.put(:src_endpoint, OCSF.build_endpoint(ip: client_ip))
+    |> Map.put(:observables, waf_observables(client_ip, rule_id, request_path))
+    |> update_in([:metadata], &put_security_signal_metadata(&1, "waf", source, request_id))
+    |> update_in([:unmapped], &put_waf_unmapped(&1, waf))
+  end
+
+  defp waf_observables(client_ip, rule_id, request_path) do
+    []
+    |> maybe_add_observable(client_ip, &OCSF.ip_observable/1)
+    |> maybe_add_observable(rule_id, &OCSF.build_observable(&1, "WAF Rule ID", 99))
+    |> maybe_add_observable(request_path, &OCSF.build_observable(&1, "URL Path", 99))
+    |> Enum.reverse()
+  end
+
+  defp maybe_add_observable(observables, value, _builder) when value in [nil, ""], do: observables
+  defp maybe_add_observable(observables, value, builder), do: [builder.(value) | observables]
+
+  defp put_security_signal_metadata(metadata, kind, source, request_id) when is_map(metadata) do
+    signal =
+      %{
+        "kind" => kind,
+        "source" => source,
+        "request_id" => request_id
+      }
+      |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+      |> Map.new()
+
+    Map.put(metadata, :security_signal, signal)
+  end
+
+  defp put_security_signal_metadata(_, kind, source, request_id) do
+    put_security_signal_metadata(%{}, kind, source, request_id)
+  end
+
+  defp put_waf_unmapped(unmapped, waf) when is_map(unmapped), do: Map.put(unmapped, :waf, waf)
+  defp put_waf_unmapped(_, waf), do: %{waf: waf}
 
   defp maybe_create_alerts(promotions) do
     {created, attempted} =
@@ -322,6 +381,17 @@ defmodule ServiceRadar.Observability.LogPromotion do
   defp maybe_evaluate_stateful_rules([]), do: :ok
 
   defp maybe_evaluate_stateful_rules(events) do
+    case Task.start(fn -> evaluate_stateful_rules(events) end) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation task failed to start: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp evaluate_stateful_rules(events) do
     case StatefulAlertEngine.evaluate_events(events) do
       :ok ->
         :ok

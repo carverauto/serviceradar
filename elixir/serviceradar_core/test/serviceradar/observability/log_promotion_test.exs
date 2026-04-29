@@ -130,4 +130,81 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
     assert count == baseline + 1
   end
+
+  test "promotes WAF finding logs with structured security signal context" do
+    actor = %{id: "system", role: :admin}
+    message = "WAF critical rule 941100: XSS Attack Detected via libinjection /"
+    rule_name = "waf-finding-test-#{Ash.UUID.generate()}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: rule_name,
+          source_type: :log,
+          source: %{},
+          match: %{
+            "subject_prefix" => "logs.syslog",
+            "event_type" => "waf.finding"
+          },
+          event: %{
+            "log_name" => "security.waf.finding",
+            "log_provider" => "coraza-proxy-wasm",
+            "alert" => false
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    log = %{
+      id: Ash.UUID.generate(),
+      timestamp: DateTime.utc_now(),
+      severity_text: "CRITICAL",
+      severity_number: nil,
+      body: message,
+      service_name: "envoy-coraza-waf",
+      attributes: %{
+        "event_type" => "waf.finding",
+        "security.signal.source" => "coraza-proxy-wasm",
+        "waf" => %{
+          "client_ip" => "198.51.100.10",
+          "request_id" => "req-1",
+          "request_path" => "/",
+          "rule_id" => "941100",
+          "rule_message" => "XSS Attack Detected via libinjection",
+          "rule_severity" => "critical",
+          "source" => "coraza-proxy-wasm"
+        },
+        "serviceradar" => %{"ingest" => %{"subject" => "logs.syslog.processed"}}
+      },
+      resource_attributes: %{"service.name" => "envoy-coraza-waf"},
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+
+    assert %Result{rows: [[severity, metadata, observables, src_endpoint, unmapped]]} =
+             SQL.query!(
+               Repo,
+               """
+               SELECT severity, metadata, observables, src_endpoint, unmapped
+               FROM ocsf_events
+               WHERE log_name = $1 AND message = $2
+               ORDER BY time DESC
+               LIMIT 1
+               """,
+               ["security.waf.finding", message]
+             )
+
+    assert severity == "Critical"
+    assert metadata["security_signal"]["kind"] == "waf"
+    assert metadata["security_signal"]["source"] == "coraza-proxy-wasm"
+    assert metadata["security_signal"]["request_id"] == "req-1"
+    assert src_endpoint["ip"] == "198.51.100.10"
+    assert %{"name" => "198.51.100.10", "type" => "IP Address", "type_id" => 2} in observables
+    assert %{"name" => "941100", "type" => "WAF Rule ID", "type_id" => 99} in observables
+    assert unmapped["waf"]["rule_id"] == "941100"
+  end
 end
