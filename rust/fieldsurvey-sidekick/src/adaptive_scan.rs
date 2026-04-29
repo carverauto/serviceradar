@@ -383,7 +383,7 @@ mod tests {
             radio_id: "wlan1".to_string(),
             interface_name: "wlan1".to_string(),
             bssid: bssid.to_string(),
-            ssid: Some("freeman".to_string()),
+            ssid: Some("test-ssid".to_string()),
             hidden_ssid: false,
             frame_type: ManagementFrameType::Beacon,
             rssi_dbm: Some(rssi_dbm),

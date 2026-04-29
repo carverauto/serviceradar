@@ -1,7 +1,7 @@
 # Design: FieldSurvey Sidekick Bridge
 
 ## Context
-The existing FieldSurvey app already captures ARKit/RoomPlan geometry, maintains Wi-Fi heatmap samples, writes offline session snapshots, and encodes samples as Apache Arrow IPC to `/v1/stream/:session_id`. The backend already has `platform.survey_samples`, pgvector columns, an Ash `SurveySample` resource, and a Rust NIF decoder for the current Arrow schema.
+The existing FieldSurvey app already captures ARKit/RoomPlan geometry, maintains Wi-Fi heatmap samples, writes offline session snapshots, and encodes samples as Apache Arrow IPC to `/v1/stream/:session_id`. The backend already has `platform.survey_samples`, pgvector columns, and an Ash `SurveySample` resource for the legacy final-sample path. The raw RF/pose/spectrum path uses direct ADBC Arrow IPC ingest into typed Postgres tables instead of a Rust NIF decode/reinsert bridge.
 
 The missing piece is high-quality RF observation. The iPhone cannot scan all visible BSSIDs at survey cadence or enter monitor mode, so the Sidekick must collect RF data and hand observations to the phone for spatial fusion.
 

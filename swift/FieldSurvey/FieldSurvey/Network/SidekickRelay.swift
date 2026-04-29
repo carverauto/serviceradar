@@ -139,6 +139,7 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         authToken: String,
         sessionID: String,
         stream: FieldSurveyBackendStream,
+        metadata: FieldSurveySessionUploadMetadata? = nil,
         urlSession: URLSession? = nil
     ) {
         let trimmedBaseURL = baseURL
@@ -167,6 +168,7 @@ public final class FieldSurveyBackendArrowSink: @unchecked Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
         request.setValue("Bearer \(trimmedAuthToken)", forHTTPHeaderField: "Authorization")
+        FieldSurveyRoomArtifactUploader.applySessionMetadataHeaders(metadata, to: &request)
 
         let webSocketDelegate = FieldSurveyBackendWebSocketDelegate()
         let session = urlSession ?? URLSession(
@@ -303,7 +305,8 @@ public final class SidekickRelay: ObservableObject {
     public func start(
         sessionID: String,
         wifiScanner: RealWiFiScanner? = nil,
-        forwardToBackend: Bool = true
+        forwardToBackend: Bool = true,
+        metadata: FieldSurveySessionUploadMetadata? = nil
     ) {
         stop()
         relayGeneration += 1
@@ -345,7 +348,8 @@ public final class SidekickRelay: ObservableObject {
                 baseURL: settings.apiURL,
                 authToken: settings.authToken,
                 sessionID: sessionID,
-                stream: .rfObservations
+                stream: .rfObservations,
+                metadata: metadata
             ) else {
                 status = .failed("Invalid ServiceRadar RF ingest URL")
                 return
@@ -373,7 +377,39 @@ public final class SidekickRelay: ObservableObject {
             rfSink = nil
         }
 
-        let bootstrapTask = Task { [weak self, rfSink, generation] in
+        let spectrumSink: FieldSurveyBackendArrowSink?
+        if forwardToBackend, sidekickSpectrumEnabled {
+            spectrumSink = FieldSurveyBackendArrowSink(
+                baseURL: settings.apiURL,
+                authToken: settings.authToken,
+                sessionID: sessionID,
+                stream: .spectrumObservations,
+                metadata: metadata
+            )
+            if let spectrumSink {
+                sinks.append(spectrumSink)
+                Task { [weak self, spectrumSink, generation] in
+                    do {
+                        try await spectrumSink.connect()
+                        await MainActor.run {
+                            guard self?.isCurrentGeneration(generation) == true else { return }
+                            if self?.backendWarning?.hasPrefix("Backend upload") == true {
+                                self?.backendWarning = nil
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            guard self?.isCurrentGeneration(generation) == true else { return }
+                            self?.backendWarning = "Backend upload unavailable; recording locally: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+        } else {
+            spectrumSink = nil
+        }
+
+        let bootstrapTask = Task { [weak self, rfSink, spectrumSink, generation] in
             do {
                 let (sidekickClient, statusResponse) = try await Self.firstReachableSidekick(
                     baseURLs: sidekickBaseURLs,
@@ -413,6 +449,7 @@ public final class SidekickRelay: ObservableObject {
                     self?.startSpectrumRelay(
                         generation: generation,
                         sidekickClient: sidekickClient,
+                        backendSink: spectrumSink,
                         sidekickID: sidekickID
                     )
                 }
@@ -631,6 +668,7 @@ public final class SidekickRelay: ObservableObject {
     private func startSpectrumRelay(
         generation: Int,
         sidekickClient: SidekickClient,
+        backendSink: FieldSurveyBackendArrowSink?,
         sidekickID: String
     ) {
         let settings = SettingsManager.shared
@@ -645,11 +683,12 @@ public final class SidekickRelay: ObservableObject {
 
         let task = Task.detached(priority: .utility) { [weak self, sidekickClient] in
             var attempt = 0
+            let backendBackoff = BackendUploadBackoff(cooldownSeconds: 20)
 
             while !Task.isCancelled {
                 guard await MainActor.run(body: { self?.isCurrentGeneration(generation) == true }) else { return }
                 do {
-                    let stream = sidekickClient.spectrumSummaries(
+                    let stream = sidekickClient.spectrumMessages(
                         sidekickID: sidekickID,
                         sdrID: sdrID,
                         serialNumber: serialNumber,
@@ -660,13 +699,40 @@ public final class SidekickRelay: ObservableObject {
                         vgaGainDB: vgaGainDB
                     )
 
-                    for try await summary in stream {
+                    for try await message in stream {
                         try Task.checkCancellation()
                         attempt = 0
-                        await MainActor.run {
-                            guard self?.isCurrentGeneration(generation) == true else { return }
-                            self?.spectrumWarning = nil
-                            self?.recordSpectrumSummary(summary)
+                        switch message {
+                        case .summary(let summary):
+                            await MainActor.run {
+                                guard self?.isCurrentGeneration(generation) == true else { return }
+                                self?.spectrumWarning = nil
+                                self?.recordSpectrumSummary(summary)
+                            }
+                        case .batch(let batch):
+                            if let backendSink,
+                               await backendBackoff.claimSendSlot() {
+                                let payload = batch.payload
+                                Task.detached(priority: .utility) { [weak self, backendSink, backendBackoff] in
+                                    do {
+                                        try await backendSink.send(payload)
+                                        await backendBackoff.markSuccess()
+                                        await MainActor.run {
+                                            guard self?.isCurrentGeneration(generation) == true else { return }
+                                            self?.backendFrameCount += 1
+                                            if self?.backendWarning?.hasPrefix("Backend upload") == true {
+                                                self?.backendWarning = nil
+                                            }
+                                        }
+                                    } catch {
+                                        await backendBackoff.markFailure()
+                                        await MainActor.run {
+                                            guard self?.isCurrentGeneration(generation) == true else { return }
+                                            self?.backendWarning = "Backend upload unavailable; recording locally: \(error.localizedDescription)"
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 } catch is CancellationError {
@@ -783,8 +849,8 @@ public final class SidekickRelay: ObservableObject {
             channelScores: mergedSpectrumScores()
         )
         spectrumSummaries.append(summary)
-        if spectrumSummaries.count > 180 {
-            spectrumSummaries.removeFirst(spectrumSummaries.count - 180)
+        if spectrumSummaries.count > 96 {
+            spectrumSummaries.removeFirst(spectrumSummaries.count - 96)
         }
     }
 

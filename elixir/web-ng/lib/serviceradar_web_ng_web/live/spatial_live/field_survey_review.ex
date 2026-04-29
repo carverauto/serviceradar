@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
      |> assign(:page_title, "FieldSurvey Review")
      |> assign(:current_path, "/spatial/field-surveys")
      |> assign(:sessions, [])
+     |> assign(:floor_options, [])
+     |> assign(:selected_floor_key, "all")
      |> assign(:review, nil)
      |> assign(:selected_session_id, nil)
      |> assign(:overlay, "wifi")
@@ -30,8 +32,18 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   def handle_event("refresh", _params, socket) do
     params =
       case socket.assigns.selected_session_id do
-        nil -> %{}
-        session_id -> %{"session_id" => session_id}
+        nil -> %{"floor" => socket.assigns.selected_floor_key}
+        session_id -> %{"session_id" => session_id, "floor" => socket.assigns.selected_floor_key}
+      end
+
+    {:noreply, load_review(socket, params)}
+  end
+
+  def handle_event("floor_filter", %{"floor" => floor_key}, socket) do
+    params =
+      case socket.assigns.selected_session_id do
+        nil -> %{"floor" => floor_key}
+        session_id -> %{"session_id" => session_id, "floor" => floor_key}
       end
 
     {:noreply, load_review(socket, params)}
@@ -41,19 +53,33 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={%{page_path: @current_path}}>
-      <div class="mx-auto max-w-7xl p-6 space-y-5">
+      <div class="sr-fieldsurvey-review-page mx-auto max-w-7xl p-6 space-y-5">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <.header>
-            FieldSurvey Review
-            <:subtitle>
+          <div>
+            <h1 class="sr-spatial-title">FieldSurvey Review</h1>
+            <p class="sr-spatial-subtitle">
               Wi-Fi RSSI coverage, AP observations, walking path, and SDR interference from persisted survey rows.
-            </:subtitle>
-          </.header>
+            </p>
+          </div>
 
           <div class="flex flex-wrap items-center gap-2">
             <button class="btn btn-sm btn-outline" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </button>
+            <.link
+              :if={@selected_session_id}
+              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=svg"}
+              class="btn btn-sm btn-outline"
+            >
+              <.icon name="hero-photo" class="size-4" /> Export SVG
+            </.link>
+            <.link
+              :if={@selected_session_id}
+              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=json"}
+              class="btn btn-sm btn-outline"
+            >
+              <.icon name="hero-arrow-down-tray" class="size-4" /> Export JSON
+            </.link>
             <.link navigate={~p"/spatial"} class="btn btn-sm btn-ghost">
               <.icon name="hero-cube-transparent" class="size-4" /> 3D View
             </.link>
@@ -66,7 +92,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
         </div>
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_1fr]">
-          <.ui_panel body_class="p-0">
+          <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header" body_class="p-0">
             <:header>
               <div>
                 <div class="text-sm font-semibold">Survey Sessions</div>
@@ -74,16 +100,43 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               </div>
             </:header>
 
+            <div :if={length(@floor_options) > 1} class="border-b border-base-200 p-3">
+              <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+                Floor
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  :for={floor <- @floor_options}
+                  type="button"
+                  phx-click="floor_filter"
+                  phx-value-floor={floor.key}
+                  class={[
+                    "btn btn-xs",
+                    floor.key == @selected_floor_key && "btn-primary",
+                    floor.key != @selected_floor_key && "btn-outline"
+                  ]}
+                >
+                  {floor.label}
+                </button>
+              </div>
+            </div>
+
             <div class="divide-y divide-base-200">
               <.link
                 :for={session <- @sessions}
-                navigate={~p"/spatial/field-surveys/#{session.id}"}
+                navigate={field_survey_review_path(session.id, @selected_floor_key)}
                 class={[
                   "block px-4 py-3 transition hover:bg-base-200/60",
                   session.id == @selected_session_id && "bg-primary/10"
                 ]}
               >
                 <div class="truncate text-sm font-semibold">{session.id}</div>
+                <div
+                  :if={session[:metadata] && session.metadata[:label]}
+                  class="mt-1 truncate text-xs text-primary/80"
+                >
+                  {session.metadata.label}
+                </div>
                 <div class="mt-1 flex items-center justify-between text-xs text-base-content/60">
                   <span>{format_time(session.last_seen)}</span>
                   <span>{session.rf_count} RF</span>
@@ -102,7 +155,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           <div class="space-y-4">
             <.metric_strip :if={@review} metrics={@review.metrics} />
 
-            <.ui_panel :if={@review} body_class="p-0">
+            <.ui_panel
+              :if={@review}
+              class="sr-spatial-panel"
+              header_class="sr-spatial-panel-header"
+              body_class="p-0"
+            >
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Live Signal Map Review</div>
@@ -128,22 +186,23 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </div>
               </:header>
 
-              <div class="grid grid-cols-1 gap-0 xl:grid-cols-[1fr_20rem]">
-                <div class="relative min-h-[34rem] overflow-hidden bg-base-200/40">
-                  <div class="absolute inset-5 rounded border border-base-300 bg-base-100 shadow-inner">
-                    <div class="absolute inset-0 opacity-40 [background-image:linear-gradient(to_right,hsl(var(--bc)/0.12)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--bc)/0.12)_1px,transparent_1px)] [background-size:2rem_2rem]">
-                    </div>
+              <div class="sr-fieldsurvey-review-map-stack">
+                <div class="sr-fieldsurvey-review-map-shell" style={review_map_shell_style(@review)}>
+                  <div class="sr-fieldsurvey-review-map">
+                    <div class="sr-fieldsurvey-review-grid"></div>
 
-                    <span
-                      :for={cell <- coverage_cells(@review, @overlay)}
-                      class="absolute rounded-full pointer-events-none"
-                      style={coverage_cell_style(cell, @overlay)}
-                    >
-                    </span>
+                    <div class={["sr-fieldsurvey-review-coverage", "overlay-#{@overlay}"]}>
+                      <span
+                        :for={cell <- coverage_cells(@review, @overlay)}
+                        class="sr-fieldsurvey-review-coverage-cell"
+                        style={coverage_cell_style(cell, @overlay)}
+                      >
+                      </span>
+                    </div>
 
                     <svg
                       :if={@review.floorplan_segments != []}
-                      class="absolute inset-0 h-full w-full pointer-events-none"
+                      class="sr-fieldsurvey-review-floorplan"
                       viewBox="0 0 100 100"
                       preserveAspectRatio="none"
                       aria-hidden="true"
@@ -160,7 +219,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
                     <span
                       :for={point <- @review.path_points}
-                      class="absolute size-1 rounded-full bg-base-content/30"
+                      class="sr-fieldsurvey-review-path-point"
                       style={path_style(point)}
                     >
                     </span>
@@ -175,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
                     <span
                       :for={ap <- ap_markers(@review)}
-                      class="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-sky-200/90 bg-base-100/95 px-2 py-1 text-[0.65rem] font-semibold text-sky-100 shadow-lg"
+                      class="sr-fieldsurvey-review-ap-marker"
                       title={ap_marker_title(ap)}
                       style={ap_marker_style(ap)}
                     >
@@ -185,16 +244,15 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                   </div>
                 </div>
 
-                <div class="border-t border-base-200 p-4 xl:border-l xl:border-t-0">
+                <div class="sr-fieldsurvey-review-map-details">
                   <.map_legend overlay={@overlay} />
-                  <div class="divider my-4"></div>
                   <.channel_scores scores={@review.channel_scores} />
                 </div>
               </div>
             </.ui_panel>
 
             <div :if={@review} class="grid grid-cols-1 gap-4 xl:grid-cols-3">
-              <.ui_panel>
+              <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
                 <:header>
                   <div class="text-sm font-semibold">Room Artifacts</div>
                 </:header>
@@ -225,13 +283,13 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </div>
               </.ui_panel>
 
-              <.ui_panel>
+              <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
                 <:header>
                   <div class="text-sm font-semibold">Observed APs</div>
                 </:header>
                 <div class="space-y-2">
                   <div
-                    :for={ap <- Enum.take(@review.ap_summaries, 12)}
+                    :for={ap <- observed_ap_summaries(@review)}
                     class="rounded border border-base-200 px-3 py-2"
                   >
                     <div class="flex items-start justify-between gap-3">
@@ -270,7 +328,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 </div>
               </.ui_panel>
 
-              <.ui_panel>
+              <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
                 <:header>
                   <div class="text-sm font-semibold">Spectrum Summary</div>
                 </:header>
@@ -286,14 +344,20 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     label="Waterfall"
                     value={"#{@review.metrics.waterfall_row_count}x#{@review.metrics.waterfall_bin_count}"}
                   />
+                  <.summary_cell label="Interferers" value={@review.metrics.interferer_count} />
                   <.summary_cell label="Pose Rows" value={@review.metrics.pose_count} />
                 </div>
+                <.interferer_classifications classifications={@review.interferer_classifications} />
               </.ui_panel>
             </div>
 
             <.spectrum_waterfall :if={@review} waterfall={@review.spectrum_waterfall} />
 
-            <.ui_panel :if={!@review && @sessions != []}>
+            <.ui_panel
+              :if={!@review && @sessions != []}
+              class="sr-spatial-panel"
+              header_class="sr-spatial-panel-header"
+            >
               <div class="py-10 text-center text-sm text-base-content/60">
                 Select a survey session to review captured Wi-Fi and spectrum data.
               </div>
@@ -333,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp summary_cell(assigns) do
     ~H"""
-    <div class="rounded border border-base-200 bg-base-100 px-3 py-2">
+    <div class="sr-fieldsurvey-review-summary-cell rounded border px-3 py-2">
       <div class="text-xs uppercase text-base-content/50">{@label}</div>
       <div class="mt-1 text-xl font-semibold">{@value}</div>
     </div>
@@ -388,23 +452,76 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     """
   end
 
+  attr :classifications, :list, required: true
+
+  defp interferer_classifications(assigns) do
+    assigns = assign(assigns, :classifications, Enum.take(assigns.classifications, 4))
+
+    ~H"""
+    <div class="mt-4 border-t border-base-200 pt-3">
+      <div class="text-sm font-semibold">Interferer Classification</div>
+      <div class="mt-3 space-y-2">
+        <div
+          :for={classification <- @classifications}
+          class="rounded border border-base-200 px-3 py-2 text-xs"
+          title={classification.description}
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="font-semibold">{classification.label}</div>
+            <div class={["font-mono", interferer_severity_class(classification.severity)]}>
+              {classification.severity}%
+            </div>
+          </div>
+          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-base-content/60">
+            <span>{classification.event_count} events</span>
+            <span>peak {format_number(classification.peak_power_dbm)} dBm</span>
+            <span>@ {format_number(classification.peak_frequency_mhz)} MHz</span>
+          </div>
+        </div>
+        <div :if={@classifications == []} class="text-xs text-base-content/60">
+          No coarse interferers classified yet.
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   defp load_review(socket, params) do
     scope = socket.assigns.current_scope
     requested_id = params["session_id"]
+    requested_floor_key = params["floor"] || "all"
 
     case FieldSurveyReview.list_sessions(scope, limit: 300) do
       {:ok, sessions} ->
-        selected_id = requested_id || List.first(sessions, %{})[:id]
+        floor_options = floor_options_for_sessions(sessions)
+        selected_floor_key = normalize_floor_key(requested_floor_key, floor_options)
+        visible_sessions = filter_sessions_by_floor(sessions, selected_floor_key)
+
+        selected_id =
+          if Enum.any?(visible_sessions, &(&1.id == requested_id)) do
+            requested_id
+          else
+            List.first(visible_sessions, %{})[:id]
+          end
 
         case selected_id do
           nil ->
-            assign(socket, sessions: sessions, selected_session_id: nil, review: nil, error: nil)
+            assign(socket,
+              sessions: visible_sessions,
+              floor_options: floor_options,
+              selected_floor_key: selected_floor_key,
+              selected_session_id: nil,
+              review: nil,
+              error: nil
+            )
 
           session_id ->
             case FieldSurveyReview.get_review(scope, session_id) do
               {:ok, review} ->
                 assign(socket,
-                  sessions: sessions,
+                  sessions: visible_sessions,
+                  floor_options: floor_options,
+                  selected_floor_key: selected_floor_key,
                   selected_session_id: session_id,
                   review: review,
                   error: nil
@@ -412,7 +529,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
               {:error, error} ->
                 assign(socket,
-                  sessions: sessions,
+                  sessions: visible_sessions,
+                  floor_options: floor_options,
+                  selected_floor_key: selected_floor_key,
                   selected_session_id: session_id,
                   review: nil,
                   error: "Could not load FieldSurvey review: #{inspect(error)}"
@@ -423,6 +542,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       {:error, error} ->
         assign(socket,
           sessions: [],
+          floor_options: [],
+          selected_floor_key: "all",
           selected_session_id: nil,
           review: nil,
           error: "Could not load sessions: #{inspect(error)}"
@@ -431,7 +552,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   end
 
   defp map_points(review, "interference"), do: review.interference_points
-  defp map_points(review, _overlay), do: review.wifi_points
+  defp map_points(_review, _overlay), do: []
 
   defp coverage_cells(review, "wifi"), do: Map.get(review, :wifi_raster, [])
   defp coverage_cells(review, "interference"), do: Map.get(review, :interference_raster, [])
@@ -439,25 +560,164 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp ap_markers(review) do
     review.ap_summaries
-    |> Enum.filter(&(number?(Map.get(&1, :x_pct)) and number?(Map.get(&1, :z_pct))))
-    |> Enum.take(16)
+    |> Enum.filter(&valid_ap_marker?/1)
+    |> Enum.sort_by(fn ap -> {ap.confidence || 0.0, ap.count || 0, ap.strongest_rssi || -120} end, :desc)
+    |> clustered_ap_markers()
+    |> Enum.take(6)
   end
 
-  defp coverage_cell_style(cell, "interference") do
-    diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
-    color = interference_color(cell.score || 0)
-    opacity = 0.12 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.48
+  defp observed_ap_summaries(review) do
+    review.ap_summaries
+    |> Enum.reject(&invalid_bssid?(Map.get(&1, :bssid)))
+    |> Enum.take(12)
+  end
 
-    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 50%, transparent 78%); opacity: #{Float.round(opacity, 3)}; filter: blur(3px);"
+  defp floor_options_for_sessions(sessions) do
+    floor_options =
+      sessions
+      |> Enum.map(&floor_option_for_session/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq_by(& &1.key)
+      |> Enum.sort_by(& &1.sort)
+
+    if floor_options == [] do
+      []
+    else
+      [%{key: "all", label: "All", sort: {-9_999, "All"}} | floor_options]
+    end
+  end
+
+  defp floor_option_for_session(%{metadata: metadata}) when is_map(metadata) do
+    floor_id = metadata[:floor_id] || metadata["floor_id"]
+    floor_name = metadata[:floor_name] || metadata["floor_name"]
+    floor_index = metadata[:floor_index] || metadata["floor_index"]
+
+    cond do
+      nonempty_string?(floor_id) ->
+        %{
+          key: "floor_id:#{floor_id}",
+          label: floor_label(floor_name, floor_index),
+          sort: floor_sort(floor_index, floor_name)
+        }
+
+      is_integer(floor_index) ->
+        %{
+          key: "floor_index:#{floor_index}",
+          label: floor_label(floor_name, floor_index),
+          sort: floor_sort(floor_index, floor_name)
+        }
+
+      nonempty_string?(floor_name) ->
+        %{key: "floor_name:#{floor_name}", label: floor_name, sort: floor_sort(nil, floor_name)}
+
+      true ->
+        nil
+    end
+  end
+
+  defp floor_option_for_session(_session), do: nil
+
+  defp normalize_floor_key(floor_key, floor_options) when is_binary(floor_key) do
+    if Enum.any?(floor_options, &(&1.key == floor_key)), do: floor_key, else: "all"
+  end
+
+  defp normalize_floor_key(_floor_key, _floor_options), do: "all"
+
+  defp filter_sessions_by_floor(sessions, "all"), do: sessions
+
+  defp filter_sessions_by_floor(sessions, floor_key) do
+    Enum.filter(sessions, &(floor_option_for_session(&1)[:key] == floor_key))
+  end
+
+  defp field_survey_review_path(session_id, "all"), do: ~p"/spatial/field-surveys/#{session_id}"
+
+  defp field_survey_review_path(session_id, floor_key) do
+    query = URI.encode_query(%{"floor" => floor_key})
+    "#{~p"/spatial/field-surveys/#{session_id}"}?#{query}"
+  end
+
+  defp floor_label(floor_name, _floor_index) when is_binary(floor_name) and floor_name != "", do: floor_name
+  defp floor_label(_floor_name, floor_index) when is_integer(floor_index), do: "Floor #{floor_index}"
+  defp floor_label(_floor_name, _floor_index), do: "Floor"
+
+  defp floor_sort(floor_index, floor_name) when is_integer(floor_index), do: {floor_index, floor_name || ""}
+  defp floor_sort(_floor_index, floor_name), do: {9_999, floor_name || ""}
+
+  defp nonempty_string?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp valid_ap_marker?(ap) do
+    number?(Map.get(ap, :x_pct)) and
+      number?(Map.get(ap, :z_pct)) and
+      number?(Map.get(ap, :x)) and
+      number?(Map.get(ap, :z)) and
+      not invalid_bssid?(Map.get(ap, :bssid)) and
+      (Map.get(ap, :confidence) || 0.0) >= 0.78 and
+      (Map.get(ap, :positioned_count) || 0) >= 20
+  end
+
+  defp clustered_ap_markers(ap_summaries) do
+    Enum.reduce(ap_summaries, [], fn ap, selected ->
+      if Enum.any?(selected, &same_ap_candidate?(&1, ap)) do
+        selected
+      else
+        selected ++ [ap]
+      end
+    end)
+  end
+
+  defp same_ap_candidate?(left, right) do
+    distance =
+      :math.sqrt(
+        :math.pow((Map.get(left, :x) || 0.0) - (Map.get(right, :x) || 0.0), 2) +
+          :math.pow((Map.get(left, :z) || 0.0) - (Map.get(right, :z) || 0.0), 2)
+      )
+
+    same_radio_family?(Map.get(left, :bssid), Map.get(right, :bssid)) or distance <= 1.8
+  end
+
+  defp same_radio_family?(left, right) when is_binary(left) and is_binary(right) do
+    left_parts = left |> String.downcase() |> String.split(":")
+    right_parts = right |> String.downcase() |> String.split(":")
+
+    length(left_parts) == 6 and length(right_parts) == 6 and Enum.take(left_parts, 4) == Enum.take(right_parts, 4)
+  end
+
+  defp same_radio_family?(_left, _right), do: false
+
+  defp invalid_bssid?(bssid) when is_binary(bssid) do
+    normalized = String.downcase(String.trim(bssid))
+    normalized in ["", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"]
+  end
+
+  defp invalid_bssid?(_bssid), do: true
+
+  defp coverage_cell_style(cell, "interference") do
+    diameter = max((cell.radius_pct || 1.0) * 2.75, 2.7)
+    color = interference_color(cell.score || 0)
+    opacity = 0.14 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.42
+
+    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 58%, transparent 86%); opacity: #{Float.round(opacity, 3)};"
   end
 
   defp coverage_cell_style(cell, _overlay) do
-    diameter = max((cell.radius_pct || 1.0) * 2.4, 2.4)
+    diameter = max((cell.radius_pct || 1.0) * 3.0, 2.8)
     color = rssi_color(cell.rssi || -95)
-    opacity = 0.14 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.42
+    opacity = 0.16 + min(max(cell.confidence || 0.0, 0.0), 1.0) * 0.34
 
-    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 52%, transparent 78%); opacity: #{Float.round(opacity, 3)}; filter: blur(3px);"
+    "left: calc(#{cell.x_pct}% - #{diameter / 2}%); top: calc(#{cell.z_pct}% - #{diameter / 2}%); width: #{diameter}%; height: #{diameter}%; background: radial-gradient(circle, #{color} 0%, #{color} 62%, transparent 88%); opacity: #{Float.round(opacity, 3)};"
   end
+
+  defp review_map_shell_style(%{bounds: %{aspect_ratio: ratio}}) when is_number(ratio) do
+    ratio =
+      ratio
+      |> max(0.72)
+      |> min(3.4)
+      |> Float.round(3)
+
+    "aspect-ratio: #{ratio} / 1;"
+  end
+
+  defp review_map_shell_style(_review), do: nil
 
   defp point_style(point, "interference") do
     size = 18 + (point.score || 0) * 0.22
@@ -495,7 +755,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp spectrum_waterfall(assigns) do
     ~H"""
-    <.ui_panel>
+    <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header">
       <:header>
         <div>
           <div class="text-sm font-semibold">Spectrum Waterfall</div>
@@ -537,15 +797,15 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   end
 
   defp floorplan_line_style(%{kind: "door"}) do
-    "stroke: rgba(255,255,255,0.78); stroke-width: 0.32; stroke-dasharray: 1.4 0.9; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+    "stroke: rgba(248,253,255,0.96); stroke-width: 0.46; stroke-dasharray: 1.4 0.9; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp floorplan_line_style(%{kind: "window"}) do
-    "stroke: rgba(125,211,252,0.88); stroke-width: 0.26; stroke-dasharray: 0.9 0.7; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+    "stroke: rgba(94,214,255,0.96); stroke-width: 0.42; stroke-dasharray: 0.9 0.7; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp floorplan_line_style(_segment) do
-    "stroke: rgba(103,232,249,0.72); stroke-width: 0.36; stroke-linecap: round; vector-effect: non-scaling-stroke;"
+    "stroke: rgba(205,250,255,0.96); stroke-width: 0.52; stroke-linecap: round; vector-effect: non-scaling-stroke;"
   end
 
   defp point_title(point, "interference") do
@@ -588,6 +848,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp interference_color(score) when score >= 55, do: "#f97316"
   defp interference_color(score) when score >= 35, do: "#facc15"
   defp interference_color(_score), do: "#22c55e"
+
+  defp interferer_severity_class(severity) when is_number(severity) and severity >= 75, do: "text-error"
+  defp interferer_severity_class(severity) when is_number(severity) and severity >= 55, do: "text-warning"
+  defp interferer_severity_class(_severity), do: "text-success"
 
   defp waterfall_bins(waterfall) do
     waterfall.rows

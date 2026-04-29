@@ -278,6 +278,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/networks/bmp")
       },
       %{
+        label: "FieldSurvey",
+        navigate: ~p"/settings/networks/field-survey",
+        active: String.starts_with?(path, "/settings/networks/field-survey")
+      },
+      %{
         label: "MTR",
         navigate: ~p"/settings/networks/mtr",
         active: String.starts_with?(path, "/settings/networks/mtr")
@@ -332,6 +337,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp network_active?(path) do
     String.starts_with?(path, "/settings/flows") or
       String.starts_with?(path, "/settings/networks/bmp") or
+      String.starts_with?(path, "/settings/networks/field-survey") or
       String.starts_with?(path, "/settings/networks/mtr") or
       String.starts_with?(path, "/settings/networks/integrations") or
       String.starts_with?(path, "/settings/networks/threat-intel")
@@ -342,6 +348,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
        String.starts_with?(path, "/settings/snmp")) and
       not String.starts_with?(path, "/settings/networks/integrations") and
       not String.starts_with?(path, "/settings/networks/bmp") and
+      not String.starts_with?(path, "/settings/networks/field-survey") and
       not String.starts_with?(path, "/settings/networks/mtr") and
       not String.starts_with?(path, "/settings/networks/threat-intel") and
       not String.starts_with?(path, "/settings/flows")

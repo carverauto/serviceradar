@@ -125,6 +125,7 @@ mod devices;
 mod disk_metrics;
 mod downsample;
 mod events;
+mod field_survey;
 mod flows;
 mod gateways;
 mod graph_cypher;
@@ -211,6 +212,15 @@ impl QueryEngine {
                 }
                 Entity::Events => events::execute(&mut conn, &plan).await?,
                 Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
+                Entity::FieldSurveySessions
+                | Entity::FieldSurveyRasters
+                | Entity::FieldSurveyArtifacts
+                | Entity::FieldSurveyRfObservations
+                | Entity::FieldSurveyPoseSamples
+                | Entity::FieldSurveyRfPoseMatches
+                | Entity::FieldSurveySpectrumObservations => {
+                    field_survey::execute(&mut conn, &plan).await?
+                }
                 Entity::Flows => flows::execute(&mut conn, &plan).await?,
                 Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
@@ -732,6 +742,13 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
             Entity::Events => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::FieldSurveySessions
+            | Entity::FieldSurveyRasters
+            | Entity::FieldSurveyArtifacts
+            | Entity::FieldSurveyRfObservations
+            | Entity::FieldSurveyPoseSamples
+            | Entity::FieldSurveyRfPoseMatches
+            | Entity::FieldSurveySpectrumObservations => field_survey::to_sql_and_params(&plan)?,
             Entity::Flows => flows::to_sql_and_params(&plan)?,
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,

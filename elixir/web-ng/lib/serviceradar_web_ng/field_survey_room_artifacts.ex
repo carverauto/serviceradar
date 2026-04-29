@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.FieldSurveyRoomArtifacts do
 
   alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadarWebNG.FieldSurveyArtifactStore
+  alias ServiceRadarWebNG.FieldSurveyFloorplan
 
   require Ash.Changeset
 
@@ -33,6 +34,8 @@ defmodule ServiceRadarWebNG.FieldSurveyRoomArtifacts do
     byte_size = byte_size(payload)
     sha256 = FieldSurveyArtifactStore.sha256(payload)
 
+    metadata = FieldSurveyFloorplan.enrich_metadata(artifact_type, payload, Keyword.get(opts, :metadata, %{}))
+
     attrs = %{
       session_id: session_id,
       user_id: user_id,
@@ -42,7 +45,7 @@ defmodule ServiceRadarWebNG.FieldSurveyRoomArtifacts do
       byte_size: byte_size,
       sha256: sha256,
       captured_at: Keyword.get(opts, :captured_at),
-      metadata: Keyword.get(opts, :metadata, %{}),
+      metadata: metadata,
       uploaded_at: DateTime.truncate(DateTime.utc_now(), :microsecond)
     }
 

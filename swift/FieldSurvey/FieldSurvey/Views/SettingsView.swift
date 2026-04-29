@@ -160,6 +160,49 @@ public struct SettingsView: View {
                     .padding(.vertical, 8)
                 }
 
+                Section(header: Text("Survey Organization")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Site")
+                            .font(.headline)
+                        TextField("Site ID (optional)", text: $settingsManager.surveySiteID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Site name, e.g. ORD", text: $settingsManager.surveySiteName)
+                            .textInputAutocapitalization(.words)
+                    }
+                    .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Building / Floor")
+                            .font(.headline)
+                        TextField("Building ID (optional)", text: $settingsManager.surveyBuildingID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Building name, e.g. Terminal B", text: $settingsManager.surveyBuildingName)
+                            .textInputAutocapitalization(.words)
+                        TextField("Floor ID (optional)", text: $settingsManager.surveyFloorID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Floor name", text: $settingsManager.surveyFloorName)
+                            .textInputAutocapitalization(.words)
+                        TextField("Floor index", text: $settingsManager.surveyFloorIndex)
+                            .keyboardType(.numbersAndPunctuation)
+                    }
+                    .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Tags")
+                            .font(.headline)
+                        TextField("airport,ord,terminal-b", text: $settingsManager.surveyTags)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Text("Saved with new sessions and reused when retrying artifact uploads.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 8)
+                }
+
                 Section(header: Text("FieldSurvey Sidekick")) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Sidekick URL")

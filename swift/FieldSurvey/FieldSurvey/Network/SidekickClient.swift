@@ -507,6 +507,11 @@ public struct SidekickSpectrumBatch: Equatable {
     public let payload: Data
 }
 
+public enum SidekickSpectrumStreamMessage: Equatable {
+    case batch(SidekickSpectrumBatch)
+    case summary(SidekickSpectrumSummary)
+}
+
 public struct SidekickSpectrumSummary: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(sdrID)-\(sweepID)" }
 
@@ -546,6 +551,59 @@ public struct SidekickSpectrumSummary: Codable, Equatable, Identifiable, Sendabl
         case peakFrequencyHz = "peak_frequency_hz"
         case sweepRateHz = "sweep_rate_hz"
         case channelScores = "channel_scores"
+    }
+
+    public init(
+        sidekickID: String,
+        sdrID: String,
+        deviceKind: String,
+        serialNumber: String?,
+        sweepID: UInt64,
+        capturedAtUnixNanos: Int64,
+        startFrequencyHz: UInt64,
+        stopFrequencyHz: UInt64,
+        binWidthHz: Float,
+        sampleCount: UInt32,
+        averagePowerDBM: Float,
+        peakPowerDBM: Float,
+        peakFrequencyHz: UInt64,
+        sweepRateHz: Float?,
+        channelScores: [SidekickSpectrumChannelScore]
+    ) {
+        self.sidekickID = sidekickID
+        self.sdrID = sdrID
+        self.deviceKind = deviceKind
+        self.serialNumber = serialNumber
+        self.sweepID = sweepID
+        self.capturedAtUnixNanos = capturedAtUnixNanos
+        self.startFrequencyHz = startFrequencyHz
+        self.stopFrequencyHz = stopFrequencyHz
+        self.binWidthHz = binWidthHz
+        self.sampleCount = sampleCount
+        self.averagePowerDBM = averagePowerDBM
+        self.peakPowerDBM = peakPowerDBM
+        self.peakFrequencyHz = peakFrequencyHz
+        self.sweepRateHz = sweepRateHz
+        self.channelScores = channelScores
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sidekickID = try container.decode(String.self, forKey: .sidekickID)
+        self.sdrID = try container.decode(String.self, forKey: .sdrID)
+        self.deviceKind = try container.decode(String.self, forKey: .deviceKind)
+        self.serialNumber = try container.decodeIfPresent(String.self, forKey: .serialNumber)
+        self.sweepID = try container.decode(UInt64.self, forKey: .sweepID)
+        self.capturedAtUnixNanos = try container.decode(Int64.self, forKey: .capturedAtUnixNanos)
+        self.startFrequencyHz = try container.decode(UInt64.self, forKey: .startFrequencyHz)
+        self.stopFrequencyHz = try container.decode(UInt64.self, forKey: .stopFrequencyHz)
+        self.binWidthHz = try container.decode(Float.self, forKey: .binWidthHz)
+        self.sampleCount = try container.decode(UInt32.self, forKey: .sampleCount)
+        self.averagePowerDBM = try container.decode(Float.self, forKey: .averagePowerDBM)
+        self.peakPowerDBM = try container.decode(Float.self, forKey: .peakPowerDBM)
+        self.peakFrequencyHz = try container.decode(UInt64.self, forKey: .peakFrequencyHz)
+        self.sweepRateHz = try container.decodeIfPresent(Float.self, forKey: .sweepRateHz)
+        self.channelScores = try container.decodeIfPresent([SidekickSpectrumChannelScore].self, forKey: .channelScores) ?? []
     }
 }
 
@@ -772,6 +830,47 @@ public final class SidekickClient: @unchecked Sendable {
         }
     }
 
+    public func spectrumMessages(
+        sidekickID: String,
+        sdrID: String,
+        serialNumber: String? = nil,
+        frequencyMinMHz: Int = 5150,
+        frequencyMaxMHz: Int = 5900,
+        binWidthHz: Int = 1_000_000,
+        lnaGainDB: Int = 8,
+        vgaGainDB: Int = 8
+    ) -> AsyncThrowingStream<SidekickSpectrumStreamMessage, Error> {
+        AsyncThrowingStream { continuation in
+            guard let url = spectrumStreamURL(
+                sidekickID: sidekickID,
+                sdrID: sdrID,
+                serialNumber: serialNumber,
+                frequencyMinMHz: frequencyMinMHz,
+                frequencyMaxMHz: frequencyMaxMHz,
+                binWidthHz: binWidthHz,
+                lnaGainDB: lnaGainDB,
+                vgaGainDB: vgaGainDB
+            ) else {
+                continuation.finish(throwing: SidekickClientError.invalidStreamURL)
+                return
+            }
+
+            var request = URLRequest(url: url)
+            if !apiToken.isEmpty {
+                request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+            }
+
+            let task = session.webSocketTask(with: request)
+            task.resume()
+
+            receiveNextSpectrumMessage(task: task, sdrID: sdrID, continuation: continuation)
+
+            continuation.onTermination = { _ in
+                task.cancel(with: .normalClosure, reason: nil)
+            }
+        }
+    }
+
     public func spectrumSummaries(
         sidekickID: String,
         sdrID: String,
@@ -977,12 +1076,45 @@ public final class SidekickClient: @unchecked Sendable {
                     if try handleStreamControlText(text, continuation: continuation) {
                         return
                     }
+                    if (try? self.jsonDecoder.decode(SidekickSpectrumSummary.self, from: Data(text.utf8))) != nil {
+                        break
+                    }
                     throw SidekickClientError.sidekickStreamError(text)
                 @unknown default:
                     throw SidekickClientError.invalidWebSocketMessage
                 }
 
                 self.receiveNextSpectrumBatch(task: task, sdrID: sdrID, continuation: continuation)
+            } catch {
+                finishStream(continuation, error: error)
+            }
+        }
+    }
+
+    private func receiveNextSpectrumMessage(
+        task: URLSessionWebSocketTask,
+        sdrID: String,
+        continuation: AsyncThrowingStream<SidekickSpectrumStreamMessage, Error>.Continuation
+    ) {
+        task.receive { [weak self] result in
+            guard let self else { return }
+            do {
+                let message = try result.get()
+                switch message {
+                case .data(let messageData):
+                    continuation.yield(.batch(SidekickSpectrumBatch(sdrID: sdrID, payload: messageData)))
+                case .string(let text):
+                    let messageData = Data(text.utf8)
+                    if try handleStreamControlText(text, continuation: continuation) {
+                        return
+                    }
+                    let summary = try self.jsonDecoder.decode(SidekickSpectrumSummary.self, from: messageData)
+                    continuation.yield(.summary(summary))
+                @unknown default:
+                    throw SidekickClientError.invalidWebSocketMessage
+                }
+
+                self.receiveNextSpectrumMessage(task: task, sdrID: sdrID, continuation: continuation)
             } catch {
                 finishStream(continuation, error: error)
             }

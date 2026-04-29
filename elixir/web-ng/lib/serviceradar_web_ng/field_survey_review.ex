@@ -10,7 +10,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadar.Spatial.SurveyRfPoseMatch
   alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadar.Spatial.SurveySpectrumObservation
-  alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
+  alias ServiceRadarWebNG.FieldSurveyFloorplan
+  alias ServiceRadarWebNG.FieldSurveySessionMetadata
 
   require Ash.Query
   require Logger
@@ -24,6 +25,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @default_raster_cell_size_m 0.42
   @default_waterfall_rows 80
   @default_waterfall_bins 96
+  @wifi_temporal_bucket_nanos 1_000_000_000
+  @spectrum_temporal_bucket_nanos 2_000_000_000
+  @wifi_outlier_floor_db 12.0
+  @interference_outlier_floor_score 28.0
   @max_raster_cells 1_400
 
   @type session_summary :: %{
@@ -47,7 +52,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           path_points: [map()],
           floorplan_segments: [map()],
           ap_summaries: [map()],
-          channel_scores: [map()]
+          channel_scores: [map()],
+          interferer_classifications: [map()]
         }
 
   @spec list_sessions(any(), keyword()) :: {:ok, [session_summary()]} | {:error, any()}
@@ -56,7 +62,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, rf_rows} <- read_rf_rows(scope, limit),
          {:ok, spectrum_rows} <- read_spectrum_rows(scope, limit) do
-      {:ok, build_session_summaries(rf_rows, spectrum_rows)}
+      {:ok, merge_session_metadata(scope, build_session_summaries(rf_rows, spectrum_rows))}
     end
   end
 
@@ -100,11 +106,16 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
           interference_raster: interference_raster
         )
 
-      if wifi_raster_source == :persisted and interference_raster_source == :persisted do
-        {:ok, review}
-      else
-        {:ok, maybe_persist_coverage_rasters(scope, review)}
-      end
+      display_base_review =
+        if wifi_raster_source == :persisted and interference_raster_source == :persisted do
+          review
+        else
+          maybe_persist_coverage_rasters(scope, review)
+        end
+
+      display_review = orient_review_projection(display_base_review)
+
+      {:ok, display_review}
     end
   end
 
@@ -135,7 +146,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         )
 
       case persist_coverage_rasters(scope, review) do
-        {:ok, _count} -> {:ok, review}
+        {:ok, _count} -> {:ok, orient_review_projection(review)}
         {:error, reason} -> {:error, reason}
       end
     end
@@ -157,7 +168,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, samples} <- spatial_samples(scope, limit: sample_limit),
          {:ok, artifacts} <- room_artifacts(scope, limit: artifact_limit) do
-      selected_session_id = latest_artifact_session_id(artifacts) || latest_sample_session_id(samples)
+      selected_session_id =
+        latest_floorplan_session_id(artifacts) || latest_artifact_session_id(artifacts) ||
+          latest_sample_session_id(samples)
+
       floorplan_segments = if selected_session_id, do: load_floorplan_segments(scope, selected_session_id), else: []
 
       {:ok,
@@ -166,8 +180,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
          samples: samples,
          artifacts: artifacts,
          floorplan_segments: floorplan_segments,
-         point_cloud_artifact: Enum.find(artifacts, &(&1.artifact_type == "point_cloud_ply")),
-         roomplan_artifact: Enum.find(artifacts, &(&1.artifact_type == "roomplan_usdz"))
+         point_cloud_artifact: artifact_for_session(artifacts, selected_session_id, "point_cloud_ply"),
+         roomplan_artifact: artifact_for_session(artifacts, selected_session_id, "roomplan_usdz")
        }}
     end
   end
@@ -206,7 +220,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @spec build_review(String.t(), list(), list(), list(), keyword()) :: review()
   def build_review(session_id, rf_matches, pose_samples, spectrum_rows, opts \\ []) do
     cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
-    floorplan_segments = Keyword.get(opts, :floorplan_segments, [])
+    floorplan_segments = opts |> Keyword.get(:floorplan_segments, []) |> FieldSurveyFloorplan.rectify_segments()
     room_artifacts = Keyword.get(opts, :room_artifacts, [])
     wifi_points = Keyword.get_lazy(opts, :wifi_points, fn -> build_wifi_points(rf_matches, cell_size_m) end)
     wifi_raster = Keyword.get(opts, :wifi_raster) || build_wifi_raster(rf_matches, floorplan_segments)
@@ -222,6 +236,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       Keyword.get(opts, :interference_raster) || build_interference_raster(interference_points, floorplan_segments)
 
     spectrum_waterfall = build_spectrum_waterfall(spectrum_rows)
+    interferer_classifications = build_interferer_classifications(spectrum_rows)
 
     ap_summaries = build_ap_summaries(rf_matches)
 
@@ -251,7 +266,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         waterfall_bin_count: Map.get(spectrum_waterfall, :bin_count, 0),
         floorplan_segment_count: length(floorplan_segments),
         ap_count: length(ap_summaries),
-        channel_count: length(channel_scores)
+        channel_count: length(channel_scores),
+        interferer_count: length(interferer_classifications)
       },
       bounds: bounds,
       wifi_points: project_points(wifi_points, bounds),
@@ -263,7 +279,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       floorplan_segments: project_floorplan_segments(floorplan_segments, bounds),
       room_artifacts: Enum.map(room_artifacts, &room_artifact_summary/1),
       ap_summaries: project_ap_summaries(ap_summaries, bounds),
-      channel_scores: channel_scores
+      channel_scores: channel_scores,
+      interferer_classifications: interferer_classifications
     }
   end
 
@@ -341,12 +358,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(session_id == ^session_id and artifact_type == "floorplan_geojson")
     |> Ash.Query.sort(uploaded_at: :desc)
-    |> Ash.Query.limit(1)
+    |> Ash.Query.limit(12)
     |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
     |> Page.unwrap()
     |> case do
-      {:ok, [artifact | _]} -> {:ok, artifact}
-      {:ok, []} -> {:ok, nil}
+      {:ok, artifacts} -> {:ok, Enum.find(artifacts, &cached_floorplan_artifact?/1)}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -653,11 +669,35 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp scope_user_id(%{user: %{id: id}}) when not is_nil(id), do: to_string(id)
   defp scope_user_id(_scope), do: "system"
 
+  defp latest_floorplan_session_id(artifacts) do
+    artifacts
+    |> Enum.find(&cached_floorplan_artifact_summary?/1)
+    |> case do
+      %{session_id: session_id} -> session_id
+      _artifact -> nil
+    end
+  end
+
   defp latest_artifact_session_id([artifact | _]), do: artifact.session_id
   defp latest_artifact_session_id([]), do: nil
 
   defp latest_sample_session_id([sample | _]), do: sample.session_id
   defp latest_sample_session_id([]), do: nil
+
+  defp artifact_for_session(artifacts, session_id, artifact_type) when is_binary(session_id) do
+    Enum.find(artifacts, &(&1.session_id == session_id and &1.artifact_type == artifact_type))
+  end
+
+  defp artifact_for_session(_artifacts, _session_id, _artifact_type), do: nil
+
+  defp cached_floorplan_artifact_summary?(%{artifact_type: "floorplan_geojson", metadata: metadata}) do
+    metadata
+    |> FieldSurveyFloorplan.segments_from_metadata()
+    |> Enum.reject(&zero_length_segment?/1)
+    |> Enum.any?()
+  end
+
+  defp cached_floorplan_artifact_summary?(_artifact), do: false
 
   defp build_session_summaries(rf_rows, spectrum_rows) do
     rf_sessions =
@@ -697,6 +737,21 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     %{id: session_id, first_seen: nil, last_seen: nil, rf_count: 0, spectrum_count: 0, ap_set: MapSet.new()}
   end
 
+  defp merge_session_metadata(scope, sessions) do
+    session_ids = Enum.map(sessions, & &1.id)
+
+    case FieldSurveySessionMetadata.for_sessions(scope, session_ids) do
+      {:ok, metadata_by_session} ->
+        Enum.map(sessions, fn session ->
+          Map.put(session, :metadata, Map.get(metadata_by_session, session.id))
+        end)
+
+      {:error, reason} ->
+        Logger.warning("FieldSurvey session metadata lookup failed: #{inspect(reason)}")
+        sessions
+    end
+  end
+
   defp bump(session, key), do: Map.update!(session, key, &(&1 + 1))
 
   defp put_ap(session, bssid) when is_binary(bssid) and bssid != "" do
@@ -725,42 +780,97 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp build_wifi_points(rf_matches, cell_size_m) do
     rf_matches
-    |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
-    |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), cell_size_m) end)
-    |> Enum.map(fn {_bucket, rows} -> summarize_wifi_bucket(rows) end)
+    |> wifi_observations(cell_size_m)
     |> Enum.sort_by(& &1.rssi, :desc)
   end
 
-  defp summarize_wifi_bucket(rows) do
-    count = length(rows)
-    strongest = Enum.max_by(rows, &field(&1, :rssi_dbm))
+  defp wifi_observations(rf_matches, cell_size_m) do
+    rf_matches
+    |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
+    |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), cell_size_m) end)
+    |> Enum.map(fn {_bucket, rows} -> summarize_wifi_bucket(rows) end)
+    |> Enum.reject(&is_nil/1)
+  end
 
-    %{
-      x: average(rows, :x),
-      y: average(rows, :y),
-      z: average(rows, :z),
-      rssi: average(rows, :rssi_dbm),
-      strongest_rssi: field(strongest, :rssi_dbm),
-      bssid: field(strongest, :bssid),
-      ssid: field(strongest, :ssid) || "Hidden",
-      count: count
-    }
+  defp summarize_wifi_bucket(rows) do
+    candidates =
+      rows
+      |> Enum.group_by(&(field(&1, :bssid) || "unknown"))
+      |> Enum.map(fn {_bssid, bssid_rows} -> summarize_wifi_bssid_bucket(bssid_rows) end)
+      |> Enum.reject(&is_nil/1)
+
+    case candidates do
+      [] ->
+        nil
+
+      [_ | _] ->
+        strongest = Enum.max_by(candidates, & &1.rssi)
+
+        %{
+          x: strongest.x,
+          y: strongest.y,
+          z: strongest.z,
+          rssi: strongest.rssi,
+          strongest_rssi: strongest.strongest_rssi,
+          bssid: strongest.bssid,
+          ssid: strongest.ssid,
+          count: Enum.sum(Enum.map(candidates, & &1.count))
+        }
+    end
+  end
+
+  defp summarize_wifi_bssid_bucket(rows) do
+    rows =
+      rows
+      |> temporal_average_wifi_rows()
+      |> reject_numeric_outliers(:rssi_dbm, @wifi_outlier_floor_db)
+
+    case rows do
+      [] ->
+        nil
+
+      [_ | _] ->
+        strongest = Enum.max_by(rows, &field(&1, :rssi_dbm))
+        count = Enum.sum(Enum.map(rows, &(field(&1, :count) || 1)))
+
+        %{
+          x: weighted_average(rows, :x, :count),
+          y: weighted_average(rows, :y, :count),
+          z: weighted_average(rows, :z, :count),
+          rssi: weighted_average(rows, :rssi_dbm, :count),
+          strongest_rssi: field(strongest, :strongest_rssi) || field(strongest, :rssi_dbm),
+          bssid: field(strongest, :bssid),
+          ssid: field(strongest, :ssid) || "Hidden",
+          count: count
+        }
+    end
+  end
+
+  defp temporal_average_wifi_rows(rows) do
+    rows
+    |> Enum.with_index()
+    |> Enum.group_by(fn {row, index} ->
+      temporal_bucket_key(row, :captured_at_unix_nanos, index, @wifi_temporal_bucket_nanos)
+    end)
+    |> Enum.map(fn {_bucket, indexed_rows} ->
+      bucket_rows = Enum.map(indexed_rows, &elem(&1, 0))
+      strongest = Enum.max_by(bucket_rows, &field(&1, :rssi_dbm))
+
+      %{
+        x: average(bucket_rows, :x),
+        y: average(bucket_rows, :y),
+        z: average(bucket_rows, :z),
+        rssi_dbm: average(bucket_rows, :rssi_dbm),
+        strongest_rssi: field(strongest, :rssi_dbm),
+        bssid: field(strongest, :bssid),
+        ssid: field(strongest, :ssid),
+        count: length(bucket_rows)
+      }
+    end)
   end
 
   defp build_wifi_raster(rf_matches, floorplan_segments) do
-    observations =
-      rf_matches
-      |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z)) and number?(field(&1, :rssi_dbm))))
-      |> Enum.group_by(fn row -> bucket_key(field(row, :x), field(row, :z), @default_raster_cell_size_m) end)
-      |> Enum.map(fn {_bucket, rows} ->
-        %{
-          x: average(rows, :x),
-          y: average(rows, :y) || 0.0,
-          z: average(rows, :z),
-          rssi: average(rows, :rssi_dbm),
-          count: length(rows)
-        }
-      end)
+    observations = wifi_observations(rf_matches, @default_raster_cell_size_m)
 
     with [_ | _] <- observations,
          %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} <- raster_bounds(observations, floorplan_segments) do
@@ -909,11 +1019,18 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         average_power_dbm: summary.average_power_dbm,
         peak_power_dbm: summary.peak_power_dbm,
         peak_frequency_mhz: summary.peak_frequency_mhz,
+        captured_at_unix_nanos: field(row, :captured_at_unix_nanos),
         count: 1
       }
     end)
     |> Enum.group_by(fn point -> bucket_key(point.x, point.z, cell_size_m) end)
-    |> Enum.map(fn {_bucket, points} -> summarize_interference_bucket(points) end)
+    |> Enum.map(fn {_bucket, points} ->
+      points
+      |> temporal_average_interference_points()
+      |> reject_numeric_outliers(:score, @interference_outlier_floor_score)
+      |> summarize_interference_bucket()
+    end)
+    |> Enum.reject(&is_nil/1)
     |> Enum.sort_by(& &1.score, :desc)
   end
 
@@ -988,18 +1105,48 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp summarize_interference_bucket(points) do
-    peak = Enum.max_by(points, & &1.peak_power_dbm)
+    case points do
+      [] ->
+        nil
 
-    %{
-      x: average_maps(points, :x),
-      y: average_maps(points, :y),
-      z: average_maps(points, :z),
-      score: average_maps(points, :score),
-      average_power_dbm: average_maps(points, :average_power_dbm),
-      peak_power_dbm: peak.peak_power_dbm,
-      peak_frequency_mhz: peak.peak_frequency_mhz,
-      count: length(points)
-    }
+      [_ | _] ->
+        peak = Enum.max_by(points, & &1.peak_power_dbm)
+
+        %{
+          x: weighted_average_maps(points, :x, :count),
+          y: weighted_average_maps(points, :y, :count),
+          z: weighted_average_maps(points, :z, :count),
+          score: weighted_average_maps(points, :score, :count),
+          average_power_dbm: weighted_average_maps(points, :average_power_dbm, :count),
+          peak_power_dbm: peak.peak_power_dbm,
+          peak_frequency_mhz: peak.peak_frequency_mhz,
+          count: Enum.sum(Enum.map(points, &(Map.get(&1, :count) || 1)))
+        }
+    end
+  end
+
+  defp temporal_average_interference_points(points) do
+    points
+    |> Enum.with_index()
+    |> Enum.group_by(fn {point, index} ->
+      temporal_bucket_key(point, :captured_at_unix_nanos, index, @spectrum_temporal_bucket_nanos)
+    end)
+    |> Enum.map(fn {_bucket, indexed_points} ->
+      bucket_points = Enum.map(indexed_points, &elem(&1, 0))
+      peak = Enum.max_by(bucket_points, & &1.peak_power_dbm)
+
+      %{
+        x: average_maps(bucket_points, :x),
+        y: average_maps(bucket_points, :y),
+        z: average_maps(bucket_points, :z),
+        score: average_maps(bucket_points, :score),
+        average_power_dbm: average_maps(bucket_points, :average_power_dbm),
+        peak_power_dbm: peak.peak_power_dbm,
+        peak_frequency_mhz: peak.peak_frequency_mhz,
+        captured_at_unix_nanos: Map.get(peak, :captured_at_unix_nanos),
+        count: length(bucket_points)
+      }
+    end)
   end
 
   defp build_channel_scores(spectrum_rows, rf_matches) do
@@ -1070,6 +1217,105 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       max_power_dbm: rows |> Enum.flat_map(& &1.bins) |> Enum.map(& &1.power_dbm) |> Enum.max(fn -> nil end)
     }
   end
+
+  defp build_interferer_classifications(spectrum_rows) do
+    spectrum_rows
+    |> Enum.map(&classify_spectrum_row/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(& &1.kind)
+    |> Enum.map(fn {kind, events} ->
+      peak = Enum.max_by(events, & &1.peak_power_dbm)
+
+      %{
+        kind: kind,
+        label: interferer_label(kind),
+        description: interferer_description(kind),
+        severity: events |> Enum.map(& &1.severity) |> Enum.max(fn -> 0 end),
+        event_count: length(events),
+        peak_power_dbm: peak.peak_power_dbm,
+        peak_frequency_mhz: peak.peak_frequency_mhz,
+        average_active_fraction: average_maps(events, :active_fraction),
+        average_excess_db: average_maps(events, :average_excess_db),
+        last_seen_unix_nanos: events |> Enum.map(& &1.captured_at_unix_nanos) |> Enum.max(fn -> nil end)
+      }
+    end)
+    |> Enum.sort_by(& &1.severity, :desc)
+  end
+
+  defp classify_spectrum_row(row) do
+    powers = field(row, :power_bins_dbm) || []
+
+    with [_ | _] <- powers,
+         baseline when is_number(baseline) <- percentile(powers, 0.5),
+         average_power when is_number(average_power) <- average_numbers(powers) do
+      peak_power = Enum.max(powers)
+      peak_index = Enum.find_index(powers, &(&1 == peak_power)) || 0
+      active_threshold = max(baseline + 8.0, -82.0)
+      active_bins = Enum.count(powers, &(&1 >= active_threshold))
+      active_fraction = active_bins / max(length(powers), 1)
+      peak_excess = peak_power - baseline
+      average_excess = average_power - baseline
+
+      kind =
+        cond do
+          active_fraction >= 0.35 and average_excess >= 5.0 ->
+            :broad_continuous_noise
+
+          active_fraction <= 0.10 and peak_excess >= 16.0 ->
+            :narrow_spike
+
+          active_fraction < 0.35 and peak_excess >= 10.0 ->
+            :bursty_activity
+
+          true ->
+            nil
+        end
+
+      if is_nil(kind) do
+        nil
+      else
+        %{
+          kind: kind,
+          severity: interferer_severity(kind, active_fraction, peak_excess, average_excess),
+          active_fraction: active_fraction,
+          average_excess_db: average_excess,
+          peak_power_dbm: peak_power,
+          baseline_power_dbm: baseline,
+          peak_frequency_mhz: peak_frequency_mhz(row, peak_index),
+          captured_at_unix_nanos: field(row, :captured_at_unix_nanos)
+        }
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp interferer_severity(:broad_continuous_noise, active_fraction, peak_excess, average_excess) do
+    normalize_interferer_severity(active_fraction * 70.0 + average_excess * 3.0 + peak_excess)
+  end
+
+  defp interferer_severity(:narrow_spike, active_fraction, peak_excess, _average_excess) do
+    normalize_interferer_severity(peak_excess * 3.8 + (1.0 - active_fraction) * 18.0)
+  end
+
+  defp interferer_severity(:bursty_activity, active_fraction, peak_excess, average_excess) do
+    normalize_interferer_severity(peak_excess * 2.7 + average_excess * 2.0 + active_fraction * 45.0)
+  end
+
+  defp normalize_interferer_severity(value), do: value |> min(100.0) |> max(0.0) |> round()
+
+  defp interferer_label(:broad_continuous_noise), do: "Broad continuous noise"
+  defp interferer_label(:narrow_spike), do: "Narrow spike"
+  defp interferer_label(:bursty_activity), do: "Bursty activity"
+
+  defp interferer_description(:broad_continuous_noise),
+    do: "Wide RF energy across many bins, consistent with a high noise floor or broadband interferer."
+
+  defp interferer_description(:narrow_spike),
+    do: "Strong energy concentrated into a small frequency slice, consistent with a narrowband interferer."
+
+  defp interferer_description(:bursty_activity),
+    do: "Intermittent elevated RF energy, consistent with bursty emitters such as Bluetooth or Zigbee-like traffic."
 
   defp waterfall_row(row) do
     powers = field(row, :power_bins_dbm) || []
@@ -1248,52 +1494,27 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp load_floorplan_segments(scope, session_id) do
-    with {:ok, artifact} when not is_nil(artifact) <- read_latest_floorplan_artifact(scope, session_id),
-         {:ok, payload} <- FieldSurveyRoomArtifacts.fetch(field(artifact, :object_key)),
-         {:ok, geojson} <- Jason.decode(payload) do
-      decode_floorplan_geojson(geojson)
-    else
-      {:ok, nil} -> []
-      _error -> []
+    case read_latest_floorplan_artifact(scope, session_id) do
+      {:ok, artifact} when not is_nil(artifact) ->
+        artifact
+        |> field(:metadata)
+        |> FieldSurveyFloorplan.segments_from_metadata()
+        |> Enum.reject(&zero_length_segment?/1)
+
+      {:ok, nil} ->
+        []
+
+      _error ->
+        []
     end
   end
 
-  defp decode_floorplan_geojson(%{"type" => "FeatureCollection", "features" => features}) when is_list(features) do
-    features
-    |> Enum.flat_map(&decode_floorplan_feature/1)
-    |> Enum.reject(&zero_length_segment?/1)
+  defp cached_floorplan_artifact?(artifact) do
+    artifact
+    |> field(:metadata)
+    |> FieldSurveyFloorplan.segments_from_metadata()
+    |> Enum.any?()
   end
-
-  defp decode_floorplan_geojson(_geojson), do: []
-
-  defp decode_floorplan_feature(%{
-         "geometry" => %{"type" => "LineString", "coordinates" => [start_coord, end_coord | _]},
-         "properties" => properties
-       }) do
-    with {:ok, start_x, start_z} <- decode_coordinate(start_coord),
-         {:ok, end_x, end_z} <- decode_coordinate(end_coord) do
-      [
-        %{
-          kind: normalize_floorplan_kind(Map.get(properties || %{}, "kind")),
-          start_x: start_x,
-          start_z: start_z,
-          end_x: end_x,
-          end_z: end_z,
-          height: number_or_nil(Map.get(properties || %{}, "height_m"))
-        }
-      ]
-    else
-      _error -> []
-    end
-  end
-
-  defp decode_floorplan_feature(_feature), do: []
-
-  defp decode_coordinate([x, z | _]) when is_number(x) and is_number(z), do: {:ok, x * 1.0, z * 1.0}
-  defp decode_coordinate(_coord), do: :error
-
-  defp normalize_floorplan_kind(kind) when kind in ["wall", "door", "window"], do: kind
-  defp normalize_floorplan_kind(_kind), do: "wall"
 
   defp zero_length_segment?(segment) do
     segment.start_x == segment.end_x and segment.start_z == segment.end_z
@@ -1459,6 +1680,170 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp distance_2d(x1, z1, x2, z2), do: :math.sqrt(:math.pow(x1 - x2, 2) + :math.pow(z1 - z2, 2))
 
+  defp orient_review_projection(review) do
+    angle = review_orientation_angle(review)
+
+    {oriented, bounds} =
+      review
+      |> rotated_review_projection(angle)
+      |> maybe_landscape_review_projection(review, angle)
+
+    project_oriented_review(oriented, bounds)
+  end
+
+  defp maybe_landscape_review_projection(
+         {oriented, %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} = bounds},
+         review,
+         angle
+       ) do
+    if max_x - min_x < max_z - min_z do
+      rotated_review_projection(review, angle + :math.pi() / 2.0)
+    else
+      {oriented, bounds}
+    end
+  end
+
+  defp rotated_review_projection(review, angle) do
+    oriented = rotate_review(review, angle)
+
+    bounds =
+      bounds_for(
+        oriented.wifi_points,
+        oriented.wifi_raster,
+        oriented.interference_points,
+        oriented.interference_raster,
+        oriented.path_points,
+        oriented.floorplan_segments,
+        oriented.ap_summaries
+      )
+
+    {oriented, bounds}
+  end
+
+  defp project_oriented_review(review, bounds) do
+    %{
+      review
+      | bounds: bounds,
+        wifi_points: project_points(review.wifi_points, bounds),
+        wifi_raster: project_raster_cells(review.wifi_raster, bounds),
+        interference_points: project_points(review.interference_points, bounds),
+        interference_raster: project_raster_cells(review.interference_raster, bounds),
+        path_points: project_points(review.path_points, bounds),
+        floorplan_segments: project_floorplan_segments(review.floorplan_segments, bounds),
+        ap_summaries: project_ap_summaries(review.ap_summaries, bounds)
+    }
+  end
+
+  defp rotate_review(review, angle) do
+    %{
+      review
+      | wifi_points: Enum.map(review.wifi_points, &rotate_review_point(&1, angle)),
+        wifi_raster: Enum.map(review.wifi_raster, &rotate_review_point(&1, angle)),
+        interference_points: Enum.map(review.interference_points, &rotate_review_point(&1, angle)),
+        interference_raster: Enum.map(review.interference_raster, &rotate_review_point(&1, angle)),
+        path_points: Enum.map(review.path_points, &rotate_review_point(&1, angle)),
+        floorplan_segments: Enum.map(review.floorplan_segments, &rotate_review_segment(&1, angle)),
+        ap_summaries: Enum.map(review.ap_summaries, &rotate_review_ap(&1, angle))
+    }
+  end
+
+  defp review_orientation_angle(%{floorplan_segments: [_ | _] = segments}) do
+    primary_segments =
+      case Enum.filter(segments, &(&1.kind == "wall")) do
+        [] -> segments
+        walls -> walls
+      end
+
+    primary_segments
+    |> Enum.max_by(&review_segment_length/1, fn -> nil end)
+    |> case do
+      %{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z} ->
+        :math.atan2(end_z - start_z, end_x - start_x)
+
+      _ ->
+        0.0
+    end
+    |> normalize_review_angle()
+  end
+
+  defp review_orientation_angle(review) do
+    points =
+      (review.wifi_raster || []) ++
+        (review.wifi_points || []) ++
+        (review.path_points || [])
+
+    case Enum.filter(points, &(number?(Map.get(&1, :x)) and number?(Map.get(&1, :z)))) do
+      [_ | _] = positioned -> positioned_review_axis(positioned)
+      [] -> 0.0
+    end
+  end
+
+  defp positioned_review_axis(points) do
+    count = length(points)
+    mean_x = points |> Enum.map(& &1.x) |> Enum.sum() |> Kernel./(count)
+    mean_z = points |> Enum.map(& &1.z) |> Enum.sum() |> Kernel./(count)
+
+    {cov_xx, cov_zz, cov_xz} =
+      Enum.reduce(points, {0.0, 0.0, 0.0}, fn point, {xx, zz, xz} ->
+        dx = point.x - mean_x
+        dz = point.z - mean_z
+        {xx + dx * dx, zz + dz * dz, xz + dx * dz}
+      end)
+
+    normalize_review_angle(0.5 * :math.atan2(2.0 * cov_xz, cov_xx - cov_zz))
+  end
+
+  defp normalize_review_angle(angle) do
+    cond do
+      angle > :math.pi() / 2.0 -> angle - :math.pi()
+      angle < -:math.pi() / 2.0 -> angle + :math.pi()
+      true -> angle
+    end
+  end
+
+  defp rotate_review_point(%{x: x, z: z} = point, angle) when is_number(x) and is_number(z) do
+    cos = :math.cos(-angle)
+    sin = :math.sin(-angle)
+
+    point
+    |> Map.put(:x, x * cos - z * sin)
+    |> Map.put(:z, x * sin + z * cos)
+  end
+
+  defp rotate_review_point(point, _angle), do: point
+
+  defp rotate_review_ap(ap, angle) do
+    rotated = rotate_review_point(ap, angle)
+
+    rotated
+    |> rotate_nested_review_point(:strongest_observation, angle)
+    |> Map.update(:supporting_observations, [], fn observations ->
+      Enum.map(observations || [], &rotate_review_point(&1, angle))
+    end)
+  end
+
+  defp rotate_nested_review_point(ap, key, angle) do
+    Map.update(ap, key, nil, fn
+      value when is_map(value) -> rotate_review_point(value, angle)
+      value -> value
+    end)
+  end
+
+  defp rotate_review_segment(segment, angle) do
+    start = rotate_review_point(%{x: segment.start_x, z: segment.start_z}, angle)
+    finish = rotate_review_point(%{x: segment.end_x, z: segment.end_z}, angle)
+
+    segment
+    |> Map.put(:start_x, start.x)
+    |> Map.put(:start_z, start.z)
+    |> Map.put(:end_x, finish.x)
+    |> Map.put(:end_z, finish.z)
+  end
+
+  defp review_segment_length(%{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z}) do
+    distance_2d(start_x, start_z, end_x, end_z)
+  end
+
   defp bounds_for(
          wifi_points,
          wifi_raster,
@@ -1481,12 +1866,25 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     case {Enum.min(xs, fn -> nil end), Enum.max(xs, fn -> nil end), Enum.min(zs, fn -> nil end),
           Enum.max(zs, fn -> nil end)} do
       {nil, _, _, _} ->
-        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0}
+        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0, aspect_ratio: 1.0}
 
       {min_x, max_x, min_z, max_z} ->
         x_pad = max((max_x - min_x) * 0.12, 1.0)
         z_pad = max((max_z - min_z) * 0.12, 1.0)
-        %{min_x: min_x - x_pad, max_x: max_x + x_pad, min_z: min_z - z_pad, max_z: max_z + z_pad}
+        min_x = min_x - x_pad
+        max_x = max_x + x_pad
+        min_z = min_z - z_pad
+        max_z = max_z + z_pad
+        width = max(max_x - min_x, 0.01)
+        height = max(max_z - min_z, 0.01)
+
+        %{
+          min_x: min_x,
+          max_x: max_x,
+          min_z: min_z,
+          max_z: max_z,
+          aspect_ratio: width / height
+        }
     end
   end
 
@@ -1607,8 +2005,72 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp average(rows, field_name), do: rows |> Enum.map(&field(&1, field_name)) |> average_numbers()
   defp average_maps(rows, field_name), do: rows |> Enum.map(&Map.get(&1, field_name)) |> average_numbers()
 
-  defp number_or_nil(value) when is_number(value), do: value * 1.0
-  defp number_or_nil(_value), do: nil
+  defp weighted_average(rows, field_name, weight_field) do
+    rows
+    |> Enum.reduce({0.0, 0.0}, fn row, {value_acc, weight_acc} ->
+      value = field(row, field_name)
+      weight = max(number_or_default(field(row, weight_field), 1.0), 1.0)
+
+      if number?(value) do
+        {value_acc + value * weight, weight_acc + weight}
+      else
+        {value_acc, weight_acc}
+      end
+    end)
+    |> weighted_average_result()
+  end
+
+  defp weighted_average_maps(rows, field_name, weight_field) do
+    rows
+    |> Enum.reduce({0.0, 0.0}, fn row, {value_acc, weight_acc} ->
+      value = Map.get(row, field_name)
+      weight = max(number_or_default(Map.get(row, weight_field), 1.0), 1.0)
+
+      if number?(value) do
+        {value_acc + value * weight, weight_acc + weight}
+      else
+        {value_acc, weight_acc}
+      end
+    end)
+    |> weighted_average_result()
+  end
+
+  defp weighted_average_result({_value_acc, weight_acc}) when weight_acc <= 0.0, do: nil
+  defp weighted_average_result({value_acc, weight_acc}), do: value_acc / weight_acc
+
+  defp reject_numeric_outliers(rows, _field_name, _floor_threshold) when length(rows) < 4, do: rows
+
+  defp reject_numeric_outliers(rows, field_name, floor_threshold) do
+    values = Enum.map(rows, &field_or_map_value(&1, field_name))
+    median = percentile(values, 0.5)
+
+    if is_nil(median) do
+      rows
+    else
+      deviations =
+        values
+        |> Enum.filter(&number?/1)
+        |> Enum.map(&abs(&1 - median))
+
+      mad = percentile(deviations, 0.5) || 0.0
+      threshold = max(floor_threshold, mad * 4.0)
+
+      Enum.filter(rows, fn row ->
+        value = field_or_map_value(row, field_name)
+        not number?(value) or abs(value - median) <= threshold
+      end)
+    end
+  end
+
+  defp temporal_bucket_key(row, field_name, fallback_index, bucket_nanos) do
+    case field_or_map_value(row, field_name) do
+      timestamp when is_integer(timestamp) -> div(timestamp, bucket_nanos)
+      timestamp when is_float(timestamp) -> trunc(timestamp / bucket_nanos)
+      _ -> {:row, fallback_index}
+    end
+  end
+
+  defp field_or_map_value(row, field_name), do: field(row, field_name)
 
   defp average_numbers(values) do
     numbers = Enum.filter(values, &number?/1)

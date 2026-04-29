@@ -87,7 +87,12 @@ public struct SignalMapView: View {
             floorControls(floors: renderState.floors, activeIndex: renderState.activeFloorIndex)
             apControls(summaries: summaries, floorPointCount: renderState.floorPoints.count)
             if let summary = displaySpectrumSummary {
-                SpectrumAnalyzerMiniPanel(summary: summary, sweepCount: spectrumBatchCount, compact: false)
+                SpectrumAnalyzerMiniPanel(
+                    summary: summary,
+                    summaries: spectrumSummaries,
+                    sweepCount: spectrumBatchCount,
+                    compact: false
+                )
             }
 
             SignalMapCanvas(
@@ -1451,11 +1456,18 @@ private enum SpectrumColor {
 
 public struct SpectrumAnalyzerMiniPanel: View {
     let summary: SidekickSpectrumSummary
+    let summaries: [SidekickSpectrumSummary]
     let sweepCount: Int?
     let compact: Bool
 
-    public init(summary: SidekickSpectrumSummary, sweepCount: Int? = nil, compact: Bool = false) {
+    public init(
+        summary: SidekickSpectrumSummary,
+        summaries: [SidekickSpectrumSummary] = [],
+        sweepCount: Int? = nil,
+        compact: Bool = false
+    ) {
         self.summary = summary
+        self.summaries = summaries
         self.sweepCount = sweepCount
         self.compact = compact
     }
