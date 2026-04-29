@@ -52,6 +52,14 @@ Use this skill when iterating on `elixir/web-ng` FieldSurvey dashboard, spatial 
    playwright-cli --raw eval "JSON.stringify(Array.from(document.querySelectorAll('[data-testid=fieldsurvey-heatmap]')).map(el => { const r = el.getBoundingClientRect(); return {width:r.width, height:r.height, style:el.getAttribute('style'), floorplan:el.querySelectorAll('line').length, circles:el.querySelectorAll('circle').length, images:el.querySelectorAll('image').length}; }))"
    ```
 
+5. Run the repeatable smoke check for the dashboard card, settings preview, and FieldSurvey review page:
+
+   ```bash
+   .agents/skills/fieldsurvey-local-web-ng/scripts/field-survey-smoke.sh
+   ```
+
+   This saves screenshots under `.playwright-cli/` and fails if the dashboard card has no floorplan, the settings SRQL preview cannot resolve a persisted raster, or the review page does not load sessions.
+
 ## Notes
 
 - Prefer the CNPG NodePort over `kubectl port-forward` for Postgres. The port-forward is too fragile under web-ng startup connection churn.
