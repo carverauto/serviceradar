@@ -12,6 +12,12 @@ defmodule ServiceRadar.Observability.ZenRuleSupport do
   def valid_name?(name) when is_binary(name), do: Regex.match?(@name_regex, name)
   def valid_name?(_), do: false
 
+  def valid_template_name?(name) when is_atom(name),
+    do: name |> Atom.to_string() |> valid_template_name?()
+
+  def valid_template_name?(name) when is_binary(name), do: Regex.match?(@name_regex, name)
+  def valid_template_name?(_), do: false
+
   def valid_subject?(subject) when is_binary(subject) do
     subject in @allowed_subjects or String.starts_with?(subject, @internal_prefix)
   end

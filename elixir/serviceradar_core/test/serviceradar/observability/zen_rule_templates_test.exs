@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Observability.ZenRuleTemplates
 
@@ -60,4 +60,37 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
     assert Enum.any?(expressions, &(&1["key"] == "attributes.waf.rule_id"))
     assert Enum.any?(expressions, &(&1["key"] == "attributes.waf.client_ip"))
   end
+
+  test "templates can be loaded from configured external directories" do
+    template_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-zen-templates-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(template_dir)
+
+    template = %{
+      "nodes" => [
+        %{"id" => "inputNode", "type" => "inputNode"},
+        %{"id" => "outputNode", "type" => "outputNode"}
+      ],
+      "edges" => []
+    }
+
+    File.write!(Path.join(template_dir, "custom_waf.json"), Jason.encode!(template))
+
+    previous = System.get_env("SERVICERADAR_ZEN_RULE_TEMPLATE_DIRS")
+
+    try do
+      System.put_env("SERVICERADAR_ZEN_RULE_TEMPLATE_DIRS", template_dir)
+      assert {:ok, ^template} = ZenRuleTemplates.compile("custom_waf", %{})
+    after
+      restore_env("SERVICERADAR_ZEN_RULE_TEMPLATE_DIRS", previous)
+      File.rm_rf!(template_dir)
+    end
+  end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end

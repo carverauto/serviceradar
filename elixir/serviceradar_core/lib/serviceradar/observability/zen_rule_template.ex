@@ -23,13 +23,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
       {:order, :integer, [default: 100]},
       {:stream_name, :string, [allow_nil?: false, default: "events"]},
       {:subject, :string, [allow_nil?: false]},
-      {:template, :atom,
-       [
-         allow_nil?: false,
-         constraints: [
-           one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity, :coraza_waf]
-         ]
-       ]},
+      {:template, :string, [allow_nil?: false]},
       {:builder_config, :map, [default: %{}]},
       {:agent_id, :string, [allow_nil?: false, default: "default-agent"]}
     ],
