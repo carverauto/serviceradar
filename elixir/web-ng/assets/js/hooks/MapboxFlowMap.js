@@ -200,12 +200,16 @@ export default {
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue
 
       const label = String(d?.label || "")
-      const popup = label ? new mapboxgl.Popup({offset: 20}).setText(label) : null
+      const threatMatched = Boolean(d?.threat_matched)
+      const popup = label
+        ? new mapboxgl.Popup({offset: 20}).setHTML(this._markerPopupHtml(label, d))
+        : null
 
       const side =
         label.toLowerCase().startsWith("source") ? "source" : label.toLowerCase().startsWith("dest") ? "dest" : null
 
       const markerColor =
+        threatMatched ? "#F43F5E" :
         side === "source" ? "#00E676" :
         side === "dest" ? "#FF2A7A" :
         "#52525B"
@@ -254,6 +258,7 @@ export default {
     if (this._map.getSource(sourceId)) {
       try {
         this._map.getSource(sourceId).setData(line)
+        if (this._map.getLayer(layerId)) this._map.setPaintProperty(layerId, "line-color", this._flowLineColor())
       } catch (_e) {}
     } else {
       try {
@@ -263,13 +268,39 @@ export default {
           type: "line",
           source: sourceId,
           paint: {
-            "line-color": "#00D8FF",
+            "line-color": this._flowLineColor(),
             "line-width": 3,
             "line-opacity": 0.75,
           },
         })
       } catch (_e) {}
     }
+  },
+  _flowLineColor() {
+    const hasThreat = (Array.isArray(this._markerData) ? this._markerData : []).some((d) => Boolean(d?.threat_matched))
+    return hasThreat ? "#F43F5E" : "#00D8FF"
+  },
+  _markerPopupHtml(label, marker) {
+    const threatMatched = Boolean(marker?.threat_matched)
+    const matchCount = Number(marker?.threat_match_count || 0)
+    const severity = Number(marker?.threat_max_severity || 0)
+    const sources = Array.isArray(marker?.threat_sources) ? marker.threat_sources.filter(Boolean).slice(0, 4) : []
+    const threatRows = threatMatched
+      ? [
+          `<div><strong>AlienVault</strong>: ${matchCount.toLocaleString()} IOC match${matchCount === 1 ? "" : "es"}</div>`,
+          severity > 0 ? `<div><strong>Severity</strong>: ${severity.toLocaleString()}</div>` : "",
+          sources.length > 0 ? `<div><strong>Sources</strong>: ${sources.map(this._escapeHtml).join(", ")}</div>` : "",
+        ].join("")
+      : ""
+
+    return `<div class="text-xs"><div>${this._escapeHtml(label)}</div>${threatRows}</div>`
+  },
+  _escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
   },
   _fitToMarkers() {
     if (!this._map || !Array.isArray(this._markerData) || this._markerData.length === 0) return

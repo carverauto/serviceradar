@@ -14,9 +14,9 @@ const (
 	defaultBaseURL       = "https://otx.alienvault.com"
 	defaultLimit         = 100
 	defaultPage          = 1
-	defaultTimeoutMS     = 60000
-	defaultMaxIndicators = 2000
-	defaultMaxPages      = 100
+	defaultTimeoutMS     = 120000
+	defaultMaxIndicators = 5000
+	defaultMaxPages      = 500
 	maxLimit             = 100
 	maxIndicators        = 5000
 	maxPages             = 500
@@ -164,10 +164,34 @@ type ctiIndicator struct {
 func run_check() {
 	primeTinyGoJSON()
 
-	status, summary, details := runOTXCheck()
-	if err := submitPluginResult(status, summary, details); err != nil {
+	if err := runOTXCheckAndSubmit(); err != nil {
 		sdk.Log.Error("failed to submit OTX plugin result")
 	}
+}
+
+func runOTXCheckAndSubmit() error {
+	cfg := defaultConfig()
+	if err := sdk.LoadConfig(&cfg); err != nil {
+		return submitPluginResult(string(sdk.StatusUnknown), "OTX configuration could not be loaded", "")
+	}
+
+	cfg.applyDefaults()
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return submitPluginResult(string(sdk.StatusUnknown), "OTX API key is not configured", "")
+	}
+
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
+		return submitPluginResult(string(sdk.StatusOK), otxPageSummary(page), ctiPageDetailsJSON(page))
+	})
+	if err != nil {
+		return submitPluginResult(string(sdk.StatusCritical), sanitizeError(err), "")
+	}
+
+	if pages == 0 {
+		return submitPluginResult(string(sdk.StatusOK), "OTX export: 0 pages, 0 rows, 0 indicators, 0 skipped", "")
+	}
+
+	return nil
 }
 
 func runOTXCheck() (string, string, string) {
@@ -194,6 +218,82 @@ func runOTXCheck() (string, string, string) {
 		strconv.Itoa(page.Counts.Skipped) + " skipped"
 
 	return string(sdk.StatusOK), summary, details
+}
+
+type otxPageEmitter func(ctiPage) error
+
+func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) {
+	currentPage := cfg.Page
+	pagesFetched := 0
+	indicatorsEmitted := 0
+
+	for pagesFetched < cfg.MaxPages && indicatorsEmitted < cfg.MaxIndicators {
+		pageCfg := cfg
+		pageCfg.Page = currentPage
+		pageCfg.MaxIndicators = cfg.MaxIndicators - indicatorsEmitted
+
+		page, err := fetchSingleOTXExportPage(pageCfg)
+		if err != nil {
+			return pagesFetched, err
+		}
+
+		pagesFetched++
+		indicatorsEmitted += len(page.Indicators)
+
+		next := strings.TrimSpace(page.Cursor.Next)
+		nextPage := pageFromURL(next)
+		if nextPage <= currentPage {
+			nextPage = currentPage + 1
+		}
+
+		page.Cursor.StartPage = strconv.Itoa(cfg.Page)
+		page.Cursor.Limit = strconv.Itoa(cfg.Limit)
+		page.Cursor.MaxPages = strconv.Itoa(cfg.MaxPages)
+		page.Cursor.PagesFetched = strconv.Itoa(pagesFetched)
+		page.Cursor.LastPage = strconv.Itoa(currentPage)
+
+		switch {
+		case next == "":
+			page.Cursor.Complete = "true"
+		case pagesFetched >= cfg.MaxPages:
+			page.Cursor.Complete = "false"
+			page.Cursor.Next = next
+			page.Cursor.NextPage = strconv.Itoa(nextPage)
+			page.Counts.addSkipped("page_budget")
+		case indicatorsEmitted >= cfg.MaxIndicators:
+			page.Cursor.Complete = "false"
+			page.Cursor.Next = next
+			page.Cursor.NextPage = strconv.Itoa(nextPage)
+		default:
+			page.Cursor.Complete = "false"
+			page.Cursor.Next = next
+			page.Cursor.NextPage = strconv.Itoa(nextPage)
+		}
+
+		if err := emit(page); err != nil {
+			return pagesFetched, err
+		}
+
+		if next == "" || pagesFetched >= cfg.MaxPages || indicatorsEmitted >= cfg.MaxIndicators {
+			break
+		}
+
+		currentPage = nextPage
+	}
+
+	return pagesFetched, nil
+}
+
+func otxPageSummary(page ctiPage) string {
+	pages := page.Cursor.PagesFetched
+	if pages == "" {
+		pages = "1"
+	}
+
+	return "OTX export: " + pages + " pages, " +
+		strconv.Itoa(page.Counts.Objects) + " rows, " +
+		strconv.Itoa(page.Counts.Indicators) + " indicators, " +
+		strconv.Itoa(page.Counts.Skipped) + " skipped"
 }
 
 func fetchOTXExportPages(cfg Config) (ctiPage, error) {

@@ -34,7 +34,7 @@
 - [x] 4.7 Route edge plugin CTI pages through core validation, normalization, and indicator upsert.
 - [x] 4.8 Add UI affordances to assign the collector plugin to reachable agents with secret-reference OTX credentials.
 - [x] 4.9 Display per-agent sync health for threat-intel collector assignments.
-- [ ] 4.10 Page through OTX export results from a single assigned edge collector with bounded page, timeout, and indicator budgets to avoid duplicate API pressure.
+- [x] 4.10 Page through OTX export results from a single assigned edge collector with bounded page, timeout, and indicator budgets to avoid duplicate API pressure.
 
 ## 5. NetFlow Threat Matching
 - [x] 5.1 Reuse `NetflowSecurityRefreshWorker` for recent NetFlow matching.
@@ -60,6 +60,10 @@
 - [x] 7.5 Add operator visibility for OTX findings in NetFlow analysis and/or a dedicated threat-intel findings view.
 - [x] 7.7 Add operator visibility for imported OTX indicators and source-object metadata.
 - [x] 7.9 Add current NetFlow finding counts to the Threat Intel settings page.
+- [x] 7.10 Add a dashboard threat-intel summary for OTX sync health, imported indicator counts, and current NetFlow IOC matches.
+- [x] 7.11 Highlight AlienVault IOC-matched traffic in NetFlow map paths and flow-map details.
+- [x] 7.12 Consolidate OTX settings so enabling OTX also enables NetFlow IOC matching from the same screen.
+- [x] 7.13 Add an on-demand NetFlow IOC match action and production-sized OTX defaults for full-take batches.
 
 ## 8. Scheduling And Operations
 - [x] 8.1 Register core-hosted OTX sync jobs with Oban uniqueness settings.

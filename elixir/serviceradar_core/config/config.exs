@@ -50,7 +50,8 @@ config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
 config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
   reschedule_seconds: 86_400,
-  cache_ttl_seconds: 86_400
+  cache_ttl_seconds: 86_400,
+  threat_candidate_limit: 10_000
 
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker, []
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore, []

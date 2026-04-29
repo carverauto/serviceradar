@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.OTXRetrohuntFinding
   alias ServiceRadar.Observability.OTXRetrohuntRun
@@ -37,23 +38,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "limit" => "100",
     "page" => "1",
     "timeout_ms" => "120000",
-    "max_pages" => "100",
+    "max_pages" => "500",
     "max_indicators" => "5000"
   }
   @default_settings_form %{
     "otx_enabled" => "false",
+    "threat_intel_enabled" => "false",
     "otx_execution_mode" => "edge_plugin",
     "otx_base_url" => "https://otx.alienvault.com",
     "otx_api_key" => "",
     "clear_otx_api_key" => "false",
     "otx_sync_interval_seconds" => "21600",
-    "otx_page_size" => "10",
+    "otx_page_size" => "100",
     "otx_timeout_ms" => "120000",
-    "otx_max_indicators" => "2000",
+    "otx_max_indicators" => "5000",
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
     "otx_retrohunt_window_seconds" => "7776000",
-    "threat_intel_match_window_seconds" => "3600"
+    "threat_intel_match_window_seconds" => "86400"
   }
 
   @impl true
@@ -182,6 +184,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     end
   end
 
+  def handle_event("match_now", _params, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "plugins.assign") do
+      case NetflowSecurityRefreshWorker.enqueue_now() do
+        {:ok, _job} ->
+          {:noreply, put_flash(socket, :info, "NetFlow IOC match queued")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply, put_flash(socket, :error, "Job scheduler is unavailable")}
+
+        {:error, error} ->
+          Logger.warning("Threat intel NetFlow match enqueue failed", error: inspect(error))
+          {:noreply, put_flash(socket, :error, "Failed to queue NetFlow IOC match")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Not authorized")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -207,6 +227,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
               Plugin Registry
             </.link>
             <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-sm btn-outline" phx-click="match_now">
+                Match NetFlow Now
+              </button>
               <button type="button" class="btn btn-sm btn-outline" phx-click="retrohunt_now">
                 Retrohunt Now
               </button>
@@ -293,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <.status_count label="Objects" value={status.objects_count} />
                           <.status_count label="IOCs" value={status.indicators_count} />
                           <.status_count label="Skipped" value={status.skipped_count} />
-                          <.status_count label="Total" value={status.total_count} />
+                          <.status_count label="Provider Rows" value={status.total_count} />
                         </div>
                         <div
                           :if={skipped_by_type(status) != []}
@@ -317,7 +340,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
               </div>
 
               <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-                <div class="mb-3 text-sm font-semibold">Current NetFlow Findings</div>
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div class="text-sm font-semibold">Current NetFlow IOC Matches</div>
+                  <.ui_badge
+                    size="xs"
+                    variant={
+                      if threat_matching_enabled?(@otx_settings), do: "success", else: "warning"
+                    }
+                  >
+                    {if threat_matching_enabled?(@otx_settings),
+                      do: "matching enabled",
+                      else: "matching disabled"}
+                  </.ui_badge>
+                </div>
                 <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                   <.status_count label="Matched IPs" value={@netflow_findings.matched_ips} />
                   <.status_count label="IOC Hits" value={@netflow_findings.indicator_matches} />
@@ -334,7 +369,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 </div>
                 <%= if @netflow_findings.recent == [] do %>
                   <div class="mt-3 rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
-                    No current NetFlow IOC matches.
+                    No current NetFlow IOC matches in the refreshed cache.
                   </div>
                 <% else %>
                   <div class="mt-3 overflow-x-auto">
@@ -418,7 +453,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
               </div>
 
               <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-                <div class="mb-3 text-sm font-semibold">Imported Indicators</div>
+                <div class="mb-1 text-sm font-semibold">Imported Indicators</div>
+                <div class="mb-3 text-xs text-base-content/60">
+                  OTX inventory stored locally. NetFlow hits only appear after the match cache evaluates imported IOCs against recent flows.
+                </div>
                 <%= if @indicators == [] do %>
                   <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
                     No imported indicators.
@@ -509,6 +547,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         class="toggle toggle-sm"
                         checked={@otx_settings_form["otx_enabled"] == "true"}
                       /> OTX enabled
+                    </label>
+                    <label class="flex items-center gap-2 text-sm">
+                      <input type="hidden" name="settings[threat_intel_enabled]" value="false" />
+                      <input
+                        type="checkbox"
+                        name="settings[threat_intel_enabled]"
+                        value="true"
+                        class="toggle toggle-sm"
+                        checked={
+                          @otx_settings_form["threat_intel_enabled"] == "true" or
+                            @otx_settings_form["otx_enabled"] == "true"
+                        }
+                      /> NetFlow matching
                     </label>
                     <label class="flex items-center gap-2 text-sm">
                       <input
@@ -1046,24 +1097,29 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp otx_settings_to_form(%NetflowSettings{} = settings) do
     %{
       "otx_enabled" => settings.otx_enabled |> truthy() |> to_string(),
+      "threat_intel_enabled" => settings.threat_intel_enabled |> truthy() |> to_string(),
       "otx_execution_mode" => settings.otx_execution_mode || "edge_plugin",
       "otx_base_url" => settings.otx_base_url || "https://otx.alienvault.com",
       "otx_api_key" => "",
       "clear_otx_api_key" => "false",
       "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 21_600),
-      "otx_page_size" => to_string(settings.otx_page_size || 10),
+      "otx_page_size" => to_string(settings.otx_page_size || 100),
       "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 120_000),
-      "otx_max_indicators" => to_string(settings.otx_max_indicators || 2_000),
+      "otx_max_indicators" => to_string(settings.otx_max_indicators || 5_000),
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
       "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 7_776_000),
-      "threat_intel_match_window_seconds" => to_string(settings.threat_intel_match_window_seconds || 3_600)
+      "threat_intel_match_window_seconds" => to_string(settings.threat_intel_match_window_seconds || 86_400)
     }
   end
 
   defp build_otx_settings_attrs(params) when is_map(params) do
+    otx_enabled? = truthy_param?(Map.get(params, "otx_enabled"))
+    threat_intel_enabled? = otx_enabled? or truthy_param?(Map.get(params, "threat_intel_enabled"))
+
     attrs = %{
-      otx_enabled: truthy_param?(Map.get(params, "otx_enabled")),
+      otx_enabled: otx_enabled?,
+      threat_intel_enabled: threat_intel_enabled?,
       otx_execution_mode: normalize_execution_mode(Map.get(params, "otx_execution_mode")),
       otx_base_url:
         params
@@ -1071,13 +1127,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
         |> to_string()
         |> String.trim(),
       otx_sync_interval_seconds: max(to_int(Map.get(params, "otx_sync_interval_seconds"), 21_600), 3_600),
-      otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 10, 1, 100),
+      otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 100, 1, 100),
       otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 120_000),
-      otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 2_000, 1, 5_000),
+      otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 5_000, 1, 5_000),
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
       otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 7_776_000),
-      threat_intel_match_window_seconds: to_int(Map.get(params, "threat_intel_match_window_seconds"), 3_600),
+      threat_intel_match_window_seconds: to_int(Map.get(params, "threat_intel_match_window_seconds"), 86_400),
       clear_otx_api_key: truthy_param?(Map.get(params, "clear_otx_api_key"))
     }
 
@@ -1134,6 +1190,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       severities -> Enum.max(severities)
     end
   end
+
+  defp threat_matching_enabled?(%NetflowSettings{threat_intel_enabled: true}), do: true
+  defp threat_matching_enabled?(_settings), do: false
 
   defp parse_assignment(params, package) when is_map(params) do
     with {:ok, agent_uid} <- required_string(params["agent_uid"], "Agent is required"),

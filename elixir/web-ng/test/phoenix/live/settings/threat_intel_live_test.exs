@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     |> form("#otx-settings-form", %{
       "settings" => %{
         "otx_enabled" => "true",
+        "threat_intel_enabled" => "false",
         "otx_execution_mode" => "core_worker",
         "otx_base_url" => "https://otx.alienvault.com",
         "otx_api_key" => "otx-liveview-secret",
@@ -62,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
 
     assert %NetflowSettings{
              otx_enabled: true,
+             threat_intel_enabled: true,
              otx_execution_mode: "core_worker",
              otx_api_key: "otx-liveview-secret",
              otx_api_key_present: true,
@@ -72,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     |> form("#otx-settings-form", %{
       "settings" => %{
         "otx_enabled" => "true",
+        "threat_intel_enabled" => "true",
         "otx_execution_mode" => "core_worker",
         "otx_base_url" => "https://otx.alienvault.com",
         "clear_otx_api_key" => "true",
@@ -165,8 +168,16 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     refute raw_params =~ "edge-liveview-secret"
   end
 
-  test "manual sync and retrohunt buttons report enqueue outcome", %{conn: conn} do
+  test "manual sync, match, and retrohunt buttons report enqueue outcome", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/threat-intel")
+
+    match_html =
+      lv
+      |> element("button", "Match NetFlow Now")
+      |> render_click()
+
+    assert match_html =~ "NetFlow IOC match queued" or
+             match_html =~ "Job scheduler is unavailable"
 
     sync_html =
       lv

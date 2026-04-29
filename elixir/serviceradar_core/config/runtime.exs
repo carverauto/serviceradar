@@ -186,6 +186,9 @@ if config_env() == :prod do
         )
     end
 
+  netflow_security_threat_candidate_limit =
+    parse_int_env.("NETFLOW_SECURITY_THREAT_CANDIDATE_LIMIT", 10_000)
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -636,7 +639,8 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
     reschedule_seconds: netflow_security_refresh_reschedule_seconds,
-    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds
+    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds,
+    threat_candidate_limit: netflow_security_threat_candidate_limit
 
   if otx_provider_config != %{} do
     config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker,

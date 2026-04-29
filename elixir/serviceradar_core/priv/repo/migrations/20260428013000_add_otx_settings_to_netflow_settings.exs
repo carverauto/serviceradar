@@ -9,9 +9,9 @@ defmodule ServiceRadar.Repo.Migrations.AddOtxSettingsToNetflowSettings do
       add :otx_base_url, :text, null: false, default: "https://otx.alienvault.com"
       add :encrypted_otx_api_key, :binary
       add :otx_sync_interval_seconds, :integer, null: false, default: 3_600
-      add :otx_page_size, :integer, null: false, default: 10
-      add :otx_timeout_ms, :integer, null: false, default: 20_000
-      add :otx_max_indicators, :integer, null: false, default: 2_000
+      add :otx_page_size, :integer, null: false, default: 100
+      add :otx_timeout_ms, :integer, null: false, default: 120_000
+      add :otx_max_indicators, :integer, null: false, default: 5_000
       add :otx_modified_since, :text
       add :otx_raw_payload_archive_enabled, :boolean, null: false, default: false
       add :otx_retrohunt_window_seconds, :integer, null: false, default: 7_776_000
