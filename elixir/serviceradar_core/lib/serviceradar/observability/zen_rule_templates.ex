@@ -3,6 +3,12 @@ defmodule ServiceRadar.Observability.ZenRuleTemplates do
   Built-in Zen rule templates compiled into JSON decision models.
   """
 
+  @coraza_waf_rule_path Path.expand(
+                          "../../../../../build/packaging/zen/rules/coraza_waf.json",
+                          __DIR__
+                        )
+  @external_resource @coraza_waf_rule_path
+
   @passthrough Jason.decode!(~S"""
                {
                    "nodes": [
@@ -100,6 +106,8 @@ defmodule ServiceRadar.Observability.ZenRuleTemplates do
                 }
                 """)
 
+  @coraza_waf @coraza_waf_rule_path |> File.read!() |> Jason.decode!()
+
   @spec compile(atom() | nil, map()) :: {:ok, map()} | {:error, String.t()}
   def compile(template, _builder_config) do
     case template do
@@ -107,6 +115,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplates do
       :strip_full_message -> {:ok, @strip_full_message}
       :snmp_severity -> {:ok, @snmp_severity}
       :cef_severity -> {:ok, @cef_severity}
+      :coraza_waf -> {:ok, @coraza_waf}
       _ -> {:error, "unsupported Zen rule template"}
     end
   end

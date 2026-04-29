@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         <div :if={is_map(@event)} class="space-y-4">
           <.event_summary event={@event} />
+          <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
           <.related_links related={@related} />
           <.event_details event={@event} />
         </div>
@@ -168,6 +169,61 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           {Map.get(@event, "message")}
         </p>
       </div>
+    </div>
+    """
+  end
+
+  attr :event, :map, required: true
+
+  defp waf_finding_summary(assigns) do
+    assigns =
+      assigns
+      |> assign(:waf, waf_payload(assigns.event))
+      |> assign(:src_ip, waf_src_ip(assigns.event))
+
+    ~H"""
+    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <span class="text-xs text-error uppercase tracking-wider block mb-2">
+            WAF Finding
+          </span>
+          <h2 class="text-lg font-semibold leading-tight">
+            {waf_value(@waf, "rule_message") || Map.get(@event, "message") || "Coraza rule matched"}
+          </h2>
+        </div>
+        <.severity_badge value={waf_value(@waf, "rule_severity") || Map.get(@event, "severity")} />
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <.waf_fact label="Client IP" value={@src_ip} mono />
+        <.waf_fact label="Rule ID" value={waf_value(@waf, "rule_id")} mono />
+        <.waf_fact label="Request Path" value={waf_value(@waf, "request_path")} mono />
+        <.waf_fact label="Request ID" value={waf_value(@waf, "request_id")} mono />
+        <.waf_fact label="Policy" value={waf_value(@waf, "waf_policy")} />
+        <.waf_fact label="Source" value={waf_value(@waf, "source")} />
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+
+  defp waf_fact(assigns) do
+    ~H"""
+    <div class="min-w-0">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+        {@label}
+      </span>
+      <span class={[
+        "text-sm break-words",
+        if(@mono, do: "font-mono", else: nil),
+        if(blank?(@value), do: "text-base-content/40", else: nil)
+      ]}>
+        {display_value(@value)}
+      </span>
     </div>
     """
   end
@@ -399,6 +455,59 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       v -> to_string(v)
     end
   end
+
+  defp waf_event?(event) when is_map(event) do
+    waf = waf_payload(event)
+
+    Map.get(event, "log_name") == "security.waf.finding" or
+      get_in(event, ["metadata", "security_signal", "kind"]) == "waf" or
+      (is_map(waf) and map_size(waf) > 0)
+  end
+
+  defp waf_event?(_), do: false
+
+  defp waf_payload(event) when is_map(event) do
+    unmapped = Map.get(event, "unmapped") || %{}
+    attrs = Map.get(unmapped, "log_attributes") || %{}
+
+    Map.get(unmapped, "waf") ||
+      Map.get(unmapped, :waf) ||
+      Map.get(attrs, "waf") ||
+      Map.get(attrs, :waf) ||
+      %{}
+  end
+
+  defp waf_payload(_), do: %{}
+
+  defp waf_src_ip(event) do
+    waf = waf_payload(event)
+
+    waf_value(waf, "client_ip") ||
+      get_in(event, ["src_endpoint", "ip"]) ||
+      get_in(event, [:src_endpoint, :ip])
+  end
+
+  defp waf_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, waf_atom_key(key))
+  end
+
+  defp waf_value(_, _), do: nil
+
+  defp waf_atom_key("client_ip"), do: :client_ip
+  defp waf_atom_key("request_id"), do: :request_id
+  defp waf_atom_key("request_path"), do: :request_path
+  defp waf_atom_key("rule_id"), do: :rule_id
+  defp waf_atom_key("rule_message"), do: :rule_message
+  defp waf_atom_key("rule_severity"), do: :rule_severity
+  defp waf_atom_key("source"), do: :source
+  defp waf_atom_key("waf_policy"), do: :waf_policy
+  defp waf_atom_key(_), do: :__unknown__
+
+  defp display_value(value) when value in [nil, ""], do: "—"
+  defp display_value(value) when is_binary(value), do: value
+  defp display_value(value), do: to_string(value)
+
+  defp blank?(value), do: value in [nil, ""]
 
   defp has_value?(map, key) do
     case Map.get(map, key) do
