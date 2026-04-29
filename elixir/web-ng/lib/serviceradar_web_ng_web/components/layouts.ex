@@ -301,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       %{href: "/dashboard", label: "Dashboard", icon: "hero-home"},
       %{href: "/devices", label: "Devices", icon: "hero-server-stack"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},
-      %{href: "/observability/flows", label: "Flows", icon: "hero-arrow-path"},
+      %{href: "/observability?tab=netflows", label: "Flows", icon: "hero-arrow-path"},
       %{href: "/events", label: "Events", icon: "hero-document-text"},
       %{href: "/cameras", label: "Cameras", icon: "hero-video-camera"},
       %{href: "/spatial", label: "FieldSurvey", icon: "hero-wifi"},

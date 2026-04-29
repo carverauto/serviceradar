@@ -80,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_frequent_talkers_packets, [])
      |> assign(:netflow_frequent_talkers_bytes, [])
      |> assign(:netflow_rdns_map, %{})
+     |> assign(:netflow_threat_map, %{})
      |> assign(:netflow_compact?, false)
      |> assign(:netflow_talker_cidr, nil)
      |> assign(:netflow_compare_mode, "off")
@@ -207,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_frequent_talkers_packets, [])
         |> assign(:netflow_frequent_talkers_bytes, [])
         |> assign(:netflow_rdns_map, %{})
+        |> assign(:netflow_threat_map, %{})
         |> assign(:netflow_compact?, netflow_compact?)
         |> assign(:netflow_talker_cidr, netflow_talker_cidr)
         |> assign(:netflow_compare_mode, netflow_compare_mode)
@@ -1072,6 +1074,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               :if={@active_tab == "netflows" and @netflow_view in ["explorer", "all"]}
               flows={@netflows}
               rdns_map={@netflow_rdns_map}
+              threat_map={@netflow_threat_map}
               base_path={Map.get(@srql, :page_path) || "/observability"}
               query={Map.get(@srql, :query, "")}
               limit={@limit}
@@ -4030,6 +4033,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})
+  attr(:threat_map, :map, default: %{})
   attr(:base_path, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
@@ -4092,6 +4096,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </td>
               <td class="text-xs align-top">
                 <% src_ip = netflow_addr(flow, :src) %>
+                <% src_threat = netflow_threat(@threat_map, src_ip) %>
                 <div class="flex items-baseline gap-0.5 min-w-0 font-mono">
                   <% src_port = netflow_port(flow, :src) %>
                   <span
@@ -4119,6 +4124,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   </.link>
                   <span :if={not netflow_present?(src_ip)} class="min-w-0 truncate">{src_ip}</span>
                   <span class="shrink-0">{if src_port, do: ":#{src_port}", else: ""}</span>
+                  <.netflow_threat_badge :if={src_threat} threat={src_threat} />
                 </div>
                 <div
                   :if={hostname = Map.get(@rdns_map, src_ip)}
@@ -4136,6 +4142,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </td>
               <td class="text-xs align-top">
                 <% dst_ip = netflow_addr(flow, :dst) %>
+                <% dst_threat = netflow_threat(@threat_map, dst_ip) %>
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <div class="flex items-start gap-2 min-w-0">
                     <% dst_port = netflow_port(flow, :dst) %>
@@ -4167,6 +4174,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         {dst_ip}
                       </span>
                       <span class="shrink-0">{if dst_port, do: ":#{dst_port}", else: ""}</span>
+                      <.netflow_threat_badge :if={dst_threat} threat={dst_threat} />
                     </div>
                     <div
                       :if={service_label = netflow_service_label(dst_port)}
@@ -4285,6 +4293,57 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </div>
     </div>
     """
+  end
+
+  attr(:threat, :map, required: true)
+
+  defp netflow_threat_badge(assigns) do
+    assigns =
+      assigns
+      |> assign(:count, Map.get(assigns.threat, :match_count, 0))
+      |> assign(:severity, Map.get(assigns.threat, :max_severity, 0))
+      |> assign(:sources, Map.get(assigns.threat, :sources, []))
+
+    ~H"""
+    <span
+      class={[
+        "badge badge-xs shrink-0 font-mono",
+        netflow_threat_badge_class(@severity)
+      ]}
+      title={netflow_threat_title(@count, @severity, @sources)}
+    >
+      IOC
+    </span>
+    """
+  end
+
+  defp netflow_threat(threat_map, ip) when is_map(threat_map) and is_binary(ip) do
+    case Map.get(threat_map, String.trim(ip)) do
+      %{match_count: count} = threat when is_integer(count) and count > 0 -> threat
+      _ -> nil
+    end
+  end
+
+  defp netflow_threat(_threat_map, _ip), do: nil
+
+  defp netflow_threat_badge_class(severity) when is_integer(severity) and severity >= 4, do: "badge-error"
+
+  defp netflow_threat_badge_class(severity) when is_integer(severity) and severity >= 2, do: "badge-warning"
+
+  defp netflow_threat_badge_class(_severity), do: "badge-info"
+
+  defp netflow_threat_title(count, severity, sources) do
+    source_text =
+      sources
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+      |> case do
+        [] -> "unknown source"
+        values -> Enum.join(values, ", ")
+      end
+
+    "#{count} IOC match#{if count == 1, do: "", else: "es"}; severity #{severity}; #{source_text}"
   end
 
   attr(:side, :string, required: true)
@@ -6574,6 +6633,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       )
 
     rdns_map = load_netflow_rdns_map(socket.assigns.netflows, top_talkers, scope)
+    threat_map = load_netflow_threat_map(socket.assigns.netflows)
 
     top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
 
@@ -6663,6 +6723,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket
     |> assign(:netflow_summary, summary)
     |> assign(:netflow_rdns_map, rdns_map)
+    |> assign(:netflow_threat_map, threat_map)
     |> assign(:netflow_top_talkers, top_talkers)
     |> assign(:netflow_top_ports, top_ports)
     |> assign(:netflow_timeseries, timeseries)
@@ -7247,6 +7308,50 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       _ ->
         %{}
     end
+  end
+
+  defp load_netflow_threat_map(flows) when is_list(flows) do
+    ips =
+      flows
+      |> Enum.flat_map(fn flow -> [netflow_addr(flow, :src), netflow_addr(flow, :dst)] end)
+      |> Enum.map(&to_string/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
+      |> Enum.uniq()
+      |> Enum.take(400)
+
+    threat_map_for_ips(ips)
+  end
+
+  defp load_netflow_threat_map(_flows), do: %{}
+
+  defp threat_map_for_ips([]), do: %{}
+
+  defp threat_map_for_ips(ips) when is_list(ips) do
+    sql = """
+    SELECT ip, match_count, max_severity, sources
+    FROM platform.ip_threat_intel_cache
+    WHERE ip = ANY($1::text[])
+      AND matched = true
+      AND expires_at > now()
+    """
+
+    case Repo.query(sql, [ips]) do
+      {:ok, %{rows: rows}} ->
+        Map.new(rows, fn [ip, match_count, max_severity, sources] ->
+          {ip,
+           %{
+             match_count: to_int(match_count),
+             max_severity: to_int(max_severity),
+             sources: sources |> List.wrap() |> Enum.map(&to_string/1) |> Enum.reject(&(&1 == ""))
+           }}
+        end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
   end
 
   defp sanitize_srql_for_stats(query), do: NFQuery.flows_sanitize_for_stats(to_string(query))

@@ -453,6 +453,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/users/settings", PageController, :redirect_to_settings_profile)
     get("/flows", PageController, :redirect_to_observability_flows)
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
+    get("/observability/flows", PageController, :redirect_to_observability_flows)
+    get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -478,7 +480,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/alerts/:alert_id", AlertLive.Show, :show)
       live("/observability", LogLive.Index, :index)
       live("/observability/bmp", BmpLive.Index, :index)
-      live("/observability/flows", NetflowLive.Visualize, :index)
       live("/observability/bgp", BGPLive.Index, :index)
       live("/observability/camera-relays", CameraRelayLive.Index, :index)
       live("/observability/camera-relays/workers", CameraAnalysisWorkerLive.Index, :index)

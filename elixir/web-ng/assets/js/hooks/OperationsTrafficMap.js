@@ -288,7 +288,7 @@ function flowDetailsUrlForPair(sourceIp, targetIp) {
     "sort:bytes_total:desc",
   ].join(" ")
 
-  return `/observability/flows?${new URLSearchParams({q, limit: "100"}).toString()}`
+  return `/observability?${new URLSearchParams({tab: "netflows", q, limit: "100", view: "explorer"}).toString()}`
 }
 
 function endpointFlowSummary(link, side) {

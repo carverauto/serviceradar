@@ -4,10 +4,13 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
+  alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.ThreatIntelRetrohuntWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  @cursor_plugin_id "alienvault-otx-cursor-test"
 
   setup_all do
     TestSupport.start_core!()
@@ -80,6 +83,58 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
                WHERE source = $1 AND collection_id = $2
                """,
                ["alienvault_otx", "otx:pulses:subscribed"]
+             ).rows
+  end
+
+  test "edge plugin ingest persists cursor from assignment id in status labels" do
+    actor = SystemActor.system(:otx_plugin_cursor_test)
+    observed_at = ~U[2026-04-28 00:00:00Z]
+    assignment_id = seed_plugin_assignment(%{"page" => 20, "limit" => 100})
+
+    page = %Page{
+      provider: "alienvault_otx",
+      source: "alienvault_otx",
+      collection_id: "otx:export",
+      cursor: %{
+        "next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=100&page=25",
+        "next_page" => "25",
+        "complete" => "false"
+      },
+      counts: %{"total" => 494_254, "indicators" => 1, "skipped" => 0},
+      indicators: [
+        %{
+          "indicator" => "192.0.2.46",
+          "label" => "OTX cursor regression",
+          "source_object_id" => "otx-export-cursor-1"
+        }
+      ]
+    }
+
+    payload = %{"status" => "ok", "summary" => "OTX export page imported"}
+
+    status = %{
+      "plugin_id" => @cursor_plugin_id,
+      "agent_id" => "edge-1",
+      "labels" => %{"assignment_id" => assignment_id}
+    }
+
+    :ok =
+      ThreatIntelPluginIngestor.ingest_page(page, payload, status,
+        actor: actor,
+        observed_at: observed_at
+      )
+
+    assert [[25, false, "https://otx.alienvault.com/api/v1/indicators/export?limit=100&page=25"]] =
+             query!(
+               """
+               SELECT
+                 (params->>'page')::int,
+                 (params->>'cursor_complete')::boolean,
+                 params->>'cursor_next'
+               FROM platform.plugin_assignments
+               WHERE id = ($1::text)::uuid
+               """,
+               [assignment_id]
              ).rows
   end
 
@@ -168,6 +223,19 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
       """,
       []
     )
+
+    query!(
+      """
+      DELETE FROM platform.plugin_assignments
+      WHERE plugin_package_id IN (
+        SELECT id FROM platform.plugin_packages WHERE plugin_id = $1
+      )
+      """,
+      [@cursor_plugin_id]
+    )
+
+    query!("DELETE FROM platform.plugin_packages WHERE plugin_id = $1", [@cursor_plugin_id])
+    query!("DELETE FROM platform.plugins WHERE plugin_id = $1", [@cursor_plugin_id])
   end
 
   defp enable_threat_intel_settings do
@@ -262,6 +330,114 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
       """,
       [now, Jason.encode!(skipped_by_type)]
     )
+  end
+
+  defp seed_plugin_assignment(params) do
+    package_id = Ecto.UUID.generate()
+    assignment_id = Ecto.UUID.generate()
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    query!(
+      """
+      INSERT INTO platform.plugins (
+        plugin_id,
+        name,
+        description,
+        inserted_at,
+        updated_at
+      )
+      VALUES ($1, 'AlienVault OTX cursor test', 'OTX cursor persistence test plugin', $2, $2)
+      """,
+      [@cursor_plugin_id, now]
+    )
+
+    query!(
+      """
+      INSERT INTO platform.plugin_packages (
+        id,
+        plugin_id,
+        name,
+        version,
+        description,
+        entrypoint,
+        runtime,
+        outputs,
+        manifest,
+        config_schema,
+        display_contract,
+        signature,
+        source_type,
+        status,
+        approved_capabilities,
+        approved_permissions,
+        approved_resources,
+        approved_by,
+        approved_at,
+        inserted_at,
+        updated_at
+      )
+      VALUES (
+        ($1::text)::uuid,
+        $2,
+        'AlienVault OTX cursor test',
+        '0.1.0',
+        'OTX cursor persistence test plugin',
+        'main.wasm',
+        'wasi-preview1',
+        'serviceradar.plugin_result.v1',
+        '{}'::jsonb,
+        '{}'::jsonb,
+        '{}'::jsonb,
+        '{}'::jsonb,
+        'upload',
+        'approved',
+        '{}',
+        '{}'::jsonb,
+        '{}'::jsonb,
+        'test',
+        $3,
+        $3,
+        $3
+      )
+      """,
+      [package_id, @cursor_plugin_id, now]
+    )
+
+    query!(
+      """
+      INSERT INTO platform.plugin_assignments (
+        id,
+        agent_uid,
+        plugin_package_id,
+        source,
+        enabled,
+        interval_seconds,
+        timeout_seconds,
+        params,
+        permissions_override,
+        resources_override,
+        inserted_at,
+        updated_at
+      )
+      VALUES (
+        ($1::text)::uuid,
+        'edge-1',
+        ($2::text)::uuid,
+        'manual',
+        true,
+        21600,
+        7200,
+        ($3::text)::jsonb,
+        '{}'::jsonb,
+        '{}'::jsonb,
+        $4,
+        $4
+      )
+      """,
+      [assignment_id, package_id, Jason.encode!(params), now]
+    )
+
+    assignment_id
   end
 
   defp query!(sql, params) do
