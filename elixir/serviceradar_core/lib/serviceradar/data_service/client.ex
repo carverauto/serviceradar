@@ -261,11 +261,11 @@ defmodule ServiceRadar.DataService.Client do
     case reason do
       :normal ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       :shutdown ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       _ ->
         Logger.warning("Datasvc gRPC connection down: #{inspect(reason)}")
@@ -289,11 +289,11 @@ defmodule ServiceRadar.DataService.Client do
     case reason do
       :normal ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       :shutdown ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       _ ->
         {:noreply, schedule_reconnect(state, reason)}
@@ -399,7 +399,11 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_call(:connected?, _from, state) do
-    {:reply, channel_alive?(state), state}
+    if channel_alive?(state) do
+      {:reply, true, state}
+    else
+      {:reply, false, state |> clear_channel() |> maybe_start_connect()}
+    end
   end
 
   # Private helpers
@@ -643,6 +647,12 @@ defmodule ServiceRadar.DataService.Client do
 
     Process.send_after(self(), :connect, delay_ms)
     %{state | reconnecting: true, backoff: backoff}
+  end
+
+  defp reconnect_after_clean_close(state) do
+    state
+    |> Map.put(:reconnecting, false)
+    |> maybe_start_connect()
   end
 
   defp ensure_connected(%{channel: nil} = state) do
