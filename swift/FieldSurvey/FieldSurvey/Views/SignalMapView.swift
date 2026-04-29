@@ -494,9 +494,9 @@ public struct SignalMapView: View {
 
     private var emptyMapDetail: String {
         if let rfObservationCount, rfObservationCount > 0 {
-            return "Keep LiDAR tracking active and move a few meters so RF samples can attach to survey positions."
+            return "Keep AR tracking active, align RF Update if needed, then move a few meters so RF samples can attach to survey positions."
         }
-        return "Start Sidekick preview or backend streaming, then walk a few meters while LiDAR tracking is active."
+        return "Start Sidekick preview or backend streaming, then walk a few meters while AR tracking is active."
     }
 
     private var apSummaries: [SignalAPSummary] {

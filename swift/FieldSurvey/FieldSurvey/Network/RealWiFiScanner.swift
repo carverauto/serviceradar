@@ -56,6 +56,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private var rfUpdateAlignmentAnchor: SIMD3<Float>?
     private var poseAlignmentOffset: SIMD3<Float>?
     private var awaitingRFUpdateAlignment = false
+    private var allowsRFUpdatePoseFallback = false
     private let manualAPStoreKey = "manualAPLandmarks"
     private var lastHeatmapSampleByBSSID: [String: (timestamp: TimeInterval, position: SIMD3<Float>)] = [:]
     private let maxHeatmapPoints = 3200
@@ -90,12 +91,23 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public var currentDevicePose: SIMD3<Float>? {
-        guard poseTrackingStatus.canPlaceRF else { return nil }
+        guard canPlaceRFAtCurrentPose else { return nil }
         return latestStableMapPose
     }
 
     public var requiresRFUpdateAlignment: Bool {
         awaitingRFUpdateAlignment
+    }
+
+    private var canPlaceRFAtCurrentPose: Bool {
+        switch poseTrackingStatus {
+        case .normal:
+            return latestStableMapPose != nil
+        case .limited:
+            return allowsRFUpdatePoseFallback && latestStableMapPose != nil
+        case .initializing, .awaitingAlignment, .unavailable:
+            return false
+        }
     }
     
     public func startScanning() {
@@ -240,6 +252,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         rfUpdateAlignmentAnchor = anchor
         poseAlignmentOffset = nil
         awaitingRFUpdateAlignment = anchor != nil
+        allowsRFUpdatePoseFallback = true
         latestRawDevicePose = nil
         latestDevicePose = nil
         latestStableMapPose = nil
@@ -254,6 +267,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         rfUpdateAlignmentAnchor = nil
         poseAlignmentOffset = nil
         awaitingRFUpdateAlignment = false
+        allowsRFUpdatePoseFallback = false
     }
 
     @discardableResult
@@ -266,12 +280,13 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         latestStableMapPose = alignedPose
         lastAcceptedHeatmapPose = alignedPose
         lastAcceptedPoseUpdateTime = Date().timeIntervalSince1970
+        allowsRFUpdatePoseFallback = true
         poseTrackingStatus = .normal
         return true
     }
 
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
-        guard poseTrackingStatus.canPlaceRF else { return }
+        guard canPlaceRFAtCurrentPose else { return }
         guard let heatmapPosition = latestStableMapPose else { return }
         pendingPoseHeatmapPosition = heatmapPosition
         guard !poseHeatmapFlushScheduled else { return }
@@ -314,7 +329,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     public func ingestSidekickObservations(_ observations: [SidekickObservation]) {
         guard SettingsManager.shared.rfScanningEnabled else { return }
         guard !observations.isEmpty else { return }
-        let heatmapPose = poseTrackingStatus.canPlaceRF ? latestStableMapPose : nil
+        let heatmapPose = canPlaceRFAtCurrentPose ? latestStableMapPose : nil
 
         ingestSampleEvents(
             sidekickAdapter.events(
@@ -697,7 +712,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
 
         if let trackingQuality,
-           trackingQuality != "normal" {
+           trackingQuality != "normal",
+           !acceptsDegradedTrackingForRFUpdate(trackingQuality) {
             return latestStableMapPose
         }
 
@@ -722,6 +738,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         lastAcceptedHeatmapPose = position
         lastAcceptedPoseUpdateTime = timestamp
         return position
+    }
+
+    private func acceptsDegradedTrackingForRFUpdate(_ trackingQuality: String) -> Bool {
+        allowsRFUpdatePoseFallback && trackingQuality == "limited_insufficient_features"
     }
 
     private static func poseTrackingStatus(from trackingQuality: String?) -> SurveyPoseTrackingStatus {
