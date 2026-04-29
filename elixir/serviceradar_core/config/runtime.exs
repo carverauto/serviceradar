@@ -73,6 +73,14 @@ if config_env() == :prod do
     end
   end
 
+  edge_crypto_secret =
+    read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE") ||
+      read_secret_env.("EDGE_ONBOARDING_ENCRYPTION_KEY", "EDGE_ONBOARDING_ENCRYPTION_KEY_FILE")
+
+  if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
+    config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)
+  end
+
   cloak_key =
     case System.get_env("CLOAK_KEY") do
       nil -> nil
@@ -177,6 +185,9 @@ if config_env() == :prod do
           netflow_security_refresh_reschedule_seconds
         )
     end
+
+  netflow_security_threat_candidate_limit =
+    parse_int_env.("NETFLOW_SECURITY_THREAT_CANDIDATE_LIMIT", 10_000)
 
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -595,11 +606,62 @@ if config_env() == :prod do
       []
     end
 
+  otx_env = fn env_name ->
+    case System.get_env(env_name) do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+  end
+
+  otx_api_key =
+    read_secret_env.(
+      "SERVICERADAR_OTX_API_KEY",
+      "SERVICERADAR_OTX_API_KEY_FILE"
+    )
+
+  otx_provider_config =
+    %{
+      "api_key" => otx_api_key,
+      "base_url" => otx_env.("SERVICERADAR_OTX_BASE_URL"),
+      "modified_since" => otx_env.("SERVICERADAR_OTX_MODIFIED_SINCE"),
+      "limit" => parse_int_env.("SERVICERADAR_OTX_PAGE_SIZE", nil),
+      "page" => parse_int_env.("SERVICERADAR_OTX_PAGE", nil),
+      "timeout_ms" => parse_int_env.("SERVICERADAR_OTX_TIMEOUT_MS", nil),
+      "max_indicators" => parse_int_env.("SERVICERADAR_OTX_MAX_INDICATORS", nil),
+      "max_retries" => parse_int_env.("SERVICERADAR_OTX_MAX_RETRIES", nil),
+      "backoff_ms" => parse_int_env.("SERVICERADAR_OTX_BACKOFF_MS", nil)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
 
   config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
     reschedule_seconds: netflow_security_refresh_reschedule_seconds,
-    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds
+    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds,
+    threat_candidate_limit: netflow_security_threat_candidate_limit
+
+  if otx_provider_config != %{} do
+    config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker,
+      provider_config: otx_provider_config,
+      plugin_id: "alienvault-otx-core",
+      partition: System.get_env("SERVICERADAR_OTX_PARTITION", "default")
+  end
+
+  otx_raw_storage =
+    case System.get_env("SERVICERADAR_OTX_RAW_STORAGE", "file") do
+      "memory" -> :memory
+      _ -> :file
+    end
+
+  config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
+    jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
+    jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
+    jetstream_max_bucket_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES", nil),
+    jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
+    jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
+    jetstream_storage: otx_raw_storage
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name

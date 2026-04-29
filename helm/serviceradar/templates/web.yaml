@@ -268,6 +268,11 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: edge-onboarding-key
+        - name: SERVICERADAR_EDGE_CRYPTO_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: web-ng-secret-key-base
         - name: DATASVC_ENABLED
           value: "true"
         - name: SECRET_KEY_BASE

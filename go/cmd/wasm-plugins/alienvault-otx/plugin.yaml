@@ -1,0 +1,21 @@
+id: alienvault-otx-threat-intel
+name: AlienVault OTX Threat Intel
+version: 0.1.0
+description: Collects AlienVault OTX export pages and emits normalized threat-intel indicators
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+permissions:
+  allowed_domains:
+    - otx.alienvault.com
+  allowed_ports:
+    - 443
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 15000
+  max_open_connections: 2

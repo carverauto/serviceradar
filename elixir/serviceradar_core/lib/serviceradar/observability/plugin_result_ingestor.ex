@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStatus
+  alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
 
@@ -36,6 +37,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
     with :ok <- insert_status(status_row, actor),
          :ok <- insert_metrics(payload, status, observed_at, created_at, actor),
+         :ok <- ingest_threat_intel(payload, status, observed_at, actor),
          :ok <- ingest_camera_events(payload, status, observed_at, actor) do
       ingest_camera_inventory(payload, status, observed_at, actor)
     end
@@ -305,12 +307,24 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
+  defp ingest_threat_intel(payload, status, observed_at, actor) do
+    threat_intel_ingestor().ingest(payload, status, actor: actor, observed_at: observed_at)
+  end
+
   defp camera_inventory_ingestor do
     Application.get_env(:serviceradar_core, :camera_inventory_ingestor, InventoryIngestor)
   end
 
   defp camera_event_ingestor do
     Application.get_env(:serviceradar_core, :camera_event_ingestor, EventIngestor)
+  end
+
+  defp threat_intel_ingestor do
+    Application.get_env(
+      :serviceradar_core,
+      :threat_intel_plugin_ingestor,
+      ThreatIntelPluginIngestor
+    )
   end
 
   defp plugin_status_available(nil), do: false

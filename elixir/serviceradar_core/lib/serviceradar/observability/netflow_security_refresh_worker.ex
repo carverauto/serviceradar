@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   @default_scan_window_token "last_5m"
   @default_limit 200
+  @default_threat_candidate_limit 10_000
   @default_reschedule_seconds 86_400
   @min_reschedule_seconds 86_400
   @default_cache_ttl_seconds 86_400
@@ -41,6 +42,23 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       else
         %{} |> new() |> ObanSupport.safe_insert()
       end
+    else
+      {:error, :oban_unavailable}
+    end
+  end
+
+  @doc """
+  Queues an immediate refresh without disturbing the daily scheduled worker.
+  """
+  @spec enqueue_now() :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue_now do
+    if ObanSupport.available?() do
+      %{
+        "trigger" => "manual",
+        "nonce" => System.unique_integer([:positive])
+      }
+      |> new()
+      |> ObanSupport.safe_insert()
     else
       {:error, :oban_unavailable}
     end
@@ -62,13 +80,15 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
 
+    threat_candidate_limit =
+      Keyword.get(config, :threat_candidate_limit, @default_threat_candidate_limit)
+
     reschedule_seconds =
       config
       |> Keyword.get(:reschedule_seconds, @default_reschedule_seconds)
       |> normalize_reschedule_seconds()
 
     cache_ttl_seconds = Keyword.get(config, :cache_ttl_seconds, @default_cache_ttl_seconds)
-
     now = DateTime.utc_now()
     cache_expires_at = DateTime.add(now, cache_ttl_seconds, :second)
     actor = SystemActor.system(:netflow_security_refresh)
@@ -83,7 +103,19 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds))
       :ok
     else
-      maybe_refresh_threat(settings, actor, now, cache_expires_at, limit)
+      threat_match_window_seconds =
+        settings.threat_intel_match_window_seconds ||
+          Keyword.get(config, :threat_match_window_seconds, 3_600)
+
+      maybe_refresh_threat(
+        settings,
+        actor,
+        now,
+        cache_expires_at,
+        threat_candidate_limit,
+        threat_match_window_seconds
+      )
+
       maybe_refresh_port_scan(settings, actor, now, cache_expires_at, limit)
       maybe_refresh_anomalies(settings, actor, now, cache_expires_at, limit)
 
@@ -103,10 +135,12 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          actor,
          now,
          expires_at,
-         limit
+         limit,
+         threat_match_window_seconds
        ) do
-    # Use flows to discover the IPs we should care about.
-    ips = discover_candidate_ips("last_1h", limit)
+    started_at = System.monotonic_time()
+    time_token = window_seconds_to_token(threat_match_window_seconds, fallback: "last_1h")
+    ips = discover_candidate_ips(time_token, limit)
 
     # For now, keep matching simple: if threat intel is enabled, mark IPs as matched if any
     # indicator contains the IP. We do the match via SQL for index-backed CIDR containment.
@@ -129,13 +163,49 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       _ = Ash.create(changeset, actor: actor)
     end)
 
+    matched_ip_count =
+      Enum.count(matches, fn {_ip, match_count, _max_severity, _sources} -> match_count > 0 end)
+
+    indicator_match_count =
+      Enum.reduce(matches, 0, fn {_ip, match_count, _max_severity, _sources}, acc ->
+        acc + match_count
+      end)
+
+    source_count =
+      matches
+      |> Enum.flat_map(fn {_ip, _match_count, _max_severity, sources} -> sources || [] end)
+      |> Enum.uniq()
+      |> length()
+
+    :telemetry.execute(
+      [:serviceradar, :netflow, :threat_intel, :match, :stop],
+      %{duration: System.monotonic_time() - started_at},
+      %{
+        candidate_ip_count: length(ips),
+        matched_ip_count: matched_ip_count,
+        indicator_match_count: indicator_match_count,
+        source_count: source_count,
+        window_seconds: threat_match_window_seconds,
+        time_token: time_token
+      }
+    )
+
     Logger.debug("Threat intel cache refreshed",
       enabled: settings.threat_intel_enabled,
-      ip_count: length(ips)
+      ip_count: length(ips),
+      matched_ip_count: matched_ip_count,
+      indicator_match_count: indicator_match_count
     )
   end
 
-  defp maybe_refresh_threat(_settings, _actor, _now, _expires_at, _limit), do: :skip
+  defp maybe_refresh_threat(
+         _settings,
+         _actor,
+         _now,
+         _expires_at,
+         _limit,
+         _threat_match_window_seconds
+       ), do: :skip
 
   defp maybe_refresh_port_scan(
          %NetflowSettings{

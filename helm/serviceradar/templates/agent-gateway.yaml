@@ -109,6 +109,11 @@ spec:
             secretKeyRef:
               name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
               key: cluster-cookie
+        - name: SERVICERADAR_EDGE_CRYPTO_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: web-ng-secret-key-base
         - name: KUBERNETES_SELECTOR
           value: {{ $clusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME

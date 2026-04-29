@@ -179,6 +179,10 @@ networkPolicy:
       # Note: Cloudflare anycast can change; if downloads fail again, re-resolve and update.
       - "104.18.22.0/24"
       - "104.18.23.0/24"
+      # Allow AlienVault OTX API access for threat-intel sync/plugin checks.
+      # otx.alienvault.com is served through CloudFront; Kubernetes NetworkPolicy
+      # cannot allow by DNS name, so this tracks the observed CIDR from 2026-04-28.
+      - "18.160.181.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"

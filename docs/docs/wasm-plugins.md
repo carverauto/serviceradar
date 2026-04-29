@@ -46,6 +46,7 @@ Each published artifact uses an immutable `sha-<git-commit>` tag under a determi
 - `registry.carverauto.dev/serviceradar/wasm-plugin-unifi-protect-camera`
 - `registry.carverauto.dev/serviceradar/wasm-plugin-unifi-protect-camera-stream`
 - `registry.carverauto.dev/serviceradar/wasm-plugin-dusk-checker`
+- `registry.carverauto.dev/serviceradar/wasm-plugin-alienvault-otx-threat-intel`
 
 The bundle payload is a zip archive that contains the canonical import shape:
 
@@ -450,6 +451,35 @@ Commit verification is captured from GitHub. If `PLUGIN_REQUIRE_GPG_FOR_GITHUB=t
 Wasm packages are served by the web-ng API and stored using a configurable backend. For production, store plugin blobs on persistent storage and back them up with normal platform operations.
 
 Plugin blob authorization is token-gated, but bearer tokens are carried in request headers or POST bodies rather than embedded in request URLs.
+
+### AlienVault OTX Threat Intel
+
+ServiceRadar ships a first-party `alienvault-otx-threat-intel` Wasm plugin for edge-side OTX collection. Use **Settings -> Networks -> Threat Intel** to assign the approved package to an agent, set the OTX base URL, page size, timeout, and a secret reference for the API key. The key is used by the plugin through the normal secret-ref flow and is not displayed back in the UI.
+
+The edge plugin needs outbound HTTPS egress to the configured OTX host, normally `otx.alienvault.com:443`. Review the package permissions during approval before assigning it to customer edge agents or networks that can reach SIEM-adjacent systems.
+
+Core-hosted OTX sync is also available for deployments that prefer the control plane to poll OTX directly. Configure the core worker with environment variables on `core-elx`:
+
+- `SERVICERADAR_OTX_API_KEY` or `SERVICERADAR_OTX_API_KEY_FILE`
+- `SERVICERADAR_OTX_BASE_URL` (default behavior uses `https://otx.alienvault.com`)
+- `SERVICERADAR_OTX_PAGE_SIZE`
+- `SERVICERADAR_OTX_TIMEOUT_MS`
+- `SERVICERADAR_OTX_MAX_INDICATORS`
+- `SERVICERADAR_OTX_MAX_RETRIES`
+- `SERVICERADAR_OTX_BACKOFF_MS`
+- `SERVICERADAR_OTX_MODIFIED_SINCE`
+- `SERVICERADAR_OTX_PARTITION`
+
+Prefer the `*_FILE` form for Kubernetes secrets. Rotate OTX keys through the secret backend or Kubernetes secret, then restart or roll the affected pod so runtime config is refreshed. After rotation, use **Sync Now** on the Threat Intel settings page and verify Sync Health shows a fresh successful run. The sync status records skipped unsupported types such as domains or URLs separately from IP/CIDR indicators, because current NetFlow matching only uses IP/CIDR data.
+
+When raw payload archival is enabled in Threat Intel settings, core stores decoded OTX page payload snapshots in NATS Object Store and records the resulting object key on source-object metadata. Archival is optional; if NATS Object Store is unavailable, normalized indicator ingest continues and the archive failure is logged. The core defaults are:
+
+- `SERVICERADAR_OTX_RAW_BUCKET=serviceradar_threat_intel`
+- `SERVICERADAR_OTX_RAW_TTL_SECONDS=0`
+- `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`
+- `SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES`
+- `SERVICERADAR_OTX_RAW_REPLICAS=1`
+- `SERVICERADAR_OTX_RAW_STORAGE=file`
 
 ### Filesystem backend (default)
 
