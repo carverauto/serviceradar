@@ -498,18 +498,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp normalize_resources(raw) do
-    %{
+    drop_nil_entries(%{
       requested_memory_mb: normalize_positive_int(fetch_map_value(raw, :requested_memory_mb)),
       requested_cpu_ms: normalize_positive_int(fetch_map_value(raw, :requested_cpu_ms)),
       max_open_connections: normalize_nonneg_int(fetch_map_value(raw, :max_open_connections))
-    }
-    |> drop_nil_entries()
+    })
   end
 
   defp narrow_resources(base, override) do
     override = normalize_map(override)
 
-    %{
+    drop_nil_entries(%{
       requested_memory_mb:
         narrow_positive_resource(
           Map.get(base, :requested_memory_mb),
@@ -525,8 +524,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           Map.get(base, :max_open_connections),
           fetch_override_value(override, :max_open_connections)
         )
-    }
-    |> drop_nil_entries()
+    })
   end
 
   defp fetch_override_value(map, key) when is_map(map) do
@@ -977,15 +975,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Falls back to "default" if agent is not registered or has no partition
   defp get_agent_partition(agent_id) do
     case AgentRegistry.lookup(agent_id) do
-      [{_pid, metadata}] ->
-        partition = metadata[:partition_id] || "default"
-
-        Logger.debug(
-          "AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}"
-        )
-
-        partition
-
       [] ->
         Logger.debug(
           "AgentConfigGenerator: agent #{agent_id} not found in registry, using partition=default"
@@ -993,14 +982,34 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
         "default"
 
-      other ->
-        Logger.warning(
-          "AgentConfigGenerator: unexpected registry lookup result for #{agent_id}: #{inspect(other)}"
+      entries ->
+        {_pid, metadata} = select_agent_registry_entry(entries)
+        partition = metadata[:partition_id] || "default"
+
+        Logger.debug(
+          "AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}"
         )
 
-        "default"
+        partition
     end
   end
+
+  defp select_agent_registry_entry([entry]), do: entry
+
+  defp select_agent_registry_entry(entries) do
+    Enum.max_by(entries, fn {_pid, metadata} ->
+      {
+        metadata[:status] == :connected,
+        metadata[:capabilities] != [],
+        metadata_time_score(metadata[:last_heartbeat]),
+        metadata_time_score(metadata[:connected_at]),
+        metadata_time_score(metadata[:registered_at])
+      }
+    end)
+  end
+
+  defp metadata_time_score(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
+  defp metadata_time_score(_timestamp), do: 0
 
   # Load sysmon configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
