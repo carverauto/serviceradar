@@ -36,7 +36,9 @@ defmodule ServiceRadar.Observability.ZenRule do
       {:template, :atom,
        [
          allow_nil?: false,
-         constraints: [one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]]
+         constraints: [
+           one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity, :coraza_waf]
+         ]
        ]},
       {:builder_config, :map, [default: %{}]},
       {:jdm_definition, :map,
