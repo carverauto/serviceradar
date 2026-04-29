@@ -638,7 +638,11 @@ defmodule ServiceRadar.DataService.Client do
         end
 
       {:error, reason, new_state} ->
-        {{:error, reason}, new_state}
+        if retryable_channel_error?(reason) do
+          {with_direct_channel(fun), new_state}
+        else
+          {{:error, reason}, new_state}
+        end
     end
   end
 
