@@ -164,6 +164,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
 
     indicator_id = seed_indicator("alienvault_otx", "203.0.113.0/24", 4, now)
     seed_ocsf_flow(flow_time, "10.0.0.8", "203.0.113.77")
+    seed_ocsf_flow(flow_time, "10.0.0.9", "203.0.113.77")
     seed_sync_status_with_unsupported_count(now, %{"domain" => 2, "url" => 1})
 
     args = %{
@@ -176,10 +177,10 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
     assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: args})
     assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: args})
 
-    assert [[1, ^indicator_id]] =
+    assert [[1, ^indicator_id, 2]] =
              query!(
                """
-               SELECT COUNT(*)::int, MIN(indicator_id::text)
+               SELECT COUNT(*)::int, MIN(indicator_id::text), MAX(evidence_count)::int
                FROM platform.otx_retrohunt_findings
                WHERE source = $1 AND observed_ip = ($2::text)::inet
                """,
