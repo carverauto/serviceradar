@@ -29,7 +29,11 @@ pub async fn process_message(
     let rules = rule_discovery::ordered_rules_for_subject(cfg, js, &msg.subject).await?;
     for key in &rules {
         let dkey = format!("{}/{}/{}", cfg.stream_name, rule_subject, key);
-        let resp = match engine.evaluate(&dkey, context.clone().into()).await {
+        let previous_context = context.clone();
+        let resp = match engine
+            .evaluate(&dkey, previous_context.clone().into())
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 if matches!(
@@ -52,7 +56,7 @@ pub async fn process_message(
             }
         };
         debug!("decision {dkey} evaluated");
-        context = Value::from(resp.result);
+        context = merge_rule_result(previous_context, Value::from(resp.result));
     }
 
     if !rules.is_empty() {
@@ -68,6 +72,29 @@ pub async fn process_message(
     }
 
     Ok(())
+}
+
+pub(crate) fn merge_rule_result(previous: Value, result: Value) -> Value {
+    match (previous, result) {
+        (Value::Object(mut previous), Value::Object(result)) => {
+            for (key, value) in result {
+                let merged = match (previous.remove(&key), value) {
+                    (Some(Value::Object(previous_nested)), Value::Object(result_nested)) => {
+                        merge_rule_result(
+                            Value::Object(previous_nested),
+                            Value::Object(result_nested),
+                        )
+                    }
+                    (_, value) => value,
+                };
+
+                previous.insert(key, merged);
+            }
+
+            Value::Object(previous)
+        }
+        (_, result) => result,
+    }
 }
 
 #[cfg(test)]
@@ -220,6 +247,39 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_slice(&json_bytes).unwrap();
         assert_eq!(parsed["message"], "test json message");
         assert_eq!(parsed["level"], "info");
+    }
+
+    #[test]
+    fn test_rule_results_overlay_previous_context() {
+        let previous = json!({
+            "host": "docker-mailserver",
+            "short_message": "dovecot: disconnected",
+            "attributes": {
+                "serviceradar.ingest": {
+                    "subject": "logs.syslog"
+                }
+            }
+        });
+
+        let result = json!({
+            "severity": "Unknown",
+            "attributes": {
+                "waf": {
+                    "rule_id": null
+                }
+            }
+        });
+
+        let merged = super::merge_rule_result(previous, result);
+
+        assert_eq!(merged["host"], "docker-mailserver");
+        assert_eq!(merged["short_message"], "dovecot: disconnected");
+        assert_eq!(merged["severity"], "Unknown");
+        assert_eq!(
+            merged["attributes"]["serviceradar.ingest"]["subject"],
+            "logs.syslog"
+        );
+        assert!(merged["attributes"]["waf"]["rule_id"].is_null());
     }
 
     #[test]
