@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   alias ServiceRadar.Spatial.SurveyRoomArtifact
   alias ServiceRadar.Spatial.SurveySpectrumObservation
   alias ServiceRadarWebNG.FieldSurveyFloorplan
+  alias ServiceRadarWebNG.FieldSurveyReviewPreferences
   alias ServiceRadarWebNG.FieldSurveySessionMetadata
 
   require Ash.Query
@@ -62,7 +63,13 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     with {:ok, rf_rows} <- read_rf_rows(scope, limit),
          {:ok, spectrum_rows} <- read_spectrum_rows(scope, limit) do
-      {:ok, merge_session_metadata(scope, build_session_summaries(rf_rows, spectrum_rows))}
+      sessions =
+        rf_rows
+        |> build_session_summaries(spectrum_rows)
+        |> merge_session_metadata(scope)
+        |> merge_session_renderability(scope)
+
+      {:ok, sessions}
     end
   end
 
@@ -80,10 +87,19 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       floorplan_segments = load_floorplan_segments(scope, session_id)
       user_id = scope_user_id(scope)
       wifi_points = build_wifi_points(rf_matches, cell_size_m)
-      interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
+
+      interference_points =
+        build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
 
       {wifi_raster, wifi_raster_source} =
-        reusable_coverage_raster(scope, session_id, user_id, "wifi_rssi", "wifi_point_count", length(wifi_points))
+        reusable_coverage_raster(
+          scope,
+          session_id,
+          user_id,
+          "wifi_rssi",
+          "wifi_point_count",
+          length(wifi_points)
+        )
 
       {interference_raster, interference_raster_source} =
         reusable_coverage_raster(
@@ -119,7 +135,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     end
   end
 
-  @spec regenerate_coverage_rasters(any(), String.t(), keyword()) :: {:ok, review()} | {:error, any()}
+  @spec regenerate_coverage_rasters(any(), String.t(), keyword()) ::
+          {:ok, review()} | {:error, any()}
   def regenerate_coverage_rasters(scope, session_id, opts \\ []) when is_binary(session_id) do
     rf_limit = Keyword.get(opts, :rf_limit, @default_session_limit)
     pose_limit = Keyword.get(opts, :pose_limit, @default_session_limit)
@@ -132,7 +149,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
          {:ok, room_artifacts} <- read_room_artifacts(scope, session_id) do
       floorplan_segments = load_floorplan_segments(scope, session_id)
       wifi_points = build_wifi_points(rf_matches, cell_size_m)
-      interference_points = build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
+
+      interference_points =
+        build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m)
 
       review =
         build_review(session_id, rf_matches, pose_samples, spectrum_rows,
@@ -169,10 +188,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     with {:ok, samples} <- spatial_samples(scope, limit: sample_limit),
          {:ok, artifacts} <- room_artifacts(scope, limit: artifact_limit) do
       selected_session_id =
-        latest_floorplan_session_id(artifacts) || latest_artifact_session_id(artifacts) ||
-          latest_sample_session_id(samples)
+        selected_scene_session_id(scope, opts, artifacts, samples)
 
-      floorplan_segments = if selected_session_id, do: load_floorplan_segments(scope, selected_session_id), else: []
+      floorplan_segments =
+        if selected_session_id, do: load_floorplan_segments(scope, selected_session_id), else: []
 
       {:ok,
        %{
@@ -220,10 +239,18 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   @spec build_review(String.t(), list(), list(), list(), keyword()) :: review()
   def build_review(session_id, rf_matches, pose_samples, spectrum_rows, opts \\ []) do
     cell_size_m = Keyword.get(opts, :cell_size_m, @default_cell_size_m)
-    floorplan_segments = opts |> Keyword.get(:floorplan_segments, []) |> FieldSurveyFloorplan.rectify_segments()
+
+    floorplan_segments =
+      opts |> Keyword.get(:floorplan_segments, []) |> FieldSurveyFloorplan.rectify_segments()
+
     room_artifacts = Keyword.get(opts, :room_artifacts, [])
-    wifi_points = Keyword.get_lazy(opts, :wifi_points, fn -> build_wifi_points(rf_matches, cell_size_m) end)
-    wifi_raster = Keyword.get(opts, :wifi_raster) || build_wifi_raster(rf_matches, floorplan_segments)
+
+    wifi_points =
+      Keyword.get_lazy(opts, :wifi_points, fn -> build_wifi_points(rf_matches, cell_size_m) end)
+
+    wifi_raster =
+      Keyword.get(opts, :wifi_raster) || build_wifi_raster(rf_matches, floorplan_segments)
+
     path_points = build_path_points(pose_samples, rf_matches)
     channel_scores = build_channel_scores(spectrum_rows, rf_matches)
 
@@ -233,7 +260,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       end)
 
     interference_raster =
-      Keyword.get(opts, :interference_raster) || build_interference_raster(interference_points, floorplan_segments)
+      Keyword.get(opts, :interference_raster) ||
+        build_interference_raster(interference_points, floorplan_segments)
 
     spectrum_waterfall = build_spectrum_waterfall(spectrum_rows)
     interferer_classifications = build_interferer_classifications(spectrum_rows)
@@ -380,7 +408,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     SurveyCoverageRaster
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
-      session_id == ^session_id and user_id == ^user_id and overlay_type == ^overlay_type and selector_type == "all" and
+      session_id == ^session_id and user_id == ^user_id and overlay_type == ^overlay_type and
+        selector_type == "all" and
         selector_value == "*"
     )
     |> Ash.Query.sort(generated_at: :desc)
@@ -434,6 +463,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
       {:error, reason} ->
         Logger.debug("FieldSurvey persisted #{overlay_type} raster read skipped: #{inspect(reason)}")
+
         {nil, :missing}
     end
   end
@@ -639,20 +669,27 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp surface_opacity(cell, value, "rf_interference") do
-    confidence = cell |> Map.get("confidence", 0.5) |> number_or_default(0.5) |> min(1.0) |> max(0.15)
+    confidence =
+      cell |> Map.get("confidence", 0.5) |> number_or_default(0.5) |> min(1.0) |> max(0.15)
+
     intensity = (number_or_default(value, 0.0) / 100.0) |> min(1.0) |> max(0.0)
     0.12 + intensity * 0.26 + confidence * 0.14
   end
 
   defp surface_opacity(cell, value, _overlay_type) do
-    confidence = cell |> Map.get("confidence", 0.5) |> number_or_default(0.5) |> min(1.0) |> max(0.15)
+    confidence =
+      cell |> Map.get("confidence", 0.5) |> number_or_default(0.5) |> min(1.0) |> max(0.15)
+
     signal = ((number_or_default(value, -90.0) + 90.0) / 60.0) |> min(1.0) |> max(0.0)
     0.16 + signal * 0.18 + confidence * 0.16
   end
 
   defp surface_color(score, "rf_interference") when is_number(score) and score >= 75, do: "#ef4444"
+
   defp surface_color(score, "rf_interference") when is_number(score) and score >= 55, do: "#f97316"
+
   defp surface_color(score, "rf_interference") when is_number(score) and score >= 35, do: "#facc15"
+
   defp surface_color(_score, "rf_interference"), do: "#22c55e"
   defp surface_color(rssi, _overlay_type) when is_number(rssi) and rssi >= -55, do: "#5fd38a"
   defp surface_color(rssi, _overlay_type) when is_number(rssi) and rssi >= -65, do: "#8bd94f"
@@ -661,9 +698,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp surface_color(_rssi, _overlay_type), do: "#ef4444"
 
   defp surface_number(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 3)
+
   defp surface_number(_value), do: "0.000"
 
   defp inferred_cell_size_m([cell | _]), do: max((cell.radius_m || @default_raster_cell_size_m * 0.72) / 0.72, 0.01)
+
   defp inferred_cell_size_m([]), do: @default_raster_cell_size_m
 
   defp scope_user_id(%{user: %{id: id}}) when not is_nil(id), do: to_string(id)
@@ -683,6 +722,36 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp latest_sample_session_id([sample | _]), do: sample.session_id
   defp latest_sample_session_id([]), do: nil
+
+  defp selected_scene_session_id(scope, opts, artifacts, samples) do
+    requested_id = Keyword.get(opts, :session_id)
+    default_id = default_scene_session_id(scope)
+
+    Enum.find(
+      [
+        requested_id,
+        default_id,
+        latest_floorplan_session_id(artifacts),
+        latest_artifact_session_id(artifacts),
+        latest_sample_session_id(samples)
+      ],
+      &scene_session_available?(&1, artifacts, samples)
+    )
+  end
+
+  defp default_scene_session_id(scope) do
+    case FieldSurveyReviewPreferences.default_session_id(scope) do
+      {:ok, session_id} when is_binary(session_id) -> session_id
+      _ -> nil
+    end
+  end
+
+  defp scene_session_available?(session_id, artifacts, samples) when is_binary(session_id) do
+    Enum.any?(artifacts, &(&1.session_id == session_id)) or
+      Enum.any?(samples, &(&1.session_id == session_id))
+  end
+
+  defp scene_session_available?(_session_id, _artifacts, _samples), do: false
 
   defp artifact_for_session(artifacts, session_id, artifact_type) when is_binary(session_id) do
     Enum.find(artifacts, &(&1.session_id == session_id and &1.artifact_type == artifact_type))
@@ -734,10 +803,17 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp base_session(session_id) do
-    %{id: session_id, first_seen: nil, last_seen: nil, rf_count: 0, spectrum_count: 0, ap_set: MapSet.new()}
+    %{
+      id: session_id,
+      first_seen: nil,
+      last_seen: nil,
+      rf_count: 0,
+      spectrum_count: 0,
+      ap_set: MapSet.new()
+    }
   end
 
-  defp merge_session_metadata(scope, sessions) do
+  defp merge_session_metadata(sessions, scope) do
     session_ids = Enum.map(sessions, & &1.id)
 
     case FieldSurveySessionMetadata.for_sessions(scope, session_ids) do
@@ -749,6 +825,84 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       {:error, reason} ->
         Logger.warning("FieldSurvey session metadata lookup failed: #{inspect(reason)}")
         sessions
+    end
+  end
+
+  defp merge_session_renderability([], _scope), do: []
+
+  defp merge_session_renderability(sessions, scope) do
+    session_ids = Enum.map(sessions, & &1.id)
+    user_id = scope_user_id(scope)
+    artifact_stats = artifact_stats_by_session(scope, session_ids)
+    raster_stats = raster_stats_by_session(scope, session_ids, user_id)
+
+    Enum.map(sessions, fn session ->
+      artifacts =
+        Map.get(artifact_stats, session.id, %{room_artifact_count: 0, has_floorplan: false})
+
+      rasters =
+        Map.get(raster_stats, session.id, %{wifi_raster_count: 0, interference_raster_count: 0})
+
+      renderable =
+        session.rf_count > 0 and session.ap_count > 0 and
+          (artifacts.has_floorplan or rasters.wifi_raster_count > 0)
+
+      session
+      |> Map.merge(artifacts)
+      |> Map.merge(rasters)
+      |> Map.put(:renderable, renderable)
+    end)
+  end
+
+  defp artifact_stats_by_session(scope, session_ids) do
+    SurveyRoomArtifact
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(session_id in ^session_ids)
+    |> Ash.Query.limit(max(length(session_ids) * 12, 100))
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+    |> case do
+      {:ok, artifacts} ->
+        artifacts
+        |> Enum.group_by(&field(&1, :session_id))
+        |> Map.new(fn {session_id, rows} ->
+          {session_id,
+           %{
+             room_artifact_count: length(rows),
+             has_floorplan: Enum.any?(rows, &cached_floorplan_artifact?/1)
+           }}
+        end)
+
+      {:error, reason} ->
+        Logger.warning("FieldSurvey artifact stats lookup failed: #{inspect(reason)}")
+        %{}
+    end
+  end
+
+  defp raster_stats_by_session(_scope, _session_ids, nil), do: %{}
+
+  defp raster_stats_by_session(scope, session_ids, user_id) do
+    SurveyCoverageRaster
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(session_id in ^session_ids and user_id == ^user_id)
+    |> Ash.Query.limit(max(length(session_ids) * 8, 100))
+    |> Ash.read(scope: scope, domain: ServiceRadar.Spatial)
+    |> Page.unwrap()
+    |> case do
+      {:ok, rasters} ->
+        rasters
+        |> Enum.group_by(&field(&1, :session_id))
+        |> Map.new(fn {session_id, rows} ->
+          {session_id,
+           %{
+             wifi_raster_count: Enum.count(rows, &(field(&1, :overlay_type) == "wifi_rssi")),
+             interference_raster_count: Enum.count(rows, &(field(&1, :overlay_type) == "rf_interference"))
+           }}
+        end)
+
+      {:error, reason} ->
+        Logger.warning("FieldSurvey raster stats lookup failed: #{inspect(reason)}")
+        %{}
     end
   end
 
@@ -873,7 +1027,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     observations = wifi_observations(rf_matches, @default_raster_cell_size_m)
 
     with [_ | _] <- observations,
-         %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} <- raster_bounds(observations, floorplan_segments) do
+         %{min_x: min_x, max_x: max_x, min_z: min_z, max_z: max_z} <-
+           raster_bounds(observations, floorplan_segments) do
       hull = floorplan_hull(floorplan_segments)
       span = max(max_x - min_x, max_z - min_z)
       cell_size = raster_cell_size(span)
@@ -888,7 +1043,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         |> Enum.map(fn z -> {x, z} end)
       end)
       |> Enum.filter(fn {x, z} -> hull == [] or point_in_polygon?({x, z}, hull) end)
-      |> Enum.map(fn {x, z} -> interpolate_rssi_cell(x, z, observations, length_scale, max_distance, cell_size) end)
+      |> Enum.map(fn {x, z} ->
+        interpolate_rssi_cell(x, z, observations, length_scale, max_distance, cell_size)
+      end)
       |> Enum.reject(&is_nil/1)
       |> Enum.take(@max_raster_cells)
     else
@@ -948,7 +1105,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         distance = distance_2d(x, z, observation.x, observation.z)
 
         weight =
-          :math.exp(-:math.pow(distance, 2) / (2.0 * :math.pow(length_scale, 2))) * :math.log2(observation.count + 1)
+          :math.exp(-:math.pow(distance, 2) / (2.0 * :math.pow(length_scale, 2))) *
+            :math.log2(observation.count + 1)
 
         {
           weighted_acc + observation.rssi * weight,
@@ -966,7 +1124,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         nil
 
       true ->
-        confidence = weight_sum / (weight_sum + 8.0 + max(nearest_distance - cell_size, 0.0) * 2.0)
+        confidence =
+          weight_sum / (weight_sum + 8.0 + max(nearest_distance - cell_size, 0.0) * 2.0)
 
         %{
           x: x,
@@ -990,7 +1149,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
     source
     |> Enum.filter(&(number?(field(&1, :x)) and number?(field(&1, :z))))
-    |> Enum.sort_by(&(field(&1, :captured_at_unix_nanos) || field(&1, :pose_captured_at_unix_nanos) || 0), :asc)
+    |> Enum.sort_by(
+      &(field(&1, :captured_at_unix_nanos) || field(&1, :pose_captured_at_unix_nanos) || 0),
+      :asc
+    )
     |> Enum.take_every(max(div(length(source), 250), 1))
     |> Enum.map(fn row ->
       %{
@@ -1003,7 +1165,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp build_interference_points(spectrum_rows, pose_samples, rf_matches, cell_size_m) do
-    poses = Enum.filter(pose_samples ++ rf_matches, &(number?(field(&1, :x)) and number?(field(&1, :z))))
+    poses =
+      Enum.filter(
+        pose_samples ++ rf_matches,
+        &(number?(field(&1, :x)) and number?(field(&1, :z)))
+      )
 
     spectrum_rows
     |> Enum.map(fn row -> {row, nearest_pose(row, poses)} end)
@@ -1054,7 +1220,14 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         end)
         |> Enum.filter(fn {x, z} -> hull == [] or point_in_polygon?({x, z}, hull) end)
         |> Enum.map(fn {x, z} ->
-          interpolate_interference_cell(x, z, interference_points, length_scale, max_distance, cell_size)
+          interpolate_interference_cell(
+            x,
+            z,
+            interference_points,
+            length_scale,
+            max_distance,
+            cell_size
+          )
         end)
         |> Enum.reject(&is_nil/1)
         |> Enum.take(@max_raster_cells)
@@ -1071,7 +1244,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         distance = distance_2d(x, z, observation.x, observation.z)
 
         weight =
-          :math.exp(-:math.pow(distance, 2) / (2.0 * :math.pow(length_scale, 2))) * :math.log2(observation.count + 1)
+          :math.exp(-:math.pow(distance, 2) / (2.0 * :math.pow(length_scale, 2))) *
+            :math.log2(observation.count + 1)
 
         {
           weighted_acc + observation.score * weight,
@@ -1089,7 +1263,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         nil
 
       true ->
-        confidence = weight_sum / (weight_sum + 10.0 + max(nearest_distance - cell_size, 0.0) * 2.5)
+        confidence =
+          weight_sum / (weight_sum + 10.0 + max(nearest_distance - cell_size, 0.0) * 2.5)
 
         %{
           x: x,
@@ -1157,7 +1332,10 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     |> Enum.group_by(&{&1.band, &1.channel})
     |> Enum.map(fn {{band, channel}, scores} ->
       peak = Enum.max_by(scores, & &1.peak_power_dbm)
-      ap_summary = Map.get(ap_channels, channel_key(band, channel), %{ap_count: 0, strongest_rssi: nil})
+
+      ap_summary =
+        Map.get(ap_channels, channel_key(band, channel), %{ap_count: 0, strongest_rssi: nil})
+
       score = Enum.max(Enum.map(scores, & &1.score))
 
       %{
@@ -1180,7 +1358,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   defp ap_channel_summary(rf_matches) do
     rf_matches
     |> Enum.filter(&(number?(field(&1, :channel)) and number?(field(&1, :frequency_mhz))))
-    |> Enum.group_by(fn row -> channel_key(band_for_frequency(field(row, :frequency_mhz)), field(row, :channel)) end)
+    |> Enum.group_by(fn row ->
+      channel_key(band_for_frequency(field(row, :frequency_mhz)), field(row, :channel))
+    end)
     |> Map.new(fn {key, rows} ->
       strongest =
         rows
@@ -1190,7 +1370,12 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
       {key,
        %{
-         ap_count: rows |> Enum.map(&field(&1, :bssid)) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> length(),
+         ap_count:
+           rows
+           |> Enum.map(&field(&1, :bssid))
+           |> Enum.reject(&is_nil/1)
+           |> Enum.uniq()
+           |> length(),
          strongest_rssi: strongest
        }}
     end)
@@ -1344,7 +1529,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
             |> Enum.map(fn {power, index} ->
               %{
                 index: index,
-                frequency_mhz: start_hz / 1_000_000.0 + frequency_span_mhz * ((index + 0.5) / max(bin_count, 1)),
+                frequency_mhz:
+                  start_hz / 1_000_000.0 +
+                    frequency_span_mhz * ((index + 0.5) / max(bin_count, 1)),
                 power_dbm: power,
                 intensity: normalize_power(power)
               }
@@ -1394,7 +1581,14 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       strongest_rssi: strongest_rssi,
       channel: field(strongest, :channel),
       frequency_mhz: field(strongest, :frequency_mhz),
-      confidence: ap_candidate_confidence(rows, positioned_rows, strongest_rssi, path_spread_m, residual_error_m),
+      confidence:
+        ap_candidate_confidence(
+          rows,
+          positioned_rows,
+          strongest_rssi,
+          path_spread_m,
+          residual_error_m
+        ),
       path_spread_m: path_spread_m,
       residual_error_m: residual_error_m,
       strongest_observation: strongest_position(strongest),
@@ -1441,7 +1635,12 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
 
   defp strongest_position(row) do
     if number?(field(row, :x)) and number?(field(row, :z)) do
-      %{x: field(row, :x), y: number_or_default(field(row, :y), 0.0), z: field(row, :z), rssi: field(row, :rssi_dbm)}
+      %{
+        x: field(row, :x),
+        y: number_or_default(field(row, :y), 0.0),
+        z: field(row, :z),
+        rssi: field(row, :rssi_dbm)
+      }
     end
   end
 
@@ -1472,7 +1671,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
     strength_score = min(max((strongest_rssi + 90.0) / 45.0, 0.0), 1.0)
     residual_penalty = min(max((residual_error_m || 0.0) / 4.0, 0.0), 0.22)
 
-    (0.18 + count_score * 0.22 + positioned_score * 0.24 + diversity_score * 0.18 + strength_score * 0.18 -
+    (0.18 + count_score * 0.22 + positioned_score * 0.24 + diversity_score * 0.18 +
+       strength_score * 0.18 -
        residual_penalty)
     |> min(0.96)
     |> max(0.05)
@@ -1584,7 +1784,11 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
               average_power_dbm: average_power,
               peak_power_dbm: peak_power,
               baseline_power_dbm: baseline_power,
-              score: max(normalize_power(average_power), excess_power_score(average_power, peak_power, baseline_power)),
+              score:
+                max(
+                  normalize_power(average_power),
+                  excess_power_score(average_power, peak_power, baseline_power)
+                ),
               sample_count: length(channel_powers)
             }
           ]
@@ -1601,7 +1805,9 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
       Enum.min_by(
         poses,
         fn pose ->
-          pose_time = field(pose, :captured_at_unix_nanos) || field(pose, :pose_captured_at_unix_nanos) || 0
+          pose_time =
+            field(pose, :captured_at_unix_nanos) || field(pose, :pose_captured_at_unix_nanos) || 0
+
           abs(pose_time - target)
         end,
         fn -> nil end
@@ -1858,7 +2064,8 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
         wifi_raster ++
         interference_points ++
         interference_raster ++
-        path_points ++ floorplan_segment_points(floorplan_segments) ++ ap_position_points(ap_summaries)
+        path_points ++
+        floorplan_segment_points(floorplan_segments) ++ ap_position_points(ap_summaries)
 
     xs = Enum.map(points, & &1.x)
     zs = Enum.map(points, & &1.z)
@@ -2003,6 +2210,7 @@ defmodule ServiceRadarWebNG.FieldSurveyReview do
   end
 
   defp average(rows, field_name), do: rows |> Enum.map(&field(&1, field_name)) |> average_numbers()
+
   defp average_maps(rows, field_name), do: rows |> Enum.map(&Map.get(&1, field_name)) |> average_numbers()
 
   defp weighted_average(rows, field_name, weight_field) do

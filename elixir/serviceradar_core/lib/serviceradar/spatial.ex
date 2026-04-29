@@ -6,14 +6,15 @@ defmodule ServiceRadar.Spatial do
   use Ash.Domain
 
   resources do
-    resource(ServiceRadar.Spatial.SurveySample)
-    resource(ServiceRadar.Spatial.SurveyRfObservation)
-    resource(ServiceRadar.Spatial.SurveyPoseSample)
-    resource(ServiceRadar.Spatial.SurveySpectrumObservation)
-    resource(ServiceRadar.Spatial.SurveyRfPoseMatch)
-    resource(ServiceRadar.Spatial.SurveyRoomArtifact)
-    resource(ServiceRadar.Spatial.SurveyCoverageRaster)
-    resource(ServiceRadar.Spatial.SurveySessionMetadata)
-    resource(ServiceRadar.Spatial.FieldSurveyDashboardPlaylistEntry)
+    resource ServiceRadar.Spatial.SurveySample
+    resource ServiceRadar.Spatial.SurveyRfObservation
+    resource ServiceRadar.Spatial.SurveyPoseSample
+    resource ServiceRadar.Spatial.SurveySpectrumObservation
+    resource ServiceRadar.Spatial.SurveyRfPoseMatch
+    resource ServiceRadar.Spatial.SurveyRoomArtifact
+    resource ServiceRadar.Spatial.SurveyCoverageRaster
+    resource ServiceRadar.Spatial.SurveySessionMetadata
+    resource ServiceRadar.Spatial.FieldSurveyDashboardPlaylistEntry
+    resource ServiceRadar.Spatial.FieldSurveyReviewPreference
   end
 end
