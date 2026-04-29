@@ -69,6 +69,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       security_trend: [],
       security_trend_max: 0,
       security_summary: empty_event_summary(),
+      threat_intel_summary: empty_threat_intel_summary(),
       alert_feed: [],
       camera_summary: empty_camera_summary(),
       survey_summary: empty_survey_summary()
@@ -93,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     alert_summary = Stats.alerts_summary(scope: scope)
     alert_feed = alert_feed(time_window)
     event_summary = Stats.events_summary(time: time_window)
+    threat_intel_summary = threat_intel_summary()
     trace_summary = trace_summary(srql_module, scope, time_window)
     security_trend = security_trend(time_window)
     sparklines = dashboard_sparklines(time_window, security_trend, mtr_overlays)
@@ -141,6 +143,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       security_trend: security_trend,
       security_trend_max: max_trend_total(security_trend),
       security_summary: event_summary,
+      threat_intel_summary: threat_intel_summary,
       alert_feed: alert_feed,
       camera_summary: camera_summary,
       survey_summary: survey_summary
@@ -276,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp traffic_links_from_relation(relation, time_column, cutoff) do
     flow_count_expr = flow_count_expr(relation)
     has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
+    has_threat? = relation_exists?("platform.ip_threat_intel_cache")
     has_anchor? = netflow_location_anchors_available?()
     anchor_partition_filter = anchor_partition_filter(relation)
 
@@ -300,6 +304,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     dst_anchor_label = anchor_label_select_expr(has_anchor?, "dst_anchor")
     src_local_anchor = local_anchor_select_expr(has_anchor?, "src_anchor")
     dst_local_anchor = local_anchor_select_expr(has_anchor?, "dst_anchor")
+    threat_select = threat_select_expr(has_threat?)
 
     geo_select = """
       #{src_lat} AS src_latitude,
@@ -356,6 +361,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         ""
       end
 
+    threat_join =
+      if has_threat? do
+        """
+        LEFT JOIN platform.ip_threat_intel_cache src_threat
+          ON src_threat.ip = NULLIF(f.src_endpoint_ip, '')
+          AND src_threat.matched = true
+          AND src_threat.expires_at > now()
+        LEFT JOIN platform.ip_threat_intel_cache dst_threat
+          ON dst_threat.ip = NULLIF(f.dst_endpoint_ip, '')
+          AND dst_threat.matched = true
+          AND dst_threat.expires_at > now()
+        """
+      else
+        ""
+      end
+
     sql = """
     SELECT
       COALESCE(f.src_endpoint_ip, 'Unknown') AS src,
@@ -363,10 +384,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       COALESCE(SUM(bytes_total), 0)::bigint AS bytes_total,
       COALESCE(SUM(packets_total), 0)::bigint AS packets_total,
       COALESCE(#{flow_count_expr}, 0)::bigint AS flow_count,
-      #{geo_select}
+      #{geo_select},
+      #{threat_select}
     FROM #{relation} f
     #{geo_join}
     #{anchor_join}
+    #{threat_join}
     WHERE f.#{time_column} >= $1
       AND f.src_endpoint_ip IS NOT NULL
       AND f.dst_endpoint_ip IS NOT NULL
@@ -397,13 +420,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
                           dst_city,
                           dst_country,
                           dst_anchor_label,
-                          dst_local_anchor
+                          dst_local_anchor,
+                          src_threat_matched,
+                          src_threat_match_count,
+                          src_threat_max_severity,
+                          src_threat_sources,
+                          dst_threat_matched,
+                          dst_threat_match_count,
+                          dst_threat_max_severity,
+                          dst_threat_sources
                         ], idx} ->
           magnitude = to_int(bytes)
           topology_from = point_for(src)
           topology_to = point_for(dst)
           geo_from = geo_point(src_lon, src_lat)
           geo_to = geo_point(dst_lon, dst_lat)
+          threat_matched = src_threat_matched == true or dst_threat_matched == true
+          threat_sources = threat_sources(src_threat_sources, dst_threat_sources)
 
           %{
             id: "flow-#{idx}",
@@ -422,17 +455,62 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             target_anchor_label: dst_anchor_label,
             source_local_anchor: src_local_anchor == true,
             target_local_anchor: dst_local_anchor == true,
+            source_threat_matched: src_threat_matched == true,
+            target_threat_matched: dst_threat_matched == true,
+            threat_matched: threat_matched,
+            threat_match_count: to_int(src_threat_match_count) + to_int(dst_threat_match_count),
+            threat_max_severity: max(to_int(src_threat_max_severity), to_int(dst_threat_max_severity)),
+            threat_sources: threat_sources,
             magnitude: magnitude,
             bytes: magnitude,
             packets: to_int(packets),
             flow_count: to_int(flow_count),
-            color: flow_color(idx, magnitude)
+            color: if(threat_matched, do: [244, 63, 94, 245], else: flow_color(idx, magnitude))
           }
         end)
 
       _ ->
         []
     end
+  end
+
+  defp threat_select_expr(true) do
+    """
+      COALESCE(BOOL_OR(src_threat.ip IS NOT NULL), false) AS src_threat_matched,
+      COALESCE(MAX(src_threat.match_count), 0)::integer AS src_threat_match_count,
+      COALESCE(MAX(src_threat.max_severity), 0)::integer AS src_threat_max_severity,
+      COALESCE(MAX(array_to_string(src_threat.sources, ',')), '') AS src_threat_sources,
+      COALESCE(BOOL_OR(dst_threat.ip IS NOT NULL), false) AS dst_threat_matched,
+      COALESCE(MAX(dst_threat.match_count), 0)::integer AS dst_threat_match_count,
+      COALESCE(MAX(dst_threat.max_severity), 0)::integer AS dst_threat_max_severity,
+      COALESCE(MAX(array_to_string(dst_threat.sources, ',')), '') AS dst_threat_sources
+    """
+  end
+
+  defp threat_select_expr(false) do
+    """
+      false AS src_threat_matched,
+      0 AS src_threat_match_count,
+      0 AS src_threat_max_severity,
+      '' AS src_threat_sources,
+      false AS dst_threat_matched,
+      0 AS dst_threat_match_count,
+      0 AS dst_threat_max_severity,
+      '' AS dst_threat_sources
+    """
+  end
+
+  defp threat_sources(src_sources, dst_sources) do
+    [src_sources, dst_sources]
+    |> Enum.flat_map(fn value ->
+      value
+      |> to_string()
+      |> String.split(",", trim: true)
+    end)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.take(6)
   end
 
   defp topology_links(time_window) do
@@ -1670,6 +1748,118 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> []
   end
 
+  defp threat_intel_summary do
+    empty_threat_intel_summary()
+    |> Map.merge(threat_intel_indicator_counts())
+    |> Map.merge(threat_intel_match_counts())
+    |> Map.merge(threat_intel_latest_status())
+  rescue
+    _ -> empty_threat_intel_summary()
+  end
+
+  defp threat_intel_indicator_counts do
+    counts =
+      if relation_exists?("platform.threat_intel_indicators") do
+        sql = """
+        SELECT
+          COUNT(*)::bigint,
+          COUNT(DISTINCT source)::bigint
+        FROM platform.threat_intel_indicators
+        WHERE expires_at IS NULL OR expires_at > now()
+        """
+
+        case Repo.query(sql, []) do
+          {:ok, %{rows: [[indicators, sources]]}} ->
+            %{imported_indicators: to_int(indicators), sources: to_int(sources)}
+
+          _ ->
+            %{}
+        end
+      else
+        %{}
+      end
+
+    source_objects =
+      if relation_exists?("platform.threat_intel_source_objects") do
+        case Repo.query("SELECT COUNT(*)::bigint FROM platform.threat_intel_source_objects", []) do
+          {:ok, %{rows: [[count]]}} -> %{source_objects: to_int(count)}
+          _ -> %{}
+        end
+      else
+        %{}
+      end
+
+    Map.merge(counts, source_objects)
+  end
+
+  defp threat_intel_match_counts do
+    if relation_exists?("platform.ip_threat_intel_cache") do
+      sql = """
+      SELECT
+        COUNT(*) FILTER (WHERE matched = true AND expires_at > now())::bigint,
+        COALESCE(SUM(match_count) FILTER (WHERE matched = true AND expires_at > now()), 0)::bigint,
+        COALESCE(MAX(max_severity) FILTER (WHERE matched = true AND expires_at > now()), 0)::integer
+      FROM platform.ip_threat_intel_cache
+      """
+
+      case Repo.query(sql, []) do
+        {:ok, %{rows: [[matched_ips, indicator_matches, max_severity]]}} ->
+          %{
+            matched_ips: to_int(matched_ips),
+            indicator_matches: to_int(indicator_matches),
+            max_severity: to_int(max_severity)
+          }
+
+        _ ->
+          %{}
+      end
+    else
+      %{}
+    end
+  end
+
+  defp threat_intel_latest_status do
+    if relation_exists?("platform.threat_intel_sync_statuses") do
+      sql = """
+      SELECT
+        provider,
+        source,
+        last_status,
+        COALESCE(last_message, last_error, ''),
+        last_attempt_at,
+        last_success_at,
+        indicators_count,
+        skipped_count,
+        total_count
+      FROM platform.threat_intel_sync_statuses
+      ORDER BY last_attempt_at DESC
+      LIMIT 1
+      """
+
+      case Repo.query(sql, []) do
+        {:ok, %{rows: [[provider, source, status, message, attempted_at, success_at, indicators, skipped, total]]}} ->
+          %{
+            latest_provider: provider,
+            latest_source: source,
+            latest_status: status,
+            latest_message: message,
+            latest_attempt_at: attempted_at,
+            latest_success_at: success_at,
+            latest_sync_indicators: to_int(indicators),
+            latest_sync_skipped: to_int(skipped),
+            latest_sync_total: to_int(total),
+            latest_attempt_label: format_alert_time(attempted_at),
+            latest_success_label: format_alert_time(success_at)
+          }
+
+        _ ->
+          %{}
+      end
+    else
+      %{}
+    end
+  end
+
   defp module_states(
          collector_counts,
          flow_summary,
@@ -1878,6 +2068,27 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp empty_alert_summary, do: Stats.empty_alerts_summary()
   defp empty_event_summary, do: Stats.empty_events_summary()
+
+  defp empty_threat_intel_summary,
+    do: %{
+      imported_indicators: 0,
+      source_objects: 0,
+      matched_ips: 0,
+      indicator_matches: 0,
+      max_severity: 0,
+      sources: 0,
+      latest_provider: nil,
+      latest_source: nil,
+      latest_status: nil,
+      latest_message: nil,
+      latest_attempt_at: nil,
+      latest_success_at: nil,
+      latest_sync_indicators: 0,
+      latest_sync_skipped: 0,
+      latest_sync_total: 0,
+      latest_attempt_label: "",
+      latest_success_label: ""
+    }
 
   defp empty_trace_summary,
     do: %{total: 0, errors: 0, avg_duration_ms: 0.0, p95_duration_ms: 0.0, error_rate: 0.0, successful: 0}

@@ -2791,14 +2791,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     dst_ip = flow_get(flow, ["dst_endpoint_ip", "dst_ip"])
 
     []
-    |> maybe_add_geo_marker("Source", src_ip, Map.get(context, :src_geo))
-    |> maybe_add_geo_marker("Dest", dst_ip, Map.get(context, :dst_geo))
+    |> maybe_add_geo_marker("Source", src_ip, Map.get(context, :src_geo), Map.get(context, :src_threat))
+    |> maybe_add_geo_marker("Dest", dst_ip, Map.get(context, :dst_geo), Map.get(context, :dst_threat))
     |> Enum.take(2)
   end
 
   defp netflow_map_markers(_context, _flow), do: []
 
-  defp maybe_add_geo_marker(markers, side, ip, geo) when is_list(markers) do
+  defp maybe_add_geo_marker(markers, side, ip, geo, threat) when is_list(markers) do
     cond do
       not is_map(geo) ->
         markers
@@ -2819,11 +2819,30 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             %{
               lng: Map.get(geo, :longitude),
               lat: Map.get(geo, :latitude),
-              label: label
+              label: label,
+              threat_matched: threat_match?(threat),
+              threat_match_count: threat_match_count(threat),
+              threat_max_severity: threat_max_severity(threat),
+              threat_sources: marker_threat_sources(threat)
             }
           ]
     end
   end
+
+  defp threat_match?(%{matched: true}), do: true
+  defp threat_match?(%{match_count: count}) when is_integer(count) and count > 0, do: true
+  defp threat_match?(_), do: false
+
+  defp threat_match_count(%{match_count: count}) when is_integer(count), do: count
+  defp threat_match_count(_), do: 0
+
+  defp threat_max_severity(%{max_severity: severity}) when is_integer(severity), do: severity
+  defp threat_max_severity(_), do: 0
+
+  defp marker_threat_sources(%{sources: sources}) when is_list(sources),
+    do: sources |> Enum.reject(&(&1 in [nil, ""])) |> Enum.take(4)
+
+  defp marker_threat_sources(_), do: []
 
   defp load_flow_context(flow, scope) when is_map(flow) do
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

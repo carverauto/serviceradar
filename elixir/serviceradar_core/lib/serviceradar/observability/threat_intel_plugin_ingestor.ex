@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   provider pages from edge-reachable networks.
   """
 
+  alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelIndicator
@@ -113,6 +114,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
     Enum.each(source_object_attrs, &upsert_source_object(&1, actor))
     Enum.each(indicator_attrs, &upsert_indicator(&1, actor))
     maybe_persist_edge_cursor(page, payload, status, actor)
+    maybe_enqueue_netflow_match(page, indicator_attrs, actor)
 
     emit_ingest_event(:stop, started_at, %{
       provider: page.provider,
@@ -351,6 +353,35 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         {:ok, %NetflowSettings{otx_raw_payload_archive_enabled: true}} -> true
         _ -> false
       end
+  rescue
+    _ -> false
+  end
+
+  defp maybe_enqueue_netflow_match(%Page{} = page, indicator_attrs, actor)
+       when is_list(indicator_attrs) do
+    if otx_page?(page) and indicator_attrs != [] and threat_matching_enabled?(actor) do
+      case NetflowSecurityRefreshWorker.enqueue_now() do
+        {:ok, _job} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.debug("Threat-intel NetFlow match enqueue skipped", reason: inspect(reason))
+          :ok
+      end
+    end
+  rescue
+    error ->
+      Logger.debug("Threat-intel NetFlow match enqueue failed", reason: inspect(error))
+      :ok
+  end
+
+  defp maybe_enqueue_netflow_match(_page, _indicator_attrs, _actor), do: :ok
+
+  defp threat_matching_enabled?(actor) do
+    case NetflowSettings.get_settings(actor: actor) do
+      {:ok, %NetflowSettings{threat_intel_enabled: true}} -> true
+      _ -> false
+    end
   rescue
     _ -> false
   end

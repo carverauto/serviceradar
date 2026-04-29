@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   @default_scan_window_token "last_5m"
   @default_limit 200
+  @default_threat_candidate_limit 10_000
   @default_reschedule_seconds 86_400
   @min_reschedule_seconds 86_400
   @default_cache_ttl_seconds 86_400
@@ -46,6 +47,23 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     end
   end
 
+  @doc """
+  Queues an immediate refresh without disturbing the daily scheduled worker.
+  """
+  @spec enqueue_now() :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue_now do
+    if ObanSupport.available?() do
+      %{
+        "trigger" => "manual",
+        "nonce" => System.unique_integer([:positive])
+      }
+      |> new()
+      |> ObanSupport.safe_insert()
+    else
+      {:error, :oban_unavailable}
+    end
+  end
+
   defp check_existing_job do
     query =
       from(j in Oban.Job,
@@ -61,6 +79,9 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
+
+    threat_candidate_limit =
+      Keyword.get(config, :threat_candidate_limit, @default_threat_candidate_limit)
 
     reschedule_seconds =
       config
@@ -91,7 +112,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
         actor,
         now,
         cache_expires_at,
-        limit,
+        threat_candidate_limit,
         threat_match_window_seconds
       )
 

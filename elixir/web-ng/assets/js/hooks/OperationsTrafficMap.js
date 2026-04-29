@@ -57,6 +57,7 @@ function netflowLinkColor(link, magnitude) {
   const sourceLocal = Boolean(link?.source_local_anchor)
   const targetLocal = Boolean(link?.target_local_anchor)
 
+  if (link?.threat_matched) return [244, 63, 94, 245]
   if (magnitude >= 1_000_000_000 || flowCount >= 50) return [251, 146, 60, 235]
   if (magnitude >= 100_000_000 || flowCount >= 15) return [167, 139, 250, 230]
   if (sourceLocal && targetLocal) return [45, 212, 191, 230]
@@ -201,6 +202,12 @@ function normalizeTrafficLinks(rawLinks, mapView) {
         targetAnchorLabel: link?.target_anchor_label,
         sourceLocalAnchor: Boolean(link?.source_local_anchor),
         targetLocalAnchor: Boolean(link?.target_local_anchor),
+        sourceThreatMatched: Boolean(link?.source_threat_matched),
+        targetThreatMatched: Boolean(link?.target_threat_matched),
+        threatMatched: Boolean(link?.threat_matched),
+        threatMatchCount: Number(link?.threat_match_count || 0),
+        threatMaxSeverity: Number(link?.threat_max_severity || 0),
+        threatSources: Array.isArray(link?.threat_sources) ? link.threat_sources : [],
         geoMapped,
         bytes: Number(link?.bytes || 0),
         packets: Number(link?.packets || 0),
@@ -243,6 +250,22 @@ function formatRate(value) {
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
   if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} Kbps`
   return `${bps.toFixed(0)} bps`
+}
+
+function parseThreatSources(value) {
+  try {
+    const parsed = JSON.parse(value || "[]")
+    return Array.isArray(parsed) ? parsed.map((source) => String(source || "").trim()).filter(Boolean).slice(0, 4) : []
+  } catch (_e) {
+    return []
+  }
+}
+
+function threatSideLabel(sourceMatched, targetMatched) {
+  if (sourceMatched && targetMatched) return "source and destination"
+  if (sourceMatched) return "source"
+  if (targetMatched) return "destination"
+  return "endpoint"
 }
 
 function flowEndpointLabel(label, ip, fallback) {
@@ -635,6 +658,7 @@ function netflowPathClass(link) {
   const magnitude = visualMagnitude(link)
   const flowCount = Number(link?.flowCount || 0)
 
+  if (link?.threatMatched) return "is-netflow-threat"
   if (magnitude >= 1_000_000_000 || flowCount >= 50) return "is-netflow-hot"
   if (magnitude >= 100_000_000 || flowCount >= 15) return "is-netflow-busy"
   if (link?.sourceLocalAnchor && link?.targetLocalAnchor) return "is-netflow-local"
@@ -1195,12 +1219,18 @@ export default {
     const source = flowNode.dataset.sourceLabel || "Unknown source"
     const target = flowNode.dataset.targetLabel || "Unknown target"
     const bytes = Number(flowNode.dataset.bytes || 0)
-    const packets = Number(flowNode.dataset.packets || 0)
-    const flowCount = Number(flowNode.dataset.flowCount || 0)
-    const rate = Number(flowNode.dataset.flowBps || 0)
+  const packets = Number(flowNode.dataset.packets || 0)
+  const flowCount = Number(flowNode.dataset.flowCount || 0)
+  const rate = Number(flowNode.dataset.flowBps || 0)
+  const threatMatched = flowNode.dataset.threatMatched === "true"
+  const threatMatchCount = Number(flowNode.dataset.threatMatchCount || 0)
+  const threatMaxSeverity = Number(flowNode.dataset.threatMaxSeverity || 0)
+  const threatSources = parseThreatSources(flowNode.dataset.threatSources)
+  const sourceThreatMatched = flowNode.dataset.sourceThreatMatched === "true"
+  const targetThreatMatched = flowNode.dataset.targetThreatMatched === "true"
 
-    if (!this.anchorDetails) {
-      this.anchorDetails = document.createElement("div")
+  if (!this.anchorDetails) {
+    this.anchorDetails = document.createElement("div")
       parent.appendChild(this.anchorDetails)
     }
     this.anchorDetails.className = "sr-ops-anchor-details is-flow-details"
@@ -1213,6 +1243,10 @@ export default {
       <span><em>Traffic</em><b>${formatBytes(bytes)}</b></span>
       ${packets > 0 ? `<span><em>Packets</em><b>${packets.toLocaleString()}</b></span>` : ""}
       ${rate > 0 ? `<span><em>Rate</em><b>${formatRate(rate)}</b></span>` : ""}
+      ${threatMatched ? `<span class="is-threat-row"><em>AlienVault</em><b>${threatMatchCount.toLocaleString()} IOC match${threatMatchCount === 1 ? "" : "es"}</b></span>` : ""}
+      ${threatMatched && threatMaxSeverity > 0 ? `<span class="is-threat-row"><em>Severity</em><b>${threatMaxSeverity.toLocaleString()}</b></span>` : ""}
+      ${threatMatched && threatSources.length > 0 ? `<span class="is-threat-row"><em>Sources</em><b>${threatSources.map(escapeHtml).join(", ")}</b></span>` : ""}
+      ${threatMatched ? `<span class="is-threat-row"><em>Matched side</em><b>${threatSideLabel(sourceThreatMatched, targetThreatMatched)}</b></span>` : ""}
     `
     this.anchorDetails.style.left = `${Math.min(parentRect.width - 300, Math.max(12, nodeRect.left - parentRect.left + nodeRect.width * 0.45))}px`
     this.anchorDetails.style.top = `${Math.min(parentRect.height - 218, Math.max(12, nodeRect.top - parentRect.top + nodeRect.height * 0.35))}px`
@@ -1296,6 +1330,12 @@ export default {
         hit.dataset.packets = String(link.packets || 0)
         hit.dataset.flowCount = String(link.flowCount || 0)
         hit.dataset.flowBps = String(link.flowBps || 0)
+        hit.dataset.threatMatched = link.threatMatched ? "true" : "false"
+        hit.dataset.threatMatchCount = String(link.threatMatchCount || 0)
+        hit.dataset.threatMaxSeverity = String(link.threatMaxSeverity || 0)
+        hit.dataset.threatSources = JSON.stringify(link.threatSources || [])
+        hit.dataset.sourceThreatMatched = link.sourceThreatMatched ? "true" : "false"
+        hit.dataset.targetThreatMatched = link.targetThreatMatched ? "true" : "false"
         linkGroup.appendChild(hit)
       }
 

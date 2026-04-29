@@ -262,19 +262,19 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     attribute :otx_page_size, :integer do
       allow_nil? false
-      default 10
+      default 100
       public? true
     end
 
     attribute :otx_timeout_ms, :integer do
       allow_nil? false
-      default 20_000
+      default 120_000
       public? true
     end
 
     attribute :otx_max_indicators, :integer do
       allow_nil? false
-      default 2_000
+      default 5_000
       public? true
     end
 
@@ -302,7 +302,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     attribute :threat_intel_match_window_seconds, :integer do
       allow_nil? false
-      default 3_600
+      default 86_400
       public? true
     end
 
