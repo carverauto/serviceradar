@@ -12,12 +12,14 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
     assert sql =~ "INSERT INTO otel_trace_summaries"
     assert sql =~ "ON CONFLICT (trace_id) DO UPDATE"
     assert sql =~ "count(*) FILTER (WHERE t.status_code = 2)"
+    assert sql =~ "INTERVAL '3 days'"
   end
 
   test "exposes batched cleanup SQL" do
     sql = RefreshTraceSummariesWorker.cleanup_batch_sql()
     assert sql =~ "WITH doomed AS"
     assert sql =~ "DELETE FROM otel_trace_summaries AS summaries"
+    assert sql =~ "INTERVAL '3 days'"
     assert sql =~ "LIMIT $1"
   end
 
