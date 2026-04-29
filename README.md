@@ -9,14 +9,15 @@
 
 <img width="1470" height="802" alt="Screenshot_2026-04-28_at_10 07 02_PM" src="https://github.com/user-attachments/assets/9e77fd49-0cb3-4016-a653-db92f69ddb99" />
 
-[!IMPORTANT]
-
-Active source development and releases now live at `https://code.carverauto.dev/carverauto/serviceradar`.
+#
 
 [![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git?ref=badge_shield&issueType=security)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11310/badge)](https://www.bestpractices.dev/projects/11310)
 <a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
+
+>[!IMPORTANT]
+>Active source development and releases now live at [code.carverauto.dev/carverauto/serviceradar](https://code.carverauto.dev/carverauto/serviceradar)
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting to ensure you stay informed even during network or power outages.
 
