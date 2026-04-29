@@ -255,6 +255,12 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       :timeout ->
         true
 
+      {:down, :normal} ->
+        true
+
+      {:down, _reason} ->
+        true
+
       {:call_failed, _} ->
         true
 

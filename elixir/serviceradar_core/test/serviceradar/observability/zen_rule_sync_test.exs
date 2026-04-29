@@ -8,7 +8,8 @@ defmodule ServiceRadar.Observability.ZenRuleSyncTest do
 
   test "logs a single transient reconcile message without per-rule warnings" do
     results = [
-      {:error, :not_connected, %ZenRule{id: "rule-1", name: "rule-one"}}
+      {:error, :not_connected, %ZenRule{id: "rule-1", name: "rule-one"}},
+      {:error, {:down, :normal}, %ZenRule{id: "rule-2", name: "rule-two"}}
     ]
 
     log =
