@@ -21,8 +21,8 @@
 - [x] 3.5 Surface concise dashboard diagnostics when a playlist entry is empty, invalid, stale, or missing floorplan/raster data.
 
 ## 4. Validation
-- [ ] 4.1 Add Elixir tests for playlist CRUD, validation, and fallback behavior.
+- [x] 4.1 Add Elixir tests for playlist CRUD, validation, and fallback behavior.
 - [x] 4.2 Add SRQL tests for all new FieldSurvey entities.
-- [ ] 4.3 Add Playwright coverage for settings preview and dashboard playlist rendering against demo FieldSurvey data.
-- [ ] 4.4 Validate local web-ng dashboard screenshots with the `fieldsurvey-local-web-ng` workflow.
+- [x] 4.3 Add Playwright coverage for settings preview and dashboard playlist rendering against demo FieldSurvey data.
+- [x] 4.4 Validate local web-ng dashboard screenshots with the `fieldsurvey-local-web-ng` workflow.
 - [x] 4.5 Run `openspec validate add-fieldsurvey-srql-playlists --strict`.
