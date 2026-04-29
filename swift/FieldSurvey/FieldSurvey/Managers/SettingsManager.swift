@@ -148,6 +148,54 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    @Published public var surveySiteID: String {
+        didSet {
+            UserDefaults.standard.set(surveySiteID, forKey: "surveySiteID")
+        }
+    }
+
+    @Published public var surveySiteName: String {
+        didSet {
+            UserDefaults.standard.set(surveySiteName, forKey: "surveySiteName")
+        }
+    }
+
+    @Published public var surveyBuildingID: String {
+        didSet {
+            UserDefaults.standard.set(surveyBuildingID, forKey: "surveyBuildingID")
+        }
+    }
+
+    @Published public var surveyBuildingName: String {
+        didSet {
+            UserDefaults.standard.set(surveyBuildingName, forKey: "surveyBuildingName")
+        }
+    }
+
+    @Published public var surveyFloorID: String {
+        didSet {
+            UserDefaults.standard.set(surveyFloorID, forKey: "surveyFloorID")
+        }
+    }
+
+    @Published public var surveyFloorName: String {
+        didSet {
+            UserDefaults.standard.set(surveyFloorName, forKey: "surveyFloorName")
+        }
+    }
+
+    @Published public var surveyFloorIndex: String {
+        didSet {
+            UserDefaults.standard.set(surveyFloorIndex, forKey: "surveyFloorIndex")
+        }
+    }
+
+    @Published public var surveyTags: String {
+        didSet {
+            UserDefaults.standard.set(surveyTags, forKey: "surveyTags")
+        }
+    }
+
     @Published public private(set) var arPriorityLoadShedActive: Bool = false
     
     private let scannerDeviceIdValue: String
@@ -173,11 +221,32 @@ public class SettingsManager: ObservableObject {
     public var isOfflineMode: Bool {
         authToken == Self.offlineToken
     }
+
+    public var currentSurveyUploadMetadata: FieldSurveySessionUploadMetadata {
+        FieldSurveySessionUploadMetadata(
+            siteID: surveySiteID,
+            siteName: surveySiteName,
+            buildingID: surveyBuildingID,
+            buildingName: surveyBuildingName,
+            floorID: surveyFloorID,
+            floorName: surveyFloorName,
+            floorIndex: Self.parseOptionalInt(surveyFloorIndex),
+            tags: Self.parseTags(surveyTags)
+        )
+    }
     
     private init() {
         self.rfScanningEnabled = UserDefaults.standard.object(forKey: "rfScanningEnabled") as? Bool ?? true
         self.showWiFiHeatmap = UserDefaults.standard.object(forKey: "showWiFiHeatmap") as? Bool ?? true
         self.arPriorityModeEnabled = UserDefaults.standard.object(forKey: "arPriorityModeEnabled") as? Bool ?? true
+        self.surveySiteID = UserDefaults.standard.string(forKey: "surveySiteID") ?? ""
+        self.surveySiteName = UserDefaults.standard.string(forKey: "surveySiteName") ?? ""
+        self.surveyBuildingID = UserDefaults.standard.string(forKey: "surveyBuildingID") ?? ""
+        self.surveyBuildingName = UserDefaults.standard.string(forKey: "surveyBuildingName") ?? ""
+        self.surveyFloorID = UserDefaults.standard.string(forKey: "surveyFloorID") ?? ""
+        self.surveyFloorName = UserDefaults.standard.string(forKey: "surveyFloorName") ?? ""
+        self.surveyFloorIndex = UserDefaults.standard.string(forKey: "surveyFloorIndex") ?? ""
+        self.surveyTags = UserDefaults.standard.string(forKey: "surveyTags") ?? ""
         
         self.apiURL = UserDefaults.standard.string(forKey: "apiURL") ?? "https://demo.serviceradar.cloud"
         self.authToken = Self.migratedSecret(
@@ -271,6 +340,23 @@ public class SettingsManager: ObservableObject {
     public func signOut() {
         authToken = ""
         backendAuthenticatedAt = 0
+    }
+
+    private static func parseOptionalInt(_ value: String) -> Int? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Int(trimmed)
+    }
+
+    private static func parseTags(_ value: String) -> [String] {
+        value
+            .split { character in
+                character == "," || character == ";" || character == "\n"
+            }
+            .compactMap { part -> String? in
+                let tag = String(part).trimmingCharacters(in: .whitespacesAndNewlines)
+                return tag.isEmpty ? nil : tag
+            }
     }
 
     private static func migratedSecret(account: String, legacyDefaultsKey: String) -> String {

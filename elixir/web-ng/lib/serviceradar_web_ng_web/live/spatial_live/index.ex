@@ -58,10 +58,6 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
                 <span class="inline-block w-3 h-3 rounded-full bg-info opacity-80"></span>
                 <span>RoomPlan walls</span>
               </div>
-              <div class="flex items-center gap-1 ml-2">
-                <span class="inline-block w-3 h-3 rounded-full bg-base-content opacity-80"></span>
-                <span>Fallback points</span>
-              </div>
               <div class="flex items-center gap-1 ml-4">
                 <span class="text-base-content/50">
                   Drag to Pan | Scroll to Zoom | Option+Drag to Orbit

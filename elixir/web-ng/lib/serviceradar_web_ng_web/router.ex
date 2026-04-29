@@ -202,6 +202,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/spatial/scene", SpatialController, :scene)
     get("/spatial/room-artifacts", SpatialController, :room_artifacts)
     get("/spatial/room-artifacts/:id/download", SpatialController, :download_room_artifact)
+    get("/spatial/field-surveys/:session_id/export", SpatialController, :field_survey_export)
   end
 
   # Admin API (session/JWT auth)
@@ -519,6 +520,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
+      live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
       live("/settings/networks/mtr/new", Settings.MtrProfilesLive.Index, :new_profile)
       live("/settings/networks/mtr/:id/edit", Settings.MtrProfilesLive.Index, :edit_profile)

@@ -114,12 +114,14 @@ pub(super) async fn stream_spectrum(
     mut socket: WebSocket,
     request: SpectrumSweepRequest,
     capture_control: Arc<CaptureControl>,
+    adaptive_scan: AdaptiveScanState,
 ) {
     let target = request.sdr_id.clone();
     let _registration = capture_control.register(CaptureStreamType::Spectrum, target);
     let mut stop_rx = capture_control.subscribe_stop();
     let mut sweeps = spawn_hackrf_sweep(request);
     let mut pending = Vec::with_capacity(32);
+    let mut last_capture_unix_nanos: Option<i64> = None;
     let mut flush_interval = tokio::time::interval(Duration::from_millis(200));
     flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -133,6 +135,18 @@ pub(super) async fn stream_spectrum(
 
                 match result {
                     Ok(sweep) => {
+                        let sweep_rate_hz = last_capture_unix_nanos
+                            .and_then(|last| {
+                                let delta = sweep.captured_at_unix_nanos.saturating_sub(last);
+                                (delta > 0).then(|| 1_000_000_000.0_f32 / delta as f32)
+                            })
+                            .filter(|rate| rate.is_finite() && *rate > 0.0);
+                        last_capture_unix_nanos = Some(sweep.captured_at_unix_nanos);
+                        let summary = summarize_sweep(&sweep, sweep_rate_hz);
+                        adaptive_scan.observe_spectrum_summary(&summary);
+                        if !send_spectrum_summary(&mut socket, &summary).await {
+                            break;
+                        }
                         pending.push(sweep);
                         if pending.len() >= 32 && !send_spectrum_batch(&mut socket, &mut pending).await {
                             break;

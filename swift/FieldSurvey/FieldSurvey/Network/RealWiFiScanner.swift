@@ -165,7 +165,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         )
     }
 
-    public func startPoseStreaming(sessionID: String) {
+    public func startPoseStreaming(sessionID: String, metadata: FieldSurveySessionUploadMetadata? = nil) {
         stopPoseStreaming()
         guard SettingsManager.shared.authToken != "OFFLINE_MODE" else { return }
 
@@ -173,7 +173,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             baseURL: SettingsManager.shared.apiURL,
             authToken: SettingsManager.shared.authToken,
             sessionID: sessionID,
-            stream: .poseSamples
+            stream: .poseSamples,
+            metadata: metadata
         )
         lastPoseStreamTime = 0
         poseStreamFrameCount = 0

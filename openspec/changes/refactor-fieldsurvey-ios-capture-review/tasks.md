@@ -1,3 +1,5 @@
+> Remaining unchecked items are intentional follow-up work, not missed checkoffs. RF Update/relocalization and final physical iPhone/Pi smoke tests still need dedicated implementation and validation; they should not be marked complete until tested on-device.
+
 ## 1. Stabilize Capture
 - [x] 1.1 Stop using iPhone Wi-Fi APIs for RF survey measurements.
 - [x] 1.2 Remove BLE RF survey ingestion from the capture path.
@@ -43,6 +45,6 @@
 
 ## 5. Verification
 - [x] 5.1 Run FieldSurvey iPhone build and install.
-- [ ] 5.2 Run focused Swift tests for Sidekick URL/error handling and session review projection.
+- [x] 5.2 Run focused Swift tests for Sidekick URL/error handling and session review projection. `SidekickClientTests` and `SignalCoverageInterpolatorTests` passed on the iPhone 17 / iOS 26.4.1 simulator; the broader suite still has a separate `ArrowStreamerTests.testArrowEncoding()` simulator trap to investigate.
 - [ ] 5.3 Perform an iPhone/Pi capture smoke test and verify local save/review.
 - [ ] 5.4 Perform an iPhone/Pi/backend smoke test and verify ServiceRadar saved-survey review.

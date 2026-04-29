@@ -146,6 +146,31 @@ final class SidekickClientTests: XCTestCase {
         )
     }
 
+    func testAppliesFieldSurveySessionMetadataHeaders() throws {
+        var request = URLRequest(url: URL(string: "https://demo.serviceradar.cloud/v1/field-survey/session/room-artifacts")!)
+        let metadata = FieldSurveySessionUploadMetadata(
+            siteID: "ord",
+            siteName: "ORD",
+            buildingID: "terminal-b",
+            buildingName: "Terminal B",
+            floorID: "level-2",
+            floorName: "Level 2",
+            floorIndex: 2,
+            tags: ["airport", "ord"],
+            metadata: ["session_name": "Survey A"]
+        )
+
+        FieldSurveyRoomArtifactUploader.applySessionMetadataHeaders(metadata, to: &request)
+
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-FieldSurvey-Site-Id"), "ord")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-FieldSurvey-Building-Name"), "Terminal B")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-FieldSurvey-Floor-Index"), "2")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-FieldSurvey-Tags"), "airport,ord")
+        let encoded = try XCTUnwrap(request.value(forHTTPHeaderField: "X-FieldSurvey-Session-Metadata"))
+        let object = try JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: String]
+        XCTAssertEqual(object?["session_name"], "Survey A")
+    }
+
     func testDecodesRuntimeConfig() throws {
         let payload = """
         {

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
 
   alias ServiceRadarWebNG.FieldSurveyArtifactStore
   alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
+  alias ServiceRadarWebNG.FieldSurveySessionMetadata
   alias ServiceRadarWebNG.FieldSurveySessionOwnership
 
   require Logger
@@ -51,7 +52,8 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
                  captured_at: captured_at(conn),
                  metadata: artifact_metadata(conn),
                  scope: scope
-               ) do
+               ),
+             :ok <- persist_session_metadata(conn, session_id, user_id) do
           json(conn, %{
             ok: true,
             artifact_id: artifact.id,
@@ -121,7 +123,8 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
     case conn.assigns[:current_scope] do
       %{user: %{id: user_id}} ->
         with :ok <- validate_websocket_upgrade(conn),
-             {:ok, session_id} <- FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)) do
+             {:ok, session_id} <- FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)),
+             :ok <- persist_session_metadata(conn, session_id, user_id) do
           Logger.info("Upgrading FieldSurvey #{stream_type} Arrow stream for user #{user_id}, session: #{session_id}")
 
           conn
@@ -235,5 +238,36 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp persist_session_metadata(conn, session_id, user_id) do
+    case FieldSurveySessionMetadata.upsert(session_id, to_string(user_id), session_metadata(conn)) do
+      {:ok, _metadata} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("FieldSurvey session metadata persist failed [session: #{session_id}]: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp session_metadata(conn) do
+    %{
+      site_id: header(conn, "x-fieldsurvey-site-id"),
+      site_name: header(conn, "x-fieldsurvey-site-name"),
+      building_id: header(conn, "x-fieldsurvey-building-id"),
+      building_name: header(conn, "x-fieldsurvey-building-name"),
+      floor_id: header(conn, "x-fieldsurvey-floor-id"),
+      floor_name: header(conn, "x-fieldsurvey-floor-name"),
+      floor_index: header(conn, "x-fieldsurvey-floor-index"),
+      tags: header(conn, "x-fieldsurvey-tags"),
+      metadata: header(conn, "x-fieldsurvey-session-metadata") || header(conn, "x-fieldsurvey-metadata")
+    }
+  end
+
+  defp header(conn, name) do
+    conn
+    |> get_req_header(name)
+    |> List.first()
   end
 end

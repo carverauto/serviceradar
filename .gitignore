@@ -269,3 +269,5 @@ k8s/buildbuddy/values.yaml
 .gomodcache/
 pkg/cpufreq/hostfreq_darwin_embed.o
 .local-dev-certs/
+.playwright-cli/
+tmp/fieldsurvey-local/
