@@ -22,10 +22,11 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
     end
   end
 
-  def scene(conn, _params) do
+  def scene(conn, params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "analytics.view"),
-         {:ok, scene} <- FieldSurveyReview.spatial_scene(conn.assigns.current_scope) do
+         {:ok, scene} <-
+           FieldSurveyReview.spatial_scene(conn.assigns.current_scope, scene_opts(params)) do
       json(conn, %{data: scene})
     else
       {:error, error} ->
@@ -37,6 +38,12 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
         conn
     end
   end
+
+  defp scene_opts(%{"session_id" => session_id}) when is_binary(session_id) and session_id != "" do
+    [session_id: session_id]
+  end
+
+  defp scene_opts(_params), do: []
 
   def room_artifacts(conn, _params) do
     with :ok <- require_authenticated(conn),
@@ -57,11 +64,15 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
   def download_room_artifact(conn, %{"id" => artifact_id}) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "analytics.view"),
-         {:ok, artifact} <- FieldSurveyReview.room_artifact(conn.assigns.current_scope, artifact_id),
+         {:ok, artifact} <-
+           FieldSurveyReview.room_artifact(conn.assigns.current_scope, artifact_id),
          {:ok, payload} <- FieldSurveyRoomArtifacts.fetch(artifact.object_key) do
       conn
       |> put_resp_content_type(artifact.content_type)
-      |> put_resp_header("content-disposition", "attachment; filename=\"#{artifact_filename(artifact)}\"")
+      |> put_resp_header(
+        "content-disposition",
+        "attachment; filename=\"#{artifact_filename(artifact)}\""
+      )
       |> send_resp(200, payload)
     else
       {:error, :not_found} ->
@@ -118,7 +129,10 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
 
     conn
     |> put_resp_content_type("image/svg+xml")
-    |> put_resp_header("content-disposition", "attachment; filename=\"#{safe_filename(review.session_id)}-heatmap.svg\"")
+    |> put_resp_header(
+      "content-disposition",
+      "attachment; filename=\"#{safe_filename(review.session_id)}-heatmap.svg\""
+    )
     |> send_resp(200, payload)
   end
 
@@ -132,7 +146,10 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialController do
 
     conn
     |> put_resp_content_type("application/json")
-    |> put_resp_header("content-disposition", "attachment; filename=\"#{safe_filename(review.session_id)}-review.json\"")
+    |> put_resp_header(
+      "content-disposition",
+      "attachment; filename=\"#{safe_filename(review.session_id)}-review.json\""
+    )
     |> send_resp(200, payload)
   end
 

@@ -3,6 +3,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNG.FieldSurveyReview
+  alias ServiceRadarWebNG.FieldSurveyReviewPreferences
+
+  @default_selector_query "in:field_survey_rasters overlay_type:wifi_rssi has_floorplan:true sort:generated_at:desc limit:1"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -16,7 +19,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
      |> assign(:review, nil)
      |> assign(:selected_session_id, nil)
      |> assign(:overlay, "wifi")
-     |> assign(:error, nil)}
+     |> assign(:selector_params, %{"srql_query" => @default_selector_query})
+     |> assign(:selector_preview, nil)
+     |> assign(:error, nil)
+     |> assign_selector_form()}
   end
 
   @impl true
@@ -47,6 +53,87 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       end
 
     {:noreply, load_review(socket, params)}
+  end
+
+  def handle_event("select_session", %{"survey" => %{"session_id" => session_id}}, socket)
+      when is_binary(session_id) and session_id != "" do
+    {:noreply,
+     push_patch(socket,
+       to: field_survey_review_path(session_id, socket.assigns.selected_floor_key)
+     )}
+  end
+
+  def handle_event("select_session", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_favorite", _params, socket) do
+    with session_id when is_binary(session_id) <- socket.assigns.selected_session_id,
+         {:ok, preference} <-
+           FieldSurveyReviewPreferences.toggle_favorite(socket.assigns.current_scope, session_id) do
+      message =
+        if preference.favorite,
+          do: "Favorited FieldSurvey session",
+          else: "Removed FieldSurvey favorite"
+
+      {:noreply,
+       socket
+       |> put_flash(:info, message)
+       |> load_review(%{"session_id" => session_id, "floor" => socket.assigns.selected_floor_key})}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not update FieldSurvey favorite")}
+    end
+  end
+
+  def handle_event("set_default", _params, socket) do
+    with session_id when is_binary(session_id) <- socket.assigns.selected_session_id,
+         {:ok, _preference} <-
+           FieldSurveyReviewPreferences.set_default(socket.assigns.current_scope, session_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Set FieldSurvey default view")
+       |> load_review(%{"session_id" => session_id, "floor" => socket.assigns.selected_floor_key})}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not set FieldSurvey default view")}
+    end
+  end
+
+  def handle_event("validate_selector", %{"selector" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:selector_params, selector_params(params))
+     |> assign(:selector_preview, nil)
+     |> assign_selector_form()}
+  end
+
+  def handle_event("preview_selector", %{"selector" => params}, socket) do
+    params = selector_params(params)
+
+    case preview_selector_query(socket.assigns.current_scope, params["srql_query"]) do
+      {:ok, candidate} ->
+        {:noreply,
+         socket
+         |> assign(:selector_params, params)
+         |> assign(:selector_preview, {:ok, candidate})
+         |> put_flash(:info, "SRQL resolved to FieldSurvey session #{candidate.session_id}")
+         |> assign_selector_form()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:selector_params, params)
+         |> assign(:selector_preview, {:error, reason})
+         |> put_flash(:error, "SRQL preview failed: #{format_error(reason)}")
+         |> assign_selector_form()}
+    end
+  end
+
+  def handle_event("load_selector_candidate", %{"session-id" => session_id}, socket)
+      when is_binary(session_id) and session_id != "" do
+    {:noreply,
+     push_patch(socket,
+       to: field_survey_review_path(session_id, socket.assigns.selected_floor_key)
+     )}
   end
 
   @impl true
@@ -90,6 +177,116 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
+
+        <.ui_panel
+          class="sr-spatial-panel"
+          header_class="sr-spatial-panel-header"
+          body_class="p-4"
+        >
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Survey Selection</div>
+              <div class="text-xs text-base-content/60">
+                Recent sessions, saved review defaults, and SRQL candidates.
+              </div>
+            </div>
+          </:header>
+
+          <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)]">
+            <div class="space-y-3">
+              <form phx-change="select_session">
+                <label class="form-control">
+                  <span class="label">
+                    <span class="label-text text-xs font-semibold uppercase text-base-content/60">
+                      Recent survey
+                    </span>
+                  </span>
+                  <select name="survey[session_id]" class="select select-bordered select-sm w-full">
+                    <option :if={@sessions == []} value="">No surveys</option>
+                    <option
+                      :for={session <- @sessions}
+                      value={session.id}
+                      selected={session.id == @selected_session_id}
+                    >
+                      {session_option_label(session)}
+                    </option>
+                  </select>
+                </label>
+              </form>
+
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class={[
+                    "btn btn-sm",
+                    selected_session_favorite?(@sessions, @selected_session_id) && "btn-primary"
+                  ]}
+                  phx-click="toggle_favorite"
+                  disabled={is_nil(@selected_session_id)}
+                >
+                  <.icon name="hero-star" class="size-4" />
+                  {if selected_session_favorite?(@sessions, @selected_session_id),
+                    do: "Favorited",
+                    else: "Favorite"}
+                </button>
+                <button
+                  type="button"
+                  class={[
+                    "btn btn-sm",
+                    selected_session_default?(@sessions, @selected_session_id) && "btn-primary"
+                  ]}
+                  phx-click="set_default"
+                  disabled={is_nil(@selected_session_id)}
+                >
+                  <.icon name="hero-bookmark-square" class="size-4" />
+                  {if selected_session_default?(@sessions, @selected_session_id),
+                    do: "Default",
+                    else: "Set Default"}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <.form for={@selector_form} phx-change="validate_selector" phx-submit="preview_selector">
+                <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                  <.input field={@selector_form[:srql_query]} type="text" label="SRQL selector" />
+                  <button type="submit" class="btn btn-sm btn-outline">
+                    <.icon name="hero-magnifying-glass" class="size-4" /> Preview
+                  </button>
+                </div>
+              </.form>
+
+              <div
+                :if={match?({:ok, _}, @selector_preview)}
+                class="mt-3 rounded border border-success/30 bg-success/10 px-3 py-2 text-sm"
+              >
+                <% {:ok, candidate} = @selector_preview %>
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div class="font-semibold">{candidate.label}</div>
+                    <div class="text-xs text-base-content/60">{candidate.session_id}</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-primary"
+                    phx-click="load_selector_candidate"
+                    phx-value-session-id={candidate.session_id}
+                  >
+                    Load Survey
+                  </button>
+                </div>
+              </div>
+
+              <div
+                :if={match?({:error, _}, @selector_preview)}
+                class="mt-3 rounded border border-error/30 bg-error/10 px-3 py-2 text-sm text-error"
+              >
+                <% {:error, reason} = @selector_preview %>
+                {format_error(reason)}
+              </div>
+            </div>
+          </div>
+        </.ui_panel>
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_1fr]">
           <.ui_panel class="sr-spatial-panel" header_class="sr-spatial-panel-header" body_class="p-0">
@@ -369,7 +566,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     """
   end
 
-  attr :metrics, :map, required: true
+  attr(:metrics, :map, required: true)
 
   defp metric_strip(assigns) do
     ~H"""
@@ -392,8 +589,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :any, required: true
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
 
   defp summary_cell(assigns) do
     ~H"""
@@ -404,7 +601,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     """
   end
 
-  attr :overlay, :string, required: true
+  attr(:overlay, :string, required: true)
 
   defp map_legend(assigns) do
     ~H"""
@@ -422,7 +619,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     """
   end
 
-  attr :scores, :list, required: true
+  attr(:scores, :list, required: true)
 
   defp channel_scores(assigns) do
     assigns = assign(assigns, :scores, Enum.take(assigns.scores, 28))
@@ -452,7 +649,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     """
   end
 
-  attr :classifications, :list, required: true
+  attr(:classifications, :list, required: true)
 
   defp interferer_classifications(assigns) do
     assigns = assign(assigns, :classifications, Enum.take(assigns.classifications, 4))
@@ -495,14 +692,13 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       {:ok, sessions} ->
         floor_options = floor_options_for_sessions(sessions)
         selected_floor_key = normalize_floor_key(requested_floor_key, floor_options)
-        visible_sessions = filter_sessions_by_floor(sessions, selected_floor_key)
 
-        selected_id =
-          if Enum.any?(visible_sessions, &(&1.id == requested_id)) do
-            requested_id
-          else
-            List.first(visible_sessions, %{})[:id]
-          end
+        visible_sessions =
+          sessions
+          |> filter_sessions_by_floor(selected_floor_key)
+          |> merge_preferences(scope)
+
+        selected_id = select_session_id(visible_sessions, requested_id)
 
         case selected_id do
           nil ->
@@ -558,10 +754,191 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp coverage_cells(review, "interference"), do: Map.get(review, :interference_raster, [])
   defp coverage_cells(_review, _overlay), do: []
 
+  defp assign_selector_form(socket) do
+    assign(socket, :selector_form, to_form(socket.assigns.selector_params, as: :selector))
+  end
+
+  defp selector_params(params) when is_map(params) do
+    query =
+      params
+      |> Map.get("srql_query", @default_selector_query)
+      |> normalize_selector_query()
+
+    %{"srql_query" => query}
+  end
+
+  defp selector_params(_params), do: %{"srql_query" => @default_selector_query}
+
+  defp normalize_selector_query(query) when is_binary(query) do
+    query
+    |> String.trim()
+    |> case do
+      "" -> @default_selector_query
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_selector_query(_query), do: @default_selector_query
+
+  defp preview_selector_query(scope, query) do
+    query = normalize_selector_query(query)
+
+    with :ok <- require_field_survey_query(query),
+         {:ok, %{"results" => results}} <- srql_module().query(query, %{limit: 1, scope: scope}) do
+      case Enum.find_value(results, &selector_candidate/1) do
+        nil -> {:error, :no_field_survey_candidate}
+        candidate -> {:ok, candidate}
+      end
+    end
+  end
+
+  defp require_field_survey_query(query) do
+    if Regex.match?(
+         ~r/(?:^|\s)in:(field_survey_rasters|fieldsurvey_rasters|survey_coverage_rasters|survey_rasters|field_survey_sessions|fieldsurvey_sessions|survey_sessions|field_survey_artifacts|fieldsurvey_artifacts|survey_room_artifacts)(?:\s|$)/i,
+         query
+       ) do
+      :ok
+    else
+      {:error, :selector_query_must_target_field_survey}
+    end
+  end
+
+  defp selector_candidate(%{"session_id" => session_id} = row) when is_binary(session_id) and session_id != "" do
+    %{
+      session_id: session_id,
+      label: selector_candidate_label(row),
+      row: row
+    }
+  end
+
+  defp selector_candidate(_row), do: nil
+
+  defp selector_candidate_label(row) do
+    [
+      Map.get(row, "site_name") || Map.get(row, "site_id"),
+      Map.get(row, "building_name") || Map.get(row, "building_id"),
+      Map.get(row, "floor_name") || floor_index_label(Map.get(row, "floor_index"))
+    ]
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.join(" / ")
+    |> case do
+      "" -> fallback_selector_label(row)
+      label -> label
+    end
+  end
+
+  defp fallback_selector_label(%{"entity" => entity}) when is_binary(entity), do: Phoenix.Naming.humanize(entity)
+
+  defp fallback_selector_label(_row), do: "FieldSurvey session"
+
+  defp selected_session_favorite?(sessions, session_id), do: selected_session_flag?(sessions, session_id, :favorite)
+
+  defp selected_session_default?(sessions, session_id), do: selected_session_flag?(sessions, session_id, :default_view)
+
+  defp selected_session_flag?(sessions, session_id, flag) when is_binary(session_id) do
+    Enum.any?(sessions, &(&1.id == session_id and &1[flag]))
+  end
+
+  defp selected_session_flag?(_sessions, _session_id, _flag), do: false
+
+  defp session_option_label(session) do
+    prefix =
+      [
+        if(session[:default_view], do: "Default"),
+        if(session[:favorite], do: "Favorite"),
+        if(session[:renderable], do: "Ready")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" / ")
+      |> case do
+        "" -> ""
+        labels -> "#{labels}: "
+      end
+
+    label =
+      case session[:metadata] do
+        %{label: label} when is_binary(label) and label != "" -> label
+        _metadata -> session.id
+      end
+
+    "#{prefix}#{label} - #{session.rf_count} RF, #{session.ap_count} APs"
+  end
+
+  defp merge_preferences([], _scope), do: []
+
+  defp merge_preferences(sessions, scope) do
+    session_ids = Enum.map(sessions, & &1.id)
+
+    case FieldSurveyReviewPreferences.for_sessions(scope, session_ids) do
+      {:ok, preferences} ->
+        Enum.map(sessions, fn session ->
+          preference = Map.get(preferences, session.id, %{})
+
+          session
+          |> Map.put(:favorite, Map.get(preference, :favorite, false))
+          |> Map.put(:default_view, Map.get(preference, :default_view, false))
+        end)
+
+      {:error, _reason} ->
+        Enum.map(sessions, fn session ->
+          session
+          |> Map.put(:favorite, false)
+          |> Map.put(:default_view, false)
+        end)
+    end
+  end
+
+  defp select_session_id(sessions, requested_id) do
+    cond do
+      is_binary(requested_id) and Enum.any?(sessions, &(&1.id == requested_id)) ->
+        requested_id
+
+      default = Enum.find(sessions, & &1[:default_view]) ->
+        default.id
+
+      favorite = best_session(Enum.filter(sessions, & &1[:favorite])) ->
+        favorite.id
+
+      renderable = best_session(Enum.filter(sessions, & &1[:renderable])) ->
+        renderable.id
+
+      complete = best_session(Enum.filter(sessions, &session_complete?/1)) ->
+        complete.id
+
+      first = List.first(sessions) ->
+        first.id
+
+      true ->
+        nil
+    end
+  end
+
+  defp best_session([]), do: nil
+
+  defp best_session(sessions) do
+    Enum.max_by(sessions, fn session ->
+      {
+        truthy_score(session[:renderable]),
+        truthy_score(session[:has_floorplan]),
+        session[:wifi_raster_count] || 0,
+        session[:rf_count] || 0,
+        session[:last_seen] || session[:first_seen] || DateTime.from_unix!(0)
+      }
+    end)
+  end
+
+  defp session_complete?(session), do: (session[:rf_count] || 0) > 0 and (session[:ap_count] || 0) > 0
+
+  defp truthy_score(true), do: 1
+  defp truthy_score(_), do: 0
+
   defp ap_markers(review) do
     review.ap_summaries
     |> Enum.filter(&valid_ap_marker?/1)
-    |> Enum.sort_by(fn ap -> {ap.confidence || 0.0, ap.count || 0, ap.strongest_rssi || -120} end, :desc)
+    |> Enum.sort_by(
+      fn ap -> {ap.confidence || 0.0, ap.count || 0, ap.strongest_rssi || -120} end,
+      :desc
+    )
     |> clustered_ap_markers()
     |> Enum.take(6)
   end
@@ -637,10 +1014,17 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   end
 
   defp floor_label(floor_name, _floor_index) when is_binary(floor_name) and floor_name != "", do: floor_name
+
   defp floor_label(_floor_name, floor_index) when is_integer(floor_index), do: "Floor #{floor_index}"
+
   defp floor_label(_floor_name, _floor_index), do: "Floor"
 
+  defp floor_index_label(index) when is_integer(index), do: "Floor #{index}"
+  defp floor_index_label(index) when is_binary(index) and index != "", do: "Floor #{index}"
+  defp floor_index_label(_index), do: nil
+
   defp floor_sort(floor_index, floor_name) when is_integer(floor_index), do: {floor_index, floor_name || ""}
+
   defp floor_sort(_floor_index, floor_name), do: {9_999, floor_name || ""}
 
   defp nonempty_string?(value), do: is_binary(value) and String.trim(value) != ""
@@ -679,7 +1063,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     left_parts = left |> String.downcase() |> String.split(":")
     right_parts = right |> String.downcase() |> String.split(":")
 
-    length(left_parts) == 6 and length(right_parts) == 6 and Enum.take(left_parts, 4) == Enum.take(right_parts, 4)
+    length(left_parts) == 6 and length(right_parts) == 6 and
+      Enum.take(left_parts, 4) == Enum.take(right_parts, 4)
   end
 
   defp same_radio_family?(_left, _right), do: false
@@ -751,7 +1136,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp channel_conflict_title(_score), do: "No AP/noise conflict flagged"
 
-  attr :waterfall, :map, required: true
+  attr(:waterfall, :map, required: true)
 
   defp spectrum_waterfall(assigns) do
     ~H"""
@@ -821,7 +1206,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   end
 
   defp ap_confidence_class(confidence) when is_number(confidence) and confidence >= 0.72, do: "text-success"
+
   defp ap_confidence_class(confidence) when is_number(confidence) and confidence >= 0.45, do: "text-warning"
+
   defp ap_confidence_class(_confidence), do: "text-error"
 
   defp legend("interference") do
@@ -850,7 +1237,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp interference_color(_score), do: "#22c55e"
 
   defp interferer_severity_class(severity) when is_number(severity) and severity >= 75, do: "text-error"
+
   defp interferer_severity_class(severity) when is_number(severity) and severity >= 55, do: "text-warning"
+
   defp interferer_severity_class(_severity), do: "text-success"
 
   defp waterfall_bins(waterfall) do
@@ -910,6 +1299,21 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
 
   defp format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
   defp format_bytes(_bytes), do: "unknown size"
+
+  defp format_error(:selector_query_must_target_field_survey),
+    do: "query must target field_survey_rasters, field_survey_sessions, or field_survey_artifacts"
+
+  defp format_error(:no_field_survey_candidate), do: "query returned no FieldSurvey candidate"
+  defp format_error(%Jason.DecodeError{} = error), do: Exception.message(error)
+  defp format_error(%ArgumentError{} = error), do: Exception.message(error)
+  defp format_error(%{message: message}) when is_binary(message), do: message
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_error(reason), do: inspect(reason)
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 
   defp number?(value), do: is_integer(value) or is_float(value)
 end
