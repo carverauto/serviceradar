@@ -112,7 +112,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
     upsert_sync_status(sync_status_attrs, actor)
     Enum.each(source_object_attrs, &upsert_source_object(&1, actor))
     Enum.each(indicator_attrs, &upsert_indicator(&1, actor))
-    maybe_persist_edge_cursor(page, status, actor)
+    maybe_persist_edge_cursor(page, payload, status, actor)
 
     emit_ingest_event(:stop, started_at, %{
       provider: page.provider,
@@ -208,11 +208,12 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   defp upsert_sync_status(_attrs, _actor), do: :ok
 
-  defp maybe_persist_edge_cursor(%Page{} = page, status, actor) when is_map(status) do
+  defp maybe_persist_edge_cursor(%Page{} = page, payload, status, actor)
+       when is_map(payload) and is_map(status) do
     with true <- otx_page?(page),
          assignment_id when is_binary(assignment_id) and assignment_id != "" <-
-           fetch_value(status, [:assignment_id, "assignment_id"]),
-         params <- cursor_params(page.cursor),
+           fetch_assignment_id(payload, status),
+         params = cursor_params(page.cursor),
          true <- map_size(params) > 0,
          {:ok, assignment} <- fetch_assignment(assignment_id, actor),
          %PluginAssignment{} <- assignment do
@@ -245,7 +246,14 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
       :ok
   end
 
-  defp maybe_persist_edge_cursor(_page, _status, _actor), do: :ok
+  defp maybe_persist_edge_cursor(_page, _payload, _status, _actor), do: :ok
+
+  defp fetch_assignment_id(payload, status) do
+    fetch_value(status, [:assignment_id, "assignment_id"]) ||
+      payload
+      |> fetch_value(["labels", "label"])
+      |> fetch_value(["assignment_id", :assignment_id])
+  end
 
   defp cursor_params(cursor) when is_map(cursor) do
     complete? = fetch_value(cursor, ["complete"]) == "true"
@@ -257,8 +265,10 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         %{"page" => 1, "cursor_complete" => true, "cursor_next" => nil}
 
       is_binary(next_page) and next_page != "" ->
-        %{"page" => parse_positive_int(next_page, next_page), "cursor_complete" => false}
-        |> maybe_put_cursor_next(next)
+        maybe_put_cursor_next(
+          %{"page" => parse_positive_int(next_page, next_page), "cursor_complete" => false},
+          next
+        )
 
       true ->
         %{}

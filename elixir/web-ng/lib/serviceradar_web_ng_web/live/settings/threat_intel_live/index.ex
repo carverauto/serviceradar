@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "agent_uid" => "",
     "enabled" => "true",
     "interval_seconds" => "21600",
-    "timeout_seconds" => "120",
+    "timeout_seconds" => "600",
     "base_url" => "https://otx.alienvault.com",
     "api_key_secret_ref" => "",
     "limit" => "100",
@@ -1138,7 +1138,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp parse_assignment(params, package) when is_map(params) do
     with {:ok, agent_uid} <- required_string(params["agent_uid"], "Agent is required"),
          {:ok, interval_seconds} <- parse_min_int(params["interval_seconds"], 21_600, 3_600),
-         {:ok, timeout_seconds} <- parse_positive_int(params["timeout_seconds"], 120),
+         {:ok, timeout_seconds} <- parse_positive_int(params["timeout_seconds"], 600),
          {:ok, params_map} <- parse_plugin_params(params, package.config_schema || %{}) do
       {:ok,
        %{
