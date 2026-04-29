@@ -4,7 +4,6 @@ defmodule ServiceRadarWebNG.FieldSurveyDashboardPlaylist do
   """
 
   alias ServiceRadar.Spatial.FieldSurveyDashboardPlaylistEntry
-  alias ServiceRadarWebNG.SRQL
 
   @default_attrs %{
     label: "Latest FieldSurvey heatmap",
@@ -61,11 +60,11 @@ defmodule ServiceRadarWebNG.FieldSurveyDashboardPlaylist do
   end
 
   @spec preview(any(), String.t()) :: {:ok, map()} | {:error, term()}
-  def preview(_scope, query) when is_binary(query) do
+  def preview(scope, query) when is_binary(query) do
     query = String.trim(query)
 
     with :ok <- require_raster_query(query),
-         {:ok, %{"results" => results}} <- SRQL.query(query, %{limit: 1}) do
+         {:ok, %{"results" => results}} <- srql_module().query(query, %{limit: 1, scope: scope}) do
       case Enum.find(results, &raster_candidate?/1) do
         %{} = candidate -> {:ok, candidate}
         _ -> {:error, :no_field_survey_raster_candidate}
@@ -181,4 +180,8 @@ defmodule ServiceRadarWebNG.FieldSurveyDashboardPlaylist do
   end
 
   defp metadata_value(_value), do: {:ok, %{}}
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 end
