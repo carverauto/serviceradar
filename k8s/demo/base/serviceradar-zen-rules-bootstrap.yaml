@@ -47,8 +47,13 @@ spec:
               FORCE_REINSTALL="false"
               KV_BUCKET="serviceradar-datasvc"
               STREAM_NAME="events"
-              AGENT_ID="k8s-zen-consumer"
+              AGENT_ID="default-agent"
               NATS_URL="tls://serviceradar-nats:4222"
+
+              if grep -Eq '"discover_rules_from_kv"[[:space:]]*:[[:space:]]*true' "${CONFIG_PATH}" 2>/dev/null; then
+                echo "KV rule discovery enabled; skipping bundled Zen rules bootstrap"
+                exit 0
+              fi
 
               nats_kv() {
                 /usr/local/bin/nats \
