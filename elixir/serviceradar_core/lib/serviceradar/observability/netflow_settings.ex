@@ -274,7 +274,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     attribute :otx_max_indicators, :integer do
       allow_nil? false
-      default 5_000
+      default 50_000
       public? true
     end
 

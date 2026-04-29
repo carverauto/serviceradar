@@ -6,8 +6,10 @@ import (
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
+var otxHTTP = &sdk.HTTPClient{MaxResponseBytes: 512 * 1024}
+
 func doOTXHostHTTPRequest(apiURL, apiKey string, timeoutMS int) (*sdk.HTTPResponse, error) {
-	return sdk.HTTP.Do(sdk.HTTPRequest{
+	return otxHTTP.Do(sdk.HTTPRequest{
 		Method: http.MethodGet,
 		URL:    apiURL,
 		Headers: map[string]string{

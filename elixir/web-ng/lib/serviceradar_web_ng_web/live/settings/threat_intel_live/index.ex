@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "page" => "1",
     "timeout_ms" => "120000",
     "max_pages" => "500",
-    "max_indicators" => "5000"
+    "max_indicators" => "50000"
   }
   @default_settings_form %{
     "otx_enabled" => "false",
@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "otx_sync_interval_seconds" => "21600",
     "otx_page_size" => "100",
     "otx_timeout_ms" => "120000",
-    "otx_max_indicators" => "5000",
+    "otx_max_indicators" => "50000",
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
     "otx_retrohunt_window_seconds" => "7776000",
@@ -1105,7 +1105,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 21_600),
       "otx_page_size" => to_string(settings.otx_page_size || 100),
       "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 120_000),
-      "otx_max_indicators" => to_string(settings.otx_max_indicators || 5_000),
+      "otx_max_indicators" => to_string(settings.otx_max_indicators || 50_000),
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
       "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 7_776_000),
@@ -1129,7 +1129,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       otx_sync_interval_seconds: max(to_int(Map.get(params, "otx_sync_interval_seconds"), 21_600), 3_600),
       otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 100, 1, 100),
       otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 120_000),
-      otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 5_000, 1, 5_000),
+      otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 50_000, 1, 500_000),
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
       otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 7_776_000),

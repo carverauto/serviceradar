@@ -80,6 +80,8 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 		TimeoutMS:     -1,
 		MaxIndicators: maxIndicators + 50,
 		MaxPages:      maxPages + 50,
+		MaxRetries:    maxRetries + 50,
+		BackoffMS:     maxBackoffMS + 50,
 	}
 
 	cfg.applyDefaults()
@@ -101,6 +103,12 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 	}
 	if cfg.MaxPages != maxPages {
 		t.Fatalf("max pages = %d, want %d", cfg.MaxPages, maxPages)
+	}
+	if cfg.MaxRetries != maxRetries {
+		t.Fatalf("max retries = %d, want %d", cfg.MaxRetries, maxRetries)
+	}
+	if cfg.BackoffMS != maxBackoffMS {
+		t.Fatalf("backoff ms = %d, want %d", cfg.BackoffMS, maxBackoffMS)
 	}
 }
 
@@ -393,7 +401,9 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 		"limit": 10,
 		"timeout_ms": 30000,
 		"max_pages": 5,
-		"max_indicators": 25
+		"max_indicators": 25,
+		"max_retries": 4,
+		"backoff_ms": 2500
 	}`
 
 	var cfg Config
@@ -407,7 +417,8 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 	if cfg.APIKey != "resolved-secret" {
 		t.Fatalf("api_key was not decoded from runtime secret field")
 	}
-	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxPages != 5 || cfg.MaxIndicators != 25 {
+	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxPages != 5 ||
+		cfg.MaxIndicators != 25 || cfg.MaxRetries != 4 || cfg.BackoffMS != 2500 {
 		t.Fatalf("decoded numeric config = %+v", cfg)
 	}
 }

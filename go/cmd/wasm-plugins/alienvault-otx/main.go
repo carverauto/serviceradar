@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -15,11 +16,15 @@ const (
 	defaultLimit         = 100
 	defaultPage          = 1
 	defaultTimeoutMS     = 120000
-	defaultMaxIndicators = 5000
+	defaultMaxIndicators = 50000
 	defaultMaxPages      = 500
+	defaultMaxRetries    = 3
+	defaultBackoffMS     = 1000
 	maxLimit             = 100
-	maxIndicators        = 5000
-	maxPages             = 500
+	maxIndicators        = 500000
+	maxPages             = 10000
+	maxRetries           = 5
+	maxBackoffMS         = 30000
 	sourceAlienVaultOTX  = "alienvault_otx"
 )
 
@@ -38,6 +43,8 @@ type Config struct {
 	TimeoutMS       int    `json:"timeout_ms"`
 	MaxIndicators   int    `json:"max_indicators"`
 	MaxPages        int    `json:"max_pages"`
+	MaxRetries      int    `json:"max_retries"`
+	BackoffMS       int    `json:"backoff_ms"`
 }
 
 type subscribedPulsesResponse struct {
@@ -232,7 +239,7 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 		pageCfg.Page = currentPage
 		pageCfg.MaxIndicators = cfg.MaxIndicators - indicatorsEmitted
 
-		page, err := fetchSingleOTXExportPage(pageCfg)
+		page, err := fetchSingleOTXExportPageWithRetry(pageCfg)
 		if err != nil {
 			return pagesFetched, err
 		}
@@ -306,7 +313,7 @@ func fetchOTXExportPages(cfg Config) (ctiPage, error) {
 		pageCfg.Page = currentPage
 		pageCfg.MaxIndicators = cfg.MaxIndicators - len(aggregate.Indicators)
 
-		page, err := fetchSingleOTXExportPage(pageCfg)
+		page, err := fetchSingleOTXExportPageWithRetry(pageCfg)
 		if err != nil {
 			return ctiPage{}, err
 		}
@@ -367,6 +374,51 @@ func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
 	}
 
 	return page, nil
+}
+
+func fetchSingleOTXExportPageWithRetry(cfg Config) (ctiPage, error) {
+	attempts := cfg.MaxRetries + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		page, err := fetchSingleOTXExportPage(cfg)
+		if err == nil {
+			return page, nil
+		}
+
+		lastErr = err
+		if attempt == attempts || !retryableOTXError(err) {
+			break
+		}
+
+		sleepMS := cfg.BackoffMS * attempt
+		if sleepMS <= 0 {
+			sleepMS = defaultBackoffMS
+		}
+		if sleepMS > maxBackoffMS {
+			sleepMS = maxBackoffMS
+		}
+		time.Sleep(time.Duration(sleepMS) * time.Millisecond)
+	}
+
+	return ctiPage{}, lastErr
+}
+
+func retryableOTXError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := err.Error()
+	return strings.Contains(message, "host error -6") ||
+		strings.Contains(message, "host error -5") ||
+		strings.Contains(message, "HTTP 500") ||
+		strings.Contains(message, "HTTP 502") ||
+		strings.Contains(message, "HTTP 503") ||
+		strings.Contains(message, "HTTP 504")
 }
 
 func extractJSONStringOrNull(payload []byte, field string) (string, error) {
@@ -481,6 +533,8 @@ func defaultConfig() Config {
 		TimeoutMS:     defaultTimeoutMS,
 		MaxIndicators: defaultMaxIndicators,
 		MaxPages:      defaultMaxPages,
+		MaxRetries:    defaultMaxRetries,
+		BackoffMS:     defaultBackoffMS,
 	}
 }
 
@@ -511,6 +565,18 @@ func (c *Config) applyDefaults() {
 	}
 	if c.MaxPages > maxPages {
 		c.MaxPages = maxPages
+	}
+	if c.MaxRetries < 0 {
+		c.MaxRetries = defaultMaxRetries
+	}
+	if c.MaxRetries > maxRetries {
+		c.MaxRetries = maxRetries
+	}
+	if c.BackoffMS <= 0 {
+		c.BackoffMS = defaultBackoffMS
+	}
+	if c.BackoffMS > maxBackoffMS {
+		c.BackoffMS = maxBackoffMS
 	}
 }
 
