@@ -252,6 +252,9 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   defp fetch_assignment_id(payload, status) do
     fetch_value(status, [:assignment_id, "assignment_id"]) ||
+      status
+      |> fetch_value([:labels, "labels", :label, "label"])
+      |> fetch_value([:assignment_id, "assignment_id"]) ||
       payload
       |> fetch_value(["labels", "label"])
       |> fetch_value(["assignment_id", :assignment_id])
