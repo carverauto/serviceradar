@@ -135,6 +135,43 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
                "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
     end
 
+    test "uses syslog host as service fallback" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "host" => "docker-mailserver-6bbcfbc66c-p4xjt",
+              "short_message" => "dovecot: disconnected"
+            }),
+          metadata: %{subject: "logs.syslog.processed"}
+        })
+
+      assert result.body == "dovecot: disconnected"
+      assert result.service_name == "docker-mailserver-6bbcfbc66c-p4xjt"
+    end
+
+    test "drops empty nested metadata from unmatched Zen rules" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "attributes" => %{
+                "event_type" => nil,
+                "security" => %{"signal" => %{"kind" => nil, "source" => nil}},
+                "waf" => %{
+                  "client_ip" => nil,
+                  "rule_id" => nil,
+                  "rule_message" => nil
+                }
+              },
+              "short_message" => "regular syslog message"
+            }),
+          metadata: %{}
+        })
+
+      assert result.attributes == %{}
+    end
+
     test "handles nanosecond timestamps" do
       timestamp_ns = 1_705_315_800_000_000_000
 
