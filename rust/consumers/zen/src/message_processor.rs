@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::config::{Config, MessageFormat};
 use crate::engine::SharedEngine;
+use crate::rule_discovery;
 use crate::{flow_proto, otel_logs, otel_metrics};
 
 pub async fn process_message(
@@ -25,7 +26,7 @@ pub async fn process_message(
     };
 
     let rule_subject = cfg.subject_for_rule_lookup(&msg.subject);
-    let rules = cfg.ordered_rules_for_subject(&msg.subject);
+    let rules = rule_discovery::ordered_rules_for_subject(cfg, js, &msg.subject).await?;
     for key in &rules {
         let dkey = format!("{}/{}/{}", cfg.stream_name, rule_subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
@@ -120,6 +121,7 @@ mod tests {
                     format: MessageFormat::OtelMetrics,
                 },
             ],
+            discover_rules_from_kv: false,
             nats_creds_file: None,
             kv_bucket: "test-kv".to_string(),
             agent_id: "test-agent".to_string(),

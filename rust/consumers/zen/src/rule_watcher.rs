@@ -21,6 +21,10 @@ pub async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Conte
         match entry {
             Ok(e) if matches!(e.operation, jetstream::kv::Operation::Put) => {
                 let key = e.key.trim_start_matches(&prefix).trim_end_matches(".json");
+                if key.ends_with("/_rules") {
+                    info!("rule index {} revision {}", key, e.revision);
+                    continue;
+                }
                 if let Err(err) = engine.get_decision(key).await {
                     warn!("failed to reload rule {key}: {err}");
                 } else {

@@ -92,7 +92,21 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   defp default_event_rules do
     [
-      # Reserved for future default event rules.
+      %{
+        name: "waf_findings_to_security_events",
+        enabled: true,
+        priority: 60,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "logs.",
+          "event_type" => "waf.finding"
+        },
+        event: %{
+          "log_name" => "security.waf.finding",
+          "alert" => false
+        }
+      }
     ]
   end
 

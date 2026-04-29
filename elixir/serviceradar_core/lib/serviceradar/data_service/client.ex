@@ -261,11 +261,11 @@ defmodule ServiceRadar.DataService.Client do
     case reason do
       :normal ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       :shutdown ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       _ ->
         Logger.warning("Datasvc gRPC connection down: #{inspect(reason)}")
@@ -289,11 +289,11 @@ defmodule ServiceRadar.DataService.Client do
     case reason do
       :normal ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       :shutdown ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, %{state | reconnecting: false}}
+        {:noreply, reconnect_after_clean_close(state)}
 
       _ ->
         {:noreply, schedule_reconnect(state, reason)}
@@ -323,69 +323,33 @@ defmodule ServiceRadar.DataService.Client do
 
   @impl true
   def handle_call({:put, key, value, opts}, _from, state) do
-    case ensure_connected(state) do
-      {:ok, state} ->
-        result = do_put(state.channel, key, value, opts)
-        {:reply, result, state}
-
-      {:error, reason, new_state} ->
-        {:reply, {:error, reason}, new_state}
-    end
+    {result, state} = call_with_channel(state, &do_put(&1, key, value, opts))
+    {:reply, result, state}
   end
 
   def handle_call({:get, key, opts}, _from, state) do
-    case ensure_connected(state) do
-      {:ok, state} ->
-        result = do_get(state.channel, key, opts)
-        {:reply, result, state}
-
-      {:error, reason, new_state} ->
-        {:reply, {:error, reason}, new_state}
-    end
+    {result, state} = call_with_channel(state, &do_get(&1, key, opts))
+    {:reply, result, state}
   end
 
   def handle_call({:get_with_revision, key, opts}, _from, state) do
-    case ensure_connected(state) do
-      {:ok, state} ->
-        result = do_get_with_revision(state.channel, key, opts)
-        {:reply, result, state}
-
-      {:error, reason, new_state} ->
-        {:reply, {:error, reason}, new_state}
-    end
+    {result, state} = call_with_channel(state, &do_get_with_revision(&1, key, opts))
+    {:reply, result, state}
   end
 
   def handle_call({:delete, key, opts}, _from, state) do
-    case ensure_connected(state) do
-      {:ok, state} ->
-        result = do_delete(state.channel, key, opts)
-        {:reply, result, state}
-
-      {:error, reason, new_state} ->
-        {:reply, {:error, reason}, new_state}
-    end
+    {result, state} = call_with_channel(state, &do_delete(&1, key, opts))
+    {:reply, result, state}
   end
 
   def handle_call({:list_keys, prefix, opts}, _from, state) do
-    case ensure_connected(state) do
-      {:ok, state} ->
-        result = do_list_keys(state.channel, prefix, opts)
-        {:reply, result, state}
-
-      {:error, reason, new_state} ->
-        {:reply, {:error, reason}, new_state}
-    end
+    {result, state} = call_with_channel(state, &do_list_keys(&1, prefix, opts))
+    {:reply, result, state}
   end
 
   def handle_call({:put_many, entries, opts}, _from, state) do
-    case ensure_connected(state) do
-      {:ok, state} ->
-        result = do_put_many(state.channel, entries, opts)
-        {:reply, result, state}
-
-      {:error, reason, new_state} ->
-        {:reply, {:error, reason}, new_state}
-    end
+    {result, state} = call_with_channel(state, &do_put_many(&1, entries, opts))
+    {:reply, result, state}
   end
 
   def handle_call(:get_channel, _from, state) do
@@ -399,7 +363,11 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_call(:connected?, _from, state) do
-    {:reply, channel_alive?(state), state}
+    if channel_alive?(state) do
+      {:reply, true, state}
+    else
+      {:reply, false, state |> clear_channel() |> maybe_start_connect()}
+    end
   end
 
   # Private helpers
@@ -645,11 +613,61 @@ defmodule ServiceRadar.DataService.Client do
     %{state | reconnecting: true, backoff: backoff}
   end
 
+  defp reconnect_after_clean_close(state) do
+    state
+    |> Map.put(:reconnecting, false)
+    |> maybe_start_connect()
+  end
+
   defp ensure_connected(%{channel: nil} = state) do
     {:error, :not_connected, maybe_start_connect(state)}
   end
 
   defp ensure_connected(state), do: {:ok, state}
+
+  defp call_with_channel(state, fun) do
+    case ensure_connected(state) do
+      {:ok, state} ->
+        result = fun.(state.channel)
+
+        if retryable_channel_result?(result) do
+          retry_state = state |> clear_channel() |> maybe_start_connect()
+          {with_direct_channel(fun), retry_state}
+        else
+          {result, state}
+        end
+
+      {:error, reason, new_state} ->
+        if retryable_channel_error?(reason) do
+          {with_direct_channel(fun), new_state}
+        else
+          {{:error, reason}, new_state}
+        end
+    end
+  end
+
+  defp retryable_channel_result?({:error, reason}), do: retryable_channel_error?(reason)
+  defp retryable_channel_result?(_result), do: false
+
+  defp retryable_channel_error?(%GRPC.RPCError{status: status, message: message}) do
+    status in [
+      GRPC.Status.unavailable(),
+      GRPC.Status.deadline_exceeded(),
+      GRPC.Status.cancelled()
+    ] or channel_down_message?(message)
+  end
+
+  defp retryable_channel_error?({:down, _reason}), do: true
+  defp retryable_channel_error?({:shutdown, _reason}), do: true
+  defp retryable_channel_error?(:not_connected), do: true
+  defp retryable_channel_error?(:noproc), do: true
+  defp retryable_channel_error?(_reason), do: false
+
+  defp channel_down_message?(message) when is_binary(message) do
+    String.contains?(message, [":down", ":noproc", "closed"])
+  end
+
+  defp channel_down_message?(_message), do: false
 
   defp channel_alive?(%{channel: nil}), do: false
 

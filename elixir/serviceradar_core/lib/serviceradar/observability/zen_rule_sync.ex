@@ -12,10 +12,13 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   use GenServer
 
+  import Ash.Expr
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.ZenRule
 
+  require Ash.Query
   require Logger
 
   @reconcile_delay_ms 5_000
@@ -55,7 +58,14 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   @spec delete_rule(ZenRule.t()) :: :ok | {:error, term()}
   def delete_rule(%ZenRule{} = rule) do
     if datasvc_available?() do
-      Client.delete(kv_key(rule))
+      case Client.delete(kv_key(rule)) do
+        :ok ->
+          _ = sync_subject_index(rule, actor: SystemActor.system(:zen_rule_sync))
+          :ok
+
+        error ->
+          error
+      end
     else
       {:error, :datasvc_unavailable}
     end
@@ -67,6 +77,14 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   @spec kv_key(ZenRule.t()) :: String.t()
   def kv_key(%ZenRule{} = rule) do
     "agents/#{rule.agent_id}/#{rule.stream_name}/#{rule.subject}/#{rule.name}.json"
+  end
+
+  @doc """
+  Returns the KV key for the ordered rule index for a rule subject.
+  """
+  @spec kv_index_key(ZenRule.t()) :: String.t()
+  def kv_index_key(%ZenRule{} = rule) do
+    "agents/#{rule.agent_id}/#{rule.stream_name}/#{rule.subject}/_rules.json"
   end
 
   @doc """
@@ -134,9 +152,13 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
     case Ash.read(query, state.ash_opts) do
       {:ok, rules} ->
-        rules
-        |> Enum.map(&sync_rule_result(&1, state))
-        |> log_reconcile_results()
+        results = Enum.map(rules, &sync_rule_result(&1, state))
+
+        results
+        |> successful_rules()
+        |> sync_rule_indexes()
+
+        log_reconcile_results(results)
 
       {:error, reason} ->
         Logger.warning("Failed to load zen rules", reason: inspect(reason))
@@ -233,17 +255,36 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       :timeout ->
         true
 
+      {:down, :normal} ->
+        true
+
+      {:down, _reason} ->
+        true
+
       {:call_failed, _} ->
         true
 
-      %GRPC.RPCError{status: status}
-      when status in [:unavailable, :deadline_exceeded, :cancelled] ->
-        true
+      %GRPC.RPCError{} = error ->
+        rpc_transient_error?(error)
 
       _ ->
         false
     end
   end
+
+  defp rpc_transient_error?(%GRPC.RPCError{status: status, message: message}) do
+    status in [
+      GRPC.Status.unavailable(),
+      GRPC.Status.deadline_exceeded(),
+      GRPC.Status.cancelled()
+    ] or rpc_channel_down_message?(message)
+  end
+
+  defp rpc_channel_down_message?(message) when is_binary(message) do
+    String.contains?(message, [":down", ":noproc", "closed"])
+  end
+
+  defp rpc_channel_down_message?(_message), do: false
 
   defp format_reason(%GRPC.RPCError{} = error), do: GRPC.RPCError.message(error)
   defp format_reason({:json_encode_failed, message}), do: "json_encode_failed: #{message}"
@@ -263,7 +304,8 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       with {:ok, payload} <- Jason.encode(rule.compiled_jdm),
            :ok <- Client.put(key, payload),
            {:ok, _value, revision} <- Client.get_with_revision(key),
-           :ok <- update_kv_revision(rule, revision, opts) do
+           :ok <- update_kv_revision(rule, revision, opts),
+           :ok <- sync_subject_index(rule, opts) do
         {:ok, revision}
       else
         {:error, %Jason.EncodeError{} = error} ->
@@ -278,6 +320,72 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
         {:error, reason} -> {:error, reason}
       end
     end
+  end
+
+  defp successful_rules(results) do
+    Enum.flat_map(results, fn
+      {:ok, rule} -> [rule]
+      _ -> []
+    end)
+  end
+
+  defp sync_rule_indexes(rules) do
+    rules
+    |> Enum.uniq_by(&{&1.agent_id, &1.stream_name, &1.subject})
+    |> Enum.each(fn rule ->
+      case sync_subject_index(rule, actor: SystemActor.system(:zen_rule_sync)) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to sync zen rule index for #{rule.subject}: #{inspect(reason)}",
+            subject: rule.subject,
+            reason: inspect(reason)
+          )
+      end
+    end)
+  end
+
+  defp sync_subject_index(%ZenRule{} = rule, opts) do
+    with {:ok, rules} <- load_subject_rules(rule, opts),
+         {:ok, payload} <- encode_subject_index(rule, rules) do
+      Client.put(kv_index_key(rule), payload)
+    else
+      {:error, %Jason.EncodeError{} = error} ->
+        {:error, {:json_encode_failed, Exception.message(error)}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp load_subject_rules(%ZenRule{} = rule, opts) do
+    ZenRule
+    |> Ash.Query.for_read(:active, %{})
+    |> Ash.Query.filter(
+      expr(
+        agent_id == ^rule.agent_id and
+          stream_name == ^rule.stream_name and
+          subject == ^rule.subject
+      )
+    )
+    |> Ash.read(opts)
+  end
+
+  defp encode_subject_index(%ZenRule{} = rule, rules) do
+    payload = %{
+      version: 1,
+      agent_id: rule.agent_id,
+      stream_name: rule.stream_name,
+      subject: rule.subject,
+      rules:
+        rules
+        |> Enum.sort_by(&{&1.order || 0, &1.name})
+        |> Enum.map(&%{key: &1.name, order: &1.order || 0})
+    }
+
+    Jason.encode(payload)
   end
 
   defp update_kv_revision(%ZenRule{} = rule, revision, opts) do
