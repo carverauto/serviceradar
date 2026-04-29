@@ -458,7 +458,9 @@ public struct SurveyView: View {
                 sidekickWarning: sidekickRelay.displayWarning,
                 backendFrameCount: sidekickRelay.backendFrameCount,
                 rfObservationCount: sidekickRelay.previewObservationCount,
-                rfDecodeError: sidekickRelay.previewDecodeError
+                rfDecodeError: sidekickRelay.previewDecodeError,
+                requiresRFUpdateAlignment: captureMode.isRFUpdate && wifiScanner.requiresRFUpdateAlignment,
+                onAlignRFUpdate: alignRFUpdateToSavedMap
             )
         }
         .alert("Mark Access Point", isPresented: $showManualAPPrompt) {
@@ -495,11 +497,15 @@ public struct SurveyView: View {
         .onReceive(autosaveTimer) { _ in
             checkpointSession(includeMesh: false, showStatus: false)
         }
-        .onChange(of: wifiScanner.heatmapPoints.count) { _, count in
+        .onChange(of: heatmapPointCount) { _, count in
             guard count >= lastAutosavedHeatmapCount + 75 else { return }
             lastAutosavedHeatmapCount = count
             checkpointSession(includeMesh: false, showStatus: false)
         }
+    }
+
+    private var heatmapPointCount: Int {
+        wifiScanner.heatmapPoints.count
     }
 
     private func startSidekickPreview() {
