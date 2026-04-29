@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     mtr_overlays = mtr_overlays()
     mtr_summary = summarize_mtr_overlays(mtr_overlays)
     camera_summary = camera_summary(scope)
-    survey_summary = survey_summary(scope)
+    survey_summary = empty_survey_summary()
     alert_summary = Stats.alerts_summary(scope: scope)
     alert_feed = alert_feed(time_window)
     event_summary = Stats.events_summary(time: time_window)
@@ -952,7 +952,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             AND rssi_dbm IS NOT NULL
           """
 
-          case Repo.query(sql, []) do
+          case Repo.query(sql, [], timeout: 5_000) do
             {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
               %{
                 sample_count: to_int(samples),
@@ -975,7 +975,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           FROM platform.survey_samples
           """
 
-          case Repo.query(sql, []) do
+          case Repo.query(sql, [], timeout: 5_000) do
             {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
               %{
                 sample_count: to_int(samples),
@@ -1104,7 +1104,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     LIMIT 1
     """
 
-    case Repo.query(sql, []) do
+    case Repo.query(sql, [], timeout: 5_000) do
       {:ok, %{rows: [[session_id, _min_x, _max_x, _min_z, _max_z, cells, metadata, generated_at]]}} ->
         dashboard_survey_raster_summary(
           %{
@@ -1404,197 +1404,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp latest_dashboard_ap_markers(session_id) do
-    if relation_exists?("platform.survey_rf_observations") and
-         relation_exists?("platform.survey_pose_samples") do
-      sql = """
-      WITH recent_rf AS MATERIALIZED (
-        SELECT session_id, bssid, NULLIF(ssid, '') AS ssid, rssi_dbm, channel, frequency_mhz, captured_at
-        FROM platform.survey_rf_observations
-        WHERE session_id = $1
-          AND bssid IS NOT NULL
-          AND rssi_dbm IS NOT NULL
-        ORDER BY captured_at DESC
-        LIMIT 5000
-      ),
-      base AS MATERIALIZED (
-        SELECT rf.bssid, rf.ssid, rf.rssi_dbm, rf.channel, rf.frequency_mhz, pose.x, pose.z
-        FROM recent_rf rf
-        LEFT JOIN LATERAL (
-          SELECT pose.x, pose.z
-          FROM platform.survey_pose_samples pose
-          WHERE pose.session_id = rf.session_id
-            AND pose.captured_at BETWEEN rf.captured_at - INTERVAL '200 milliseconds'
-                                    AND rf.captured_at + INTERVAL '200 milliseconds'
-            AND pose.x IS NOT NULL
-            AND pose.z IS NOT NULL
-          ORDER BY ABS(EXTRACT(EPOCH FROM (pose.captured_at - rf.captured_at))) ASC
-          LIMIT 1
-        ) pose ON TRUE
-        WHERE pose.x IS NOT NULL
-          AND pose.z IS NOT NULL
-      ),
-      strongest AS (
-        SELECT DISTINCT ON (bssid)
-          bssid, COALESCE(ssid, 'Hidden') AS ssid, rssi_dbm AS strongest_rssi, channel, frequency_mhz
-        FROM base
-        ORDER BY bssid, rssi_dbm DESC
-      ),
-      counts AS (
-        SELECT bssid, COUNT(*)::bigint AS sample_count
-        FROM base
-        GROUP BY bssid
-      ),
-      support AS (
-        SELECT
-          base.bssid,
-          base.x,
-          base.z,
-          GREATEST((base.rssi_dbm + 100)::float8, 1.0) AS weight
-        FROM base
-        JOIN strongest ON strongest.bssid = base.bssid
-        WHERE base.rssi_dbm >= strongest.strongest_rssi - 8
-      ),
-      weighted AS (
-        SELECT
-          bssid,
-          SUM(x * weight) / NULLIF(SUM(weight), 0) AS x,
-          SUM(z * weight) / NULLIF(SUM(weight), 0) AS z,
-          COUNT(*)::bigint AS support_count
-        FROM support
-        GROUP BY bssid
-      )
-      SELECT
-        strongest.bssid,
-        strongest.ssid,
-        strongest.strongest_rssi,
-        strongest.channel,
-        strongest.frequency_mhz,
-        counts.sample_count,
-        weighted.support_count,
-        weighted.x,
-        weighted.z,
-        matched_device.uid AS device_uid,
-        COALESCE(matched_device.name, matched_device.hostname) AS device_name,
-        matched_device.vendor_name AS device_vendor,
-        matched_device.model AS device_model,
-        matched_device.match_kind AS device_match_kind
-      FROM strongest
-      JOIN counts ON counts.bssid = strongest.bssid
-      JOIN weighted ON weighted.bssid = strongest.bssid
-      LEFT JOIN LATERAL (
-        WITH normalized AS (
-          SELECT UPPER(REGEXP_REPLACE(strongest.bssid, '[^0-9A-Fa-f]', '', 'g')) AS bssid_mac
-        ),
-        candidates AS (
-          SELECT
-            d.uid,
-            d.name,
-            d.hostname,
-            d.vendor_name,
-            d.model,
-            CASE
-              WHEN di.identifier_value = normalized.bssid_mac THEN 'identifier_exact'
-              ELSE 'identifier_radio_family'
-            END AS match_kind,
-            CASE WHEN di.identifier_value = normalized.bssid_mac THEN 0 ELSE 1 END AS match_rank
-          FROM normalized
-          JOIN platform.device_identifiers di
-            ON di.identifier_type = 'mac'
-           AND (
-             di.identifier_value = normalized.bssid_mac
-             OR (
-               LENGTH(di.identifier_value) >= 8
-               AND LENGTH(normalized.bssid_mac) >= 8
-               AND LEFT(di.identifier_value, 8) = LEFT(normalized.bssid_mac, 8)
-             )
-           )
-          JOIN platform.ocsf_devices d ON d.uid = di.device_id
-          WHERE normalized.bssid_mac <> ''
-            AND d.deleted_at IS NULL
-
-          UNION ALL
-
-          SELECT
-            d.uid,
-            d.name,
-            d.hostname,
-            d.vendor_name,
-            d.model,
-            CASE
-              WHEN UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
-                THEN 'device_mac_exact'
-              ELSE 'device_mac_radio_family'
-            END AS match_kind,
-            CASE
-              WHEN UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
-                THEN 0
-              ELSE 1
-            END AS match_rank
-          FROM normalized
-          JOIN platform.ocsf_devices d
-            ON (
-              UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
-              OR (
-                LENGTH(UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g'))) >= 8
-                AND LENGTH(normalized.bssid_mac) >= 8
-                AND LEFT(UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')), 8) =
-                  LEFT(normalized.bssid_mac, 8)
-              )
-            )
-          WHERE normalized.bssid_mac <> ''
-            AND d.deleted_at IS NULL
-        )
-        SELECT uid, name, hostname, vendor_name, model, match_kind
-        FROM candidates
-        ORDER BY match_rank, uid
-        LIMIT 1
-      ) matched_device ON TRUE
-      ORDER BY counts.sample_count DESC, strongest.strongest_rssi DESC
-      LIMIT 12
-      """
-
-      case Repo.query(sql, [session_id], timeout: 5_000) do
-        {:ok, %{rows: rows}} ->
-          Enum.map(rows, fn [
-                              bssid,
-                              ssid,
-                              strongest_rssi,
-                              channel,
-                              frequency_mhz,
-                              sample_count,
-                              support_count,
-                              x,
-                              z,
-                              device_uid,
-                              device_name,
-                              device_vendor,
-                              device_model,
-                              device_match_kind
-                            ] ->
-            %{
-              bssid: bssid,
-              ssid: ssid || "Hidden",
-              strongest_rssi: to_float(strongest_rssi),
-              channel: to_int(channel),
-              frequency_mhz: to_int(frequency_mhz),
-              sample_count: to_int(sample_count),
-              support_count: to_int(support_count),
-              device_uid: device_uid,
-              device_name: device_name,
-              device_vendor: device_vendor,
-              device_model: device_model,
-              device_match_kind: device_match_kind,
-              x: to_float(x),
-              z: to_float(z)
-            }
-          end)
-
-        _ ->
-          []
-      end
-    else
-      []
-    end
+    _ = session_id
+    []
   rescue
     _ -> []
   end
