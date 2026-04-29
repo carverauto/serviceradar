@@ -29,6 +29,8 @@ public struct SurveyView: View {
     @State private var isStreaming = false
     @State private var isSidekickPreviewing = false
     @State private var workflowPhase: SurveyWorkflowPhase = .setup
+    @State private var captureMode: FieldSurveyCaptureMode
+    @State private var rfUpdateAligned = false
     @State private var showSettings = false
     @State private var showSessionLibrary = false
     @State private var showSubnetIntel = false
@@ -58,12 +60,15 @@ public struct SurveyView: View {
         wifiScanner: RealWiFiScanner,
         sessionStore: SurveySessionStore,
         resumeSnapshot: SurveySessionSnapshot? = nil,
+        captureMode: FieldSurveyCaptureMode = .fullRoomScan,
         onExit: (() -> Void)? = nil
     ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
         self.sessionStore = sessionStore
         self.resumeSnapshot = resumeSnapshot
+        self._captureMode = State(initialValue: captureMode)
+        self._rfUpdateAligned = State(initialValue: !captureMode.isRFUpdate)
         self.onExit = onExit
     }
 
@@ -76,8 +81,11 @@ public struct SurveyView: View {
                     rfEnabled: settings.rfScanningEnabled,
                     sessionName: autosaveSessionName,
                     heatmapPointCount: wifiScanner.heatmapPoints.count,
+                    isRFUpdate: captureMode.isRFUpdate,
+                    isRFUpdateAligned: rfUpdateAligned,
                     onStartLocal: startSidekickPreview,
                     onStartBackend: startBackendStreaming,
+                    onAlignRFUpdate: alignRFUpdateToSavedMap,
                     onReview: { workflowPhase = .review },
                     onSessions: { showSessionLibrary = true },
                     onSettings: { showSettings = true },
@@ -87,7 +95,8 @@ public struct SurveyView: View {
                 CompositeSurveyView(
                     roomScanner: roomScanner,
                     wifiScanner: wifiScanner,
-                    isMapView: $isMapView
+                    isMapView: $isMapView,
+                    captureMode: captureMode
                 )
                 .edgesIgnoringSafeArea(.all)
             case .review:
@@ -95,7 +104,10 @@ public struct SurveyView: View {
                     sessionName: autosaveSessionName,
                     heatmapPointCount: signalMapPoints.count,
                     spectrumCount: currentSpectrumSummaries.count,
+                    isRFUpdate: captureMode.isRFUpdate,
+                    isRFUpdateAligned: rfUpdateAligned,
                     onResumeCapture: enterCapturePhase,
+                    onAlignRFUpdate: alignRFUpdateToSavedMap,
                     onOpenSignalMap: { showSignalMap = true },
                     onSessions: { showSessionLibrary = true },
                     onDone: onExit
@@ -123,10 +135,16 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text("LiDAR / AR Mode")
+                        Text(captureMode.isRFUpdate ? "RF Update / AR Tracking" : "LiDAR / AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
+
+                        if captureMode.isRFUpdate {
+                            Text(rfUpdateAligned ? "RF Update aligned to saved floorplan" : "RF Update: align before walking")
+                                .font(.caption2)
+                                .foregroundColor(rfUpdateAligned ? .green : .orange)
+                        }
 
                         Text(wifiScanner.poseTrackingStatus.label)
                             .font(.caption2)
@@ -262,6 +280,19 @@ public struct SurveyView: View {
                                 .padding(12)
                                 .background(Color.black.opacity(0.7))
                                 .clipShape(Circle())
+                        }
+
+                        if captureMode.isRFUpdate {
+                            Button(action: {
+                                alignRFUpdateToSavedMap()
+                            }) {
+                                Image(systemName: rfUpdateAligned ? "checkmark.viewfinder" : "scope")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(rfUpdateAligned ? .green : .orange)
+                                    .padding(12)
+                                    .background(Color.black.opacity(0.7))
+                                    .clipShape(Circle())
+                            }
                         }
 
                         Button(action: {
@@ -400,7 +431,8 @@ public struct SurveyView: View {
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
                 sessionStore: sessionStore,
-                onResume: resumeLoadedSession(_:)
+                onResume: resumeLoadedSession(_:),
+                onRFUpdate: startRFUpdateSession(_:)
             )
         }
         .sheet(isPresented: $showSubnetIntel) {
@@ -426,7 +458,9 @@ public struct SurveyView: View {
                 sidekickWarning: sidekickRelay.displayWarning,
                 backendFrameCount: sidekickRelay.backendFrameCount,
                 rfObservationCount: sidekickRelay.previewObservationCount,
-                rfDecodeError: sidekickRelay.previewDecodeError
+                rfDecodeError: sidekickRelay.previewDecodeError,
+                requiresRFUpdateAlignment: captureMode.isRFUpdate && wifiScanner.requiresRFUpdateAlignment,
+                onAlignRFUpdate: alignRFUpdateToSavedMap
             )
         }
         .alert("Mark Access Point", isPresented: $showManualAPPrompt) {
@@ -463,15 +497,21 @@ public struct SurveyView: View {
         .onReceive(autosaveTimer) { _ in
             checkpointSession(includeMesh: false, showStatus: false)
         }
-        .onChange(of: wifiScanner.heatmapPoints.count) { _, count in
+        .onChange(of: heatmapPointCount) { _, count in
             guard count >= lastAutosavedHeatmapCount + 75 else { return }
             lastAutosavedHeatmapCount = count
             checkpointSession(includeMesh: false, showStatus: false)
         }
     }
 
+    private var heatmapPointCount: Int {
+        wifiScanner.heatmapPoints.count
+    }
+
     private func startSidekickPreview() {
         beginAutosaveSession()
+        prepareCaptureModeIfNeeded()
+        ensureRFScanningActive()
         checkpointSession(includeMesh: false, showStatus: false)
         enterCapturePhase()
         isSidekickPreviewing = true
@@ -492,6 +532,8 @@ public struct SurveyView: View {
             return
         }
         beginAutosaveSession()
+        prepareCaptureModeIfNeeded()
+        ensureRFScanningActive()
         checkpointSession(includeMesh: false, showStatus: false)
         enterCapturePhase()
         isStreaming = true
@@ -561,6 +603,13 @@ public struct SurveyView: View {
         applyRFState(settings.rfScanningEnabled)
     }
 
+    private func ensureRFScanningActive() {
+        if !settings.rfScanningEnabled {
+            settings.rfScanningEnabled = true
+        }
+        wifiScanner.setRFScanning(enabled: true)
+    }
+
     private var backendStreamingEnabled: Bool {
         settings.backendUploadEnabled
     }
@@ -613,12 +662,16 @@ public struct SurveyView: View {
         autosaveSessionName = resumeSnapshot.record.name
         sessionID = resumeSnapshot.record.id
         recoveredSnapshot = resumeSnapshot
+        if captureMode.isRFUpdate {
+            prepareRFUpdateAlignment()
+        }
         didApplyResumeSnapshot = true
     }
 
     private func checkpointSession(includeMesh: Bool, showStatus: Bool = true) {
         beginAutosaveSession()
         guard let autosaveSessionID else { return }
+        let shouldIncludeMesh = includeMesh && !captureMode.isRFUpdate
 
         checkpointTask?.cancel()
 
@@ -632,12 +685,12 @@ public struct SurveyView: View {
                     roomScanner: roomScanner,
                     wifiScanner: wifiScanner,
                     spectrumSummaries: spectrumSummaries,
-                    includeMesh: includeMesh
+                    includeMesh: shouldIncludeMesh
                 )
                 guard !Task.isCancelled else { return }
                 autosaveSessionName = record.name
                 let roomArtifactUploaded: Bool?
-                if includeMesh {
+                if shouldIncludeMesh {
                     roomArtifactUploaded = await uploadRoomArtifact(record: record, showStatus: showStatus)
                     guard !Task.isCancelled else { return }
                 } else {
@@ -647,7 +700,7 @@ public struct SurveyView: View {
                     let checkpointPrefix = (roomArtifactUploaded == true)
                         ? "Checkpoint saved + room scan uploaded"
                         : "Checkpoint saved locally"
-                    saveStatusMessage = includeMesh ? "\(checkpointPrefix): \(record.name)" : "Autosaved: \(record.name)"
+                    saveStatusMessage = shouldIncludeMesh ? "\(checkpointPrefix): \(record.name)" : "Autosaved: \(record.name)"
                     clearSaveStatus(after: 2.6)
                 }
             } catch {
@@ -746,7 +799,7 @@ public struct SurveyView: View {
 
     private func markManualAccessPoint() {
         guard let pose = wifiScanner.currentDevicePose else {
-            saveStatusMessage = "No LiDAR pose yet. Move the phone until tracking starts."
+            saveStatusMessage = "No AR pose yet. Move the phone until tracking starts."
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                 saveStatusMessage = nil
             }
@@ -811,6 +864,9 @@ public struct SurveyView: View {
     }
 
     private var signalMapFloorplanSegments: [SurveyFloorplanSegment] {
+        if captureMode.isRFUpdate, let savedSegments = recoveredSnapshot?.floorplanSegments, !savedSegments.isEmpty {
+            return savedSegments
+        }
         let liveSegments = roomScanner.currentFloorplanSegments()
         if !liveSegments.isEmpty {
             return liveSegments
@@ -852,11 +908,56 @@ public struct SurveyView: View {
     }
 
     private func resumeLoadedSession(_ snapshot: SurveySessionSnapshot) {
+        captureMode = .fullRoomScan
+        rfUpdateAligned = true
+        wifiScanner.clearRFUpdateAlignment()
         autosaveSessionID = snapshot.record.id
         autosaveSessionName = snapshot.record.name
         sessionID = snapshot.record.id
         recoveredSnapshot = snapshot
         enterCapturePhase()
+    }
+
+    private func startRFUpdateSession(_ snapshot: SurveySessionSnapshot) {
+        captureMode = .rfUpdate
+        wifiScanner.loadSessionSnapshot(snapshot)
+        autosaveSessionID = snapshot.record.id
+        autosaveSessionName = snapshot.record.name
+        sessionID = snapshot.record.id
+        recoveredSnapshot = snapshot
+        prepareRFUpdateAlignment()
+        workflowPhase = .setup
+    }
+
+    private func prepareCaptureModeIfNeeded() {
+        if captureMode.isRFUpdate {
+            prepareRFUpdateAlignment()
+        } else {
+            rfUpdateAligned = true
+            wifiScanner.clearRFUpdateAlignment()
+        }
+    }
+
+    private func prepareRFUpdateAlignment() {
+        let anchor = recoveredSnapshot?.heatmapPoints.first?.position
+            ?? recoveredSnapshot?.manualLandmarks.first?.position
+        rfUpdateAligned = anchor == nil
+        wifiScanner.prepareRFUpdateAlignment(anchor: anchor)
+        if anchor == nil {
+            saveStatusMessage = "RF Update has no saved anchor; using current AR origin."
+            clearSaveStatus(after: 3.0)
+        }
+    }
+
+    private func alignRFUpdateToSavedMap() {
+        guard captureMode.isRFUpdate else { return }
+        if wifiScanner.alignCurrentPoseToSavedMapAnchor() {
+            rfUpdateAligned = true
+            saveStatusMessage = "RF Update aligned to saved floorplan."
+        } else {
+            saveStatusMessage = "Move until AR tracking starts, then align again."
+        }
+        clearSaveStatus(after: 2.8)
     }
 
     private func clearSaveStatus(after delay: TimeInterval) {
@@ -918,8 +1019,11 @@ private struct SurveySetupPhaseView: View {
     let rfEnabled: Bool
     let sessionName: String
     let heatmapPointCount: Int
+    let isRFUpdate: Bool
+    let isRFUpdateAligned: Bool
     let onStartLocal: () -> Void
     let onStartBackend: () -> Void
+    let onAlignRFUpdate: () -> Void
     let onReview: () -> Void
     let onSessions: () -> Void
     let onSettings: () -> Void
@@ -961,9 +1065,26 @@ private struct SurveySetupPhaseView: View {
                     CaptureMetric(label: "Heat", value: "\(heatmapPointCount)", tint: .cyan)
                 }
 
+                if isRFUpdate {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(isRFUpdateAligned ? "RF update is aligned" : "RF update needs alignment")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(isRFUpdateAligned ? .green : .orange)
+                        Text("Stand at the saved starting point, start capture, then tap Align RF Update before walking.")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.72))
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
                 VStack(spacing: 12) {
                     PhaseActionButton(
-                        title: backendEnabled ? "Start Backend Capture" : "Start Local Capture",
+                        title: isRFUpdate
+                            ? (backendEnabled ? "Start Backend RF Update" : "Start Local RF Update")
+                            : (backendEnabled ? "Start Backend Capture" : "Start Local Capture"),
                         icon: backendEnabled ? "antenna.radiowaves.left.and.right" : "play.fill",
                         tint: .green,
                         action: backendEnabled ? onStartBackend : onStartLocal
@@ -975,6 +1096,15 @@ private struct SurveySetupPhaseView: View {
                             icon: "play",
                             tint: .cyan,
                             action: onStartLocal
+                        )
+                    }
+
+                    if isRFUpdate {
+                        PhaseActionButton(
+                            title: isRFUpdateAligned ? "Realign RF Update" : "Align RF Update",
+                            icon: "scope",
+                            tint: isRFUpdateAligned ? .green : .orange,
+                            action: onAlignRFUpdate
                         )
                     }
 
@@ -996,7 +1126,10 @@ private struct SurveyReviewPhaseView: View {
     let sessionName: String
     let heatmapPointCount: Int
     let spectrumCount: Int
+    let isRFUpdate: Bool
+    let isRFUpdateAligned: Bool
     let onResumeCapture: () -> Void
+    let onAlignRFUpdate: () -> Void
     let onOpenSignalMap: () -> Void
     let onSessions: () -> Void
     let onDone: (() -> Void)?
@@ -1038,7 +1171,20 @@ private struct SurveyReviewPhaseView: View {
 
                 VStack(spacing: 12) {
                     PhaseActionButton(title: "Open Signal Map", icon: "chart.dots.scatter", tint: .green, action: onOpenSignalMap)
-                    PhaseActionButton(title: "Resume Capture", icon: "camera.viewfinder", tint: .cyan, action: onResumeCapture)
+                    PhaseActionButton(
+                        title: isRFUpdate ? "Resume RF Update" : "Resume Capture",
+                        icon: isRFUpdate ? "dot.radiowaves.left.and.right" : "camera.viewfinder",
+                        tint: .cyan,
+                        action: onResumeCapture
+                    )
+                    if isRFUpdate {
+                        PhaseActionButton(
+                            title: isRFUpdateAligned ? "Realign RF Update" : "Align RF Update",
+                            icon: "scope",
+                            tint: isRFUpdateAligned ? .green : .orange,
+                            action: onAlignRFUpdate
+                        )
+                    }
                     PhaseActionButton(title: "Sessions", icon: "folder.fill", tint: .purple, action: onSessions)
                 }
 

@@ -8,6 +8,7 @@ public enum SurveyPoseTrackingStatus: Equatable {
     case initializing
     case normal
     case limited(String)
+    case awaitingAlignment
     case unavailable
 
     public var canPlaceRF: Bool {
@@ -22,6 +23,8 @@ public enum SurveyPoseTrackingStatus: Equatable {
             return "LiDAR tracking"
         case .limited(let reason):
             return "LiDAR limited: \(reason)"
+        case .awaitingAlignment:
+            return "Align RF update"
         case .unavailable:
             return "LiDAR unavailable"
         }
@@ -47,8 +50,13 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     private var timer: Timer?
     private let apLocalizer = APPositionLocalizer()
     private let sidekickAdapter = SidekickScannerAdapter()
+    private var latestRawDevicePose: SIMD3<Float>?
     private var latestDevicePose: SIMD3<Float>?
     private var latestStableMapPose: SIMD3<Float>?
+    private var rfUpdateAlignmentAnchor: SIMD3<Float>?
+    private var poseAlignmentOffset: SIMD3<Float>?
+    private var awaitingRFUpdateAlignment = false
+    private var allowsRFUpdatePoseFallback = false
     private let manualAPStoreKey = "manualAPLandmarks"
     private var lastHeatmapSampleByBSSID: [String: (timestamp: TimeInterval, position: SIMD3<Float>)] = [:]
     private let maxHeatmapPoints = 3200
@@ -83,8 +91,23 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public var currentDevicePose: SIMD3<Float>? {
-        guard poseTrackingStatus.canPlaceRF else { return nil }
+        guard canPlaceRFAtCurrentPose else { return nil }
         return latestStableMapPose
+    }
+
+    public var requiresRFUpdateAlignment: Bool {
+        awaitingRFUpdateAlignment
+    }
+
+    private var canPlaceRFAtCurrentPose: Bool {
+        switch poseTrackingStatus {
+        case .normal:
+            return latestStableMapPose != nil
+        case .limited:
+            return allowsRFUpdatePoseFallback && latestStableMapPose != nil
+        case .initializing, .awaitingAlignment, .unavailable:
+            return false
+        }
     }
     
     public func startScanning() {
@@ -117,6 +140,11 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             lastHeatmapSampleByBSSID.removeAll()
             lastAcceptedHeatmapPose = nil
             latestStableMapPose = nil
+            latestRawDevicePose = nil
+            latestDevicePose = nil
+            rfUpdateAlignmentAnchor = nil
+            poseAlignmentOffset = nil
+            awaitingRFUpdateAlignment = false
             lastAcceptedPoseUpdateTime = nil
         }
     }
@@ -130,10 +158,16 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     public func updateDevicePose(position: SIMD3<Float>) {
+        latestRawDevicePose = position
+        if awaitingRFUpdateAlignment {
+            poseTrackingStatus = .awaitingAlignment
+            return
+        }
         poseTrackingStatus = .normal
-        latestDevicePose = position
+        let mapPosition = mapAlignedPosition(position)
+        latestDevicePose = mapPosition
         if let stablePose = stabilizedHeatmapPosition(
-            for: position,
+            for: mapPosition,
             timestamp: Date().timeIntervalSince1970,
             trackingQuality: nil
         ) {
@@ -147,10 +181,16 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         monotonicTimestampSeconds: TimeInterval?,
         trackingQuality: String?
     ) {
+        latestRawDevicePose = position
+        if awaitingRFUpdateAlignment {
+            poseTrackingStatus = .awaitingAlignment
+            return
+        }
         poseTrackingStatus = Self.poseTrackingStatus(from: trackingQuality)
-        latestDevicePose = position
+        let mapPosition = mapAlignedPosition(position)
+        latestDevicePose = mapPosition
         guard let stablePose = stabilizedHeatmapPosition(
-            for: position,
+            for: mapPosition,
             timestamp: Date().timeIntervalSince1970,
             trackingQuality: trackingQuality
         ) else {
@@ -195,9 +235,9 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         lastHeatmapSampleByBSSID.removeAll()
         lastAcceptedHeatmapPose = nil
         lastAcceptedPoseUpdateTime = nil
-        if let latestDevicePose {
+        if let latestRawDevicePose {
             latestStableMapPose = stabilizedHeatmapPosition(
-                for: latestDevicePose,
+                for: mapAlignedPosition(latestRawDevicePose),
                 timestamp: Date().timeIntervalSince1970,
                 trackingQuality: nil
             )
@@ -208,8 +248,45 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         restoreManualLandmarksToSamples()
     }
 
+    public func prepareRFUpdateAlignment(anchor: SIMD3<Float>?) {
+        rfUpdateAlignmentAnchor = anchor
+        poseAlignmentOffset = nil
+        awaitingRFUpdateAlignment = anchor != nil
+        allowsRFUpdatePoseFallback = true
+        latestRawDevicePose = nil
+        latestDevicePose = nil
+        latestStableMapPose = nil
+        lastAcceptedHeatmapPose = nil
+        lastAcceptedPoseUpdateTime = nil
+        if awaitingRFUpdateAlignment {
+            poseTrackingStatus = .awaitingAlignment
+        }
+    }
+
+    public func clearRFUpdateAlignment() {
+        rfUpdateAlignmentAnchor = nil
+        poseAlignmentOffset = nil
+        awaitingRFUpdateAlignment = false
+        allowsRFUpdatePoseFallback = false
+    }
+
+    @discardableResult
+    public func alignCurrentPoseToSavedMapAnchor() -> Bool {
+        guard let anchor = rfUpdateAlignmentAnchor, let latestRawDevicePose else { return false }
+        poseAlignmentOffset = anchor - latestRawDevicePose
+        awaitingRFUpdateAlignment = false
+        let alignedPose = mapAlignedPosition(latestRawDevicePose)
+        latestDevicePose = alignedPose
+        latestStableMapPose = alignedPose
+        lastAcceptedHeatmapPose = alignedPose
+        lastAcceptedPoseUpdateTime = Date().timeIntervalSince1970
+        allowsRFUpdatePoseFallback = true
+        poseTrackingStatus = .normal
+        return true
+    }
+
     public func queueHeatmapCaptureFromCurrentPose(position: SIMD3<Float>) {
-        guard poseTrackingStatus.canPlaceRF else { return }
+        guard canPlaceRFAtCurrentPose else { return }
         guard let heatmapPosition = latestStableMapPose else { return }
         pendingPoseHeatmapPosition = heatmapPosition
         guard !poseHeatmapFlushScheduled else { return }
@@ -252,7 +329,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     public func ingestSidekickObservations(_ observations: [SidekickObservation]) {
         guard SettingsManager.shared.rfScanningEnabled else { return }
         guard !observations.isEmpty else { return }
-        let heatmapPose = poseTrackingStatus.canPlaceRF ? latestStableMapPose : nil
+        let heatmapPose = canPlaceRFAtCurrentPose ? latestStableMapPose : nil
 
         ingestSampleEvents(
             sidekickAdapter.events(
@@ -453,6 +530,11 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         connectedBSSID = rebuilt.values.sorted(by: { $0.timestamp < $1.timestamp }).last?.bssid ?? ""
     }
 
+    private func mapAlignedPosition(_ position: SIMD3<Float>) -> SIMD3<Float> {
+        guard let poseAlignmentOffset else { return position }
+        return position + poseAlignmentOffset
+    }
+
     private func nearestManualLandmarkIndex(
         to position: SIMD3<Float>,
         maxDistance: Float,
@@ -630,7 +712,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
 
         if let trackingQuality,
-           trackingQuality != "normal" {
+           trackingQuality != "normal",
+           !acceptsDegradedTrackingForRFUpdate(trackingQuality) {
             return latestStableMapPose
         }
 
@@ -655,6 +738,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         lastAcceptedHeatmapPose = position
         lastAcceptedPoseUpdateTime = timestamp
         return position
+    }
+
+    private func acceptsDegradedTrackingForRFUpdate(_ trackingQuality: String) -> Bool {
+        allowsRFUpdatePoseFallback && trackingQuality == "limited_insufficient_features"
     }
 
     private static func poseTrackingStatus(from trackingQuality: String?) -> SurveyPoseTrackingStatus {

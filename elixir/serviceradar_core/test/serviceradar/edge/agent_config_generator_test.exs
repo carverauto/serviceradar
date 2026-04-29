@@ -10,8 +10,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.ServiceCheck
-  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
   @moduletag :integration
@@ -545,6 +545,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   describe "sweep config with partition resolution" do
     alias ServiceRadar.AgentConfig.ConfigServer
     alias ServiceRadar.AgentRegistry
+    alias ServiceRadar.ProcessRegistry
     alias ServiceRadar.SweepJobs.SweepGroup
 
     test "unregistered agent receives sweep config from default partition", %{
@@ -647,6 +648,89 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       # Cleanup
       AgentRegistry.unregister_agent(agent_uid)
+    end
+
+    test "registered agent with multiple gateway entries uses freshest capable partition", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "multi-entry-sweep-agent-#{unique_id}"
+      stale_partition = "stale-partition-#{unique_id}"
+      fresh_partition = "fresh-partition-#{unique_id}"
+      stale_node = :"stale-gateway-#{unique_id}@127.0.0.1"
+      fresh_node = :"fresh-gateway-#{unique_id}@127.0.0.1"
+
+      try do
+        {:ok, _stale_pid} =
+          ProcessRegistry.register_agent(
+            agent_uid,
+            %{
+              agent_id: agent_uid,
+              partition_id: stale_partition,
+              capabilities: [],
+              status: :connected
+            },
+            stale_node
+          )
+
+        {:ok, _fresh_pid} =
+          ProcessRegistry.register_agent(
+            agent_uid,
+            %{
+              agent_id: agent_uid,
+              partition_id: fresh_partition,
+              capabilities: [:sweep],
+              status: :connected
+            },
+            fresh_node
+          )
+
+        ProcessRegistry.update_value({:agent, agent_uid, stale_node}, fn metadata ->
+          %{metadata | last_heartbeat: DateTime.add(DateTime.utc_now(), -300, :second)}
+        end)
+
+        {:ok, _stale_group} =
+          SweepGroup
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "Stale Gateway Sweep Group #{unique_id}",
+              partition: stale_partition,
+              interval: "15m",
+              static_targets: ["10.255.0.1"],
+              enabled: true
+            },
+            actor: actor
+          )
+          |> Ash.create()
+
+        {:ok, _fresh_group} =
+          SweepGroup
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "Fresh Gateway Sweep Group #{unique_id}",
+              partition: fresh_partition,
+              interval: "15m",
+              static_targets: ["10.255.0.2"],
+              enabled: true
+            },
+            actor: actor
+          )
+          |> Ash.create()
+
+        ConfigServer.invalidate(:sweep)
+
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+        payload = Jason.decode!(config.config_json)
+        group_names = Enum.map(payload["sweep"]["groups"] || [], & &1["name"])
+
+        assert "Fresh Gateway Sweep Group #{unique_id}" in group_names
+        refute "Stale Gateway Sweep Group #{unique_id}" in group_names
+      after
+        ProcessRegistry.unregister_agent(agent_uid, stale_node)
+        ProcessRegistry.unregister_agent(agent_uid, fresh_node)
+      end
     end
 
     test "agent receives sweep groups with resolved SRQL targeting", %{

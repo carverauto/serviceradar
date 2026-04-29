@@ -10,6 +10,7 @@ FieldSurvey needs a smaller product loop: walk a room with LiDAR active, collect
 - Remove native iPhone Wi-Fi and BLE RF survey inputs from the capture path; Sidekick is the only Wi-Fi/RF survey source.
 - Remove 3D RF/AP visualization from the LiDAR capture view so RoomPlan/ARKit performance takes priority.
 - Add a lightweight 2D in-app survey review that projects room geometry and RF heatmap samples onto a top-down floor-plane.
+- Add an RF Update workflow for saved sessions: reuse the saved floorplan/session baseline, run lightweight ARKit pose tracking for new Sidekick RF samples, and require an explicit operator alignment step before new heat points are placed into the saved room coordinate space.
 - Keep ServiceRadar/web-ng as the polished historical survey viewer using the backend fused RF/pose tables.
 - Preserve offline operation: local saved sessions must remain reviewable and uploadable later.
 
