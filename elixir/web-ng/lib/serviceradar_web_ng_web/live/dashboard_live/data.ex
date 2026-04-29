@@ -1403,11 +1403,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     :math.sqrt(:math.pow(end_x - start_x, 2) + :math.pow(end_z - start_z, 2))
   end
 
-  defp latest_dashboard_ap_markers(session_id) do
-    _ = session_id
+  defp latest_dashboard_ap_markers(_session_id) do
+    # AP/device enrichment currently depends on raw RF+pose scans and can block the dashboard.
+    # Keep the dashboard card fast; richer AP drill-in belongs behind an indexed summary path.
     []
-  rescue
-    _ -> []
   end
 
   defp score_dashboard_ap_marker(

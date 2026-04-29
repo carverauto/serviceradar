@@ -27,7 +27,8 @@ public final class SidekickScannerAdapter: @unchecked Sendable {
     ) -> [SurveySampleIngestEvent] {
         guard !observations.isEmpty else { return [] }
 
-        let measurementPosition = context.latestDevicePose ?? SIMD3<Float>(0, 0, 0)
+        let measurementPosition = context.latestDevicePose
+        let samplePosition = measurementPosition ?? SIMD3<Float>(0, 0, 0)
         let rfVector = buildRFVector(from: observations)
 
         return observations.map { observation in
@@ -49,7 +50,7 @@ public final class SidekickScannerAdapter: @unchecked Sendable {
                 securityType: "Sidekick \(observation.frameType)",
                 isSecure: false,
                 rfVector: rfVector,
-                position: measurementPosition,
+                position: samplePosition,
                 latitude: context.location?.latitude ?? 0.0,
                 longitude: context.location?.longitude ?? 0.0,
                 uncertainty: Float(1.0 - confidence)

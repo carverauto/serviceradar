@@ -1,5 +1,14 @@
 import Foundation
 
+public enum FieldSurveyCaptureMode: String, Codable, Equatable, Sendable {
+    case fullRoomScan
+    case rfUpdate
+
+    public var isRFUpdate: Bool {
+        self == .rfUpdate
+    }
+}
+
 public struct SurveySessionRecord: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let name: String

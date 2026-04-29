@@ -780,7 +780,12 @@ if config_env() == :prod do
     ],
     plugins: [
       Oban.Plugins.Pruner,
-      {Oban.Plugins.Cron, crontab: []}
+      {Oban.Plugins.Cron,
+       crontab: [
+         {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+         {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
+         {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
+       ]}
     ],
     peer: Oban.Peers.Database
 

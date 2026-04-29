@@ -6,7 +6,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   1. Finds trace_ids with new spans since the last refresh (5-minute lookback)
   2. Computes full aggregation for only those traces
   3. Upserts into otel_trace_summaries via ON CONFLICT
-  4. Cleans up rows older than 7 days
+  4. Cleans up rows older than 3 days
 
   On first run (empty table), performs a chunked backfill in 1-hour windows
   to avoid timing out on large datasets.
@@ -50,7 +50,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     SELECT DISTINCT trace_id FROM otel_traces
     WHERE timestamp >= $1 AND timestamp < $2 AND trace_id IS NOT NULL
   )
-  AND t.timestamp >= NOW() - INTERVAL '7 days'
+  AND t.timestamp >= NOW() - INTERVAL '3 days'
   AND t.trace_id IS NOT NULL
   GROUP BY t.trace_id
   ON CONFLICT (trace_id) DO UPDATE SET
@@ -74,7 +74,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   WITH doomed AS (
     SELECT trace_id
     FROM otel_trace_summaries
-    WHERE timestamp < NOW() - INTERVAL '7 days'
+    WHERE timestamp < NOW() - INTERVAL '3 days'
     ORDER BY timestamp ASC
     LIMIT $1
   )
@@ -125,11 +125,11 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
-  # Backfill 7 days in 1-hour chunks, oldest-first.
+  # Backfill 3 days in 1-hour chunks, oldest-first.
   # Each chunk is a bounded query that completes well within the 60s timeout.
   defp run_chunked_backfill do
     now = DateTime.utc_now()
-    start = DateTime.add(now, -7, :day)
+    start = DateTime.add(now, -3, :day)
 
     start
     |> build_windows(now)
