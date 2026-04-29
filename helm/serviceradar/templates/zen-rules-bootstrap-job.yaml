@@ -97,10 +97,15 @@ spec:
               KV_BUCKET="$(json_string kv_bucket)"
               NATS_URL="$(json_string nats_url)"
 
-              [ -n "${AGENT_ID}" ] || AGENT_ID="k8s-zen-consumer"
+              [ -n "${AGENT_ID}" ] || AGENT_ID="default-agent"
               [ -n "${STREAM_NAME}" ] || STREAM_NAME="events"
               [ -n "${KV_BUCKET}" ] || KV_BUCKET="${DEFAULT_KV_BUCKET}"
               [ -n "${NATS_URL}" ] || NATS_URL="${DEFAULT_NATS_URL}"
+
+              if grep -Eq '"discover_rules_from_kv"[[:space:]]*:[[:space:]]*true' "${CONFIG_PATH}" 2>/dev/null; then
+                echo "KV rule discovery enabled; skipping bundled Zen rules bootstrap"
+                exit 0
+              fi
 
               install_rule() {
                 local file="$1"
