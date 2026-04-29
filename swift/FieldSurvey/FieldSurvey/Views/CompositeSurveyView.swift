@@ -12,26 +12,43 @@ public struct CompositeSurveyView: UIViewRepresentable {
     @ObservedObject public var wifiScanner: RealWiFiScanner
 
     @Binding public var isMapView: Bool
+    public let captureMode: FieldSurveyCaptureMode
 
     public init(
         roomScanner: RoomScanner,
         wifiScanner: RealWiFiScanner,
-        isMapView: Binding<Bool>
+        isMapView: Binding<Bool>,
+        captureMode: FieldSurveyCaptureMode = .fullRoomScan
     ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
         self._isMapView = isMapView
+        self.captureMode = captureMode
     }
 
     public func makeUIView(context: Context) -> UIView {
         let container = UIView(frame: .zero)
         container.backgroundColor = .black
 
-        let roomView = RoomCaptureView(frame: container.bounds)
-        roomView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        roomScanner.startSession(in: roomView)
-        roomView.captureSession.arSession.delegate = context.coordinator
-        container.addSubview(roomView)
+        if captureMode.isRFUpdate {
+            let trackingView = ARSCNView(frame: container.bounds)
+            trackingView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            trackingView.backgroundColor = .black
+            trackingView.session.delegate = context.coordinator
+            trackingView.automaticallyUpdatesLighting = false
+            let configuration = ARWorldTrackingConfiguration()
+            configuration.worldAlignment = .gravity
+            trackingView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            container.addSubview(trackingView)
+            context.coordinator.trackingView = trackingView
+        } else {
+            let roomView = RoomCaptureView(frame: container.bounds)
+            roomView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            roomScanner.startSession(in: roomView)
+            roomView.captureSession.arSession.delegate = context.coordinator
+            container.addSubview(roomView)
+            context.coordinator.roomView = roomView
+        }
 
         let scnView = SCNView(frame: container.bounds)
         scnView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -105,7 +122,6 @@ public struct CompositeSurveyView: UIViewRepresentable {
         container.addSubview(scnView)
 
         context.coordinator.container = container
-        context.coordinator.roomView = roomView
         context.coordinator.scnView = scnView
         context.coordinator.cameraNode = cameraNode
         context.coordinator.mapCameraNode = mapCameraNode
@@ -124,6 +140,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.wifiScanner = wifiScanner
         context.coordinator.isMapView = isMapView
+        context.coordinator.captureMode = captureMode
         if isMapView {
             context.coordinator.stopCaptureHealthTimer()
             context.coordinator.startDisplayLink()
@@ -142,6 +159,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
         coordinator.stopDisplayLink()
         coordinator.stopCaptureHealthTimer()
         coordinator.roomView?.captureSession.stop()
+        coordinator.trackingView?.session.pause()
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -153,9 +171,11 @@ public struct CompositeSurveyView: UIViewRepresentable {
         var parent: CompositeSurveyView
         var wifiScanner: RealWiFiScanner?
         var isMapView: Bool = false
+        var captureMode: FieldSurveyCaptureMode
 
         weak var container: UIView?
         weak var roomView: RoomCaptureView?
+        weak var trackingView: ARSCNView?
         weak var scnView: SCNView?
 
         var cameraNode: SCNNode?
@@ -190,6 +210,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
 
         init(_ parent: CompositeSurveyView) {
             self.parent = parent
+            self.captureMode = parent.captureMode
         }
 
         func setupBackgroundObservers() {
@@ -271,6 +292,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
 
         func restoreLiveCaptureSurface() {
             roomView?.isHidden = false
+            trackingView?.isHidden = false
             scnView?.isHidden = true
             scnView?.isPlaying = false
             scnView?.allowsCameraControl = false
@@ -283,7 +305,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
 
         @objc private func captureHealthTick() {
             guard !isMapView, isAppActive else { return }
-            guard let frame = roomView?.captureSession.arSession.currentFrame else {
+            guard let frame = activeARFrame() else {
                 maybeRecoverMissingARFrames()
                 return
             }
@@ -299,10 +321,10 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 stopDisplayLink()
                 return
             }
-            guard let roomView = roomView, let scnView = scnView, let cameraNode = cameraNode, let mapCameraNode = mapCameraNode else { return }
+            guard let captureView = activeCaptureView(), let scnView = scnView, let cameraNode = cameraNode, let mapCameraNode = mapCameraNode else { return }
 
             maybeUpdateARPriorityMode(isTrackingHealthy: true, now: CACurrentMediaTime())
-            roomView.isHidden = true
+            captureView.isHidden = true
             scnView.isHidden = false
             scnView.isPlaying = true
             scnView.allowsCameraControl = true
@@ -358,7 +380,9 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 trackingQuality: trackingQualityLabel(frame.camera.trackingState)
             )
             wifiScanner?.queueHeatmapCaptureFromCurrentPose(position: cameraPos)
-            parent.roomScanner.recordFeaturePoints(from: frame)
+            if !captureMode.isRFUpdate {
+                parent.roomScanner.recordFeaturePoints(from: frame)
+            }
 
             restoreLiveCaptureSurface()
         }
@@ -548,14 +572,33 @@ public struct CompositeSurveyView: UIViewRepresentable {
             resetFrameHealthTracking()
 
             if reason.hasPrefix("app-active") || reason == "session-interruption-ended" || reason == "session-failure" {
-                if replaceRoomCaptureView() {
+                if replaceCaptureView() {
                     print("FieldSurvey AR recovery triggered with view rebuild: \(reason)")
                     return
                 }
             }
 
+            if captureMode.isRFUpdate {
+                guard let trackingView else {
+                    _ = replaceCaptureView()
+                    print("FieldSurvey AR recovery triggered without existing tracking view: \(reason)")
+                    return
+                }
+                trackingView.session.pause()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self, weak trackingView] in
+                    guard let self, let trackingView else { return }
+                    let configuration = ARWorldTrackingConfiguration()
+                    configuration.worldAlignment = .gravity
+                    trackingView.session.run(configuration, options: [])
+                    trackingView.session.delegate = self
+                    self.lastSessionStartTime = CACurrentMediaTime()
+                }
+                print("FieldSurvey AR tracking recovery triggered: \(reason)")
+                return
+            }
+
             guard let roomView else {
-                _ = replaceRoomCaptureView()
+                _ = replaceCaptureView()
                 print("FieldSurvey AR recovery triggered without existing room view: \(reason)")
                 return
             }
@@ -579,8 +622,27 @@ public struct CompositeSurveyView: UIViewRepresentable {
         }
 
         @discardableResult
-        private func replaceRoomCaptureView() -> Bool {
+        private func replaceCaptureView() -> Bool {
             guard let container else { return false }
+
+            if captureMode.isRFUpdate {
+                let newTrackingView = ARSCNView(frame: container.bounds)
+                newTrackingView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                newTrackingView.backgroundColor = .black
+                newTrackingView.isHidden = isMapView
+
+                trackingView?.session.pause()
+                trackingView?.removeFromSuperview()
+                container.insertSubview(newTrackingView, at: 0)
+                trackingView = newTrackingView
+
+                newTrackingView.session.delegate = self
+                let configuration = ARWorldTrackingConfiguration()
+                configuration.worldAlignment = .gravity
+                newTrackingView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+                lastSessionStartTime = CACurrentMediaTime()
+                return true
+            }
 
             let newRoomView = RoomCaptureView(frame: container.bounds)
             newRoomView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -595,6 +657,14 @@ public struct CompositeSurveyView: UIViewRepresentable {
             newRoomView.captureSession.arSession.delegate = self
             lastSessionStartTime = CACurrentMediaTime()
             return true
+        }
+
+        private func activeARFrame() -> ARFrame? {
+            roomView?.captureSession.arSession.currentFrame ?? trackingView?.session.currentFrame
+        }
+
+        private func activeCaptureView() -> UIView? {
+            roomView ?? trackingView
         }
 
         public func sessionWasInterrupted(_ session: ARSession) {

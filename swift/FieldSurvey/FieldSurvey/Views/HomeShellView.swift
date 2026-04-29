@@ -16,6 +16,7 @@ public struct HomeDashboardView: View {
     @State private var showSubnetIntel = false
     @State private var showAPIntel = false
     @State private var resumeSnapshot: SurveySessionSnapshot?
+    @State private var captureMode: FieldSurveyCaptureMode = .fullRoomScan
     @State private var reviewSnapshot: SurveySessionSnapshot?
 
     public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner, sessionStore: SurveySessionStore) {
@@ -71,6 +72,8 @@ public struct HomeDashboardView: View {
                         icon: "play.fill",
                         accent: Color(red: 0.2, green: 0.98, blue: 0.9)
                     ) {
+                        captureMode = .fullRoomScan
+                        resumeSnapshot = nil
                         showSurvey = true
                     }
 
@@ -173,10 +176,12 @@ public struct HomeDashboardView: View {
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
                 sessionStore: sessionStore,
-                resumeSnapshot: resumeSnapshot
+                resumeSnapshot: resumeSnapshot,
+                captureMode: captureMode
             ) {
                 showSurvey = false
                 resumeSnapshot = nil
+                captureMode = .fullRoomScan
             }
         }
         .sheet(isPresented: $showSessions) {
@@ -186,6 +191,12 @@ public struct HomeDashboardView: View {
                 sessionStore: sessionStore,
                 onResume: { snapshot in
                     resumeSnapshot = snapshot
+                    captureMode = .fullRoomScan
+                    showSurvey = true
+                },
+                onRFUpdate: { snapshot in
+                    resumeSnapshot = snapshot
+                    captureMode = .rfUpdate
                     showSurvey = true
                 }
             )
@@ -305,6 +316,7 @@ public struct SessionLibraryView: View {
     @ObservedObject private var settings = SettingsManager.shared
 
     let onResume: ((SurveySessionSnapshot) -> Void)?
+    let onRFUpdate: ((SurveySessionSnapshot) -> Void)?
 
     @State private var compareMessage: String?
     @State private var loadMessage: String?
@@ -316,12 +328,14 @@ public struct SessionLibraryView: View {
         roomScanner: RoomScanner,
         wifiScanner: RealWiFiScanner,
         sessionStore: SurveySessionStore,
-        onResume: ((SurveySessionSnapshot) -> Void)? = nil
+        onResume: ((SurveySessionSnapshot) -> Void)? = nil,
+        onRFUpdate: ((SurveySessionSnapshot) -> Void)? = nil
     ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
         self.sessionStore = sessionStore
         self.onResume = onResume
+        self.onRFUpdate = onRFUpdate
     }
 
     public var body: some View {
@@ -349,6 +363,11 @@ public struct SessionLibraryView: View {
                                     load(session)
                                 }
                                 .buttonStyle(.borderedProminent)
+
+                                Button("RF Update") {
+                                    startRFUpdate(session)
+                                }
+                                .buttonStyle(.bordered)
 
                                 Button("Review") {
                                     review(session)
@@ -440,6 +459,16 @@ public struct SessionLibraryView: View {
         }
         wifiScanner.loadSessionSnapshot(snapshot)
         onResume?(snapshot)
+        dismiss()
+    }
+
+    private func startRFUpdate(_ session: SurveySessionRecord) {
+        guard let snapshot = sessionStore.loadSession(id: session.id) else {
+            loadMessage = "Failed to load session snapshot."
+            return
+        }
+        wifiScanner.loadSessionSnapshot(snapshot)
+        onRFUpdate?(snapshot)
         dismiss()
     }
 

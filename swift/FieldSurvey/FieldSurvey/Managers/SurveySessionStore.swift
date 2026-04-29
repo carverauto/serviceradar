@@ -64,6 +64,7 @@ public final class SurveySessionStore: ObservableObject {
 
         let now = Date().timeIntervalSince1970
         let existing = sessions.first { $0.id == id }
+        let existingSnapshot = existing.flatMap { loadSession(id: $0.id) }
         let fallbackName = "Survey \(Self.sessionDateFormatter.string(from: Date()))"
         let cleanName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sessionName = (cleanName?.isEmpty == false) ? cleanName! : (existing?.name ?? fallbackName)
@@ -71,7 +72,10 @@ public final class SurveySessionStore: ObservableObject {
         let samples = Array(wifiScanner.accessPoints.values).sorted { $0.timestamp < $1.timestamp }
         let heatmapPoints = wifiScanner.heatmapPoints
         let manualLandmarks = wifiScanner.manualAPLandmarks
-        let floorplanSegments = roomScanner.currentFloorplanSegments()
+        let liveFloorplanSegments = roomScanner.currentFloorplanSegments()
+        let floorplanSegments = liveFloorplanSegments.isEmpty
+            ? (existingSnapshot?.floorplanSegments ?? [])
+            : liveFloorplanSegments
         let uploadMetadata = SettingsManager.shared.currentSurveyUploadMetadata
         try Task.checkCancellation()
         let roamRecords = wifiScanner.roamEvents.map { roam in
