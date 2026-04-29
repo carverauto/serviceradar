@@ -169,6 +169,8 @@ pub struct Config {
     #[serde(default)]
     pub decision_groups: Vec<DecisionGroupConfig>,
     #[serde(default)]
+    pub discover_rules_from_kv: bool,
+    #[serde(default)]
     pub nats_creds_file: Option<String>,
     #[serde(default = "default_kv_bucket")]
     pub kv_bucket: String,
@@ -275,6 +277,10 @@ impl Config {
     }
 
     pub fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
+        self.configured_rules_for_subject(subject)
+    }
+
+    pub fn configured_rules_for_subject(&self, subject: &str) -> Vec<String> {
         if !self.decision_groups.is_empty() {
             if let Some(group) = self.match_decision_group(subject) {
                 let mut rules = group.rules.clone();
@@ -443,6 +449,7 @@ mod tests {
             result_subject_suffix: None,
             decision_keys: Vec::new(),
             decision_groups: Vec::new(),
+            discover_rules_from_kv: false,
             nats_creds_file: None,
             kv_bucket: String::new(),
             agent_id: String::new(),
@@ -467,6 +474,7 @@ mod tests {
             result_subject_suffix: None,
             decision_keys: vec!["passthrough".to_string()],
             decision_groups: Vec::new(),
+            discover_rules_from_kv: false,
             nats_creds_file: None,
             kv_bucket: "serviceradar-datasvc".to_string(),
             agent_id: "agent-01".to_string(),
@@ -496,6 +504,7 @@ mod tests {
             result_subject_suffix: None,
             decision_keys: vec!["passthrough".to_string()],
             decision_groups: Vec::new(),
+            discover_rules_from_kv: false,
             nats_creds_file: None,
             kv_bucket: "serviceradar-datasvc".to_string(),
             agent_id: "agent-01".to_string(),
@@ -563,6 +572,7 @@ mod tests {
                 }],
                 format: MessageFormat::Json,
             }],
+            discover_rules_from_kv: false,
             nats_creds_file: None,
             kv_bucket: "test-kv".to_string(),
             agent_id: "test-agent".to_string(),

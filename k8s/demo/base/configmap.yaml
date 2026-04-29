@@ -454,46 +454,36 @@ data:
           "*.logs.internal.>",
           "*.otel.metrics.raw"
         ],
+        "discover_rules_from_kv": true,
         "decision_groups": [
           {
             "name": "syslog",
             "subjects": ["*.logs.syslog"],
-            "rules": [
-              {"order": 1, "key": "strip_full_message"},
-              {"order": 2, "key": "cef_severity"}
-            ],
+            "rules": [],
             "format": "json"
           },
           {
             "name": "snmp",
             "subjects": ["*.logs.snmp"],
-            "rules": [
-              {"order": 1, "key": "snmp_severity"}
-            ],
+            "rules": [],
             "format": "json"
           },
           {
             "name": "otel_logs",
             "subjects": ["*.logs.otel"],
-            "rules": [
-              {"order": 1, "key": "passthrough"}
-            ],
+            "rules": [],
             "format": "protobuf"
           },
           {
             "name": "otel_metrics_raw",
             "subjects": ["*.otel.metrics.raw"],
-            "rules": [
-              {"order": 1, "key": "passthrough"}
-            ],
+            "rules": [],
             "format": "otel_metrics"
           },
           {
             "name": "internal_logs",
             "subjects": ["*.logs.internal.>"],
-            "rules": [
-              {"order": 1, "key": "passthrough"}
-            ],
+            "rules": [],
             "format": "json"
           }
         ],

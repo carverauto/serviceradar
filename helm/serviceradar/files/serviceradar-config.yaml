@@ -527,30 +527,24 @@ data:
         "stream_replicas": {{ default 1 .Values.zen.streamReplicas }},
         "consumer_name": "zen-consumer",
         "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
+        "discover_rules_from_kv": true,
         "decision_groups": [
           {
             "name": "syslog",
             "subjects": ["logs.syslog"],
-            "rules": [
-              {"order": 1, "key": "strip_full_message"},
-              {"order": 2, "key": "cef_severity"}
-            ],
+            "rules": [],
             "format": "json"
           },
           {
             "name": "snmp",
             "subjects": ["logs.snmp"],
-            "rules": [
-              {"order": 1, "key": "snmp_severity"}
-            ],
+            "rules": [],
             "format": "json"
           },
           {
             "name": "otel_logs",
             "subjects": ["logs.otel"],
-            "rules": [
-              {"order": 1, "key": "passthrough"}
-            ],
+            "rules": [],
             "format": "protobuf"
           }
         ],

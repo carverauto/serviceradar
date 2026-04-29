@@ -223,7 +223,8 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   defp legacy_rule_name("syslog_cef_severity"), do: "cef_severity"
   defp legacy_rule_name(_), do: nil
 
-  defp default_zen_rules do
+  @doc false
+  def default_zen_rules do
     [
       %{
         name: "passthrough",
