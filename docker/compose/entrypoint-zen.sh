@@ -159,7 +159,9 @@ mark_rules_installed() {
     return 0
 }
 
-if [ ! -f "$RULES_INSTALLED_MARKER" ]; then
+if grep -Eq '"discover_rules_from_kv"[[:space:]]*:[[:space:]]*true' "$CONFIG_PATH" 2>/dev/null; then
+    echo "KV rule discovery enabled; skipping bundled initial rule installation"
+elif [ ! -f "$RULES_INSTALLED_MARKER" ]; then
     echo "First startup detected - installing initial zen rules..."
     
     # Install initial rules

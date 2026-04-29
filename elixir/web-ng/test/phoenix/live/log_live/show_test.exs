@@ -207,6 +207,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       assert has_element?(lv, "a[href='/devices/#{device.uid}']", "192.168.10.154:161")
     end
+
+    test "renders Erlang logger charlists as readable metadata", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "59f490f9-b7c9-4570-b8d1-9c1095f45014"
+      insert_test_erlang_metadata_log!(log_id)
+
+      {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert html =~ "lib/serviceradar/observability/zen_rule_sync.ex"
+      assert html =~ "Elixir.ServiceRadar.Observability.ZenRuleSync.log_reconcile_results/1"
+      refute html =~ "[108,105,98"
+    end
   end
 
   describe "can_create_rules? helper" do
@@ -303,6 +317,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         source: "snmp",
         attributes: Jason.encode!(%{"version" => "V1"}),
         resource_attributes: Jason.encode!(%{"source" => "192.168.10.154:161"}),
+        created_at: now
+      }
+    ])
+  end
+
+  defp insert_test_erlang_metadata_log!(log_id) when is_binary(log_id) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: "INFO",
+        severity_number: 9,
+        body: "Zen rule reconcile summary: total=13 success=0 failed=1 transient_failed=12",
+        service_name: "serviceradar-core-elx",
+        attributes:
+          Jason.encode!(%{
+            "file" => ~c"lib/serviceradar/observability/zen_rule_sync.ex",
+            "mfa" => ["Elixir.ServiceRadar.Observability.ZenRuleSync", "log_reconcile_results", 1]
+          }),
         created_at: now
       }
     ])

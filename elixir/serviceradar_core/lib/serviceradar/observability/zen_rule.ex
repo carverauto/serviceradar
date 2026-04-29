@@ -33,11 +33,7 @@ defmodule ServiceRadar.Observability.ZenRule do
          default: :json,
          constraints: [one_of: [:json, :protobuf, :otel_metrics]]
        ]},
-      {:template, :atom,
-       [
-         allow_nil?: false,
-         constraints: [one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]]
-       ]},
+      {:template, :string, [allow_nil?: false]},
       {:builder_config, :map, [default: %{}]},
       {:jdm_definition, :map,
        [

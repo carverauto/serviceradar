@@ -479,7 +479,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # Handles: already-parsed maps, JSON strings, key={json},key2={json} format, key=value format
   defp parse_attributes(nil), do: nil
   defp parse_attributes(""), do: nil
-  defp parse_attributes(value) when is_map(value), do: value
+  defp parse_attributes(value) when is_map(value), do: normalize_metadata_value(value)
 
   defp parse_attributes(value) when is_binary(value) do
     value = String.trim(value)
@@ -488,7 +488,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       # Try JSON first
       String.starts_with?(value, "{") or String.starts_with?(value, "[") ->
         case Jason.decode(value) do
-          {:ok, decoded} when is_map(decoded) -> decoded
+          {:ok, decoded} when is_map(decoded) -> normalize_metadata_value(decoded)
           _ -> parse_key_value_format(value)
         end
 
@@ -502,6 +502,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp parse_attributes(_), do: nil
+
+  defp normalize_metadata_value(value) when is_map(value) do
+    Map.new(value, fn {key, nested_value} -> {key, normalize_metadata_value(key, nested_value)} end)
+  end
+
+  defp normalize_metadata_value(value) when is_list(value), do: normalize_metadata_list(value)
+  defp normalize_metadata_value(value), do: value
+
+  defp normalize_metadata_value(key, value) when is_list(value) do
+    cond do
+      printable_charlist?(value) ->
+        List.to_string(value)
+
+      key == "mfa" ->
+        format_mfa(value)
+
+      true ->
+        Enum.map(value, &normalize_metadata_value/1)
+    end
+  end
+
+  defp normalize_metadata_value(_key, value), do: normalize_metadata_value(value)
+
+  defp normalize_metadata_list(value) do
+    if printable_charlist?(value) do
+      List.to_string(value)
+    else
+      Enum.map(value, &normalize_metadata_value/1)
+    end
+  end
 
   # Parse formats like: attributes={"error":"nats: no heartbeat"},resource={"service.name":"foo"}
   # or simpler: key=value,key2=value2
@@ -549,8 +579,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp format_attribute_value(value) when is_binary(value), do: value
   defp format_attribute_value(value) when is_number(value), do: to_string(value)
   defp format_attribute_value(value) when is_boolean(value), do: to_string(value)
-  defp format_attribute_value(value) when is_map(value), do: Jason.encode!(value)
-  defp format_attribute_value(value) when is_list(value), do: Jason.encode!(value)
+  defp format_attribute_value(value) when is_map(value), do: Jason.encode!(normalize_metadata_value(value))
+
+  defp format_attribute_value(value) when is_list(value) do
+    value
+    |> normalize_metadata_value()
+    |> case do
+      normalized when is_binary(normalized) -> normalized
+      normalized -> Jason.encode!(normalized)
+    end
+  end
+
   defp format_attribute_value(nil), do: "—"
   defp format_attribute_value(value), do: inspect(value)
 
@@ -589,7 +628,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
-    formatted = Jason.encode!(value, pretty: true)
+    formatted = Jason.encode!(normalize_metadata_value(value), pretty: true)
     assigns = assign(assigns, :formatted, formatted)
 
     ~H"""
@@ -626,6 +665,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     <span>{to_string(@value)}</span>
     """
   end
+
+  defp printable_charlist?(value) when is_list(value) and value != [] do
+    Enum.all?(value, &printable_codepoint?/1)
+  end
+
+  defp printable_charlist?(_value), do: false
+
+  defp printable_codepoint?(codepoint) when is_integer(codepoint) do
+    codepoint in [9, 10, 13] or codepoint in 32..126
+  end
+
+  defp printable_codepoint?(_value), do: false
+
+  defp format_mfa([module, function, arity]) when is_binary(module) and is_binary(function) do
+    "#{module}.#{function}/#{arity}"
+  end
+
+  defp format_mfa(value), do: Enum.map(value, &normalize_metadata_value/1)
 
   attr :value, :any, default: nil
 

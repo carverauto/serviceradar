@@ -25,6 +25,7 @@ mod message_processor;
 mod nats;
 mod otel_logs;
 mod otel_metrics;
+mod rule_discovery;
 mod rule_watcher;
 mod spiffe;
 
