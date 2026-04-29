@@ -176,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               BGP routing information from NetFlow, sFlow, and BMP sources
             </p>
           </div>
-
+          
     <!-- Filters -->
           <div class="flex gap-3">
             <!-- Time Range Selector -->
@@ -190,7 +190,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               <option value="last_24h" selected={@time_range == "last_24h"}>Last 24 Hours</option>
               <option value="last_7d" selected={@time_range == "last_7d"}>Last 7 Days</option>
             </select>
-
+            
     <!-- Source Protocol Selector -->
             <select
               phx-change="change_source_protocol"
@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
                 BGP Peering
               </option>
             </select>
-
+            
     <!-- Clear Filters Button -->
             <%= if @selected_as || @selected_community do %>
               <button phx-click="clear_filters" class="btn btn-sm btn-ghost">
@@ -213,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             <% end %>
           </div>
         </div>
-
+        
     <!-- Active Filters Display -->
         <%= if @selected_as || @selected_community do %>
           <div class="alert alert-info">
@@ -238,10 +238,10 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
             </button>
           </div>
-
+          
     <!-- Data Sources Panel -->
           <.data_sources_panel sources={@data_sources} />
-
+          
     <!-- Traffic Time Series -->
           <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
           
@@ -253,24 +253,24 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               max_bytes={@max_bytes}
               selected_as={@selected_as}
             />
-
+            
     <!-- Top BGP Communities -->
             <.bgp_top_communities_view
               communities={@communities}
               max_bytes={@max_bytes}
               selected_community={@selected_community}
             />
-
+            
     <!-- AS Path Diversity -->
             <.bgp_path_diversity_panel path_diversity={@path_diversity} />
-
+            
     <!-- AS Topology Graph -->
             <.bgp_topology_visualization topology={@topology} />
           </div>
-
+          
     <!-- AS Path Details Table -->
           <.as_path_details_table paths={@as_path_details} />
-
+          
     <!-- Prefix Analysis Table -->
           <.prefix_analysis_table prefixes={@prefix_analysis} />
         <% else %>

@@ -1,10 +1,29 @@
 import Config
 
+parse_positive_integer = fn value, default ->
+  case Integer.parse(to_string(value || "")) do
+    {parsed, ""} when parsed > 0 -> parsed
+    _ -> default
+  end
+end
+
+parse_log_level = fn value ->
+  case String.downcase(to_string(value || "")) do
+    "debug" -> :debug
+    "info" -> :info
+    "warning" -> :warning
+    "error" -> :error
+    _ -> nil
+  end
+end
+
 # Configure your database
 cnpg_ssl_mode = System.get_env("CNPG_SSL_MODE", "disable")
 cnpg_ssl_enabled = cnpg_ssl_mode != "disable"
 cnpg_hostname = System.get_env("CNPG_HOST", "localhost")
 cnpg_tls_server_name = System.get_env("CNPG_TLS_SERVER_NAME", cnpg_hostname)
+cnpg_pool_size = parse_positive_integer.(System.get_env("CNPG_POOL_SIZE"), 10)
+phx_port = parse_positive_integer.(System.get_env("PHX_PORT"), 4000)
 
 cnpg_cert_dir = System.get_env("CNPG_CERT_DIR", "")
 
@@ -61,6 +80,10 @@ cnpg_ssl_opts =
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
+if log_level = parse_log_level.(System.get_env("SERVICERADAR_LOCAL_LOG_LEVEL")) do
+  config :logger, level: log_level
+end
+
 # Initialize plugs at runtime for faster development compilation
 config :phoenix, :plug_init_mode, :runtime
 
@@ -89,7 +112,7 @@ config :serviceradar_core, ServiceRadar.Repo,
   ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10,
+  pool_size: cnpg_pool_size,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
 
@@ -108,7 +131,7 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {0, 0, 0, 0}],
+  http: [ip: {0, 0, 0, 0}, port: phx_port],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,

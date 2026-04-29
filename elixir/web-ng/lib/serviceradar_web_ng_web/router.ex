@@ -149,6 +149,18 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/stream/:session_id", StreamController, :connect)
   end
 
+  # FieldSurvey mobile clients authenticate with OAuth/API bearer tokens and
+  # stream Arrow IPC frames over WebSockets.
+  scope "/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_key_auth)
+
+    get("/field-survey/auth-check", FieldSurveyStreamController, :auth_check)
+    get("/field-survey/:session_id/rf-observations", FieldSurveyStreamController, :rf_observations)
+    get("/field-survey/:session_id/pose-samples", FieldSurveyStreamController, :pose_samples)
+    get("/field-survey/:session_id/spectrum-observations", FieldSurveyStreamController, :spectrum_observations)
+    post("/field-survey/:session_id/room-artifacts", FieldSurveyStreamController, :room_artifacts)
+  end
+
   scope "/v1", ServiceRadarWebNGWeb.Api do
     pipe_through(:browser_raw_auth)
 
@@ -187,6 +199,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
 
     get("/spatial/samples", SpatialController, :index)
+    get("/spatial/scene", SpatialController, :scene)
+    get("/spatial/room-artifacts", SpatialController, :room_artifacts)
+    get("/spatial/room-artifacts/:id/download", SpatialController, :download_room_artifact)
+    get("/spatial/field-surveys/:session_id/export", SpatialController, :field_survey_export)
   end
 
   # Admin API (session/JWT auth)
@@ -476,6 +492,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
+      live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
+      live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
 
       # MTR Diagnostics
       live("/diagnostics/mtr", DiagnosticsLive.Mtr, :index)
@@ -502,6 +520,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
+      live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
       live("/settings/networks/mtr/new", Settings.MtrProfilesLive.Index, :new_profile)
       live("/settings/networks/mtr/:id/edit", Settings.MtrProfilesLive.Index, :edit_profile)

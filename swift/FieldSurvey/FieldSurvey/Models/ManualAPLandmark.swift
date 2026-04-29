@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-public struct ManualAPLandmark: Identifiable, Codable, Equatable {
+public struct ManualAPLandmark: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public var label: String
     public var confidence: Double

@@ -202,5 +202,35 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
       assert Enum.all?(results, &match?({:ok, %{mode: :password_only}}, &1))
       assert Agent.get(counter, & &1) == 1
     end
+
+    test "returns waiter refresh failures without crashing the caller" do
+      parent = self()
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        send(parent, {:loader_called, self()})
+
+        receive do
+          :release_loader -> :ok
+        end
+
+        {:error, :database_unavailable}
+      end)
+
+      if :ets.whereis(ConfigCache) != :undefined do
+        :ets.delete(ConfigCache, :auth_settings)
+      end
+
+      task =
+        Task.async(fn ->
+          1..2
+          |> Task.async_stream(fn _ -> ConfigCache.get_config() end, max_concurrency: 2, timeout: :infinity)
+          |> Enum.map(fn {:ok, result} -> result end)
+        end)
+
+      assert_receive {:loader_called, loader_pid}
+      send(loader_pid, :release_loader)
+
+      assert [{:error, :load_failed}, {:error, :load_failed}] = Task.await(task, :infinity)
+    end
   end
 end

@@ -7,6 +7,7 @@ const WORLD_COUNTRIES = feature(countries110m, countries110m.objects.countries)
 const WORLD_MAP_PATHS = buildWorldMapPaths()
 const TOPOLOGY_VIEWBOX = "-170 -70 340 140"
 const NETFLOW_WORLD_VIEWBOX = "-180 -86 360 172"
+const NETFLOW_PAN_THRESHOLD_PX = 6
 const COUNTRY_NAMES = typeof Intl !== "undefined" && Intl.DisplayNames
   ? new Intl.DisplayNames(["en"], {type: "region"})
   : null
@@ -249,6 +250,81 @@ function flowEndpointLabel(label, ip, fallback) {
   return value || "Unknown"
 }
 
+function srqlQuote(value) {
+  return `"${String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`
+}
+
+function flowDetailsUrlForPair(sourceIp, targetIp) {
+  if (!isIpLike(sourceIp) || !isIpLike(targetIp)) return null
+
+  const q = [
+    "in:flows",
+    "time:last_1h",
+    `src_endpoint_ip:${srqlQuote(sourceIp)}`,
+    `dst_endpoint_ip:${srqlQuote(targetIp)}`,
+    "sort:bytes_total:desc",
+  ].join(" ")
+
+  return `/observability/flows?${new URLSearchParams({q, limit: "100"}).toString()}`
+}
+
+function endpointFlowSummary(link, side) {
+  const sourceIp = link.sourceIp
+  const targetIp = link.targetIp
+  const sourceLabel = flowEndpointLabel(link.sourceAnchorLabel || link.sourceGeoLabel || link.sourceLabel, sourceIp, "Source")
+  const targetLabel = flowEndpointLabel(link.targetAnchorLabel || link.targetGeoLabel || link.targetLabel, targetIp, "Destination")
+  const href = flowDetailsUrlForPair(sourceIp, targetIp)
+
+  if (!href) return null
+
+  return {
+    direction: side === "source" ? "Egress" : "Ingress",
+    peerLabel: side === "source" ? targetLabel : sourceLabel,
+    sourceIp,
+    targetIp,
+    bytes: Number(link.bytes || link.magnitude || 0),
+    packets: Number(link.packets || 0),
+    flowCount: Number(link.flowCount || 0),
+    href,
+  }
+}
+
+function normalizeEndpointFlows(flows) {
+  return [...(Array.isArray(flows) ? flows : [])]
+    .filter((flow) => flow && flow.href)
+    .sort((a, b) => Number(b.bytes || 0) - Number(a.bytes || 0))
+    .slice(0, 5)
+}
+
+function endpointFlowsHtml(encodedFlows) {
+  let flows = []
+
+  try {
+    flows = normalizeEndpointFlows(JSON.parse(encodedFlows || "[]"))
+  } catch (_e) {
+    flows = []
+  }
+
+  if (flows.length === 0) return ""
+
+  return `
+    <div class="sr-ops-anchor-flow-list">
+      <em>Top flow links</em>
+      ${flows
+        .map((flow) => `
+          <a class="sr-ops-anchor-flow-link" href="${escapeHtml(flow.href)}">
+            <span>
+              <i>${escapeHtml(flow.direction)}</i>
+              <b>${escapeHtml(flow.peerLabel)}</b>
+            </span>
+            <small>${escapeHtml(flow.sourceIp)} -> ${escapeHtml(flow.targetIp)} · ${formatBytes(flow.bytes)} · ${Number(flow.flowCount || 0).toLocaleString()} flows</small>
+          </a>
+        `)
+        .join("")}
+    </div>
+  `
+}
+
 function shortNodeLabel(value) {
   const label = String(value || "")
   const clean = label
@@ -432,8 +508,8 @@ function netflowGeometryStyle(zoomWidth) {
 function reservedNetflowLegendArea(endpoint, box) {
   if (endpoint.local || !box) return false
 
-  const reserveRight = box.x + box.width * 0.24
-  const reserveBottom = box.y + box.height * 0.72
+  const reserveRight = box.x + box.width * 0.18
+  const reserveBottom = box.y + box.height * 0.36
 
   return endpoint.x < reserveRight && endpoint.y < reserveBottom
 }
@@ -588,6 +664,7 @@ function endpointNodes(links, mapView = "topology_traffic") {
         magnitude: link.magnitude,
         localAnchor: Boolean(link.sourceLocalAnchor),
         anchorLabel: link.sourceAnchorLabel,
+        flow: endpointFlowSummary(link, "source"),
       },
       {
         point: link.to,
@@ -598,6 +675,7 @@ function endpointNodes(links, mapView = "topology_traffic") {
         magnitude: link.magnitude,
         localAnchor: Boolean(link.targetLocalAnchor),
         anchorLabel: link.targetAnchorLabel,
+        flow: endpointFlowSummary(link, "target"),
       },
     ]
 
@@ -626,11 +704,13 @@ function endpointNodes(links, mapView = "topology_traffic") {
           latitude: point[1],
           magnitude: endpoint.magnitude || 0,
           count: 1,
+          flows: normalizeEndpointFlows([endpoint.flow]),
         })
       } else {
         const existing = byKey.get(key)
         existing.magnitude += endpoint.magnitude || 0
         existing.count += 1
+        existing.flows = normalizeEndpointFlows([...(existing.flows || []), endpoint.flow])
         if (endpoint.localAnchor) {
           existing.localAnchor = true
           existing.color = [45, 212, 191, 245]
@@ -660,6 +740,7 @@ export default {
     this._onMapPointerDown = this._onMapPointerDown.bind(this)
     this._onMapPointerMove = this._onMapPointerMove.bind(this)
     this._onMapPointerUp = this._onMapPointerUp.bind(this)
+    this._onMapShellClick = this._onMapShellClick.bind(this)
     this._onSvgOverlayClick = this._onSvgOverlayClick.bind(this)
     this._onClusterLabelClick = this._onClusterLabelClick.bind(this)
     this._zoomIn = this._zoomIn.bind(this)
@@ -676,6 +757,7 @@ export default {
     window.addEventListener("pointercancel", this._onMapPointerUp)
     this._ensureWorldMapBackground()
     this._ensureSvgOverlay()
+    this.el.parentElement?.addEventListener("click", this._onMapShellClick)
     this._ensureInteractionControls()
     this.resizeObserver = new ResizeObserver(this._resizeMap)
     this.resizeObserver.observe(this.el.parentElement || this.el)
@@ -695,6 +777,7 @@ export default {
     window.removeEventListener("pointermove", this._onMapPointerMove)
     window.removeEventListener("pointerup", this._onMapPointerUp)
     window.removeEventListener("pointercancel", this._onMapPointerUp)
+    this.el.parentElement?.removeEventListener("click", this._onMapShellClick)
     this.svgOverlay?.removeEventListener("click", this._onSvgOverlayClick)
     this.svgOverlay?.removeEventListener("wheel", this._onMapWheel)
     this.svgOverlay?.removeEventListener("pointerdown", this._onMapPointerDown)
@@ -708,6 +791,16 @@ export default {
   _blockMapGesture(event) {
     event.preventDefault()
     event.stopPropagation()
+  },
+
+  _hideAnchorDetails() {
+    this.anchorDetails?.remove()
+    this.anchorDetails = null
+
+    const activeElement = typeof document !== "undefined" ? document.activeElement : null
+    if (activeElement && this.svgOverlay?.contains?.(activeElement)) {
+      activeElement.blur?.()
+    }
   },
 
   _onMapWheel(event) {
@@ -774,7 +867,6 @@ export default {
       dragged: false,
     }
     this.svgOverlay?.setPointerCapture?.(event.pointerId)
-    this.el.parentElement?.classList.add("is-netflow-panning")
   },
 
   _onMapPointerMove(event) {
@@ -786,8 +878,14 @@ export default {
 
     const deltaClientX = event.clientX - this.dragState.startClientX
     const deltaClientY = event.clientY - this.dragState.startClientY
+    const distance = Math.hypot(deltaClientX, deltaClientY)
 
-    if (Math.abs(deltaClientX) > 3 || Math.abs(deltaClientY) > 3) this.dragState.dragged = true
+    if (!this.dragState.dragged) {
+      if (distance < NETFLOW_PAN_THRESHOLD_PX) return
+
+      this.dragState.dragged = true
+      this.el.parentElement?.classList.add("is-netflow-panning")
+    }
 
     const deltaX = -(deltaClientX / rect.width) * this.dragState.startBox.width
     const deltaY = -(deltaClientY / rect.height) * this.dragState.startBox.height
@@ -954,8 +1052,7 @@ export default {
   _resetViewBox() {
     this.currentViewBox = this.autoViewBox
     this._setMapViewBox(this.currentViewBox)
-    this.anchorDetails?.remove()
-    this.anchorDetails = null
+    this._hideAnchorDetails()
     this._renderSvgOverlay()
   },
 
@@ -964,9 +1061,19 @@ export default {
 
     this.currentViewBox = NETFLOW_WORLD_VIEWBOX
     this._setMapViewBox(this.currentViewBox)
-    this.anchorDetails?.remove()
-    this.anchorDetails = null
+    this._hideAnchorDetails()
     this._renderSvgOverlay()
+  },
+
+  _onMapShellClick(event) {
+    if (this.mapView !== "netflow") return
+    if (event.target?.closest?.(".sr-ops-anchor-details")) return
+    if (event.target?.closest?.(".sr-ops-map-controls, .sr-ops-map-interaction-controls")) return
+    if (event.target?.closest?.(".sr-ops-traffic-link-hit")) return
+    if (event.target?.closest?.(".sr-ops-traffic-label.is-cluster-label, .sr-ops-traffic-cluster-hit")) return
+    if (event.target?.closest?.(".sr-ops-traffic-node.is-local-anchor, .sr-ops-traffic-node.is-external-geo, .sr-ops-traffic-label.is-clickable-endpoint, .sr-ops-traffic-endpoint-hit")) return
+
+    this._hideAnchorDetails()
   },
 
   _onSvgOverlayClick(event) {
@@ -983,13 +1090,14 @@ export default {
       || event.target?.closest?.(".sr-ops-traffic-endpoint-hit")
 
     if (!node && !cluster && !flow) {
-      this.anchorDetails?.remove()
-      this.anchorDetails = null
+      this._hideAnchorDetails()
       return
     }
 
     event.preventDefault()
     event.stopPropagation()
+    event.target?.blur?.()
+
     if (cluster) {
       this._showClusterDetails(cluster)
       return
@@ -1019,6 +1127,7 @@ export default {
       .filter(Boolean)
     const totalBytes = Number(labelNode.dataset.totalBytes || 0)
     const flowCount = Number(labelNode.dataset.flowCount || 0)
+    const flowsHtml = endpointFlowsHtml(labelNode.dataset.flows)
 
     if (!this.anchorDetails) {
       this.anchorDetails = document.createElement("div")
@@ -1032,6 +1141,7 @@ export default {
       ${labels.length > 6 ? `<span><em>More</em><b>${(labels.length - 6).toLocaleString()}</b></span>` : ""}
       <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
       <span><em>Traffic</em><b>${formatBytes(totalBytes)}</b></span>
+      ${flowsHtml}
     `
     this.anchorDetails.style.left = `${Math.min(parentRect.width - 240, Math.max(12, nodeRect.left - parentRect.left + 12))}px`
     this.anchorDetails.style.top = `${Math.min(parentRect.height - 150, Math.max(12, nodeRect.top - parentRect.top + 12))}px`
@@ -1051,6 +1161,7 @@ export default {
     const endpointCountry = node.dataset.endpointCountry
     const fullLabel = node.dataset.fullLabel
     const coords = [node.dataset.latitude, node.dataset.longitude].filter(Boolean).join(", ")
+    const flowsHtml = endpointFlowsHtml(node.dataset.flows)
 
     if (!this.anchorDetails) {
       this.anchorDetails = document.createElement("div")
@@ -1067,6 +1178,7 @@ export default {
       <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
       <span><em>Traffic</em><b>${formatBytes(totalBytes)}</b></span>
       ${coords ? `<span><em>Coordinates</em><b>${escapeHtml(coords)}</b></span>` : ""}
+      ${flowsHtml}
     `
     const detailsWidth = Math.max(220, this.anchorDetails.offsetWidth || 0)
     const detailsHeight = Math.max(112, this.anchorDetails.offsetHeight || 0)
@@ -1264,6 +1376,7 @@ export default {
         node.dataset.anchorLabel = endpoint.anchorLabel || endpoint.sourceGeoLabel || endpoint.sourceLabel || (endpoint.localAnchor ? "Network" : "External endpoint")
         node.dataset.totalBytes = String(endpoint.magnitude || 0)
         node.dataset.flowCount = String(endpoint.count || 0)
+        node.dataset.flows = JSON.stringify(endpoint.flows || [])
         node.dataset.latitude = String(Math.round(Number(endpoint.latitude || 0) * 10_000) / 10_000)
         node.dataset.longitude = String(Math.round(Number(endpoint.longitude || 0) * 10_000) / 10_000)
       }
@@ -1319,6 +1432,7 @@ export default {
             local: link.sourceLocalAnchor,
             magnitude: visualMagnitude(link),
             count: 1,
+            flow: endpointFlowSummary(link, "source"),
           },
           {
             point: link.to,
@@ -1326,6 +1440,7 @@ export default {
             local: link.targetLocalAnchor,
             magnitude: visualMagnitude(link),
             count: 1,
+            flow: endpointFlowSummary(link, "target"),
           },
         ].forEach((endpoint) => {
           const [x, y] = projectedSvgPoint(endpoint.point, this.mapView)
@@ -1338,8 +1453,9 @@ export default {
           if (existing) {
             existing.magnitude += endpoint.magnitude || 0
             existing.count += 1
+            existing.flows = normalizeEndpointFlows([...(existing.flows || []), endpoint.flow])
           } else {
-            endpointsByKey.set(key, {...endpoint, fullLabel, label, x, y, count: 1})
+            endpointsByKey.set(key, {...endpoint, fullLabel, label, x, y, count: 1, flows: normalizeEndpointFlows([endpoint.flow])})
           }
         })
       })
@@ -1395,6 +1511,7 @@ export default {
             hit.dataset.networkLabels = networkLabels.join("|")
             hit.dataset.totalBytes = String(totalBytes)
             hit.dataset.flowCount = String(flowCount)
+            hit.dataset.flows = JSON.stringify(normalizeEndpointFlows(cluster.flatMap((endpoint) => endpoint.flows || [])))
             hit.addEventListener("click", this._onClusterLabelClick)
             labelGroup.appendChild(hit)
             text.setAttribute("x", labelX)
@@ -1406,6 +1523,7 @@ export default {
             text.dataset.networkLabels = networkLabels.join("|")
             text.dataset.totalBytes = String(totalBytes)
             text.dataset.flowCount = String(flowCount)
+            text.dataset.flows = JSON.stringify(normalizeEndpointFlows(cluster.flatMap((endpoint) => endpoint.flows || [])))
             text.addEventListener("click", this._onClusterLabelClick)
             text.style.fontSize = `${labelStyle.fontSize}px`
             text.style.strokeWidth = `${labelStyle.strokeWidth}px`
@@ -1459,6 +1577,7 @@ export default {
           hit.dataset.fullLabel = endpoint.fullLabel || label
           hit.dataset.totalBytes = String(endpoint.magnitude || 0)
           hit.dataset.flowCount = String(endpoint.count || 0)
+          hit.dataset.flows = JSON.stringify(endpoint.flows || [])
           hit.dataset.latitude = String(Math.round(Number(endpoint.point?.[1] || 0) * 10_000) / 10_000)
           hit.dataset.longitude = String(Math.round(Number(endpoint.point?.[0] || 0) * 10_000) / 10_000)
           const countryIp = countryIpLabel(endpoint.fullLabel)
@@ -1480,6 +1599,7 @@ export default {
           text.dataset.fullLabel = endpoint.fullLabel || label
           text.dataset.totalBytes = String(endpoint.magnitude || 0)
           text.dataset.flowCount = String(endpoint.count || 0)
+          text.dataset.flows = JSON.stringify(endpoint.flows || [])
           text.dataset.latitude = String(Math.round(Number(endpoint.point?.[1] || 0) * 10_000) / 10_000)
           text.dataset.longitude = String(Math.round(Number(endpoint.point?.[0] || 0) * 10_000) / 10_000)
           if (countryIp) {

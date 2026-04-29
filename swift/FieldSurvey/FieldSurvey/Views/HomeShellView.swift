@@ -15,6 +15,8 @@ public struct HomeDashboardView: View {
     @State private var showSessions = false
     @State private var showSubnetIntel = false
     @State private var showAPIntel = false
+    @State private var resumeSnapshot: SurveySessionSnapshot?
+    @State private var reviewSnapshot: SurveySessionSnapshot?
 
     public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner, sessionStore: SurveySessionStore) {
         self.roomScanner = roomScanner
@@ -79,6 +81,15 @@ public struct HomeDashboardView: View {
                         accent: Color(red: 0.98, green: 0.34, blue: 0.78)
                     ) {
                         showSessions = true
+                    }
+
+                    HomeActionButton(
+                        title: "Latest Map",
+                        subtitle: latestSessionSummary,
+                        icon: "chart.dots.scatter",
+                        accent: Color(red: 0.35, green: 0.86, blue: 0.38)
+                    ) {
+                        openLatestSignalMap()
                     }
 
                     HomeActionButton(
@@ -161,27 +172,59 @@ public struct HomeDashboardView: View {
             SurveyView(
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                resumeSnapshot: resumeSnapshot
             ) {
                 showSurvey = false
+                resumeSnapshot = nil
             }
         }
         .sheet(isPresented: $showSessions) {
             SessionLibraryView(
                 roomScanner: roomScanner,
                 wifiScanner: wifiScanner,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                onResume: { snapshot in
+                    resumeSnapshot = snapshot
+                    showSurvey = true
+                }
             )
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(wifiScanner: wifiScanner)
+            SettingsView()
         }
         .sheet(isPresented: $showAPIntel) {
             APIntelView(wifiScanner: wifiScanner)
         }
+        .sheet(item: $reviewSnapshot) { snapshot in
+            SignalMapView(
+                title: snapshot.record.name,
+                points: snapshot.heatmapPoints,
+                landmarks: snapshot.manualLandmarks,
+                floorplanSegments: snapshot.floorplanSegments,
+                spectrumSummary: snapshot.spectrumSummaries.last,
+                spectrumSummaries: snapshot.spectrumSummaries
+            )
+        }
         .sheet(isPresented: $showSubnetIntel) {
             SubnetIntelView()
         }
+    }
+
+    private var latestSessionSummary: String {
+        guard let session = sessionStore.sessions.first else {
+            return "Open saved survey results"
+        }
+        return "\(session.heatmapPointCount) heat points from latest scan"
+    }
+
+    private func openLatestSignalMap() {
+        guard let session = sessionStore.sessions.first,
+              let snapshot = sessionStore.loadSession(id: session.id) else {
+            showSessions = true
+            return
+        }
+        reviewSnapshot = snapshot
     }
 
     private func openServiceRadar() {
@@ -194,20 +237,91 @@ public struct HomeDashboardView: View {
 }
 
 @available(iOS 16.0, *)
+private struct ArtifactUploadState: Equatable {
+    enum Phase: Equatable {
+        case idle
+        case uploading
+        case complete
+        case failed
+
+        var iconName: String {
+            switch self {
+            case .idle:
+                return "arrow.up.doc"
+            case .uploading:
+                return "arrow.triangle.2.circlepath"
+            case .complete:
+                return "checkmark.circle.fill"
+            case .failed:
+                return "exclamationmark.triangle.fill"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .idle:
+                return .secondary
+            case .uploading:
+                return .cyan
+            case .complete:
+                return .green
+            case .failed:
+                return .orange
+            }
+        }
+    }
+
+    let phase: Phase
+    let message: String
+    let completed: Int
+    let total: Int
+
+    var isUploading: Bool {
+        phase == .uploading
+    }
+
+    static let idle = ArtifactUploadState(phase: .idle, message: "", completed: 0, total: 0)
+
+    static func uploading(message: String, completed: Int, total: Int) -> ArtifactUploadState {
+        ArtifactUploadState(phase: .uploading, message: message, completed: completed, total: total)
+    }
+
+    static func complete(message: String, completed: Int, total: Int) -> ArtifactUploadState {
+        ArtifactUploadState(phase: .complete, message: message, completed: completed, total: total)
+    }
+
+    static func failed(message: String) -> ArtifactUploadState {
+        ArtifactUploadState(phase: .failed, message: message, completed: 0, total: 0)
+    }
+}
+
+@available(iOS 16.0, *)
 public struct SessionLibraryView: View {
     @Environment(\.dismiss) var dismiss
 
     @ObservedObject var roomScanner: RoomScanner
     @ObservedObject var wifiScanner: RealWiFiScanner
     @ObservedObject var sessionStore: SurveySessionStore
+    @ObservedObject private var settings = SettingsManager.shared
+
+    let onResume: ((SurveySessionSnapshot) -> Void)?
 
     @State private var compareMessage: String?
     @State private var loadMessage: String?
+    @State private var artifactUploadMessage: String?
+    @State private var artifactUploadStates: [String: ArtifactUploadState] = [:]
+    @State private var reviewSnapshot: SurveySessionSnapshot?
 
-    public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner, sessionStore: SurveySessionStore) {
+    public init(
+        roomScanner: RoomScanner,
+        wifiScanner: RealWiFiScanner,
+        sessionStore: SurveySessionStore,
+        onResume: ((SurveySessionSnapshot) -> Void)? = nil
+    ) {
         self.roomScanner = roomScanner
         self.wifiScanner = wifiScanner
         self.sessionStore = sessionStore
+        self.onResume = onResume
     }
 
     public var body: some View {
@@ -226,20 +340,39 @@ public struct SessionLibraryView: View {
                                 .font(.caption)
                                 .foregroundColor(.gray)
 
-                            Text("Samples \(session.sampleCount) • Heat \(session.heatmapPointCount) • AP labels \(session.manualLandmarkCount)")
+                            Text(sessionSummary(session))
                                 .font(.caption2)
                                 .foregroundColor(.cyan)
 
                             HStack(spacing: 12) {
-                                Button("Load") {
+                                Button("Resume") {
                                     load(session)
                                 }
                                 .buttonStyle(.borderedProminent)
+
+                                Button("Review") {
+                                    review(session)
+                                }
+                                .buttonStyle(.bordered)
 
                                 Button("Compare") {
                                     compareWithCurrent(session)
                                 }
                                 .buttonStyle(.bordered)
+
+                                Button {
+                                    uploadSavedArtifacts(session)
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        if uploadState(for: session).isUploading {
+                                            ProgressView()
+                                                .controlSize(.mini)
+                                        }
+                                        Text(uploadButtonTitle(for: session))
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(uploadState(for: session).isUploading)
 
                                 Button("Delete", role: .destructive) {
                                     sessionStore.deleteSession(id: session.id)
@@ -247,6 +380,10 @@ public struct SessionLibraryView: View {
                                 .buttonStyle(.bordered)
                             }
                             .font(.caption)
+
+                            if let uploadState = artifactUploadStates[session.id] {
+                                artifactUploadStatusView(uploadState)
+                            }
                         }
                         .padding(.vertical, 4)
                     }
@@ -274,6 +411,24 @@ public struct SessionLibraryView: View {
             } message: {
                 Text(loadMessage ?? "")
             }
+            .alert("Artifact Upload", isPresented: Binding(
+                get: { artifactUploadMessage != nil },
+                set: { if !$0 { artifactUploadMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(artifactUploadMessage ?? "")
+            }
+            .sheet(item: $reviewSnapshot) { snapshot in
+                SignalMapView(
+                    title: snapshot.record.name,
+                    points: snapshot.heatmapPoints,
+                    landmarks: snapshot.manualLandmarks,
+                    floorplanSegments: snapshot.floorplanSegments,
+                    spectrumSummary: snapshot.spectrumSummaries.last,
+                    spectrumSummaries: snapshot.spectrumSummaries
+                )
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -284,7 +439,16 @@ public struct SessionLibraryView: View {
             return
         }
         wifiScanner.loadSessionSnapshot(snapshot)
-        loadMessage = "Loaded session '\(session.name)' into the current workspace."
+        onResume?(snapshot)
+        dismiss()
+    }
+
+    private func review(_ session: SurveySessionRecord) {
+        guard let snapshot = sessionStore.loadSession(id: session.id) else {
+            loadMessage = "Failed to load session snapshot."
+            return
+        }
+        reviewSnapshot = snapshot
     }
 
     private func compareWithCurrent(_ session: SurveySessionRecord) {
@@ -299,11 +463,204 @@ public struct SessionLibraryView: View {
         compareMessage = "Overlap: \(result.overlapCount) APs\nAvg RSSI delta: \(String(format: "%.1f", result.averageRSSIDelta)) dBm\nImproved: \(result.improvedCount) • Degraded: \(result.degradedCount)"
     }
 
+    private func uploadSavedArtifacts(_ session: SurveySessionRecord) {
+        let authToken = settings.authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !settings.apiURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !authToken.isEmpty,
+              authToken != "OFFLINE_MODE" else {
+            setArtifactUploadState(
+                .failed(message: "Sign in to ServiceRadar before retrying artifact upload."),
+                for: session.id
+            )
+            artifactUploadMessage = artifactUploadStates[session.id]?.message
+            return
+        }
+
+        guard let snapshot = sessionStore.loadSession(id: session.id) else {
+            setArtifactUploadState(.failed(message: "Failed to load saved session."), for: session.id)
+            artifactUploadMessage = artifactUploadStates[session.id]?.message
+            return
+        }
+
+        let meshURL = sessionStore.meshFileURL(for: session)
+        let pointCloudURL = sessionStore.pointCloudFileURL(for: session)
+        guard meshURL != nil || pointCloudURL != nil || !snapshot.floorplanSegments.isEmpty else {
+            setArtifactUploadState(
+                .failed(message: "This saved session has no room scan or floorplan artifact to upload."),
+                for: session.id
+            )
+            artifactUploadMessage = artifactUploadStates[session.id]?.message
+            return
+        }
+
+        let totalArtifacts = (meshURL == nil ? 0 : 1)
+            + (pointCloudURL == nil ? 0 : 1)
+            + (snapshot.floorplanSegments.isEmpty ? 0 : 1)
+        setArtifactUploadState(
+            .uploading(message: "Preparing saved room artifacts", completed: 0, total: totalArtifacts),
+            for: session.id
+        )
+
+        Task { @MainActor in
+            do {
+                let uploader = FieldSurveyRoomArtifactUploader()
+                var uploadedTypes: [String] = []
+                var completed = 0
+                let capturedAt = Date(timeIntervalSince1970: session.updatedAt)
+                let uploadMetadata = (snapshot.uploadMetadata ?? settings.currentSurveyUploadMetadata)
+                    .merged(record: session, snapshot: snapshot)
+
+                if !snapshot.floorplanSegments.isEmpty {
+                    setArtifactUploadState(
+                        .uploading(message: "Building 2D floorplan GeoJSON", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
+                    let floorplanURL = try sessionStore.writeFloorplanGeoJSON(for: snapshot)
+                    setArtifactUploadState(
+                        .uploading(message: "Uploading 2D floorplan", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
+                    let result = try await uploader.uploadFloorplanGeoJSON(
+                        fileURL: floorplanURL,
+                        baseURL: settings.apiURL,
+                        authToken: authToken,
+                        sessionID: session.id,
+                        capturedAt: capturedAt,
+                        metadata: uploadMetadata
+                    )
+                    if result.ok {
+                        completed += 1
+                        uploadedTypes.append("2D floorplan")
+                    }
+                }
+
+                if let meshURL {
+                    setArtifactUploadState(
+                        .uploading(message: "Uploading RoomPlan USDZ", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
+                    let result = try await uploader.uploadRoomPlanUSDZ(
+                        fileURL: meshURL,
+                        baseURL: settings.apiURL,
+                        authToken: authToken,
+                        sessionID: session.id,
+                        capturedAt: capturedAt,
+                        metadata: uploadMetadata
+                    )
+                    if result.ok {
+                        completed += 1
+                        uploadedTypes.append("RoomPlan USDZ")
+                        setArtifactUploadState(
+                            .uploading(
+                                message: "RoomPlan uploaded; preparing floorplan",
+                                completed: completed,
+                                total: totalArtifacts
+                            ),
+                            for: session.id
+                        )
+                    }
+                }
+
+                if let pointCloudURL {
+                    setArtifactUploadState(
+                        .uploading(message: "Uploading point cloud PLY", completed: completed, total: totalArtifacts),
+                        for: session.id
+                    )
+                    let result = try await uploader.uploadPointCloudPLY(
+                        fileURL: pointCloudURL,
+                        baseURL: settings.apiURL,
+                        authToken: authToken,
+                        sessionID: session.id,
+                        capturedAt: capturedAt,
+                        metadata: uploadMetadata
+                    )
+                    if result.ok {
+                        completed += 1
+                        uploadedTypes.append("point cloud")
+                    }
+                }
+
+                let message = uploadedTypes.isEmpty
+                    ? "No room artifacts were uploaded."
+                    : "Uploaded \(uploadedTypes.joined(separator: " + ")) for \(session.name)."
+                setArtifactUploadState(.complete(message: message, completed: completed, total: totalArtifacts), for: session.id)
+                artifactUploadMessage = message
+            } catch {
+                let message = "Artifact upload failed: \(error.localizedDescription)"
+                setArtifactUploadState(.failed(message: message), for: session.id)
+                artifactUploadMessage = message
+            }
+        }
+    }
+
+    private func uploadState(for session: SurveySessionRecord) -> ArtifactUploadState {
+        artifactUploadStates[session.id] ?? .idle
+    }
+
+    private func uploadButtonTitle(for session: SurveySessionRecord) -> String {
+        switch uploadState(for: session).phase {
+        case .idle:
+            return "Upload"
+        case .uploading:
+            return "Uploading"
+        case .complete:
+            return "Uploaded"
+        case .failed:
+            return "Retry"
+        }
+    }
+
+    private func setArtifactUploadState(_ state: ArtifactUploadState, for sessionID: String) {
+        artifactUploadStates[sessionID] = state
+    }
+
+    @ViewBuilder
+    private func artifactUploadStatusView(_ state: ArtifactUploadState) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                if state.isUploading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: state.phase.iconName)
+                        .foregroundColor(state.phase.tint)
+                }
+
+                Text(state.message)
+                    .font(.caption2)
+                    .foregroundColor(state.phase.tint)
+                    .lineLimit(2)
+
+                Spacer()
+
+                if state.total > 0 {
+                    Text("\(state.completed)/\(state.total)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if state.total > 0 {
+                ProgressView(value: Double(state.completed), total: Double(state.total))
+                    .tint(state.phase.tint)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(state.phase.tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
     private func sessionDate(_ timestamp: TimeInterval) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: Date(timeIntervalSince1970: timestamp))
+    }
+
+    private func sessionSummary(_ session: SurveySessionRecord) -> String {
+        let spectrumCount = sessionStore.loadSession(id: session.id)?.spectrumSummaries.count ?? 0
+        return "Samples \(session.sampleCount) • Heat \(session.heatmapPointCount) • AP labels \(session.manualLandmarkCount) • Spectrum \(spectrumCount)"
     }
 }
 
@@ -521,8 +878,6 @@ public struct APIntelView: View {
                     return true
                 case .wifi:
                     return sampleCategory(sample) == .wifi
-                case .ble:
-                    return sampleCategory(sample) == .ble
                 case .mdns:
                     return sampleCategory(sample) == .mdns
                 case .manual:
@@ -582,7 +937,6 @@ public struct APIntelView: View {
     private func typeLabel(for sample: SurveySample) -> String {
         switch sampleCategory(sample) {
         case .wifi: return "Wi-Fi"
-        case .ble: return "BLE"
         case .mdns: return "mDNS"
         case .manual: return "Manual"
         }
@@ -594,9 +948,6 @@ public struct APIntelView: View {
         }
         if sample.bssid.hasPrefix("mdns-") || sample.securityType.localizedCaseInsensitiveContains("mdns") || sample.frequency == 0 {
             return .mdns
-        }
-        if sample.securityType == "BLE" {
-            return .ble
         }
         return .wifi
     }
@@ -654,7 +1005,6 @@ public struct APIntelView: View {
     private enum APScope: String, CaseIterable, Identifiable {
         case all
         case wifi
-        case ble
         case mdns
         case manual
 
@@ -664,7 +1014,6 @@ public struct APIntelView: View {
             switch self {
             case .all: return "All"
             case .wifi: return "Wi-Fi"
-            case .ble: return "BLE"
             case .mdns: return "mDNS"
             case .manual: return "Manual"
             }
@@ -689,7 +1038,6 @@ public struct APIntelView: View {
 
     private enum APDerivedCategory {
         case wifi
-        case ble
         case mdns
         case manual
     }

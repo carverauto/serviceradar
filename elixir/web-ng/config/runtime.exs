@@ -260,6 +260,43 @@ to_csv_list = fn value ->
   end
 end
 
+nats_enabled =
+  "NATS_ENABLED"
+  |> System.get_env("false")
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+
+nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+nats_uri = URI.parse(nats_url)
+nats_creds_file = System.get_env("NATS_CREDS_FILE")
+
+nats_tls_enabled =
+  "NATS_TLS"
+  |> System.get_env("false")
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+
+if nats_enabled && nats_creds_file in [nil, ""] do
+  raise """
+  NATS_CREDS_FILE is required when NATS_ENABLED=true.
+  """
+end
+
+nats_tls_config =
+  if nats_tls_enabled do
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+    [
+      verify: :verify_peer,
+      cacertfile: Path.join(cert_dir, "root.pem"),
+      certfile: Path.join(cert_dir, "core.pem"),
+      keyfile: Path.join(cert_dir, "core-key.pem"),
+      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+    ]
+  else
+    false
+  end
+
 to_csv_map = fn value ->
   cond do
     is_map(value) ->
@@ -412,6 +449,14 @@ camera_relay_browser_stream_timeout_ms =
     value when is_integer(value) and value > 0 -> value
     _other -> 86_400_000
   end
+
+config :serviceradar_core, ServiceRadar.NATS.Connection,
+  host: nats_uri.host || "localhost",
+  port: nats_uri.port || 4222,
+  user: System.get_env("NATS_USER"),
+  password: {:system, "NATS_PASSWORD"},
+  creds_file: nats_creds_file,
+  tls: nats_tls_config
 
 config :serviceradar_core,
   device_enrichment_rules_dir:
@@ -868,6 +913,62 @@ if config_env() == :prod do
         """
     end
 
+  adbc_uri =
+    case System.get_env("FIELDSURVEY_ADBC_URI") do
+      value when is_binary(value) and value != "" ->
+        value
+
+      _ ->
+        adbc_base_uri =
+          cond do
+            String.starts_with?(repo_url, "ecto://") ->
+              "postgresql://" <> String.replace_prefix(repo_url, "ecto://", "")
+
+            String.starts_with?(repo_url, "postgres://") ->
+              "postgresql://" <> String.replace_prefix(repo_url, "postgres://", "")
+
+            true ->
+              repo_url
+          end
+
+        adbc_params =
+          %{
+            "sslmode" => cnpg_ssl_mode,
+            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
+          }
+          |> then(fn params ->
+            if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
+          end)
+          |> then(fn params ->
+            if cnpg_cert_file == "", do: params, else: Map.put(params, "sslcert", cnpg_cert_file)
+          end)
+          |> then(fn params ->
+            if cnpg_key_file == "", do: params, else: Map.put(params, "sslkey", cnpg_key_file)
+          end)
+
+        parsed_adbc_uri =
+          adbc_base_uri
+          |> URI.parse()
+          |> then(fn uri ->
+            if cnpg_ssl_mode == "verify-full" and cnpg_tls_server_name != "" do
+              %{uri | host: cnpg_tls_server_name}
+            else
+              uri
+            end
+          end)
+
+        merged_query =
+          parsed_adbc_uri.query
+          |> then(fn
+            nil -> %{}
+            query -> URI.decode_query(query)
+          end)
+          |> Map.merge(adbc_params)
+          |> URI.encode_query()
+
+        URI.to_string(%{parsed_adbc_uri | query: merged_query})
+    end
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
@@ -1031,6 +1132,7 @@ if config_env() == :prod do
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :serviceradar_web_ng, :field_survey_adbc_uri, adbc_uri
   config :serviceradar_web_ng, :session, session_config
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, dev_routes: dev_routes

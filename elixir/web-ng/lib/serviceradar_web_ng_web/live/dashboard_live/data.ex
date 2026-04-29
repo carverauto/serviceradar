@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @moduledoc false
 
+  alias ServiceRadarWebNG.FieldSurveyDashboardPlaylist
+  alias ServiceRadarWebNG.FieldSurveyFloorplan
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
@@ -143,6 +145,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       alert_feed: alert_feed,
       camera_summary: camera_summary,
       survey_summary: survey_summary
+    }
+  end
+
+  @spec load_survey_summary(term()) :: map()
+  def load_survey_summary(scope), do: survey_summary(scope)
+
+  @spec survey_kpi_card(map(), list()) :: map()
+  def survey_kpi_card(survey, sparkline \\ []) do
+    %{
+      title: "Wi-Fi Coverage",
+      value: survey_value(survey),
+      detail: survey_detail(survey),
+      icon: "hero-wifi",
+      tone: "violet",
+      sparkline: sparkline
     }
   end
 
@@ -457,8 +474,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp runtime_graph_links do
     case RuntimeGraph.get_links() do
       {:ok, []} ->
-        RuntimeGraph.refresh_now_sync()
-        RuntimeGraph.get_links()
+        RuntimeGraph.refresh_now()
+        {:ok, []}
 
       result ->
         result
@@ -841,34 +858,735 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> 0
   end
 
-  defp survey_summary(_scope) do
-    if relation_exists?("platform.survey_samples") do
-      sql = """
-      SELECT
-        COUNT(*)::bigint AS sample_count,
-        COUNT(DISTINCT session_id)::bigint AS session_count,
-        COALESCE(AVG(rssi), 0)::float8 AS avg_rssi,
-        COUNT(*) FILTER (WHERE is_secure = true)::bigint AS secure_count
-      FROM platform.survey_samples
-      """
+  defp survey_summary(scope) do
+    summary =
+      cond do
+        relation_exists?("platform.survey_rf_pose_matches") ->
+          sql = """
+          SELECT
+            COUNT(*)::bigint AS sample_count,
+            COUNT(DISTINCT session_id)::bigint AS session_count,
+            COALESCE(AVG(rssi_dbm), 0)::float8 AS avg_rssi,
+            COUNT(DISTINCT bssid)::bigint AS secure_count
+          FROM platform.survey_rf_pose_matches
+          WHERE x IS NOT NULL
+            AND z IS NOT NULL
+            AND rssi_dbm IS NOT NULL
+          """
 
-      case Repo.query(sql, []) do
-        {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
-          %{
-            sample_count: to_int(samples),
-            session_count: to_int(sessions),
-            avg_rssi: avg_rssi |> to_float() |> Float.round(1),
-            secure_count: to_int(secure)
-          }
+          case Repo.query(sql, []) do
+            {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
+              %{
+                sample_count: to_int(samples),
+                session_count: to_int(sessions),
+                avg_rssi: avg_rssi |> to_float() |> Float.round(1),
+                secure_count: to_int(secure)
+              }
 
-        _ ->
+            _ ->
+              empty_survey_summary()
+          end
+
+        relation_exists?("platform.survey_samples") ->
+          sql = """
+          SELECT
+            COUNT(*)::bigint AS sample_count,
+            COUNT(DISTINCT session_id)::bigint AS session_count,
+            COALESCE(AVG(rssi), 0)::float8 AS avg_rssi,
+            COUNT(*) FILTER (WHERE is_secure = true)::bigint AS secure_count
+          FROM platform.survey_samples
+          """
+
+          case Repo.query(sql, []) do
+            {:ok, %{rows: [[samples, sessions, avg_rssi, secure]]}} ->
+              %{
+                sample_count: to_int(samples),
+                session_count: to_int(sessions),
+                avg_rssi: avg_rssi |> to_float() |> Float.round(1),
+                secure_count: to_int(secure)
+              }
+
+            _ ->
+              empty_survey_summary()
+          end
+
+        true ->
           empty_survey_summary()
       end
-    else
-      empty_survey_summary()
-    end
+
+    Map.merge(summary, latest_survey_raster_summary(scope))
   rescue
     _ -> empty_survey_summary()
+  end
+
+  defp latest_survey_raster_summary(scope) do
+    if relation_exists?("platform.survey_coverage_rasters") do
+      case playlist_survey_raster_summary(scope) do
+        {:ok, summary} ->
+          summary
+
+        {:fallback, diagnostics} ->
+          Map.put(latest_survey_raster_summary_from_sql(), :raster_playlist_diagnostics, diagnostics)
+      end
+    else
+      empty_survey_raster_summary()
+    end
+  rescue
+    _ -> empty_survey_raster_summary()
+  end
+
+  defp playlist_survey_raster_summary(scope) do
+    case FieldSurveyDashboardPlaylist.list(scope) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(& &1.enabled)
+        |> rotate_playlist_entries()
+        |> resolve_playlist_entries(scope)
+
+      _ ->
+        {:fallback, [playlist_diagnostic("Playlist unavailable")]}
+    end
+  end
+
+  defp resolve_playlist_entries([], _scope), do: {:fallback, []}
+
+  defp resolve_playlist_entries(entries, scope) do
+    entries
+    |> Enum.reduce_while([], fn entry, diagnostics ->
+      case FieldSurveyDashboardPlaylist.preview(scope, entry.srql_query) do
+        {:ok, candidate} ->
+          if fresh_raster_candidate?(candidate, entry.max_age_seconds) do
+            {:halt, {:ok, dashboard_survey_raster_summary(candidate, entry)}}
+          else
+            {:cont, [playlist_diagnostic("#{entry.label}: raster is older than max age") | diagnostics]}
+          end
+
+        {:error, reason} ->
+          {:cont, [playlist_diagnostic("#{entry.label}: #{format_playlist_error(reason)}") | diagnostics]}
+      end
+    end)
+    |> case do
+      {:ok, _summary} = result -> result
+      diagnostics when is_list(diagnostics) -> {:fallback, Enum.reverse(diagnostics)}
+    end
+  end
+
+  defp playlist_diagnostic(message), do: %{level: :warning, message: message}
+
+  defp format_playlist_error(:playlist_query_must_target_field_survey_rasters),
+    do: "query must target field_survey_rasters"
+
+  defp format_playlist_error(:no_field_survey_raster_candidate), do: "query returned no floorplan-backed raster"
+
+  defp format_playlist_error(reason), do: inspect(reason)
+
+  defp rotate_playlist_entries([]), do: []
+
+  defp rotate_playlist_entries(entries) do
+    total_dwell =
+      entries
+      |> Enum.map(&max(&1.dwell_seconds || 30, 5))
+      |> Enum.sum()
+
+    position = rem(System.system_time(:second), max(total_dwell, 1))
+
+    {index, _elapsed} =
+      entries
+      |> Enum.map(&max(&1.dwell_seconds || 30, 5))
+      |> Enum.with_index()
+      |> Enum.reduce_while({0, 0}, fn {dwell, index}, {_current_index, elapsed} ->
+        next_elapsed = elapsed + dwell
+
+        if position < next_elapsed do
+          {:halt, {index, elapsed}}
+        else
+          {:cont, {index, next_elapsed}}
+        end
+      end)
+
+    Enum.drop(entries, index) ++ Enum.take(entries, index)
+  end
+
+  defp latest_survey_raster_summary_from_sql do
+    sql = """
+    SELECT r.session_id, r.min_x, r.max_x, r.min_z, r.max_z, r.cells, r.metadata, r.generated_at
+    FROM platform.survey_coverage_rasters r
+    WHERE r.overlay_type = 'wifi_rssi'
+      AND r.selector_type = 'all'
+      AND r.selector_value = '*'
+    ORDER BY EXISTS (
+      SELECT 1
+      FROM platform.survey_room_artifacts a
+      WHERE a.session_id = r.session_id
+        AND a.artifact_type = 'floorplan_geojson'
+        AND jsonb_typeof(a.metadata->'floorplan_segments') = 'array'
+        AND jsonb_array_length(a.metadata->'floorplan_segments') > 0
+    ) DESC,
+    r.generated_at DESC
+    LIMIT 1
+    """
+
+    case Repo.query(sql, []) do
+      {:ok, %{rows: [[session_id, _min_x, _max_x, _min_z, _max_z, cells, metadata, generated_at]]}} ->
+        dashboard_survey_raster_summary(
+          %{
+            "session_id" => session_id,
+            "cells" => cells,
+            "metadata" => metadata,
+            "generated_at" => generated_at
+          },
+          nil
+        )
+
+      _ ->
+        empty_survey_raster_summary()
+    end
+  rescue
+    _ -> empty_survey_raster_summary()
+  end
+
+  defp dashboard_survey_raster_summary(candidate, playlist_entry) when is_map(candidate) do
+    session_id = map_value(candidate, "session_id")
+    cells_payload = map_value(candidate, "cells") || %{}
+    raw_cells = map_value(cells_payload, "cells") || []
+    metadata = map_value(candidate, "metadata") || %{}
+    raw_raster_cells = raw_cells |> Enum.map(&dashboard_raw_raster_cell/1) |> Enum.reject(&is_nil/1)
+    raw_floorplan_segments = latest_dashboard_floorplan_segments(session_id)
+    raw_ap_markers = latest_dashboard_ap_markers(session_id)
+
+    {raster_cells, floorplan_segments, ap_markers, aspect_ratio} =
+      raw_raster_cells
+      |> normalize_dashboard_survey(raw_floorplan_segments)
+      |> add_dashboard_ap_markers(raw_ap_markers)
+
+    %{
+      raster_session_id: session_id,
+      raster_generated_at: map_value(candidate, "generated_at"),
+      raster_cell_count: length(raw_cells),
+      raster_cells: raster_cells,
+      raster_surface_data_uri: nil,
+      raster_aspect_ratio: aspect_ratio,
+      floorplan_segment_count: length(floorplan_segments),
+      floorplan_segments: floorplan_segments,
+      ap_marker_count: length(ap_markers),
+      ap_markers: ap_markers,
+      raster_metadata: metadata,
+      raster_playlist_entry_id: playlist_entry && playlist_entry.id,
+      raster_playlist_label: playlist_entry && playlist_entry.label,
+      raster_playlist_diagnostics: []
+    }
+  end
+
+  defp fresh_raster_candidate?(candidate, max_age_seconds) when is_map(candidate) and is_integer(max_age_seconds) do
+    case parse_dashboard_datetime(map_value(candidate, "generated_at")) do
+      %DateTime{} = generated_at ->
+        DateTime.diff(DateTime.utc_now(), generated_at, :second) <= max_age_seconds
+
+      _ ->
+        true
+    end
+  end
+
+  defp fresh_raster_candidate?(_candidate, _max_age_seconds), do: true
+
+  defp parse_dashboard_datetime(%DateTime{} = value), do: value
+
+  defp parse_dashboard_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+
+  defp parse_dashboard_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_dashboard_datetime(_value), do: nil
+
+  defp dashboard_raw_raster_cell(cell) when is_map(cell) do
+    x = map_value(cell, "x")
+    z = map_value(cell, "z")
+    rssi = map_value(cell, "rssi")
+
+    with true <- is_number(x),
+         true <- is_number(z),
+         true <- is_number(rssi) do
+      %{
+        x: to_float(x),
+        z: to_float(z),
+        radius_m: clamp(to_float(map_value(cell, "radius_m") || 0.32), 0.08, 2.5),
+        rssi: Float.round(to_float(rssi), 1),
+        confidence: clamp(to_float(map_value(cell, "confidence") || 0.5), 0.15, 1.0)
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp dashboard_raw_raster_cell(_cell), do: nil
+
+  defp normalize_dashboard_survey(raw_cells, raw_segments) do
+    angle = dashboard_rotation_angle(raw_cells, raw_segments)
+
+    {rotated_cells, rotated_segments, bounds, final_angle} =
+      case dashboard_rotated_projection(raw_cells, raw_segments, angle) do
+        {cells, segments, %{aspect_ratio: aspect_ratio} = bounds} when aspect_ratio < 1.0 ->
+          if raw_cells == [] and raw_segments == [] do
+            {cells, segments, bounds, angle}
+          else
+            {flipped_cells, flipped_segments, flipped_bounds} =
+              dashboard_rotated_projection(raw_cells, raw_segments, angle + :math.pi() / 2.0)
+
+            {flipped_cells, flipped_segments, flipped_bounds, angle + :math.pi() / 2.0}
+          end
+
+        {cells, segments, bounds} ->
+          {cells, segments, bounds, angle}
+      end
+
+    raster_cells =
+      rotated_cells
+      |> Enum.map(&project_dashboard_cell(&1, bounds))
+      |> Enum.sort_by(& &1.confidence, :desc)
+      |> Enum.take(900)
+
+    floorplan_segments =
+      rotated_segments
+      |> Enum.map(&project_dashboard_segment(&1, bounds))
+      |> Enum.reject(&zero_dashboard_segment?/1)
+      |> Enum.take(180)
+
+    {raster_cells, floorplan_segments, bounds, final_angle, Map.get(bounds, :aspect_ratio, 1.78)}
+  end
+
+  defp add_dashboard_ap_markers({raster_cells, floorplan_segments, bounds, angle, aspect_ratio}, raw_ap_markers) do
+    ap_markers =
+      raw_ap_markers
+      |> Enum.map(&score_dashboard_ap_marker/1)
+      |> Enum.filter(&dashboard_ap_marker_candidate?/1)
+      |> Enum.sort_by(
+        fn marker ->
+          {marker.confidence || 0.0, marker.sample_count || 0, marker.strongest_rssi || -120}
+        end,
+        :desc
+      )
+      |> cluster_dashboard_ap_markers()
+      |> Enum.map(&rotate_dashboard_point(&1, angle))
+      |> Enum.map(&project_dashboard_ap_marker(&1, bounds))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(3)
+
+    {raster_cells, floorplan_segments, ap_markers, aspect_ratio}
+  end
+
+  defp dashboard_rotated_projection(raw_cells, raw_segments, angle) do
+    rotated_cells = Enum.map(raw_cells, &rotate_dashboard_point(&1, angle))
+    rotated_segments = Enum.map(raw_segments, &rotate_dashboard_segment(&1, angle))
+    bounds = dashboard_projection_bounds(rotated_cells, rotated_segments)
+
+    {rotated_cells, rotated_segments, bounds}
+  end
+
+  defp dashboard_rotation_angle(_raw_cells, [_ | _] = raw_segments) do
+    primary_segments =
+      case Enum.filter(raw_segments, &(&1.kind == "wall")) do
+        [] -> raw_segments
+        walls -> walls
+      end
+
+    primary_segments
+    |> Enum.max_by(&dashboard_segment_length/1, fn -> nil end)
+    |> case do
+      %{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z} ->
+        :math.atan2(end_z - start_z, end_x - start_x)
+
+      _ ->
+        0.0
+    end
+    |> normalize_dashboard_angle()
+  end
+
+  defp dashboard_rotation_angle([_ | _] = raw_cells, _raw_segments) do
+    count = length(raw_cells)
+    mean_x = raw_cells |> Enum.map(& &1.x) |> Enum.sum() |> Kernel./(count)
+    mean_z = raw_cells |> Enum.map(& &1.z) |> Enum.sum() |> Kernel./(count)
+
+    {cov_xx, cov_zz, cov_xz} =
+      Enum.reduce(raw_cells, {0.0, 0.0, 0.0}, fn cell, {xx, zz, xz} ->
+        dx = cell.x - mean_x
+        dz = cell.z - mean_z
+        {xx + dx * dx, zz + dz * dz, xz + dx * dz}
+      end)
+
+    normalize_dashboard_angle(0.5 * :math.atan2(2.0 * cov_xz, cov_xx - cov_zz))
+  end
+
+  defp dashboard_rotation_angle(_raw_cells, _raw_segments), do: 0.0
+
+  defp normalize_dashboard_angle(angle) do
+    cond do
+      angle > :math.pi() / 2.0 -> angle - :math.pi()
+      angle < -:math.pi() / 2.0 -> angle + :math.pi()
+      true -> angle
+    end
+  end
+
+  defp rotate_dashboard_point(%{x: x, z: z} = point, angle) do
+    cos = :math.cos(-angle)
+    sin = :math.sin(-angle)
+
+    point
+    |> Map.put(:x_rot, x * cos - z * sin)
+    |> Map.put(:z_rot, x * sin + z * cos)
+  end
+
+  defp rotate_dashboard_segment(segment, angle) do
+    start = rotate_dashboard_point(%{x: segment.start_x, z: segment.start_z}, angle)
+    finish = rotate_dashboard_point(%{x: segment.end_x, z: segment.end_z}, angle)
+
+    segment
+    |> Map.put(:start_x_rot, start.x_rot)
+    |> Map.put(:start_z_rot, start.z_rot)
+    |> Map.put(:end_x_rot, finish.x_rot)
+    |> Map.put(:end_z_rot, finish.z_rot)
+  end
+
+  defp dashboard_projection_bounds(rotated_cells, rotated_segments) do
+    points =
+      Enum.map(rotated_cells, &%{x: &1.x_rot, z: &1.z_rot}) ++
+        Enum.flat_map(rotated_segments, fn segment ->
+          [
+            %{x: segment.start_x_rot, z: segment.start_z_rot},
+            %{x: segment.end_x_rot, z: segment.end_z_rot}
+          ]
+        end)
+
+    xs = Enum.map(points, & &1.x)
+    zs = Enum.map(points, & &1.z)
+
+    case {Enum.min(xs, fn -> nil end), Enum.max(xs, fn -> nil end), Enum.min(zs, fn -> nil end),
+          Enum.max(zs, fn -> nil end)} do
+      {nil, _, _, _} ->
+        %{min_x: -1.0, max_x: 1.0, min_z: -1.0, max_z: 1.0, aspect_ratio: 1.0}
+
+      {min_x, max_x, min_z, max_z} ->
+        x_pad = max((max_x - min_x) * 0.08, 0.6)
+        z_pad = max((max_z - min_z) * 0.08, 0.6)
+        min_x = min_x - x_pad
+        max_x = max_x + x_pad
+        min_z = min_z - z_pad
+        max_z = max_z + z_pad
+        width = max(max_x - min_x, 0.01)
+        height = max(max_z - min_z, 0.01)
+
+        %{
+          min_x: min_x,
+          max_x: max_x,
+          min_z: min_z,
+          max_z: max_z,
+          aspect_ratio: clamp(width / height, 0.72, 3.2)
+        }
+    end
+  end
+
+  defp project_dashboard_cell(cell, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+    meters_per_pct = max(width, height) / 100.0
+
+    cell
+    |> Map.put(:x_pct, clamp((cell.x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0))
+    |> Map.put(:z_pct, 100.0 - clamp((cell.z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
+    |> Map.put(:radius_pct, clamp(cell.radius_m / max(meters_per_pct, 0.01), 1.6, 7.0))
+  end
+
+  defp project_dashboard_segment(segment, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+
+    segment
+    |> Map.put(:start_x_pct, clamp((segment.start_x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0))
+    |> Map.put(:start_z_pct, 100.0 - clamp((segment.start_z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
+    |> Map.put(:end_x_pct, clamp((segment.end_x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0))
+    |> Map.put(:end_z_pct, 100.0 - clamp((segment.end_z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0))
+  end
+
+  defp project_dashboard_ap_marker(marker, bounds) do
+    width = max(bounds.max_x - bounds.min_x, 0.01)
+    height = max(bounds.max_z - bounds.min_z, 0.01)
+    x_pct = clamp((marker.x_rot - bounds.min_x) / width * 100.0, 0.0, 100.0)
+    z_pct = 100.0 - clamp((marker.z_rot - bounds.min_z) / height * 100.0, 0.0, 100.0)
+
+    marker
+    |> Map.put(:x_pct, x_pct)
+    |> Map.put(:z_pct, z_pct)
+  end
+
+  defp dashboard_segment_length(%{start_x: start_x, start_z: start_z, end_x: end_x, end_z: end_z}) do
+    :math.sqrt(:math.pow(end_x - start_x, 2) + :math.pow(end_z - start_z, 2))
+  end
+
+  defp latest_dashboard_ap_markers(session_id) do
+    if relation_exists?("platform.survey_rf_pose_matches") do
+      sql = """
+      WITH base AS (
+        SELECT bssid, NULLIF(ssid, '') AS ssid, rssi_dbm, channel, frequency_mhz, x, z
+        FROM platform.survey_rf_pose_matches
+        WHERE session_id = $1
+          AND bssid IS NOT NULL
+          AND rssi_dbm IS NOT NULL
+          AND x IS NOT NULL
+          AND z IS NOT NULL
+      ),
+      strongest AS (
+        SELECT DISTINCT ON (bssid)
+          bssid, COALESCE(ssid, 'Hidden') AS ssid, rssi_dbm AS strongest_rssi, channel, frequency_mhz
+        FROM base
+        ORDER BY bssid, rssi_dbm DESC
+      ),
+      counts AS (
+        SELECT bssid, COUNT(*)::bigint AS sample_count
+        FROM base
+        GROUP BY bssid
+      ),
+      support AS (
+        SELECT
+          base.bssid,
+          base.x,
+          base.z,
+          GREATEST((base.rssi_dbm + 100)::float8, 1.0) AS weight
+        FROM base
+        JOIN strongest ON strongest.bssid = base.bssid
+        WHERE base.rssi_dbm >= strongest.strongest_rssi - 8
+      ),
+      weighted AS (
+        SELECT
+          bssid,
+          SUM(x * weight) / NULLIF(SUM(weight), 0) AS x,
+          SUM(z * weight) / NULLIF(SUM(weight), 0) AS z,
+          COUNT(*)::bigint AS support_count
+        FROM support
+        GROUP BY bssid
+      )
+      SELECT
+        strongest.bssid,
+        strongest.ssid,
+        strongest.strongest_rssi,
+        strongest.channel,
+        strongest.frequency_mhz,
+        counts.sample_count,
+        weighted.support_count,
+        weighted.x,
+        weighted.z,
+        matched_device.uid AS device_uid,
+        COALESCE(matched_device.name, matched_device.hostname) AS device_name,
+        matched_device.vendor_name AS device_vendor,
+        matched_device.model AS device_model,
+        matched_device.match_kind AS device_match_kind
+      FROM strongest
+      JOIN counts ON counts.bssid = strongest.bssid
+      JOIN weighted ON weighted.bssid = strongest.bssid
+      LEFT JOIN LATERAL (
+        WITH normalized AS (
+          SELECT UPPER(REGEXP_REPLACE(strongest.bssid, '[^0-9A-Fa-f]', '', 'g')) AS bssid_mac
+        ),
+        candidates AS (
+          SELECT
+            d.uid,
+            d.name,
+            d.hostname,
+            d.vendor_name,
+            d.model,
+            CASE
+              WHEN di.identifier_value = normalized.bssid_mac THEN 'identifier_exact'
+              ELSE 'identifier_radio_family'
+            END AS match_kind,
+            CASE WHEN di.identifier_value = normalized.bssid_mac THEN 0 ELSE 1 END AS match_rank
+          FROM normalized
+          JOIN platform.device_identifiers di
+            ON di.identifier_type = 'mac'
+           AND (
+             di.identifier_value = normalized.bssid_mac
+             OR (
+               LENGTH(di.identifier_value) >= 8
+               AND LENGTH(normalized.bssid_mac) >= 8
+               AND LEFT(di.identifier_value, 8) = LEFT(normalized.bssid_mac, 8)
+             )
+           )
+          JOIN platform.ocsf_devices d ON d.uid = di.device_id
+          WHERE normalized.bssid_mac <> ''
+            AND d.deleted_at IS NULL
+
+          UNION ALL
+
+          SELECT
+            d.uid,
+            d.name,
+            d.hostname,
+            d.vendor_name,
+            d.model,
+            CASE
+              WHEN UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
+                THEN 'device_mac_exact'
+              ELSE 'device_mac_radio_family'
+            END AS match_kind,
+            CASE
+              WHEN UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
+                THEN 0
+              ELSE 1
+            END AS match_rank
+          FROM normalized
+          JOIN platform.ocsf_devices d
+            ON (
+              UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')) = normalized.bssid_mac
+              OR (
+                LENGTH(UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g'))) >= 8
+                AND LENGTH(normalized.bssid_mac) >= 8
+                AND LEFT(UPPER(REGEXP_REPLACE(COALESCE(d.mac, ''), '[^0-9A-Fa-f]', '', 'g')), 8) =
+                  LEFT(normalized.bssid_mac, 8)
+              )
+            )
+          WHERE normalized.bssid_mac <> ''
+            AND d.deleted_at IS NULL
+        )
+        SELECT uid, name, hostname, vendor_name, model, match_kind
+        FROM candidates
+        ORDER BY match_rank, uid
+        LIMIT 1
+      ) matched_device ON TRUE
+      ORDER BY counts.sample_count DESC, strongest.strongest_rssi DESC
+      LIMIT 12
+      """
+
+      case Repo.query(sql, [session_id]) do
+        {:ok, %{rows: rows}} ->
+          Enum.map(rows, fn [
+                              bssid,
+                              ssid,
+                              strongest_rssi,
+                              channel,
+                              frequency_mhz,
+                              sample_count,
+                              support_count,
+                              x,
+                              z,
+                              device_uid,
+                              device_name,
+                              device_vendor,
+                              device_model,
+                              device_match_kind
+                            ] ->
+            %{
+              bssid: bssid,
+              ssid: ssid || "Hidden",
+              strongest_rssi: to_float(strongest_rssi),
+              channel: to_int(channel),
+              frequency_mhz: to_int(frequency_mhz),
+              sample_count: to_int(sample_count),
+              support_count: to_int(support_count),
+              device_uid: device_uid,
+              device_name: device_name,
+              device_vendor: device_vendor,
+              device_model: device_model,
+              device_match_kind: device_match_kind,
+              x: to_float(x),
+              z: to_float(z)
+            }
+          end)
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp score_dashboard_ap_marker(
+         %{sample_count: sample_count, support_count: support_count, strongest_rssi: strongest_rssi} = marker
+       ) do
+    sample_score = min(:math.log10(max(sample_count, 1)) / 3.0, 1.0)
+    support_score = min(:math.log10(max(support_count, 1)) / 2.3, 1.0)
+    signal_score = min(max((strongest_rssi + 86.0) / 36.0, 0.0), 1.0)
+    confidence = sample_score * 0.36 + support_score * 0.34 + signal_score * 0.3
+
+    Map.put(marker, :confidence, Float.round(confidence, 3))
+  end
+
+  defp dashboard_ap_marker_candidate?(marker) do
+    (Map.get(marker, :confidence) || 0.0) >= 0.82 and
+      (Map.get(marker, :support_count) || 0) >= 20 and
+      is_number(Map.get(marker, :x)) and
+      is_number(Map.get(marker, :z)) and
+      not invalid_dashboard_bssid?(Map.get(marker, :bssid))
+  end
+
+  defp cluster_dashboard_ap_markers(markers) do
+    Enum.reduce(markers, [], fn marker, selected ->
+      if Enum.any?(selected, &same_dashboard_ap_candidate?(&1, marker)) do
+        selected
+      else
+        selected ++ [marker]
+      end
+    end)
+  end
+
+  defp same_dashboard_ap_candidate?(left, right) do
+    distance =
+      :math.sqrt(
+        :math.pow((Map.get(left, :x) || 0.0) - (Map.get(right, :x) || 0.0), 2) +
+          :math.pow((Map.get(left, :z) || 0.0) - (Map.get(right, :z) || 0.0), 2)
+      )
+
+    same_dashboard_radio_family?(Map.get(left, :bssid), Map.get(right, :bssid)) or distance <= 1.8
+  end
+
+  defp same_dashboard_radio_family?(left, right) when is_binary(left) and is_binary(right) do
+    left_parts = left |> String.downcase() |> String.split(":")
+    right_parts = right |> String.downcase() |> String.split(":")
+
+    length(left_parts) == 6 and length(right_parts) == 6 and Enum.take(left_parts, 4) == Enum.take(right_parts, 4)
+  end
+
+  defp same_dashboard_radio_family?(_left, _right), do: false
+
+  defp invalid_dashboard_bssid?(bssid) when is_binary(bssid) do
+    normalized = String.downcase(String.trim(bssid))
+    normalized in ["", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"]
+  end
+
+  defp invalid_dashboard_bssid?(_bssid), do: true
+
+  defp latest_dashboard_floorplan_segments(session_id) do
+    if relation_exists?("platform.survey_room_artifacts") do
+      sql = """
+      SELECT metadata
+      FROM platform.survey_room_artifacts
+      WHERE session_id = $1
+        AND artifact_type = 'floorplan_geojson'
+        AND jsonb_typeof(metadata->'floorplan_segments') = 'array'
+        AND jsonb_array_length(metadata->'floorplan_segments') > 0
+      ORDER BY uploaded_at DESC
+      LIMIT 1
+      """
+
+      case Repo.query(sql, [session_id]) do
+        {:ok, %{rows: [[metadata]]}} ->
+          FieldSurveyFloorplan.segments_from_metadata(metadata)
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp zero_dashboard_segment?(segment) do
+    abs(segment.start_x_pct - segment.end_x_pct) < 0.01 and abs(segment.start_z_pct - segment.end_z_pct) < 0.01
   end
 
   defp security_trend(time_window) do
@@ -1152,21 +1870,40 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp survey_sample_sparkline(time_window) do
-    if relation_exists?("platform.survey_samples") do
-      sql = """
-      SELECT
-        time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, timestamp) AS bucket,
-        COUNT(*)::float8 AS value
-      FROM platform.survey_samples
-      WHERE timestamp >= $1
-      GROUP BY 1
-      ORDER BY 1 ASC
-      LIMIT $2
-      """
+    cond do
+      relation_exists?("platform.survey_rf_pose_matches") ->
+        sql = """
+        SELECT
+          time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, rf_captured_at) AS bucket,
+          COUNT(*)::float8 AS value
+        FROM platform.survey_rf_pose_matches
+        WHERE rf_captured_at >= $1
+          AND x IS NOT NULL
+          AND z IS NOT NULL
+          AND rssi_dbm IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1 ASC
+        LIMIT $2
+        """
 
-      one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
-    else
-      []
+        one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+
+      relation_exists?("platform.survey_samples") ->
+        sql = """
+        SELECT
+          time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, timestamp) AS bucket,
+          COUNT(*)::float8 AS value
+        FROM platform.survey_samples
+        WHERE timestamp >= $1
+        GROUP BY 1
+        ORDER BY 1 ASC
+        LIMIT $2
+        """
+
+        one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
+
+      true ->
+        []
     end
   rescue
     _ -> []
@@ -1272,7 +2009,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       netflow: source_state(netflow_configured?, flow_active?),
       mtr: source_state(false, mtr_summary.path_count > 0),
       camera: source_state(false, camera_summary.total > 0),
-      fieldsurvey: source_state(false, survey_summary.sample_count > 0),
+      fieldsurvey: source_state(false, survey_available?(survey_summary)),
       security_events: source_state(false, event_summary.total > 0),
       vulnerable_assets: :unconnected,
       siem: source_state(false, alert_summary.total > 0)
@@ -1323,14 +2060,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         tone: "info",
         sparkline: Map.get(sparklines, :camera, [])
       },
-      %{
-        title: "Wi-Fi Coverage",
-        value: survey_value(survey),
-        detail: survey_detail(survey),
-        icon: "hero-wifi",
-        tone: "violet",
-        sparkline: Map.get(sparklines, :survey, [])
-      }
+      survey_kpi_card(survey, Map.get(sparklines, :survey, []))
     ]
   end
 
@@ -1442,7 +2172,28 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp empty_flow_summary, do: %{bytes_total: 0, packets_total: 0, flow_count: 0, bps: 0.0, pps: 0.0, link_count: 0}
   defp empty_mtr_summary, do: %{path_count: 0, avg_loss_pct: 0.0, avg_latency_ms: 0.0, degraded_count: 0}
   defp empty_camera_summary, do: %{total: 0, online: 0, offline: 0, recording: 0, tiles: []}
-  defp empty_survey_summary, do: %{sample_count: 0, session_count: 0, avg_rssi: 0.0, secure_count: 0}
+
+  defp empty_survey_summary,
+    do: Map.merge(%{sample_count: 0, session_count: 0, avg_rssi: 0.0, secure_count: 0}, empty_survey_raster_summary())
+
+  defp empty_survey_raster_summary,
+    do: %{
+      raster_session_id: nil,
+      raster_generated_at: nil,
+      raster_cell_count: 0,
+      raster_cells: [],
+      raster_surface_data_uri: nil,
+      raster_aspect_ratio: 1.78,
+      floorplan_segment_count: 0,
+      floorplan_segments: [],
+      ap_marker_count: 0,
+      ap_markers: [],
+      raster_metadata: %{},
+      raster_playlist_entry_id: nil,
+      raster_playlist_label: nil,
+      raster_playlist_diagnostics: []
+    }
+
   defp empty_alert_summary, do: Stats.empty_alerts_summary()
   defp empty_event_summary, do: Stats.empty_events_summary()
 
@@ -1744,8 +2495,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp network_health_tone(%{total: total, availability_pct: pct}) when total > 0 and pct < 90, do: "error"
   defp network_health_tone(_), do: "success"
 
+  defp survey_available?(%{sample_count: samples, raster_cell_count: cells}), do: samples > 0 or cells > 0
+  defp survey_available?(%{sample_count: samples}), do: samples > 0
+  defp survey_available?(_survey), do: false
+
+  defp survey_value(%{sample_count: 0, raster_cell_count: cells}) when cells > 0, do: "Persisted raster"
   defp survey_value(%{sample_count: 0}), do: "No survey"
   defp survey_value(%{session_count: sessions}), do: "#{format_count(sessions)} sessions"
+
+  defp survey_detail(%{sample_count: 0, raster_cell_count: cells}) when cells > 0,
+    do: "#{format_count(cells)} backend raster cells"
 
   defp survey_detail(%{sample_count: 0}), do: "FieldSurvey summary unavailable"
 
@@ -1825,6 +2584,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp to_float(_), do: 0.0
+
+  defp clamp(value, min_value, max_value), do: value |> max(min_value) |> min(max_value)
 
   defp format_count(value), do: value |> to_int() |> Integer.to_string() |> delimit_integer_string()
 

@@ -9,16 +9,33 @@
 /* Begin PBXBuildFile section */
 		637206C379E11157E04AA479 /* RPerfClient in Frameworks */ = {isa = PBXBuildFile; productRef = 753FD5C1F0CF1DF7CFA2BD2F /* RPerfClient */; };
 		C3AE7373DEAB3ABBF95FF4D3 /* Arrow in Frameworks */ = {isa = PBXBuildFile; productRef = 69664AE6145D5CD52F341607 /* Arrow */; };
+		F2A100000000000000000001 /* Arrow in Frameworks */ = {isa = PBXBuildFile; productRef = 69664AE6145D5CD52F341607 /* Arrow */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F2A100000000000000000009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DA5F4C912F4A14BB00255097 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DA5F4C982F4A14BB00255097;
+			remoteInfo = FieldSurvey;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		DA5F4C992F4A14BB00255097 /* FieldSurvey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FieldSurvey.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F2A100000000000000000002 /* FieldSurveyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FieldSurveyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DA5F4C9B2F4A14BB00255097 /* FieldSurvey */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = FieldSurvey;
+			sourceTree = "<group>";
+		};
+		F2A100000000000000000003 /* Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +50,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F2A100000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F2A100000000000000000001 /* Arrow in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -40,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				DA5F4C9B2F4A14BB00255097 /* FieldSurvey */,
+				F2A100000000000000000003 /* Tests */,
 				DA5F4C9A2F4A14BB00255097 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -48,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				DA5F4C992F4A14BB00255097 /* FieldSurvey.app */,
+				F2A100000000000000000002 /* FieldSurveyTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,15 +82,15 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-			DA5F4C982F4A14BB00255097 /* FieldSurvey */ = {
-				isa = PBXNativeTarget;
-				buildConfigurationList = DA5F4CA42F4A14BB00255097 /* Build configuration list for PBXNativeTarget "FieldSurvey" */;
-				buildPhases = (
-					DA5F4C952F4A14BB00255097 /* Sources */,
-					F1C4A2B82FBA4D6500D9AA10 /* SwiftLint */,
-					DA5F4C962F4A14BB00255097 /* Frameworks */,
-					DA5F4C972F4A14BB00255097 /* Resources */,
-				);
+		DA5F4C982F4A14BB00255097 /* FieldSurvey */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DA5F4CA42F4A14BB00255097 /* Build configuration list for PBXNativeTarget "FieldSurvey" */;
+			buildPhases = (
+				DA5F4C952F4A14BB00255097 /* Sources */,
+				F1C4A2B82FBA4D6500D9AA10 /* ShellScript */,
+				DA5F4C962F4A14BB00255097 /* Frameworks */,
+				DA5F4C972F4A14BB00255097 /* Resources */,
+			);
 			buildRules = (
 			);
 			dependencies = (
@@ -80,6 +107,30 @@
 			productReference = DA5F4C992F4A14BB00255097 /* FieldSurvey.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F2A100000000000000000007 /* FieldSurveyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2A100000000000000000010 /* Build configuration list for PBXNativeTarget "FieldSurveyTests" */;
+			buildPhases = (
+				F2A100000000000000000005 /* Sources */,
+				F2A100000000000000000004 /* Frameworks */,
+				F2A100000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F2A100000000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F2A100000000000000000003 /* Tests */,
+			);
+			name = FieldSurveyTests;
+			packageProductDependencies = (
+				69664AE6145D5CD52F341607 /* Arrow */,
+			);
+			productName = FieldSurveyTests;
+			productReference = F2A100000000000000000002 /* FieldSurveyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -92,6 +143,10 @@
 				TargetAttributes = {
 					DA5F4C982F4A14BB00255097 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					F2A100000000000000000007 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = DA5F4C982F4A14BB00255097;
 					};
 				};
 			};
@@ -106,7 +161,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				CAA4BBDE047E56A8940C736B /* XCRemoteSwiftPackageReference "arrow-swift" */,
-				2CFBD109BD87B746DB57699E /* XCRemoteSwiftPackageReference "RPerfClient" */,
+				2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DA5F4C9A2F4A14BB00255097 /* Products */;
@@ -114,39 +169,47 @@
 			projectRoot = "";
 			targets = (
 				DA5F4C982F4A14BB00255097 /* FieldSurvey */,
+				F2A100000000000000000007 /* FieldSurveyTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-			DA5F4C972F4A14BB00255097 /* Resources */ = {
-				isa = PBXResourcesBuildPhase;
+		DA5F4C972F4A14BB00255097 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			};
+		};
+		F2A100000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-			F1C4A2B82FBA4D6500D9AA10 /* SwiftLint */ = {
-				isa = PBXShellScriptBuildPhase;
-				alwaysOutOfDate = 1;
-				buildActionMask = 2147483647;
-				files = (
-				);
-				inputFileListPaths = (
-				);
-				inputPaths = (
-				);
-				outputFileListPaths = (
-				);
-				outputPaths = (
-				);
-				runOnlyForDeploymentPostprocessing = 0;
-				shellPath = /bin/sh;
-				shellScript = "if [[ \"$(uname -m)\" == \"arm64\" ]]; then\n    export PATH=\"/opt/homebrew/bin:$PATH\"\nfi\n\nif command -v swiftlint >/dev/null 2>&1\nthen\n    swiftlint --config \"$SRCROOT/../../.swiftlint.yml\"\nelse\n    echo \"warning: `swiftlint` command not found - See https://github.com/realm/SwiftLint#installation for installation instructions.\"\nfi\n";
-			};
+		F1C4A2B82FBA4D6500D9AA10 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [[ \"$(uname -m)\" == \"arm64\" ]]; then\n    export PATH=\"/opt/homebrew/bin:$PATH\"\nfi\n\nif command -v swiftlint >/dev/null 2>&1\nthen\n    swiftlint --config \"$SRCROOT/../../.swiftlint.yml\"\nelse\n    echo \"warning: `swiftlint` command not found - See https://github.com/realm/SwiftLint#installation for installation instructions.\"\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -157,7 +220,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F2A100000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F2A100000000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DA5F4C982F4A14BB00255097 /* FieldSurvey */;
+			targetProxy = F2A100000000000000000009 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		DA5F4CA22F4A14BB00255097 /* Debug */ = {
@@ -289,23 +367,22 @@
 			};
 			name = Release;
 		};
-			DA5F4CA52F4A14BB00255097 /* Debug */ = {
-				isa = XCBuildConfiguration;
-				buildSettings = {
+		DA5F4CA52F4A14BB00255097 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FieldSurvey/FieldSurvey.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-					DEVELOPMENT_TEAM = 432Q4W72Q7;
-					ENABLE_USER_SCRIPT_SANDBOXING = NO;
-					ENABLE_PREVIEWS = YES;
-					GENERATE_INFOPLIST_FILE = NO;
+				DEVELOPMENT_TEAM = 432Q4W72Q7;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth access is required for BLE beacon trilateration.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required for ARKit and LiDAR spatial mapping.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is required to perform high-fidelity network discovery.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is required for Wi-Fi and Bluetooth positioning mapping.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is required for Wi-Fi and network positioning mapping.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -330,23 +407,22 @@
 			};
 			name = Debug;
 		};
-			DA5F4CA62F4A14BB00255097 /* Release */ = {
-				isa = XCBuildConfiguration;
-				buildSettings = {
+		DA5F4CA62F4A14BB00255097 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FieldSurvey/FieldSurvey.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-					DEVELOPMENT_TEAM = 432Q4W72Q7;
-					ENABLE_USER_SCRIPT_SANDBOXING = NO;
-					ENABLE_PREVIEWS = YES;
-					GENERATE_INFOPLIST_FILE = NO;
+				DEVELOPMENT_TEAM = 432Q4W72Q7;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth access is required for BLE beacon trilateration.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required for ARKit and LiDAR spatial mapping.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is required to perform high-fidelity network discovery.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is required for Wi-Fi and Bluetooth positioning mapping.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is required for Wi-Fi and network positioning mapping.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -371,6 +447,64 @@
 			};
 			name = Release;
 		};
+		F2A100000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 432Q4W72Q7;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -default-isolation=nonisolated";
+				PRODUCT_BUNDLE_IDENTIFIER = com.serviceradar.FieldSurveyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FieldSurvey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FieldSurvey";
+			};
+			name = Debug;
+		};
+		F2A100000000000000000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 432Q4W72Q7;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -default-isolation=nonisolated";
+				PRODUCT_BUNDLE_IDENTIFIER = com.serviceradar.FieldSurveyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FieldSurvey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FieldSurvey";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -392,17 +526,25 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		F2A100000000000000000010 /* Build configuration list for PBXNativeTarget "FieldSurveyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F2A100000000000000000011 /* Debug */,
+				F2A100000000000000000012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		2CFBD109BD87B746DB57699E /* XCRemoteSwiftPackageReference "RPerfClient" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "file:///Users/mfreeman/src/serviceradar/swift/RPerfClient";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../RPerfClient;
 		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
 		CAA4BBDE047E56A8940C736B /* XCRemoteSwiftPackageReference "arrow-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "file:///Users/mfreeman/src/serviceradar/swift/FieldSurvey/LocalPackages/arrow-swift";
@@ -421,7 +563,7 @@
 		};
 		753FD5C1F0CF1DF7CFA2BD2F /* RPerfClient */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2CFBD109BD87B746DB57699E /* XCRemoteSwiftPackageReference "RPerfClient" */;
+			package = 2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */;
 			productName = RPerfClient;
 		};
 /* End XCSwiftPackageProductDependency section */

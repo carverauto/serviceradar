@@ -52,7 +52,11 @@ defmodule ServiceRadarWebNG.Application do
     children =
       pubsub_children ++
         base_children ++
-        [{Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}]
+        field_survey_adbc_children() ++
+        [
+          ServiceRadarWebNG.FieldSurveyStreamLimiter,
+          {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
+        ]
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -96,6 +100,19 @@ defmodule ServiceRadarWebNG.Application do
     case Process.whereis(GRPC.Client.Supervisor) do
       nil -> children ++ [{GRPC.Client.Supervisor, []}]
       _pid -> children
+    end
+  end
+
+  defp field_survey_adbc_children do
+    case Application.get_env(:serviceradar_web_ng, :field_survey_adbc_uri) do
+      uri when is_binary(uri) and uri != "" ->
+        [
+          {Adbc.Database,
+           driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
+        ]
+
+      _ ->
+        []
     end
   end
 

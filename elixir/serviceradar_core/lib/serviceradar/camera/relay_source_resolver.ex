@@ -33,7 +33,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
        |> put_if_missing(:rtsp_transport, field(profile, :rtsp_transport))
        |> put_if_missing(:codec_hint, field(profile, :codec_hint))
        |> put_if_missing(:container_hint, field(profile, :container_hint))
-       |> put_if_missing(:insecure_skip_verify, insecure_skip_verify(profile))}
+       |> put_if_missing(:insecure_skip_verify, insecure_skip_verify(profile, source_url))}
     end
   end
 
@@ -95,11 +95,35 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
   defp field(value, key) when is_map(value), do: Map.get(value, key)
   defp field(_value, _key), do: nil
 
-  defp insecure_skip_verify(profile) do
+  defp insecure_skip_verify(profile, source_url) do
     if truthy?(field(profile, :insecure_skip_verify)) or
          truthy?(metadata_value(profile, "insecure_skip_verify")) or
-         truthy?(profile |> field(:camera_source) |> metadata_value("insecure_skip_verify")) do
+         truthy?(profile |> field(:camera_source) |> metadata_value("insecure_skip_verify")) or
+         protect_bootstrap_rtsps?(profile, source_url) do
       true
+    end
+  end
+
+  defp protect_bootstrap_rtsps?(profile, source_url) when is_binary(source_url) do
+    source = field(profile, :camera_source)
+
+    String.starts_with?(String.downcase(String.trim(source_url)), "rtsps://") and
+      (metadata_value(profile, "source") == "protect-bootstrap" or
+         metadata_contains?(profile, "plugin_id", "unifi-protect") or
+         metadata_contains?(source, "plugin_id", "unifi-protect"))
+  end
+
+  defp protect_bootstrap_rtsps?(_profile, _source_url), do: false
+
+  defp metadata_contains?(value, key, needle) do
+    case metadata_value(value, key) do
+      metadata_value when is_binary(metadata_value) ->
+        metadata_value
+        |> String.downcase()
+        |> String.contains?(needle)
+
+      _ ->
+        false
     end
   end
 
@@ -107,10 +131,18 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
     value
     |> field(:metadata)
     |> case do
-      metadata when is_map(metadata) -> Map.get(metadata, key) || Map.get(metadata, :insecure_skip_verify)
-      _metadata -> nil
+      metadata when is_map(metadata) ->
+        Map.get(metadata, key) || Map.get(metadata, metadata_atom_key(key))
+
+      _metadata ->
+        nil
     end
   end
+
+  defp metadata_atom_key("insecure_skip_verify"), do: :insecure_skip_verify
+  defp metadata_atom_key("plugin_id"), do: :plugin_id
+  defp metadata_atom_key("source"), do: :source
+  defp metadata_atom_key(_key), do: nil
 
   defp truthy?(true), do: true
   defp truthy?("true"), do: true
