@@ -26,7 +26,9 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
       {:template, :atom,
        [
          allow_nil?: false,
-         constraints: [one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]]
+         constraints: [
+           one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity, :coraza_waf]
+         ]
        ]},
       {:builder_config, :map, [default: %{}]},
       {:agent_id, :string, [allow_nil?: false, default: "default-agent"]}
