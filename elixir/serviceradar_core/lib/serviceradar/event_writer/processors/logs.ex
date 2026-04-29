@@ -93,7 +93,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_json_log(json, metadata) when is_map(json) do
     log_id = generated_uuid()
-    attributes = FieldParser.encode_jsonb(json["attributes"]) || %{}
+    attributes = json["attributes"] |> FieldParser.encode_jsonb() |> prune_empty_metadata() || %{}
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
@@ -110,7 +110,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
       trace_flags: parse_trace_flags(json),
       severity_text:
-        FieldParser.get_field(json, "severity_text", "severityText") || json["level"],
+        FieldParser.get_field(json, "severity_text", "severityText") || json["severity"] ||
+          json["level"],
       severity_number:
         json
         |> FieldParser.get_field("severity_number", "severityNumber")
@@ -119,7 +120,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       event_name: FieldParser.get_field(json, "event_name", "eventName"),
       source: source,
       service_name:
-        service_field(json, resource_attributes, "service_name", "serviceName", "service.name"),
+        service_field(json, resource_attributes, "service_name", "serviceName", "service.name") ||
+          default_service_name(json, resource_attributes),
       service_version:
         service_field(
           json,
@@ -211,6 +213,16 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp service_field(json, resource_attributes, snake_key, camel_key, resource_key) do
     FieldParser.get_field(json, snake_key, camel_key) || resource_attributes[resource_key]
   end
+
+  defp default_service_name(json, resource_attributes) when is_map(json) do
+    FieldParser.get_field(json, "application_name", "applicationName") ||
+      FieldParser.get_field(json, "app_name", "appName") ||
+      FieldParser.get_field(json, "host", "hostname") ||
+      resource_attributes["host.name"] ||
+      resource_attributes["host_name"]
+  end
+
+  defp default_service_name(_json, _resource_attributes), do: nil
 
   defp merge_scope_fields(%{} = scope_map, scope_name, scope_version) do
     scope_name =
@@ -389,9 +401,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     ingest = build_ingest_metadata(metadata)
 
     if map_size(ingest) == 0 do
-      attributes
+      prune_empty_metadata(attributes)
     else
-      merge_ingest_metadata(attributes, ingest)
+      attributes
+      |> merge_ingest_metadata(ingest)
+      |> prune_empty_metadata()
     end
   end
 
@@ -523,6 +537,31 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp any_value_to_term(_), do: nil
+
+  defp prune_empty_metadata(%{} = map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      value = prune_empty_metadata(value)
+
+      if empty_metadata_value?(value) do
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp prune_empty_metadata(list) when is_list(list) do
+    list
+    |> Enum.map(&prune_empty_metadata/1)
+    |> Enum.reject(&empty_metadata_value?/1)
+  end
+
+  defp prune_empty_metadata(value), do: value
+
+  defp empty_metadata_value?(nil), do: true
+  defp empty_metadata_value?(%{} = map), do: map_size(map) == 0
+  defp empty_metadata_value?([]), do: true
+  defp empty_metadata_value?(_value), do: false
 
   defp bytes_to_hex(<<>>), do: nil
   defp bytes_to_hex(nil), do: nil

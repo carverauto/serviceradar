@@ -221,6 +221,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert html =~ "Elixir.ServiceRadar.Observability.ZenRuleSync.log_reconcile_results/1"
       refute html =~ "[108,105,98"
     end
+
+    test "renders logs with blank resource attributes", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "46f1addc-839f-49ba-abca-54e4424638df"
+      insert_test_blank_resource_log!(log_id)
+
+      {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert html =~ "regular syslog message"
+      refute html =~ "FunctionClauseError"
+    end
   end
 
   describe "can_create_rules? helper" do
@@ -340,6 +353,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             "file" => ~c"lib/serviceradar/observability/zen_rule_sync.ex",
             "mfa" => ["Elixir.ServiceRadar.Observability.ZenRuleSync", "log_reconcile_results", 1]
           }),
+        created_at: now
+      }
+    ])
+  end
+
+  defp insert_test_blank_resource_log!(log_id) when is_binary(log_id) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: "INFO",
+        severity_number: 11,
+        body: "regular syslog message",
+        source: "syslog",
+        attributes: Jason.encode!(%{}),
+        resource_attributes: "",
         created_at: now
       }
     ])
