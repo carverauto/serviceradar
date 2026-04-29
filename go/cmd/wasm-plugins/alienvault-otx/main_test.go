@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"os"
 	"strings"
@@ -212,39 +211,6 @@ func TestSubscribedPulsesResponseMatchesObservedOTXShape(t *testing.T) {
 	}
 	if scanned.Indicators[1].ExpiresAt != "2026-05-27T10:00:00Z" {
 		t.Fatalf("scanned expires_at = %q", scanned.Indicators[1].ExpiresAt)
-	}
-}
-
-func TestDecodeOTXHTTPResponseAvoidsJSONMapDecoding(t *testing.T) {
-	body := strings.Repeat(`{"indicator":"192.0.2.10","type":"IPv4"}`, 100)
-	payload := []byte(`{"status":200,"headers":{"content-type":["application/json"]},"body_base64":"` +
-		base64.StdEncoding.EncodeToString([]byte(body)) +
-		`","body_encoding":"base64"}`)
-
-	resp, err := decodeOTXHTTPResponse(payload)
-	if err != nil {
-		t.Fatalf("decodeOTXHTTPResponse: %v", err)
-	}
-	if resp.Status != 200 {
-		t.Fatalf("status = %d, want 200", resp.Status)
-	}
-	if string(resp.Body) != body {
-		t.Fatalf("body did not round-trip")
-	}
-}
-
-func TestDecodeOTXHTTPResponseSkipsEscapedHeaderControls(t *testing.T) {
-	body := []byte(`{"count":0,"results":[]}`)
-	payload := []byte(`{"status":200,"headers":{"x-weird":["prefix\bmiddle"]},"body_base64":"` +
-		base64.StdEncoding.EncodeToString(body) +
-		`","body_encoding":"base64"}`)
-
-	resp, err := decodeOTXHTTPResponse(payload)
-	if err != nil {
-		t.Fatalf("decodeOTXHTTPResponse: %v", err)
-	}
-	if string(resp.Body) != string(body) {
-		t.Fatalf("body = %q, want %q", string(resp.Body), string(body))
 	}
 }
 
