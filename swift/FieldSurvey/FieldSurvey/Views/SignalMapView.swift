@@ -23,6 +23,8 @@ public struct SignalMapView: View {
     public let backendFrameCount: Int?
     public let rfObservationCount: Int?
     public let rfDecodeError: String?
+    public let requiresRFUpdateAlignment: Bool
+    public let onAlignRFUpdate: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedFloorIndex: Int = 0
@@ -49,7 +51,9 @@ public struct SignalMapView: View {
         sidekickWarning: String? = nil,
         backendFrameCount: Int? = nil,
         rfObservationCount: Int? = nil,
-        rfDecodeError: String? = nil
+        rfDecodeError: String? = nil,
+        requiresRFUpdateAlignment: Bool = false,
+        onAlignRFUpdate: (() -> Void)? = nil
     ) {
         self.title = title
         self.points = points
@@ -67,6 +71,8 @@ public struct SignalMapView: View {
         self.backendFrameCount = backendFrameCount
         self.rfObservationCount = rfObservationCount
         self.rfDecodeError = rfDecodeError
+        self.requiresRFUpdateAlignment = requiresRFUpdateAlignment
+        self.onAlignRFUpdate = onAlignRFUpdate
     }
 
     public var body: some View {
@@ -82,6 +88,7 @@ public struct SignalMapView: View {
         VStack(spacing: 12) {
             headerControls
             statusStrip(visiblePointCount: renderPoints.count, apCount: summaries.count)
+            rfUpdateAlignmentBanner
             failureBanner
             warningBanner
             floorControls(floors: renderState.floors, activeIndex: renderState.activeFloorIndex)
@@ -236,6 +243,37 @@ public struct SignalMapView: View {
             return "\(snapshot.observedBSSIDCount) APs • \(observedChannels)/\(snapshot.channelCount) ch"
         }
         return "\(topChannels) • \(observedChannels)/\(snapshot.channelCount) ch"
+    }
+
+    @ViewBuilder
+    private var rfUpdateAlignmentBanner: some View {
+        if requiresRFUpdateAlignment {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "scope")
+                    .foregroundColor(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("RF Update needs alignment before Sidekick heat points can be placed.")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.92))
+                    Text("Stand near the saved start point, keep tracking stable, then align.")
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                Spacer(minLength: 8)
+                if let onAlignRFUpdate {
+                    Button(action: onAlignRFUpdate) {
+                        Label("Align", systemImage: "checkmark.viewfinder")
+                            .font(.caption.weight(.bold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                }
+            }
+            .padding(10)
+            .background(Color.orange.opacity(0.16))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     @ViewBuilder
