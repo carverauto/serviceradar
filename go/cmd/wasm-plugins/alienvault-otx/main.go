@@ -160,12 +160,6 @@ type ctiIndicator struct {
 	SourceContext string `json:"source_context,omitempty"`
 }
 
-type otxHTTPResponsePayload struct {
-	Status       int    `json:"status"`
-	BodyBase64   []byte `json:"body_base64"`
-	BodyEncoding string `json:"body_encoding,omitempty"`
-}
-
 //export run_check
 func run_check() {
 	primeTinyGoJSON()
@@ -275,123 +269,6 @@ func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
 	return page, nil
 }
 
-func otxHTTPRequestPayload(apiURL, apiKey string, timeoutMS int) string {
-	b := jsonBuilder{buf: make([]byte, 0, 512)}
-
-	b.WriteString(`{"method":"GET","url":`)
-	writeJSONString(&b, apiURL)
-	b.WriteString(`,"headers":{"accept":"application/json","X-OTX-API-KEY":`)
-	writeJSONString(&b, apiKey)
-	b.WriteByte('}')
-	b.WriteString(`,"response_mode":"status_body"`)
-	if timeoutMS > 0 {
-		b.WriteString(`,"timeout_ms":`)
-		b.WriteString(strconv.Itoa(timeoutMS))
-	}
-	b.WriteByte('}')
-
-	return b.String()
-}
-
-func decodeOTXHTTPResponse(payload []byte) (*sdk.HTTPResponse, error) {
-	if resp, ok, err := decodeStatusBodyHTTPResponse(payload); ok || err != nil {
-		return resp, err
-	}
-
-	decoded, err := parseOTXHTTPResponsePayload(payload)
-	if err != nil {
-		return nil, err
-	}
-	if len(decoded.BodyBase64) == 0 {
-		return nil, fmt.Errorf("missing response body_base64 in %s", previewBytes(payload, 180))
-	}
-
-	body, err := decodeStandardBase64(decoded.BodyBase64)
-	if err != nil {
-		if len(decoded.BodyBase64) == 0 {
-			body = nil
-		} else {
-			return nil, err
-		}
-	}
-	if len(body) > 0 && body[0] != '{' && body[0] != '[' {
-		return nil, fmt.Errorf("decoded body is not JSON body_b64_prefix=%s body_prefix=%s", previewBytes(decoded.BodyBase64, 32), previewBytes(body, 32))
-	}
-
-	return &sdk.HTTPResponse{
-		Status: decoded.Status,
-		Body:   body,
-	}, nil
-}
-
-func decodeStatusBodyHTTPResponse(payload []byte) (*sdk.HTTPResponse, bool, error) {
-	lineEnd := -1
-	for i, ch := range payload {
-		if ch == '\n' {
-			lineEnd = i
-			break
-		}
-		if ch < '0' || ch > '9' {
-			return nil, false, nil
-		}
-	}
-	if lineEnd <= 0 {
-		return nil, false, nil
-	}
-
-	status, err := strconv.Atoi(string(payload[:lineEnd]))
-	if err != nil {
-		return nil, true, err
-	}
-
-	body := payload[lineEnd+1:]
-	if len(body) > 0 && body[0] != '{' && body[0] != '[' {
-		return nil, true, fmt.Errorf("decoded body is not JSON body_prefix=%s", previewBytes(body, 32))
-	}
-
-	return &sdk.HTTPResponse{Status: status, Body: body}, true, nil
-}
-
-func parseOTXHTTPResponsePayload(payload []byte) (otxHTTPResponsePayload, error) {
-	status, err := extractJSONIntField(payload, "status")
-	if err != nil {
-		return otxHTTPResponsePayload{}, err
-	}
-
-	bodyBase64, err := extractJSONStringBytes(payload, "body_base64")
-	if err != nil {
-		return otxHTTPResponsePayload{}, err
-	}
-
-	bodyEncoding, _ := extractJSONString(payload, "body_encoding")
-
-	return otxHTTPResponsePayload{
-		Status:       status,
-		BodyBase64:   bodyBase64,
-		BodyEncoding: bodyEncoding,
-	}, nil
-}
-
-func extractJSONIntField(payload []byte, field string) (int, error) {
-	pos, err := fieldValueOffset(payload, field)
-	if err != nil {
-		return 0, err
-	}
-
-	scanner := otxJSONScanner{data: payload, pos: pos}
-	return scanner.readInt()
-}
-
-func extractJSONString(payload []byte, field string) (string, error) {
-	pos, err := fieldValueOffset(payload, field)
-	if err != nil {
-		return "", err
-	}
-
-	scanner := otxJSONScanner{data: payload, pos: pos}
-	return scanner.readString()
-}
-
 func extractJSONStringOrNull(payload []byte, field string) (string, error) {
 	pos, err := fieldValueOffset(payload, field)
 	if err != nil {
@@ -402,14 +279,14 @@ func extractJSONStringOrNull(payload []byte, field string) (string, error) {
 	return scanner.readStringOrNull()
 }
 
-func extractJSONStringBytes(payload []byte, field string) ([]byte, error) {
+func extractJSONIntField(payload []byte, field string) (int, error) {
 	pos, err := fieldValueOffset(payload, field)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	scanner := otxJSONScanner{data: payload, pos: pos}
-	return scanner.readRawStringBytes()
+	return scanner.readInt()
 }
 
 func fieldValueOffset(payload []byte, field string) (int, error) {
@@ -455,68 +332,6 @@ func indexBytes(haystack, needle []byte) int {
 		}
 	}
 	return -1
-}
-
-func decodeStandardBase64(input []byte) ([]byte, error) {
-	output := make([]byte, 0, len(input)*3/4)
-	values := [4]int{}
-	count := 0
-
-	for _, ch := range input {
-		if ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' {
-			continue
-		}
-
-		value, ok := base64Value(ch)
-		if !ok {
-			return nil, fmt.Errorf("invalid base64 byte %q", ch)
-		}
-
-		values[count] = value
-		count++
-		if count != 4 {
-			continue
-		}
-
-		if values[0] < 0 || values[1] < 0 {
-			return nil, fmt.Errorf("invalid base64 padding")
-		}
-
-		output = append(output, byte(values[0]<<2|values[1]>>4))
-		if values[2] >= 0 {
-			output = append(output, byte((values[1]&0x0f)<<4|values[2]>>2))
-		}
-		if values[3] >= 0 {
-			output = append(output, byte((values[2]&0x03)<<6|values[3]))
-		}
-
-		count = 0
-	}
-
-	if count != 0 {
-		return nil, fmt.Errorf("truncated base64 input")
-	}
-
-	return output, nil
-}
-
-func base64Value(ch byte) (int, bool) {
-	switch {
-	case ch >= 'A' && ch <= 'Z':
-		return int(ch - 'A'), true
-	case ch >= 'a' && ch <= 'z':
-		return int(ch-'a') + 26, true
-	case ch >= '0' && ch <= '9':
-		return int(ch-'0') + 52, true
-	case ch == '+':
-		return 62, true
-	case ch == '/':
-		return 63, true
-	case ch == '=':
-		return -1, true
-	default:
-		return 0, false
-	}
 }
 
 func previewBytes(value []byte, limit int) string {
