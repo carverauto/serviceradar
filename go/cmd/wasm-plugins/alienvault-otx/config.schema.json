@@ -15,12 +15,17 @@
       "type": "string",
       "description": "Optional OTX modified_since cursor"
     },
+    "types": {
+      "type": "string",
+      "description": "Comma-delimited OTX indicator types to fetch",
+      "default": "IPv4,IPv6,CIDR"
+    },
     "limit": {
       "type": "integer",
       "description": "OTX page size",
       "minimum": 1,
-      "maximum": 100,
-      "default": 100
+      "maximum": 1000,
+      "default": 1000
     },
     "page": {
       "type": "integer",
