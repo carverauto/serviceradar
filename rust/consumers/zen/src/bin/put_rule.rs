@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Once;
 
-use async_nats::jetstream::kv::Config as KvConfig;
+use async_nats::jetstream::kv::{Config as KvConfig, Store};
 use async_nats::jetstream::{self};
 use async_nats::ConnectOptions;
 
@@ -24,6 +24,9 @@ struct Cli {
     /// Name of the decision key to store under
     #[arg(long)]
     key: String,
+    /// Rule order for the subject index. Existing order is preserved when omitted.
+    #[arg(long)]
+    order: Option<u32>,
     /// Skip publishing when the KV entry already matches the file contents
     #[arg(long, default_value_t = false)]
     skip_if_unchanged: bool,
@@ -54,6 +57,19 @@ struct Config {
     kv_bucket: String,
     agent_id: String,
     security: Option<SecurityConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+struct RuleIndex {
+    version: u32,
+    subject: String,
+    rules: Vec<RuleIndexEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+struct RuleIndexEntry {
+    key: String,
+    order: u32,
 }
 
 fn default_kv_bucket() -> String {
@@ -128,7 +144,66 @@ async fn main() -> Result<()> {
         }
     }
     store.put(key, data.into()).await?;
+    sync_rule_index(&store, &cfg, &cli.subject, &rule_key, cli.order).await?;
     println!("Inserted rule {} for subject {}", rule_key, cli.subject);
+    Ok(())
+}
+
+async fn sync_rule_index(
+    store: &Store,
+    cfg: &Config,
+    subject: &str,
+    rule_key: &str,
+    order: Option<u32>,
+) -> Result<()> {
+    let index_key = format!(
+        "agents/{}/{}/{}/_rules.json",
+        cfg.agent_id, cfg.stream_name, subject
+    );
+
+    let mut index = match store.get(index_key.clone()).await? {
+        Some(bytes) => serde_json::from_slice::<RuleIndex>(&bytes).unwrap_or_else(|_| RuleIndex {
+            version: 1,
+            subject: subject.to_string(),
+            rules: Vec::new(),
+        }),
+        None => RuleIndex {
+            version: 1,
+            subject: subject.to_string(),
+            rules: Vec::new(),
+        },
+    };
+
+    let next_order = order.unwrap_or_else(|| {
+        index
+            .rules
+            .iter()
+            .find(|entry| entry.key == rule_key)
+            .map(|entry| entry.order)
+            .or_else(|| {
+                index
+                    .rules
+                    .iter()
+                    .map(|entry| entry.order)
+                    .max()
+                    .map(|max| max + 10)
+            })
+            .unwrap_or(100)
+    });
+
+    index.rules.retain(|entry| entry.key != rule_key);
+    index.rules.push(RuleIndexEntry {
+        key: rule_key.to_string(),
+        order: next_order,
+    });
+    index
+        .rules
+        .sort_by_key(|entry| (entry.order, entry.key.clone()));
+
+    store
+        .put(index_key, serde_json::to_vec(&index)?.into())
+        .await?;
+
     Ok(())
 }
 
