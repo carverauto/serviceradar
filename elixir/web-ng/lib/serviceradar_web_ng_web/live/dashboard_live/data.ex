@@ -1404,16 +1404,34 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp latest_dashboard_ap_markers(session_id) do
-    if relation_exists?("platform.survey_rf_pose_matches") do
+    if relation_exists?("platform.survey_rf_observations") and
+         relation_exists?("platform.survey_pose_samples") do
       sql = """
-      WITH base AS (
-        SELECT bssid, NULLIF(ssid, '') AS ssid, rssi_dbm, channel, frequency_mhz, x, z
-        FROM platform.survey_rf_pose_matches
+      WITH recent_rf AS MATERIALIZED (
+        SELECT session_id, bssid, NULLIF(ssid, '') AS ssid, rssi_dbm, channel, frequency_mhz, captured_at
+        FROM platform.survey_rf_observations
         WHERE session_id = $1
           AND bssid IS NOT NULL
           AND rssi_dbm IS NOT NULL
-          AND x IS NOT NULL
-          AND z IS NOT NULL
+        ORDER BY captured_at DESC
+        LIMIT 5000
+      ),
+      base AS MATERIALIZED (
+        SELECT rf.bssid, rf.ssid, rf.rssi_dbm, rf.channel, rf.frequency_mhz, pose.x, pose.z
+        FROM recent_rf rf
+        LEFT JOIN LATERAL (
+          SELECT pose.x, pose.z
+          FROM platform.survey_pose_samples pose
+          WHERE pose.session_id = rf.session_id
+            AND pose.captured_at BETWEEN rf.captured_at - INTERVAL '200 milliseconds'
+                                    AND rf.captured_at + INTERVAL '200 milliseconds'
+            AND pose.x IS NOT NULL
+            AND pose.z IS NOT NULL
+          ORDER BY ABS(EXTRACT(EPOCH FROM (pose.captured_at - rf.captured_at))) ASC
+          LIMIT 1
+        ) pose ON TRUE
+        WHERE pose.x IS NOT NULL
+          AND pose.z IS NOT NULL
       ),
       strongest AS (
         SELECT DISTINCT ON (bssid)
@@ -1535,7 +1553,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       LIMIT 12
       """
 
-      case Repo.query(sql, [session_id]) do
+      case Repo.query(sql, [session_id], timeout: 5_000) do
         {:ok, %{rows: rows}} ->
           Enum.map(rows, fn [
                               bssid,
