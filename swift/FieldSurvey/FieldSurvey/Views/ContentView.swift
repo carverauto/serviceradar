@@ -135,7 +135,7 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text("LiDAR / AR Mode")
+                        Text(captureMode.isRFUpdate ? "RF Update / AR Tracking" : "LiDAR / AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
@@ -511,6 +511,7 @@ public struct SurveyView: View {
     private func startSidekickPreview() {
         beginAutosaveSession()
         prepareCaptureModeIfNeeded()
+        ensureRFScanningActive()
         checkpointSession(includeMesh: false, showStatus: false)
         enterCapturePhase()
         isSidekickPreviewing = true
@@ -532,6 +533,7 @@ public struct SurveyView: View {
         }
         beginAutosaveSession()
         prepareCaptureModeIfNeeded()
+        ensureRFScanningActive()
         checkpointSession(includeMesh: false, showStatus: false)
         enterCapturePhase()
         isStreaming = true
@@ -599,6 +601,13 @@ public struct SurveyView: View {
     private func enterCapturePhase() {
         workflowPhase = .capture
         applyRFState(settings.rfScanningEnabled)
+    }
+
+    private func ensureRFScanningActive() {
+        if !settings.rfScanningEnabled {
+            settings.rfScanningEnabled = true
+        }
+        wifiScanner.setRFScanning(enabled: true)
     }
 
     private var backendStreamingEnabled: Bool {
@@ -790,7 +799,7 @@ public struct SurveyView: View {
 
     private func markManualAccessPoint() {
         guard let pose = wifiScanner.currentDevicePose else {
-            saveStatusMessage = "No LiDAR pose yet. Move the phone until tracking starts."
+            saveStatusMessage = "No AR pose yet. Move the phone until tracking starts."
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                 saveStatusMessage = nil
             }
