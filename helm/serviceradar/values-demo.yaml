@@ -227,6 +227,7 @@ webNg:
       MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
       cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
       -----END PUBLIC KEY-----
+    registryDockerConfigSecret: registry-carverauto-dev-cred
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:

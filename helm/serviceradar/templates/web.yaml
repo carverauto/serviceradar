@@ -341,6 +341,20 @@ spec:
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY_FILE
           value: {{ $webNgFirstPartyImport.cosignPublicKeyFile | quote }}
         {{- end }}
+        {{- if $webNgFirstPartyImport.registryDockerConfigSecret }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_JSON
+          valueFrom:
+            secretKeyRef:
+              name: {{ $webNgFirstPartyImport.registryDockerConfigSecret | quote }}
+              key: {{ default ".dockerconfigjson" $webNgFirstPartyImport.registryDockerConfigSecretKey | quote }}
+        {{- else if $webNgFirstPartyImport.registryDockerConfigJson }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_JSON
+          value: {{ $webNgFirstPartyImport.registryDockerConfigJson | quote }}
+        {{- end }}
+        {{- if $webNgFirstPartyImport.registryDockerConfigFile }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_FILE
+          value: {{ $webNgFirstPartyImport.registryDockerConfigFile | quote }}
+        {{- end }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
           value: {{ $pluginStorageBackend | quote }}

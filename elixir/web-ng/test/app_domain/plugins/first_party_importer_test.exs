@@ -87,7 +87,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     alias ServiceRadarWebNG.Plugins.FirstPartyImporterTest
 
-    def get(url, _opts) do
+    def get(url, opts) do
       cond do
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
           ForgejoClient.get(url, [])
@@ -98,13 +98,30 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           {:ok, %Req.Response{status: 200, body: Jason.encode!(FirstPartyImporterTest.oci_index())}}
 
+        String.contains?(url, "/service/token") ->
+          Process.put(:registry_token_auth_header, header(opts, "authorization"))
+          {:ok, %Req.Response{status: 200, body: %{"token" => "registry-token"}}}
+
         String.ends_with?(url, "/v2/serviceradar/wasm-plugin-hello-wasm/manifests/v1.2.3") ->
-          {:ok,
-           %Req.Response{
-             status: 200,
-             body: FirstPartyImporterTest.oci_manifest(),
-             headers: %{"docker-content-digest" => [FirstPartyImporterTest.oci_manifest_digest()]}
-           }}
+          if Process.get(:first_party_registry_auth_challenge) && header(opts, "authorization") != "Bearer registry-token" do
+            {:ok,
+             %Req.Response{
+               status: 401,
+               body: "",
+               headers: %{
+                 "www-authenticate" => [
+                   ~s(Bearer realm="https://registry.carverauto.dev/service/token",service="harbor-registry",scope="repository:serviceradar/wasm-plugin-hello-wasm:pull")
+                 ]
+               }
+             }}
+          else
+            {:ok,
+             %Req.Response{
+               status: 200,
+               body: FirstPartyImporterTest.oci_manifest(),
+               headers: %{"docker-content-digest" => [FirstPartyImporterTest.oci_manifest_digest()]}
+             }}
+          end
 
         String.ends_with?(url, "/v2/serviceradar/wasm-plugin-hello-wasm/blobs/sha256:bundle-layer") ->
           {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.bundle()}}
@@ -115,6 +132,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
       end
+    end
+
+    defp header(opts, name) do
+      opts
+      |> Keyword.get(:headers, [])
+      |> Enum.find_value(fn {key, value} ->
+        if String.downcase(to_string(key)) == name, do: value
+      end)
     end
   end
 
@@ -130,6 +155,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   setup do
     original_verification = Application.get_env(:serviceradar_web_ng, :plugin_verification)
     original_import_client = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+    original_import_config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import)
     original_cosign_verifier = Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
@@ -157,11 +183,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_signature, nil)
     Process.put(:cosign_verified_artifact, nil)
     Process.put(:first_party_releases_without_index, false)
+    Process.put(:first_party_registry_auth_challenge, false)
+    Process.put(:registry_token_auth_header, nil)
 
     on_exit(fn ->
       File.rm_rf(tmp)
       restore_env(:plugin_verification, original_verification)
       restore_env(:first_party_plugin_import_http_client, original_import_client)
+      restore_env(:first_party_plugin_import, original_import_config)
       restore_env(:first_party_plugin_cosign_verifier, original_cosign_verifier)
       restore_env(:plugin_storage, original_storage)
     end)
@@ -276,6 +305,33 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     assert Process.get(:cosign_verified_artifact) ==
              {import.source_oci_ref, oci_manifest_digest()}
+  end
+
+  test "uses Docker registry credentials to answer OCI bearer challenges" do
+    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, OciClient)
+    Application.put_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier, FakeCosignVerifier)
+
+    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import,
+      registry_docker_config_json:
+        Jason.encode!(%{
+          "auths" => %{
+            "registry.carverauto.dev" => %{"auth" => Base.encode64("robot:secret")}
+          }
+        })
+    )
+
+    Process.put(:first_party_registry_auth_challenge, true)
+
+    assert {:ok, import} =
+             FirstPartyImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.2.3",
+               "plugin_id" => "hello-wasm",
+               "version" => "1.2.3"
+             })
+
+    assert import.source_oci_digest == oci_manifest_digest()
+    assert Process.get(:registry_token_auth_header) == "Basic #{Base.encode64("robot:secret")}"
   end
 
   def release do

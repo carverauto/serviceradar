@@ -14,9 +14,14 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
         try do
           binary = Keyword.get(config, :cosign_binary, "cosign")
           target = digest_ref(ref, digest)
+          {cmd_opts, cleanup_cmd_opts} = cosign_cmd_opts(config)
 
-          with {:ok, output} <- run_cosign(binary, key_arg, target) do
-            verify_rekor_output(output)
+          try do
+            with {:ok, output} <- run_cosign(binary, key_arg, target, cmd_opts) do
+              verify_rekor_output(output)
+            end
+          after
+            cleanup_cmd_opts.()
           end
         after
           cleanup.()
@@ -52,8 +57,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
     end
   end
 
-  defp run_cosign(binary, key_arg, target) do
-    case System.cmd(binary, ["verify", "--key", key_arg, target], stderr_to_stdout: true) do
+  defp run_cosign(binary, key_arg, target, opts) do
+    case System.cmd(binary, ["verify", "--key", key_arg, target], opts) do
       {output, 0} -> {:ok, output}
       {output, status} -> {:error, {:cosign_verify_failed, status, output}}
     end
@@ -71,5 +76,43 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
 
   defp rekor_verified?(output) when is_binary(output) do
     output =~ "tlog entry verified" or output =~ "Bundle verified"
+  end
+
+  defp cosign_cmd_opts(config) do
+    opts = [stderr_to_stdout: true]
+
+    case registry_docker_config_payload(config) do
+      nil ->
+        {opts, fn -> :ok end}
+
+      payload ->
+        path = Path.join(System.tmp_dir!(), "serviceradar-cosign-docker-config-#{System.unique_integer([:positive])}")
+        File.mkdir_p!(path)
+        File.write!(Path.join(path, "config.json"), payload)
+
+        opts =
+          Keyword.put(opts, :env, [
+            {"DOCKER_CONFIG", path},
+            {"REGISTRY_AUTH_FILE", Path.join(path, "config.json")}
+          ])
+
+        {opts, fn -> File.rm_rf(path) end}
+    end
+  end
+
+  defp registry_docker_config_payload(config) do
+    cond do
+      payload = Keyword.get(config, :registry_docker_config_json) ->
+        payload
+
+      path = Keyword.get(config, :registry_docker_config_file) ->
+        case File.read(path) do
+          {:ok, payload} -> payload
+          {:error, _reason} -> nil
+        end
+
+      true ->
+        nil
+    end
   end
 end

@@ -254,7 +254,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     headers = [{"accept", "application/vnd.oci.image.manifest.v1+json"} | asset_headers("forgejo", url)]
 
     with {:ok, request_url} <- validate_provider_asset_url(repo, url),
-         {:ok, response} <- request(request_url, headers: headers, decode_body: true) do
+         {:ok, response} <- request_oci(request_url, ref, headers: headers, decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_map(body) ->
           {:ok, manifest_content(body), response_digest(response)}
@@ -269,7 +269,33 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     url = "https://#{ref.registry}/v2/#{ref.repository}/blobs/#{digest}"
 
     with {:ok, request_url} <- validate_provider_asset_url(repo, url) do
-      fetch_url_binary(repo, request_url)
+      fetch_oci_blob_binary(repo, ref, request_url, @max_asset_redirects)
+    end
+  end
+
+  defp fetch_oci_blob_binary(_repo, _ref, _url, remaining_redirects) when remaining_redirects < 0 do
+    {:error, "Plugin artifact download exceeded redirect limit"}
+  end
+
+  defp fetch_oci_blob_binary(repo, ref, url, remaining_redirects) do
+    case request_oci(url, ref, headers: asset_headers("forgejo", url), decode_body: false) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, IO.iodata_to_binary(body)}
+
+      {:ok, %Req.Response{status: status} = response} when status in [301, 302, 303, 307, 308] ->
+        with {:ok, redirect_url} <- redirect_location(url, response),
+             {:ok, request_url} <- validate_provider_asset_url(repo, redirect_url) do
+          fetch_url_binary(repo, request_url, remaining_redirects - 1)
+        end
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:artifact_http_error, status}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -752,6 +778,171 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
       |> Keyword.merge(req_opts())
 
     http_client().get(url, request_opts)
+  end
+
+  defp request_oci(url, ref, opts) do
+    case request(url, opts) do
+      {:ok, %Req.Response{status: 401} = response} ->
+        with {:ok, token} <- fetch_oci_bearer_token(ref, response) do
+          headers =
+            opts
+            |> Keyword.get(:headers, [])
+            |> put_header("authorization", "Bearer #{token}")
+
+          request(url, Keyword.put(opts, :headers, headers))
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp fetch_oci_bearer_token(ref, response) do
+    with {:ok, challenge} <- oci_bearer_challenge(response),
+         {:ok, token_url} <- oci_token_url(challenge, ref),
+         headers = [{"accept", "application/json"} | registry_basic_auth_headers(ref.registry)],
+         {:ok, %Req.Response{status: 200, body: body}} <- request(token_url, headers: headers, decode_body: true),
+         token when is_binary(token) and token != "" <- Map.get(body, "token") || Map.get(body, "access_token") do
+      {:ok, token}
+    else
+      {:ok, %Req.Response{status: status}} -> {:error, {:oci_token_http_error, status}}
+      nil -> {:error, :oci_token_missing}
+      "" -> {:error, :oci_token_missing}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :oci_token_missing}
+    end
+  end
+
+  defp oci_bearer_challenge(response) do
+    response
+    |> Req.Response.get_header("www-authenticate")
+    |> List.wrap()
+    |> Enum.find_value(fn header ->
+      if String.starts_with?(String.downcase(header), "bearer ") do
+        params =
+          ~r/([A-Za-z_]+)="([^"]*)"/
+          |> Regex.scan(header)
+          |> Map.new(fn [_match, key, value] -> {String.downcase(key), value} end)
+
+        {:ok, params}
+      end
+    end)
+    |> case do
+      {:ok, %{"realm" => _realm} = params} -> {:ok, params}
+      _ -> {:error, :oci_auth_challenge_missing}
+    end
+  end
+
+  defp oci_token_url(%{"realm" => realm} = challenge, ref) do
+    params =
+      challenge
+      |> Map.take(["service", "scope"])
+      |> Map.update("scope", "repository:#{ref.repository}:pull", fn
+        "" -> "repository:#{ref.repository}:pull"
+        scope -> scope
+      end)
+      |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+
+    case validate_url(realm) do
+      {:ok, %URI{host: "registry.carverauto.dev"} = uri} ->
+        query =
+          uri.query
+          |> decode_query()
+          |> Kernel.++(params)
+          |> URI.encode_query()
+
+        {:ok, URI.to_string(%{uri | query: query})}
+
+      {:ok, _uri} ->
+        {:error, :untrusted_oci_token_realm}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp decode_query(nil), do: []
+  defp decode_query(query), do: query |> URI.decode_query() |> Enum.to_list()
+
+  defp registry_basic_auth_headers(registry) do
+    case registry_basic_auth(registry) do
+      {:ok, auth} -> [{"authorization", "Basic #{auth}"}]
+      :error -> []
+    end
+  end
+
+  defp registry_basic_auth(registry) do
+    config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
+    config
+    |> registry_docker_config_payload()
+    |> decode_docker_auth(registry)
+  end
+
+  defp registry_docker_config_payload(config) do
+    cond do
+      payload = Keyword.get(config, :registry_docker_config_json) ->
+        payload
+
+      path = Keyword.get(config, :registry_docker_config_file) ->
+        case File.read(path) do
+          {:ok, payload} -> payload
+          {:error, _reason} -> nil
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  defp decode_docker_auth(nil, _registry), do: :error
+
+  defp decode_docker_auth(payload, registry) when is_binary(payload) do
+    with {:ok, %{"auths" => auths}} when is_map(auths) <- Jason.decode(payload),
+         {:ok, auth_config} <- find_registry_auth(auths, registry) do
+      cond do
+        auth = normalize_string(Map.get(auth_config, "auth")) ->
+          {:ok, auth}
+
+        username = normalize_string(Map.get(auth_config, "username")) ->
+          password = normalize_string(Map.get(auth_config, "password")) || ""
+          {:ok, Base.encode64("#{username}:#{password}")}
+
+        true ->
+          :error
+      end
+    else
+      _ -> :error
+    end
+  end
+
+  defp decode_docker_auth(_payload, _registry), do: :error
+
+  defp find_registry_auth(auths, registry) do
+    auths
+    |> Enum.find_value(fn {key, value} ->
+      if docker_auth_key_matches?(key, registry), do: {:ok, value}
+    end)
+    |> case do
+      {:ok, %{} = auth_config} -> {:ok, auth_config}
+      _ -> :error
+    end
+  end
+
+  defp docker_auth_key_matches?(key, registry) do
+    case URI.parse(key) do
+      %URI{host: host} when is_binary(host) -> host == registry
+      %URI{path: ^registry} -> true
+      _ -> false
+    end
+  end
+
+  defp put_header(headers, key, value) do
+    normalized_key = String.downcase(key)
+
+    headers
+    |> Enum.reject(fn {existing_key, _value} -> String.downcase(to_string(existing_key)) == normalized_key end)
+    |> then(&[{key, value} | &1])
   end
 
   defp validate_provider_api_url(_repo, url) do
