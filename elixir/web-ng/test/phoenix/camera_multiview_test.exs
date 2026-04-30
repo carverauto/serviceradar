@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.CameraMultiview
 
   describe "format_error/1" do
@@ -62,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
       Application.put_env(
         :serviceradar_web_ng,
         :camera_relay_session_manager,
-        ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+        CameraRelaySessionManagerStub
       )
 
       Application.put_env(
@@ -120,6 +121,103 @@ defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
     end
   end
 
+  describe "open_preview_tiles/2" do
+    setup do
+      previous_loader = Application.get_env(:serviceradar_web_ng, :camera_relay_candidate_loader)
+      previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
+      previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager,
+        CameraRelaySessionManagerStub
+      )
+
+      on_exit(fn ->
+        restore_env(:camera_relay_candidate_loader, previous_loader)
+        restore_env(:camera_relay_session_manager, previous_manager)
+        restore_env(:camera_relay_session_manager_open_result, previous_open_result)
+      end)
+
+      :ok
+    end
+
+    test "continues past offline agents until enough relay previews open" do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_candidate_loader,
+        fn _scope, _limit ->
+          [
+            preview_candidate("offline-camera", "Offline front"),
+            preview_candidate("online-camera", "Online front"),
+            preview_candidate("side-camera", "Side yard")
+          ]
+        end
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        fn
+          "offline-camera", _stream_profile_id, _opts ->
+            {:error, {:agent_offline, "agent-sr-test-pve04"}}
+
+          camera_source_id, _stream_profile_id, _opts ->
+            {:ok, %{id: "session-#{camera_source_id}", status: :opening}}
+        end
+      )
+
+      assert [
+               %{
+                 camera_source_id: "online-camera",
+                 session: %{id: "session-online-camera"},
+                 error: nil
+               }
+             ] = CameraMultiview.open_preview_tiles(nil, 1)
+    end
+
+    test "returns failures only when no relay previews can open" do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_candidate_loader,
+        fn _scope, _limit ->
+          [
+            preview_candidate("offline-camera", "Offline front"),
+            preview_candidate("offline-side", "Offline side")
+          ]
+        end
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        fn _camera_source_id, _stream_profile_id, _opts ->
+          {:error, {:agent_offline, "agent-sr-test-pve04"}}
+        end
+      )
+
+      assert [
+               %{
+                 camera_source_id: "offline-camera",
+                 session: nil,
+                 error: "Assigned agent agent-sr-test-pve04 is offline"
+               },
+               %{camera_source_id: "offline-side", session: nil, error: "Assigned agent agent-sr-test-pve04 is offline"}
+             ] = CameraMultiview.open_preview_tiles(nil, 2)
+    end
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp preview_candidate(camera_source_id, label) do
+    %{
+      camera_source_id: camera_source_id,
+      stream_profile_id: "profile-#{camera_source_id}",
+      label: label,
+      detail: "Primary stream",
+      session: nil,
+      error: nil
+    }
+  end
 end

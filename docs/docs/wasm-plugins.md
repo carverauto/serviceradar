@@ -38,6 +38,22 @@ Or run the repo-wide release publish path, which includes both container images 
 make push_all_release
 ```
 
+Release builds also publish a Forgejo release asset named
+`serviceradar-wasm-plugin-index.json`. The index is the control-plane import
+catalog for first-party plugins; it records each plugin ID, version, OCI
+reference, OCI manifest digest, bundle digest, and upload-signature digest. You
+can generate the same index locally after publishing the OCI artifacts:
+
+```bash
+./scripts/generate-wasm-plugin-import-index.sh sha-<commit>
+```
+
+The Plugins UI can sync this index from the pinned Forgejo repository, verify the
+referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed
+plugin storage, and stage the package for normal capability review. Imported
+first-party packages are not assignable until an authorized operator approves
+them.
+
 Each published artifact uses an immutable `sha-<git-commit>` tag under a deterministic Harbor repository:
 
 - `registry.carverauto.dev/serviceradar/wasm-plugin-hello-wasm`
@@ -80,6 +96,14 @@ Configure that public key in `web-ng` so uploaded-package verification trusts th
 
 ```bash
 export PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS='first-party=<base64-ed25519-public-key>'
+```
+
+For repository-driven import, configure the Forgejo source when the defaults do
+not match your deployment:
+
+```bash
+export SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL=https://code.carverauto.dev/carverauto/serviceradar
+export SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET=serviceradar-wasm-plugin-index.json
 ```
 
 Inspect a published artifact with `oras`:

@@ -177,6 +177,8 @@ defmodule ServiceRadarWebNG.Plugins.UploadSignature do
   defp normalize_key(key) when is_binary(key), do: key
   defp normalize_key(key), do: to_string(key)
 
+  defp write_canonical_json(%{} = map), do: map |> canonicalize() |> write_canonical_json()
+
   defp write_canonical_json(list) when is_list(list) do
     if Enum.all?(list, &match?({_, _}, &1)) do
       "{" <>

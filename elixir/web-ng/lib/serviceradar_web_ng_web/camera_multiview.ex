@@ -11,8 +11,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   def open_preview_tiles(scope, count) when is_integer(count) and count > 0 do
     scope
     |> load_relay_candidates(@source_limit)
-    |> Enum.take(count)
-    |> Enum.map(&open_tile(&1, scope))
+    |> open_preview_candidates(scope, count)
   end
 
   def open_preview_tiles(_scope, _count), do: []
@@ -36,6 +35,16 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
     do: %{label: "Camera", detail: "Primary stream", session: nil, error: "Invalid camera source"}
 
   def load_relay_candidates(scope, limit \\ @source_limit) do
+    case Application.get_env(:serviceradar_web_ng, :camera_relay_candidate_loader) do
+      loader when is_function(loader, 2) ->
+        loader.(scope, limit)
+
+      _other ->
+        load_relay_candidates_from_db(scope, limit)
+    end
+  end
+
+  defp load_relay_candidates_from_db(scope, limit) do
     query =
       CameraSource
       |> Ash.Query.for_read(:read)
@@ -54,6 +63,29 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
         []
     end
   end
+
+  defp open_preview_candidates(candidates, scope, count) when is_list(candidates) do
+    {opened, failed} =
+      Enum.reduce_while(candidates, {[], []}, fn candidate, {opened, failed} ->
+        tile = open_tile(candidate, scope)
+
+        if session_id(tile) do
+          opened = [tile | opened]
+
+          if length(opened) >= count do
+            {:halt, {opened, failed}}
+          else
+            {:cont, {opened, failed}}
+          end
+        else
+          {:cont, {opened, [tile | failed]}}
+        end
+      end)
+
+    Enum.take(Enum.reverse(opened, Enum.reverse(failed)), count)
+  end
+
+  defp open_preview_candidates(_candidates, _scope, _count), do: []
 
   def refresh_tile_session(scope, tile) when is_map(tile) do
     case session_id(tile) do

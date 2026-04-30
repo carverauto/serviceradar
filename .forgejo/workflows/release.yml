@@ -434,6 +434,8 @@ jobs:
           ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
           ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
           ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
+          OUTPUT="${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json" \
+            ./scripts/generate-wasm-plugin-import-index.sh "${RELEASE_TAG}"
 
       - name: Publish release packages and agent manifest assets
         env:
@@ -504,6 +506,45 @@ jobs:
             fi
           fi
 
+      - name: Upload Wasm plugin import index
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          DRY_RUN: ${{ steps.release.outputs.dry_run }}
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          FORGEJO_URL: https://code.carverauto.dev
+          FORGEJO_REPOSITORY: carverauto/serviceradar
+        run: |
+          set -euo pipefail
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "Skipping Wasm plugin import index upload during dry run."
+            exit 0
+          fi
+          index_path="${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json"
+          if [[ ! -s "${index_path}" ]]; then
+            echo "Missing Wasm plugin import index at ${index_path}" >&2
+            exit 1
+          fi
+          api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          release_json=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$api_url")
+          release_id=$(echo "$release_json" | jq -r '.id // empty')
+          if [[ -z "${release_id}" ]]; then
+            echo "Unable to resolve release id for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          existing_asset_id=$(echo "$release_json" | jq -r '.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json") | .id' | head -n1)
+          if [[ -n "${existing_asset_id}" ]]; then
+            curl -sSf -X DELETE \
+              -H "Accept: application/json" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${release_id}/assets/${existing_asset_id}" >/dev/null
+          fi
+          curl -sSf -X POST \
+            -H "Accept: application/json" \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            -F "attachment=@${index_path}" \
+            "${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${release_id}/assets?name=serviceradar-wasm-plugin-index.json" >/dev/null
+          echo "Uploaded serviceradar-wasm-plugin-index.json"
+
       - name: Finalize Forgejo release
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -559,6 +600,7 @@ jobs:
           agent_runtime_count=$(echo "$response" | jq --arg asset "serviceradar-agent_${VERSION}_linux_amd64.tar.gz" '[.assets[]? | select(.name == $asset)] | length')
           agent_manifest_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.json")] | length')
           agent_manifest_sig_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.sig")] | length')
+          wasm_plugin_index_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json")] | length')
           if (( deb_count == 0 )); then
             echo "No .deb assets detected for ${RELEASE_TAG}" >&2
             exit 1
@@ -579,8 +621,12 @@ jobs:
             echo "No agent release manifest signature asset detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
+          if (( wasm_plugin_index_count == 0 )); then
+            echo "No Wasm plugin import index asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
           if [[ "${REQUIRE_MAC_PKG:-false}" == "true" ]] && (( pkg_count == 0 )); then
             echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
-          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, and ${agent_manifest_sig_count} signature assets."
+          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, ${agent_manifest_sig_count} signature, and ${wasm_plugin_index_count} Wasm plugin index assets."

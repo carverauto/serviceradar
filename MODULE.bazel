@@ -700,6 +700,24 @@ http_file(
 )
 
 http_file(
+    name = "cosign_linux_amd64",
+    executable = True,
+    sha256 = "8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b",
+    urls = [
+        "https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64",
+    ],
+)
+
+http_file(
+    name = "mozilla_ca_bundle",
+    downloaded_file_path = "ca-certificates.crt",
+    sha256 = "b6e66569cc3d438dd5abe514d0df50005d570bfc96c14dca8f768d020cb96171",
+    urls = [
+        "https://curl.se/ca/cacert.pem",
+    ],
+)
+
+http_file(
     name = "curl_linux_arm64",
     executable = True,
     sha256 = "1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f",

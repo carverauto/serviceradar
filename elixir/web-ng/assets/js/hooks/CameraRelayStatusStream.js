@@ -9,8 +9,10 @@ import {
   selectRelayPlaybackTransport,
 } from "../lib/camera_relay/player"
 
-const WEBRTC_CREATE_RETRY_DELAY_MS = 500
-const WEBRTC_CREATE_MAX_ATTEMPTS = 10
+const WEBRTC_CREATE_RETRY_DELAY_MS = 1000
+const WEBRTC_CREATE_MAX_ATTEMPTS = 60
+const STREAM_RECONNECT_DELAY_MS = 1000
+const STREAM_RECONNECT_MAX_ATTEMPTS = 60
 const WEBSOCKET_KEEPALIVE_INTERVAL_MS = 20_000
 
 function setText(root, role, value) {
@@ -150,8 +152,11 @@ export default {
     this.webrtcViewerSessionId = null
     this.chunkCount = 0
     this.byteCount = 0
+    this.destroyedFlag = false
     this.receivedRelaySnapshot = false
     this.receivedMediaChunk = false
+    this.streamReconnectAttempts = 0
+    this.streamReconnectTimer = null
     this.playbackMetadata = playbackMetadataFromDataset(this.el)
     this.transportSelection = selectRelayPlaybackTransport(
       this.playbackMetadata,
@@ -190,6 +195,8 @@ export default {
   },
 
   destroyed() {
+    this.destroyedFlag = true
+    this.clearStreamReconnectTimer()
     this.stopSocketKeepalive("socket")
     this.stopSocketKeepalive("statusSocket")
 
@@ -212,6 +219,7 @@ export default {
   },
 
   connectWebsocket() {
+    this.clearStreamReconnectTimer()
     setText(
       this.el,
       "transport-status",
@@ -232,8 +240,13 @@ export default {
 
     this.socket.addEventListener("close", () => {
       this.stopSocketKeepalive("socket")
+      this.socket = null
 
       if (!this.receivedRelaySnapshot && !this.receivedMediaChunk) {
+        if (this.scheduleStreamReconnect("Waiting for relay stream activation...")) {
+          return
+        }
+
         setText(this.el, "transport-status", "Browser stream unavailable or unauthorized")
         setText(
           this.el,
@@ -250,6 +263,10 @@ export default {
       setText(this.el, "transport-status", "Browser stream error")
 
       if (!this.receivedRelaySnapshot && !this.receivedMediaChunk) {
+        if (this.scheduleStreamReconnect("Waiting for relay stream activation...")) {
+          return
+        }
+
         setText(
           this.el,
           "relay-detail",
@@ -261,6 +278,7 @@ export default {
     this.socket.addEventListener("message", (event) => {
       if (typeof event.data !== "string") {
         this.receivedMediaChunk = true
+        this.streamReconnectAttempts = 0
         const bytes = event.data?.byteLength || event.data?.size || 0
         this.chunkCount += 1
         this.byteCount += bytes
@@ -415,6 +433,10 @@ export default {
     let lastError = null
 
     for (let attempt = 1; attempt <= WEBRTC_CREATE_MAX_ATTEMPTS; attempt += 1) {
+      if (this.destroyedFlag) {
+        throw new Error("WebRTC viewer setup was stopped")
+      }
+
       const createResponse = await fetch(this.webrtcSignalingPath, {
         method: "POST",
         headers: jsonHeaders(),
@@ -519,6 +541,7 @@ export default {
     this.playbackMetadata = playbackMetadataFromSnapshot(payload, this.playbackMetadata)
     setText(this.el, "compatibility-status", compatibilityStatus(this.transportSelection, this.playbackMetadata))
     this.receivedRelaySnapshot = true
+    this.streamReconnectAttempts = 0
     const termination = terminationLabel(payload.termination_kind)
 
     setText(this.el, "relay-status", `Relay status: ${payload.status}`)
@@ -590,6 +613,40 @@ export default {
       globalThis.clearInterval(timer)
       this[timerKey] = null
     }
+  },
+
+  clearStreamReconnectTimer() {
+    if (this.streamReconnectTimer) {
+      globalThis.clearTimeout(this.streamReconnectTimer)
+      this.streamReconnectTimer = null
+    }
+  },
+
+  scheduleStreamReconnect(statusText) {
+    if (this.destroyedFlag || !this.streamPath || this.streamReconnectAttempts >= STREAM_RECONNECT_MAX_ATTEMPTS) {
+      return false
+    }
+
+    this.streamReconnectAttempts += 1
+    setText(this.el, "transport-status", statusText)
+    setText(
+      this.el,
+      "player-status",
+      `Retrying browser stream (${this.streamReconnectAttempts}/${STREAM_RECONNECT_MAX_ATTEMPTS})`
+    )
+    this.clearStreamReconnectTimer()
+    this.streamReconnectTimer = globalThis.setTimeout(() => {
+      if (this.destroyedFlag) return
+
+      if (this.player) {
+        this.player.close()
+        this.player = this.buildPlayer()
+      }
+
+      this.connectWebsocket()
+    }, STREAM_RECONNECT_DELAY_MS)
+
+    return true
   },
 
   setSurfaceVisibility(transport) {
