@@ -1,3 +1,12 @@
+# ServiceRadar v1.2.27
+
+Coraza WAF log persistence fix needed to keep normalized Zen output readable after it is inserted into observability storage.
+
+## Whats New
+
+**1.2.27**
+- Fixed the Go db-event-writer log parser so processed Coraza WAF findings preserve Zen-normalized summary bodies, WAF source, critical/emergency severity labels, and avoid carrying the raw syslog `full_message` into visible metadata.
+
 # ServiceRadar v1.2.26
 
 FieldSurvey Sidekick, AlienVault OTX threat intelligence, WAF signal ingestion, and observability UI updates that make field surveys, NetFlow review, and security log enrichment usable in demo and staging environments.
