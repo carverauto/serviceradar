@@ -51,6 +51,23 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def manifest_metadata(entries):
+    manifest_path = next((source_path for archive_path, source_path in entries if archive_path == "plugin.yaml"), None)
+    if manifest_path is None:
+        return {}
+
+    metadata = {}
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith((" ", "\t", "-", "#")) or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key in {"id", "name", "version"} and value:
+            metadata[key] = value
+    return metadata
+
+
 def main():
     args = parse_args()
     bundle_path = Path(args.bundle_out)
@@ -60,12 +77,15 @@ def main():
 
     write_zip(bundle_path, entries)
     digest = sha256_file(bundle_path)
+    manifest = manifest_metadata(entries)
 
     sha_path.parent.mkdir(parents=True, exist_ok=True)
     sha_path.write_text(f"{digest}\n", encoding="utf-8")
 
     metadata = {
         "plugin_id": args.plugin_id,
+        "plugin_name": manifest.get("name"),
+        "plugin_version": manifest.get("version"),
         "repository_name": args.repository_name,
         "artifact_type": args.artifact_type,
         "bundle_media_type": args.bundle_media_type,

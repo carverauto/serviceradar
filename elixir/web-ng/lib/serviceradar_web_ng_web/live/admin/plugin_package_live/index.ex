@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Plugins.Assignments
+  alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
@@ -36,6 +37,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:packages, list_packages(%{}, scope))
         |> assign(:filter_status, nil)
         |> assign(:filter_source_type, nil)
+        |> assign(:first_party_catalog, [])
+        |> assign(:first_party_catalog_error, nil)
+        |> assign(:first_party_repo_url, first_party_repo_url())
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:create_form, default_create_form())
@@ -186,6 +190,81 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
      |> assign(:verification_policy, plugin_verification_policy())}
+  end
+
+  def handle_event("sync_first_party_catalog", _params, socket) do
+    {:noreply, load_first_party_catalog(socket)}
+  end
+
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+  end
+
+  def handle_event("import_first_party_catalog", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Packages.sync_first_party_plugins(
+           scope: scope,
+           repo_url: socket.assigns.first_party_repo_url,
+           limit: first_party_sync_limit()
+         ) do
+      {:ok, summary} ->
+        message =
+          "Imported #{summary.imported} first-party plugin package(s)" <>
+            if(summary.failed == [], do: ".", else: "; #{length(summary.failed)} failed.")
+
+        {:noreply,
+         socket
+         |> put_flash(:info, message)
+         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> load_first_party_catalog()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
+  end
+
+  def handle_event(
+        "import_first_party_plugin",
+        %{"release-tag" => _release_tag, "plugin-id" => _plugin_id, "version" => _version},
+        %{assigns: %{can_stage_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+  end
+
+  def handle_event(
+        "import_first_party_plugin",
+        %{"release-tag" => release_tag, "plugin-id" => plugin_id, "version" => version},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    attrs = %{
+      source_type: :first_party,
+      repo_url: socket.assigns.first_party_repo_url,
+      release_tag: release_tag,
+      plugin_id: plugin_id,
+      version: version
+    }
+
+    case Packages.create(attrs, scope: scope) do
+      {:ok, package} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Imported first-party plugin #{package.name} #{package.version}")
+         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> load_first_party_catalog()
+         |> push_navigate(to: plugins_show_path(socket, package.id))}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
   end
 
   def handle_event("create_package", %{"create" => _params}, %{assigns: %{can_stage_plugins: false}} = socket) do
@@ -842,6 +921,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <option value="">All Sources</option>
                 <option value="upload" selected={@filter_source_type == "upload"}>Upload</option>
                 <option value="github" selected={@filter_source_type == "github"}>GitHub</option>
+                <option value="first_party" selected={@filter_source_type == "first_party"}>
+                  First-party
+                </option>
               </select>
             </div>
           </:header>
@@ -904,6 +986,95 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </table>
             <% end %>
           </div>
+        </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">First-party Repository Plugins</div>
+              <p class="text-xs text-base-content/60">
+                Signed Wasm plugins discovered from {@first_party_repo_url}.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <.ui_button variant="ghost" size="sm" phx-click="sync_first_party_catalog">
+                <.icon name="hero-arrow-path" class="size-4" /> Sync
+              </.ui_button>
+              <.ui_button
+                :if={@can_stage_plugins}
+                variant="primary"
+                size="sm"
+                phx-click="import_first_party_catalog"
+              >
+                <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
+              </.ui_button>
+            </div>
+          </:header>
+
+          <%= if @first_party_catalog_error do %>
+            <div class="rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error">
+              {@first_party_catalog_error}
+            </div>
+          <% end %>
+
+          <%= cond do %>
+            <% @first_party_catalog == [] and is_nil(@first_party_catalog_error) -> %>
+              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
+                <div class="text-sm font-semibold text-base-content">
+                  No repository plugins loaded
+                </div>
+                <p class="mt-1 text-xs text-base-content/60">
+                  Sync the first-party catalog to discover signed plugins from Forgejo releases.
+                </p>
+              </div>
+            <% true -> %>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead>
+                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                      <th>Plugin</th>
+                      <th>Version</th>
+                      <th>Release</th>
+                      <th>Artifact</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for plugin <- @first_party_catalog do %>
+                      <tr class="hover:bg-base-200/30">
+                        <td>
+                          <div class="font-medium">{plugin.name}</div>
+                          <div class="text-xs text-base-content/60 font-mono">{plugin.plugin_id}</div>
+                        </td>
+                        <td class="text-xs">{plugin.version}</td>
+                        <td class="text-xs">{plugin.release_tag}</td>
+                        <td>
+                          <.ui_badge
+                            variant={if plugin.import_ready?, do: "success", else: "ghost"}
+                            size="xs"
+                          >
+                            {if plugin.import_ready?, do: "import-ready", else: "missing artifact"}
+                          </.ui_badge>
+                        </td>
+                        <td>
+                          <.ui_button
+                            :if={@can_stage_plugins and plugin.import_ready?}
+                            variant="ghost"
+                            size="xs"
+                            phx-click="import_first_party_plugin"
+                            phx-value-release-tag={plugin.release_tag}
+                            phx-value-plugin-id={plugin.plugin_id}
+                            phx-value-version={plugin.version}
+                          >
+                            Import
+                          </.ui_button>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+          <% end %>
         </.ui_panel>
       </.settings_shell>
 
@@ -1149,6 +1320,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-xs">{gpg_status(@package.gpg_verified_at, @package.gpg_key_id)}</div>
               <div class="text-xs text-base-content/60 mt-2">Signature metadata</div>
               <div class="text-xs font-mono">{signature_status(@package.signature)}</div>
+            </div>
+
+            <div
+              :if={@package.source_type == :first_party}
+              class="rounded-xl border border-base-200 p-4 space-y-2"
+            >
+              <div class="text-sm font-semibold">First-party Provenance</div>
+              <div class="text-xs text-base-content/60">Release</div>
+              <div class="text-xs font-mono">{@package.source_release_tag}</div>
+              <div class="text-xs text-base-content/60 mt-2">OCI reference</div>
+              <div class="text-xs font-mono break-all">{@package.source_oci_ref}</div>
+              <div class="text-xs text-base-content/60 mt-2">OCI digest</div>
+              <div class="text-xs font-mono break-all">{@package.source_oci_digest}</div>
+              <div class="text-xs text-base-content/60 mt-2">Bundle digest</div>
+              <div class="text-xs font-mono break-all">{@package.source_bundle_digest}</div>
+              <div class="text-xs text-base-content/60 mt-2">Verification</div>
+              <div class="text-xs">{@package.verification_status || "unknown"}</div>
             </div>
 
             <div class="rounded-xl border border-base-200 p-4 space-y-3">
@@ -1572,6 +1760,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> Ash.read!(scope: scope)
   rescue
     _ -> []
+  end
+
+  defp load_first_party_catalog(socket) do
+    case FirstPartyImporter.list_recent_plugins(
+           %{"repo_url" => socket.assigns.first_party_repo_url},
+           first_party_sync_limit()
+         ) do
+      {:ok, catalog} ->
+        socket
+        |> assign(:first_party_catalog, catalog)
+        |> assign(:first_party_catalog_error, nil)
+
+      {:error, reason} ->
+        socket
+        |> assign(:first_party_catalog, [])
+        |> assign(:first_party_catalog_error, format_error(reason))
+    end
+  end
+
+  defp first_party_repo_url do
+    config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+    Keyword.get(config, :repo_url, FirstPartyImporter.default_repo_url())
+  end
+
+  defp first_party_sync_limit do
+    config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
+    case Keyword.get(config, :sync_release_limit, 10) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> 10
+    end
   end
 
   defp assign_capacity(socket, scope) do
@@ -2012,10 +2231,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp normalize_source_type(""), do: :upload
   defp normalize_source_type(:upload), do: :upload
   defp normalize_source_type(:github), do: :github
+  defp normalize_source_type(:first_party), do: :first_party
 
   defp normalize_source_type(source_type) when is_binary(source_type) do
     case String.trim(source_type) do
       "github" -> :github
+      "first_party" -> :first_party
       "upload" -> :upload
       _ -> :upload
     end

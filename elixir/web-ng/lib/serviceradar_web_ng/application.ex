@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNG.Application do
       ]
       |> Kernel.++(web_runtime().web_children())
       |> maybe_add_grpc_supervisor()
+      |> maybe_add_first_party_plugin_sync_scheduler()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
         {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
@@ -100,6 +101,16 @@ defmodule ServiceRadarWebNG.Application do
     case Process.whereis(GRPC.Client.Supervisor) do
       nil -> children ++ [{GRPC.Client.Supervisor, []}]
       _pid -> children
+    end
+  end
+
+  defp maybe_add_first_party_plugin_sync_scheduler(children) do
+    config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
+    if Keyword.get(config, :auto_sync_enabled, false) do
+      children ++ [ServiceRadarWebNG.Plugins.FirstPartySyncScheduler]
+    else
+      children
     end
   end
 
