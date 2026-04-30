@@ -24,6 +24,13 @@ pub enum Entity {
     FieldSurveyPoseSamples,
     FieldSurveyRfPoseMatches,
     FieldSurveySpectrumObservations,
+    WifiSites,
+    WifiSiteSnapshots,
+    WifiAccessPoints,
+    WifiControllers,
+    WifiRadiusGroups,
+    WifiFleetHistory,
+    WifiSiteReferences,
     Logs,
     Services,
     Gateways,
@@ -409,6 +416,17 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "field_survey_spectrum_observations"
         | "fieldsurvey_spectrum_observations"
         | "survey_spectrum_observations" => Ok(Entity::FieldSurveySpectrumObservations),
+        "wifi_sites" | "wifi_site_map" | "wifi_map_sites" => Ok(Entity::WifiSites),
+        "wifi_site_snapshots" | "wifi_snapshots" => Ok(Entity::WifiSiteSnapshots),
+        "wifi_aps" | "wifi_access_points" | "wifi_ap_observations" => Ok(Entity::WifiAccessPoints),
+        "wifi_controllers" | "wifi_wlcs" | "wifi_controller_observations" => {
+            Ok(Entity::WifiControllers)
+        }
+        "wifi_radius_groups" | "wifi_radius_group_observations" => Ok(Entity::WifiRadiusGroups),
+        "wifi_fleet_history" | "wifi_history" => Ok(Entity::WifiFleetHistory),
+        "wifi_site_references" | "wifi_airport_references" | "wifi_references" => {
+            Ok(Entity::WifiSiteReferences)
+        }
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
         "gateways" | "gateway" => Ok(Entity::Gateways),
