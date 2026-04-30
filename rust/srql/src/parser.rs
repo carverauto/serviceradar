@@ -923,6 +923,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_wifi_map_entities() {
+        let cases = [
+            ("wifi_sites", Entity::WifiSites),
+            ("wifi_site_map", Entity::WifiSites),
+            ("wifi_site_snapshots", Entity::WifiSiteSnapshots),
+            ("wifi_aps", Entity::WifiAccessPoints),
+            ("wifi_access_points", Entity::WifiAccessPoints),
+            ("wifi_wlcs", Entity::WifiControllers),
+            ("wifi_controllers", Entity::WifiControllers),
+            ("wifi_radius_groups", Entity::WifiRadiusGroups),
+            ("wifi_fleet_history", Entity::WifiFleetHistory),
+            ("wifi_site_references", Entity::WifiSiteReferences),
+            ("wifi_airport_references", Entity::WifiSiteReferences),
+        ];
+
+        for (raw, expected) in cases {
+            let ast = parse(&format!("in:{raw} limit:1")).unwrap();
+            assert_eq!(ast.entity, expected, "entity alias {raw}");
+        }
+    }
+
+    #[test]
     fn parses_list_values() {
         let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
         assert_eq!(ast.filters.len(), 1);

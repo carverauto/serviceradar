@@ -34,11 +34,14 @@
 
 ## 4. SRQL
 
-- [ ] 4.1 Add SRQL entities for `wifi_sites`, `wifi_site_snapshots`, `wifi_aps`, `wifi_controllers`, `wifi_radius_groups`, and `wifi_fleet_history`.
-- [ ] 4.2 Add filter/sort/group fields for site code, region, site type, AP counts, model family, controller model/version, RADIUS cluster, server group, status, and time.
-- [ ] 4.3 Add map projection support that returns coordinates and marker metrics for compatible WiFi site queries.
-- [ ] 4.4 Add Rust fixtures and tests for WiFi SRQL queries, grouping, map projections, and unsupported fields.
-- [ ] 4.5 Expose WiFi entities and fields in the web-ng SRQL builder metadata.
+- [x] 4.1 Add SRQL entities for `wifi_sites`, `wifi_site_snapshots`, `wifi_aps`, `wifi_controllers`, `wifi_radius_groups`, `wifi_fleet_history`, and `wifi_site_references`.
+- [x] 4.2 Add filter/sort fields for site code, region, site type, AP counts, controller model/version, RADIUS cluster, server group, status, and time.
+- [ ] 4.3 Add AP model-family JSONB filters and SRQL stats/grouping for WiFi map entities.
+- [x] 4.4 Add map-compatible row projection for WiFi site queries with feature IDs, coordinates, GeoJSON location, and latest marker metrics.
+- [ ] 4.5 Add a dedicated map projection mode that excludes non-coordinate rows when the UI requests geographic features.
+- [x] 4.6 Add Rust translation tests for WiFi SRQL queries, parser aliases, map projections, and unsupported fields.
+- [ ] 4.7 Add database-backed Rust fixtures/tests for WiFi SRQL grouping and representative query execution against migrated schema.
+- [x] 4.8 Expose WiFi entities and fields in the web-ng SRQL builder metadata.
 
 ## 5. Web UI
 
@@ -66,7 +69,7 @@
 - [ ] 7.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
 - [ ] 7.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
 - [ ] 7.4 Run customer plugin source sync/import tests.
-- [ ] 7.5 Run `cd rust/srql && cargo test` or scoped Bazel SRQL tests.
+- [x] 7.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.
 - [ ] 7.6 Run `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` after web changes.
 - [ ] 7.7 Confirm the default Docker Compose stack has no faker service; if a dev faker overlay/profile is active, disable or scale it down for WiFi-map validation so synthetic demo devices do not clutter the local map/device inventory.
 - [ ] 7.8 Capture Playwright screenshots for dashboard and full-screen WiFi map on desktop and mobile against the local Docker Compose stack.
