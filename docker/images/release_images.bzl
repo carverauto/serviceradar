@@ -389,6 +389,11 @@ def declare_web_ng_release_container_amd64(
         if name.endswith("_image_amd64")
         else name + "_cosign_runtime_layer_amd64"
     )
+    ca_bundle_layer_name = (
+        name[:-len("_image_amd64")] + "_ca_bundle_layer_amd64"
+        if name.endswith("_image_amd64")
+        else name + "_ca_bundle_layer_amd64"
+    )
     base_digest = ":{}.digest".format(base_image_name) if base_image_name else ":{}.digest".format(name)
 
     elixir_build_info_layer_amd64(
@@ -414,6 +419,14 @@ def declare_web_ng_release_container_amd64(
         target_compatible_with = target_compatible_with,
     )
 
+    file_layer_amd64(
+        name = ca_bundle_layer_name,
+        src = "@mozilla_ca_bundle//file",
+        target_path = "etc/ssl/certs/ca-certificates.crt",
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
     declare_elixir_release_container_amd64(
         name = name,
         base = base,
@@ -429,6 +442,7 @@ def declare_web_ng_release_container_amd64(
             ":{}".format(build_info_layer_name),
             ":{}".format(bun_layer_name),
             ":{}".format(cosign_layer_name),
+            ":{}".format(ca_bundle_layer_name),
         ],
         base_image_name = base_image_name,
         visibility = visibility,
