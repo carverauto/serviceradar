@@ -209,6 +209,53 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert Storage.blob_exists?(package.wasm_object_key)
   end
 
+  test "sync_first_party_plugins replaces an existing package for the same plugin version" do
+    _plugin =
+      Plugin
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: "first-party-dedupe",
+          name: "First-party Dedupe",
+          description: "Existing upload"
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    existing =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: "first-party-dedupe",
+          name: "First-party Dedupe",
+          version: "1.0.1",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: @first_party_manifest,
+          config_schema: %{},
+          signature: %{},
+          content_hash: Storage.sha256("old local wasm")
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    opts = [actor: system_actor(), repo_url: @repo_url, limit: 10]
+
+    assert {:ok, %{imported: 1, failed: []}} = Packages.sync_first_party_plugins(opts)
+
+    assert [%PluginPackage{} = package] = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+    assert package.id == existing.id
+    assert package.source_type == :first_party
+    assert package.source_release_tag == "v1.0.1"
+    assert package.source_bundle_digest == Storage.sha256(first_party_bundle())
+    assert package.content_hash == Storage.sha256(@first_party_wasm)
+    assert Storage.blob_exists?(package.wasm_object_key)
+  end
+
   def first_party_release do
     %{
       "tag_name" => "v1.0.1",
