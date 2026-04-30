@@ -417,6 +417,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp replace_with_first_party_package(%PluginPackage{} = package, attrs, ash_opts) do
+    attrs = Map.drop(attrs, [:plugin_id, "plugin_id", :version, "version"])
+
     package
     |> Ash.Changeset.for_update(:update, attrs)
     |> update_resource_with_opts(ash_opts)
