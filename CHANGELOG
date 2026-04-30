@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.26
+
+FieldSurvey Sidekick, AlienVault OTX threat intelligence, WAF signal ingestion, and observability UI updates that make field surveys, NetFlow review, and security log enrichment usable in demo and staging environments.
+
+## Whats New
+
+**1.2.26**
+- Added the FieldSurvey Sidekick pipeline across iOS, web-ng, and core ingest, including WebSocket auth, Arrow IPC ingestion, RoomPlan/floorplan/point-cloud artifact storage, spatial review views, persisted coverage rasters, AP placement confidence, adaptive RF scanning, playlist diagnostics, and dashboard floorplan heatmap rendering.
+- Added AlienVault OTX threat intelligence support with encrypted settings UI, edge WASM collector integration, provider sync health, imported indicator inventory, source object metadata, manual sync, cursor persistence, OTX export ingestion hardening, NetFlow IOC matching, and retrohunt worker coverage.
+- Consolidated NetFlow observability paths so the newer observability tab carries legacy flow-view capabilities forward while reducing duplicate code, keeping device drilldowns aligned, and surfacing threat-intel context in flow review paths.
+- Added Coraza/Envoy WAF signal ingestion and normalization through external Zen rules, including WAF finding parsing, OCSF-style security signal promotion, Phoenix longpoll tuning, and safer Envoy access-log handling to reduce token exposure.
+- Hardened Zen rule synchronization by discovering rules from NATS KV indexes, avoiding bundled-rule overrides when KV discovery is enabled, retrying reconnect paths, and preserving transformed log context instead of replacing messages with rule names.
+- Fixed processed syslog rendering so transformed syslog logs keep useful bodies, service names, host resource attributes, and log detail pages no longer crash when optional resource metadata is empty.
+- Improved dashboard and spatial performance by bounding FieldSurvey dashboard work, keeping heavy survey queries off initial dashboard load, and tightening dashboard map/camera interactions.
+
 # ServiceRadar v1.2.25
 
 Agent reenrollment cleanup, automated MTR/IP enrichment hardening, and flow observability fixes needed to keep stale agents from blocking rollouts while making diagnostics and device-level flow drilldowns behave predictably.
