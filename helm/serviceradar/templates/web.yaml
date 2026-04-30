@@ -6,6 +6,11 @@
 {{- $webNgDatabase := default (dict) $webNg.database -}}
 {{- $webNgObanQueues := default (dict) $webNg.obanQueues -}}
 {{- $webNgGodView := default (dict) $webNg.godView -}}
+{{- $webNgFirstPartyImport := default (dict) $webNg.firstPartyPluginImport -}}
+{{- $runtimeGraphAutoRefresh := true -}}
+{{- if hasKey $webNgGodView "runtimeGraphAutoRefresh" -}}
+{{- $runtimeGraphAutoRefresh = get $webNgGodView "runtimeGraphAutoRefresh" -}}
+{{- end -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
@@ -315,7 +320,27 @@ spec:
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS
           value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH
-          value: {{ default true $webNgGodView.runtimeGraphAutoRefresh | quote }}
+          value: {{ $runtimeGraphAutoRefresh | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL
+          value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET
+          value: {{ default "serviceradar-wasm-plugin-index.json" $webNgFirstPartyImport.indexAssetName | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_SYNC
+          value: {{ default false $webNgFirstPartyImport.autoSyncEnabled | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_LIMIT
+          value: {{ default 10 $webNgFirstPartyImport.syncReleaseLimit | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_INTERVAL_SECONDS
+          value: {{ default 3600 $webNgFirstPartyImport.syncIntervalSeconds | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_BINARY
+          value: {{ default "/usr/local/bin/cosign" $webNgFirstPartyImport.cosignBinary | quote }}
+        {{- if $webNgFirstPartyImport.cosignPublicKey }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY
+          value: {{ $webNgFirstPartyImport.cosignPublicKey | quote }}
+        {{- end }}
+        {{- if $webNgFirstPartyImport.cosignPublicKeyFile }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY_FILE
+          value: {{ $webNgFirstPartyImport.cosignPublicKeyFile | quote }}
+        {{- end }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
           value: {{ $pluginStorageBackend | quote }}

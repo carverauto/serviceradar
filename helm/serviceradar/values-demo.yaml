@@ -214,10 +214,19 @@ webNg:
     sweeps: 1
     edge: 1
     integrations: 1
-    maintenance: 0
+    maintenance: 1
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true
+  firstPartyPluginImport:
+    autoSyncEnabled: true
+    syncReleaseLimit: 20
+    syncIntervalSeconds: 3600
+    cosignPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
+      cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
+      -----END PUBLIC KEY-----
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:

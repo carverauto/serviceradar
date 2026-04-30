@@ -43,24 +43,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
-          {:ok,
-           %Req.Response{
-             status: 200,
-             body: [
-               %{
-                 "tag_name" => "v1.2.3",
-                 "name" => "ServiceRadar v1.2.3",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.2.3",
-                 "assets" => [
-                   %{
-                     "name" => "serviceradar-wasm-plugin-index.json",
-                     "browser_download_url" =>
-                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-wasm-plugin-index.json"
-                   }
-                 ]
-               }
-             ]
-           }}
+          releases =
+            if Process.get(:first_party_releases_without_index) do
+              [%{"tag_name" => "v1.2.3", "assets" => []}]
+            else
+              [FirstPartyImporterTest.release()]
+            end
+
+          {:ok, %Req.Response{status: 200, body: releases}}
 
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
           {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.release()}}
@@ -166,6 +156,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_bundle_redirect, false)
     Process.put(:first_party_signature, nil)
     Process.put(:cosign_verified_artifact, nil)
+    Process.put(:first_party_releases_without_index, false)
 
     on_exit(fn ->
       File.rm_rf(tmp)
@@ -184,6 +175,18 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert plugin.version == "1.2.3"
     assert plugin.release_tag == "v1.2.3"
     assert plugin.import_ready?
+  end
+
+  test "summarizes recent releases without first-party plugin index assets" do
+    Process.put(:first_party_releases_without_index, true)
+
+    assert {:ok,
+            %{
+              plugins: [],
+              scanned_releases: 1,
+              indexed_releases: 0,
+              index_asset_name: "serviceradar-wasm-plugin-index.json"
+            }} = FirstPartyImporter.list_recent_plugins_with_summary(%{"repo_url" => @repo_url}, 10)
   end
 
   test "imports a verified first-party bundle" do
