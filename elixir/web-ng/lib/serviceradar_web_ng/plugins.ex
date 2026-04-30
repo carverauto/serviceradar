@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Plugins do
   defdelegate deny_package(id, attrs, opts \\ []), to: Packages, as: :deny
   defdelegate revoke_package(id, attrs, opts \\ []), to: Packages, as: :revoke
   defdelegate restage_package(id, opts \\ []), to: Packages, as: :restage
+  defdelegate sync_first_party_packages(opts \\ []), to: Packages, as: :sync_first_party_plugins
 
   defdelegate list_assignments(filters \\ %{}, opts \\ []), to: Assignments, as: :list
   defdelegate get_assignment(id, opts \\ []), to: Assignments, as: :get

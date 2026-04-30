@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
@@ -54,6 +55,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
 
     attrs =
       attrs
@@ -61,17 +64,20 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.delete("wasm_object_key")
       |> drop_nil_values()
 
-    source_type = normalize_source_type(Map.get(attrs, :source_type))
+    source_type = normalize_source_type(Map.get(attrs, :source_type) || Map.get(attrs, "source_type"))
 
     case source_type do
       :github ->
-        create_from_github(attrs, scope)
+        create_from_github(attrs, ash_opts)
+
+      :first_party ->
+        create_from_first_party(attrs, ash_opts)
 
       :invalid ->
         {:error, :invalid_source_type}
 
       _ ->
-        create_from_upload(attrs, scope)
+        create_from_upload(attrs, ash_opts)
     end
   end
 
@@ -192,6 +198,43 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def upload_blob(_package, _payload, _opts), do: {:error, :invalid_attributes}
 
+  @spec sync_first_party_plugins(keyword()) :: {:ok, map()} | {:error, term()}
+  def sync_first_party_plugins(opts \\ []) do
+    repo_url = Keyword.get(opts, :repo_url)
+    limit = Keyword.get(opts, :limit, 10)
+
+    discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
+
+    with {:ok, plugins} <- FirstPartyImporter.list_recent_plugins(discovery_attrs, limit) do
+      results =
+        plugins
+        |> Enum.filter(&Map.get(&1, :import_ready?))
+        |> Enum.map(fn plugin ->
+          import_attrs = %{
+            source_type: :first_party,
+            repo_url: plugin.repo_url,
+            release_tag: plugin.release_tag,
+            plugin_id: plugin.plugin_id,
+            version: plugin.version
+          }
+
+          {plugin, create(import_attrs, opts)}
+        end)
+
+      imported =
+        Enum.count(results, fn {_plugin, result} -> match?({:ok, _package}, result) end)
+
+      failed =
+        results
+        |> Enum.filter(fn {_plugin, result} -> match?({:error, _reason}, result) end)
+        |> Enum.map(fn {plugin, {:error, reason}} ->
+          %{plugin_id: plugin.plugin_id, version: plugin.version, release_tag: plugin.release_tag, error: reason}
+        end)
+
+      {:ok, %{discovered: length(plugins), import_ready: length(results), imported: imported, failed: failed}}
+    end
+  end
+
   @spec upload_blob_file(PluginPackage.t(), String.t(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, term()}
   def upload_blob_file(package, path, opts \\ [])
@@ -204,7 +247,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def upload_blob_file(_package, _path, _opts), do: {:error, :invalid_attributes}
 
-  defp ensure_plugin(%Manifest{} = manifest, attrs, scope) do
+  defp ensure_plugin(%Manifest{} = manifest, attrs, ash_opts) do
     plugin_id = manifest.id
     source = Map.get(manifest, :source) || %{}
 
@@ -222,11 +265,11 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           Map.get(source, "homepage")
     }
 
-    case read_plugin(plugin_id, scope) do
+    case read_plugin(plugin_id, ash_opts) do
       {:ok, nil} ->
         Plugin
         |> Ash.Changeset.for_create(:create, plugin_attrs)
-        |> create_resource(scope)
+        |> create_resource(ash_opts)
 
       {:ok, plugin} ->
         {:ok, plugin}
@@ -236,7 +279,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp create_from_upload(attrs, scope) do
+  defp create_from_upload(attrs, ash_opts) do
     manifest = Map.get(attrs, :manifest) || %{}
 
     display_contract =
@@ -247,7 +290,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         %{}
 
     with {:ok, manifest_struct} <- Manifest.from_map(manifest),
-         {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, scope) do
+         {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, ash_opts) do
       attrs =
         attrs
         |> Map.put_new(:plugin_id, manifest_struct.id)
@@ -261,7 +304,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
-      |> create_resource(scope)
+      |> create_resource(ash_opts)
     else
       {:error, errors} when is_list(errors) ->
         {:error, {:invalid_manifest, errors}}
@@ -271,17 +314,30 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp create_from_github(attrs, scope) do
+  defp create_from_github(attrs, ash_opts) do
     with {:ok, import} <- GitHubImporter.fetch(attrs),
-         {:ok, _plugin} <- ensure_plugin(import.manifest_struct, attrs, scope),
-         {:ok, package} <- create_github_package(import, attrs, scope) do
-      store_wasm_blob(package, import.wasm, import.content_hash, scope)
+         {:ok, _plugin} <- ensure_plugin(import.manifest_struct, attrs, ash_opts),
+         {:ok, package} <- create_github_package(import, attrs, ash_opts) do
+      store_wasm_blob(package, import.wasm, import.content_hash, ash_opts)
     end
   end
 
-  defp create_github_package(import, attrs, scope) do
+  defp create_from_first_party(attrs, ash_opts) do
+    with {:ok, import} <- FirstPartyImporter.import(attrs),
+         {:ok, _plugin} <- ensure_plugin(import.manifest_struct, attrs, ash_opts),
+         {:ok, package, store_blob?} <- create_first_party_package(import, attrs, ash_opts) do
+      if store_blob? do
+        store_wasm_blob(package, import.wasm, import.content_hash, ash_opts)
+      else
+        {:ok, package}
+      end
+    end
+  end
+
+  defp create_github_package(import, attrs, ash_opts) do
     attrs =
       attrs
+      |> Map.drop([:repo_url, "repo_url", :release_tag, "release_tag"])
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
@@ -304,7 +360,60 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     PluginPackage
     |> Ash.Changeset.for_create(:create, attrs)
-    |> create_resource(scope)
+    |> create_resource(ash_opts)
+  end
+
+  defp create_first_party_package(import, attrs, ash_opts) do
+    attrs =
+      attrs
+      |> Map.drop([:repo_url, "repo_url", :release_tag, "release_tag"])
+      |> Map.put(:manifest, import.manifest)
+      |> Map.put_new(:config_schema, import.config_schema || %{})
+      |> Map.put_new(:display_contract, import.display_contract || %{})
+      |> Map.put(:source_type, :first_party)
+      |> Map.put(:source_repo_url, import.source_repo_url)
+      |> Map.put(:source_release_tag, import.source_release_tag)
+      |> Map.put(:source_oci_ref, import.source_oci_ref)
+      |> Map.put(:source_oci_digest, import.source_oci_digest)
+      |> Map.put(:source_bundle_digest, import.source_bundle_digest)
+      |> Map.put(:source_metadata, import.source_metadata || %{})
+      |> Map.put(:signature, import.signature)
+      |> Map.put(:gpg_verified_at, import.imported_at)
+      |> Map.put(:gpg_key_id, signer_from_signature(import.signature))
+      |> Map.put(:imported_at, import.imported_at)
+      |> Map.put(:verification_status, import.verification_status)
+      |> Map.put(:verification_error, nil)
+      |> Map.put(:content_hash, import.content_hash)
+
+    attrs =
+      attrs
+      |> Map.put_new(:plugin_id, import.manifest_struct.id)
+      |> Map.put_new(:name, import.manifest_struct.name)
+      |> Map.put_new(:version, import.manifest_struct.version)
+      |> Map.put_new(:description, import.manifest_struct.description)
+      |> Map.put_new(:entrypoint, import.manifest_struct.entrypoint)
+      |> Map.put_new(:runtime, import.manifest_struct.runtime)
+      |> Map.put_new(:outputs, import.manifest_struct.outputs)
+
+    case read_package_version(import.manifest_struct.id, import.manifest_struct.version, ash_opts) do
+      {:ok, nil} ->
+        with {:ok, package} <-
+               PluginPackage
+               |> Ash.Changeset.for_create(:create, attrs)
+               |> create_resource(ash_opts) do
+          {:ok, package, true}
+        end
+
+      {:ok, package} ->
+        if same_first_party_artifact?(package, import) do
+          {:ok, package, false}
+        else
+          {:error, :plugin_version_already_imported_with_different_digest}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
   defp store_wasm_blob(package, payload, content_hash, opts) do
@@ -333,18 +442,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp read_plugin(plugin_id, nil) do
+  defp read_plugin(plugin_id, []) do
     Plugin
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(plugin_id == ^plugin_id)
     |> Ash.read_one()
   end
 
-  defp read_plugin(plugin_id, scope) do
+  defp read_plugin(plugin_id, ash_opts) do
     Plugin
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(plugin_id == ^plugin_id)
-    |> Ash.read_one(scope: scope)
+    |> Ash.read_one(ash_opts)
   end
 
   defp read(query, nil), do: Ash.read!(query)
@@ -364,8 +473,26 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     |> Ash.read_one(scope: scope)
   end
 
-  defp create_resource(changeset, nil), do: Ash.create(changeset)
-  defp create_resource(changeset, scope), do: Ash.create(changeset, scope: scope)
+  defp read_package_version(plugin_id, version, []) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(plugin_id == ^plugin_id and version == ^version)
+    |> Ash.read_one()
+  end
+
+  defp read_package_version(plugin_id, version, ash_opts) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(plugin_id == ^plugin_id and version == ^version)
+    |> Ash.read_one(ash_opts)
+  end
+
+  defp create_resource(changeset, []), do: Ash.create(changeset)
+  defp create_resource(changeset, ash_opts), do: Ash.create(changeset, ash_opts)
+
+  defp ash_opts(scope, _actor) when not is_nil(scope), do: [scope: scope]
+  defp ash_opts(_scope, actor) when not is_nil(actor), do: [actor: actor]
+  defp ash_opts(_scope, _actor), do: []
 
   defp update_resource(changeset, nil), do: Ash.update(changeset)
   defp update_resource(changeset, scope), do: Ash.update(changeset, scope: scope)
@@ -433,6 +560,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     case package.source_type do
       :github -> enforce_github_policy(package, policy)
+      :first_party -> enforce_upload_policy(package, policy)
       :upload -> enforce_upload_policy(package, policy)
       _ -> :ok
     end
@@ -517,6 +645,31 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp normalize_signer(_value), do: nil
 
+  defp same_first_party_artifact?(%PluginPackage{} = package, import) do
+    same_digest?(package.source_bundle_digest, import.source_bundle_digest) and
+      same_optional_digest?(package.source_oci_digest, import.source_oci_digest)
+  end
+
+  defp same_optional_digest?(nil, _right), do: true
+  defp same_optional_digest?(_left, nil), do: true
+  defp same_optional_digest?(left, right), do: same_digest?(left, right)
+
+  defp same_digest?(left, right) do
+    normalize_digest(left) == normalize_digest(right) and not is_nil(normalize_digest(left))
+  end
+
+  defp normalize_digest(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.replace_prefix("sha256:", "")
+    |> case do
+      "" -> nil
+      digest -> String.downcase(digest)
+    end
+  end
+
+  defp normalize_digest(_value), do: nil
+
   defp maybe_put(attrs, _key, nil), do: attrs
   defp maybe_put(attrs, _key, value) when value == [], do: attrs
   defp maybe_put(attrs, _key, value) when value == %{}, do: attrs
@@ -589,10 +742,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp normalize_source_type(""), do: :upload
   defp normalize_source_type(:upload), do: :upload
   defp normalize_source_type(:github), do: :github
+  defp normalize_source_type(:first_party), do: :first_party
 
   defp normalize_source_type(value) when is_binary(value) do
     case String.trim(String.downcase(value)) do
       "github" -> :github
+      "first_party" -> :first_party
+      "first-party" -> :first_party
       "upload" -> :upload
       "" -> :upload
       _ -> :invalid
