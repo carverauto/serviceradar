@@ -171,6 +171,16 @@ config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []
 
+config :serviceradar_web_ng, :first_party_plugin_import,
+  repo_url: "https://code.carverauto.dev/carverauto/serviceradar",
+  index_asset_name: "serviceradar-wasm-plugin-index.json",
+  auto_sync_enabled: false,
+  sync_release_limit: 10,
+  sync_interval_seconds: 3_600,
+  cosign_binary: "cosign",
+  cosign_public_key: nil,
+  cosign_public_key_file: nil
+
 config :serviceradar_web_ng, :god_view_enabled, false
 
 config :serviceradar_web_ng, :plugin_storage,

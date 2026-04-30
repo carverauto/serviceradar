@@ -185,6 +185,10 @@ plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+
+first_party_plugin_import_defaults =
+  Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
 client_ip_defaults = Application.get_env(:serviceradar_web_ng, :client_ip, [])
 
 read_secret_env = fn env_name, file_env_name ->
@@ -531,6 +535,58 @@ if plugin_verification_overrides != [] do
   config :serviceradar_web_ng,
          :plugin_verification,
          Keyword.merge(plugin_verification_defaults, plugin_verification_overrides)
+end
+
+first_party_plugin_import_overrides =
+  []
+  |> maybe_put_env_simple.(
+    :repo_url,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL")
+  )
+  |> maybe_put_env_simple.(
+    :index_asset_name,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET")
+  )
+  |> maybe_put_env.(
+    :auto_sync_enabled,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_SYNC"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :sync_release_limit,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_LIMIT"),
+    to_int
+  )
+  |> maybe_put_env.(
+    :sync_interval_seconds,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_INTERVAL_SECONDS"),
+    to_int
+  )
+  |> maybe_put_env_simple.(
+    :cosign_binary,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_BINARY")
+  )
+  |> maybe_put_env_simple.(
+    :cosign_public_key,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY")
+  )
+  |> maybe_put_env_simple.(
+    :cosign_public_key_file,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY_FILE")
+  )
+  |> maybe_put_env_simple.(
+    :registry_docker_config_json,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_JSON")
+  )
+  |> maybe_put_env_simple.(
+    :registry_docker_config_file,
+    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_FILE")
+  )
+
+if first_party_plugin_import_overrides != [] do
+  config :serviceradar_web_ng,
+         :first_party_plugin_import,
+         Keyword.merge(first_party_plugin_import_defaults, first_party_plugin_import_overrides)
 end
 
 client_ip_overrides =

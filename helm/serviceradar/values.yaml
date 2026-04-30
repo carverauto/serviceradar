@@ -550,6 +550,19 @@ webNg:
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true
+  firstPartyPluginImport:
+    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    indexAssetName: "serviceradar-wasm-plugin-index.json"
+    autoSyncEnabled: false
+    syncReleaseLimit: 10
+    syncIntervalSeconds: 3600
+    cosignBinary: "/usr/local/bin/cosign"
+    cosignPublicKey: ""
+    cosignPublicKeyFile: ""
+    registryDockerConfigSecret: ""
+    registryDockerConfigSecretKey: ".dockerconfigjson"
+    registryDockerConfigJson: ""
+    registryDockerConfigFile: ""
   host: ""
   publicUrl: ""
   godViewEnabled: "true"

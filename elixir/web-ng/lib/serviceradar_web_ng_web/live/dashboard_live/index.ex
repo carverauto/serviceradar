@@ -99,6 +99,25 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 data-mtr-overlays={@mtr_overlays_json}
                 aria-label="Network traffic map"
               />
+              <svg
+                id="ops-traffic-map-world"
+                phx-update="ignore"
+                class="sr-ops-world-map-background"
+                preserveAspectRatio="xMidYMid meet"
+                aria-hidden="true"
+              />
+              <svg
+                id="ops-traffic-map-overlay"
+                phx-update="ignore"
+                class="sr-ops-traffic-overlay"
+                preserveAspectRatio="xMidYMid meet"
+                aria-hidden="true"
+              />
+              <div
+                id="ops-traffic-map-interaction-controls"
+                phx-update="ignore"
+                class="sr-ops-map-interaction-controls"
+              />
 
               <div
                 :if={map_empty?(@map_view, @topology_links, @traffic_links)}

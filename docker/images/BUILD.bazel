@@ -100,6 +100,7 @@ declare_web_ng_release_container_amd64(
         "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
         "PHX_SERVER": "true",
         "MIX_ENV": "prod",
+        "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
     workdir = "/app",
     exposed_ports = ["4000/tcp"],
