@@ -986,7 +986,10 @@ export default {
       this.worldMapBackground.classList.add("sr-ops-world-map-background")
       this.worldMapBackground.setAttribute("preserveAspectRatio", "xMidYMid meet")
       this.worldMapBackground.setAttribute("aria-hidden", "true")
+      parent.insertBefore(this.worldMapBackground, this.el)
+    }
 
+    if (!this.worldMapBackground.querySelector(".sr-ops-world-map-ocean")) {
       const ocean = document.createElementNS("http://www.w3.org/2000/svg", "rect")
       ocean.setAttribute("class", "sr-ops-world-map-ocean")
       ocean.setAttribute("x", "-180")
@@ -1005,7 +1008,6 @@ export default {
 
       this.worldMapBackground.appendChild(ocean)
       this.worldMapBackground.appendChild(group)
-      parent.insertBefore(this.worldMapBackground, this.el)
     }
 
     this.worldMapBackground.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, 26)))
@@ -1015,21 +1017,32 @@ export default {
 
   _ensureInteractionControls() {
     const parent = this.el.parentElement
-    if (!parent || this.interactionControls) return
+    if (!parent) return
 
-    this.interactionControls = document.createElement("div")
-    this.interactionControls.className = "sr-ops-map-interaction-controls"
-    this.interactionControls.innerHTML = `
+    this.interactionControls = this.interactionControls || parent.querySelector(".sr-ops-map-interaction-controls")
+
+    if (!this.interactionControls) {
+      this.interactionControls = document.createElement("div")
+      this.interactionControls.className = "sr-ops-map-interaction-controls"
+      parent.appendChild(this.interactionControls)
+    }
+
+    if (this.interactionControls.dataset.bound === "true") return
+
+    if (!this.interactionControls.firstElementChild) {
+      this.interactionControls.innerHTML = `
       <button type="button" class="sr-ops-map-control-button" data-action="zoom-in" aria-label="Zoom in">+</button>
       <button type="button" class="sr-ops-map-control-button" data-action="zoom-out" aria-label="Zoom out">-</button>
       <button type="button" class="sr-ops-map-control-button" data-action="reset" aria-label="Reset map extent">Reset</button>
       <button type="button" class="sr-ops-map-control-button" data-action="world" aria-label="Show world extent">World</button>
     `
+    }
+
     this.interactionControls.querySelector('[data-action="zoom-in"]')?.addEventListener("click", this._zoomIn)
     this.interactionControls.querySelector('[data-action="zoom-out"]')?.addEventListener("click", this._zoomOut)
     this.interactionControls.querySelector('[data-action="reset"]')?.addEventListener("click", this._resetViewBox)
     this.interactionControls.querySelector('[data-action="world"]')?.addEventListener("click", this._fitWorld)
-    parent.appendChild(this.interactionControls)
+    this.interactionControls.dataset.bound = "true"
   },
 
   _setMapViewBox(viewBox) {
