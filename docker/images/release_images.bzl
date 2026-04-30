@@ -384,6 +384,11 @@ def declare_web_ng_release_container_amd64(
         else:
             bun_layer_name = name + "_bun_runtime_layer_amd64"
 
+    cosign_layer_name = (
+        name[:-len("_image_amd64")] + "_cosign_runtime_layer_amd64"
+        if name.endswith("_image_amd64")
+        else name + "_cosign_runtime_layer_amd64"
+    )
     base_digest = ":{}.digest".format(base_image_name) if base_image_name else ":{}.digest".format(name)
 
     elixir_build_info_layer_amd64(
@@ -397,6 +402,14 @@ def declare_web_ng_release_container_amd64(
         name = bun_layer_name,
         src = bun_src,
         target_path = "usr/local/bin/bun",
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+    file_layer_amd64(
+        name = cosign_layer_name,
+        src = "@cosign_linux_amd64//file",
+        target_path = "usr/local/bin/cosign",
         visibility = visibility,
         target_compatible_with = target_compatible_with,
     )
@@ -415,6 +428,7 @@ def declare_web_ng_release_container_amd64(
         extra_tars = [
             ":{}".format(build_info_layer_name),
             ":{}".format(bun_layer_name),
+            ":{}".format(cosign_layer_name),
         ],
         base_image_name = base_image_name,
         visibility = visibility,

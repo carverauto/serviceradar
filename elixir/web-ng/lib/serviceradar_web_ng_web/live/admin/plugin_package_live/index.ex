@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:filter_source_type, nil)
         |> assign(:first_party_catalog, [])
         |> assign(:first_party_catalog_error, nil)
+        |> assign(:first_party_catalog_status, nil)
         |> assign(:first_party_repo_url, first_party_repo_url())
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
@@ -65,6 +66,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           max_entries: 1,
           max_file_size: Storage.max_upload_bytes()
         )
+
+      if connected?(socket), do: send(self(), :load_first_party_catalog)
 
       {:ok, socket}
     else
@@ -125,6 +128,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> put_flash(:error, "Failed to load package")
         |> push_navigate(to: plugins_index_path(socket))
     end
+  end
+
+  @impl true
+  def handle_info(:load_first_party_catalog, socket) do
+    {:noreply, load_first_party_catalog(socket)}
   end
 
   @impl true
@@ -1004,6 +1012,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 :if={@can_stage_plugins}
                 variant="primary"
                 size="sm"
+                disabled={@first_party_catalog == []}
                 phx-click="import_first_party_catalog"
               >
                 <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
@@ -1014,6 +1023,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <%= if @first_party_catalog_error do %>
             <div class="rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error">
               {@first_party_catalog_error}
+            </div>
+          <% end %>
+
+          <%= if @first_party_catalog_status do %>
+            <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-base-content/70">
+              {@first_party_catalog_status}
             </div>
           <% end %>
 
@@ -1763,19 +1778,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp load_first_party_catalog(socket) do
-    case FirstPartyImporter.list_recent_plugins(
+    case FirstPartyImporter.list_recent_plugins_with_summary(
            %{"repo_url" => socket.assigns.first_party_repo_url},
            first_party_sync_limit()
          ) do
-      {:ok, catalog} ->
+      {:ok, summary} ->
         socket
-        |> assign(:first_party_catalog, catalog)
+        |> assign(:first_party_catalog, summary.plugins)
         |> assign(:first_party_catalog_error, nil)
+        |> assign(:first_party_catalog_status, first_party_catalog_status(summary))
 
       {:error, reason} ->
         socket
         |> assign(:first_party_catalog, [])
         |> assign(:first_party_catalog_error, format_error(reason))
+        |> assign(:first_party_catalog_status, nil)
+    end
+  end
+
+  defp first_party_catalog_status(%{plugins: plugins} = summary) do
+    cond do
+      plugins != [] ->
+        "Loaded #{length(plugins)} first-party plugin entry(s) from #{summary.indexed_releases} indexed release(s)."
+
+      summary.indexed_releases == 0 ->
+        "Scanned #{summary.scanned_releases} recent Forgejo release(s), but none had #{summary.index_asset_name}. Publish the Wasm plugin import index to a release before importing."
+
+      true ->
+        "Scanned #{summary.indexed_releases} indexed release(s), but no import-ready plugin entries were found."
     end
   end
 

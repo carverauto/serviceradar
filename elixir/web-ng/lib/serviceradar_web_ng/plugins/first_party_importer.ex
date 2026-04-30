@@ -28,22 +28,51 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   def list_recent_plugins(attrs \\ %{}, limit \\ @default_recent_release_limit)
 
   def list_recent_plugins(attrs, limit) when is_map(attrs) do
-    with {:ok, repo} <- import_repo(attrs),
-         {:ok, releases} <- fetch_recent_releases(repo, limit) do
-      Enum.reduce(releases, {:ok, []}, fn
-        _release, {:error, _reason} = error ->
-          error
-
-        release, {:ok, acc} ->
-          case release_plugins(repo, release, attrs) do
-            {:ok, plugins} -> {:ok, acc ++ plugins}
-            {:error, reason} -> {:error, reason}
-          end
-      end)
+    with {:ok, summary} <- list_recent_plugins_with_summary(attrs, limit) do
+      {:ok, summary.plugins}
     end
   end
 
   def list_recent_plugins(_attrs, _limit), do: {:error, "Plugin import settings are invalid"}
+
+  @spec list_recent_plugins_with_summary(map(), pos_integer()) :: {:ok, map()} | {:error, String.t()}
+  def list_recent_plugins_with_summary(attrs \\ %{}, limit \\ @default_recent_release_limit)
+
+  def list_recent_plugins_with_summary(attrs, limit) when is_map(attrs) do
+    with {:ok, repo} <- import_repo(attrs),
+         {:ok, releases} <- fetch_recent_releases(repo, limit) do
+      index_name = index_asset_name(attrs)
+
+      releases
+      |> Enum.reduce_while({:ok, %{plugins: [], indexed_releases: 0}}, fn release, {:ok, acc} ->
+        if release_asset_present?(release, index_name) do
+          case release_plugins(repo, release, attrs) do
+            {:ok, plugins} ->
+              {:cont, {:ok, %{acc | plugins: acc.plugins ++ plugins, indexed_releases: acc.indexed_releases + 1}}}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
+          end
+        else
+          {:cont, {:ok, acc}}
+        end
+      end)
+      |> case do
+        {:ok, summary} ->
+          {:ok,
+           Map.merge(summary, %{
+             scanned_releases: length(releases),
+             index_asset_name: index_name,
+             repo_url: repo.repo_url
+           })}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  def list_recent_plugins_with_summary(_attrs, _limit), do: {:error, "Plugin import settings are invalid"}
 
   @spec import(map()) :: {:ok, map()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
