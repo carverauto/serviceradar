@@ -46,14 +46,16 @@
 ## 5. Web UI
 
 - [ ] 5.1 Add settings UI for default dashboard WiFi map query and named WiFi map views.
-- [ ] 5.2 Reuse or extend deployment-level Mapbox settings for WiFi map basemap styles/tokens; do not source tile/provider settings from plugin payloads.
+- [x] 5.2 Reuse or extend deployment-level Mapbox settings for WiFi map basemap styles/tokens; do not source tile/provider settings from plugin payloads.
 - [ ] 5.3 Add dashboard map mode selector for NetFlow vs WiFi site map.
 - [ ] 5.4 Add a dashboard deck.gl WiFi map card driven by the configured SRQL query and configured ServiceRadar basemap provider.
-- [ ] 5.5 Add a full-screen deck.gl WiFi map LiveView route with SRQL builder, saved view selection, map filters, and result table.
-- [ ] 5.6 Implement clickable deck.gl features that open ServiceRadar-owned popups/detail panels and follow-on SRQL detail queries.
-- [ ] 5.7 Implement site/device search over SRQL-backed site code, site name, hostname, MAC, serial, IP, model, and status fields.
-- [ ] 5.8 Rebuild POC parity interactions: region, RADIUS cluster, AP family, WLC model/version filters, DOWN-only filter, site popup details, AP/WLC detail lists, freshness, and fleet migration trend.
-- [ ] 5.9 Add responsive desktop/mobile styling and Playwright visual checks for dashboard and full-screen map views.
+- [x] 5.5 Add an initial full-screen deck.gl WiFi map LiveView route with SRQL builder and result table.
+- [ ] 5.6 Add saved view selection and map-specific filters to the full-screen WiFi map route.
+- [x] 5.7 Implement clickable deck.gl WiFi site features that open ServiceRadar-owned popups.
+- [ ] 5.8 Add follow-on SRQL detail queries from WiFi map popups/detail panels.
+- [ ] 5.9 Implement site/device search over SRQL-backed site code, site name, hostname, MAC, serial, IP, model, and status fields.
+- [ ] 5.10 Rebuild POC parity interactions: region, RADIUS cluster, AP family, WLC model/version filters, DOWN-only filter, site popup details, AP/WLC detail lists, freshness, and fleet migration trend.
+- [ ] 5.11 Add responsive desktop/mobile styling and Playwright visual checks for dashboard and full-screen map views.
 
 ## 6. Live Aruba Collector Follow-Up
 

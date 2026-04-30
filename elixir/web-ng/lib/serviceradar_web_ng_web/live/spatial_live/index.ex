@@ -23,9 +23,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
             </p>
           </div>
 
-          <.link navigate={~p"/spatial/field-surveys"} class="btn btn-sm btn-primary">
-            <.icon name="hero-map" class="size-4" /> FieldSurvey Review
-          </.link>
+          <div class="flex flex-wrap gap-2">
+            <.link navigate={~p"/spatial/wifi-map"} class="btn btn-sm btn-primary">
+              <.icon name="hero-map-pin" class="size-4" /> WiFi Map
+            </.link>
+            <.link navigate={~p"/spatial/field-surveys"} class="btn btn-sm">
+              <.icon name="hero-map" class="size-4" /> FieldSurvey Review
+            </.link>
+          </div>
         </div>
 
         <.ui_panel

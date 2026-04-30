@@ -2832,6 +2832,93 @@
   line-height: 1.4;
 }
 
+.sr-wifi-map-page {
+  min-height: calc(100vh - 5rem);
+}
+
+.sr-wifi-map-stage {
+  position: relative;
+  min-height: 560px;
+  height: min(72vh, 760px);
+  overflow: hidden;
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  border-radius: 0.5rem;
+  background: #020817;
+}
+
+.sr-wifi-map-canvas,
+.sr-wifi-map-hook,
+.sr-wifi-map-basemap,
+.sr-wifi-map-deck {
+  position: absolute;
+  inset: 0;
+}
+
+.sr-wifi-map-hook {
+  overflow: hidden;
+}
+
+.sr-wifi-map-basemap {
+  z-index: 1;
+}
+
+.sr-wifi-map-deck {
+  z-index: 2;
+}
+
+.sr-wifi-map-fallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 1.5rem;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.sr-wifi-map-popup {
+  min-width: 13rem;
+  color: #0f172a;
+}
+
+.sr-wifi-map-popup h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.sr-wifi-map-popup p {
+  margin: 0.25rem 0 0;
+  color: #475569;
+  font-size: 0.75rem;
+}
+
+.sr-wifi-map-popup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.sr-wifi-map-popup-grid div {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.sr-wifi-map-popup-grid span {
+  display: block;
+  color: #64748b;
+  font-size: 0.65rem;
+}
+
+.sr-wifi-map-popup-grid strong {
+  display: block;
+  color: #0f172a;
+  font-size: 0.86rem;
+}
+
 .sr-fieldsurvey-review-page {
   min-height: calc(100vh - 5rem);
   color: #e2e8f0;

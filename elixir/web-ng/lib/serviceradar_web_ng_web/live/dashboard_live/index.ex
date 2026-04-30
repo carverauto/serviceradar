@@ -73,11 +73,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <section class="sr-ops-grid-primary">
           <.panel title={map_panel_title(@map_view)} class="lg:col-span-7">
             <:actions>
-              <.link href={~p"/topology"} class="sr-ops-button">Full Topology</.link>
+              <select
+                id="traffic-map-view-select"
+                name="map_view"
+                phx-hook="DashboardMapViewSelect"
+                class="sr-ops-select"
+                aria-label="Dashboard map view"
+              >
+                <option value="netflow" selected={@map_view == "netflow"}>NetFlow Map</option>
+                <option value="wifi_map" selected={@map_view == "wifi_map"}>WiFi Map</option>
+              </select>
+              <.link href={map_fullscreen_path(@map_view)} class="sr-ops-button">
+                Full Screen
+              </.link>
             </:actions>
 
-            <div class="sr-ops-map-shell">
-              <div class="sr-ops-map-controls">
+            <div class={["sr-ops-map-shell", @map_view == "wifi_map" && "is-wifi-map-view"]}>
+              <div :if={@map_view == "netflow"} class="sr-ops-map-controls">
                 <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
                   <li><span class="bg-teal-400"></span>Network cluster</li>
                   <li><span class="bg-sky-400"></span>Private/public flow</li>
@@ -88,6 +100,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 </ul>
                 <span class="sr-ops-map-window">{@traffic_links_window_label}</span>
               </div>
+
+              <.link
+                :if={@map_view == "wifi_map"}
+                navigate={~p"/spatial/wifi-map"}
+                class="sr-ops-wifi-map-preview"
+                aria-label="Open full screen WiFi map"
+              >
+                <span class="sr-ops-wifi-map-pin">
+                  <.icon name="hero-map-pin" class="size-5" />
+                </span>
+                <strong>WiFi Map</strong>
+                <small>Open the SRQL-backed WiFi site map with basemap, popups, and result table.</small>
+              </.link>
 
               <canvas
                 id="ops-traffic-map"
@@ -120,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               />
 
               <div
-                :if={map_empty?(@map_view, @topology_links, @traffic_links)}
+                :if={@map_view == "netflow" and map_empty?(@map_view, @topology_links, @traffic_links)}
                 class="sr-ops-map-empty"
                 data-testid="traffic-map-empty"
               >
@@ -129,8 +154,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               </div>
             </div>
 
-            <div class="sr-ops-map-stats">
+            <div :if={@map_view == "netflow"} class="sr-ops-map-stats">
               <.small_stat :for={stat <- @map_stats} label={stat.label} value={stat.value} />
+            </div>
+            <div :if={@map_view == "wifi_map"} class="sr-ops-map-stats">
+              <.small_stat label="Source" value="SRQL" />
+              <.small_stat label="Basemap" value="Mapbox" />
+              <.small_stat label="View" value="Full Screen" />
             </div>
           </.panel>
 
@@ -936,9 +966,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end
   end
 
+  defp normalize_map_view("wifi_map"), do: "wifi_map"
   defp normalize_map_view(_), do: "netflow"
 
+  defp map_panel_title("wifi_map"), do: "WiFi Map"
   defp map_panel_title(_), do: "NetFlow Map"
+
+  defp map_fullscreen_path("wifi_map"), do: ~p"/spatial/wifi-map"
+  defp map_fullscreen_path(_), do: ~p"/observability?tab=netflows"
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 
