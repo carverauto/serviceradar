@@ -130,6 +130,69 @@ func TestParseJSONLogsCharCodeBody(t *testing.T) {
 	}
 }
 
+func TestParseJSONLogsCorazaProcessedPayload(t *testing.T) {
+	payload := []byte(`{
+		"attributes":{
+			"event_type":"waf.finding",
+			"security":{"signal":{"kind":"waf","source":"coraza-proxy-wasm"}},
+			"waf":{
+				"client_ip":"192.168.1.218",
+				"request_id":"req-1",
+				"request_path":"/live/longpoll",
+				"request_query":"<redacted>",
+				"rule_id":"932370",
+				"rule_message":"Remote Command Execution: Windows Command Injection",
+				"rule_severity":"critical",
+				"source":"coraza-proxy-wasm",
+				"waf_policy":"serviceradar-shared-coraza-waf"
+			}
+		},
+		"body":"WAF critical rule 932370: Remote Command Execution: Windows Command Injection /live/longpoll",
+		"event_name":"waf.finding",
+		"full_message":"<132>Apr 30 00:28:31 serviceradar-edge envoy-coraza-waf: {\"request_query\":\"<redacted>\"}",
+		"host":"serviceradar-edge",
+		"level":4,
+		"service_name":"envoy-coraza-waf",
+		"severity":"Unknown",
+		"severity_text":"critical",
+		"short_message":"envoy-coraza-waf: {\"request_query\":\"<redacted>\",\"summary\":\"wrong body if chosen\"}",
+		"source":"waf",
+		"timestamp":1777508911,
+		"version":"1.1"
+	}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.syslog.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	row := rows[0]
+	if row.Body != "WAF critical rule 932370: Remote Command Execution: Windows Command Injection /live/longpoll" {
+		t.Fatalf("expected normalized WAF body, got %q", row.Body)
+	}
+	if row.Source != "waf" {
+		t.Fatalf("expected WAF source to override syslog subject source, got %q", row.Source)
+	}
+	if row.SeverityText != "critical" {
+		t.Fatalf("expected WAF severity text to stay critical, got %q", row.SeverityText)
+	}
+	if row.SeverityNumber != 21 {
+		t.Fatalf("expected WAF severity number 21, got %d", row.SeverityNumber)
+	}
+	if row.ServiceName != "envoy-coraza-waf" {
+		t.Fatalf("unexpected service name: %q", row.ServiceName)
+	}
+	if strings.Contains(row.Attributes, "full_message") {
+		t.Fatalf("expected full_message to be omitted from metadata, got %s", row.Attributes)
+	}
+	if !strings.Contains(row.Attributes, `"waf"`) {
+		t.Fatalf("expected WAF attributes to be preserved, got %s", row.Attributes)
+	}
+}
+
 func TestParseJSONLogsPrefersSubjectSourceForSNMP(t *testing.T) {
 	payload := []byte(`{
 		"body":"I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable.",
