@@ -75,7 +75,9 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
   end
 
   defp rekor_verified?(output) when is_binary(output) do
-    output =~ "tlog entry verified" or output =~ "Bundle verified"
+    output =~ "tlog entry verified" or
+      output =~ "Bundle verified" or
+      output =~ "transparency log was verified"
   end
 
   defp cosign_cmd_opts(config) do
