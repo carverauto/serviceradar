@@ -30,6 +30,7 @@ var jsonLogReservedKeys = map[string]struct{}{
 	"event_name":              {},
 	"eventName":               {},
 	"event":                   {},
+	"full_message":            {},
 	"host":                    {},
 	"hostname":                {},
 	"ip":                      {},
@@ -117,7 +118,7 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 		}
 	}
 
-	body := firstString(entry, "message", "short_message", "msg", "body", "event", "log", "summary")
+	body := firstString(entry, "body", "message", "msg", "summary", "short_message", "event", "log")
 	if body == "" {
 		body = snmpBodyFromVarbinds(entry)
 	}
@@ -125,7 +126,6 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 		body = subject
 	}
 
-	severityText, severityNumber := normalizeSeverity(entry)
 	observedTimestamp := parseObservedTimestamp(entry)
 	if observedTimestamp == nil {
 		now := time.Now().UTC()
@@ -133,6 +133,7 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	}
 	traceFlags := parseTraceFlags(entry)
 	eventName := firstString(entry, "event_name", "eventName")
+	severityText, severityNumber := normalizeSeverity(entry)
 
 	resourceMap := extractAttributesMap(entry, "resource_attributes", "resourceAttributes", "resource")
 	resourceAttribs := resourceMap
@@ -207,10 +208,7 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	attributes := encodeAttributes(attributesMap)
 	resourceAttributes := encodeAttributes(resourceAttribs)
 	scopeAttributesEncoded := encodeAttributes(scopeAttributes)
-	source := inferLogSource(subject)
-	if source == "" {
-		source = firstString(entry, "source")
-	}
+	source := logSource(entry, subject, eventName)
 
 	return models.OTELLogRow{
 		Timestamp:          timestamp,
@@ -256,6 +254,19 @@ func inferLogSource(subject string) string {
 	}
 }
 
+func logSource(entry map[string]interface{}, subject, eventName string) string {
+	source := firstString(entry, "source")
+	if isWAFFinding(entry, eventName) && source != "" {
+		return source
+	}
+
+	if inferred := inferLogSource(subject); inferred != "" {
+		return inferred
+	}
+
+	return source
+}
+
 func buildResourceAttributesMap(entry map[string]interface{}) map[string]interface{} {
 	keys := []string{"host", "hostname", "remote_addr", "source", "ip", "ip_address"}
 	resource := make(map[string]interface{})
@@ -290,10 +301,18 @@ func buildAttributesMap(entry map[string]interface{}, reserved map[string]struct
 
 func normalizeSeverity(entry map[string]interface{}) (string, int32) {
 	if severity := firstString(entry, "severity_text"); severity != "" {
+		if isWAFFinding(entry, firstString(entry, "event_name", "eventName")) {
+			return normalizeSecuritySeverityText(severity)
+		}
+
 		return normalizeSeverityText(severity)
 	}
 
 	if severity := firstString(entry, "severity"); severity != "" {
+		if isWAFFinding(entry, firstString(entry, "event_name", "eventName")) {
+			return normalizeSecuritySeverityText(severity)
+		}
+
 		return normalizeSeverityText(severity)
 	}
 
@@ -309,6 +328,44 @@ func normalizeSeverity(entry map[string]interface{}) (string, int32) {
 	}
 
 	return severityINFO, severityNumberForText(severityINFO)
+}
+
+func isWAFFinding(entry map[string]interface{}, eventName string) bool {
+	if strings.EqualFold(strings.TrimSpace(eventName), "waf.finding") {
+		return true
+	}
+
+	attributes := extractAttributesMap(entry, "attributes")
+	if firstStringFromMap(attributes, "event_type", "eventType") == "waf.finding" {
+		return true
+	}
+
+	return false
+}
+
+func normalizeSecuritySeverityText(text string) (string, int32) {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+
+	switch normalized {
+	case "emergency":
+		return "emergency", 23
+	case "alert":
+		return "alert", 22
+	case "fatal":
+		return "fatal", 23
+	case "critical":
+		return "critical", 21
+	case "high", "error":
+		return "error", severityNumberForText(severityERROR)
+	case "medium", "warn", "warning":
+		return "warning", severityNumberForText(severityWARN)
+	case "low", "info", "informational", "notice", "unknown":
+		return "info", severityNumberForText(severityINFO)
+	case "debug", "trace":
+		return normalized, severityNumberForText(severityDEBUG)
+	default:
+		return "info", severityNumberForText(severityINFO)
+	}
 }
 
 func normalizeSeverityText(text string) (string, int32) {
