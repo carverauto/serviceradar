@@ -757,6 +757,9 @@ export default {
     this.viewBoxSignature = null
     this.dragState = null
     this.suppressNextClick = false
+    this.ownsSvgOverlay = false
+    this.ownsWorldMapBackground = false
+    this.ownsInteractionControls = false
     this._resizeMap = this._resizeMap.bind(this)
     this._onMapViewChange = this._onMapViewChange.bind(this)
     this._onExternalMapViewChange = this._onExternalMapViewChange.bind(this)
@@ -806,10 +809,13 @@ export default {
     this.svgOverlay?.removeEventListener("wheel", this._onMapWheel)
     this.svgOverlay?.removeEventListener("pointerdown", this._onMapPointerDown)
     this.resizeObserver?.disconnect()
-    this.interactionControls?.remove()
+    this._unbindInteractionControls()
     this.anchorDetails?.remove()
-    this.svgOverlay?.remove()
-    this.worldMapBackground?.remove()
+    if (this.svgOverlay) {
+      delete this.svgOverlay.dataset.clickBound
+      if (this.ownsSvgOverlay) this.svgOverlay.remove()
+    }
+    if (this.ownsWorldMapBackground) this.worldMapBackground?.remove()
   },
 
   _blockMapGesture(event) {
@@ -962,6 +968,9 @@ export default {
       this.svgOverlay.setAttribute("preserveAspectRatio", "xMidYMid meet")
       this.svgOverlay.setAttribute("aria-hidden", "true")
       parent.appendChild(this.svgOverlay)
+      this.ownsSvgOverlay = true
+    } else {
+      this.ownsSvgOverlay = false
     }
 
     if (!this.svgOverlay.dataset.clickBound) {
@@ -987,6 +996,9 @@ export default {
       this.worldMapBackground.setAttribute("preserveAspectRatio", "xMidYMid meet")
       this.worldMapBackground.setAttribute("aria-hidden", "true")
       parent.insertBefore(this.worldMapBackground, this.el)
+      this.ownsWorldMapBackground = true
+    } else {
+      this.ownsWorldMapBackground = false
     }
 
     if (!this.worldMapBackground.querySelector(".sr-ops-world-map-ocean")) {
@@ -1025,6 +1037,9 @@ export default {
       this.interactionControls = document.createElement("div")
       this.interactionControls.className = "sr-ops-map-interaction-controls"
       parent.appendChild(this.interactionControls)
+      this.ownsInteractionControls = true
+    } else {
+      this.ownsInteractionControls = false
     }
 
     if (this.interactionControls.dataset.bound === "true") return
@@ -1043,6 +1058,18 @@ export default {
     this.interactionControls.querySelector('[data-action="reset"]')?.addEventListener("click", this._resetViewBox)
     this.interactionControls.querySelector('[data-action="world"]')?.addEventListener("click", this._fitWorld)
     this.interactionControls.dataset.bound = "true"
+  },
+
+  _unbindInteractionControls() {
+    if (!this.interactionControls) return
+
+    this.interactionControls.querySelector('[data-action="zoom-in"]')?.removeEventListener("click", this._zoomIn)
+    this.interactionControls.querySelector('[data-action="zoom-out"]')?.removeEventListener("click", this._zoomOut)
+    this.interactionControls.querySelector('[data-action="reset"]')?.removeEventListener("click", this._resetViewBox)
+    this.interactionControls.querySelector('[data-action="world"]')?.removeEventListener("click", this._fitWorld)
+    delete this.interactionControls.dataset.bound
+
+    if (this.ownsInteractionControls) this.interactionControls.remove()
   },
 
   _setMapViewBox(viewBox) {

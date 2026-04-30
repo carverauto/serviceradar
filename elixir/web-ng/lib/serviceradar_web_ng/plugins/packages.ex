@@ -408,11 +408,21 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         if same_first_party_artifact?(package, import) do
           {:ok, package, false}
         else
-          {:error, :plugin_version_already_imported_with_different_digest}
+          replace_with_first_party_package(package, attrs, ash_opts)
         end
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  defp replace_with_first_party_package(%PluginPackage{} = package, attrs, ash_opts) do
+    package
+    |> Ash.Changeset.for_update(:update, attrs)
+    |> update_resource_with_opts(ash_opts)
+    |> case do
+      {:ok, updated} -> {:ok, updated, true}
+      {:error, error} -> {:error, error}
     end
   end
 
