@@ -56,7 +56,6 @@ enum FieldKind {
     Text,
     Int,
     Float,
-    Bool,
     TextArray,
     Date,
 }
@@ -88,6 +87,12 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_sql(plan: &QueryPlan) -> Result<BuiltSql> {
+    if plan.stats.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "WiFi map stats/grouping is not implemented yet".into(),
+        ));
+    }
+
     let spec = EntitySpec::for_entity(&plan.entity)?;
     let mut where_parts = Vec::new();
     let mut binds = Vec::new();
@@ -140,6 +145,7 @@ impl EntitySpec {
                 time_column: "COALESCE(latest.collection_timestamp, s.last_seen_at, s.updated_at)",
                 select_sql: "jsonb_build_object(
                     'entity', 'wifi_site',
+                    'feature_id', concat(s.source_id::text, ':', s.site_code),
                     'source_id', s.source_id::text,
                     'site_code', s.site_code,
                     'name', s.name,
@@ -193,7 +199,8 @@ impl EntitySpec {
                 )",
             }),
             Entity::WifiAccessPoints => Ok(Self {
-                from_sql: "platform.wifi_access_point_observations ap",
+                from_sql: "platform.wifi_access_point_observations ap
+                    LEFT JOIN platform.wifi_sites s ON s.source_id = ap.source_id AND s.site_code = ap.site_code",
                 time_column: "ap.collection_timestamp",
                 select_sql: "jsonb_build_object(
                     'entity', 'wifi_access_point',
@@ -202,6 +209,10 @@ impl EntitySpec {
                     'batch_id', ap.batch_id::text,
                     'device_uid', ap.device_uid,
                     'site_code', ap.site_code,
+                    'site_name', s.name,
+                    'region', s.region,
+                    'latitude', s.latitude,
+                    'longitude', s.longitude,
                     'collection_timestamp', ap.collection_timestamp,
                     'name', ap.name,
                     'hostname', ap.hostname,
@@ -215,7 +226,8 @@ impl EntitySpec {
                 )",
             }),
             Entity::WifiControllers => Ok(Self {
-                from_sql: "platform.wifi_controller_observations c",
+                from_sql: "platform.wifi_controller_observations c
+                    LEFT JOIN platform.wifi_sites s ON s.source_id = c.source_id AND s.site_code = c.site_code",
                 time_column: "c.collection_timestamp",
                 select_sql: "jsonb_build_object(
                     'entity', 'wifi_controller',
@@ -224,6 +236,10 @@ impl EntitySpec {
                     'batch_id', c.batch_id::text,
                     'device_uid', c.device_uid,
                     'site_code', c.site_code,
+                    'site_name', s.name,
+                    'region', s.region,
+                    'latitude', s.latitude,
+                    'longitude', s.longitude,
                     'collection_timestamp', c.collection_timestamp,
                     'name', c.name,
                     'hostname', c.hostname,
@@ -240,7 +256,8 @@ impl EntitySpec {
                 )",
             }),
             Entity::WifiRadiusGroups => Ok(Self {
-                from_sql: "platform.wifi_radius_group_observations r",
+                from_sql: "platform.wifi_radius_group_observations r
+                    LEFT JOIN platform.wifi_sites s ON s.source_id = r.source_id AND s.site_code = r.site_code",
                 time_column: "r.collection_timestamp",
                 select_sql: "jsonb_build_object(
                     'entity', 'wifi_radius_group',
@@ -249,6 +266,10 @@ impl EntitySpec {
                     'batch_id', r.batch_id::text,
                     'controller_device_uid', r.controller_device_uid,
                     'site_code', r.site_code,
+                    'site_name', s.name,
+                    'region', s.region,
+                    'latitude', s.latitude,
+                    'longitude', s.longitude,
                     'collection_timestamp', r.collection_timestamp,
                     'controller_alias', r.controller_alias,
                     'aaa_profile', r.aaa_profile,
@@ -325,7 +346,6 @@ fn filter_condition(
         FieldKind::Text => text_condition(field_sql, filter, binds),
         FieldKind::Int => numeric_condition(field_sql, filter, binds, NumericKind::Int),
         FieldKind::Float => numeric_condition(field_sql, filter, binds, NumericKind::Float),
-        FieldKind::Bool => bool_condition(field_sql, filter, binds),
         FieldKind::TextArray => text_array_condition(field_sql, filter, binds),
         FieldKind::Date => date_condition(field_sql, filter, binds),
     }
@@ -396,6 +416,10 @@ fn field_sql(entity: &Entity, field: &str) -> Option<(&'static str, FieldKind)> 
             "batch_id" => Some(("r.batch_id::text", FieldKind::Text)),
             "controller_device_uid" => Some(("r.controller_device_uid", FieldKind::Text)),
             "site_code" | "iata" => Some(("r.site_code", FieldKind::Text)),
+            "site_name" => Some(("s.name", FieldKind::Text)),
+            "region" => Some(("s.region", FieldKind::Text)),
+            "latitude" | "lat" => Some(("s.latitude", FieldKind::Float)),
+            "longitude" | "lon" | "lng" => Some(("s.longitude", FieldKind::Float)),
             "controller_alias" | "controller" => Some(("r.controller_alias", FieldKind::Text)),
             "aaa_profile" => Some(("r.aaa_profile", FieldKind::Text)),
             "server_group" => Some(("r.server_group", FieldKind::Text)),
@@ -451,6 +475,10 @@ fn wifi_device_field_sql(alias: &'static str, field: &str) -> Option<(&'static s
         ("ap", "batch_id") => Some(("ap.batch_id::text", FieldKind::Text)),
         ("ap", "device_uid") => Some(("ap.device_uid", FieldKind::Text)),
         ("ap", "site_code" | "iata") => Some(("ap.site_code", FieldKind::Text)),
+        ("ap", "site_name") => Some(("s.name", FieldKind::Text)),
+        ("ap", "region") => Some(("s.region", FieldKind::Text)),
+        ("ap", "latitude" | "lat") => Some(("s.latitude", FieldKind::Float)),
+        ("ap", "longitude" | "lon" | "lng") => Some(("s.longitude", FieldKind::Float)),
         ("ap", "name" | "hostname" | "host") => {
             Some(("COALESCE(ap.hostname, ap.name)", FieldKind::Text))
         }
@@ -465,6 +493,10 @@ fn wifi_device_field_sql(alias: &'static str, field: &str) -> Option<(&'static s
         ("c", "batch_id") => Some(("c.batch_id::text", FieldKind::Text)),
         ("c", "device_uid") => Some(("c.device_uid", FieldKind::Text)),
         ("c", "site_code" | "iata") => Some(("c.site_code", FieldKind::Text)),
+        ("c", "site_name") => Some(("s.name", FieldKind::Text)),
+        ("c", "region") => Some(("s.region", FieldKind::Text)),
+        ("c", "latitude" | "lat") => Some(("s.latitude", FieldKind::Float)),
+        ("c", "longitude" | "lon" | "lng") => Some(("s.longitude", FieldKind::Float)),
         ("c", "name" | "hostname" | "host") => {
             Some(("COALESCE(c.hostname, c.name)", FieldKind::Text))
         }
@@ -551,23 +583,6 @@ fn numeric_condition(
     }
 
     Ok(format!("{field_sql} {op} ?"))
-}
-
-fn bool_condition(field_sql: &str, filter: &Filter, binds: &mut Vec<BindParam>) -> Result<String> {
-    let value = parse_bool(filter.value.as_scalar()?)?;
-    match filter.op {
-        FilterOp::Eq => {
-            binds.push(BindParam::Bool(value));
-            Ok(format!("({field_sql}) = ?"))
-        }
-        FilterOp::NotEq => {
-            binds.push(BindParam::Bool(value));
-            Ok(format!("({field_sql}) <> ?"))
-        }
-        _ => Err(ServiceError::InvalidRequest(
-            "boolean WiFi map filters only support equality".into(),
-        )),
-    }
 }
 
 fn text_array_condition(
@@ -699,19 +714,8 @@ fn parse_f64(raw: &str) -> Result<f64> {
     })
 }
 
-fn parse_bool(raw: &str) -> Result<bool> {
-    match raw.to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" => Ok(true),
-        "false" | "0" | "no" => Ok(false),
-        _ => Err(ServiceError::InvalidRequest(format!(
-            "expected boolean WiFi map filter value: {raw}"
-        ))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{
         config::AppConfig,
         query::{translate_request, QueryRequest},
@@ -738,6 +742,7 @@ mod tests {
 
         assert!(sql.contains("platform.wifi_sites s"));
         assert!(sql.contains("LEFT JOIN LATERAL"));
+        assert!(sql.contains("'feature_id', concat(s.source_id::text, ':', s.site_code)"));
         assert!(sql.contains("'latitude', s.latitude"));
         assert!(sql.contains("'ap_count', COALESCE(latest.ap_count, 0)"));
         assert!(sql.contains("s.region = $1"));
@@ -750,6 +755,7 @@ mod tests {
         let sql = translate("in:wifi_aps site_code:IAH hostname:%WAP% status:Up sort:name:asc");
 
         assert!(sql.contains("platform.wifi_access_point_observations ap"));
+        assert!(sql.contains("LEFT JOIN platform.wifi_sites s"));
         assert!(sql.contains("ap.site_code = $1"));
         assert!(sql.contains("COALESCE(ap.hostname, ap.name) ILIKE $2"));
         assert!(sql.contains("ap.status = $3"));
@@ -762,5 +768,39 @@ mod tests {
 
         assert!(sql.contains("platform.wifi_radius_group_observations r"));
         assert!(sql.contains("COALESCE(r.all_server_groups, '{}'::text[]) && $1"));
+    }
+
+    #[test]
+    fn unsupported_wifi_filter_fails() {
+        let err = translate_request(
+            &AppConfig::embedded("postgres://srql-test".to_string()),
+            QueryRequest {
+                query: "in:wifi_sites unknown_field:foo".to_string(),
+                limit: None,
+                cursor: None,
+                direction: Default::default(),
+                mode: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unsupported filter field"));
+    }
+
+    #[test]
+    fn wifi_stats_fail_until_grouping_is_implemented() {
+        let err = translate_request(
+            &AppConfig::embedded("postgres://srql-test".to_string()),
+            QueryRequest {
+                query: "in:wifi_sites stats:\"count() as total by region\"".to_string(),
+                limit: None,
+                cursor: None,
+                direction: Default::default(),
+                mode: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("stats/grouping"));
     }
 }
