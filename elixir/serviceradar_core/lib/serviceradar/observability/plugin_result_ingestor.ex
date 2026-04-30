@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
+  alias ServiceRadar.WifiMap.BatchIngestor, as: WifiMapBatchIngestor
 
   require Logger
 
@@ -38,6 +39,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     with :ok <- insert_status(status_row, actor),
          :ok <- insert_metrics(payload, status, observed_at, created_at, actor),
          :ok <- ingest_threat_intel(payload, status, observed_at, actor),
+         :ok <- ingest_wifi_map(payload, status, observed_at, actor),
          :ok <- ingest_camera_events(payload, status, observed_at, actor) do
       ingest_camera_inventory(payload, status, observed_at, actor)
     end
@@ -311,6 +313,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     threat_intel_ingestor().ingest(payload, status, actor: actor, observed_at: observed_at)
   end
 
+  defp ingest_wifi_map(payload, status, observed_at, actor) do
+    case wifi_map_batch_ingestor().ingest(payload, status, actor: actor, observed_at: observed_at) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("WiFi map batch ingest failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+
   defp camera_inventory_ingestor do
     Application.get_env(:serviceradar_core, :camera_inventory_ingestor, InventoryIngestor)
   end
@@ -325,6 +338,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       :threat_intel_plugin_ingestor,
       ThreatIntelPluginIngestor
     )
+  end
+
+  defp wifi_map_batch_ingestor do
+    Application.get_env(:serviceradar_core, :wifi_map_batch_ingestor, WifiMapBatchIngestor)
   end
 
   defp plugin_status_available(nil), do: false
