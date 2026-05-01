@@ -859,6 +859,7 @@ services:
       - RELEASE_NODE=serviceradar_web_ng@web-ng
       - RELEASE_DISTRIBUTION=sname
       - SERVICERADAR_SECURITY_MODE=${SERVICERADAR_SECURITY_MODE:-mtls}
+      - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
       - SECRET_KEY_BASE_FILE=/etc/serviceradar/admin/secret-key-base
       - PLUGIN_STORAGE_BACKEND=filesystem
       - PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages
@@ -906,6 +907,7 @@ services:
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - migrations-data:/var/lib/serviceradar/migrations:ro
       - plugin-packages:/var/lib/serviceradar/plugin-packages
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment
     depends_on:

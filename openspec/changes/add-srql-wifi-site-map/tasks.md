@@ -69,7 +69,7 @@
 
 - [x] 7.1 Run `openspec validate add-srql-wifi-site-map --strict`.
 - [ ] 7.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
-- [ ] 7.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
+- [x] 7.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
 - [ ] 7.4 Run customer plugin source sync/import tests.
 - [x] 7.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.
 - [ ] 7.6 Run `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` after web changes.

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.PageController do
 
   def home(conn, _params) do
     if conn.assigns.current_scope && conn.assigns.current_scope.user do
-      redirect(conn, to: ~p"/analytics")
+      redirect(conn, to: ~p"/dashboard")
     else
       redirect(conn, to: ~p"/users/log-in")
     end
@@ -11,6 +11,10 @@ defmodule ServiceRadarWebNGWeb.PageController do
 
   def redirect_to_analytics(conn, _params) do
     redirect(conn, to: ~p"/analytics")
+  end
+
+  def redirect_to_wifi_map(conn, _params) do
+    redirect(conn, to: ~p"/wifi-map")
   end
 
   def redirect_to_settings_profile(conn, _params) do

@@ -59,7 +59,9 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
       setup_oban()
     end
 
-    setup_log_handler()
+    if otel_export_enabled?() do
+      setup_log_handler()
+    end
 
     :ok
   end
@@ -192,6 +194,19 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
         end
     end
   end
+
+  defp otel_export_enabled? do
+    enabled? =
+      "OTEL_ENABLED"
+      |> System.get_env("true")
+      |> String.downcase()
+      |> Kernel.!=("false")
+
+    enabled? and present?(System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT"))
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp telemetry_prefix(repo) do
     repo

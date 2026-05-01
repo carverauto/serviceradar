@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   @csp "default-src 'self'; " <>
          "script-src 'self' blob:; " <>
          "style-src 'self' 'unsafe-inline'; " <>
-         "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com; " <>
+         "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org; " <>
          "font-src 'self' data:; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
@@ -455,6 +455,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
+    get("/spatial/wifi-map", PageController, :redirect_to_wifi_map)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -493,7 +494,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
-      live("/spatial/wifi-map", SpatialLive.WifiMap, :index)
+      live("/wifi-map", SpatialLive.WifiMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
 
