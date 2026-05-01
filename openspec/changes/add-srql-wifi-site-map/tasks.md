@@ -33,6 +33,7 @@
 - [x] 3.8 Add OCSF device identity upserts for AP and WLC/controller seed records through the existing inventory sync path; keep non-device map/reference data in queryable WiFi-map tables.
 - [x] 3.8.1 Keep the generic plugin-result ingestor free of WiFi-map-specific runtime branching; WiFi-map batch ingestion remains a local/dev bridge, while production plugin inventory flows through platform contracts such as device discovery.
 - [x] 3.8.2 Add a generic plugin device-discovery handler that converts `serviceradar.device_discovery.v1` records into inventory sync updates for `ocsf_devices`.
+- [x] 3.8.3 Make platform plugin-result handlers schema-driven with `supports?/2` checks so unrelated handlers are not invoked for customer payloads and core does not require per-customer dispatch branches.
 - [ ] 3.9 Add concrete RADIUS/CPPM host device upserts if future source data includes hostnames/IPs for those hosts rather than only server-group/cluster labels.
 - [ ] 3.10 Add ingestion tests covering database idempotency, reference-data skip-on-same-hash behavior, coordinate validation, OCSF identity updates, and partial batch failures.
 - [ ] 3.11 Keep `mix serviceradar.wifi_map.seed` documented as a local Docker Compose/dev harness only; production/customer data must enter through an agent-side plugin result.
@@ -88,7 +89,7 @@
 
 ## 7. Live Aruba Collector Follow-Up
 
-- [ ] 7.0 Create the customer-owned UAL agent plugin package outside the ServiceRadar OSS repository using `serviceradar-sdk-go`; it must support CSV seed mode first and emit `serviceradar.wifi_map.batch.v1` through `serviceradar.plugin_result.v1`.
+- [x] 7.0 Create the customer-owned UAL agent plugin package outside the ServiceRadar OSS repository using `serviceradar-sdk-go`; it must support CSV seed mode first and emit `serviceradar.wifi_map.batch.v1` through `serviceradar.plugin_result.v1`.
 - [ ] 7.1 Customer plugin implements `aruba_controller` mode for AP database collection via Aruba REST.
 - [ ] 7.2 Customer plugin implements WLC switchinfo/inventory collection via Aruba REST.
 - [ ] 7.3 Customer plugin implements optional RADIUS/CPPM server-group collection via SSH/mdconnect with bounded timeouts.

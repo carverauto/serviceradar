@@ -74,4 +74,17 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
 
     refute_received {:unexpected_device_sync, _, _}
   end
+
+  test "advertises support only for device discovery payloads" do
+    discovery = %{
+      "device_discovery" => [
+        %{"schema" => "serviceradar.device_discovery.v1", "devices" => []}
+      ]
+    }
+
+    assert DeviceDiscoveryIngestor.supports?(discovery, %{})
+    assert DeviceDiscoveryIngestor.supports?([%{"summary" => "ignored"}, discovery], %{})
+    refute DeviceDiscoveryIngestor.supports?(%{"events" => [%{"kind" => "camera"}]}, %{})
+    refute DeviceDiscoveryIngestor.supports?("not a payload", %{})
+  end
 end
