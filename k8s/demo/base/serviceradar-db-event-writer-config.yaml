@@ -35,6 +35,10 @@ data:
           "table": "logs"
         },
         {
+          "subject": "falco.logs.processed",
+          "table": "logs"
+        },
+        {
           "subject": "otel.traces.raw",
           "table": "otel_traces"
         },

@@ -349,6 +349,18 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         enabled: true
       },
       %{
+        name: "falco_normalize",
+        description:
+          "Normalize Falco runtime security events for log search and alert promotion.",
+        subject: "falco.logs",
+        template: "falco_normalize",
+        builder_config: %{},
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
         name: "cef_severity",
         description: "Map CEF severity values into normalized severity.",
         subject: "logs.syslog",
