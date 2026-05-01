@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
     assert has_element?(view, "select[name='map_view']", "NetFlow Map")
     assert has_element?(view, "select[name='map_view']", "WiFi Map")
-    assert has_element?(view, "a[href='/observability?tab=netflows']", "Full Screen")
+    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
   end
 
@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 
     assert render_hook(view, "select_map_view", %{"map_view" => "wifi_map"}) =~ "WiFi Map"
-    assert has_element?(view, "a[href='/spatial/wifi-map']", "Full Screen")
+    assert has_element?(view, "a[href='/wifi-map']", "Full Screen")
     assert has_element?(view, "a[aria-label='Open full screen WiFi map']")
   end
 

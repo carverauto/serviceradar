@@ -68,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Edge Ops.")
-       |> push_navigate(to: ~p"/analytics")}
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 

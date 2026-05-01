@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNG.RBAC
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
   alias ServiceRadarWebNGWeb.DashboardLive.Data
@@ -70,7 +70,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         data-dashboard-modules={Enum.join(@dashboard_modules, " ")}
       >
         <section class="sr-ops-kpi-grid" aria-label="Operational summary">
-          <.kpi_card :for={card <- visible_kpi_cards(@kpi_cards, @camera_summary, @survey_summary)} card={card} />
+          <.kpi_card
+            :for={card <- visible_kpi_cards(@kpi_cards, @camera_summary, @survey_summary)}
+            card={card}
+          />
         </section>
 
         <section class="sr-ops-grid-primary">
@@ -83,11 +86,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 class="sr-ops-select"
                 aria-label="Dashboard map view"
               >
-                <option :if={netflow_map_available?(@module_states)} value="netflow" selected={@map_view == "netflow"}>
+                <option
+                  value="netflow"
+                  selected={@map_view == "netflow"}
+                >
                   NetFlow Map
                 </option>
-                <option :if={wifi_map_available?(@module_states)} value="wifi_map" selected={@map_view == "wifi_map"}>
-                  WiFi Map
+                <option
+                  :if={wifi_map_available?(@module_states)}
+                  value="wifi_map"
+                  selected={@map_view == "wifi_map"}
+                >
+                  Network Asset Map
                 </option>
               </select>
               <.link href={map_fullscreen_path(@map_view)} class="sr-ops-button">
@@ -114,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
               <.link
                 :if={@map_view == "wifi_map"}
-                navigate={~p"/wifi-map"}
+                navigate={~p"/network-map"}
                 class="sr-ops-wifi-map-open"
                 aria-label="Open full screen WiFi map"
               >
@@ -182,8 +192,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               <.small_stat :for={stat <- @map_stats} label={stat.label} value={stat.value} />
             </div>
             <div :if={@map_view == "wifi_map"} class="sr-ops-map-stats">
-              <.small_stat label="Sites" value={format_count(@wifi_map_summary.site_count)} />
-              <.small_stat label="APs" value={format_count(@wifi_map_summary.ap_count)} />
+              <.small_stat label="Locations" value={format_count(@wifi_map_summary.site_count)} />
+              <.small_stat label="Wireless APs" value={format_count(@wifi_map_summary.ap_count)} />
               <.small_stat label="Down" value={format_count(@wifi_map_summary.down_count)} />
             </div>
           </.panel>
@@ -278,7 +288,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         </section>
 
         <section class="sr-ops-grid-secondary">
-          <.panel :if={survey_panel_visible?(@survey_summary)} title="FieldSurvey Heatmap" class="lg:col-span-6">
+          <.panel
+            :if={survey_panel_visible?(@survey_summary)}
+            title="FieldSurvey Heatmap"
+            class="lg:col-span-6"
+          >
             <:actions>
               <.link href={~p"/spatial/field-surveys"} class="sr-ops-button">Open FieldSurvey</.link>
             </:actions>
@@ -402,7 +416,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
           </.panel>
 
-          <.panel :if={camera_panel_visible?(@camera_summary)} title="Camera Operations" class="lg:col-span-6">
+          <.panel
+            :if={camera_panel_visible?(@camera_summary)}
+            title="Camera Operations"
+            class="lg:col-span-6"
+          >
             <:actions>
               <.link href={~p"/cameras"} class="sr-ops-button">
                 View All Cameras
@@ -618,6 +636,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   @impl true
   def handle_info({_ref, {:access_token_present, _field, _result}}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
     {:noreply, socket}
   end
 
@@ -858,11 +880,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     valid_view =
       cond do
-        map_view == "netflow" and netflow_map_available?(states) -> "netflow"
+        map_view == "netflow" -> "netflow"
         map_view == "wifi_map" and wifi_map_available?(states) -> "wifi_map"
-        wifi_map_available?(states) -> "wifi_map"
-        netflow_map_available?(states) -> "netflow"
-        true -> "wifi_map"
+        true -> "netflow"
       end
 
     Map.put(assigns, :map_view, valid_view)
@@ -922,11 +942,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp replace_survey_kpi_card(_kpi_cards, _survey_card), do: []
 
   defp visible_kpi_cards(kpi_cards, camera_summary, survey_summary) when is_list(kpi_cards) do
-    Enum.reject(kpi_cards, fn
+    kpi_cards
+    |> Enum.reject(fn
       %{title: "Camera Fleet"} -> not camera_panel_visible?(camera_summary)
       %{title: "Wi-Fi Coverage"} -> not survey_panel_visible?(survey_summary)
       _card -> false
     end)
+    |> Enum.take(5)
   end
 
   defp visible_kpi_cards(_kpi_cards, _camera_summary, _survey_summary), do: []
@@ -1026,13 +1048,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp normalize_map_view("wifi_map"), do: "wifi_map"
   defp normalize_map_view(_), do: "netflow"
 
-  defp map_panel_title("wifi_map"), do: "WiFi Map"
+  defp map_panel_title("wifi_map"), do: "Network Asset Map"
   defp map_panel_title(_), do: "NetFlow Map"
 
-  defp map_fullscreen_path("wifi_map"), do: ~p"/wifi-map"
+  defp map_fullscreen_path("wifi_map"), do: ~p"/network-map"
   defp map_fullscreen_path(_), do: ~p"/netflow-map"
 
-  defp netflow_map_available?(states), do: Map.get(states || %{}, :netflow) == :active
   defp wifi_map_available?(states), do: Map.get(states || %{}, :wifi_map) == :active
 
   defp survey_panel_visible?(summary) do
@@ -1292,10 +1313,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp map_empty?(_map_view, topology_links, traffic_links), do: topology_links == [] and traffic_links == []
 
+  defp map_empty_title("netflow", :unconfigured), do: "NetFlow collector not configured"
+  defp map_empty_title("netflow", :configured_empty), do: "Awaiting observed NetFlow summaries"
   defp map_empty_title("netflow", _state), do: "No NetFlow paths"
   defp map_empty_title(_map_view, :configured_empty), do: "Awaiting observed NetFlow summaries"
   defp map_empty_title(_map_view, :unconfigured), do: "NetFlow collector not configured"
   defp map_empty_title(_map_view, _state), do: "No topology or flow data"
+
+  defp map_empty_detail("netflow", :unconfigured),
+    do: "Configure a NetFlow, IPFIX, or sFlow collector to enable this map."
+
+  defp map_empty_detail("netflow", :configured_empty),
+    do: "Collector configuration exists, but no recent flow summaries were found."
 
   defp map_empty_detail("netflow", _state),
     do: "Recent flow conversations need GeoIP enrichment or private-network anchors before they can be mapped."

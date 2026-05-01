@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
 
+  @frame_src if Mix.env() == :dev, do: "'self'", else: "'none'"
   @csp "default-src 'self'; " <>
          "script-src 'self' blob:; " <>
          "style-src 'self' 'unsafe-inline'; " <>
@@ -17,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.Router do
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
          "child-src blob:; " <>
-         "frame-src 'none'; " <>
+         "frame-src #{@frame_src}; " <>
          "object-src 'none'; " <>
          "base-uri 'self'; " <>
          "form-action 'self'"
@@ -30,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Router do
                   "connect-src 'self' https: wss:; " <>
                   "worker-src 'self' blob:; " <>
                   "child-src blob:; " <>
-                  "frame-src 'none'; " <>
+                  "frame-src #{@frame_src}; " <>
                   "object-src 'none'; " <>
                   "base-uri 'self'; " <>
                   "form-action 'self'"
@@ -456,13 +457,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/spatial/wifi-map", PageController, :redirect_to_wifi_map)
+    get("/analytics", PageController, :redirect_to_dashboard)
+    get("/dashboard-packages/:id/renderer.wasm", DashboardPackageAssetController, :show)
 
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
       ] do
       live("/dashboard", DashboardLive.Index, :index)
-      live("/analytics", AnalyticsLive.Index, :index)
+      live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
@@ -495,6 +498,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
       live("/netflow-map", MapLive.NetflowMap, :index)
+      live("/network-map", SpatialLive.WifiMap, :index)
       live("/wifi-map", SpatialLive.WifiMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
@@ -559,6 +563,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/agents/plugins", Admin.PluginPackageLive.Index, :index)
       live("/settings/agents/plugins/new", Admin.PluginPackageLive.Index, :new)
       live("/settings/agents/plugins/:id", Admin.PluginPackageLive.Index, :show)
+      live("/settings/dashboards/packages", Admin.DashboardPackageLive.Index, :index)
+      live("/settings/dashboards/packages/new", Admin.DashboardPackageLive.Index, :new)
+      live("/settings/dashboards/packages/:id", Admin.DashboardPackageLive.Index, :show)
 
       # Zen Rule Editor - visual JDM editor for rule logic
       live("/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new)

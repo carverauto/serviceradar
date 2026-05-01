@@ -193,6 +193,119 @@ The POC behavior to preserve in ServiceRadar terms includes:
 - Data freshness and fleet migration trend indicators based on ingested batch metadata/history.
 - Dashboard card to full-screen map transition while preserving query/view context where possible.
 
+### D7: United-specific dashboard behavior ships as a dashboard package
+
+The ServiceRadar product should not hardcode a United Airlines WiFi workflow into
+the main dashboard. The product-owned surface should be generic:
+
+- SRQL-backed data access.
+- Coordinate-aware network asset map primitives.
+- Dashboard package import, trust, settings, and assignment.
+- Browser-side sandboxing and data-frame delivery.
+- Product-native shell, theme, navigation, and settings.
+
+The United map can then ship as a customer dashboard package from a customer-owned
+repository. That package can provide the exact custom behavior the customer needs:
+region and cluster filters, site popups, AP/WLC detail layouts, migration views,
+and customer-specific labels. Other customers can install different packages or
+use the built-in generic network asset map without inheriting United-specific UI.
+
+### D8: Dashboard packages use JSON manifests plus signed browser WASM
+
+Dashboard packages should be source-controlled artifacts, but the package
+manifest should use JSON rather than YAML so it can be validated consistently in
+the browser, control plane, and package verification paths. A dashboard package
+manifest should declare:
+
+- Dashboard ID, name, version, description, vendor, and provenance.
+- Required SRQL queries and named data frames.
+- Result contracts for fields, coordinate columns, row identity, and optional
+  Arrow IPC encodings.
+- Renderer kind, WASM artifact reference, integrity digest, signature metadata,
+  and required browser capabilities.
+- Settings schema for administrator-configurable options such as default query,
+  basemap style choice, field mappings, and package-specific labels.
+- Permissions for ServiceRadar APIs the renderer may call, such as SRQL execute,
+  saved query read, or dashboard preference write.
+
+JSON defines the package contract; the actual custom dashboard behavior runs from
+the signed WASM renderer. ServiceRadar should ship curated dashboard package
+templates, but administrators should be able to import customer-owned dashboard
+packages from configured Git sources without rebuilding web-ng.
+
+### D9: Dashboard WASM plugins are separate from agent WASM plugins
+
+Dashboard WASM plugins run in the browser and must be treated as a different
+execution class from agent-side WASM plugins:
+
+- They never receive agent credentials, Git credentials, repository URLs, or raw
+  plugin package secrets.
+- They cannot make arbitrary network calls; data access flows through bounded
+  ServiceRadar host APIs exposed by web-ng.
+- They receive SRQL results as validated data frames, with Arrow IPC allowed for
+  high-volume map/topology-style payloads.
+- They render into a ServiceRadar-owned host container and must respect theme,
+  layout bounds, accessibility constraints, and navigation contracts.
+- They use existing package signing and trust-policy concepts, but with
+  browser-specific capabilities and review metadata.
+
+For deck.gl-heavy dashboards, the preferred contract should be declarative:
+the WASM renderer receives approved data frames and settings, computes layer
+state or interaction state, and returns/updates a ServiceRadar-defined render
+model. ServiceRadar-owned JavaScript should continue to own actual deck.gl,
+Mapbox, event wiring, theme integration, and navigation. Supporting arbitrary
+customer JavaScript modules would be a separate, higher-risk capability and is
+not required for the first dashboard package host.
+
+The first stable host ABI is `dashboard-wasm-v1`. The preferred entrypoint is
+`sr_dashboard_init_json(ptr, len)`, with `sr_dashboard_render_json(ptr, len)` as
+an early compatibility alias. ServiceRadar passes one validated JSON payload
+containing package settings, theme context, map provider settings, package
+metadata, and data-frame summaries. The renderer obtains frame payloads through
+bounded data-provider imports such as `serviceradar.frame_json_len(index)` and
+`serviceradar.frame_json_write(index, ptr, len)`; future Arrow IPC frame access
+should use the same versioned data-provider namespace rather than direct service
+subscriptions.
+
+The renderer can call `serviceradar.emit_render_model(ptr, len)` (or the
+`env.sr_emit_render_model` alias) with a JSON render model. Version 1 of that
+model supports a ServiceRadar-rendered `deck_map` with bounded layer types such
+as scatterplot, text, line, and arc layers, SRQL frame references, native
+popups, and ServiceRadar-owned Mapbox/OSM basemap selection.
+
+The browser never fetches from the customer repository directly. The control
+plane fetches the repo or release artifact, verifies the manifest, digest,
+signature, and trust policy, mirrors the WASM blob into ServiceRadar-managed
+package storage, and exposes only a content-addressed authenticated asset URL to
+the browser. The browser host can cache that mirrored asset aggressively because
+the URL includes the content hash; mutable source repository state remains a
+control-plane concern.
+
+Dashboard package settings must be validated against the package JSON schema
+before the WASM entrypoint is invoked. Invalid settings block instance creation
+or update and must not be handed to the renderer.
+
+This lets ServiceRadar support fully custom dashboards while keeping core product
+navigation, authentication, authorization, SRQL execution, and theming under
+ServiceRadar control.
+
+### D10: Customer dashboard package development harness
+
+Customer dashboard authors need a local dev loop that does not require deploying
+to a production ServiceRadar instance for every renderer iteration. ServiceRadar
+should provide a small dashboard WASM harness that:
+
+- Loads a local or repo-served dashboard JSON manifest and WASM blob.
+- Validates the manifest and settings against the same schema rules used by
+  web-ng.
+- Supplies sample SRQL frame payloads in the same `dashboard-wasm-v1`
+  data-provider shape.
+- Renders the emitted `deck_map` model through the same ServiceRadar-owned
+  host JS used in web-ng where practical, or at minimum validates the emitted
+  model and shows host diagnostics.
+- Can be run by customer CI to catch ABI, schema, and digest failures before a
+  dashboard package is pushed to a private source repo.
+
 ## Data Model Sketch
 
 The exact migration can evolve during implementation, but it should preserve these concepts:

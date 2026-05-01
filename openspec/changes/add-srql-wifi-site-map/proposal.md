@@ -1,10 +1,12 @@
-# Change: Add SRQL-driven WiFi map ingestion and views
+# Change: Add SRQL-driven WiFi map ingestion and dashboard plugins
 
 ## Why
 
 Wireless operators need the Aruba WiFi map that currently exists as a standalone CSV-backed Leaflet proof of concept inside ServiceRadar, with the same site, airport/reference, AP, WLC, RADIUS/CPPM, and migration visibility available through the normal agent pipeline, CNPG storage, SRQL, and web-ng dashboard.
 
 The near-term source of truth is the CSV seed data in `tmp/wifi-map/`; the long-term source is a customer-owned Go SDK WiFi-map plugin that collects the same Aruba AP database, controller switchinfo, and RADIUS server-group data directly from controllers. Airport/site reference CSV data is expected to remain a long-lived source of truth and should refresh on a much slower cadence than polling data. The plugin should live in the customer's own repository, not in the ServiceRadar OSS repository.
+
+The browser experience should not become a United Airlines-specific feature baked into ServiceRadar. ServiceRadar should provide the data contracts, SRQL execution, signed package sync, and dashboard runtime needed to host customer dashboards. The customer-specific map/dashboard should live as a signed dashboard WASM package that can be imported from a customer repository.
 
 ## What Changes
 
@@ -18,9 +20,11 @@ The near-term source of truth is the CSV seed data in `tmp/wifi-map/`; the long-
 - Use PostGIS geography columns for site coordinates instead of storing latitude/longitude only in opaque metadata.
 - Preserve OCSF device identity for seed records that are actual devices or device-like infrastructure, including APs, WLCs/controllers, and concrete auth infrastructure hosts when present.
 - Extend SRQL with WiFi site map entities and fields so map payloads are driven by SRQL queries rather than static CSV fetches.
-- Add dashboard map mode selection between NetFlow and WiFi site map.
-- Add a full-screen deck.gl-powered WiFi map route that includes the SRQL builder, clickable features, popups/details, and compatible SRQL result sets as map views.
-- Add settings UI for the default dashboard WiFi map query and named saved WiFi map views.
+- Add dashboard map mode selection between NetFlow and location-aware network asset maps.
+- Add a generic network asset map route for SRQL result sets with coordinates, keeping `/wifi-map` as a compatibility alias while making `/network-map` the product route.
+- Add a dashboard WASM plugin runtime where imported dashboard packages define custom views, interactions, popups, and layout logic without compiling customer-specific UI into web-ng.
+- Use JSON dashboard package manifests for dashboard identity, versioning, required SRQL queries, data-frame contracts, permissions, renderer WASM references, signing metadata, and settings schema.
+- Add settings UI for importing dashboard packages, selecting default dashboard/map views, and configuring approved dashboard package settings.
 
 ## Impact
 
@@ -40,7 +44,7 @@ The near-term source of truth is the CSV seed data in `tmp/wifi-map/`; the long-
   - `elixir/serviceradar_core/priv/repo/migrations/`: platform schema migrations for WiFi map storage.
   - `elixir/serviceradar_core/`: plugin source sync, encrypted credential references, ingestion resources, Ash actions, and plugin-result handlers.
   - `rust/srql/`: parser/entity support, SQL generation, fixtures, and tests for WiFi map entities.
-  - `elixir/web-ng/`: customer plugin source UI, dashboard map selector, full-screen map LiveView, SRQL builder integration, settings UI.
+  - `elixir/web-ng/`: customer plugin source UI, dashboard package import UI, dashboard map selector, generic network map LiveView, browser-side dashboard WASM host, SRQL builder integration, settings UI.
 
 ## Source Material Reviewed
 

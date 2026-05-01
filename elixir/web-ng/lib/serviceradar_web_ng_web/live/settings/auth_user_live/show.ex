@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Settings.")
-       |> push_navigate(to: ~p"/analytics")}
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 

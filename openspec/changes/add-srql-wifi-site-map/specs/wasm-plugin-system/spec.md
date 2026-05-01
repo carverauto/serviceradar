@@ -1,5 +1,45 @@
 ## ADDED Requirements
 
+### Requirement: Dashboard WASM package class
+
+The plugin package system SHALL support a browser-side dashboard WASM package class that is distinct from agent-executed WASM plugins.
+
+#### Scenario: Dashboard package is discovered from a customer source
+- **GIVEN** a customer-owned Git source contains a dashboard package JSON manifest
+- **WHEN** the source sync reads the manifest
+- **THEN** the package SHALL be classified as a dashboard package rather than an agent plugin
+- **AND** it SHALL expose browser/dashboard capabilities instead of agent execution capabilities
+- **AND** it SHALL NOT be assignable to agents
+
+#### Scenario: Dashboard package declares renderer artifact
+- **GIVEN** a dashboard package manifest declares a WASM renderer artifact, digest, signature metadata, and required host APIs
+- **WHEN** the package is validated
+- **THEN** the control plane SHALL verify artifact integrity and trust policy before enabling import
+- **AND** it SHALL require an explicitly supported dashboard WASM interface version
+- **AND** unsupported browser capabilities SHALL block enablement until explicitly supported by ServiceRadar
+
+### Requirement: Dashboard WASM sandbox boundaries
+
+Dashboard WASM renderers SHALL execute only inside the web dashboard host and SHALL receive data exclusively through approved host APIs.
+
+#### Scenario: Renderer requests SRQL data
+- **GIVEN** an enabled dashboard package declares an approved SRQL data frame
+- **WHEN** the renderer requests that frame through the host API
+- **THEN** web-ng SHALL authorize the current user, execute the approved SRQL server-side, and pass the resulting frame to the renderer
+- **AND** the renderer SHALL NOT receive raw database credentials, service tokens, Git credentials, or agent plugin credentials
+
+#### Scenario: Renderer uses the versioned data provider
+- **GIVEN** a dashboard renderer runs under `dashboard-wasm-v1`
+- **WHEN** it needs dashboard data
+- **THEN** it SHALL read only the data frames exposed through the versioned host data-provider imports
+- **AND** it SHALL NOT subscribe directly to internal database, MQTT, repository, or browser network sources
+
+#### Scenario: Renderer requests an unapproved capability
+- **GIVEN** a dashboard renderer requests network, repository, filesystem, secret, or unapproved ServiceRadar API access
+- **WHEN** the dashboard host evaluates the request
+- **THEN** the host SHALL deny the request
+- **AND** the package diagnostics SHALL record the denied capability without exposing secret values
+
 ### Requirement: Customer-owned Git plugin sources
 
 The control plane SHALL allow authorized operators to register customer-owned Git repositories as plugin catalog sources without treating those repositories as first-party ServiceRadar sources.

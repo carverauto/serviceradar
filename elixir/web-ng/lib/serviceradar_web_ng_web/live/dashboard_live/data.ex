@@ -2240,8 +2240,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         tone: "info",
         sparkline: Map.get(sparklines, :camera, [])
       },
-      survey_kpi_card(survey, Map.get(sparklines, :survey, []))
+      survey_kpi_card(survey, Map.get(sparklines, :survey, [])),
+      %{
+        title: "Active Alerts",
+        value: format_compact_count(active_alert_count(alerts)),
+        detail: "#{format_count(alerts.total)} total alerts",
+        icon: "hero-bell-alert",
+        tone: if(active_alert_count(alerts) > 0, do: "error", else: "success"),
+        sparkline: Map.get(sparklines, :threats, [])
+      },
+      %{
+        title: "Recent Events",
+        value: format_compact_count(events.total),
+        detail: "#{format_count(priority_event_count(events))} high priority",
+        icon: "hero-document-text",
+        tone: if(priority_event_count(events) > 0, do: "error", else: "info"),
+        sparkline: Map.get(sparklines, :threats, [])
+      }
     ]
+  end
+
+  defp active_alert_count(alerts), do: to_int(alerts.pending) + to_int(alerts.escalated)
+
+  defp priority_event_count(events) do
+    to_int(events.fatal) + to_int(events.critical) + to_int(events.high)
   end
 
   defp map_stats(_flows, _mtr, traffic_links) do

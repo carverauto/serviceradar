@@ -16,8 +16,10 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
 
     socket =
       if connected?(socket) do
+        scope = socket.assigns.current_scope
+
         start_async(socket, :netflow_map_load, fn ->
-          Data.load_netflow_map(socket.assigns.current_scope)
+          Data.load_netflow_map(scope)
         end)
       else
         socket
@@ -82,18 +84,24 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
               aria-label="NetFlow traffic map"
             />
             <svg
+              id="netflow-fullscreen-map-world"
               phx-update="ignore"
               class="sr-ops-world-map-background"
               preserveAspectRatio="xMidYMid meet"
               aria-hidden="true"
             />
             <svg
+              id="netflow-fullscreen-map-overlay"
               phx-update="ignore"
               class="sr-ops-traffic-overlay"
               preserveAspectRatio="xMidYMid meet"
               aria-hidden="true"
             />
-            <div phx-update="ignore" class="sr-ops-map-interaction-controls" />
+            <div
+              id="netflow-fullscreen-map-controls"
+              phx-update="ignore"
+              class="sr-ops-map-interaction-controls"
+            />
 
             <div
               :if={netflow_map_empty?(@traffic_links)}

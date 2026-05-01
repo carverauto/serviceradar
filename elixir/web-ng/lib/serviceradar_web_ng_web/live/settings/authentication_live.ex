@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     socket =
       socket
       |> put_flash(:error, "You don't have permission to access Settings.")
-      |> push_navigate(to: ~p"/analytics")
+      |> push_navigate(to: ~p"/dashboard")
 
     {:halt, socket}
   end
@@ -732,7 +732,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Settings.")
-       |> push_navigate(to: ~p"/analytics")}
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 

@@ -1,5 +1,28 @@
 ## ADDED Requirements
 
+### Requirement: Dashboard package source management UI
+
+The Settings UI SHALL allow authorized operators to discover, verify, import, configure, and disable customer-owned dashboard packages from configured source repositories.
+
+#### Scenario: Customer source exposes dashboard package
+- **GIVEN** a configured customer source contains a dashboard package JSON manifest
+- **WHEN** an authorized operator opens the source sync results
+- **THEN** the UI SHALL show dashboard package identity, version, vendor, source ref, renderer artifact digest, signing identity, requested browser capabilities, and verification state
+- **AND** it SHALL distinguish dashboard packages from agent-executed plugins
+
+#### Scenario: Operator configures dashboard package settings
+- **GIVEN** a verified dashboard package declares a JSON settings schema
+- **WHEN** an authorized operator enables the package
+- **THEN** the UI SHALL render package settings using the schema
+- **AND** saved settings SHALL be validated before persistence
+- **AND** raw secrets SHALL be represented only by secret references when a package setting requires one
+
+#### Scenario: Operator selects default dashboard package
+- **GIVEN** one or more dashboard packages or built-in dashboard views are enabled
+- **WHEN** an authorized operator chooses the default dashboard or default map view
+- **THEN** the UI SHALL persist that choice as a deployment setting
+- **AND** normal users SHALL see the configured dashboard without needing web-ng to be rebuilt
+
 ### Requirement: Customer plugin source management UI
 
 The Settings UI SHALL allow authorized operators to manage customer-owned plugin Git sources, including credentials, trust policy, sync controls, and source health.

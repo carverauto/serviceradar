@@ -45,33 +45,49 @@
 
 ## 5. Web UI
 
-- [ ] 5.1 Add settings UI for default dashboard WiFi map query and named WiFi map views.
-- [x] 5.2 Reuse or extend deployment-level Mapbox settings for WiFi map basemap styles/tokens; do not source tile/provider settings from plugin payloads.
-- [x] 5.3 Add dashboard map mode selector for NetFlow vs WiFi site map, with full-screen actions for both modes.
-- [ ] 5.4 Add a dashboard deck.gl WiFi map card driven by the configured SRQL query and configured ServiceRadar basemap provider.
-- [x] 5.5 Add an initial full-screen deck.gl WiFi map LiveView route with SRQL builder and result table.
-- [ ] 5.6 Add saved view selection and map-specific filters to the full-screen WiFi map route.
-- [x] 5.7 Implement clickable deck.gl WiFi site features that open ServiceRadar-owned popups.
-- [ ] 5.8 Add follow-on SRQL detail queries from WiFi map popups/detail panels.
+- [ ] 5.1 Add settings UI for default dashboard network asset map query and named map views.
+- [x] 5.2 Reuse or extend deployment-level Mapbox settings for map basemap styles/tokens; do not source tile/provider settings from plugin payloads.
+- [x] 5.3 Add dashboard map mode selector for NetFlow vs network asset map, with full-screen actions for both modes.
+- [ ] 5.4 Add a dashboard deck.gl network asset map card driven by the configured SRQL query and configured ServiceRadar basemap provider.
+- [x] 5.5 Add an initial full-screen deck.gl network asset map LiveView route with SRQL builder and result table, keeping `/wifi-map` as a compatibility alias.
+- [ ] 5.6 Add saved view selection and map-specific filters to the full-screen network asset map route.
+- [x] 5.7 Implement clickable deck.gl map features that open ServiceRadar-owned popups.
+- [ ] 5.8 Add follow-on SRQL detail queries from map popups/detail panels.
 - [ ] 5.9 Implement site/device search over SRQL-backed site code, site name, hostname, MAC, serial, IP, model, and status fields.
-- [ ] 5.10 Rebuild POC parity interactions: region, RADIUS cluster, AP family, WLC model/version filters, DOWN-only filter, site popup details, AP/WLC detail lists, freshness, and fleet migration trend.
+- [ ] 5.10 Move customer-specific POC parity interactions into an installable dashboard package: region, RADIUS cluster, AP family, WLC model/version filters, DOWN-only filter, site popup details, AP/WLC detail lists, freshness, and fleet migration trend.
 - [ ] 5.11 Add responsive desktop/mobile styling and Playwright visual checks for dashboard and full-screen map views.
 
-## 6. Live Aruba Collector Follow-Up
+## 6. Dashboard Packages and Browser WASM
 
-- [ ] 6.1 Customer plugin implements `aruba_controller` mode for AP database collection via Aruba REST.
-- [ ] 6.2 Customer plugin implements WLC switchinfo/inventory collection via Aruba REST.
-- [ ] 6.3 Customer plugin implements optional RADIUS/CPPM server-group collection via SSH/mdconnect with bounded timeouts.
-- [ ] 6.4 ServiceRadar validates credential handling and capability restrictions for HTTP/SSH host calls during staged review and assignment.
-- [ ] 6.5 Add integration tests or replay fixtures based on captured Aruba responses where they can live outside the OSS repo or in sanitized form.
+- [x] 6.1 Define the dashboard package JSON manifest schema: package ID, version, vendor, description, data-frame contracts, SRQL query definitions, renderer WASM reference, settings schema, signing metadata, and requested browser capabilities.
+- [x] 6.2 Add `platform` schema resources for imported dashboard packages, package versions, sync provenance, verification state, administrator settings, and enabled dashboard instances.
+- [ ] 6.3 Extend customer-owned Git source sync to discover dashboard package manifests alongside agent plugin manifests without exposing repository credentials to browsers or agents.
+- [ ] 6.4 Verify dashboard package WASM artifacts against digest and trust policy before making them available in the UI.
+- [ ] 6.5 Build a web-ng dashboard WASM host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-wasm-v1` ABI, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
+- [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
+- [ ] 6.7 Convert the United WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
+- [ ] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
+- [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
+- [ ] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
+- [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard WASM packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
+- [x] 6.10 Provide a local customer dashboard package dev harness that loads manifest JSON, WASM, validated settings, and sample SRQL frames without deploying to production.
 
-## 7. Verification
+## 7. Live Aruba Collector Follow-Up
 
-- [x] 7.1 Run `openspec validate add-srql-wifi-site-map --strict`.
-- [ ] 7.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
-- [x] 7.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
-- [ ] 7.4 Run customer plugin source sync/import tests.
-- [x] 7.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.
-- [ ] 7.6 Run `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` after web changes.
-- [x] 7.7 Confirm the default Docker Compose stack has no faker service; if a dev faker overlay/profile is active, disable or scale it down for WiFi-map validation so synthetic demo devices do not clutter the local map/device inventory.
-- [ ] 7.8 Capture Playwright screenshots for dashboard and full-screen WiFi map on desktop and mobile against the local Docker Compose stack.
+- [ ] 7.1 Customer plugin implements `aruba_controller` mode for AP database collection via Aruba REST.
+- [ ] 7.2 Customer plugin implements WLC switchinfo/inventory collection via Aruba REST.
+- [ ] 7.3 Customer plugin implements optional RADIUS/CPPM server-group collection via SSH/mdconnect with bounded timeouts.
+- [ ] 7.4 ServiceRadar validates credential handling and capability restrictions for HTTP/SSH host calls during staged review and assignment.
+- [ ] 7.5 Add integration tests or replay fixtures based on captured Aruba responses where they can live outside the OSS repo or in sanitized form.
+
+## 8. Verification
+
+- [x] 8.1 Run `openspec validate add-srql-wifi-site-map --strict`.
+- [ ] 8.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
+- [x] 8.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
+- [ ] 8.4 Run customer plugin source sync/import tests.
+- [x] 8.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.
+- [ ] 8.6 Run `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` after web changes.
+- [x] 8.7 Confirm the default Docker Compose stack has no faker service; if a dev faker overlay/profile is active, disable or scale it down for WiFi-map validation so synthetic demo devices do not clutter the local map/device inventory.
+- [ ] 8.8 Capture Playwright screenshots for dashboard and full-screen network asset map on desktop and mobile against the local Docker Compose stack.
+- [ ] 8.9 Add browser WASM dashboard host tests and Playwright coverage for an imported dashboard package rendered from SRQL data frames.

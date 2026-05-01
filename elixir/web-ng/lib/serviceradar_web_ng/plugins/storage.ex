@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   alias Jetstream.API.Object
   alias Jetstream.API.Stream
+  alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Web.EndpointConfig
 
@@ -55,6 +56,13 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     plugin_id = sanitize_segment(package.plugin_id || "unknown")
     version = sanitize_segment(package.version || "unknown")
     "plugins/#{plugin_id}/#{version}/#{package.id}.wasm"
+  end
+
+  @spec object_key_for(DashboardPackage.t()) :: String.t()
+  def object_key_for(%DashboardPackage{} = package) do
+    dashboard_id = sanitize_segment(package.dashboard_id || "unknown")
+    version = sanitize_segment(package.version || "unknown")
+    "dashboards/#{dashboard_id}/#{version}/#{package.id}.wasm"
   end
 
   @spec sign_token(atom(), String.t(), String.t(), pos_integer()) :: {String.t(), DateTime.t()}
