@@ -280,19 +280,47 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp ingest_registered_handlers(payload, status, observed_at, actor) do
     Enum.each(plugin_result_handlers(), fn handler ->
-      case ingest_handler(handler, payload, status, observed_at, actor) do
-        :ok ->
-          :ok
+      if handler_supports?(handler, payload, status) do
+        case ingest_handler(handler, payload, status, observed_at, actor) do
+          :ok ->
+            :ok
 
-        {:error, reason} ->
-          Logger.warning(
-            "Plugin result handler #{inspect(handler_module(handler))} failed: #{inspect(reason)}"
-          )
+          {:error, reason} ->
+            Logger.warning(
+              "Plugin result handler #{inspect(handler_module(handler))} failed: #{inspect(reason)}"
+            )
+        end
       end
     end)
 
     :ok
   end
+
+  defp handler_supports?({handler, _opts}, payload, status) when is_atom(handler) do
+    handler_supports?(handler, payload, status)
+  end
+
+  defp handler_supports?(handler, payload, status) when is_atom(handler) do
+    cond do
+      function_exported?(handler, :supports?, 2) ->
+        handler.supports?(payload, status)
+
+      function_exported?(handler, :supports?, 1) ->
+        handler.supports?(payload)
+
+      true ->
+        true
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "Plugin result handler #{inspect(handler)} support check failed: #{inspect(e)}"
+      )
+
+      false
+  end
+
+  defp handler_supports?(_handler, _payload, _status), do: false
 
   defp ingest_handler(handler, payload, status, observed_at, actor) when is_atom(handler) do
     handler.ingest(payload, status, actor: actor, observed_at: observed_at)

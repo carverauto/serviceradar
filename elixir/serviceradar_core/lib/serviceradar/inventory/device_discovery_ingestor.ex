@@ -14,6 +14,21 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   @schema "serviceradar.device_discovery.v1"
 
+  @spec supports?(map() | list(), map()) :: boolean()
+  def supports?(payload, status \\ %{})
+
+  def supports?(payload, status) when is_list(payload) do
+    Enum.any?(payload, &supports?(&1, status))
+  end
+
+  def supports?(payload, _status) when is_map(payload) do
+    payload
+    |> discovery_envelopes()
+    |> Enum.any?()
+  end
+
+  def supports?(_payload, _status), do: false
+
   @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
   def ingest(payload, status, opts \\ [])
 

@@ -14,6 +14,21 @@ defmodule ServiceRadar.Camera.EventIngestor do
   require Ash.Query
   require Logger
 
+  @spec supports?(map() | list(), map()) :: boolean()
+  def supports?(payload, status \\ %{})
+
+  def supports?(payload, status) when is_list(payload) do
+    Enum.any?(payload, &supports?(&1, status))
+  end
+
+  def supports?(payload, _status) when is_map(payload) do
+    payload
+    |> extract_events()
+    |> Enum.any?()
+  end
+
+  def supports?(_payload, _status), do: false
+
   @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
   def ingest(payload, status, opts \\ [])
 

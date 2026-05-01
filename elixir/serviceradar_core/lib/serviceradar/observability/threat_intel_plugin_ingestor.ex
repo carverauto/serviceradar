@@ -21,6 +21,16 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   require Logger
 
   @max_indicators_per_page 5_000
+
+  @spec supports?(map(), map()) :: boolean()
+  def supports?(payload, _status \\ %{})
+
+  def supports?(payload, _status) when is_map(payload) do
+    is_map(extract_page(payload))
+  end
+
+  def supports?(_payload, _status), do: false
+
   @doc false
   @spec normalize_indicators(map(), map(), DateTime.t()) :: [map()]
   def normalize_indicators(payload, status, observed_at)
