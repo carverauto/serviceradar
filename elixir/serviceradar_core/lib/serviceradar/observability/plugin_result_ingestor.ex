@@ -8,12 +8,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Camera.EventIngestor
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
-  alias ServiceRadar.WifiMap.BatchIngestor, as: WifiMapBatchIngestor
 
   require Logger
 
@@ -37,11 +37,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       )
 
     with :ok <- insert_status(status_row, actor),
-         :ok <- insert_metrics(payload, status, observed_at, created_at, actor),
-         :ok <- ingest_threat_intel(payload, status, observed_at, actor),
-         :ok <- ingest_wifi_map(payload, status, observed_at, actor),
-         :ok <- ingest_camera_events(payload, status, observed_at, actor) do
-      ingest_camera_inventory(payload, status, observed_at, actor)
+         :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
+      ingest_registered_handlers(payload, status, observed_at, actor)
     end
   rescue
     e ->
@@ -281,67 +278,59 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp parse_metric_number(_), do: nil
 
-  defp ingest_camera_inventory(payload, status, observed_at, actor) do
-    case camera_inventory_ingestor().ingest(payload, status,
-           actor: actor,
-           observed_at: observed_at
-         ) do
-      :ok ->
-        :ok
+  defp ingest_registered_handlers(payload, status, observed_at, actor) do
+    Enum.each(plugin_result_handlers(), fn handler ->
+      case ingest_handler(handler, payload, status, observed_at, actor) do
+        :ok ->
+          :ok
 
-      {:error, reason} ->
-        Logger.warning("Camera inventory ingest failed: #{inspect(reason)}")
-        :ok
-    end
+        {:error, reason} ->
+          Logger.warning(
+            "Plugin result handler #{inspect(handler_module(handler))} failed: #{inspect(reason)}"
+          )
+      end
+    end)
+
+    :ok
   end
 
-  defp ingest_camera_events(payload, status, observed_at, actor) do
-    case camera_event_ingestor().ingest(payload, status,
-           actor: actor,
-           observed_at: observed_at
-         ) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Camera event ingest failed: #{inspect(reason)}")
-        :ok
-    end
+  defp ingest_handler(handler, payload, status, observed_at, actor) when is_atom(handler) do
+    handler.ingest(payload, status, actor: actor, observed_at: observed_at)
+  rescue
+    e ->
+      {:error, e}
   end
 
-  defp ingest_threat_intel(payload, status, observed_at, actor) do
-    threat_intel_ingestor().ingest(payload, status, actor: actor, observed_at: observed_at)
+  defp ingest_handler({handler, opts}, payload, status, observed_at, actor)
+       when is_atom(handler) do
+    handler.ingest(payload, status, Keyword.merge(opts, actor: actor, observed_at: observed_at))
+  rescue
+    e ->
+      {:error, e}
   end
 
-  defp ingest_wifi_map(payload, status, observed_at, actor) do
-    case wifi_map_batch_ingestor().ingest(payload, status, actor: actor, observed_at: observed_at) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("WiFi map batch ingest failed: #{inspect(reason)}")
-        :ok
-    end
+  defp ingest_handler(handler, _payload, _status, _observed_at, _actor) do
+    {:error, {:invalid_handler, handler}}
   end
 
-  defp camera_inventory_ingestor do
-    Application.get_env(:serviceradar_core, :camera_inventory_ingestor, InventoryIngestor)
-  end
+  defp handler_module({handler, _opts}), do: handler
+  defp handler_module(handler), do: handler
 
-  defp camera_event_ingestor do
-    Application.get_env(:serviceradar_core, :camera_event_ingestor, EventIngestor)
-  end
-
-  defp threat_intel_ingestor do
+  defp plugin_result_handlers do
     Application.get_env(
       :serviceradar_core,
-      :threat_intel_plugin_ingestor,
-      ThreatIntelPluginIngestor
+      :plugin_result_handlers,
+      platform_contract_handlers()
     )
   end
 
-  defp wifi_map_batch_ingestor do
-    Application.get_env(:serviceradar_core, :wifi_map_batch_ingestor, WifiMapBatchIngestor)
+  defp platform_contract_handlers do
+    [
+      DeviceDiscoveryIngestor,
+      ThreatIntelPluginIngestor,
+      EventIngestor,
+      InventoryIngestor
+    ]
   end
 
   defp plugin_status_available(nil), do: false
