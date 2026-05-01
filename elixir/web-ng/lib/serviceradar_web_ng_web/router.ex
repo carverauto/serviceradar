@@ -494,6 +494,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
+      live("/netflow-map", MapLive.NetflowMap, :index)
       live("/wifi-map", SpatialLive.WifiMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)

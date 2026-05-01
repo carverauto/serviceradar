@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
     assert sql =~ "ON CONFLICT (trace_id) DO UPDATE"
     assert sql =~ "count(*) FILTER (WHERE t.status_code = 2)"
     assert sql =~ "INTERVAL '3 days'"
+    assert sql =~ "IS DISTINCT FROM EXCLUDED"
   end
 
   test "exposes batched cleanup SQL" do

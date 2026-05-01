@@ -90,7 +90,9 @@ services:
       - "-c"
       - "checkpoint_completion_target=0.9"
       - "-c"
-      - "max_wal_size=1GB"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
     environment:
       - CNPG_DATA_DIR=/var/lib/postgresql/18/docker
       - CNPG_EXPECTED_PG_MAJOR=18
@@ -327,6 +329,8 @@ services:
       - OBAN_QUEUE_NATS_ACCOUNTS=${OBAN_QUEUE_NATS_ACCOUNTS:-1}
       - OBAN_QUEUE_MAINTENANCE=${OBAN_QUEUE_MAINTENANCE:-1}
       - OBAN_QUEUE_MONITORING=${OBAN_QUEUE_MONITORING:-1}
+      - TRACE_SUMMARIES_REFRESH_CRON=${TRACE_SUMMARIES_REFRESH_CRON:-*/15 * * * *}
+      - TRACE_SUMMARIES_CLEANUP_BATCH_SIZE=${TRACE_SUMMARIES_CLEANUP_BATCH_SIZE:-5000}
       - SYNC_INGESTOR_BATCH_CONCURRENCY=${SYNC_INGESTOR_BATCH_CONCURRENCY:-2}
       - SYNC_INGESTOR_COALESCE_MS=${SYNC_INGESTOR_COALESCE_MS:-250}
       - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}

@@ -68,6 +68,20 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     span_count = EXCLUDED.span_count,
     error_count = EXCLUDED.error_count,
     refreshed_at = NOW()
+  WHERE
+    otel_trace_summaries.timestamp IS DISTINCT FROM EXCLUDED.timestamp OR
+    otel_trace_summaries.root_span_id IS DISTINCT FROM EXCLUDED.root_span_id OR
+    otel_trace_summaries.root_span_name IS DISTINCT FROM EXCLUDED.root_span_name OR
+    otel_trace_summaries.root_service_name IS DISTINCT FROM EXCLUDED.root_service_name OR
+    otel_trace_summaries.root_span_kind IS DISTINCT FROM EXCLUDED.root_span_kind OR
+    otel_trace_summaries.start_time_unix_nano IS DISTINCT FROM EXCLUDED.start_time_unix_nano OR
+    otel_trace_summaries.end_time_unix_nano IS DISTINCT FROM EXCLUDED.end_time_unix_nano OR
+    otel_trace_summaries.duration_ms IS DISTINCT FROM EXCLUDED.duration_ms OR
+    otel_trace_summaries.status_code IS DISTINCT FROM EXCLUDED.status_code OR
+    otel_trace_summaries.status_message IS DISTINCT FROM EXCLUDED.status_message OR
+    otel_trace_summaries.service_set IS DISTINCT FROM EXCLUDED.service_set OR
+    otel_trace_summaries.span_count IS DISTINCT FROM EXCLUDED.span_count OR
+    otel_trace_summaries.error_count IS DISTINCT FROM EXCLUDED.error_count
   """
 
   @cleanup_batch_sql """
@@ -85,9 +99,20 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   @table_has_data_sql "SELECT EXISTS(SELECT 1 FROM otel_trace_summaries LIMIT 1)"
 
+  @window_has_traces_sql """
+  SELECT EXISTS(
+    SELECT 1
+    FROM otel_traces
+    WHERE timestamp >= $1
+      AND timestamp < $2
+      AND trace_id IS NOT NULL
+    LIMIT 1
+  )
+  """
+
   # Backfill in 1-hour chunks to keep each query fast
   @backfill_chunk_seconds 3600
-  @cleanup_batch_size 50_000
+  @default_cleanup_batch_size 5_000
 
   def upsert_sql, do: @upsert_sql
   def cleanup_batch_sql, do: @cleanup_batch_sql
@@ -156,33 +181,48 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp run_upsert(window_start, window_end) do
-    case SQL.query(
-           ServiceRadar.Repo,
-           @upsert_sql,
-           [window_start, window_end],
-           timeout: 60_000
-         ) do
-      {:ok, _result} ->
-        :ok
+    if window_has_traces?(window_start, window_end) do
+      case SQL.query(
+             ServiceRadar.Repo,
+             @upsert_sql,
+             [window_start, window_end],
+             timeout: 60_000
+           ) do
+        {:ok, _result} ->
+          :ok
 
-      {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
-        Logger.debug("otel_trace_summaries or otel_traces table missing; skipping refresh")
-        :ok
+        {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
+          Logger.debug("otel_trace_summaries or otel_traces table missing; skipping refresh")
+          :ok
 
-      {:error, error} ->
-        Logger.error("Failed to upsert otel_trace_summaries: #{Exception.message(error)}")
-        {:error, error}
+        {:error, error} ->
+          Logger.error("Failed to upsert otel_trace_summaries: #{Exception.message(error)}")
+          {:error, error}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp window_has_traces?(window_start, window_end) do
+    case SQL.query(ServiceRadar.Repo, @window_has_traces_sql, [window_start, window_end], timeout: 5_000) do
+      {:ok, %{rows: [[true]]}} -> true
+      {:ok, _result} -> false
+      {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} -> false
+      {:error, error} -> raise error
     end
   end
 
   defp cleanup_old_summaries do
-    case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [@cleanup_batch_size], timeout: 60_000) do
+    batch_size = cleanup_batch_size()
+
+    case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [batch_size], timeout: 30_000) do
       {:ok, %{num_rows: deleted_rows}} ->
         if deleted_rows > 0 do
           Logger.info(
             "Pruned stale otel_trace_summaries rows",
             deleted_rows: deleted_rows,
-            batch_size: @cleanup_batch_size
+            batch_size: batch_size
           )
         end
 
@@ -194,6 +234,21 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       {:error, error} ->
         Logger.error("Failed to clean up old trace summaries: #{Exception.message(error)}")
         {:error, error}
+    end
+  end
+
+  defp cleanup_batch_size do
+    "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE"
+    |> System.get_env()
+    |> parse_positive_integer(@default_cleanup_batch_size)
+  end
+
+  defp parse_positive_integer(nil, default), do: default
+
+  defp parse_positive_integer(value, default) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> default
     end
   end
 end

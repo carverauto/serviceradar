@@ -124,16 +124,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
     end
   end
 
-  defp edge_upsert_cypher(
-         from_hop,
-         to_hop,
-         from_label,
-         from_id,
-         to_label,
-         to_id,
-         agent_id,
-         observed_at
-       ) do
+  defp edge_upsert_cypher(from_hop, to_hop, from_label, from_id, to_label, to_id, agent_id, observed_at) do
     from_asn = hop_asn(from_hop)
     to_asn = hop_asn(to_hop)
     from_hop_no = hop_int(from_hop, "hop_number", 0)
@@ -229,7 +220,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
     end
   end
 
-  # Batch-resolve hop IPs to device UIDs via the devices table.
+  # Batch-resolve hop IPs to device UIDs via inventory.
   # Returns a map of %{"10.0.0.1" => "device-uid-123", ...}
   defp resolve_device_ips([]), do: %{}
 
@@ -237,9 +228,10 @@ defmodule ServiceRadar.Observability.MtrGraph do
     placeholders = Enum.map_join(1..length(ips), ", ", fn i -> "$#{i}" end)
 
     query = """
-    SELECT ip, uid FROM devices
+    SELECT ip, uid FROM platform.ocsf_devices
     WHERE ip IN (#{placeholders})
       AND ip IS NOT NULL
+      AND deleted_at IS NULL
     """
 
     case Repo.query(query, ips) do
