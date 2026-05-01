@@ -106,6 +106,28 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "log_name" => "security.waf.finding",
           "alert" => false
         }
+      },
+      %{
+        name: "copyfail_falco_logs_to_security_events",
+        enabled: true,
+        priority: 35,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "falco.",
+          "service_name" => "falco",
+          "attribute_equals" => %{
+            "falco.rule" => "Copy Fail AF_ALG Socket Created In Container"
+          }
+        },
+        event: %{
+          "log_name" => "falco.copyfail.af_alg",
+          "severity" => "critical",
+          "status" => "Failure",
+          "status_code" => "cve_2026_31431_af_alg_socket",
+          "status_detail" => "Falco detected AF_ALG socket creation in a container",
+          "alert" => false
+        }
       }
     ]
   end

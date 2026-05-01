@@ -206,4 +206,93 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert %{"name" => "941100", "type" => "WAF Rule ID", "type_id" => 99} in observables
     assert unmapped["waf"]["rule_id"] == "941100"
   end
+
+  test "promotes CopyFail Falco logs with incident grouping metadata" do
+    actor = %{id: "system", role: :admin}
+    message = "AF_ALG socket created in container proc=python k8s_pod_name=api-1"
+    rule_name = "copyfail-falco-test-#{Ash.UUID.generate()}"
+    falco_rule = "Copy Fail AF_ALG Socket Created In Container"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: rule_name,
+          source_type: :log,
+          source: %{},
+          match: %{
+            "subject_prefix" => "falco.",
+            "service_name" => "falco",
+            "attribute_equals" => %{
+              "falco.rule" => falco_rule
+            }
+          },
+          event: %{
+            "log_name" => "falco.copyfail.af_alg",
+            "severity" => "critical",
+            "alert" => false
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    log = %{
+      id: Ash.UUID.generate(),
+      timestamp: DateTime.utc_now(),
+      severity_text: "Critical",
+      severity_number: 21,
+      body: message,
+      service_name: "falco",
+      service_instance: "k8s-worker-1",
+      attributes: %{
+        "falco" => %{
+          "uuid" => "copyfail-test-1",
+          "rule" => falco_rule,
+          "priority" => "Critical",
+          "output" => message,
+          "output_fields" => %{
+            "container.name" => "api",
+            "k8s.ns.name" => "demo",
+            "k8s.pod.name" => "api-1"
+          }
+        },
+        "serviceradar" => %{"ingest" => %{"subject" => "falco.logs.processed"}}
+      },
+      resource_attributes: %{
+        "host.name" => "k8s-worker-1",
+        "k8s.namespace.name" => "demo",
+        "k8s.pod.name" => "api-1",
+        "container.name" => "api"
+      },
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+
+    assert %Result{rows: [[severity, metadata, observables, unmapped]]} =
+             SQL.query!(
+               Repo,
+               """
+               SELECT severity, metadata, observables, unmapped
+               FROM ocsf_events
+               WHERE log_name = $1 AND message = $2
+               ORDER BY time DESC
+               LIMIT 1
+               """,
+               ["falco.copyfail.af_alg", message]
+             )
+
+    assert severity == "Critical"
+    assert metadata["security_signal"]["kind"] == "runtime"
+    assert metadata["security_signal"]["source"] == "falco"
+    assert metadata["security_signal"]["rule"] == falco_rule
+    assert metadata["rule"] == falco_rule
+    assert metadata["hostname"] == "k8s-worker-1"
+    assert %{"name" => falco_rule, "type" => "Falco Rule", "type_id" => 99} in observables
+    assert %{"name" => "api-1", "type" => "Kubernetes Pod", "type_id" => 99} in observables
+    assert unmapped["falco"]["rule"] == falco_rule
+    assert unmapped["falco"]["hostname"] == "k8s-worker-1"
+  end
 end
