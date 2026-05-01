@@ -240,4 +240,125 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
     assert controller_update["metadata"]["aos_version"] == "8.10.0.21"
     assert String.starts_with?(controller_update["device_id"], "sr:")
   end
+
+  test "accepts raw collector CSV aliases for WLC and RADIUS rows" do
+    parent = self()
+
+    payload = %{
+      "schema" => "serviceradar.wifi_map.batch.v1",
+      "collection_timestamp" => "2026-04-30T12:34:56Z",
+      "source" => %{"name" => "customer-wifi-map"},
+      "sites" => [
+        %{
+          "iata" => "IAH",
+          "name" => "George Bush Intercontinental Airport",
+          "lat" => "29.9844",
+          "lon" => "-95.3414"
+        }
+      ],
+      "controllers" => [
+        %{
+          "location" => "NIAHAP",
+          "expected_name" => "NIAHAP-MDF001-WLC001",
+          "hostname" => "NIAHAP-MDF001-WLC001",
+          "ip_address" => "10.12.3.10",
+          "mac_address" => "28:de:65:70:43:7e",
+          "hw_base_mac" => "28:de:65:70:43:7e",
+          "chassis_serial" => "CW0002888",
+          "model" => "7220",
+          "version" => "8.10.0.21"
+        }
+      ],
+      "radius_groups" => [
+        %{
+          "airport_code" => "IAH",
+          "device_alias" => "NIAHAP-MDF001-WLC001",
+          "aaa_profile" => "016airport-aaa-standard",
+          "dot1x_server_group" => "ual-aaa-tulng-group-6_11",
+          "server_group_location" => "TUL",
+          "status" => "OK"
+        }
+      ]
+    }
+
+    assert :ok =
+             BatchIngestor.ingest(payload, %{service_name: "wifi-map-plugin"},
+               source_upsert: fn _attrs, _context -> {:ok, @source_id} end,
+               batch_upsert: fn _attrs, _context -> {:ok, @batch_id} end,
+               bulk_upsert: fn rows, table, _conflict_target, _replace_fields, _context ->
+                 if rows != [] do
+                   send(parent, {:bulk_upsert, table, rows})
+                 end
+
+                 :ok
+               end,
+               device_sync: fn updates, _context ->
+                 send(parent, {:device_sync, updates})
+                 :ok
+               end
+             )
+
+    assert_receive {:bulk_upsert, :wifi_controller_observations, [controller]}
+    assert controller.name == "NIAHAP-MDF001-WLC001"
+    assert controller.site_code == "IAH"
+    assert controller.mac == "28:de:65:70:43:7e"
+    assert controller.base_mac == "28:de:65:70:43:7e"
+    assert controller.serial == "CW0002888"
+    assert controller.aos_version == "8.10.0.21"
+
+    assert_receive {:bulk_upsert, :wifi_radius_group_observations, [radius]}
+    assert radius.site_code == "IAH"
+    assert radius.controller_alias == "NIAHAP-MDF001-WLC001"
+    assert radius.server_group == "ual-aaa-tulng-group-6_11"
+    assert radius.cluster == "TUL"
+
+    assert_receive {:device_sync, [device_update]}
+    assert device_update["metadata"]["serial_number"] == "CW0002888"
+    assert device_update["mac"] == "28:de:65:70:43:7e"
+  end
+
+  test "derives site-level RADIUS rows from site seed data when raw rows are absent" do
+    parent = self()
+
+    payload = %{
+      "schema" => "serviceradar.wifi_map.batch.v1",
+      "collection_timestamp" => "2026-04-30T12:34:56Z",
+      "source" => %{"name" => "customer-wifi-map"},
+      "sites" => [
+        %{
+          "iata" => "IAH",
+          "name" => "George Bush Intercontinental Airport",
+          "lat" => "29.9844",
+          "lon" => "-95.3414",
+          "server_group" => "ual-aaa-tulng-group-6_11",
+          "cluster" => "TUL",
+          "all_server_groups" => "ual-aaa-iahap-group_6_11;ual-aaa-tulng-group-6_11",
+          "aaa_profile" => "016airport-aaa-standard"
+        }
+      ]
+    }
+
+    assert :ok =
+             BatchIngestor.ingest(payload, %{service_name: "wifi-map-plugin"},
+               source_upsert: fn _attrs, _context -> {:ok, @source_id} end,
+               batch_upsert: fn _attrs, _context -> {:ok, @batch_id} end,
+               bulk_upsert: fn rows, table, _conflict_target, _replace_fields, _context ->
+                 if table == :wifi_radius_group_observations do
+                   send(parent, {:radius_rows, rows})
+                 end
+
+                 :ok
+               end,
+               device_sync: fn _updates, _context -> :ok end
+             )
+
+    assert_receive {:radius_rows, [radius]}
+    assert radius.site_code == "IAH"
+    assert radius.controller_alias == "site:IAH"
+    assert radius.aaa_profile == "016airport-aaa-standard"
+    assert radius.server_group == "ual-aaa-tulng-group-6_11"
+    assert radius.cluster == "TUL"
+    assert radius.all_server_groups == ["ual-aaa-iahap-group_6_11", "ual-aaa-tulng-group-6_11"]
+    assert radius.metadata == %{"scope" => "site_summary"}
+  end
 end

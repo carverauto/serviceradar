@@ -693,6 +693,55 @@
   cursor: grab;
 }
 
+.sr-ops-map-shell.is-wifi-map-view .sr-ops-traffic-canvas,
+.sr-ops-map-shell.is-wifi-map-view .sr-ops-world-map-background,
+.sr-ops-map-shell.is-wifi-map-view .sr-ops-traffic-overlay,
+.sr-ops-map-shell.is-wifi-map-view .sr-ops-map-interaction-controls {
+  display: none;
+}
+
+.sr-ops-wifi-map-preview {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 0.35rem;
+  padding: 2rem;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.sr-ops-wifi-map-preview:hover {
+  color: #f8fafc;
+}
+
+.sr-ops-wifi-map-preview strong {
+  color: #f8fafc;
+  font-size: 1.05rem;
+  font-weight: 760;
+}
+
+.sr-ops-wifi-map-preview small {
+  display: block;
+  max-width: 25rem;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.sr-ops-wifi-map-pin {
+  display: grid;
+  width: 2.55rem;
+  height: 2.55rem;
+  place-items: center;
+  justify-self: center;
+  border: 1px solid rgba(20, 184, 166, 0.46);
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.24);
+  color: #5eead4;
+}
+
 .sr-ops-map-shell.is-netflow-view.is-netflow-panning {
   cursor: grabbing;
 }

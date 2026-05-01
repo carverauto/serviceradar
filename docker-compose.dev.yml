@@ -90,6 +90,9 @@ services:
     image: registry.carverauto.dev/serviceradar/serviceradar-faker:${APP_TAG:-latest}
     container_name: serviceradar-faker-mtls
     hostname: faker
+    profiles:
+      - faker
+      - full
     ports:
       - "8081:8080"
     volumes:

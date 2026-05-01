@@ -18,6 +18,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   @prefix "platform"
   @schema_names MapSet.new(["serviceradar.wifi_map.batch.v1", "wifi_map_batch.v1"])
   @payload_kinds MapSet.new(["wifi_map", "wifi_map_batch", "wifi-map-batch"])
+  @max_insert_params 30_000
 
   @type context :: %{
           actor: term(),
@@ -346,7 +347,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   defp persist_radius_groups(body, context) do
     rows =
       body
-      |> list_value(["radius_groups", "radiusGroups", "radius_group_observations"])
+      |> radius_group_rows()
       |> Enum.map(&radius_group_attrs(&1, context))
       |> Enum.reject(&is_nil/1)
 
@@ -367,6 +368,51 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       context
     )
   end
+
+  defp radius_group_rows(body) do
+    explicit_rows =
+      list_value(body, ["radius_groups", "radiusGroups", "radius_group_observations"])
+
+    case explicit_rows do
+      [] -> site_radius_group_rows(body)
+      rows -> rows
+    end
+  end
+
+  defp site_radius_group_rows(body) do
+    body
+    |> list_value(["site_snapshots", "siteSnapshots"])
+    |> case do
+      [] -> list_value(body, ["sites"])
+      snapshots -> snapshots
+    end
+    |> Enum.map(&site_radius_group_row/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp site_radius_group_row(row) when is_map(row) do
+    site_code = site_code(row)
+    server_group = string_value(row, ["server_group", "serverGroup"])
+    all_server_groups = string_list(row, ["all_server_groups", "allServerGroups"])
+    cluster = string_value(row, ["cluster"])
+
+    if blank?(site_code) or (blank?(server_group) and all_server_groups == [] and blank?(cluster)) do
+      nil
+    else
+      %{
+        "site_code" => site_code,
+        "controller_alias" => "site:#{site_code}",
+        "aaa_profile" => string_value(row, ["aaa_profile", "aaaProfile"]) || "site_summary",
+        "server_group" => server_group,
+        "cluster" => cluster,
+        "all_server_groups" => all_server_groups,
+        "status" => "OK",
+        "metadata" => %{"scope" => "site_summary"}
+      }
+    end
+  end
+
+  defp site_radius_group_row(_row), do: nil
 
   defp persist_fleet_history(body, context) do
     body
@@ -402,8 +448,14 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
     reference_hash = string_value(body, ["reference_hash", "referenceHash"])
 
     %{
-      source_id: string_value(source, ["source_id", "sourceId", "id"]) || Ecto.UUID.generate(),
-      plugin_source_id: uuid_value(source, ["plugin_source_id", "pluginSourceId"]),
+      source_id:
+        source
+        |> string_value(["source_id", "sourceId", "id"])
+        |> uuid_binary_or_generate(),
+      plugin_source_id:
+        source
+        |> uuid_value(["plugin_source_id", "pluginSourceId"])
+        |> uuid_binary(),
       name:
         string_value(source, ["name"]) ||
           string_value(body, ["source_name", "sourceName"]) ||
@@ -424,7 +476,10 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
 
   defp batch_attrs(body, source_id, collection_timestamp, now) do
     %{
-      batch_id: string_value(body, ["batch_id", "batchId"]) || Ecto.UUID.generate(),
+      batch_id:
+        body
+        |> string_value(["batch_id", "batchId"])
+        |> uuid_binary_or_generate(),
       source_id: source_id,
       collection_mode:
         string_value(body, ["collection_mode", "collectionMode", "mode"]) || "seed_snapshot",
@@ -496,7 +551,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       nil
     else
       %{
-        id: string_value(row, ["id"]) || Ecto.UUID.generate(),
+        id: row |> string_value(["id"]) |> uuid_binary_or_generate(),
         source_id: context.source_id,
         batch_id: context.batch_id,
         site_code: site_code,
@@ -535,7 +590,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       nil
     else
       %{
-        id: string_value(row, ["id"]) || Ecto.UUID.generate(),
+        id: row |> string_value(["id"]) |> uuid_binary_or_generate(),
         source_id: context.source_id,
         batch_id: context.batch_id,
         device_uid: wifi_device_uid(row, :access_point, context),
@@ -562,13 +617,25 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
 
   defp controller_attrs(row, context) when is_map(row) do
     site_code = site_code(row)
-    name = string_value(row, ["name", "alias", "controller_alias", "controllerAlias", "hostname"])
+
+    name =
+      string_value(row, [
+        "name",
+        "alias",
+        "controller_alias",
+        "controllerAlias",
+        "device_alias",
+        "deviceAlias",
+        "hostname",
+        "expected_name",
+        "expectedName"
+      ])
 
     if blank?(site_code) or blank?(name) do
       nil
     else
       %{
-        id: string_value(row, ["id"]) || Ecto.UUID.generate(),
+        id: row |> string_value(["id"]) |> uuid_binary_or_generate(),
         source_id: context.source_id,
         batch_id: context.batch_id,
         device_uid: wifi_device_uid(row, :controller, context),
@@ -577,11 +644,19 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
           datetime_value(row, ["collection_timestamp", "collectionTimestamp"]) ||
             context.collection_timestamp,
         name: name,
-        hostname: string_value(row, ["hostname", "host"]),
+        hostname: string_value(row, ["hostname", "host", "expected_name", "expectedName"]),
         ip: string_value(row, ["ip", "ip_address", "ipAddress", "switch_ip", "switchIp"]),
-        mac: normalize_mac(string_value(row, ["mac"])),
-        base_mac: normalize_mac(string_value(row, ["base_mac", "baseMac"])),
-        serial: string_value(row, ["serial", "serial_number", "serialNumber"]),
+        mac: normalize_mac(string_value(row, ["mac", "mac_address", "macAddress"])),
+        base_mac:
+          normalize_mac(string_value(row, ["base_mac", "baseMac", "hw_base_mac", "hwBaseMac"])),
+        serial:
+          string_value(row, [
+            "serial",
+            "serial_number",
+            "serialNumber",
+            "chassis_serial",
+            "chassisSerial"
+          ]),
         model: string_value(row, ["model"]),
         aos_version: string_value(row, ["aos_version", "aosVersion", "version"]),
         psu_status: string_value(row, ["psu_status", "psuStatus"]),
@@ -598,14 +673,24 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
 
   defp radius_group_attrs(row, context) when is_map(row) do
     site_code = site_code(row)
-    controller_alias = string_value(row, ["controller_alias", "controllerAlias", "alias", "name"])
+
+    controller_alias =
+      string_value(row, [
+        "controller_alias",
+        "controllerAlias",
+        "device_alias",
+        "deviceAlias",
+        "alias",
+        "name"
+      ])
+
     aaa_profile = string_value(row, ["aaa_profile", "aaaProfile", "profile"])
 
     if blank?(site_code) or blank?(controller_alias) or blank?(aaa_profile) do
       nil
     else
       %{
-        id: string_value(row, ["id"]) || Ecto.UUID.generate(),
+        id: row |> string_value(["id"]) |> uuid_binary_or_generate(),
         source_id: context.source_id,
         batch_id: context.batch_id,
         controller_device_uid:
@@ -681,8 +766,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
            conflict_target: [:name],
            returning: [:source_id]
          ) do
-      {_count, [%{source_id: source_id}]} -> {:ok, source_id}
-      {_count, [%{"source_id" => source_id}]} -> {:ok, source_id}
+      {_count, [%{source_id: source_id}]} -> {:ok, uuid_binary(source_id)}
+      {_count, [%{"source_id" => source_id}]} -> {:ok, uuid_binary(source_id)}
       other -> {:error, {:unexpected_source_upsert_result, other}}
     end
   end
@@ -699,8 +784,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
            conflict_target: [:source_id, :collection_timestamp, :collection_mode],
            returning: [:batch_id]
          ) do
-      {_count, [%{batch_id: batch_id}]} -> {:ok, batch_id}
-      {_count, [%{"batch_id" => batch_id}]} -> {:ok, batch_id}
+      {_count, [%{batch_id: batch_id}]} -> {:ok, uuid_binary(batch_id)}
+      {_count, [%{"batch_id" => batch_id}]} -> {:ok, uuid_binary(batch_id)}
       other -> {:error, {:unexpected_batch_upsert_result, other}}
     end
   end
@@ -710,6 +795,25 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   defp bulk_upsert(rows, table, conflict_target, replace_fields, _context) do
     table_name = Atom.to_string(table)
 
+    rows
+    |> unique_rows(conflict_target)
+    |> Enum.chunk_every(bulk_chunk_size(rows))
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      case bulk_upsert_chunk(chunk, table_name, table, conflict_target, replace_fields) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp unique_rows(rows, conflict_target) do
+    rows
+    |> Enum.reverse()
+    |> Enum.uniq_by(fn row -> Enum.map(conflict_target, &Map.get(row, &1)) end)
+    |> Enum.reverse()
+  end
+
+  defp bulk_upsert_chunk(rows, table_name, table, conflict_target, replace_fields) do
     case Repo.insert_all(table_name, rows,
            prefix: @prefix,
            on_conflict: {:replace, replace_fields},
@@ -720,6 +824,13 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       other -> {:error, {:unexpected_bulk_upsert_result, table, other}}
     end
   end
+
+  defp bulk_chunk_size([row | _rows]) when is_map(row) do
+    field_count = row |> map_size() |> max(1)
+    max(div(@max_insert_params, field_count), 1)
+  end
+
+  defp bulk_chunk_size(_rows), do: 1
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
     SyncIngestor.ingest_updates(updates, actor: context.actor)
@@ -791,7 +902,17 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
         "ip" => string_value(row, ["ip", "ip_address", "ipAddress", "switch_ip", "switchIp"]),
         "mac" =>
           normalize_mac(
-            string_value(row, ["mac", "wired_mac", "wiredMac", "base_mac", "baseMac"])
+            string_value(row, [
+              "mac",
+              "mac_address",
+              "macAddress",
+              "wired_mac",
+              "wiredMac",
+              "base_mac",
+              "baseMac",
+              "hw_base_mac",
+              "hwBaseMac"
+            ])
           ),
         "hostname" => name,
         "partition" => partition,
@@ -834,7 +955,14 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       "device_role" => wifi_device_role(kind),
       "vendor_name" => string_value(row, ["vendor_name", "vendorName", "vendor"]) || "Aruba",
       "model" => string_value(row, ["model"]),
-      "serial_number" => string_value(row, ["serial", "serial_number", "serialNumber"]),
+      "serial_number" =>
+        string_value(row, [
+          "serial",
+          "serial_number",
+          "serialNumber",
+          "chassis_serial",
+          "chassisSerial"
+        ]),
       "status" => string_value(row, ["status"]),
       "collection_timestamp" => DateTime.to_iso8601(collection_timestamp)
     }
@@ -925,10 +1053,31 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
 
   defp site_code(row) do
     row
-    |> string_value(["site_code", "siteCode", "iata", "airport_code", "airportCode", "location"])
+    |> string_value(["site_code", "siteCode", "iata", "airport_code", "airportCode"])
+    |> case do
+      nil -> row |> string_value(["location"]) |> location_site_code()
+      value -> value
+    end
     |> case do
       nil -> nil
       value -> value |> String.trim() |> String.upcase()
+    end
+  end
+
+  defp location_site_code(nil), do: nil
+
+  defp location_site_code(value) do
+    value = String.trim(value)
+
+    cond do
+      String.length(value) == 3 and String.match?(value, ~r/^[A-Za-z]{3}$/) ->
+        value
+
+      String.length(value) >= 4 and String.match?(String.slice(value, 1, 3), ~r/^[A-Za-z]{3}$/) ->
+        String.slice(value, 1, 3)
+
+      true ->
+        value
     end
   end
 
@@ -981,8 +1130,26 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
     identity =
       first_present([
         string_value(row, ["device_uid", "deviceUid", "canonical_device_id", "canonicalDeviceId"]),
-        string_value(row, ["serial", "serial_number", "serialNumber"]),
-        normalize_mac(string_value(row, ["mac", "wired_mac", "wiredMac", "base_mac", "baseMac"])),
+        string_value(row, [
+          "serial",
+          "serial_number",
+          "serialNumber",
+          "chassis_serial",
+          "chassisSerial"
+        ]),
+        normalize_mac(
+          string_value(row, [
+            "mac",
+            "mac_address",
+            "macAddress",
+            "wired_mac",
+            "wiredMac",
+            "base_mac",
+            "baseMac",
+            "hw_base_mac",
+            "hwBaseMac"
+          ])
+        ),
         wifi_device_name(row, kind)
       ])
 
@@ -997,7 +1164,18 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   end
 
   defp wifi_device_name(row, :controller) do
-    string_value(row, ["name", "alias", "controller_alias", "controllerAlias", "hostname", "host"])
+    string_value(row, [
+      "name",
+      "alias",
+      "controller_alias",
+      "controllerAlias",
+      "device_alias",
+      "deviceAlias",
+      "hostname",
+      "host",
+      "expected_name",
+      "expectedName"
+    ])
   end
 
   defp partition_value(status) do
@@ -1168,6 +1346,21 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
     end
   end
 
+  defp uuid_binary_or_generate(nil), do: uuid_binary(Ecto.UUID.generate())
+  defp uuid_binary_or_generate(value), do: uuid_binary(value) || uuid_binary(Ecto.UUID.generate())
+
+  defp uuid_binary(nil), do: nil
+  defp uuid_binary(value) when is_binary(value) and byte_size(value) == 16, do: value
+
+  defp uuid_binary(value) when is_binary(value) do
+    case Ecto.UUID.dump(value) do
+      {:ok, binary} -> binary
+      :error -> nil
+    end
+  end
+
+  defp uuid_binary(_value), do: nil
+
   defp decode_json_map(value) when is_binary(value) do
     case Jason.decode(value) do
       {:ok, decoded} when is_map(decoded) -> decoded
@@ -1325,8 +1518,18 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
         "alias",
         "controller_alias",
         "controllerAlias",
+        "device_alias",
+        "deviceAlias",
+        "expected_name",
+        "expectedName",
+        "mac_address",
+        "macAddress",
         "base_mac",
         "baseMac",
+        "hw_base_mac",
+        "hwBaseMac",
+        "chassis_serial",
+        "chassisSerial",
         "switch_ip",
         "switchIp",
         "aos_version",
@@ -1357,6 +1560,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       "collectionTimestamp",
       "controller_alias",
       "controllerAlias",
+      "device_alias",
+      "deviceAlias",
       "alias",
       "name",
       "aaa_profile",

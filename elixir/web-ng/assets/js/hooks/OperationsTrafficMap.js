@@ -2,7 +2,7 @@ import {geoEquirectangular, geoPath} from "d3-geo"
 import countries110m from "world-atlas/countries-110m.json"
 import {feature} from "topojson-client"
 
-const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
+const MAP_VIEWS = new Set(["topology_traffic", "netflow", "wifi_map"])
 const WORLD_COUNTRIES = feature(countries110m, countries110m.objects.countries)
 const WORLD_MAP_PATHS = buildWorldMapPaths()
 const TOPOLOGY_VIEWBOX = "-170 -70 340 140"
@@ -942,14 +942,14 @@ export default {
     const target = event.target
     if (!target || target.id !== "traffic-map-view-select") return
 
-    this.el.dataset.mapView = MAP_VIEWS.has(target.value) ? target.value : "topology_traffic"
+    this.el.dataset.mapView = MAP_VIEWS.has(target.value) ? target.value : "netflow"
     this._syncData()
   },
 
   _onExternalMapViewChange(event) {
     this.el.dataset.mapView = MAP_VIEWS.has(event.detail?.mapView)
       ? event.detail.mapView
-      : "topology_traffic"
+      : "netflow"
     this._syncData()
   },
 
@@ -1702,9 +1702,10 @@ export default {
   },
 
   _syncData() {
-    this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "topology_traffic"
+    this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "netflow"
     this._ensureWorldMapBackground()
     this.el.parentElement?.classList.toggle("is-netflow-view", this.mapView === "netflow")
+    this.el.parentElement?.classList.toggle("is-wifi-map-view", this.mapView === "wifi_map")
     this.topologyLinks = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.topologyLinks, [])) : []
     this.links = normalizeTrafficLinks(parseJson(this.el.dataset.links, []), this.mapView)
     this.overlays = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.mtrOverlays, [])) : []

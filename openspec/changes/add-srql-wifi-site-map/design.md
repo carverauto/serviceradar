@@ -125,6 +125,30 @@ The short-term seed path should still run as a plugin assignment. Configuration 
 
 This validates the pipeline and keeps the later live Aruba collector behind the same output contract.
 
+The customer-provided Python scripts show that most generated CSVs can be
+replaced by Go plugin collection logic over time:
+
+- AP rows are collected from Aruba Mobility Masters via REST `show ap database long`.
+- WLC/controller rows are collected by discovering Mobility Devices from each MM,
+  then querying each MD via REST `show switchinfo` and `show inventory`.
+- RADIUS server-group rows are collected from Mobility Masters via SSH and
+  `mdconnect`, then querying the configured AAA profile.
+- `sites.csv`, `search_index.csv`, and `history.csv` are derived artifacts that
+  join AP/WLC/RADIUS observations to airport/site reference data.
+
+The production plugin should therefore support two compatible paths:
+
+- `csv_seed`: read packaged or explicitly allowed CSV seed assets and emit the
+  normalized WiFi-map batch directly. This remains first-class because airport
+  and manual override data will likely stay CSV-backed package assets.
+- `aruba_controller`: collect AP/WLC/RADIUS rows from Aruba APIs/SSH, apply the
+  same site/reference join logic in Go, then emit the same normalized batch.
+
+ServiceRadar also provides a local-only Mix validation task that builds the same
+batch from CSVs and calls the core ingestor against a local Docker Compose CNPG
+database. That task is a ServiceRadar validation harness, not a substitute for
+the customer-owned plugin.
+
 ### D4: Customer plugin repositories are control-plane sources, not agent sources
 
 Operators should be able to add customer-owned Git repositories as plugin sources from ServiceRadar settings. A source should include:
@@ -291,7 +315,7 @@ Indexes should include:
 ## Open Questions
 
 - Should CSV seed files be packaged inside the customer plugin artifact for demos, mounted on the agent host with an explicit `read_file` capability, or fetched by the plugin through an approved object/source reference?
-- Should the first customer plugin implementation import `sites.csv` directly, or should it rebuild `sites.csv` from lower-level AP/WLC/RADIUS CSVs inside the plugin for better lineage?
+- Should the first customer plugin implementation import `sites.csv` directly, or should it rebuild `sites.csv` from lower-level AP/WLC/RADIUS CSVs inside the plugin for better lineage? Current direction: support both, with direct generated CSV import required for initial production seeding and Go rebuild logic preferred once API collection is enabled.
 - Should `wifi_site_snapshots` store AP model and WLC model breakdowns as JSONB only, or also maintain normalized breakdown tables for faster SRQL grouping?
 - Should dashboard map tile providers reuse existing Mapbox settings only, or support an OSM/Carto fallback for environments without Mapbox tokens?
 - What retention should apply to AP/controller observations after the map reaches parity: latest-only, 90-day history, or Timescale downsampling?
