@@ -163,14 +163,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/analytics"}
-                  label="Analytics"
-                  icon="hero-chart-bar"
-                  active={@current_path == "/analytics"}
-                />
-              </li>
-              <li>
-                <.sidebar_link
                   href={~p"/devices"}
                   label="Devices"
                   icon="hero-server"
@@ -301,11 +293,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       %{href: "/dashboard", label: "Dashboard", icon: "hero-home"},
       %{href: "/devices", label: "Devices", icon: "hero-server-stack"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},
-      %{href: "/observability?tab=netflows", label: "Flows", icon: "hero-arrow-path"},
-      %{href: "/events", label: "Events", icon: "hero-document-text"},
+      %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
       %{href: "/cameras", label: "Cameras", icon: "hero-video-camera"},
       %{href: "/spatial", label: "FieldSurvey", icon: "hero-wifi"},
-      %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
       %{href: "/settings/cluster", label: "Settings", icon: "hero-cog-6-tooth"}
     ]
 
@@ -447,10 +437,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         false
 
       href == "/observability" ->
-        current_path in ["/observability", "/logs", "/alerts"] or
+        current_path in ["/observability", "/logs", "/events", "/alerts"] or
           String.starts_with?(current_path, "/observability/bmp") or
           String.starts_with?(current_path, "/observability/bgp") or
           String.starts_with?(current_path, "/logs/") or
+          String.starts_with?(current_path, "/events/") or
           String.starts_with?(current_path, "/alerts/")
 
       true ->
@@ -516,7 +507,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         <ul class="flex items-center flex-wrap min-w-0">
           <li>
             <.link
-              href={~p"/analytics"}
+              href={~p"/dashboard"}
               class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
               title="Home"
             >

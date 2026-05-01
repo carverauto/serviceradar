@@ -49,6 +49,10 @@ function hexToRgb(hex) {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255]
 }
 
+function looksLikeMapboxPublicToken(token) {
+  return /^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(String(token || "").trim())
+}
+
 export default {
   mounted() {
     this._onResize = () => this._resize()
@@ -65,6 +69,9 @@ export default {
       attributeFilter: ["data-theme", "class", "style"],
     })
 
+    this._webglUnavailable = false
+    this._mapboxTokenRejected = false
+    this._lastToken = ""
     this._colorSchemeMql = window.matchMedia?.("(prefers-color-scheme: dark)") || null
     if (this._colorSchemeMql?.addEventListener) {
       this._colorSchemeMql.addEventListener("change", this._onColorSchemeChange)
@@ -108,16 +115,26 @@ export default {
 
   _initOrUpdate() {
     this._enabled = (this.el.dataset.enabled || "false") === "true"
-    this._token = this.el.dataset.accessToken || ""
+    this._token = String(this.el.dataset.accessToken || "").trim()
+    if (this._token !== this._lastToken) {
+      this._mapboxTokenRejected = false
+      this._lastToken = this._token
+    }
     this._styleLight = this.el.dataset.styleLight || DEFAULT_LIGHT_STYLE
     this._styleDark = this.el.dataset.styleDark || DEFAULT_DARK_STYLE
     this._compact = (this.el.dataset.compact || "false") === "true"
-    this._useMapbox = this._enabled && this._token
+    this._useMapbox = this._enabled && looksLikeMapboxPublicToken(this._token) && !this._mapboxTokenRejected
     this._sites = this._parseSites()
 
     if (this._sites.length === 0) {
       this._teardownMap()
       this._showFallback("No mappable WiFi sites")
+      return
+    }
+
+    if (this._webglUnavailable) {
+      this._teardownMap()
+      this._showFallback(`${this._sites.length.toLocaleString()} locations loaded. Map rendering requires WebGL.`)
       return
     }
 
@@ -177,13 +194,24 @@ export default {
     const style = this._currentStyle()
     const styleId = this._currentStyleId()
 
-    this._map = new mapboxgl.Map({
-      container: this._mapContainer,
-      style,
-      center: [-98, 39],
-      zoom: 2.6,
-      attributionControl: false,
-      interactive: !this._compact,
+    try {
+      this._map = new mapboxgl.Map({
+        container: this._mapContainer,
+        style,
+        center: [-98, 39],
+        zoom: 2.6,
+        attributionControl: false,
+        interactive: !this._compact,
+      })
+    } catch (error) {
+      console.warn("[WifiSiteMap] map initialization failed:", error?.message || error)
+      this._handleRenderingUnavailable()
+      return
+    }
+
+    this._map.once("webglcontextlost", () => this._handleRenderingUnavailable())
+    this._map.getCanvas?.()?.addEventListener?.("webglcontextlost", () => this._handleRenderingUnavailable(), {
+      once: true,
     })
 
     this._map.on("load", () => {
@@ -196,8 +224,15 @@ export default {
     this._map.on("error", (event) => {
       const msg = event?.error?.message || event?.message || "Unknown map error"
       console.warn("[WifiSiteMap] map error:", msg)
+      if (msg.toLowerCase().includes("webgl") || msg.toLowerCase().includes("context lost")) {
+        this._handleRenderingUnavailable()
+        return
+      }
+
       if (msg.includes("access token") || msg.includes("401") || msg.includes("403")) {
-        this._showFallback("Invalid Mapbox access token")
+        this._mapboxTokenRejected = true
+        this._teardownMap()
+        this._initOrUpdate()
       }
     })
   },
@@ -207,21 +242,31 @@ export default {
 
     this._viewState = this._mapViewState()
 
-    this._deck = new Deck({
-      parent: this._deckContainer,
-      views: new MapView({repeat: true}),
-      controller: true,
-      initialViewState: this._viewState,
-      getTooltip: null,
-      onViewStateChange: ({viewState}) => {
-        this._setViewState(viewState, true)
-      },
-      onClick: (info) => this._handleClick(info),
-      onHover: (info) => {
-        this.el.style.cursor = info?.object ? "pointer" : ""
-      },
-      layers: this._layers(),
-    })
+    try {
+      this._deck = new Deck({
+        parent: this._deckContainer,
+        views: new MapView({repeat: true}),
+        controller: true,
+        initialViewState: this._viewState,
+        getTooltip: null,
+        onError: (error) => {
+          console.warn("[WifiSiteMap] deck error:", error?.message || error)
+          this._handleRenderingUnavailable()
+          return true
+        },
+        onViewStateChange: ({viewState}) => {
+          this._setViewState(viewState, true)
+        },
+        onClick: (info) => this._handleClick(info),
+        onHover: (info) => {
+          this.el.style.cursor = info?.object ? "pointer" : ""
+        },
+        layers: this._layers(),
+      })
+    } catch (error) {
+      console.warn("[WifiSiteMap] deck initialization failed:", error?.message || error)
+      this._handleRenderingUnavailable()
+    }
   },
 
   _mapViewState() {
@@ -519,6 +564,13 @@ export default {
 
   _showFallback(message) {
     this.el.innerHTML = `<div class="sr-wifi-map-fallback">${this._escapeHtml(message)}</div>`
+  },
+
+  _handleRenderingUnavailable() {
+    if (this._webglUnavailable) return
+    this._webglUnavailable = true
+    this._teardownMap()
+    this._showFallback(`${this._sites.length.toLocaleString()} locations loaded. Map rendering requires WebGL.`)
   },
 
   _clearFallback() {

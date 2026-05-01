@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       {:ok,
        socket
        |> put_flash(:error, "God-View is not enabled in this environment.")
-       |> push_navigate(to: ~p"/analytics")}
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 

@@ -50,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         discovery_tab(path, current_scope),
         network_tab(path, current_scope),
         events_tab(path, current_scope),
+        dashboards_tab(path, current_scope),
         edge_ops_tab(path, current_scope),
         jobs_tab(path, current_scope),
         auth_tab(path, current_scope)
@@ -119,6 +120,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp can_events_tab?(current_scope) do
     RBAC.can?(current_scope, "observability.rules.update") or
       RBAC.can?(current_scope, "observability.rules.create")
+  end
+
+  defp dashboards_tab(path, current_scope) do
+    %{
+      label: "Dashboards",
+      navigate: ~p"/settings/dashboards/packages",
+      active: String.starts_with?(path, "/settings/dashboards"),
+      show: RBAC.can?(current_scope, "plugins.view")
+    }
   end
 
   defp edge_ops_tab(path, current_scope) do

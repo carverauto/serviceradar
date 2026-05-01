@@ -40,8 +40,8 @@ config :serviceradar_core, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
-       {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker,
-        queue: :maintenance},
+       {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
+        ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
        {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
        {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
      ]}
@@ -89,6 +89,7 @@ config :serviceradar_core,
     ServiceRadar.Integrations,
     ServiceRadar.Jobs,
     ServiceRadar.AgentConfig,
+    ServiceRadar.Dashboards,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,

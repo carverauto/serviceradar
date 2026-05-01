@@ -555,6 +555,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     trimmed = String.trim(path)
 
     cond do
+      trimmed == "/analytics" -> ~p"/dashboard"
       # Must start with a single forward slash (relative path)
       not String.starts_with?(trimmed, "/") -> ~p"/dashboard"
       # Block protocol-relative URLs (//evil.com)

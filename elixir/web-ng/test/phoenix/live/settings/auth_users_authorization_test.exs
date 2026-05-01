@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersAuthorizationTest do
       user = viewer_user_fixture()
       conn = log_in_user(conn, user)
 
-      assert {:error, {:live_redirect, %{to: "/analytics"} = info}} =
+      assert {:error, {:live_redirect, %{to: "/dashboard"} = info}} =
                live(conn, ~p"/settings/auth/users")
 
       assert is_map(info.flash)

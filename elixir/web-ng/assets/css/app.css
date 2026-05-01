@@ -1400,6 +1400,93 @@
   border-top: 1px solid rgba(30, 64, 111, 0.78);
 }
 
+.sr-netflow-map-app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: calc(100vh - 4rem);
+  background: #020817;
+  color: #e2e8f0;
+}
+
+.sr-netflow-map-topbar {
+  display: grid;
+  grid-template-columns: auto minmax(12rem, 1fr) minmax(24rem, 3fr);
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid rgba(30, 64, 111, 0.82);
+  background: rgba(2, 8, 23, 0.96);
+  padding: 0.75rem 1rem;
+}
+
+.sr-netflow-map-back {
+  display: grid;
+  width: 2.4rem;
+  height: 2.4rem;
+  place-items: center;
+  border: 1px solid rgba(71, 85, 105, 0.78);
+  border-radius: 0.4rem;
+  color: #cbd5e1;
+}
+
+.sr-netflow-map-back:hover {
+  border-color: rgba(14, 165, 233, 0.74);
+  color: #e0f2fe;
+}
+
+.sr-netflow-map-heading {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.sr-netflow-map-heading strong {
+  color: #f8fafc;
+  font-size: 1.05rem;
+  font-weight: 850;
+}
+
+.sr-netflow-map-heading span,
+.sr-netflow-map-stat span {
+  color: #94a3b8;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sr-netflow-map-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.sr-netflow-map-stat {
+  min-width: 0;
+  border-left: 1px solid rgba(51, 65, 85, 0.74);
+  padding-left: 0.75rem;
+}
+
+.sr-netflow-map-stat strong {
+  display: block;
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: 0.94rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-netflow-map-stage {
+  min-height: 0;
+}
+
+.sr-netflow-map-shell {
+  height: calc(100vh - 8.85rem);
+  min-height: 32rem;
+  border: 0;
+  border-radius: 0;
+}
+
 .sr-ops-small-stat {
   min-width: 0;
   padding: 0.55rem 0.7rem;
@@ -3521,6 +3608,20 @@
   .sr-ops-map-shell,
   .sr-ops-empty-chart {
     min-height: 18rem;
+  }
+
+  .sr-netflow-map-topbar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .sr-netflow-map-stats {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sr-netflow-map-shell {
+    height: calc(100vh - 13.5rem);
+    min-height: 25rem;
   }
 
   .sr-ops-security-chart {
