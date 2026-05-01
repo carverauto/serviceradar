@@ -62,8 +62,23 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   def object_key_for(%DashboardPackage{} = package) do
     dashboard_id = sanitize_segment(package.dashboard_id || "unknown")
     version = sanitize_segment(package.version || "unknown")
-    "dashboards/#{dashboard_id}/#{version}/#{package.id}.wasm"
+    extension =
+      package
+      |> dashboard_renderer_artifact()
+      |> Path.extname()
+      |> case do
+        "" -> ".wasm"
+        ext -> ext
+      end
+
+    "dashboards/#{dashboard_id}/#{version}/#{package.id}#{extension}"
   end
+
+  defp dashboard_renderer_artifact(%DashboardPackage{renderer: %{"artifact" => artifact}})
+       when is_binary(artifact),
+       do: artifact
+
+  defp dashboard_renderer_artifact(_package), do: ""
 
   @spec sign_token(atom(), String.t(), String.t(), pos_integer()) :: {String.t(), DateTime.t()}
   def sign_token(action, package_id, object_key, ttl_seconds) do

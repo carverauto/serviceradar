@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
+  @impl true
   def query(query, opts \\ %{}) when is_binary(query) do
     query_request(%{
       "query" => query,
@@ -29,6 +30,27 @@ defmodule ServiceRadarWebNG.SRQL do
     })
   end
 
+  @impl true
+  def query_arrow(query, opts \\ %{}) when is_binary(query) do
+    limit = Map.get(opts, :limit)
+    cursor = Map.get(opts, :cursor)
+    direction = Map.get(opts, :direction)
+    mode = Map.get(opts, :mode)
+
+    with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+         {:ok, result} <- execute_translation_raw(translation),
+         {:ok, payload} <- encode_result_arrow(result) do
+      {:ok,
+       %{
+         payload: payload,
+         schema: %{"columns" => result.columns},
+         pagination: build_pagination(translation, result.rows),
+         viz: extract_viz(translation)
+       }}
+    end
+  end
+
+  @impl true
   def query_request(%{} = request) do
     case normalize_request(request) do
       {:ok, query, limit, cursor, direction, mode} ->
@@ -114,6 +136,20 @@ defmodule ServiceRadarWebNG.SRQL do
     {:error, :invalid_srql_translation}
   end
 
+  defp execute_translation_raw(%{"sql" => sql} = translation) when is_binary(sql) do
+    translation
+    |> Map.get("params", [])
+    |> decode_params()
+    |> case do
+      {:ok, params} -> run_sql(sql, params)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp execute_translation_raw(_translation) do
+    {:error, :invalid_srql_translation}
+  end
+
   @sobelow_skip ["SQL.Query"]
   defp run_sql(sql, params) do
     with :ok <- ensure_read_only_sql(sql) do
@@ -157,6 +193,22 @@ defmodule ServiceRadarWebNG.SRQL do
       "viz" => viz,
       "error" => nil
     }
+  end
+
+  defp encode_result_arrow(%Postgrex.Result{columns: columns, rows: rows}) do
+    row_maps = build_arrow_rows(columns, rows)
+
+    with {:ok, rows_json} <- Jason.encode(row_maps) do
+      Native.encode_arrow_json(columns, rows_json)
+    end
+  end
+
+  defp build_arrow_rows(columns, rows) do
+    Enum.map(rows, fn row ->
+      columns
+      |> Enum.zip(row)
+      |> Map.new(fn {col, val} -> {col, normalize_value(val)} end)
+    end)
   end
 
   defp build_results([single], rows) when is_binary(single) do

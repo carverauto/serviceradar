@@ -67,14 +67,19 @@
 - [ ] 6.4 Verify dashboard package WASM artifacts against digest and trust policy before making them available in the UI.
 - [ ] 6.5 Build a web-ng dashboard WASM host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-wasm-v1` ABI, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
 - [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
+- [x] 6.6.1 Expose the dashboard-frame Arrow IPC payload contract to trusted browser modules and dashboard WASM renderers, with JSON row fallback when the active SRQL backend cannot emit Arrow.
+- [x] 6.6.2 Extend SRQL execution so selected queries can emit real Arrow IPC directly from PostgreSQL result sets instead of row JSON.
+- [ ] 6.6.3 Add WASM SDK examples/tests that decode Arrow IPC frames for a custom topology-style renderer.
+- [x] 6.6.4 Add dashboard frame live delivery over Phoenix Channels/WebSockets: initial snapshot, bounded refresh/replacement frames, auth checks, and reconnect semantics.
 - [ ] 6.7 Convert the United WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
 - [x] 6.7.1 Create the initial external `~/src/ual-dashboard` dashboard package workspace with a TinyGo `dashboard-wasm-v1` renderer, manifest build, sample frames, and harness instructions.
 - [ ] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
 - [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
 - [ ] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
 - [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard WASM packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
-- [x] 6.10 Provide a local customer dashboard package dev harness that loads manifest JSON, WASM, validated settings, and sample SRQL frames without deploying to production.
+- [x] 6.10 Provide a local customer dashboard package dev harness in `~/src/serviceradar-sdk-dashboard` that loads manifest JSON, WASM, validated settings, and sample SRQL frames without deploying to production.
 - [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` TinyGo SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
+- [ ] 6.12 Migrate built-in topology and netflow map experiences toward dashboard packages so they can be versioned and updated outside core/web-ng.
 
 ## 7. Live Aruba Collector Follow-Up
 
@@ -87,7 +92,7 @@
 ## 8. Verification
 
 - [x] 8.1 Run `openspec validate add-srql-wifi-site-map --strict`.
-- [ ] 8.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
+- [x] 8.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
 - [x] 8.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
 - [ ] 8.4 Run customer plugin source sync/import tests.
 - [x] 8.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.

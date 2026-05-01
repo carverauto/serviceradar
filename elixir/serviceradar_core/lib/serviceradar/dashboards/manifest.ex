@@ -77,8 +77,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
     map.deck.render
   )
   @allowed_encodings ~w(json_rows arrow_ipc)
-  @allowed_renderer_kinds ~w(browser_wasm)
-  @allowed_interface_versions ~w(dashboard-wasm-v1)
+  @allowed_renderer_kinds ~w(browser_wasm browser_module)
+  @allowed_interface_versions ~w(dashboard-wasm-v1 dashboard-browser-module-v1)
   @id_pattern_source "^[a-z0-9][a-z0-9._-]{1,127}$"
   @id_pattern Regex.compile!(@id_pattern_source)
   @max_json_bytes 262_144
@@ -177,7 +177,7 @@ defmodule ServiceRadar.Dashboards.Manifest do
     errors =
       renderer
       |> validate_keys(
-        ~w(kind interface_version artifact sha256 entrypoint exports),
+        ~w(kind interface_version artifact sha256 entrypoint exports trust),
         "renderer",
         errors
       )
@@ -192,6 +192,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
     {artifact, errors} = required_string(renderer, "artifact", errors, "renderer.artifact")
     {sha256, errors} = required_string(renderer, "sha256", errors, "renderer.sha256")
     errors = validate_sha256(sha256, errors)
+    errors = validate_renderer_interface_pair(renderer, errors)
+    {trust, errors} = validate_renderer_trust(renderer, errors)
     {entrypoint, errors} = optional_string(renderer, "entrypoint", errors, "renderer.entrypoint")
     {exports, errors} = optional_string_list(renderer, "exports", errors, "renderer.exports")
 
@@ -206,11 +208,45 @@ defmodule ServiceRadar.Dashboards.Manifest do
       normalized
       |> maybe_put("entrypoint", entrypoint)
       |> maybe_put("exports", exports)
+      |> maybe_put("trust", trust)
 
     {normalized, errors}
   end
 
   defp validate_renderer(_value, errors), do: {nil, ["renderer must be an object" | errors]}
+
+  defp validate_renderer_interface_pair(
+         %{"kind" => "browser_wasm", "interface_version" => "dashboard-wasm-v1"},
+         errors
+       ),
+       do: errors
+
+  defp validate_renderer_interface_pair(
+         %{"kind" => "browser_module", "interface_version" => "dashboard-browser-module-v1"},
+         errors
+       ),
+       do: errors
+
+  defp validate_renderer_interface_pair(%{"kind" => kind, "interface_version" => interface}, errors)
+       when is_binary(kind) and is_binary(interface) do
+    ["renderer.interface_version #{interface} is not valid for renderer.kind #{kind}" | errors]
+  end
+
+  defp validate_renderer_interface_pair(_renderer, errors), do: errors
+
+  defp validate_renderer_trust(%{"kind" => "browser_module"} = renderer, errors) do
+    case Map.get(renderer, "trust") do
+      "trusted" -> {"trusted", errors}
+      nil -> {nil, ["renderer.trust must be trusted for browser_module renderers" | errors]}
+      value -> {nil, ["renderer.trust must be trusted for browser_module renderers (got #{value})" | errors]}
+    end
+  end
+
+  defp validate_renderer_trust(%{"trust" => trust}, errors) when not is_nil(trust) do
+    {nil, ["renderer.trust is only supported for browser_module renderers" | errors]}
+  end
+
+  defp validate_renderer_trust(_renderer, errors), do: {nil, errors}
 
   defp validate_data_frames(nil, errors),
     do: {[], ["missing required field: data_frames" | errors]}

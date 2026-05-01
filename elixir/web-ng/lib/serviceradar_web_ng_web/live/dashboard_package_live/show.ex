@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel
 
   @impl true
   def mount(%{"route_slug" => route_slug}, _session, socket) do
@@ -199,7 +200,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       },
       "data_provider" => %{
         "version" => "dashboard-data-v1",
-        "frames" => Enum.map(frames, &frame_summary/1)
+        "frames" => Enum.map(frames, &frame_summary/1),
+        "stream_topic" => "dashboards:#{instance.route_slug}",
+        "stream_token" => DashboardFrameChannel.stream_token(instance.route_slug, data_frames),
+        "refresh_interval_ms" => 15_000
       },
       "mapbox" => %{
         "enabled" => mapbox_enabled?(mapbox),
@@ -224,6 +228,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "renderer" => package.renderer || %{},
         "data_frames" => data_frames,
         "frames" => frames,
+        "renderer_url" => ~p"/dashboard-packages/#{package.id}/renderer?v=#{package.content_hash}",
         "wasm_url" => ~p"/dashboard-packages/#{package.id}/renderer.wasm?v=#{package.content_hash}"
       }
     }
@@ -278,7 +283,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       "status" => frame["status"],
       "encoding" => frame["encoding"],
       "requested_encoding" => frame["requested_encoding"],
-      "row_count" => frame |> Map.get("results", []) |> row_count()
+      "row_count" => frame |> Map.get("results", []) |> row_count(),
+      "byte_length" => Map.get(frame, "byte_length")
     }
   end
 

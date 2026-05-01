@@ -40,32 +40,15 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
       "required" => required?(frame)
     }
 
-    if is_nil(query) do
-      Map.merge(base, %{"status" => "error", "error" => "missing query", "results" => []})
-    else
-      case srql_module.query(query, %{scope: scope, limit: limit}) do
-        {:ok, %{"results" => results} = response} when is_list(results) ->
-          Map.merge(base, %{
-            "status" => "ok",
-            "results" => results,
-            "pagination" => Map.get(response, "pagination"),
-            "viz" => Map.get(response, "viz")
-          })
+    cond do
+      is_nil(query) ->
+        Map.merge(base, %{"status" => "error", "error" => "missing query", "results" => []})
 
-        {:ok, response} ->
-          Map.merge(base, %{
-            "status" => "ok",
-            "results" => [],
-            "raw" => response
-          })
+      requested_encoding == "arrow_ipc" ->
+        run_arrow_or_json_frame(base, query, scope, srql_module, limit)
 
-        {:error, reason} ->
-          Map.merge(base, %{
-            "status" => "error",
-            "error" => format_error(reason),
-            "results" => []
-          })
-      end
+      true ->
+        run_json_frame(base, query, scope, srql_module, limit)
     end
   end
 
@@ -81,6 +64,84 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
       "error" => "data frame must be an object",
       "results" => []
     }
+  end
+
+  defp run_arrow_or_json_frame(base, query, scope, srql_module, limit) do
+    case run_arrow_frame(base, query, scope, srql_module, limit) do
+      {:ok, frame} -> frame
+      {:fallback, _reason} -> run_json_frame(base, query, scope, srql_module, limit)
+      {:error, reason} -> error_frame(base, reason)
+    end
+  end
+
+  defp run_arrow_frame(base, query, scope, srql_module, limit) do
+    if function_exported?(srql_module, :query_arrow, 2) do
+      case srql_module.query_arrow(query, %{scope: scope, limit: limit}) do
+        {:ok, bytes} when is_binary(bytes) ->
+          {:ok, arrow_frame(base, bytes, %{})}
+
+        {:ok, %{"payload" => bytes} = response} when is_binary(bytes) ->
+          {:ok, arrow_frame(base, bytes, response)}
+
+        {:ok, %{payload: bytes} = response} when is_binary(bytes) ->
+          {:ok, arrow_frame(base, bytes, response)}
+
+        {:error, :arrow_not_supported} ->
+          {:fallback, :arrow_not_supported}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        other ->
+          {:error, {:unexpected_srql_arrow_result, other}}
+      end
+    else
+      {:fallback, :arrow_not_supported}
+    end
+  end
+
+  defp arrow_frame(base, bytes, response) do
+    Map.merge(base, %{
+      "status" => "ok",
+      "encoding" => "arrow_ipc",
+      "payload_encoding" => "base64",
+      "payload" => Base.encode64(bytes),
+      "byte_length" => byte_size(bytes),
+      "results" => [],
+      "pagination" => response_value(response, "pagination"),
+      "schema" => response_value(response, "schema"),
+      "viz" => response_value(response, "viz")
+    })
+  end
+
+  defp run_json_frame(base, query, scope, srql_module, limit) do
+    case srql_module.query(query, %{scope: scope, limit: limit}) do
+      {:ok, %{"results" => results} = response} when is_list(results) ->
+        Map.merge(base, %{
+          "status" => "ok",
+          "results" => results,
+          "pagination" => Map.get(response, "pagination"),
+          "viz" => Map.get(response, "viz")
+        })
+
+      {:ok, response} ->
+        Map.merge(base, %{
+          "status" => "ok",
+          "results" => [],
+          "raw" => response
+        })
+
+      {:error, reason} ->
+        error_frame(base, reason)
+    end
+  end
+
+  defp error_frame(base, reason) do
+    Map.merge(base, %{
+      "status" => "error",
+      "error" => format_error(reason),
+      "results" => []
+    })
   end
 
   defp required?(frame) do
@@ -115,6 +176,16 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   end
 
   defp normalize_string(_value), do: nil
+
+  defp response_value(response, "pagination") when is_map(response),
+    do: Map.get(response, "pagination") || Map.get(response, :pagination)
+
+  defp response_value(response, "schema") when is_map(response),
+    do: Map.get(response, "schema") || Map.get(response, :schema)
+
+  defp response_value(response, "viz") when is_map(response), do: Map.get(response, "viz") || Map.get(response, :viz)
+
+  defp response_value(_response, _key), do: nil
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)

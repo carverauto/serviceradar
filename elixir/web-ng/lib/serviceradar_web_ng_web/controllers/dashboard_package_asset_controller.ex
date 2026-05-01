@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
     with {:ok, %DashboardPackage{} = package} <- Dashboards.get_package(id, scope: scope),
          :ok <- ensure_renderer_available(package),
          {:ok, blob} <- Storage.fetch_blob(package.wasm_object_key) do
-      send_wasm_blob(conn, blob, package.content_hash)
+      send_renderer_blob(conn, blob, package)
     else
       _ ->
         conn
@@ -31,19 +31,24 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
 
   defp ensure_renderer_available(_package), do: {:error, :not_available}
 
-  defp send_wasm_blob(conn, {:binary, payload}, content_hash) do
+  defp send_renderer_blob(conn, {:binary, payload}, %DashboardPackage{} = package) do
     conn
-    |> put_resp_content_type("application/wasm")
-    |> put_cache_headers(content_hash)
+    |> put_resp_content_type(renderer_content_type(package))
+    |> put_cache_headers(package.content_hash)
     |> send_resp(200, payload)
   end
 
-  defp send_wasm_blob(conn, {:file, path}, content_hash) do
+  defp send_renderer_blob(conn, {:file, path}, %DashboardPackage{} = package) do
     conn
-    |> put_resp_content_type("application/wasm")
-    |> put_cache_headers(content_hash)
+    |> put_resp_content_type(renderer_content_type(package))
+    |> put_cache_headers(package.content_hash)
     |> send_file(200, path)
   end
+
+  defp renderer_content_type(%DashboardPackage{renderer: %{"kind" => "browser_module"}}),
+    do: "text/javascript"
+
+  defp renderer_content_type(_package), do: "application/wasm"
 
   defp put_cache_headers(conn, content_hash) when is_binary(content_hash) and content_hash != "" do
     conn

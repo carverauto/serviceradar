@@ -6,8 +6,21 @@ function normalizeMapView(value) {
   return MAP_VIEWS.has(value) ? value : "netflow"
 }
 
+function dashboardRoute(value) {
+  const raw = String(value || "")
+  if (!raw.startsWith("dashboard:")) return null
+
+  const slug = raw.slice("dashboard:".length).trim()
+  return slug ? `/dashboards/${encodeURIComponent(slug)}` : null
+}
+
 function applyMapView(value) {
-  if (String(value || "").startsWith("dashboard:")) return
+  const route = dashboardRoute(value)
+
+  if (route) {
+    window.location.assign(route)
+    return true
+  }
 
   const mapView = normalizeMapView(value)
   const canvas = document.getElementById(CANVAS_ID)
@@ -17,6 +30,7 @@ function applyMapView(value) {
   }
 
   window.dispatchEvent(new window.CustomEvent("serviceradar:dashboard-map-view", {detail: {mapView}}))
+  return false
 }
 
 if (typeof window !== "undefined" && !window.__serviceRadarDashboardMapViewSelectBound) {
@@ -32,8 +46,9 @@ if (typeof window !== "undefined" && !window.__serviceRadarDashboardMapViewSelec
 const DashboardMapViewSelect = {
   mounted() {
     this.onChange = () => {
-      applyMapView(this.el.value)
-      this.pushEvent("select_map_view", { map_view: this.el.value })
+      if (!applyMapView(this.el.value)) {
+        this.pushEvent("select_map_view", { map_view: this.el.value })
+      }
     }
 
     this.el.addEventListener("change", this.onChange)

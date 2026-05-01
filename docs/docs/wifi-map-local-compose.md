@@ -90,5 +90,13 @@ SELECT COUNT(*) FROM platform.ocsf_devices
 WHERE metadata->>'integration_type' = 'wifi_map';
 ```
 
-Then use the local web UI full-screen map at `/spatial/wifi-map`. The route is
-authenticated and uses ServiceRadar-owned Mapbox settings for the basemap.
+The map view is not a built-in ServiceRadar product route. After seeding, import
+and enable the customer dashboard package from its own repository, then open the
+enabled dashboard instance route, for example:
+
+```text
+/dashboards/ual-network-map
+```
+
+The dashboard package route is authenticated, driven by the package SRQL data
+frames, and uses ServiceRadar-owned Mapbox settings for the basemap.
