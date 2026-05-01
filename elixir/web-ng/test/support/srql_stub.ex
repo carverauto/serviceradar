@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.TestSupport.SRQLStub do
     {:error, :invalid_query}
   end
 
+  @impl true
   def query(query, _opts) when is_binary(query) do
     query(query)
   end

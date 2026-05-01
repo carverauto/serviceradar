@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   @csp "default-src 'self'; " <>
          "script-src 'self' blob: 'wasm-unsafe-eval'; " <>
          "style-src 'self' 'unsafe-inline'; " <>
-         "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org; " <>
+         "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; " <>
          "font-src 'self' data:; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
@@ -446,6 +446,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/topology/snapshot/latest", TopologySnapshotController, :show)
     get("/god_view_exec.wasm", WasmAssetController, :plain)
     get("/god_view_exec-:digest", WasmAssetController, :hashed)
+    get("/dashboard-packages/:id/renderer", DashboardPackageAssetController, :show)
+    get("/dashboard-packages/:id/renderer.wasm", DashboardPackageAssetController, :show)
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -457,8 +459,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/analytics", PageController, :redirect_to_dashboard)
-    get("/dashboard-packages/:id/renderer.wasm", DashboardPackageAssetController, :show)
-
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}

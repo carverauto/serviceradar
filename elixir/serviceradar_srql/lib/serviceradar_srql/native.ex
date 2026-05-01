@@ -32,6 +32,11 @@ defmodule ServiceRadarSRQL.Native do
   def parse_ast(_query), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Encode normalized SRQL row JSON into an Apache Arrow IPC file payload.
+  """
+  def encode_arrow_json(_columns, _rows_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Decode an Arancini Cap'n Proto update payload into JSON.
   """
   def decode_arancini_update_capnp(_payload), do: :erlang.nif_error(:nif_not_loaded)

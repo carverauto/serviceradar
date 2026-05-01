@@ -1,30 +1,52 @@
 import mapboxgl from "mapbox-gl"
-import {Deck, MapView} from "@deck.gl/core"
 import {ArcLayer, LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {MapboxOverlay} from "@deck.gl/mapbox"
+import {Socket} from "phoenix"
 
 const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const OSM_STYLE_ID = "serviceradar-dashboard-osm-raster"
 const MAX_INLINE_LAYER_ROWS = 10000
 const DASHBOARD_WASM_INTERFACE = "dashboard-wasm-v1"
+const DASHBOARD_BROWSER_MODULE_INTERFACE = "dashboard-browser-module-v1"
+const MAX_MERCATOR_LAT = 85.05112878
 
-function osmRasterStyle() {
+function rasterStyle(dark) {
+  const mode = dark ? "dark" : "light"
+  const base = dark ? "dark_nolabels" : "light_nolabels"
+  const labels = dark ? "dark_only_labels" : "light_only_labels"
+
   return {
     version: 8,
-    metadata: {sr_style_url: OSM_STYLE_ID},
+    metadata: {sr_style_url: `${OSM_STYLE_ID}-${mode}`},
     sources: {
-      osm: {
+      carto: {
         type: "raster",
         tiles: [
-          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          `https://a.basemaps.cartocdn.com/${base}/{z}/{x}/{y}.png`,
+          `https://b.basemaps.cartocdn.com/${base}/{z}/{x}/{y}.png`,
+          `https://c.basemaps.cartocdn.com/${base}/{z}/{x}/{y}.png`,
+          `https://d.basemaps.cartocdn.com/${base}/{z}/{x}/{y}.png`,
         ],
         tileSize: 256,
-        attribution: "© OpenStreetMap contributors",
+        attribution: "© OpenStreetMap contributors © CARTO",
+      },
+      cartoLabels: {
+        type: "raster",
+        tiles: [
+          `https://a.basemaps.cartocdn.com/${labels}/{z}/{x}/{y}.png`,
+          `https://b.basemaps.cartocdn.com/${labels}/{z}/{x}/{y}.png`,
+          `https://c.basemaps.cartocdn.com/${labels}/{z}/{x}/{y}.png`,
+          `https://d.basemaps.cartocdn.com/${labels}/{z}/{x}/{y}.png`,
+        ],
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors © CARTO",
       },
     },
-    layers: [{id: "osm", type: "raster", source: "osm"}],
+    layers: [
+      {id: "carto", type: "raster", source: "carto"},
+      {id: "carto-labels", type: "raster", source: "cartoLabels"},
+    ],
   }
 }
 
@@ -45,6 +67,58 @@ function colorOr(value, fallback) {
   if (!Array.isArray(value)) return fallback
   const color = value.slice(0, 4).map((part) => clamp(Math.round(Number(part) || 0), 0, 255))
   return color.length >= 3 ? (color.length === 3 ? [...color, 255] : color) : fallback
+}
+
+function callAccessor(accessor, row) {
+  return typeof accessor === "function" ? accessor(row) : accessor
+}
+
+function cssColor(value) {
+  const color = colorOr(value, [37, 99, 235, 210])
+  const alpha = numberOr(color[3], 255) / 255
+  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${clamp(alpha, 0, 1)})`
+}
+
+function base64ToBytes(payload) {
+  const decoded = atob(String(payload || ""))
+  const bytes = new Uint8Array(decoded.length)
+
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index)
+  }
+
+  return bytes
+}
+
+function binaryMessageBytes(message) {
+  if (message instanceof ArrayBuffer) return new Uint8Array(message)
+  if (message?.binary instanceof ArrayBuffer) return new Uint8Array(message.binary)
+  if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength)
+  if (Array.isArray(message) && message[0] === "binary" && typeof message[1] === "string") return base64ToBytes(message[1])
+  return new Uint8Array()
+}
+
+function parseFrameBinaryMessage(message) {
+  const bytes = binaryMessageBytes(message)
+  if (bytes.byteLength < 10) throw new Error("invalid dashboard frame binary payload")
+
+  const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])
+  if (magic !== "DFB1") throw new Error("unexpected dashboard frame binary magic")
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const idSize = view.getUint16(4, false)
+  const metadataSize = view.getUint32(6, false)
+  const metadataStart = 10 + idSize
+  const payloadStart = metadataStart + metadataSize
+
+  if (payloadStart > bytes.byteLength) throw new Error("truncated dashboard frame binary payload")
+
+  const decoder = new TextDecoder()
+  const id = decoder.decode(bytes.slice(10, metadataStart))
+  const metadata = JSON.parse(decoder.decode(bytes.slice(metadataStart, payloadStart)))
+  const payload = bytes.slice(payloadStart)
+
+  return {id, frame: {...metadata, id, payload, payload_encoding: "arraybuffer"}}
 }
 
 function getField(row, field) {
@@ -85,9 +159,26 @@ function isFinitePosition(position) {
   )
 }
 
+function currentLayerZoom(map, viewState) {
+  if (map && typeof map.getZoom === "function") return numberOr(map.getZoom(), 0)
+  return numberOr(viewState?.zoom, 0)
+}
+
+function lngLatToWorld(longitude, latitude, zoom = 0) {
+  const lat = clamp(latitude, -MAX_MERCATOR_LAT, MAX_MERCATOR_LAT)
+  const scale = 256 * 2 ** zoom
+  const sinLat = Math.sin((lat * Math.PI) / 180)
+
+  return {
+    x: ((longitude + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+  }
+}
+
 const DashboardWasmHost = {
   mounted() {
     this.cancelled = false
+    this._frameUpdateCallbacks = []
     this._onResize = () => this.resizeMap()
     this._onThemeChange = () => this.applyThemeStyle()
     window.addEventListener("resize", this._onResize)
@@ -113,6 +204,11 @@ const DashboardWasmHost = {
       this._themeObserver?.disconnect()
     } catch (_error) {}
 
+    try {
+      this._moduleDestroy?.()
+    } catch (_error) {}
+
+    this.disconnectFrameStream()
     this.teardownMap()
   },
 
@@ -124,6 +220,11 @@ const DashboardWasmHost = {
 
     try {
       this.validateInterfaceVersion(host)
+
+      if (this.rendererKind(host) === "browser_module") {
+        await this.bootBrowserModule(host)
+        return
+      }
 
       const wasmUrl = host?.package?.wasm_url
       if (!wasmUrl) throw new Error("renderer URL is missing")
@@ -153,6 +254,8 @@ const DashboardWasmHost = {
       const instance = result.instance || result
       wasmContext.instance = instance
       wasmContext.memory = instance?.exports?.memory || null
+      this._wasmContext = wasmContext
+      this._wasmInstance = instance
       this.validateExports(instance, host)
       this.invokeEntrypoint(instance, host)
 
@@ -161,6 +264,8 @@ const DashboardWasmHost = {
       } else {
         this.renderState("ready", `${host.package.name} renderer loaded`)
       }
+
+      this.connectFrameStream(host)
     } catch (error) {
       if (!this.cancelled) this.renderState("error", error?.message || String(error))
     }
@@ -175,12 +280,224 @@ const DashboardWasmHost = {
     }
   },
 
+  async bootBrowserModule(host) {
+    const moduleUrl = host?.package?.renderer_url || host?.package?.wasm_url
+    if (!moduleUrl) throw new Error("renderer module URL is missing")
+    if (host?.package?.renderer?.trust !== "trusted") {
+      throw new Error("dashboard browser module renderer must declare trust: trusted")
+    }
+
+    const module = await import(/* @vite-ignore */ moduleUrl)
+    if (this.cancelled) return
+
+    const mount = module.mountDashboard || module.default
+    if (typeof mount !== "function") {
+      throw new Error("dashboard browser module must export mountDashboard(hostElement, hostPayload, api)")
+    }
+
+    this.el.innerHTML = ""
+    this.el.classList.add("sr-dashboard-browser-module")
+    this._host = host
+
+    const mounted = await mount(this.el, host, this.browserModuleApi(host))
+    this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
+    this.connectFrameStream(host)
+  },
+
+  browserModuleApi(host) {
+    const capabilities = new Set(Array.isArray(host?.package?.capabilities) ? host.package.capabilities : [])
+    const capabilityAllowed = (capability) => capabilities.has(String(capability || ""))
+    const frames = Array.isArray(host?.package?.frames) ? host.package.frames : []
+    const resolveFrame = (idOrFrame) => {
+      if (idOrFrame && typeof idOrFrame === "object") return idOrFrame
+      return frames.find((frame) => String(frame?.id) === String(idOrFrame))
+    }
+    const arrowBytes = (idOrFrame) => {
+      const frame = resolveFrame(idOrFrame)
+      if (!frame) return new Uint8Array()
+
+      if (frame.encoding !== "arrow_ipc") {
+        throw new Error(`dashboard frame ${frame.id || "unknown"} is ${frame.encoding || "unencoded"}, not arrow_ipc`)
+      }
+
+      if (frame.payload instanceof ArrayBuffer) return new Uint8Array(frame.payload)
+      if (frame.payload instanceof Uint8Array) return frame.payload
+      if (frame.payload_encoding === "base64" && typeof frame.payload === "string") return base64ToBytes(frame.payload)
+      if (typeof frame.payload_base64 === "string") return base64ToBytes(frame.payload_base64)
+
+      return new Uint8Array()
+    }
+
+    return {
+      version: "dashboard-browser-module-host-v1",
+      capabilityAllowed,
+      requireCapability: (capability) => {
+        if (!capabilityAllowed(capability)) throw new Error(`dashboard capability is not approved: ${capability}`)
+      },
+      theme: () => (this.isDarkMode() ? "dark" : "light"),
+      isDarkMode: () => this.isDarkMode(),
+      frames: () => frames,
+      frame: (id) => resolveFrame(id),
+      onFrameUpdate: (callback) => {
+        if (typeof callback !== "function") return () => {}
+
+        this._frameUpdateCallbacks.push(callback)
+        return () => {
+          this._frameUpdateCallbacks = this._frameUpdateCallbacks.filter((registered) => registered !== callback)
+        }
+      },
+      arrow: {
+        frameBytes: arrowBytes,
+        table: async (idOrFrame) => {
+          const {tableFromIPC} = await import("apache-arrow")
+          return tableFromIPC(arrowBytes(idOrFrame))
+        },
+      },
+      mapbox: () => (capabilityAllowed("map.basemap.read") ? host?.mapbox || {} : {}),
+      libraries: {
+        mapboxgl,
+        MapboxOverlay,
+        ArcLayer,
+        LineLayer,
+        ScatterplotLayer,
+        TextLayer,
+      },
+      onThemeChange: (callback) => {
+        if (typeof callback !== "function") return () => {}
+
+        const observer = new MutationObserver(() => callback(this.isDarkMode() ? "dark" : "light"))
+        observer.observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme", "class", "style"]})
+        observer.observe(document.body, {attributes: true, attributeFilter: ["data-theme", "class", "style"]})
+
+        return () => observer.disconnect()
+      },
+    }
+  },
+
+  connectFrameStream(host) {
+    const topic = host?.data_provider?.stream_topic
+    const token = host?.data_provider?.stream_token
+    if (!topic || !token || this._frameChannel || this.cancelled) return
+
+    this._frameSocket = new Socket("/socket", {params: {}})
+    this._frameSocket.connect()
+    this._frameChannel = this._frameSocket.channel(topic, {
+      token,
+      refresh_interval_ms: host?.data_provider?.refresh_interval_ms,
+    })
+
+    this._frameChannel.on("frames:replace", (payload) => this.replaceFramePayload(payload))
+    this._frameChannel.on("frame:binary", (payload) => this.replaceBinaryFramePayload(payload))
+    this._frameChannel.on("frames:error", (payload) => {
+      console.warn("[DashboardWasmHost] dashboard frame stream error:", payload?.reason || payload)
+    })
+
+    this._frameChannel.join()
+      .receive("error", (reply) => {
+        console.warn("[DashboardWasmHost] dashboard frame stream join failed:", reply?.reason || reply)
+        this.disconnectFrameStream()
+      })
+  },
+
+  disconnectFrameStream() {
+    try {
+      this._frameChannel?.leave()
+    } catch (_error) {}
+
+    try {
+      this._frameSocket?.disconnect()
+    } catch (_error) {}
+
+    this._frameChannel = null
+    this._frameSocket = null
+  },
+
+  replaceFramePayload(payload) {
+    const frames = Array.isArray(payload?.frames) ? payload.frames : []
+    if (frames.length === 0 || !this._host?.package) return
+
+    const currentFrames = Array.isArray(this._host.package.frames) ? this._host.package.frames : []
+    currentFrames.splice(0, currentFrames.length, ...frames)
+    this._host.package.frames = currentFrames
+    this._pendingBinaryFrameIds = new Set(Array.isArray(payload?.pending_binary_frame_ids) ? payload.pending_binary_frame_ids.map(String) : [])
+
+    if (payload?.data_provider && this._host.data_provider) {
+      this._host.data_provider.frames = payload.data_provider.frames || this._host.data_provider.frames
+      this._host.data_provider.generated_at = payload.generated_at
+    }
+
+    if (this._pendingBinaryFrameIds.size > 0) return
+    this.notifyFrameUpdate(payload)
+  },
+
+  replaceBinaryFramePayload(message) {
+    if (!this._host?.package) return
+
+    try {
+      const {id, frame} = parseFrameBinaryMessage(message)
+      const currentFrames = Array.isArray(this._host.package.frames) ? this._host.package.frames : []
+      const index = currentFrames.findIndex((candidate) => String(candidate?.id) === String(id))
+
+      if (index >= 0) {
+        currentFrames.splice(index, 1, {...currentFrames[index], ...frame})
+      } else {
+        currentFrames.push(frame)
+      }
+
+      this._pendingBinaryFrameIds?.delete(String(id))
+      if (!this._pendingBinaryFrameIds || this._pendingBinaryFrameIds.size === 0) {
+        this.notifyFrameUpdate({frames: currentFrames})
+      }
+    } catch (error) {
+      console.warn("[DashboardWasmHost] invalid dashboard frame binary payload:", error?.message || error)
+    }
+  },
+
+  notifyFrameUpdate(payload) {
+    const currentFrames = Array.isArray(this._host?.package?.frames) ? this._host.package.frames : []
+
+    this.invokeWasmFrameUpdate()
+    this.refreshDeckLayers()
+
+    for (const callback of this._frameUpdateCallbacks || []) {
+      try {
+        callback({frames: currentFrames, payload})
+      } catch (error) {
+        console.warn("[DashboardWasmHost] frame update callback failed:", error?.message || error)
+      }
+    }
+  },
+
+  invokeWasmFrameUpdate() {
+    const exports = this._wasmInstance?.exports || {}
+    const update = exports.sr_dashboard_frames_updated || exports.sr_dashboard_update
+    if (typeof update !== "function") return
+
+    try {
+      update()
+    } catch (error) {
+      console.warn("[DashboardWasmHost] dashboard WASM frame update failed:", error?.message || error)
+    }
+  },
+
   importsFor(host, wasmContext) {
     const encoder = new TextEncoder()
     const frames = Array.isArray(host?.package?.frames) ? host.package.frames : []
     const encodedFrame = (index) => {
       if (!Number.isInteger(index) || index < 0 || index >= frames.length) return new Uint8Array()
       return encoder.encode(JSON.stringify(frames[index]))
+    }
+    const framePayloadBytes = (index) => {
+      if (!Number.isInteger(index) || index < 0 || index >= frames.length) return new Uint8Array()
+
+      const frame = frames[index]
+      if (frame?.encoding !== "arrow_ipc") return new Uint8Array()
+      if (frame.payload instanceof ArrayBuffer) return new Uint8Array(frame.payload)
+      if (frame.payload instanceof Uint8Array) return frame.payload
+      if (frame.payload_encoding === "base64" && typeof frame.payload === "string") return base64ToBytes(frame.payload)
+      if (typeof frame.payload_base64 === "string") return base64ToBytes(frame.payload_base64)
+
+      return new Uint8Array()
     }
     const writeBytes = (ptr, len, bytes) => {
       const memory = wasmContext.memory || wasmContext.instance?.exports?.memory
@@ -200,6 +517,9 @@ const DashboardWasmHost = {
     const emitRenderModel = (ptr, len) => {
       try {
         wasmContext.renderModel = readJson(ptr, len)
+        if (this._host && this._renderModel) {
+          this.updateRenderModel(wasmContext.renderModel, host)
+        }
         return 1
       } catch (error) {
         console.warn("[DashboardWasmHost] invalid render model:", error?.message || error)
@@ -217,6 +537,9 @@ const DashboardWasmHost = {
         sr_frame_row_count: index => frames[index]?.results?.length || 0,
         sr_frame_json_len: index => encodedFrame(index).byteLength,
         sr_frame_json_write: (index, ptr, len) => writeBytes(ptr, len, encodedFrame(index)),
+        sr_frame_bytes_len: index => framePayloadBytes(index).byteLength,
+        sr_frame_bytes_write: (index, ptr, len) => writeBytes(ptr, len, framePayloadBytes(index)),
+        sr_frame_encoding: index => (frames[index]?.encoding === "arrow_ipc" ? 1 : 0),
         sr_theme: () => (this.isDarkMode() ? 1 : 0),
       },
       serviceradar: {
@@ -227,6 +550,9 @@ const DashboardWasmHost = {
         frame_row_count: index => frames[index]?.results?.length || 0,
         frame_json_len: index => encodedFrame(index).byteLength,
         frame_json_write: (index, ptr, len) => writeBytes(ptr, len, encodedFrame(index)),
+        frame_bytes_len: index => framePayloadBytes(index).byteLength,
+        frame_bytes_write: (index, ptr, len) => writeBytes(ptr, len, framePayloadBytes(index)),
+        frame_encoding: index => (frames[index]?.encoding === "arrow_ipc" ? 1 : 0),
         theme: () => (this.isDarkMode() ? 1 : 0),
         host_version: () => encoder.encode("dashboard-host-v1").byteLength,
       },
@@ -247,10 +573,19 @@ const DashboardWasmHost = {
 
   validateInterfaceVersion(host) {
     const declared = host?.package?.renderer?.interface_version || host?.host?.interface_version
+    const kind = this.rendererKind(host)
 
-    if (declared !== DASHBOARD_WASM_INTERFACE) {
+    if (kind === "browser_module" && declared !== DASHBOARD_BROWSER_MODULE_INTERFACE) {
+      throw new Error(`unsupported dashboard browser module interface: ${declared || "missing"}`)
+    }
+
+    if (kind !== "browser_module" && declared !== DASHBOARD_WASM_INTERFACE) {
       throw new Error(`unsupported dashboard WASM interface: ${declared || "missing"}`)
     }
+  },
+
+  rendererKind(host) {
+    return String(host?.package?.renderer?.kind || "browser_wasm")
   },
 
   validateExports(instance, host) {
@@ -337,8 +672,21 @@ const DashboardWasmHost = {
     this.createMap()
   },
 
+  updateRenderModel(model, host) {
+    const kind = String(model?.kind || "deck_map")
+    if (kind !== "deck_map") {
+      console.warn("[DashboardWasmHost] unsupported render model update kind:", kind)
+      return
+    }
+
+    this._host = host || this._host
+    this._renderModel = model
+    this.refreshDeckLayers()
+    this.fitToLayerData()
+  },
+
   ensureMapContainers() {
-    if (this._mapContainer && this._deckContainer) return
+    if (this._mapContainer) return
 
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-wasm-map")
@@ -346,11 +694,7 @@ const DashboardWasmHost = {
     this._mapContainer = document.createElement("div")
     this._mapContainer.className = "absolute inset-0"
 
-    this._deckContainer = document.createElement("div")
-    this._deckContainer.className = "absolute inset-0"
-
     this.el.appendChild(this._mapContainer)
-    this.el.appendChild(this._deckContainer)
   },
 
   createMap() {
@@ -386,7 +730,7 @@ const DashboardWasmHost = {
 
     this._map.on("load", () => {
       this.stampStyleUrl(this.currentStyleId(useMapbox))
-      this.createDeck(initialViewState)
+      this.createDeckOverlay()
       this.fitToLayerData()
       this.resizeMap()
     })
@@ -401,29 +745,36 @@ const DashboardWasmHost = {
     })
   },
 
-  createDeck(initialViewState) {
+  createDeckOverlay() {
     try {
-      this._viewState = initialViewState
-      this._deck = new Deck({
-        parent: this._deckContainer,
-        views: new MapView({repeat: true}),
-        controller: this._renderModel?.interactive !== false,
-        initialViewState,
+      this._overlay = new MapboxOverlay({
+        interleaved: false,
         onError: (error) => {
           console.warn("[DashboardWasmHost] deck error:", error?.message || error)
           this.handleRenderingUnavailable()
           return true
         },
-        onViewStateChange: ({viewState}) => this.setViewState(viewState, true),
         onClick: (info) => this.handleLayerClick(info),
         onHover: (info) => {
-          this.el.style.cursor = info?.object ? "pointer" : ""
+          const canvas = this._map?.getCanvas?.()
+          if (canvas) canvas.style.cursor = info?.object ? "pointer" : ""
         },
         layers: this.deckLayers(),
       })
+      this._map.addControl(this._overlay)
+      this._map.on("moveend", () => this.refreshDeckLayers())
+      this._map.on("zoomend", () => this.refreshDeckLayers())
     } catch (error) {
-      console.warn("[DashboardWasmHost] deck initialization failed:", error?.message || error)
+      console.warn("[DashboardWasmHost] deck overlay initialization failed:", error?.message || error)
       this.handleRenderingUnavailable()
+    }
+  },
+
+  refreshDeckLayers() {
+    try {
+      this._overlay?.setProps({layers: this.deckLayers()})
+    } catch (error) {
+      console.warn("[DashboardWasmHost] deck refresh failed:", error?.message || error)
     }
   },
 
@@ -437,6 +788,8 @@ const DashboardWasmHost = {
 
   deckLayer(layer) {
     const type = String(layer?.type || "").toLowerCase()
+    if (!this.layerVisible(layer)) return null
+
     const data = this.layerData(layer)
     const id = String(layer?.id || `${type}-${Math.random().toString(16).slice(2)}`)
 
@@ -462,7 +815,7 @@ const DashboardWasmHost = {
         data,
         pickable: layer.pickable === true,
         getPosition: positionAccessor(layer.position),
-        getText: (row) => String(getField(row, layer.text_field) ?? layer.text ?? ""),
+        getText: (row) => String(row.__cluster ? row.__cluster_label || row.__cluster_count || "" : getField(row, layer.text_field) ?? layer.text ?? ""),
         getSize: numberOr(layer.size, 12),
         getPixelOffset: Array.isArray(layer.pixel_offset) ? layer.pixel_offset : [0, -16],
         getColor: this.colorAccessor(layer, "color", [15, 23, 42, 255]),
@@ -504,6 +857,11 @@ const DashboardWasmHost = {
   },
 
   layerData(layer) {
+    const results = this.rawLayerData(layer)
+    return this.clusteredLayerData(layer, results)
+  },
+
+  rawLayerData(layer) {
     if (Array.isArray(layer?.data)) return layer.data.slice(0, MAX_INLINE_LAYER_ROWS)
 
     const frameId = layer?.data_frame || layer?.frame
@@ -511,6 +869,92 @@ const DashboardWasmHost = {
     const frame = frames.find((item) => item?.id === frameId)
     const results = Array.isArray(frame?.results) ? frame.results : []
     return results.slice(0, MAX_INLINE_LAYER_ROWS)
+  },
+
+  clusteredLayerData(layer, rows) {
+    const cluster = layer?.cluster
+    if (!cluster || cluster.enabled === false) return rows
+
+    const zoom = currentLayerZoom(this._map, this._viewState || this.initialViewState())
+    if (zoom >= numberOr(cluster.disable_at_zoom, 7)) return rows
+
+    const getPosition = positionAccessor(layer.position)
+    const radius = Math.max(8, numberOr(cluster.radius_pixels || cluster.max_radius_pixels, 50))
+    const buckets = new Map()
+    const bucketKey = (point) => `${Math.floor(point.x / radius)}:${Math.floor(point.y / radius)}`
+    const aggregateFields = Array.isArray(cluster.aggregate_fields)
+      ? cluster.aggregate_fields
+      : ["ap_count", "up_count", "down_count", "wlc_count"]
+
+    for (const row of rows) {
+      const position = getPosition(row)
+      if (!isFinitePosition(position)) continue
+
+      const point = this.projectClusterPoint(position, zoom)
+      const key = bucketKey(point)
+      const bucket = buckets.get(key) || {
+        rows: [],
+        longitudeSum: 0,
+        latitudeSum: 0,
+        xSum: 0,
+        ySum: 0,
+        aggregates: {},
+      }
+
+      bucket.rows.push(row)
+      bucket.longitudeSum += position[0]
+      bucket.latitudeSum += position[1]
+      bucket.xSum += point.x
+      bucket.ySum += point.y
+
+      for (const field of aggregateFields) {
+        bucket.aggregates[field] = numberOr(bucket.aggregates[field], 0) + numberOr(getField(row, field), 0)
+      }
+
+      buckets.set(key, bucket)
+    }
+
+    return Array.from(buckets.values()).map((bucket) => {
+      if (bucket.rows.length === 1) return bucket.rows[0]
+
+      const count = bucket.rows.length
+      const representative = bucket.rows[0] || {}
+      const clustered = {
+        ...representative,
+        __cluster: true,
+        __cluster_count: count,
+        __cluster_label: String(count),
+        __cluster_rows: bucket.rows,
+        longitude: bucket.longitudeSum / count,
+        latitude: bucket.latitudeSum / count,
+      }
+
+      for (const [field, value] of Object.entries(bucket.aggregates)) {
+        clustered[`__cluster_${field}`] = value
+        if (field in clustered) clustered[field] = value
+      }
+
+      return clustered
+    })
+  },
+
+  projectClusterPoint(position, zoom) {
+    if (this._map && typeof this._map.project === "function") {
+      const point = this._map.project(position)
+      return {x: numberOr(point.x, 0), y: numberOr(point.y, 0)}
+    }
+
+    return lngLatToWorld(position[0], position[1], zoom)
+  },
+
+  layerVisible(layer) {
+    const zoom = currentLayerZoom(this._map, this._viewState || this.initialViewState())
+    const minZoom = Number(layer?.min_zoom ?? layer?.minZoom)
+    const maxZoom = Number(layer?.max_zoom ?? layer?.maxZoom)
+
+    if (Number.isFinite(minZoom) && zoom < minZoom) return false
+    if (Number.isFinite(maxZoom) && zoom > maxZoom) return false
+    return true
   },
 
   radiusAccessor(layer) {
@@ -524,6 +968,16 @@ const DashboardWasmHost = {
     const sqrt = layer.radius_sqrt !== false
 
     return (row) => {
+      if (row?.__cluster) {
+        const cluster = layer?.cluster || {}
+        const clusterField = cluster.radius_field || "__cluster_count"
+        const clusterScale = numberOr(cluster.radius_scale, 4)
+        const clusterMin = numberOr(cluster.radius_min, 18)
+        const clusterMax = numberOr(cluster.radius_max, 46)
+        const clusterValue = numberOr(getField(row, clusterField), row.__cluster_count || 1)
+        return clamp(14 + Math.sqrt(Math.max(clusterValue, 1)) * clusterScale, clusterMin, clusterMax)
+      }
+
       const value = numberOr(getField(row, field), 0)
       const scaled = (sqrt ? Math.sqrt(Math.max(value, 0)) : value) * scale
       return clamp(scaled, min, max)
@@ -540,13 +994,27 @@ const DashboardWasmHost = {
 
     if (!field || typeof colorMap !== "object" || Array.isArray(colorMap)) return defaultColor
 
-    return (row) => colorOr(colorMap[String(getField(row, field))], defaultColor)
+    return (row) => {
+      const clusterColor = row?.__cluster && key === "fill_color" ? row.__cluster_fill_color || layer?.cluster?.fill_color : null
+      if (clusterColor) return colorOr(clusterColor, defaultColor)
+      return colorOr(colorMap[String(getField(row, field))], defaultColor)
+    }
   },
 
   handleLayerClick(info) {
     const layerModel = this.layerModelFor(info?.layer?.id)
     const row = info?.object
     if (!row || !layerModel || !this._map) return
+
+    if (row.__cluster) {
+      const position = info.coordinate || positionAccessor(layerModel.position)(row)
+      if (!isFinitePosition(position)) return
+
+      const disableAtZoom = numberOr(layerModel?.cluster?.disable_at_zoom, 7)
+      const nextZoom = Math.min(Math.max(currentLayerZoom(this._map, this._viewState) + 2, disableAtZoom), 14)
+      this._map.easeTo({center: position, zoom: nextZoom, duration: 350})
+      return
+    }
 
     if (layerModel?.popup !== false) {
       const position = info.coordinate || positionAccessor(layerModel.position)(row)
@@ -576,7 +1044,7 @@ const DashboardWasmHost = {
         const label = field.label || field.field
         const value = getField(row, field.field)
         if (value === undefined || value === null || value === "") return ""
-        return `<div class="flex justify-between gap-4 border-t border-base-300 py-1.5 text-xs"><span class="text-base-content/60">${escapeHtml(label)}</span><strong class="text-right font-medium">${escapeHtml(value)}</strong></div>`
+        return `<div class="flex justify-between gap-4 border-t border-base-300 py-1.5 text-xs"><span class="text-base-content/60">${escapeHtml(label)}</span><strong class="max-w-48 text-right font-medium">${escapeHtml(formatPopupValue(value))}</strong></div>`
       })
       .join("")
 
@@ -610,8 +1078,6 @@ const DashboardWasmHost = {
       bearing: numberOr(viewState.bearing, 0),
       pitch: numberOr(viewState.pitch, 0),
     }
-
-    this._deck?.setProps({viewState: this._viewState})
 
     if (syncMap && this._map) {
       this._map.jumpTo({
@@ -662,14 +1128,14 @@ const DashboardWasmHost = {
   currentStyle(useMapbox = null) {
     const mapbox = this._host?.mapbox || {}
     const enabled = useMapbox === null ? Boolean(mapbox.enabled) && looksLikeMapboxPublicToken(mapbox.access_token) : useMapbox
-    if (!enabled) return osmRasterStyle()
+    if (!enabled) return rasterStyle(this.isDarkMode())
     return this.isDarkMode() ? mapbox.style_dark || DEFAULT_DARK_STYLE : mapbox.style_light || DEFAULT_LIGHT_STYLE
   },
 
   currentStyleId(useMapbox = null) {
     const mapbox = this._host?.mapbox || {}
     const enabled = useMapbox === null ? Boolean(mapbox.enabled) && looksLikeMapboxPublicToken(mapbox.access_token) : useMapbox
-    if (!enabled) return OSM_STYLE_ID
+    if (!enabled) return `${OSM_STYLE_ID}-${this.isDarkMode() ? "dark" : "light"}`
     return this.isDarkMode() ? mapbox.style_dark || DEFAULT_DARK_STYLE : mapbox.style_light || DEFAULT_LIGHT_STYLE
   },
 
@@ -698,7 +1164,7 @@ const DashboardWasmHost = {
     this._map.setStyle(this.currentStyle(), {diff: true})
     this._map.once("style.load", () => {
       this.stampStyleUrl(desiredId)
-      this._deck?.setProps({layers: this.deckLayers()})
+      this._overlay?.setProps({layers: this.deckLayers()})
     })
   },
 
@@ -723,9 +1189,7 @@ const DashboardWasmHost = {
     } catch (_error) {}
 
     try {
-      const rect = this.el.getBoundingClientRect()
-      this._deck?.setProps({width: rect.width, height: rect.height})
-      this._deck?.redraw(true)
+      this._overlay?.setProps({layers: this.deckLayers()})
     } catch (_error) {}
   },
 
@@ -735,7 +1199,11 @@ const DashboardWasmHost = {
     } catch (_error) {}
 
     try {
-      this._deck?.finalize()
+      if (this._overlay && this._map) {
+        this._map.removeControl(this._overlay)
+      } else {
+        this._overlay?.finalize?.()
+      }
     } catch (_error) {}
 
     try {
@@ -743,10 +1211,10 @@ const DashboardWasmHost = {
     } catch (_error) {}
 
     this._popup = null
-    this._deck = null
+    this._overlay = null
     this._map = null
     this._mapContainer = null
-    this._deckContainer = null
+    this._moduleDestroy = null
   },
 
   handleRenderingUnavailable() {
@@ -754,7 +1222,182 @@ const DashboardWasmHost = {
 
     this._webglUnavailable = true
     this.teardownMap()
+
+    if (this.renderSvgFallback()) return
+
     this.renderState("error", "Map rendering requires WebGL.")
+  },
+
+  renderSvgFallback() {
+    const layers = Array.isArray(this._renderModel?.layers) ? this._renderModel.layers : []
+    const scatterLayers = layers.filter((layer) => String(layer?.type || "").toLowerCase() === "scatterplot")
+    const textLayers = layers.filter((layer) => String(layer?.type || "").toLowerCase() === "text")
+    const points = []
+
+    for (const layer of scatterLayers) {
+      const getPosition = positionAccessor(layer.position)
+      const getRadius = this.radiusAccessor(layer)
+      const getFillColor = this.colorAccessor(layer, "fill_color", [37, 99, 235, 210])
+      const getLineColor = this.colorAccessor(layer, "line_color", [255, 255, 255, 230])
+
+      for (const row of this.layerData(layer)) {
+        const position = getPosition(row)
+        if (!isFinitePosition(position)) continue
+
+        points.push({
+          layer,
+          row,
+          longitude: position[0],
+          latitude: position[1],
+          radius: clamp(numberOr(callAccessor(getRadius, row), 8), 4, 28),
+          fill: cssColor(callAccessor(getFillColor, row)),
+          stroke: cssColor(callAccessor(getLineColor, row)),
+        })
+      }
+    }
+
+    if (points.length === 0) return false
+
+    const width = 1000
+    const height = 620
+    const padding = 56
+    const lngLatBounds = points.reduce(
+      (acc, point) => ({
+        minLng: Math.min(acc.minLng, point.longitude),
+        maxLng: Math.max(acc.maxLng, point.longitude),
+        minLat: Math.min(acc.minLat, point.latitude),
+        maxLat: Math.max(acc.maxLat, point.latitude),
+      }),
+      {minLng: Infinity, maxLng: -Infinity, minLat: Infinity, maxLat: -Infinity},
+    )
+    const worldBoundsAtZero = [
+      lngLatToWorld(lngLatBounds.minLng, lngLatBounds.maxLat, 0),
+      lngLatToWorld(lngLatBounds.maxLng, lngLatBounds.minLat, 0),
+    ]
+    const worldSpanX = Math.max(Math.abs(worldBoundsAtZero[1].x - worldBoundsAtZero[0].x), 1)
+    const worldSpanY = Math.max(Math.abs(worldBoundsAtZero[1].y - worldBoundsAtZero[0].y), 1)
+    const fitZoom = Math.floor(Math.log2(Math.min((width - padding * 2) / worldSpanX, (height - padding * 2) / worldSpanY)))
+    const zoom = clamp(numberOr(this._renderModel?.fallback_zoom, fitZoom), 1, 6)
+    const center = lngLatToWorld((lngLatBounds.minLng + lngLatBounds.maxLng) / 2, (lngLatBounds.minLat + lngLatBounds.maxLat) / 2, zoom)
+    const topLeft = {x: center.x - width / 2, y: center.y - height / 2}
+    const project = (longitude, latitude) => {
+      const point = lngLatToWorld(longitude, latitude, zoom)
+      return [point.x - topLeft.x, point.y - topLeft.y]
+    }
+    const labelFor = (row) => {
+      if (row.__cluster) return String(row.__cluster_label || row.__cluster_count || "")
+
+      for (const layer of textLayers) {
+        if (!this.layerVisible(layer)) continue
+        const text = getField(row, layer.text_field) ?? layer.text
+        if (text !== undefined && text !== null && text !== "") return String(text)
+      }
+
+      return String(getField(row, "site_code") || getField(row, "label") || "")
+    }
+    const tiles = this.svgTileImages(topLeft, width, height, zoom)
+    const rows = points
+      .map((point, index) => {
+        const [x, y] = project(point.longitude, point.latitude)
+        const label = labelFor(point.row)
+        const clusterClass = point.row.__cluster ? "font-bold" : "font-semibold"
+        const clusterLabelY = point.row.__cluster ? y + 4 : y - point.radius - 7
+
+        return `
+          <g class="sr-dashboard-svg-point cursor-pointer" data-point-index="${index}" tabindex="0" role="button" aria-label="${escapeHtml(label || "Map asset")}">
+            <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${point.radius.toFixed(1)}" fill="${point.fill}" stroke="${point.stroke}" stroke-width="2" />
+            ${
+              label
+                ? `<text x="${x.toFixed(1)}" y="${clusterLabelY.toFixed(1)}" text-anchor="middle" class="fill-base-content text-[11px] ${clusterClass}">${escapeHtml(label)}</text>`
+                : ""
+            }
+          </g>
+        `
+      })
+      .join("")
+
+    this._svgFallbackPoints = points
+    this.el.innerHTML = `
+      <div class="relative h-full min-h-[calc(100vh-10rem)] overflow-hidden bg-base-200">
+        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 ${width} ${height}" role="img" aria-label="Network asset map">
+          <rect width="${width}" height="${height}" class="fill-base-200" />
+          ${tiles}
+          ${rows}
+        </svg>
+        <div class="absolute right-4 bottom-4 rounded-box border border-base-300 bg-base-100/90 px-3 py-2 text-[0.65rem] text-base-content/70 shadow">
+          Raster fallback
+        </div>
+      </div>
+    `
+    this.el.querySelectorAll(".sr-dashboard-svg-point").forEach((node) => {
+      node.addEventListener("click", (event) => this.showSvgFallbackPopup(event, Number(node.dataset.pointIndex)))
+      node.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          this.showSvgFallbackPopup(event, Number(node.dataset.pointIndex))
+        }
+      })
+    })
+
+    return true
+  },
+
+  svgTileImages(topLeft, width, height, zoom) {
+    const dark = this.isDarkMode()
+    const base = dark ? "dark_nolabels" : "light_nolabels"
+    const labels = dark ? "dark_only_labels" : "light_only_labels"
+    const z = Math.round(zoom)
+    const tileCount = 2 ** z
+    const minTileX = Math.floor(topLeft.x / 256)
+    const maxTileX = Math.floor((topLeft.x + width) / 256)
+    const minTileY = clamp(Math.floor(topLeft.y / 256), 0, tileCount - 1)
+    const maxTileY = clamp(Math.floor((topLeft.y + height) / 256), 0, tileCount - 1)
+    const subdomains = ["a", "b", "c", "d"]
+    const tileUrl = (kind, x, y) => {
+      const wrappedX = ((x % tileCount) + tileCount) % tileCount
+      const subdomain = subdomains[Math.abs(x + y) % subdomains.length]
+      return `https://${subdomain}.basemaps.cartocdn.com/${kind}/${z}/${wrappedX}/${y}.png`
+    }
+    const imageFor = (kind, x, y) => {
+      const imageX = x * 256 - topLeft.x
+      const imageY = y * 256 - topLeft.y
+      return `<image href="${tileUrl(kind, x, y)}" x="${imageX.toFixed(1)}" y="${imageY.toFixed(1)}" width="256" height="256" preserveAspectRatio="none" />`
+    }
+    const images = []
+
+    for (let y = minTileY; y <= maxTileY; y += 1) {
+      for (let x = minTileX; x <= maxTileX; x += 1) {
+        images.push(imageFor(base, x, y))
+      }
+    }
+
+    for (let y = minTileY; y <= maxTileY; y += 1) {
+      for (let x = minTileX; x <= maxTileX; x += 1) {
+        images.push(imageFor(labels, x, y))
+      }
+    }
+
+    return images.join("")
+  },
+
+  showSvgFallbackPopup(event, index) {
+    const point = this._svgFallbackPoints?.[index]
+    if (!point) return
+
+    try {
+      this._popup?.remove()
+    } catch (_error) {}
+
+    const popup = document.createElement("div")
+    popup.className = "absolute z-10 max-w-80 rounded-box border border-base-300 bg-base-100 p-3 text-base-content shadow-xl"
+    popup.innerHTML = this.popupHtml(point.row, point.layer.popup || {})
+
+    const hostRect = this.el.getBoundingClientRect()
+    const targetRect = event.currentTarget.getBoundingClientRect()
+    popup.style.left = `${clamp(targetRect.left - hostRect.left + targetRect.width / 2 + 14, 12, hostRect.width - 340)}px`
+    popup.style.top = `${clamp(targetRect.top - hostRect.top - 24, 12, hostRect.height - 220)}px`
+    this.el.appendChild(popup)
+    this._popup = popup
   },
 
   renderState(kind, message) {
@@ -781,6 +1424,20 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;")
+}
+
+function formatPopupValue(value) {
+  if (Array.isArray(value)) return value.filter((item) => item !== null && item !== undefined && item !== "").join(", ")
+
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, item]) => item !== null && item !== undefined && item !== "")
+      .map(([key, item]) => `${key}: ${item}`)
+      .join(", ")
+  }
+
+  if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, {maximumFractionDigits: 3})
+  return value
 }
 
 export default DashboardWasmHost

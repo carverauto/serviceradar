@@ -229,17 +229,20 @@ manifest should declare:
 - Required SRQL queries and named data frames.
 - Result contracts for fields, coordinate columns, row identity, and optional
   Arrow IPC encodings.
-- Renderer kind, WASM artifact reference, integrity digest, signature metadata,
-  and required browser capabilities.
+- Renderer kind, artifact reference, integrity digest, signature metadata,
+  trust declaration, interface version, and required browser capabilities.
 - Settings schema for administrator-configurable options such as default query,
   basemap style choice, field mappings, and package-specific labels.
 - Permissions for ServiceRadar APIs the renderer may call, such as SRQL execute,
   saved query read, or dashboard preference write.
 
-JSON defines the package contract; the actual custom dashboard behavior runs from
-the signed WASM renderer. ServiceRadar should ship curated dashboard package
-templates, but administrators should be able to import customer-owned dashboard
-packages from configured Git sources without rebuilding web-ng.
+JSON defines the package contract; the actual custom dashboard behavior runs
+from the verified renderer artifact. The first renderer classes are constrained
+WASM render models and administrator-approved trusted browser modules for
+customers that need custom deck.gl layers and interactions. ServiceRadar should
+ship curated dashboard package templates, but administrators should be able to
+import customer-owned dashboard packages from configured Git sources without
+rebuilding web-ng.
 
 ### D9: Dashboard WASM plugins are separate from agent WASM plugins
 
@@ -257,13 +260,14 @@ execution class from agent-side WASM plugins:
 - They use existing package signing and trust-policy concepts, but with
   browser-specific capabilities and review metadata.
 
-For deck.gl-heavy dashboards, the preferred contract should be declarative:
+For deck.gl-heavy dashboards, the preferred default contract is declarative:
 the WASM renderer receives approved data frames and settings, computes layer
 state or interaction state, and returns/updates a ServiceRadar-defined render
-model. ServiceRadar-owned JavaScript should continue to own actual deck.gl,
-Mapbox, event wiring, theme integration, and navigation. Supporting arbitrary
-customer JavaScript modules would be a separate, higher-risk capability and is
-not required for the first dashboard package host.
+model. When a customer needs custom deck.gl layers, clustering, or interaction
+logic beyond the generic render model, ServiceRadar supports an explicitly
+trusted same-origin browser module renderer. That module still receives only
+bounded package frames, theme context, approved settings, shared map/deck
+constructors, and approved host APIs.
 
 The first stable host ABI is `dashboard-wasm-v1`. The preferred entrypoint is
 `sr_dashboard_init_json(ptr, len)`, with `sr_dashboard_render_json(ptr, len)` as
@@ -271,9 +275,45 @@ an early compatibility alias. ServiceRadar passes one validated JSON payload
 containing package settings, theme context, map provider settings, package
 metadata, and data-frame summaries. The renderer obtains frame payloads through
 bounded data-provider imports such as `serviceradar.frame_json_len(index)` and
-`serviceradar.frame_json_write(index, ptr, len)`; future Arrow IPC frame access
-should use the same versioned data-provider namespace rather than direct service
-subscriptions.
+`serviceradar.frame_json_write(index, ptr, len)`. Arrow IPC frame access uses
+the same versioned data-provider namespace through
+`serviceradar.frame_encoding(index)`, `serviceradar.frame_bytes_len(index)`, and
+`serviceradar.frame_bytes_write(index, ptr, len)` rather than direct service
+subscriptions. This keeps custom topology/map engines on the same host contract
+as smaller dashboard packages.
+
+The browser-module host interface is `dashboard-browser-module-v1`. It receives
+the same approved frames as the WASM host. Frames that request
+`encoding: "arrow_ipc"` are delivered as base64 Arrow IPC payloads when the SRQL
+backend supports Arrow output, with `api.arrow.table(frame_id)` available to
+decode them in the host bundle. If Arrow is unavailable for a query, the frame
+falls back to `json_rows` under the same frame id so customer renderers can
+remain compatible while the backend encoder is expanded.
+
+Long term, the built-in topology view and netflow map should move behind this
+same dashboard-package boundary. Core/web-ng should remain the stable host and
+data plane; topology, netflow, United's network map, and future specialized
+views should be replaceable renderer packages that can be updated without
+changing core product code.
+
+SRQL should not own browser streaming transport. SRQL owns query translation,
+read-only execution, and frame encoding. Web-ng owns delivery using the existing
+Phoenix Channel/WebSocket stack: on dashboard mount, the host subscribes to a
+dashboard frame topic using a signed token for the exact approved frame
+definitions, sends an initial snapshot for each data frame, then sends bounded
+replacement or delta frames as refresh intervals or upstream events require.
+`json_rows` frames can ride as normal channel JSON payloads; `arrow_ipc` frames
+should ride as binary channel payloads with a small ServiceRadar frame envelope
+so large map/topology payloads avoid base64 transport overhead. A future QUIC
+transport can be evaluated if WebSockets become the bottleneck, but the
+renderer-facing contract should stay as versioned frame payloads with
+`json_rows` or `arrow_ipc` encodings.
+
+WASM renderers that need to recompute layout or interaction state from new
+frames can export `sr_dashboard_frames_updated()` (or the compatibility alias
+`sr_dashboard_update()`); the dashboard host calls that export after applying
+fresh frame bytes. Render-model-only packages can skip that export and let the
+host refresh deck.gl layers from the updated frame data.
 
 The renderer can call `serviceradar.emit_render_model(ptr, len)` (or the
 `env.sr_emit_render_model` alias) with a JSON render model. Version 1 of that

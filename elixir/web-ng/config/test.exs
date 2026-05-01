@@ -112,8 +112,8 @@ config :serviceradar_core, ServiceRadar.Repo,
        value -> min(String.to_integer(value), 40)
      end),
   # Reduce flakiness under `mix test` with higher concurrency when using a remote CNPG DB.
-  queue_target: 1_000,
-  queue_interval: 1_000,
+  queue_target: String.to_integer(System.get_env("TEST_CNPG_QUEUE_TARGET_MS", "1000")),
+  queue_interval: String.to_integer(System.get_env("TEST_CNPG_QUEUE_INTERVAL_MS", "1000")),
   # Some migrations (Timescale hypertables, indexes) can take > 2 minutes on CI/dev hardware.
   ownership_timeout: 300_000,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
