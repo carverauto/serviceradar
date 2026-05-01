@@ -20,7 +20,7 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-"$TINYGO_BIN" build -tags=tinygo -target=wasi -o "$OUT_DIR/dashboard.wasm" "$EXAMPLE_DIR/renderer.go"
+"$TINYGO_BIN" build -tags=tinygo -target=wasi -o "$OUT_DIR/dashboard.wasm" "$EXAMPLE_DIR"
 
 if command -v sha256sum >/dev/null 2>&1; then
   DIGEST=$(sha256sum "$OUT_DIR/dashboard.wasm" | awk '{print $1}')
@@ -47,7 +47,7 @@ cat > "$OUT_DIR/manifest.json" <<JSON
   "data_frames": [
     {
       "id": "sites",
-      "query": "in:wifi_sites | limit 500",
+      "query": "in:wifi_sites limit:500",
       "encoding": "json_rows",
       "limit": 500,
       "fields": ["site_code", "name", "region", "longitude", "latitude", "ap_count"],

@@ -1,7 +1,7 @@
 [
   {
     "id": "sites",
-    "query": "in:wifi_sites | limit 500",
+    "query": "in:wifi_sites limit:500",
     "requested_encoding": "json_rows",
     "encoding": "json_rows",
     "status": "ok",

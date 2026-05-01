@@ -1,4 +1,4 @@
-const MAP_VIEWS = new Set(["topology_traffic", "netflow", "wifi_map"])
+const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
 const SELECT_ID = "traffic-map-view-select"
 const CANVAS_ID = "ops-traffic-map"
 
@@ -7,6 +7,8 @@ function normalizeMapView(value) {
 }
 
 function applyMapView(value) {
+  if (String(value || "").startsWith("dashboard:")) return
+
   const mapView = normalizeMapView(value)
   const canvas = document.getElementById(CANVAS_ID)
 

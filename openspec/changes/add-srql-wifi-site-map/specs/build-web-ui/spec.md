@@ -1,32 +1,33 @@
 ## ADDED Requirements
 
-### Requirement: Dashboard map mode selection
+### Requirement: Dashboard package map selection
 
-The dashboard SHALL allow users to choose between the existing NetFlow map and a location-aware network asset map without removing either view.
+The dashboard SHALL allow users to choose between the existing NetFlow map and enabled location-aware dashboard package map views without compiling customer-specific map UI into web-ng.
 
-#### Scenario: User switches dashboard map to network assets
-- **GIVEN** WiFi-map data has been ingested
-- **WHEN** a user selects `Network Asset Map` from the dashboard map mode control
-- **THEN** the dashboard map card SHALL render network asset markers from the configured default map SRQL query
-- **AND** the selected mode SHALL persist according to the existing dashboard preference pattern
+#### Scenario: User opens an enabled dashboard map package
+- **GIVEN** a verified dashboard package has been enabled with dashboard placement
+- **WHEN** a user selects that package from the dashboard map/package control
+- **THEN** the dashboard SHALL navigate to or preview the package through the dashboard WASM host
+- **AND** the package SHALL render from approved SRQL data frames instead of browser-loaded CSV files
 
-#### Scenario: Network asset map has no mappable data
-- **GIVEN** the default network asset map query returns no rows with valid coordinates
-- **WHEN** the dashboard renders the network asset map card
-- **THEN** it SHALL show an empty state that identifies the configured SRQL query and explains that mappable rows require coordinates
+#### Scenario: No dashboard map packages are enabled
+- **GIVEN** no verified dashboard packages are enabled for dashboard placement
+- **WHEN** the dashboard renders
+- **THEN** the product SHALL show the built-in NetFlow map option only
+- **AND** it SHALL NOT show a hardcoded WiFi map route, hook, or selector option
 
-### Requirement: Full-screen SRQL-driven network asset map
+### Requirement: Full-screen dashboard package map
 
-The system SHALL provide a full-screen network asset map view where users can edit SRQL queries and render compatible coordinate-bearing results as map views.
+The system SHALL provide full-screen dashboard package views where approved packages can render compatible coordinate-bearing SRQL results as map views.
 
-#### Scenario: User opens network asset map from dashboard
-- **GIVEN** the dashboard is showing the network asset map card
+#### Scenario: User opens custom map from dashboard
+- **GIVEN** the dashboard exposes an enabled map dashboard package
 - **WHEN** a user opens the full-screen map action
-- **THEN** the application SHALL navigate to the full-screen network asset map view
-- **AND** the view SHALL initialize with the same SRQL query used by the dashboard card
+- **THEN** the application SHALL navigate to the package route under `/dashboards/:route_slug`
+- **AND** the view SHALL initialize with the package's approved data frames and validated settings
 
 #### Scenario: User builds a new map query
-- **GIVEN** a user is on the full-screen network asset map view
+- **GIVEN** a user is on a full-screen dashboard package map that exposes query editing
 - **WHEN** they use the SRQL builder to query `in:wifi_sites region:AM-East`
 - **THEN** the map SHALL refresh from SRQL results
 - **AND** a synchronized result table SHALL show the returned site rows
@@ -58,16 +59,16 @@ ServiceRadar map views SHALL use ServiceRadar-owned basemap configuration rather
 
 Administrators SHALL be able to configure the dashboard network asset map query and manage named map views from settings.
 
-#### Scenario: Admin saves the default dashboard map query
+#### Scenario: Admin configures a dashboard package map query
 - **GIVEN** an authenticated admin is in the settings UI
 - **WHEN** they save a default WiFi map query such as `in:wifi_sites ap_count:>0 sort:ap_count:desc`
 - **THEN** the query SHALL be validated by SRQL before persistence
-- **AND** the dashboard network asset map SHALL use that query on subsequent loads
+- **AND** the enabled dashboard package instance SHALL use that query on subsequent loads
 
 #### Scenario: Admin saves a named map view
 - **GIVEN** an authenticated admin has built a map-compatible SRQL query
 - **WHEN** they save it as a named view
-- **THEN** the view SHALL be available in the full-screen network asset map view selector
+- **THEN** the view SHALL be available to approved dashboard package instances that request saved map views
 - **AND** the saved view SHALL include SRQL query text and server-owned visualization options only
 
 ### Requirement: Customer WiFi dashboard package POC parity interactions
@@ -105,9 +106,9 @@ The United WiFi dashboard package SHALL provide the core interactions present in
 - **AND** it SHALL show migration trend metrics from `wifi_fleet_history` when at least two snapshots are available
 
 #### Scenario: Dashboard map opens full-screen view
-- **GIVEN** the dashboard WiFi map card is rendered from the configured SRQL query
+- **GIVEN** the dashboard exposes the customer WiFi dashboard package
 - **WHEN** a user activates the map card open action
-- **THEN** the full-screen deck.gl map SHALL open with the same query, filters, and selected view context where possible
+- **THEN** the package route SHALL open with the same query, filters, and selected view context where possible
 
 ### Requirement: Dashboard package import and hosting
 

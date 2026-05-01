@@ -20,8 +20,8 @@ The browser experience should not become a United Airlines-specific feature bake
 - Use PostGIS geography columns for site coordinates instead of storing latitude/longitude only in opaque metadata.
 - Preserve OCSF device identity for seed records that are actual devices or device-like infrastructure, including APs, WLCs/controllers, and concrete auth infrastructure hosts when present.
 - Extend SRQL with WiFi site map entities and fields so map payloads are driven by SRQL queries rather than static CSV fetches.
-- Add dashboard map mode selection between NetFlow and location-aware network asset maps.
-- Add a generic network asset map route for SRQL result sets with coordinates, keeping `/wifi-map` as a compatibility alias while making `/network-map` the product route.
+- Add dashboard package selection so operators can expose verified location-aware map packages alongside the existing NetFlow map without compiling customer-specific views into web-ng.
+- Do not add `/wifi-map` or `/network-map` as product routes; customer map experiences use enabled dashboard package routes such as `/dashboards/:route_slug`.
 - Add a dashboard WASM plugin runtime where imported dashboard packages define custom views, interactions, popups, and layout logic without compiling customer-specific UI into web-ng.
 - Use JSON dashboard package manifests for dashboard identity, versioning, required SRQL queries, data-frame contracts, permissions, renderer WASM references, signing metadata, and settings schema.
 - Add settings UI for importing dashboard packages, selecting default dashboard/map views, and configuring approved dashboard package settings.
@@ -39,12 +39,13 @@ The browser experience should not become a United Airlines-specific feature bake
 - Affected code:
   - `/home/mfreeman/src/serviceradar-sdk-go`: SDK helpers for structured inventory result batches if needed.
   - Customer plugin repository: WiFi-map plugin package, manifests, signatures, and seed/live collector implementation.
+  - `/home/mfreeman/src/serviceradar-sdk-dashboard`: dashboard WASM SDK helpers for customer browser dashboard packages.
   - `go/` agent runtime/package handling if approved seed-file access or payload handoff host functions are insufficient.
   - `proto/monitoring.proto` and agent/gateway handling if current plugin-result payload limits or typing are insufficient.
   - `elixir/serviceradar_core/priv/repo/migrations/`: platform schema migrations for WiFi map storage.
   - `elixir/serviceradar_core/`: plugin source sync, encrypted credential references, ingestion resources, Ash actions, and plugin-result handlers.
   - `rust/srql/`: parser/entity support, SQL generation, fixtures, and tests for WiFi map entities.
-  - `elixir/web-ng/`: customer plugin source UI, dashboard package import UI, dashboard map selector, generic network map LiveView, browser-side dashboard WASM host, SRQL builder integration, settings UI.
+  - `elixir/web-ng/`: customer plugin source UI, dashboard package import UI, dashboard/package selector, browser-side dashboard WASM host, SRQL builder/data-frame integration, settings UI.
 
 ## Source Material Reviewed
 

@@ -47,15 +47,17 @@
 
 - [ ] 5.1 Add settings UI for default dashboard network asset map query and named map views.
 - [x] 5.2 Reuse or extend deployment-level Mapbox settings for map basemap styles/tokens; do not source tile/provider settings from plugin payloads.
-- [x] 5.3 Add dashboard map mode selector for NetFlow vs network asset map, with full-screen actions for both modes.
-- [ ] 5.4 Add a dashboard deck.gl network asset map card driven by the configured SRQL query and configured ServiceRadar basemap provider.
-- [x] 5.5 Add an initial full-screen deck.gl network asset map LiveView route with SRQL builder and result table, keeping `/wifi-map` as a compatibility alias.
+- [ ] 5.3 Add dashboard map/dashboard package selector for NetFlow and enabled dashboard package map views, with full-screen actions for each selected view.
+- [x] 5.3.1 Add the initial dashboard selector integration that lists enabled dashboard package instances and navigates selected packages through `/dashboards/:route_slug`.
+- [ ] 5.4 Add a dashboard package preview card driven by configured SRQL data frames and configured ServiceRadar basemap provider.
+- [ ] 5.5 Add full-screen dashboard package routing for map packages; do not keep `/wifi-map` as a product route.
 - [ ] 5.6 Add saved view selection and map-specific filters to the full-screen network asset map route.
 - [x] 5.7 Implement clickable deck.gl map features that open ServiceRadar-owned popups.
 - [ ] 5.8 Add follow-on SRQL detail queries from map popups/detail panels.
 - [ ] 5.9 Implement site/device search over SRQL-backed site code, site name, hostname, MAC, serial, IP, model, and status fields.
 - [ ] 5.10 Move customer-specific POC parity interactions into an installable dashboard package: region, RADIUS cluster, AP family, WLC model/version filters, DOWN-only filter, site popup details, AP/WLC detail lists, freshness, and fleet migration trend.
 - [ ] 5.11 Add responsive desktop/mobile styling and Playwright visual checks for dashboard and full-screen map views.
+- [x] 5.12 Remove the hardcoded web-ng WiFi map hook, route, dashboard selector option, and spatial-page entry so customer-specific behavior lives outside the ServiceRadar product.
 
 ## 6. Dashboard Packages and Browser WASM
 
@@ -66,11 +68,13 @@
 - [ ] 6.5 Build a web-ng dashboard WASM host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-wasm-v1` ABI, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
 - [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
 - [ ] 6.7 Convert the United WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
+- [x] 6.7.1 Create the initial external `~/src/ual-dashboard` dashboard package workspace with a TinyGo `dashboard-wasm-v1` renderer, manifest build, sample frames, and harness instructions.
 - [ ] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
 - [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
 - [ ] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
 - [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard WASM packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
 - [x] 6.10 Provide a local customer dashboard package dev harness that loads manifest JSON, WASM, validated settings, and sample SRQL frames without deploying to production.
+- [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` TinyGo SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
 
 ## 7. Live Aruba Collector Follow-Up
 

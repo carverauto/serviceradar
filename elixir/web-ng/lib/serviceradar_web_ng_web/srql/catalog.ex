@@ -249,7 +249,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "field_survey_artifacts",
       label: "FieldSurvey Artifacts",
-      route: "/wifi-map",
+      route: "/spatial/field-surveys",
       default_time: "",
       default_sort_field: "uploaded_at",
       default_sort_dir: "desc",
@@ -370,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_sites",
       label: "WiFi Sites",
-      route: "/wifi-map",
+      route: nil,
       default_time: "",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -383,7 +383,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_site_snapshots",
       label: "WiFi Site Snapshots",
-      route: "/wifi-map",
+      route: nil,
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -412,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_aps",
       label: "WiFi Access Points",
-      route: "/wifi-map",
+      route: nil,
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -424,7 +424,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_controllers",
       label: "WiFi Controllers",
-      route: "/wifi-map",
+      route: nil,
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -436,7 +436,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_radius_groups",
       label: "WiFi RADIUS Groups",
-      route: "/wifi-map",
+      route: nil,
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -470,7 +470,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_fleet_history",
       label: "WiFi Fleet History",
-      route: "/wifi-map",
+      route: nil,
       default_time: "",
       default_sort_field: "build_date",
       default_sort_dir: "desc",
@@ -512,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_site_references",
       label: "WiFi Site References",
-      route: "/wifi-map",
+      route: nil,
       default_time: "",
       default_sort_field: "updated_at",
       default_sort_dir: "desc",

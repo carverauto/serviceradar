@@ -2,6 +2,8 @@
 
 This is a minimal TinyGo renderer for `dashboard-wasm-v1`. It emits a
 ServiceRadar-owned `deck_map` render model using the `sites` sample frame.
+The renderer imports the local dashboard SDK from
+`~/src/serviceradar-sdk-dashboard` through `go.mod`.
 
 ## Build
 
@@ -19,6 +21,8 @@ The build writes:
 
 The script uses `TINYGO_BIN` when set. If TinyGo is not on `PATH`, it will use
 the pinned TinyGo tarball already present in `go/tools/wasm-plugin-harness/`.
+The local `replace` directive expects the SDK checkout at
+`~/src/serviceradar-sdk-dashboard`.
 
 ## Run In The Harness
 

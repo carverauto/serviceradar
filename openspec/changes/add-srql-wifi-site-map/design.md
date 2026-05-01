@@ -176,22 +176,30 @@ Add WiFi map entities to SRQL:
 
 The dashboard WiFi map uses a saved SRQL query from settings. The full-screen map initializes from that query, then lets users edit it through the SRQL builder. A result set is map-renderable when it includes site code, label, latitude, longitude or geography-derived coordinates, and numeric marker metrics.
 
-### D6: Deck.gl web map renderer is ServiceRadar-owned
+### D6: Deck.gl map primitives are ServiceRadar-owned
 
-The existing POC behavior should be rebuilt as ServiceRadar-owned LiveView/JS components using deck.gl for map layers. The implementation may reuse concepts from the POC, but it must not render arbitrary HTML from plugin payloads. The renderer consumes normalized map rows returned by SRQL and supports known visualization options only.
+The existing POC behavior should not be rebuilt as hardcoded ServiceRadar
+LiveView/JS screens. ServiceRadar owns generic deck.gl map primitives inside
+the dashboard package host: basemap wiring, allowed layer types, bounds fitting,
+theme integration, event bridging, popup rendering, and WebGL failure states.
+Customer packages emit a constrained render model that selects those primitives;
+they do not ship arbitrary browser JavaScript or HTML into web-ng.
 
-Clickable deck.gl features should open ServiceRadar-owned popups/details. A selected site or asset should expose popup content, detail panels, and follow-on SRQL queries for AP/WLC/detail rows. Popup state should be driven by normalized row IDs and SRQL, not by static CSV payloads in the browser.
+Clickable deck.gl features should open ServiceRadar-owned popups/details. A
+selected site or asset should expose popup content, detail panels, and follow-on
+SRQL queries for AP/WLC/detail rows. Popup state should be driven by normalized
+row IDs and SRQL, not by static CSV payloads in the browser.
 
 Basemap configuration is also ServiceRadar-owned. The initial implementation should use the existing deployment-level Mapbox settings and configured Mapbox styles when available because it gives the product a cleaner map appearance and avoids introducing a second tile-provider settings surface. OpenStreetMap tile layers should not be consumed implicitly by plugin payloads; if ServiceRadar later supports OSM or another provider, it should be exposed as an explicit administrator setting with provider-specific attribution, rate-limit, credential, and terms handling.
 
-The POC behavior to preserve in ServiceRadar terms includes:
+The POC behavior to preserve in the customer dashboard package includes:
 
 - Marker clustering or aggregation at low zoom and readable site labels at inspectable zooms.
 - Region, CPPM cluster, WLC model, AOS version, AP family, and DOWN-only filtering.
 - Device search across hostname, MAC, serial, IP, site code, and site name.
 - Popup/detail expansion for up APs, down APs, and WLCs using SRQL-backed detail queries.
 - Data freshness and fleet migration trend indicators based on ingested batch metadata/history.
-- Dashboard card to full-screen map transition while preserving query/view context where possible.
+- Dashboard card to full-screen package transition while preserving query/view context where possible.
 
 ### D7: United-specific dashboard behavior ships as a dashboard package
 
@@ -199,7 +207,7 @@ The ServiceRadar product should not hardcode a United Airlines WiFi workflow int
 the main dashboard. The product-owned surface should be generic:
 
 - SRQL-backed data access.
-- Coordinate-aware network asset map primitives.
+- Coordinate-aware deck.gl map primitives.
 - Dashboard package import, trust, settings, and assignment.
 - Browser-side sandboxing and data-frame delivery.
 - Product-native shell, theme, navigation, and settings.
@@ -207,8 +215,8 @@ the main dashboard. The product-owned surface should be generic:
 The United map can then ship as a customer dashboard package from a customer-owned
 repository. That package can provide the exact custom behavior the customer needs:
 region and cluster filters, site popups, AP/WLC detail layouts, migration views,
-and customer-specific labels. Other customers can install different packages or
-use the built-in generic network asset map without inheriting United-specific UI.
+and customer-specific labels. Other customers can install different packages
+without inheriting United-specific UI.
 
 ### D8: Dashboard packages use JSON manifests plus signed browser WASM
 

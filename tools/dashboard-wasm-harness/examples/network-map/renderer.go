@@ -2,24 +2,16 @@
 
 package main
 
-import "unsafe"
-
-//go:wasmimport serviceradar emit_render_model
-func emitRenderModel(ptr uint32, size uint32) int32
-
-var heap [65536]byte
-var heapOffset uint32
+import "code.carverauto.dev/carverauto/serviceradar-sdk-dashboard/srdashboard"
 
 //export alloc_bytes
 func allocBytes(size uint32) uint32 {
-	ptr := uint32(uintptr(unsafe.Pointer(&heap[heapOffset])))
-	heapOffset += (size + 7) &^ 7
-	return ptr
+	return srdashboard.AllocBytes(size)
 }
 
 //export free_bytes
 func freeBytes(ptr uint32, size uint32) {
-	_, _ = ptr, size
+	srdashboard.FreeBytes(ptr, size)
 }
 
 var renderModel = []byte(`{
@@ -77,12 +69,7 @@ var renderModel = []byte(`{
 //export sr_dashboard_init_json
 func initJSON(ptr uint32, size uint32) {
 	_, _ = ptr, size
-
-	if len(renderModel) == 0 {
-		return
-	}
-
-	emitRenderModel(uint32(uintptr(unsafe.Pointer(&renderModel[0]))), uint32(len(renderModel)))
+	srdashboard.EmitRenderModelJSON(renderModel)
 }
 
 func main() {}

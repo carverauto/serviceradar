@@ -8,7 +8,6 @@ import MapboxFlowMap from "./MapboxFlowMap"
 import OperationsTrafficMap from "./OperationsTrafficMap"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
-import WifiSiteMap from "./WifiSiteMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
 import NetflowStackedAreaChart from "./charts/NetflowStackedAreaChart"
 import NetflowStacked100Chart from "./charts/NetflowStacked100Chart"
@@ -37,7 +36,6 @@ export default {
   OperationsTrafficMap,
   SRQLTimeCookie,
   SpatialSurveyMap,
-  WifiSiteMap,
   NetflowSankeyChart,
   NetflowStackedAreaChart,
   NetflowStacked100Chart,

@@ -18,30 +18,58 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:load_state, :loading)
       |> assign(:instance, nil)
       |> assign(:package, nil)
+      |> assign(:query_text, "")
+      |> assign(:frame_query_overrides, %{})
       |> assign(:host_payload_json, "{}")
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(%{"route_slug" => route_slug} = params, _uri, socket) do
+    overrides = frame_query_overrides(params)
+
+    socket =
+      socket
+      |> assign(:route_slug, route_slug)
+      |> assign(:current_path, "/dashboards/#{route_slug}")
+      |> assign(:frame_query_overrides, overrides)
+      |> assign(:load_state, :loading)
 
     socket =
       if connected?(socket) do
         scope = socket.assigns.current_scope
 
         start_async(socket, :dashboard_package_load, fn ->
-          with {:ok, %DashboardInstance{} = instance} <-
-                 Dashboards.get_enabled_instance_by_slug(route_slug, scope: scope) do
-            package = instance.dashboard_package
-            frames = FrameRunner.run(package.data_frames || [], scope)
-            mapbox = read_mapbox(scope)
-            {:ok, instance, frames, mapbox}
-          end
+          load_dashboard_package(route_slug, scope, overrides)
         end)
       else
         socket
       end
 
-    {:ok, socket}
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_async(:dashboard_package_load, {:ok, {:ok, %DashboardInstance{} = instance, frames, mapbox}}, socket) do
+  def handle_event("run_query", %{"query" => %{"q" => query}}, socket) do
+    query = String.trim(to_string(query || ""))
+
+    to =
+      if query == "" do
+        ~p"/dashboards/#{socket.assigns.route_slug}"
+      else
+        ~p"/dashboards/#{socket.assigns.route_slug}?#{[q: query]}"
+      end
+
+    {:noreply, push_patch(socket, to: to)}
+  end
+
+  @impl true
+  def handle_async(
+        :dashboard_package_load,
+        {:ok, {:ok, %DashboardInstance{} = instance, data_frames, frames, mapbox}},
+        socket
+      ) do
     package = instance.dashboard_package
 
     socket =
@@ -50,7 +78,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:instance, instance)
       |> assign(:package, package)
       |> assign(:page_title, instance.name)
-      |> assign(:host_payload_json, Jason.encode!(host_payload(instance, package, frames, mapbox)))
+      |> assign(:query_text, first_frame_query(data_frames))
+      |> assign(:host_payload_json, Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox)))
 
     {:noreply, socket}
   end
@@ -116,7 +145,19 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
               </p>
             </div>
 
-            <.link navigate={~p"/dashboard"} class="btn btn-ghost btn-sm">Dashboard</.link>
+            <div class="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[32rem] sm:flex-row sm:items-center">
+              <.form for={%{}} as={:query} phx-submit="run_query" class="join w-full">
+                <input
+                  type="search"
+                  name="query[q]"
+                  value={@query_text}
+                  class="input input-sm input-bordered join-item w-full font-mono text-xs"
+                  aria-label="Dashboard SRQL query"
+                />
+                <button type="submit" class="btn btn-sm btn-primary join-item">Run</button>
+              </.form>
+              <.link navigate={~p"/dashboard"} class="btn btn-ghost btn-sm">Dashboard</.link>
+            </div>
           </header>
 
           <div
@@ -139,7 +180,18 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     """
   end
 
-  defp host_payload(%DashboardInstance{} = instance, %DashboardPackage{} = package, frames, mapbox) do
+  defp load_dashboard_package(route_slug, scope, overrides) do
+    with {:ok, %DashboardInstance{} = instance} <-
+           Dashboards.get_enabled_instance_by_slug(route_slug, scope: scope) do
+      package = instance.dashboard_package
+      data_frames = apply_frame_query_overrides(package.data_frames || [], overrides)
+      frames = FrameRunner.run(data_frames, scope)
+      mapbox = read_mapbox(scope)
+      {:ok, instance, data_frames, frames, mapbox}
+    end
+  end
+
+  defp host_payload(%DashboardInstance{} = instance, %DashboardPackage{} = package, data_frames, frames, mapbox) do
     %{
       "host" => %{
         "version" => "dashboard-host-v1",
@@ -170,12 +222,55 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "vendor" => package.vendor,
         "capabilities" => package.capabilities || [],
         "renderer" => package.renderer || %{},
-        "data_frames" => package.data_frames || [],
+        "data_frames" => data_frames,
         "frames" => frames,
         "wasm_url" => ~p"/dashboard-packages/#{package.id}/renderer.wasm?v=#{package.content_hash}"
       }
     }
   end
+
+  defp frame_query_overrides(params) do
+    q = params |> Map.get("q", "") |> to_string() |> String.trim()
+
+    params
+    |> Enum.reduce(%{}, fn
+      {"frame_" <> frame_id, value}, acc ->
+        value = value |> to_string() |> String.trim()
+        if frame_id != "" and value != "", do: Map.put(acc, frame_id, value), else: acc
+
+      _other, acc ->
+        acc
+    end)
+    |> maybe_put_first_query(q)
+  end
+
+  defp maybe_put_first_query(overrides, ""), do: overrides
+  defp maybe_put_first_query(overrides, query), do: Map.put(overrides, "__first__", query)
+
+  defp apply_frame_query_overrides(data_frames, overrides) when is_list(data_frames) do
+    data_frames
+    |> Enum.with_index()
+    |> Enum.map(fn {frame, index} ->
+      frame_id = frame_id(frame)
+      query = Map.get(overrides, frame_id) || if(index == 0, do: Map.get(overrides, "__first__"))
+
+      if is_binary(query) and query != "" do
+        Map.put(frame, "query", query)
+      else
+        frame
+      end
+    end)
+  end
+
+  defp apply_frame_query_overrides(_data_frames, _overrides), do: []
+
+  defp frame_id(%{"id" => id}) when is_binary(id), do: id
+  defp frame_id(%{id: id}) when is_binary(id), do: id
+  defp frame_id(_frame), do: ""
+
+  defp first_frame_query([%{"query" => query} | _]) when is_binary(query), do: query
+  defp first_frame_query([%{query: query} | _]) when is_binary(query), do: query
+  defp first_frame_query(_data_frames), do: ""
 
   defp frame_summary(frame) when is_map(frame) do
     %{

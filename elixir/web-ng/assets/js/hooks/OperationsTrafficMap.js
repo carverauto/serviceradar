@@ -2,7 +2,7 @@ import {geoEquirectangular, geoPath} from "d3-geo"
 import countries110m from "world-atlas/countries-110m.json"
 import {feature} from "topojson-client"
 
-const MAP_VIEWS = new Set(["topology_traffic", "netflow", "wifi_map"])
+const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
 const WORLD_COUNTRIES = feature(countries110m, countries110m.objects.countries)
 const WORLD_MAP_PATHS = buildWorldMapPaths()
 const TOPOLOGY_VIEWBOX = "-170 -70 340 140"
@@ -1705,7 +1705,6 @@ export default {
     this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "netflow"
     this._ensureWorldMapBackground()
     this.el.parentElement?.classList.toggle("is-netflow-view", this.mapView === "netflow")
-    this.el.parentElement?.classList.toggle("is-wifi-map-view", this.mapView === "wifi_map")
     this.topologyLinks = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.topologyLinks, [])) : []
     this.links = normalizeTrafficLinks(parseJson(this.el.dataset.links, []), this.mapView)
     this.overlays = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.mtrOverlays, [])) : []

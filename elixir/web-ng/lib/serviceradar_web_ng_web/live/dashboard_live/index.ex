@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       |> assign(:page_title, "Unified Operations Dashboard")
       |> assign(:current_path, "/dashboard")
       |> assign(:camera_preview_tiles, [])
-      |> assign(:mapbox, nil)
+      |> assign(:dashboard_package_instances, [])
       |> assign_dashboard(Data.empty())
 
     socket =
@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         socket
         |> start_async(:dashboard_load, fn -> Data.load(scope) end)
         |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
+        |> start_async(:dashboard_packages_load, fn -> dashboard_package_instances(scope) end)
       else
         socket
       end
@@ -41,7 +42,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     socket =
       socket
-      |> assign(:mapbox, read_mapbox(socket.assigns.current_scope.user))
       |> assign_dashboard(dashboard_assigns)
       |> maybe_start_camera_previews()
 
@@ -50,6 +50,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   def handle_async(:fieldsurvey_summary_load, {:ok, survey_summary}, socket) do
     {:noreply, assign_survey_summary(socket, survey_summary)}
+  end
+
+  def handle_async(:dashboard_packages_load, {:ok, instances}, socket) do
+    {:noreply, assign(socket, :dashboard_package_instances, instances)}
   end
 
   def handle_async(_name, {:exit, _reason}, socket), do: {:noreply, socket}
@@ -93,11 +97,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   NetFlow Map
                 </option>
                 <option
-                  :if={wifi_map_available?(@module_states)}
-                  value="wifi_map"
-                  selected={@map_view == "wifi_map"}
+                  :for={instance <- @dashboard_package_instances}
+                  value={"dashboard:#{instance.route_slug}"}
                 >
-                  Network Asset Map
+                  {instance.name}
                 </option>
               </select>
               <.link href={map_fullscreen_path(@map_view)} class="sr-ops-button">
@@ -107,8 +110,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
             <div class={[
               "sr-ops-map-shell",
-              @map_view == "netflow" && "is-netflow-view",
-              @map_view == "wifi_map" && "is-wifi-map-view"
+              @map_view == "netflow" && "is-netflow-view"
             ]}>
               <div :if={@map_view == "netflow"} class="sr-ops-map-controls">
                 <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
@@ -120,30 +122,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   <li><span class="bg-slate-400/60"></span>External-only flow</li>
                 </ul>
                 <span class="sr-ops-map-window">{@traffic_links_window_label}</span>
-              </div>
-
-              <.link
-                :if={@map_view == "wifi_map"}
-                navigate={~p"/network-map"}
-                class="sr-ops-wifi-map-open"
-                aria-label="Open full screen WiFi map"
-              >
-                Full Screen
-              </.link>
-
-              <div
-                :if={@map_view == "wifi_map"}
-                id="dashboard-wifi-site-map"
-                phx-hook="WifiSiteMap"
-                phx-update="ignore"
-                data-sites={@wifi_map_sites_json}
-                data-enabled={mapbox_enabled?(@mapbox)}
-                data-access-token={mapbox_access_token(@mapbox)}
-                data-style-light={mapbox_style_light(@mapbox)}
-                data-style-dark={mapbox_style_dark(@mapbox)}
-                data-compact="true"
-                class="sr-ops-wifi-map-preview"
-              >
               </div>
 
               <canvas
@@ -190,11 +168,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
             <div :if={@map_view == "netflow"} class="sr-ops-map-stats">
               <.small_stat :for={stat <- @map_stats} label={stat.label} value={stat.value} />
-            </div>
-            <div :if={@map_view == "wifi_map"} class="sr-ops-map-stats">
-              <.small_stat label="Locations" value={format_count(@wifi_map_summary.site_count)} />
-              <.small_stat label="Wireless APs" value={format_count(@wifi_map_summary.ap_count)} />
-              <.small_stat label="Down" value={format_count(@wifi_map_summary.down_count)} />
             </div>
           </.panel>
 
@@ -626,12 +599,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   @impl true
+  def handle_event("select_map_view", %{"map_view" => "dashboard:" <> route_slug}, socket) do
+    if dashboard_package_route?(socket.assigns.dashboard_package_instances, route_slug) do
+      {:noreply, push_navigate(socket, to: ~p"/dashboards/#{route_slug}")}
+    else
+      {:noreply, assign(socket, :map_view, "netflow")}
+    end
+  end
+
   def handle_event("select_map_view", %{"map_view" => map_view}, socket) do
     {:noreply, assign(socket, :map_view, normalize_map_view(map_view))}
   end
 
   def handle_event("select_map_view", %{"value" => map_view}, socket) do
-    {:noreply, assign(socket, :map_view, normalize_map_view(map_view))}
+    handle_event("select_map_view", %{"map_view" => map_view}, socket)
   end
 
   @impl true
@@ -657,6 +638,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     {:noreply, assign(socket, :camera_preview_tiles, tiles)}
   end
+
+  defp dashboard_package_instances(scope) do
+    Dashboards.enabled_instances(scope: scope)
+    |> Enum.filter(&(&1.placement in [:dashboard, :map]))
+    |> Enum.sort_by(&String.downcase(&1.name || &1.route_slug || ""))
+  rescue
+    _ -> []
+  end
+
+  defp dashboard_package_route?(instances, route_slug) when is_binary(route_slug) do
+    Enum.any?(instances, &(&1.route_slug == route_slug))
+  end
+
+  defp dashboard_package_route?(_instances, _route_slug), do: false
 
   attr(:card, :map, required: true)
 
@@ -875,20 +870,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end)
   end
 
-  defp ensure_valid_map_view(%{module_states: states} = assigns) do
+  defp ensure_valid_map_view(assigns) when is_map(assigns) do
     map_view = Map.get(assigns, :map_view, "netflow")
 
     valid_view =
       cond do
         map_view == "netflow" -> "netflow"
-        map_view == "wifi_map" and wifi_map_available?(states) -> "wifi_map"
         true -> "netflow"
       end
 
     Map.put(assigns, :map_view, valid_view)
   end
-
-  defp ensure_valid_map_view(assigns), do: assigns
 
   defp assign_survey_summary(socket, survey_summary) do
     survey_sparkline =
@@ -1045,57 +1037,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end
   end
 
-  defp normalize_map_view("wifi_map"), do: "wifi_map"
   defp normalize_map_view(_), do: "netflow"
 
-  defp map_panel_title("wifi_map"), do: "Network Asset Map"
   defp map_panel_title(_), do: "NetFlow Map"
 
-  defp map_fullscreen_path("wifi_map"), do: ~p"/network-map"
   defp map_fullscreen_path(_), do: ~p"/netflow-map"
-
-  defp wifi_map_available?(states), do: Map.get(states || %{}, :wifi_map) == :active
 
   defp survey_panel_visible?(summary) do
     survey_raster_cell_count(summary) > 0 or Map.get(summary || %{}, :sample_count, 0) > 0
   end
 
   defp camera_panel_visible?(summary), do: Map.get(summary || %{}, :total, 0) > 0
-
-  defp format_count(value) when is_integer(value), do: value |> Integer.to_string() |> delimit_integer_string()
-  defp format_count(value), do: value |> to_int() |> Integer.to_string() |> delimit_integer_string()
-
-  defp delimit_integer_string(value) do
-    value
-    |> String.reverse()
-    |> String.graphemes()
-    |> Enum.chunk_every(3)
-    |> Enum.map_join(",", &Enum.join/1)
-    |> String.reverse()
-  end
-
-  defp read_mapbox(nil), do: nil
-
-  defp read_mapbox(user) do
-    case MapboxSettings.get_settings(actor: user) do
-      {:ok, %MapboxSettings{} = settings} -> settings
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp mapbox_enabled?(%MapboxSettings{} = settings), do: settings.enabled
-  defp mapbox_enabled?(_), do: false
-
-  defp mapbox_access_token(%MapboxSettings{} = settings), do: settings.access_token || ""
-  defp mapbox_access_token(_), do: ""
-
-  defp mapbox_style_light(%MapboxSettings{} = settings), do: settings.style_light || "mapbox://styles/mapbox/light-v11"
-  defp mapbox_style_light(_), do: "mapbox://styles/mapbox/light-v11"
-
-  defp mapbox_style_dark(%MapboxSettings{} = settings), do: settings.style_dark || "mapbox://styles/mapbox/dark-v11"
-  defp mapbox_style_dark(_), do: "mapbox://styles/mapbox/dark-v11"
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 

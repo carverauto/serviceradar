@@ -57,9 +57,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       traffic_links_json: "[]",
       mtr_overlays: [],
       mtr_overlays_json: "[]",
-      wifi_map_sites: [],
-      wifi_map_sites_json: "[]",
-      wifi_map_summary: empty_wifi_map_summary(),
       map_empty_title: "Checking traffic sources",
       map_empty_detail: "Dashboard data will load after the LiveView connects.",
       observability_metrics:
@@ -93,8 +90,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     flow_summary = Map.put(flow_summary, :link_count, max(length(traffic_links), length(topology_links)))
     mtr_overlays = mtr_overlays()
     mtr_summary = summarize_mtr_overlays(mtr_overlays)
-    wifi_map_sites = wifi_map_sites()
-    wifi_map_summary = summarize_wifi_map_sites(wifi_map_sites)
     camera_summary = camera_summary(scope)
     survey_summary = empty_survey_summary()
     alert_summary = Stats.alerts_summary(scope: scope)
@@ -113,7 +108,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         mtr_summary,
         camera_summary,
         survey_summary,
-        wifi_map_summary,
         event_summary,
         alert_summary
       )
@@ -143,9 +137,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       traffic_links_json: Jason.encode!(traffic_links),
       mtr_overlays: mtr_overlays,
       mtr_overlays_json: Jason.encode!(mtr_overlays),
-      wifi_map_sites: wifi_map_sites,
-      wifi_map_sites_json: Jason.encode!(wifi_map_sites),
-      wifi_map_summary: wifi_map_summary,
       map_empty_title: map_empty_title(module_states.netflow),
       map_empty_detail: map_empty_detail(module_states.netflow),
       observability_metrics:
@@ -905,121 +896,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       degraded_count: Enum.count(overlays, &(&1.loss_pct > 0 or &1.avg_us > 100_000))
     }
   end
-
-  defp wifi_map_sites do
-    if relation_exists?("platform.wifi_sites") and relation_exists?("platform.wifi_site_snapshots") do
-      sql = """
-      SELECT
-        s.site_code,
-        s.name,
-        s.site_type,
-        s.region,
-        s.latitude,
-        s.longitude,
-        COALESCE(latest.ap_count, 0)::integer AS ap_count,
-        COALESCE(latest.up_count, 0)::integer AS up_count,
-        COALESCE(latest.down_count, 0)::integer AS down_count,
-        COALESCE(latest.model_breakdown, '{}'::jsonb) AS model_breakdown,
-        COALESCE(latest.wlc_count, 0)::integer AS wlc_count,
-        COALESCE(latest.wlc_model_breakdown, '{}'::jsonb) AS wlc_model_breakdown,
-        COALESCE(latest.aos_version_breakdown, '{}'::jsonb) AS aos_version_breakdown,
-        COALESCE(to_jsonb(latest.controller_names), '[]'::jsonb) AS controller_names,
-        COALESCE(latest.server_group, '') AS server_group,
-        COALESCE(latest.cluster, '') AS cluster,
-        COALESCE(latest.aaa_profile, '') AS aaa_profile,
-        latest.collection_timestamp
-      FROM platform.wifi_sites s
-      LEFT JOIN LATERAL (
-        SELECT *
-        FROM platform.wifi_site_snapshots snap
-        WHERE snap.source_id = s.source_id AND snap.site_code = s.site_code
-        ORDER BY snap.collection_timestamp DESC NULLS LAST, snap.inserted_at DESC
-        LIMIT 1
-      ) latest ON true
-      WHERE s.latitude IS NOT NULL
-        AND s.longitude IS NOT NULL
-      ORDER BY COALESCE(latest.ap_count, 0) DESC, s.site_code
-      LIMIT 500
-      """
-
-      case Repo.query(sql, [], timeout: 5_000) do
-        {:ok, %{rows: rows}} ->
-          Enum.map(rows, fn [
-                              site_code,
-                              name,
-                              site_type,
-                              region,
-                              latitude,
-                              longitude,
-                              ap_count,
-                              up_count,
-                              down_count,
-                              model_breakdown,
-                              wlc_count,
-                              wlc_model_breakdown,
-                              aos_version_breakdown,
-                              controller_names,
-                              server_group,
-                              cluster,
-                              aaa_profile,
-                              collection_timestamp
-                            ] ->
-            %{
-              site_code: site_code || "",
-              name: name || site_code || "",
-              site_type: site_type || "",
-              region: region || "",
-              latitude: to_float(latitude),
-              longitude: to_float(longitude),
-              ap_count: to_int(ap_count),
-              up_count: to_int(up_count),
-              down_count: to_int(down_count),
-              model_breakdown: model_breakdown || %{},
-              wlc_count: to_int(wlc_count),
-              wlc_model_breakdown: wlc_model_breakdown || %{},
-              aos_version_breakdown: aos_version_breakdown || %{},
-              controller_names: controller_names || [],
-              server_group: server_group || "",
-              cluster: cluster || "",
-              aaa_profile: aaa_profile || "",
-              collection_timestamp: format_wifi_timestamp(collection_timestamp)
-            }
-          end)
-
-        _ ->
-          []
-      end
-    else
-      []
-    end
-  rescue
-    _ -> []
-  end
-
-  defp summarize_wifi_map_sites(sites) when is_list(sites) do
-    %{
-      site_count: length(sites),
-      ap_count: sites |> Enum.map(&Map.get(&1, :ap_count, 0)) |> Enum.sum(),
-      up_count: sites |> Enum.map(&Map.get(&1, :up_count, 0)) |> Enum.sum(),
-      down_count: sites |> Enum.map(&Map.get(&1, :down_count, 0)) |> Enum.sum(),
-      wlc_count: sites |> Enum.map(&Map.get(&1, :wlc_count, 0)) |> Enum.sum(),
-      region_count:
-        sites
-        |> Enum.map(&Map.get(&1, :region, ""))
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.uniq()
-        |> length()
-    }
-  end
-
-  defp summarize_wifi_map_sites(_sites), do: empty_wifi_map_summary()
-
-  defp format_wifi_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
-
-  defp format_wifi_timestamp(%NaiveDateTime{} = timestamp),
-    do: timestamp |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
-
-  defp format_wifi_timestamp(_timestamp), do: ""
 
   defp camera_summary(_scope) do
     if relation_exists?("platform.camera_sources") do
@@ -2168,7 +2044,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
          mtr_summary,
          camera_summary,
          survey_summary,
-         wifi_map_summary,
          event_summary,
          alert_summary
        ) do
@@ -2182,7 +2057,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       mtr: source_state(false, mtr_summary.path_count > 0),
       camera: source_state(false, camera_summary.total > 0),
       fieldsurvey: source_state(false, survey_available?(survey_summary)),
-      wifi_map: source_state(false, wifi_map_summary.site_count > 0),
       security_events: source_state(false, event_summary.total > 0),
       vulnerable_assets: :unconnected,
       siem: source_state(false, alert_summary.total > 0)
@@ -2374,9 +2248,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp empty_flow_summary, do: %{bytes_total: 0, packets_total: 0, flow_count: 0, bps: 0.0, pps: 0.0, link_count: 0}
   defp empty_mtr_summary, do: %{path_count: 0, avg_loss_pct: 0.0, avg_latency_ms: 0.0, degraded_count: 0}
   defp empty_camera_summary, do: %{total: 0, online: 0, offline: 0, recording: 0, tiles: []}
-
-  defp empty_wifi_map_summary,
-    do: %{site_count: 0, ap_count: 0, up_count: 0, down_count: 0, wlc_count: 0, region_count: 0}
 
   defp empty_survey_summary,
     do: Map.merge(%{sample_count: 0, session_count: 0, avg_rssi: 0.0, secure_count: 0}, empty_survey_raster_summary())
