@@ -1,7 +1,8 @@
 ## 1. Data Contract and External Plugin Contract
 
 - [ ] 1.1 Define the WiFi-map batch JSON schema and versioning contract.
-- [ ] 1.2 Add or document Go SDK helpers for emitting structured inventory batches from plugins.
+- [x] 1.2 Add Go SDK helpers for emitting plugin device discovery/enrichment envelopes that core can reconcile into inventory.
+- [x] 1.2.1 Add Rust SDK types for the same `serviceradar.device_discovery.v1` payload contract.
 - [ ] 1.3 Document the customer-owned WiFi-map plugin repository/package contract, including manifest, signatures, config schema, and expected outputs.
 - [x] 1.4 Define the `csv_seed` configuration contract for airport/site reference CSVs, `sites.csv`, `search_index.csv`, `history.csv`, `overrides.csv`, and optional AP/WLC/RADIUS source CSVs.
 - [ ] 1.5 Define separate refresh cadence controls for slowly changing airport/site reference data versus normal AP/controller polling data.
@@ -18,6 +19,7 @@
 - [ ] 2.6 Add settings UI for adding, testing, syncing, disabling, and deleting customer plugin sources.
 - [ ] 2.7 Add plugin catalog UI state showing official and customer sources, source provenance, verification state, sync errors, and import actions.
 - [ ] 2.8 Add tests for auth failure, manifest validation failure, invalid signature, duplicate versions, sync idempotency, and staged approval.
+- [ ] 2.9 Add manifest-declared plugin result contracts so approved customer plugin packages can declare supported output schemas without hardcoding customer handlers in core.
 
 ## 3. Pipeline and Storage
 
@@ -29,8 +31,11 @@
 - [x] 3.6 Add Ash resources/actions for airport/site references, WiFi sites, snapshots, AP observations, controller observations, RADIUS mappings, fleet history, and map views.
 - [x] 3.7 Implement typed batch recognition, normalization, transactional table upserts, and unit tests for non-device WiFi-map persistence.
 - [x] 3.8 Add OCSF device identity upserts for AP and WLC/controller seed records through the existing inventory sync path; keep non-device map/reference data in queryable WiFi-map tables.
+- [x] 3.8.1 Keep the generic plugin-result ingestor free of WiFi-map-specific runtime branching; WiFi-map batch ingestion remains a local/dev bridge, while production plugin inventory flows through platform contracts such as device discovery.
+- [x] 3.8.2 Add a generic plugin device-discovery handler that converts `serviceradar.device_discovery.v1` records into inventory sync updates for `ocsf_devices`.
 - [ ] 3.9 Add concrete RADIUS/CPPM host device upserts if future source data includes hostnames/IPs for those hosts rather than only server-group/cluster labels.
 - [ ] 3.10 Add ingestion tests covering database idempotency, reference-data skip-on-same-hash behavior, coordinate validation, OCSF identity updates, and partial batch failures.
+- [ ] 3.11 Keep `mix serviceradar.wifi_map.seed` documented as a local Docker Compose/dev harness only; production/customer data must enter through an agent-side plugin result.
 
 ## 4. SRQL
 
@@ -83,11 +88,13 @@
 
 ## 7. Live Aruba Collector Follow-Up
 
+- [ ] 7.0 Create the customer-owned UAL agent plugin package outside the ServiceRadar OSS repository using `serviceradar-sdk-go`; it must support CSV seed mode first and emit `serviceradar.wifi_map.batch.v1` through `serviceradar.plugin_result.v1`.
 - [ ] 7.1 Customer plugin implements `aruba_controller` mode for AP database collection via Aruba REST.
 - [ ] 7.2 Customer plugin implements WLC switchinfo/inventory collection via Aruba REST.
 - [ ] 7.3 Customer plugin implements optional RADIUS/CPPM server-group collection via SSH/mdconnect with bounded timeouts.
 - [ ] 7.4 ServiceRadar validates credential handling and capability restrictions for HTTP/SSH host calls during staged review and assignment.
 - [ ] 7.5 Add integration tests or replay fixtures based on captured Aruba responses where they can live outside the OSS repo or in sanitized form.
+- [ ] 7.6 Package long-lived airport/site reference CSVs with the customer plugin and refresh them on a slower cadence than AP/controller/RADIUS polling data.
 
 ## 8. Verification
 

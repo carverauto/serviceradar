@@ -100,7 +100,7 @@ The customer-owned WiFi-map plugin should emit a typed JSON batch inside the plu
 - `fleet_history`.
 - `source_files` or controller sources.
 
-The agent and gateway can continue forwarding the result as `plugin-result`; core-elx is responsible for recognizing the WiFi-map batch kind and dispatching it to the WiFi-map ingest handler. If current payload limits are too small, add chunking or object-store handoff before implementation.
+The agent and gateway can continue forwarding the result as `plugin-result`; core-elx should keep the generic plugin-result ingestor focused on the common status/metrics envelope and stable platform contracts such as `serviceradar.device_discovery.v1`. Customer-specific payloads should not require a permanent handler in the ServiceRadar product. The UAL collector should emit device discovery/enrichment records for AP/WLC inventory and only use WiFi-map batch ingestion as a local development bridge until customer-owned package ingestion contracts can be declared by package metadata. If current payload limits are too small, add chunking or object-store handoff before implementation.
 
 The current seed snapshot is small enough for a single plugin-result message: the checked CSV seed files are about 862 KB raw and 179 KB gzipped. Even after JSON expansion, the expected batch is comfortably below the agent-gateway plugin-result limit of 15 MB. The initial CSV seed mode can therefore emit one structured batch per collection. Chunking or object-store handoff should remain a follow-up if live collector payloads grow beyond the gateway limit or if plugin runtime memory pressure becomes visible.
 
@@ -456,9 +456,9 @@ Indexes should include:
 7. Plugin validates and normalizes records, sends slowly changing reference data only when refreshed/changed, then emits a structured map batch.
 8. Agent sends plugin result to agent-gateway.
 9. Agent-gateway forwards the result to core-elx without interpreting the WiFi schema.
-10. Core-elx validates the batch version and source kind.
-11. Core-elx upserts airport/site references, sites, observations, RADIUS mappings, history rows, and OCSF device identities for device-like seed records in a transaction per bounded batch.
-12. SRQL queries read normalized tables and saved map view settings.
+10. Core-elx stores the common plugin status/metrics envelope, then invokes platform contract handlers for supported payload schemas such as `serviceradar.device_discovery.v1`.
+11. Device discovery records reconcile APs, WLCs, and other discovered assets into inventory/`ocsf_devices`.
+12. Customer-specific map packages query normalized inventory and other approved platform tables through SRQL.
 13. Dashboard and full-screen map render SRQL results.
 
 ## Risks / Trade-Offs
