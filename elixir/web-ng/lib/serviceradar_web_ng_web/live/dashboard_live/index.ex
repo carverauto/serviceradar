@@ -111,7 +111,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                   <.icon name="hero-map-pin" class="size-5" />
                 </span>
                 <strong>WiFi Map</strong>
-                <small>Open the SRQL-backed WiFi site map with basemap, popups, and result table.</small>
+                <small>
+                  Open the SRQL-backed WiFi site map with basemap, popups, and result table.
+                </small>
               </.link>
 
               <canvas
@@ -145,7 +147,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               />
 
               <div
-                :if={@map_view == "netflow" and map_empty?(@map_view, @topology_links, @traffic_links)}
+                :if={
+                  @map_view == "netflow" and map_empty?(@map_view, @topology_links, @traffic_links)
+                }
                 class="sr-ops-map-empty"
                 data-testid="traffic-map-empty"
               >

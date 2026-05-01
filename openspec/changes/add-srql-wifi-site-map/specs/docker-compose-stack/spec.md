@@ -15,3 +15,10 @@ The Docker Compose development workflow SHALL support validating WiFi-map ingest
 - **WHEN** the local stack starts
 - **THEN** dev-only faker services SHALL remain absent unless explicitly enabled by a dev overlay/profile
 - **AND** any active faker overlay/profile SHALL be disabled before validating WiFi-map map density or device inventory counts
+
+#### Scenario: CSV seed task targets local Compose CNPG
+- **GIVEN** proprietary WiFi-map CSV seed files exist on a developer workstation
+- **WHEN** an engineer runs the ServiceRadar WiFi-map CSV seed validation task against Docker Compose CNPG
+- **THEN** the task SHALL support a dry-run mode that reports source file hashes and row counts without writing rows
+- **AND** the task SHALL support an ingest mode that writes through the same core WiFi-map batch ingestor used by plugin results
+- **AND** the task SHALL keep device inventory sync enabled by default unless the engineer explicitly disables it for a table-only test

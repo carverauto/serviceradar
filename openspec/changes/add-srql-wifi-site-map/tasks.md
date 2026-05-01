@@ -3,7 +3,7 @@
 - [ ] 1.1 Define the WiFi-map batch JSON schema and versioning contract.
 - [ ] 1.2 Add or document Go SDK helpers for emitting structured inventory batches from plugins.
 - [ ] 1.3 Document the customer-owned WiFi-map plugin repository/package contract, including manifest, signatures, config schema, and expected outputs.
-- [ ] 1.4 Define the `csv_seed` configuration contract for airport/site reference CSVs, `sites.csv`, `search_index.csv`, `history.csv`, `overrides.csv`, and optional AP/WLC/RADIUS source CSVs.
+- [x] 1.4 Define the `csv_seed` configuration contract for airport/site reference CSVs, `sites.csv`, `search_index.csv`, `history.csv`, `overrides.csv`, and optional AP/WLC/RADIUS source CSVs.
 - [ ] 1.5 Define separate refresh cadence controls for slowly changing airport/site reference data versus normal AP/controller polling data.
 - [ ] 1.6 Decide and implement the approved seed-file access model: package assets, explicit file-read host permission, or object handoff.
 - [ ] 1.7 Provide an external plugin fixture/harness that customer authors can use to validate CSV parsing, normalization, malformed rows, reference-data hash handling, and bounded batch emission without adding the customer plugin to the ServiceRadar OSS repository.
@@ -47,7 +47,7 @@
 
 - [ ] 5.1 Add settings UI for default dashboard WiFi map query and named WiFi map views.
 - [x] 5.2 Reuse or extend deployment-level Mapbox settings for WiFi map basemap styles/tokens; do not source tile/provider settings from plugin payloads.
-- [ ] 5.3 Add dashboard map mode selector for NetFlow vs WiFi site map.
+- [x] 5.3 Add dashboard map mode selector for NetFlow vs WiFi site map, with full-screen actions for both modes.
 - [ ] 5.4 Add a dashboard deck.gl WiFi map card driven by the configured SRQL query and configured ServiceRadar basemap provider.
 - [x] 5.5 Add an initial full-screen deck.gl WiFi map LiveView route with SRQL builder and result table.
 - [ ] 5.6 Add saved view selection and map-specific filters to the full-screen WiFi map route.
@@ -73,5 +73,5 @@
 - [ ] 7.4 Run customer plugin source sync/import tests.
 - [x] 7.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.
 - [ ] 7.6 Run `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` after web changes.
-- [ ] 7.7 Confirm the default Docker Compose stack has no faker service; if a dev faker overlay/profile is active, disable or scale it down for WiFi-map validation so synthetic demo devices do not clutter the local map/device inventory.
+- [x] 7.7 Confirm the default Docker Compose stack has no faker service; if a dev faker overlay/profile is active, disable or scale it down for WiFi-map validation so synthetic demo devices do not clutter the local map/device inventory.
 - [ ] 7.8 Capture Playwright screenshots for dashboard and full-screen WiFi map on desktop and mobile against the local Docker Compose stack.

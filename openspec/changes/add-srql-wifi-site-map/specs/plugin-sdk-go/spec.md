@@ -11,6 +11,13 @@ The SDK and external plugin contract SHALL support customer-owned plugins emitti
 - **AND** the batch SHALL include collection timestamp, source file metadata, site rows, AP rows, controller rows, RADIUS mappings, and fleet history rows when present
 - **AND** the result status SHALL summarize the parsed row counts and validation failures
 
+#### Scenario: Customer CSV seed plugin uses generated and raw collector CSVs
+- **GIVEN** a customer-owned WiFi-map plugin package includes generated POC CSVs and optional raw AP, WLC, or RADIUS collector CSVs
+- **WHEN** the plugin runs in `csv_seed` mode
+- **THEN** it SHALL accept `sites.csv`, `search_index.csv`, `history.csv`, `overrides.csv`, and `meta.json`
+- **AND** it SHALL also accept `ap-database-current.csv`, `switchinfo-current.csv` or `wlc-database-current.csv`, and `radius-groups-current.csv` when present
+- **AND** it SHALL emit a single normalized WiFi-map batch shape regardless of whether rows came from generated CSVs or raw collector CSVs
+
 #### Scenario: Malformed seed rows are reported without aborting valid rows
 - **GIVEN** a seed CSV contains a mix of valid rows and malformed rows
 - **WHEN** the plugin parses the seed files

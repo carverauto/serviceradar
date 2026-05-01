@@ -1,9 +1,9 @@
-const MAP_VIEWS = new Set(["topology_traffic", "netflow"])
+const MAP_VIEWS = new Set(["topology_traffic", "netflow", "wifi_map"])
 const SELECT_ID = "traffic-map-view-select"
 const CANVAS_ID = "ops-traffic-map"
 
 function normalizeMapView(value) {
-  return MAP_VIEWS.has(value) ? value : "topology_traffic"
+  return MAP_VIEWS.has(value) ? value : "netflow"
 }
 
 function applyMapView(value) {

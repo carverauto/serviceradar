@@ -11,17 +11,33 @@ if database_url do
   ssl_mode = System.get_env("CNPG_SSL_MODE", "disable")
   cert_dir = System.get_env("CNPG_CERT_DIR")
   server_name = System.get_env("CNPG_TLS_SERVER_NAME")
+  ca_file = System.get_env("CNPG_CA_FILE") || (cert_dir && Path.join(cert_dir, "root.pem"))
+
+  cert_file =
+    System.get_env("CNPG_CERT_FILE") || (cert_dir && Path.join(cert_dir, "db-client.pem"))
+
+  key_file =
+    System.get_env("CNPG_KEY_FILE") || (cert_dir && Path.join(cert_dir, "db-client-key.pem"))
+
+  put_if = fn opts, key, value ->
+    if value && value != "", do: Keyword.put(opts, key, value), else: opts
+  end
 
   ssl_opts =
     case ssl_mode do
       "disable" ->
         false
 
-      mode when mode in ["require", "verify-full"] and not is_nil(cert_dir) ->
-        base_opts = [
-          verify: :verify_peer,
-          cacertfile: Path.join(cert_dir, "root.pem")
-        ]
+      mode when mode in ["require", "verify-ca", "verify-full"] ->
+        base_opts =
+          []
+          |> put_if.(:cacertfile, ca_file)
+          |> put_if.(:certfile, cert_file)
+          |> put_if.(:keyfile, key_file)
+          |> Keyword.put(
+            :verify,
+            if(mode in ["verify-ca", "verify-full"], do: :verify_peer, else: :verify_none)
+          )
 
         base_opts =
           if server_name,

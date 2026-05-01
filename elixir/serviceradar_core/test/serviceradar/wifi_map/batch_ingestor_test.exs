@@ -240,4 +240,125 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
     assert controller_update["metadata"]["aos_version"] == "8.10.0.21"
     assert String.starts_with?(controller_update["device_id"], "sr:")
   end
+
+  test "accepts raw collector CSV aliases for WLC and RADIUS rows" do
+    parent = self()
+
+    payload = %{
+      "schema" => "serviceradar.wifi_map.batch.v1",
+      "collection_timestamp" => "2026-04-30T12:34:56Z",
+      "source" => %{"name" => "customer-wifi-map"},
+      "sites" => [
+        %{
+          "iata" => "ZZA",
+          "name" => "Example Regional Airport",
+          "lat" => "10.0000",
+          "lon" => "-20.0000"
+        }
+      ],
+      "controllers" => [
+        %{
+          "location" => "SITE01",
+          "expected_name" => "SITE01-MDF001-WLC001",
+          "hostname" => "SITE01-MDF001-WLC001",
+          "ip_address" => "192.0.2.10",
+          "mac_address" => "00:00:5e:00:53:02",
+          "hw_base_mac" => "00:00:5e:00:53:02",
+          "chassis_serial" => "SN0000000002",
+          "model" => "7220",
+          "version" => "8.10.0.21"
+        }
+      ],
+      "radius_groups" => [
+        %{
+          "airport_code" => "ZZA",
+          "device_alias" => "SITE01-MDF001-WLC001",
+          "aaa_profile" => "example-aaa-standard",
+          "dot1x_server_group" => "aaa-site02-group-1_0",
+          "server_group_location" => "ZZB",
+          "status" => "OK"
+        }
+      ]
+    }
+
+    assert :ok =
+             BatchIngestor.ingest(payload, %{service_name: "wifi-map-plugin"},
+               source_upsert: fn _attrs, _context -> {:ok, @source_id} end,
+               batch_upsert: fn _attrs, _context -> {:ok, @batch_id} end,
+               bulk_upsert: fn rows, table, _conflict_target, _replace_fields, _context ->
+                 if rows != [] do
+                   send(parent, {:bulk_upsert, table, rows})
+                 end
+
+                 :ok
+               end,
+               device_sync: fn updates, _context ->
+                 send(parent, {:device_sync, updates})
+                 :ok
+               end
+             )
+
+    assert_receive {:bulk_upsert, :wifi_controller_observations, [controller]}
+    assert controller.name == "SITE01-MDF001-WLC001"
+    assert controller.site_code == "ZZA"
+    assert controller.mac == "00:00:5e:00:53:02"
+    assert controller.base_mac == "00:00:5e:00:53:02"
+    assert controller.serial == "SN0000000002"
+    assert controller.aos_version == "8.10.0.21"
+
+    assert_receive {:bulk_upsert, :wifi_radius_group_observations, [radius]}
+    assert radius.site_code == "ZZA"
+    assert radius.controller_alias == "SITE01-MDF001-WLC001"
+    assert radius.server_group == "aaa-site02-group-1_0"
+    assert radius.cluster == "ZZB"
+
+    assert_receive {:device_sync, [device_update]}
+    assert device_update["metadata"]["serial_number"] == "SN0000000002"
+    assert device_update["mac"] == "00:00:5e:00:53:02"
+  end
+
+  test "derives site-level RADIUS rows from site seed data when raw rows are absent" do
+    parent = self()
+
+    payload = %{
+      "schema" => "serviceradar.wifi_map.batch.v1",
+      "collection_timestamp" => "2026-04-30T12:34:56Z",
+      "source" => %{"name" => "customer-wifi-map"},
+      "sites" => [
+        %{
+          "iata" => "ZZA",
+          "name" => "Example Regional Airport",
+          "lat" => "10.0000",
+          "lon" => "-20.0000",
+          "server_group" => "aaa-site02-group-1_0",
+          "cluster" => "ZZB",
+          "all_server_groups" => "aaa-site01-group_1_0;aaa-site02-group-1_0",
+          "aaa_profile" => "example-aaa-standard"
+        }
+      ]
+    }
+
+    assert :ok =
+             BatchIngestor.ingest(payload, %{service_name: "wifi-map-plugin"},
+               source_upsert: fn _attrs, _context -> {:ok, @source_id} end,
+               batch_upsert: fn _attrs, _context -> {:ok, @batch_id} end,
+               bulk_upsert: fn rows, table, _conflict_target, _replace_fields, _context ->
+                 if table == :wifi_radius_group_observations do
+                   send(parent, {:radius_rows, rows})
+                 end
+
+                 :ok
+               end,
+               device_sync: fn _updates, _context -> :ok end
+             )
+
+    assert_receive {:radius_rows, [radius]}
+    assert radius.site_code == "ZZA"
+    assert radius.controller_alias == "site:ZZA"
+    assert radius.aaa_profile == "example-aaa-standard"
+    assert radius.server_group == "aaa-site02-group-1_0"
+    assert radius.cluster == "ZZB"
+    assert radius.all_server_groups == ["aaa-site01-group_1_0", "aaa-site02-group-1_0"]
+    assert radius.metadata == %{"scope" => "site_summary"}
+  end
 end

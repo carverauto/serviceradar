@@ -48,6 +48,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'data-pipeline', label: 'Data Pipeline'},
         {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'},
         {type: 'doc', id: 'god-view-topology', label: 'God-View Topology'},
+        {type: 'doc', id: 'wifi-map-local-compose', label: 'WiFi Map Local Compose'},
       ],
     },
     {
