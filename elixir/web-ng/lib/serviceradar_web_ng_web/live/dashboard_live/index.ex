@@ -1030,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp map_panel_title(_), do: "NetFlow Map"
 
   defp map_fullscreen_path("wifi_map"), do: ~p"/wifi-map"
-  defp map_fullscreen_path(_), do: ~p"/observability?tab=netflows"
+  defp map_fullscreen_path(_), do: ~p"/netflow-map"
 
   defp netflow_map_available?(states), do: Map.get(states || %{}, :netflow) == :active
   defp wifi_map_available?(states), do: Map.get(states || %{}, :wifi_map) == :active
