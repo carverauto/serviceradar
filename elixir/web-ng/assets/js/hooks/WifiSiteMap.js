@@ -4,6 +4,28 @@ import {ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 
 const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
+const OSM_STYLE_ID = "serviceradar-osm-raster"
+const REGION_COLORS = ["#00c98b", "#ffac32", "#47a7ff", "#b46cff", "#ff6f83", "#1f6cff"]
+
+function osmRasterStyle() {
+  return {
+    version: 8,
+    metadata: {sr_style_url: OSM_STYLE_ID},
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: [
+          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        ],
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors",
+      },
+    },
+    layers: [{id: "osm", type: "raster", source: "osm"}],
+  }
+}
 
 function isFiniteCoordinate(lng, lat) {
   return Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90
@@ -11,6 +33,20 @@ function isFiniteCoordinate(lng, lat) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
+}
+
+function regionColor(region) {
+  const value = String(region || "")
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) >>> 0
+  return REGION_COLORS[hash % REGION_COLORS.length]
+}
+
+function hexToRgb(hex) {
+  const normalized = String(hex || "").replace("#", "")
+  const value = Number.parseInt(normalized.length === 3 ? normalized.split("").map((c) => c + c).join("") : normalized, 16)
+  if (!Number.isFinite(value)) return [0, 201, 139]
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255]
 }
 
 export default {
@@ -75,17 +111,13 @@ export default {
     this._token = this.el.dataset.accessToken || ""
     this._styleLight = this.el.dataset.styleLight || DEFAULT_LIGHT_STYLE
     this._styleDark = this.el.dataset.styleDark || DEFAULT_DARK_STYLE
+    this._compact = (this.el.dataset.compact || "false") === "true"
+    this._useMapbox = this._enabled && this._token
     this._sites = this._parseSites()
-
-    if (!this._enabled || !this._token) {
-      this._teardownMap()
-      this._showFallback(!this._enabled ? "Mapbox maps are disabled" : "Mapbox access token not configured")
-      return
-    }
 
     if (this._sites.length === 0) {
       this._teardownMap()
-      this._showFallback("No mappable WiFi rows in the current SRQL result set")
+      this._showFallback("No mappable WiFi sites")
       return
     }
 
@@ -138,8 +170,12 @@ export default {
   },
 
   _createMap() {
-    mapboxgl.accessToken = this._token
+    if (this._useMapbox) {
+      mapboxgl.accessToken = this._token
+    }
+
     const style = this._currentStyle()
+    const styleId = this._currentStyleId()
 
     this._map = new mapboxgl.Map({
       container: this._mapContainer,
@@ -147,11 +183,11 @@ export default {
       center: [-98, 39],
       zoom: 2.6,
       attributionControl: false,
-      interactive: false,
+      interactive: !this._compact,
     })
 
     this._map.on("load", () => {
-      this._stampStyleUrl(style)
+      this._stampStyleUrl(styleId)
       this._createDeck()
       this._fitToSites()
       this._resize()
@@ -233,14 +269,17 @@ export default {
         id: "wifi-sites",
         data: sites,
         pickable: true,
-        opacity: 0.92,
+        opacity: this._compact ? 0.82 : 0.46,
         radiusUnits: "pixels",
         getPosition: (d) => [d.longitude, d.latitude],
-        getRadius: (d) => clamp(7 + Math.sqrt(Number(d.ap_count || 0)) * 2.2, 8, 28),
+        getRadius: (d) =>
+          this._compact
+            ? clamp(4 + Math.sqrt(Number(d.ap_count || 0)) * 1.2, 5, 16)
+            : clamp(5 + Math.sqrt(Number(d.ap_count || 0)) * 1.15, 8, 19),
         getFillColor: (d) => {
           if (Number(d.down_count || 0) > 0) return [239, 68, 68, 210]
           if (Number(d.ap_count || 0) === 0) return [148, 163, 184, 190]
-          return [20, 184, 166, 220]
+          return [...hexToRgb(regionColor(d.region)), 210]
         },
         getLineColor: [255, 255, 255, 230],
         lineWidthUnits: "pixels",
@@ -253,17 +292,20 @@ export default {
       new TextLayer({
         id: "wifi-site-labels",
         data: sites,
-        pickable: false,
+        pickable: true,
         getPosition: (d) => [d.longitude, d.latitude],
-        getText: (d) => String(d.site_code || d.name || ""),
-        getSize: 11,
-        getPixelOffset: [0, -18],
-        getColor: [241, 245, 249, 235],
+        getText: (d) =>
+          this._compact
+            ? String(d.site_code || d.name || "")
+            : `${String(d.site_code || d.name || "")}  ${Number(d.ap_count || 0).toLocaleString()} APs`,
+        getSize: this._compact ? 9 : 12,
+        getPixelOffset: [0, this._compact ? -13 : -18],
+        getColor: (d) => [...hexToRgb(regionColor(d.region)), 255],
         getTextAnchor: "middle",
         getAlignmentBaseline: "bottom",
         background: true,
-        getBackgroundColor: [15, 23, 42, 190],
-        backgroundPadding: [4, 2],
+        getBackgroundColor: [255, 255, 255, 242],
+        backgroundPadding: this._compact ? [3, 2] : [7, 4],
       }),
     ]
   },
@@ -284,27 +326,98 @@ export default {
 
   _popupHtml(site) {
     const title = site.name || site.site_code || "WiFi site"
-    const subtitle = [site.site_code, site.region].filter(Boolean).join(" / ")
-    const metric = (label, value) =>
-      `<div><span>${this._escapeHtml(label)}</span><strong>${Number(value || 0).toLocaleString()}</strong></div>`
+    const code = site.site_code || ""
+    const row = (label, value, className = "") =>
+      value ? `<div class="sr-wifi-map-popup-row ${className}"><span>${this._escapeHtml(label)}</span><strong>${this._escapeHtml(value)}</strong></div>` : ""
+    const up = Number(site.up_count || 0)
+    const down = Number(site.down_count || 0)
+    const total = Number(site.ap_count || 0)
+    const pct = total > 0 ? Math.round((up / total) * 100) : 0
+    const apModels = this._entries(site.model_breakdown)
+    const apFamilies = this._families(apModels)
+    const wlcModels = this._entries(site.wlc_model_breakdown)
+    const aosVersions = this._entries(site.aos_version_breakdown)
+    const controllers = Array.isArray(site.controller_names) ? site.controller_names : []
+    const modelTotal = apModels.reduce((sum, [, count]) => sum + count, 0)
+    const donut = this._donut(apFamilies)
 
     return `
       <div class="sr-wifi-map-popup">
-        <h3>${this._escapeHtml(title)}</h3>
-        <p>${this._escapeHtml(subtitle)}</p>
-        <div class="sr-wifi-map-popup-grid">
-          ${metric("APs", site.ap_count)}
-          ${metric("Up", site.up_count)}
-          ${metric("Down", site.down_count)}
-          ${metric("WLCs", site.wlc_count)}
+        <h3>${this._escapeHtml(code ? `${code} — ${title}` : title)}</h3>
+        <div class="sr-wifi-map-popup-summary">
+          ${row("Type", site.site_type || "Airport")}
+          ${row("Region", site.region)}
+          ${row("APs", total.toLocaleString())}
+          <div class="sr-wifi-map-popup-row"><span>Up / Down</span><strong><em class="good">${up.toLocaleString()}</em> / <em class="bad">${down.toLocaleString()}</em> · ${pct}%</strong></div>
         </div>
-        ${
-          site.server_group || site.cluster
-            ? `<p>${this._escapeHtml([site.server_group, site.cluster].filter(Boolean).join(" / "))}</p>`
-            : ""
-        }
+        ${apFamilies.length ? `
+          <div class="sr-wifi-map-popup-section">
+            <h4>AP Models</h4>
+            <div class="sr-wifi-map-popup-models">
+              <div class="sr-wifi-map-popup-donut" style="background:${donut};"><span>${modelTotal.toLocaleString()}</span></div>
+              <div>${apFamilies.map(([family, count, color]) => this._legendRow(family, count, modelTotal, color)).join("")}</div>
+            </div>
+            <div class="sr-wifi-map-popup-model-list">
+              ${apModels.slice(0, 5).map(([model, count]) => row(model, count.toLocaleString())).join("")}
+            </div>
+          </div>
+        ` : ""}
+        <div class="sr-wifi-map-popup-section">
+          <h4>WLCs</h4>
+          ${row("Total", Number(site.wlc_count || 0).toLocaleString())}
+          ${wlcModels.slice(0, 4).map(([model, count]) => row(model, count.toLocaleString())).join("")}
+          ${aosVersions.slice(0, 3).map(([version, count]) => row(`AOS ${version}`, count.toLocaleString(), "accent")).join("")}
+        </div>
+        <div class="sr-wifi-map-popup-detail">
+          ${row("MM", controllers[0] || "")}
+          ${row("CPPM Cluster", site.cluster, "accent")}
+          ${row("Auth", site.server_group)}
+          ${row("Profile", site.aaa_profile)}
+          ${row("Lat / Lon", `${Number(site.latitude).toFixed(3)}, ${Number(site.longitude).toFixed(3)}`)}
+        </div>
       </div>
     `
+  },
+
+  _entries(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return []
+    return Object.entries(value)
+      .map(([key, raw]) => [String(key), Number(raw || 0)])
+      .filter(([, count]) => Number.isFinite(count) && count > 0)
+      .sort((a, b) => b[1] - a[1])
+  },
+
+  _families(entries) {
+    const grouped = new Map()
+    for (const [model, count] of entries) {
+      const first = model.match(/\d/)?.[0]
+      const family = first ? `${first}XX` : model
+      grouped.set(family, (grouped.get(family) || 0) + count)
+    }
+
+    const colors = ["#f59e0b", "#3b82f6", "#10b981", "#a855f7", "#ef4444"]
+    return Array.from(grouped.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([family, count], index) => [family, count, colors[index % colors.length]])
+  },
+
+  _donut(entries) {
+    const total = entries.reduce((sum, [, count]) => sum + count, 0)
+    if (total <= 0) return "#e2e8f0"
+
+    let cursor = 0
+    const stops = entries.map(([, count, color]) => {
+      const start = cursor
+      cursor += (count / total) * 100
+      return `${color} ${start}% ${cursor}%`
+    })
+
+    return `conic-gradient(${stops.join(", ")})`
+  },
+
+  _legendRow(label, count, total, color) {
+    const pct = total > 0 ? Math.round((count / total) * 100) : 0
+    return `<div class="sr-wifi-map-popup-legend"><i style="background:${this._escapeHtml(color)};"></i><strong>${this._escapeHtml(label)}</strong><span>${count.toLocaleString()} · ${pct}%</span></div>`
   },
 
   _fitToSites() {
@@ -323,6 +436,12 @@ export default {
   },
 
   _currentStyle() {
+    if (!this._useMapbox) return osmRasterStyle()
+    return this._isDarkMode() ? this._styleDark : this._styleLight
+  },
+
+  _currentStyleId() {
+    if (!this._useMapbox) return OSM_STYLE_ID
     return this._isDarkMode() ? this._styleDark : this._styleLight
   },
 
@@ -359,12 +478,13 @@ export default {
   _applyThemeStyle() {
     if (!this._map) return
 
+    const desiredId = this._currentStyleId()
     const desired = this._currentStyle()
-    if (this._styleUrlFromMeta() === desired) return
+    if (this._styleUrlFromMeta() === desiredId) return
 
     this._map.setStyle(desired, {diff: true})
     this._map.once("style.load", () => {
-      this._stampStyleUrl(desired)
+      this._stampStyleUrl(desiredId)
       this._updateDeckLayers()
     })
   },

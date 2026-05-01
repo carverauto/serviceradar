@@ -122,6 +122,25 @@ config :serviceradar_core, env: :dev
 config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
   secret_key: "dev_token_signing_secret_at_least_32_chars_long!"
 
+asset_watchers =
+  case System.get_env("SERVICERADAR_WEB_NG_ASSET_WATCHERS", "true") |> String.downcase() do
+    "false" -> []
+    "0" -> []
+    "no" -> []
+    _ -> [
+      esbuild: {Esbuild, :install_and_run, [:serviceradar_web_ng, ~w(--sourcemap=inline --watch)]},
+      tailwind: {Tailwind, :install_and_run, [:serviceradar_web_ng, ~w(--watch)]}
+    ]
+  end
+
+code_reloader? =
+  case System.get_env("SERVICERADAR_WEB_NG_CODE_RELOADER", "true") |> String.downcase() do
+    "false" -> false
+    "0" -> false
+    "no" -> false
+    _ -> true
+  end
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #
@@ -133,7 +152,7 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {0, 0, 0, 0}, port: phx_port],
   check_origin: false,
-  code_reloader: true,
+  code_reloader: code_reloader?,
   debug_errors: true,
   # Fixed secret for development - prevents session issues when server restarts
   # In production, this MUST be set via SECRET_KEY_BASE environment variable
@@ -141,10 +160,7 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     System.get_env("DEV_SECRET_KEY_BASE") ||
       System.get_env("SECRET_KEY_BASE") ||
       "dev_secret_key_base_must_be_at_least_64_chars_long_for_development_only!",
-  watchers: [
-    esbuild: {Esbuild, :install_and_run, [:serviceradar_web_ng, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:serviceradar_web_ng, ~w(--watch)]}
-  ]
+  watchers: asset_watchers
 
 # ## SSL Support
 #

@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   broadcasting disconnects on logout.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/analytics"
+    raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/dashboard"
     return_to = sanitize_return_path(raw_return_to)
     session_started_at = DateTime.to_unix(DateTime.utc_now())
     max_age_seconds = session_absolute_timeout_seconds()
@@ -442,9 +442,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   @doc "Returns the path to redirect to after log in."
-  # the user was already logged in, redirect to analytics
+  # the user was already logged in, redirect to dashboard
   def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %{id: _}}}}) do
-    ~p"/analytics"
+    ~p"/dashboard"
   end
 
   def signed_in_path(_), do: ~p"/"
@@ -508,7 +508,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       true ->
         conn
         |> put_flash(:error, "You don't have permission to access this page.")
-        |> redirect(to: ~p"/analytics")
+        |> redirect(to: ~p"/dashboard")
         |> halt()
     end
   end
@@ -556,17 +556,17 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
     cond do
       # Must start with a single forward slash (relative path)
-      not String.starts_with?(trimmed, "/") -> ~p"/analytics"
+      not String.starts_with?(trimmed, "/") -> ~p"/dashboard"
       # Block protocol-relative URLs (//evil.com)
-      String.starts_with?(trimmed, "//") -> ~p"/analytics"
+      String.starts_with?(trimmed, "//") -> ~p"/dashboard"
       # Block backslash variants (\\evil.com works in some browsers)
-      String.contains?(trimmed, "\\") -> ~p"/analytics"
+      String.contains?(trimmed, "\\") -> ~p"/dashboard"
       # Safe relative path
       true -> trimmed
     end
   end
 
-  defp sanitize_return_path(_), do: ~p"/analytics"
+  defp sanitize_return_path(_), do: ~p"/dashboard"
 
   defp oban_running? do
     case Oban.Registry.whereis(Oban) do

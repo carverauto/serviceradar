@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
   alias ServiceRadarWebNGWeb.DashboardLive.Data
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       |> assign(:page_title, "Unified Operations Dashboard")
       |> assign(:current_path, "/dashboard")
       |> assign(:camera_preview_tiles, [])
+      |> assign(:mapbox, nil)
       |> assign_dashboard(Data.empty())
 
     socket =
@@ -39,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     socket =
       socket
+      |> assign(:mapbox, read_mapbox(socket.assigns.current_scope.user))
       |> assign_dashboard(dashboard_assigns)
       |> maybe_start_camera_previews()
 
@@ -67,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         data-dashboard-modules={Enum.join(@dashboard_modules, " ")}
       >
         <section class="sr-ops-kpi-grid" aria-label="Operational summary">
-          <.kpi_card :for={card <- @kpi_cards} card={card} />
+          <.kpi_card :for={card <- visible_kpi_cards(@kpi_cards, @camera_summary, @survey_summary)} card={card} />
         </section>
 
         <section class="sr-ops-grid-primary">
@@ -80,15 +83,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 class="sr-ops-select"
                 aria-label="Dashboard map view"
               >
-                <option value="netflow" selected={@map_view == "netflow"}>NetFlow Map</option>
-                <option value="wifi_map" selected={@map_view == "wifi_map"}>WiFi Map</option>
+                <option :if={netflow_map_available?(@module_states)} value="netflow" selected={@map_view == "netflow"}>
+                  NetFlow Map
+                </option>
+                <option :if={wifi_map_available?(@module_states)} value="wifi_map" selected={@map_view == "wifi_map"}>
+                  WiFi Map
+                </option>
               </select>
               <.link href={map_fullscreen_path(@map_view)} class="sr-ops-button">
                 Full Screen
               </.link>
             </:actions>
 
-            <div class={["sr-ops-map-shell", @map_view == "wifi_map" && "is-wifi-map-view"]}>
+            <div class={[
+              "sr-ops-map-shell",
+              @map_view == "netflow" && "is-netflow-view",
+              @map_view == "wifi_map" && "is-wifi-map-view"
+            ]}>
               <div :if={@map_view == "netflow"} class="sr-ops-map-controls">
                 <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
                   <li><span class="bg-teal-400"></span>Network cluster</li>
@@ -103,18 +114,27 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
               <.link
                 :if={@map_view == "wifi_map"}
-                navigate={~p"/spatial/wifi-map"}
-                class="sr-ops-wifi-map-preview"
+                navigate={~p"/wifi-map"}
+                class="sr-ops-wifi-map-open"
                 aria-label="Open full screen WiFi map"
               >
-                <span class="sr-ops-wifi-map-pin">
-                  <.icon name="hero-map-pin" class="size-5" />
-                </span>
-                <strong>WiFi Map</strong>
-                <small>
-                  Open the SRQL-backed WiFi site map with basemap, popups, and result table.
-                </small>
+                Full Screen
               </.link>
+
+              <div
+                :if={@map_view == "wifi_map"}
+                id="dashboard-wifi-site-map"
+                phx-hook="WifiSiteMap"
+                phx-update="ignore"
+                data-sites={@wifi_map_sites_json}
+                data-enabled={mapbox_enabled?(@mapbox)}
+                data-access-token={mapbox_access_token(@mapbox)}
+                data-style-light={mapbox_style_light(@mapbox)}
+                data-style-dark={mapbox_style_dark(@mapbox)}
+                data-compact="true"
+                class="sr-ops-wifi-map-preview"
+              >
+              </div>
 
               <canvas
                 id="ops-traffic-map"
@@ -162,9 +182,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               <.small_stat :for={stat <- @map_stats} label={stat.label} value={stat.value} />
             </div>
             <div :if={@map_view == "wifi_map"} class="sr-ops-map-stats">
-              <.small_stat label="Source" value="SRQL" />
-              <.small_stat label="Basemap" value="Mapbox" />
-              <.small_stat label="View" value="Full Screen" />
+              <.small_stat label="Sites" value={format_count(@wifi_map_summary.site_count)} />
+              <.small_stat label="APs" value={format_count(@wifi_map_summary.ap_count)} />
+              <.small_stat label="Down" value={format_count(@wifi_map_summary.down_count)} />
             </div>
           </.panel>
 
@@ -258,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         </section>
 
         <section class="sr-ops-grid-secondary">
-          <.panel title="FieldSurvey Heatmap" class="lg:col-span-6">
+          <.panel :if={survey_panel_visible?(@survey_summary)} title="FieldSurvey Heatmap" class="lg:col-span-6">
             <:actions>
               <.link href={~p"/spatial/field-surveys"} class="sr-ops-button">Open FieldSurvey</.link>
             </:actions>
@@ -382,7 +402,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
           </.panel>
 
-          <.panel title="Camera Operations" class="lg:col-span-6">
+          <.panel :if={camera_panel_visible?(@camera_summary)} title="Camera Operations" class="lg:col-span-6">
             <:actions>
               <.link href={~p"/cameras"} class="sr-ops-button">
                 View All Cameras
@@ -597,6 +617,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   @impl true
+  def handle_info({_ref, {:access_token_present, _field, _result}}, socket) do
+    {:noreply, socket}
+  end
+
   def handle_info({:refresh_dashboard_camera_relay_session, relay_session_id}, socket) do
     tiles =
       Enum.map(socket.assigns.camera_preview_tiles, fn tile ->
@@ -822,10 +846,29 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp assign_dashboard(socket, dashboard_assigns) when is_map(dashboard_assigns) do
+    dashboard_assigns = ensure_valid_map_view(dashboard_assigns)
+
     Enum.reduce(dashboard_assigns, socket, fn {key, value}, acc ->
       assign(acc, key, value)
     end)
   end
+
+  defp ensure_valid_map_view(%{module_states: states} = assigns) do
+    map_view = Map.get(assigns, :map_view, "netflow")
+
+    valid_view =
+      cond do
+        map_view == "netflow" and netflow_map_available?(states) -> "netflow"
+        map_view == "wifi_map" and wifi_map_available?(states) -> "wifi_map"
+        wifi_map_available?(states) -> "wifi_map"
+        netflow_map_available?(states) -> "netflow"
+        true -> "wifi_map"
+      end
+
+    Map.put(assigns, :map_view, valid_view)
+  end
+
+  defp ensure_valid_map_view(assigns), do: assigns
 
   defp assign_survey_summary(socket, survey_summary) do
     survey_sparkline =
@@ -877,6 +920,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp replace_survey_kpi_card(_kpi_cards, _survey_card), do: []
+
+  defp visible_kpi_cards(kpi_cards, camera_summary, survey_summary) when is_list(kpi_cards) do
+    Enum.reject(kpi_cards, fn
+      %{title: "Camera Fleet"} -> not camera_panel_visible?(camera_summary)
+      %{title: "Wi-Fi Coverage"} -> not survey_panel_visible?(survey_summary)
+      _card -> false
+    end)
+  end
+
+  defp visible_kpi_cards(_kpi_cards, _camera_summary, _survey_summary), do: []
 
   defp survey_raster_cell_count(%{raster_cell_count: count}) when is_integer(count), do: count
   defp survey_raster_cell_count(_summary), do: 0
@@ -976,8 +1029,52 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp map_panel_title("wifi_map"), do: "WiFi Map"
   defp map_panel_title(_), do: "NetFlow Map"
 
-  defp map_fullscreen_path("wifi_map"), do: ~p"/spatial/wifi-map"
+  defp map_fullscreen_path("wifi_map"), do: ~p"/wifi-map"
   defp map_fullscreen_path(_), do: ~p"/observability?tab=netflows"
+
+  defp netflow_map_available?(states), do: Map.get(states || %{}, :netflow) == :active
+  defp wifi_map_available?(states), do: Map.get(states || %{}, :wifi_map) == :active
+
+  defp survey_panel_visible?(summary) do
+    survey_raster_cell_count(summary) > 0 or Map.get(summary || %{}, :sample_count, 0) > 0
+  end
+
+  defp camera_panel_visible?(summary), do: Map.get(summary || %{}, :total, 0) > 0
+
+  defp format_count(value) when is_integer(value), do: value |> Integer.to_string() |> delimit_integer_string()
+  defp format_count(value), do: value |> to_int() |> Integer.to_string() |> delimit_integer_string()
+
+  defp delimit_integer_string(value) do
+    value
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(",", &Enum.join/1)
+    |> String.reverse()
+  end
+
+  defp read_mapbox(nil), do: nil
+
+  defp read_mapbox(user) do
+    case MapboxSettings.get_settings(actor: user) do
+      {:ok, %MapboxSettings{} = settings} -> settings
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp mapbox_enabled?(%MapboxSettings{} = settings), do: settings.enabled
+  defp mapbox_enabled?(_), do: false
+
+  defp mapbox_access_token(%MapboxSettings{} = settings), do: settings.access_token || ""
+  defp mapbox_access_token(_), do: ""
+
+  defp mapbox_style_light(%MapboxSettings{} = settings), do: settings.style_light || "mapbox://styles/mapbox/light-v11"
+  defp mapbox_style_light(_), do: "mapbox://styles/mapbox/light-v11"
+
+  defp mapbox_style_dark(%MapboxSettings{} = settings), do: settings.style_dark || "mapbox://styles/mapbox/dark-v11"
+  defp mapbox_style_dark(_), do: "mapbox://styles/mapbox/dark-v11"
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 

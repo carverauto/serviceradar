@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
 
   @default_limit 250
   @max_limit 1_000
-  @wifi_map_path "/spatial/wifi-map"
+  @wifi_map_path "/wifi-map"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -87,36 +87,88 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="sr-wifi-map-page mx-auto max-w-[96rem] p-6 space-y-5">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <h1 class="sr-spatial-title">WiFi Map</h1>
-            <p class="sr-spatial-subtitle">
-              SRQL-backed geographic view of WiFi sites, access points, controllers, RADIUS mappings, and fleet history.
-            </p>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <.link navigate={~p"/spatial"} class="btn btn-sm">
-              <.icon name="hero-map" class="size-4" /> Spatial
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path={@current_path}
+      srql={@srql}
+      hide_breadcrumb
+    >
+      <div class="sr-wifi-map-app">
+        <header class="sr-wifi-map-topbar">
+          <div class="sr-wifi-map-brand">
+            <.link navigate={~p"/dashboard"} class="sr-wifi-map-menu" aria-label="Back to dashboard">
+              <.icon name="hero-bars-3" class="size-6" />
             </.link>
-            <.link navigate={~p"/spatial/field-surveys"} class="btn btn-sm">
-              <.icon name="hero-rectangle-stack" class="size-4" /> FieldSurvey
-            </.link>
+            <strong>WiFi Map</strong>
           </div>
-        </div>
+          <div class="sr-wifi-map-kpis">
+            <.wifi_kpi label="Sites" value={format_count(length(@wifi_map_sites))} />
+            <.wifi_kpi label="APs" value={format_count(wifi_sum(@wifi_map_sites, :ap_count))} />
+            <.wifi_kpi
+              label="Up"
+              value={format_count(wifi_sum(@wifi_map_sites, :up_count))}
+              tone="good"
+            />
+            <.wifi_kpi
+              label="Down"
+              value={format_count(wifi_sum(@wifi_map_sites, :down_count))}
+              tone="bad"
+            />
+            <.wifi_kpi label="WLCs" value={format_count(wifi_sum(@wifi_map_sites, :wlc_count))} />
+            <.wifi_kpi label="Regions" value={format_count(wifi_region_count(@wifi_map_sites))} />
+          </div>
+        </header>
 
-        <.ui_panel>
-          <:header>
-            <div class="flex min-w-0 flex-1 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div class="min-w-0">
-                <div class="text-sm font-semibold">Map Query</div>
-                <div class="text-xs text-base-content/70">
-                  {@srql.query}
-                </div>
-              </div>
+        <div class="sr-wifi-map-body">
+          <aside class="sr-wifi-map-sidebar">
+            <input
+              class="sr-wifi-map-search"
+              type="search"
+              placeholder="Search IATA, hostname, MAC, serial, IP..."
+            />
 
+            <.wifi_chip_group
+              title={"Regions #{format_count(wifi_sum(@wifi_map_sites, :ap_count))}"}
+              chips={wifi_region_chips(@wifi_map_sites)}
+            />
+            <.wifi_chip_group
+              title={"CPPM Clusters #{format_count(length(@wifi_map_sites))}"}
+              chips={wifi_value_chips(@wifi_map_sites, :cluster)}
+            />
+            <.wifi_chip_group
+              title="WLC Models"
+              chips={wifi_breakdown_chips(@wifi_map_sites, :wlc_model_breakdown)}
+            />
+            <.wifi_chip_group
+              title="AOS Versions"
+              chips={wifi_breakdown_chips(@wifi_map_sites, :aos_version_breakdown)}
+            />
+            <.wifi_chip_group title="AP Families" chips={wifi_family_chips(@wifi_map_sites)} />
+
+            <div class="sr-wifi-map-sites-heading">
+              <span>Sites ({length(@wifi_map_sites)})</span>
+              <span>{format_count(wifi_sum(@wifi_map_sites, :ap_count))} APs</span>
+            </div>
+            <div class="sr-wifi-map-site-list">
+              <button
+                :for={site <- Enum.take(@wifi_map_sites, 40)}
+                type="button"
+                class="sr-wifi-map-site-row"
+              >
+                <span><strong>{site.site_code}</strong> · {site.region}</span>
+                <em>{format_count(site.ap_count)}</em>
+              </button>
+            </div>
+          </aside>
+
+          <main class="sr-wifi-map-main">
+            <div :if={@srql.error} class="sr-wifi-map-error">
+              <.icon name="hero-exclamation-triangle" class="size-5" />
+              <span>{@srql.error}</span>
+            </div>
+
+            <div class="sr-wifi-map-query">
               <.srql_query_bar
                 query={@srql.query}
                 draft={@srql.draft}
@@ -128,22 +180,15 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
                 builder={@srql.builder}
               />
             </div>
-          </:header>
 
-          <div :if={@srql.builder_open} class="mb-4">
-            <.srql_query_builder
-              supported={@srql.builder_supported}
-              sync={@srql.builder_sync}
-              builder={@srql.builder}
-            />
-          </div>
+            <div :if={@srql.builder_open} class="sr-wifi-map-builder">
+              <.srql_query_builder
+                supported={@srql.builder_supported}
+                sync={@srql.builder_sync}
+                builder={@srql.builder}
+              />
+            </div>
 
-          <div :if={@srql.error} class="alert alert-error mb-4 text-sm">
-            <.icon name="hero-exclamation-triangle" class="size-5" />
-            <span>{@srql.error}</span>
-          </div>
-
-          <div class="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(20rem,0.8fr)]">
             <div class="sr-wifi-map-stage">
               <div
                 id="wifi-site-map"
@@ -158,58 +203,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
               >
               </div>
             </div>
-
-            <div class="grid gap-3 content-start">
-              <div class="stats stats-vertical border border-base-300 bg-base-100 shadow-sm">
-                <div class="stat">
-                  <div class="stat-title">Rows</div>
-                  <div class="stat-value text-2xl">{length(@wifi_rows)}</div>
-                </div>
-                <div class="stat">
-                  <div class="stat-title">Mappable</div>
-                  <div class="stat-value text-2xl">{length(@wifi_map_sites)}</div>
-                </div>
-                <div class="stat">
-                  <div class="stat-title">Limit</div>
-                  <div class="stat-value text-2xl">{@limit}</div>
-                </div>
-              </div>
-
-              <div class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/70">
-                Mapbox provides the basemap. WiFi features are rendered as a deck.gl layer from the current SRQL result set.
-              </div>
-            </div>
-          </div>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">SRQL Results</div>
-              <div class="text-xs text-base-content/70">
-                Result rows backing the current map view.
-              </div>
-            </div>
-          </:header>
-
-          <.srql_results_table
-            id="wifi-map-results"
-            rows={@wifi_rows}
-            columns={[
-              "site_code",
-              "name",
-              "region",
-              "ap_count",
-              "up_count",
-              "down_count",
-              "wlc_count",
-              "server_group",
-              "cluster",
-              "collection_timestamp"
-            ]}
-            empty_message="No WiFi map rows match this SRQL query."
-          />
-        </.ui_panel>
+          </main>
+        </div>
       </div>
     </Layouts.app>
     """
@@ -221,6 +216,136 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
     socket
     |> assign(:wifi_map_sites, sites)
     |> assign(:wifi_map_sites_json, Jason.encode!(sites))
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:tone, :string, default: nil)
+
+  defp wifi_kpi(assigns) do
+    ~H"""
+    <div class={["sr-wifi-map-kpi", @tone && "tone-#{@tone}"]}>
+      <span>{@label}</span>
+      <strong>{@value}</strong>
+    </div>
+    """
+  end
+
+  attr(:title, :string, required: true)
+  attr(:chips, :list, required: true)
+
+  defp wifi_chip_group(assigns) do
+    ~H"""
+    <div class="sr-wifi-map-filter-group">
+      <h2>{@title}</h2>
+      <div class="sr-wifi-map-chip-list">
+        <button :for={chip <- @chips} type="button" class="sr-wifi-map-chip">
+          <i style={"background: #{chip.color};"}></i>{chip.label}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp wifi_region_chips(sites) do
+    palette = ["#00d48f", "#ffad2f", "#3da2ff", "#b96cff", "#ff6c80"]
+
+    sites
+    |> Enum.map(& &1.region)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {_region, count} -> -count end)
+    |> Enum.take(8)
+    |> Enum.with_index()
+    |> Enum.map(fn {{region, _count}, index} ->
+      %{label: region, color: Enum.at(palette, rem(index, length(palette)))}
+    end)
+  end
+
+  defp wifi_value_chips(sites, key) do
+    sites
+    |> Enum.map(&Map.get(&1, key, ""))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {_value, count} -> -count end)
+    |> Enum.take(8)
+    |> Enum.with_index()
+    |> Enum.map(fn {{value, _count}, index} -> %{label: value, color: palette_color(index)} end)
+  end
+
+  defp wifi_breakdown_chips(sites, key) do
+    sites
+    |> Enum.flat_map(fn site ->
+      site
+      |> Map.get(key, %{})
+      |> map_entries()
+    end)
+    |> Enum.reduce(%{}, fn {label, count}, acc -> Map.update(acc, label, count, &(&1 + count)) end)
+    |> Enum.sort_by(fn {_label, count} -> -count end)
+    |> Enum.take(8)
+    |> Enum.with_index()
+    |> Enum.map(fn {{label, _count}, index} -> %{label: label, color: palette_color(index)} end)
+  end
+
+  defp wifi_family_chips(sites) do
+    sites
+    |> Enum.flat_map(fn site ->
+      site
+      |> Map.get(:model_breakdown, %{})
+      |> map_entries()
+      |> Enum.map(fn {model, count} -> {model_family(model), count} end)
+    end)
+    |> Enum.reduce(%{}, fn {label, count}, acc -> Map.update(acc, label, count, &(&1 + count)) end)
+    |> Enum.sort_by(fn {_label, count} -> -count end)
+    |> Enum.take(8)
+    |> Enum.with_index()
+    |> Enum.map(fn {{label, _count}, index} -> %{label: label, color: palette_color(index)} end)
+  end
+
+  defp palette_color(index) do
+    Enum.at(["#00d48f", "#ffad2f", "#3da2ff", "#b96cff", "#ff6c80"], rem(index, 5))
+  end
+
+  defp map_entries(value) when is_map(value) do
+    Enum.flat_map(value, fn {label, count} ->
+      count = int_value(count)
+      if count > 0, do: [{to_string(label), count}], else: []
+    end)
+  end
+
+  defp map_entries(_value), do: []
+
+  defp model_family(model) do
+    case Regex.run(~r/\d/, to_string(model)) do
+      [digit] -> "#{digit}XX"
+      _ -> to_string(model)
+    end
+  end
+
+  defp wifi_sum(sites, key) do
+    sites
+    |> Enum.map(&Map.get(&1, key, 0))
+    |> Enum.sum()
+  end
+
+  defp wifi_region_count(sites) do
+    sites
+    |> Enum.map(& &1.region)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp format_count(value) when is_integer(value), do: value |> Integer.to_string() |> delimit_integer_string()
+  defp format_count(value), do: value |> int_value() |> Integer.to_string() |> delimit_integer_string()
+
+  defp delimit_integer_string(value) do
+    value
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(",", &Enum.join/1)
+    |> String.reverse()
   end
 
   defp map_site(%{} = row) do
@@ -237,9 +362,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
         ap_count: int_value(row["ap_count"]),
         up_count: int_value(row["up_count"]),
         down_count: int_value(row["down_count"]),
+        model_breakdown: map_value(row["model_breakdown"]),
         wlc_count: int_value(row["wlc_count"]),
+        wlc_model_breakdown: map_value(row["wlc_model_breakdown"]),
+        aos_version_breakdown: map_value(row["aos_version_breakdown"]),
+        controller_names: list_value(row["controller_names"]),
         server_group: string_value(row["server_group"]),
         cluster: string_value(row["cluster"]),
+        all_server_groups: list_value(row["all_server_groups"]),
         aaa_profile: string_value(row["aaa_profile"]),
         collection_timestamp: string_value(row["collection_timestamp"])
       }
@@ -294,6 +424,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
   defp string_value(value) when is_binary(value), do: value
   defp string_value(value), do: to_string(value)
 
+  defp map_value(value) when is_map(value), do: value
+  defp map_value(_value), do: %{}
+
+  defp list_value(value) when is_list(value), do: value
+  defp list_value(_value), do: []
+
   defp read_mapbox(nil), do: nil
 
   defp read_mapbox(user) do
@@ -301,6 +437,8 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.WifiMap do
       {:ok, %MapboxSettings{} = settings} -> settings
       _ -> nil
     end
+  rescue
+    _ -> nil
   end
 
   defp mapbox_enabled?(%MapboxSettings{} = settings), do: settings.enabled
