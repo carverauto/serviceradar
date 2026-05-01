@@ -295,8 +295,12 @@ const DashboardWasmHost = {
       throw new Error("renderer JSON ABI requires memory and alloc_bytes exports")
     }
 
-    const payload = new TextEncoder().encode(JSON.stringify(host))
+    const payload = new TextEncoder().encode(JSON.stringify(this.rendererInitPayload(host)))
     const ptr = exports.alloc_bytes(payload.length)
+
+    if (!ptr && payload.length > 0) {
+      throw new Error(`renderer could not allocate init payload (${payload.length} bytes)`)
+    }
 
     try {
       new Uint8Array(memory.buffer, ptr, payload.length).set(payload)
@@ -305,6 +309,16 @@ const DashboardWasmHost = {
       if (typeof exports.free_bytes === "function") {
         exports.free_bytes(ptr, payload.length)
       }
+    }
+  },
+
+  rendererInitPayload(host) {
+    const packagePayload = {...(host?.package || {})}
+    delete packagePayload.frames
+
+    return {
+      ...host,
+      package: packagePayload,
     }
   },
 

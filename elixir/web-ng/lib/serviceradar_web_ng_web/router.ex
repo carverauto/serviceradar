@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   @frame_src if Mix.env() == :dev, do: "'self'", else: "'none'"
   @csp "default-src 'self'; " <>
-         "script-src 'self' blob:; " <>
+         "script-src 'self' blob: 'wasm-unsafe-eval'; " <>
          "style-src 'self' 'unsafe-inline'; " <>
          "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org; " <>
          "font-src 'self' data:; " <>
@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.Router do
          "form-action 'self'"
 
   @api_docs_csp "default-src 'self'; " <>
-                  "script-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; " <>
+                  "script-src 'self' blob: 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; " <>
                   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " <>
                   "img-src 'self' data: https:; " <>
                   "font-src 'self' data: https://fonts.gstatic.com; " <>
@@ -456,7 +456,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
-    get("/spatial/wifi-map", PageController, :redirect_to_wifi_map)
     get("/analytics", PageController, :redirect_to_dashboard)
     get("/dashboard-packages/:id/renderer.wasm", DashboardPackageAssetController, :show)
 
@@ -498,8 +497,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
       live("/netflow-map", MapLive.NetflowMap, :index)
-      live("/network-map", SpatialLive.WifiMap, :index)
-      live("/wifi-map", SpatialLive.WifiMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
 

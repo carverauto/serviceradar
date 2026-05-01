@@ -17,10 +17,6 @@ defmodule ServiceRadarWebNGWeb.PageController do
     redirect(conn, to: ~p"/dashboard")
   end
 
-  def redirect_to_wifi_map(conn, _params) do
-    redirect(conn, to: ~p"/network-map")
-  end
-
   def redirect_to_settings_profile(conn, _params) do
     redirect(conn, to: ~p"/settings/profile")
   end

@@ -13,17 +13,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a[aria-current='page'][href='/dashboard']")
     assert has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
     assert has_element?(view, "select[name='map_view']", "NetFlow Map")
-    assert has_element?(view, "select[name='map_view']", "WiFi Map")
     assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
   end
 
-  test "dashboard WiFi map mode links to the full screen WiFi map", %{conn: conn} do
+  test "dashboard falls back to NetFlow for unsupported map modes", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 
-    assert render_hook(view, "select_map_view", %{"map_view" => "wifi_map"}) =~ "WiFi Map"
-    assert has_element?(view, "a[href='/wifi-map']", "Full Screen")
-    assert has_element?(view, "a[aria-label='Open full screen WiFi map']")
+    html = render_hook(view, "select_map_view", %{"map_view" => "unsupported"})
+
+    assert html =~ "NetFlow Map"
+    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
   end
 
   test "renders honest empty states for feeds that are not implemented yet", %{conn: conn} do
