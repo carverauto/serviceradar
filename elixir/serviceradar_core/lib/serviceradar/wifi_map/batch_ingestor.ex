@@ -897,9 +897,11 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
     if blank?(site_code) or blank?(integration_id) or blank?(name) do
       nil
     else
+      observed_ip = wifi_observed_ip(row)
+
       %{
         "device_id" => device_id,
-        "ip" => string_value(row, ["ip", "ip_address", "ipAddress", "switch_ip", "switchIp"]),
+        "ip" => nil,
         "mac" =>
           normalize_mac(
             string_value(row, [
@@ -925,7 +927,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
             site_code,
             integration_id,
             source_attrs,
-            collection_timestamp
+            collection_timestamp,
+            observed_ip
           ),
         "tags" => %{"wifi_map_site_code" => site_code}
       }
@@ -940,7 +943,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
          site_code,
          integration_id,
          source_attrs,
-         collection_timestamp
+         collection_timestamp,
+         observed_ip
        ) do
     row_metadata = map_value(row, ["metadata"]) || %{}
 
@@ -966,6 +970,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       "status" => string_value(row, ["status"]),
       "collection_timestamp" => DateTime.to_iso8601(collection_timestamp)
     }
+    |> maybe_put("observed_ip", observed_ip)
     |> maybe_put("aos_version", string_value(row, ["aos_version", "aosVersion", "version"]))
     |> maybe_put("aaa_profile", string_value(row, ["aaa_profile", "aaaProfile"]))
     |> maybe_put("server_group", string_value(row, ["server_group", "serverGroup"]))
@@ -978,6 +983,10 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
 
   defp wifi_device_role(:access_point), do: "ap_bridge"
   defp wifi_device_role(:controller), do: "switch_l2"
+
+  defp wifi_observed_ip(row) do
+    string_value(row, ["ip", "ip_address", "ipAddress", "switch_ip", "switchIp"])
+  end
 
   defp wifi_device_available?(row) do
     row

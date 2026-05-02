@@ -338,12 +338,28 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           <div class="sr-ops-topbar-title">
             <div class="sr-ops-topbar-brand">
               <img src={~p"/images/logo.svg"} alt="" class="size-7" width="28" height="28" />
-              <span class="text-lg font-semibold text-white">ServiceRadar</span>
-              <span class="h-7 w-px bg-slate-700"></span>
+              <span class="sr-ops-brand-name">ServiceRadar</span>
+              <span class="sr-ops-topbar-divider"></span>
             </div>
             <h1 class="sr-ops-page-title">
               {@page_title}
             </h1>
+          </div>
+
+          <div
+            :if={Map.get(@srql, :enabled, false) and Map.get(@srql, :placement) == :topbar}
+            class="sr-ops-topbar-query"
+          >
+            <.srql_query_bar
+              query={Map.get(@srql, :query)}
+              draft={Map.get(@srql, :draft)}
+              loading={Map.get(@srql, :loading, false)}
+              builder_available={Map.get(@srql, :builder_available, false)}
+              builder_open={Map.get(@srql, :builder_open, false)}
+              builder_supported={Map.get(@srql, :builder_supported, true)}
+              builder_sync={Map.get(@srql, :builder_sync, true)}
+              builder={Map.get(@srql, :builder, %{})}
+            />
           </div>
 
           <div class="sr-ops-topbar-actions">
@@ -370,7 +386,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           </div>
         </header>
 
-        <div :if={Map.get(@srql, :enabled, false)} class="sr-ops-querybar">
+        <div
+          :if={Map.get(@srql, :enabled, false) and Map.get(@srql, :placement) != :topbar}
+          class="sr-ops-querybar"
+        >
           <.srql_query_bar
             query={Map.get(@srql, :query)}
             draft={Map.get(@srql, :draft)}

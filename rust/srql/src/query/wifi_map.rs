@@ -57,6 +57,7 @@ enum FieldKind {
     Int,
     Float,
     TextArray,
+    JsonbKey,
     Date,
 }
 
@@ -347,6 +348,7 @@ fn filter_condition(
         FieldKind::Int => numeric_condition(field_sql, filter, binds, NumericKind::Int),
         FieldKind::Float => numeric_condition(field_sql, filter, binds, NumericKind::Float),
         FieldKind::TextArray => text_array_condition(field_sql, filter, binds),
+        FieldKind::JsonbKey => jsonb_key_condition(field_sql, filter, binds),
         FieldKind::Date => date_condition(field_sql, filter, binds),
     }
 }
@@ -376,6 +378,18 @@ fn field_sql(entity: &Entity, field: &str) -> Option<(&'static str, FieldKind)> 
             "up_count" => Some(("COALESCE(latest.up_count, 0)", FieldKind::Int)),
             "down_count" => Some(("COALESCE(latest.down_count, 0)", FieldKind::Int)),
             "wlc_count" => Some(("COALESCE(latest.wlc_count, 0)", FieldKind::Int)),
+            "ap_family" | "ap_model" | "model_family" => Some((
+                "COALESCE(latest.model_breakdown, '{}'::jsonb)",
+                FieldKind::JsonbKey,
+            )),
+            "wlc_model" => Some((
+                "COALESCE(latest.wlc_model_breakdown, '{}'::jsonb)",
+                FieldKind::JsonbKey,
+            )),
+            "aos_version" => Some((
+                "COALESCE(latest.aos_version_breakdown, '{}'::jsonb)",
+                FieldKind::JsonbKey,
+            )),
             "server_group" => Some(("latest.server_group", FieldKind::Text)),
             "cluster" => Some(("latest.cluster", FieldKind::Text)),
             "aaa_profile" => Some(("latest.aaa_profile", FieldKind::Text)),
@@ -394,6 +408,18 @@ fn field_sql(entity: &Entity, field: &str) -> Option<(&'static str, FieldKind)> 
             "up_count" => Some(("ss.up_count", FieldKind::Int)),
             "down_count" => Some(("ss.down_count", FieldKind::Int)),
             "wlc_count" => Some(("ss.wlc_count", FieldKind::Int)),
+            "ap_family" | "ap_model" | "model_family" => Some((
+                "COALESCE(ss.model_breakdown, '{}'::jsonb)",
+                FieldKind::JsonbKey,
+            )),
+            "wlc_model" => Some((
+                "COALESCE(ss.wlc_model_breakdown, '{}'::jsonb)",
+                FieldKind::JsonbKey,
+            )),
+            "aos_version" => Some((
+                "COALESCE(ss.aos_version_breakdown, '{}'::jsonb)",
+                FieldKind::JsonbKey,
+            )),
             "server_group" => Some(("ss.server_group", FieldKind::Text)),
             "cluster" => Some(("ss.cluster", FieldKind::Text)),
             "aaa_profile" => Some(("ss.aaa_profile", FieldKind::Text)),
@@ -613,6 +639,56 @@ fn text_array_condition(
     }
 }
 
+fn jsonb_key_condition(
+    field_sql: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            let condition = format!("jsonb_exists({field_sql}, ?)");
+
+            if matches!(filter.op, FilterOp::NotEq) {
+                Ok(format!("NOT ({condition})"))
+            } else {
+                Ok(condition)
+            }
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("TRUE".into());
+            }
+
+            binds.push(BindParam::TextArray(values));
+            let condition = format!("jsonb_exists_any({field_sql}, ?)");
+
+            if matches!(filter.op, FilterOp::NotIn) {
+                Ok(format!("NOT ({condition})"))
+            } else {
+                Ok(condition)
+            }
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            let condition = format!(
+                "EXISTS (SELECT 1 FROM jsonb_object_keys({field_sql}) AS wifi_map_jsonb_key(key_name) WHERE wifi_map_jsonb_key.key_name ILIKE ?)"
+            );
+
+            if matches!(filter.op, FilterOp::NotLike) {
+                Ok(format!("NOT ({condition})"))
+            } else {
+                Ok(condition)
+            }
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for WiFi map JSONB key filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
 fn date_condition(field_sql: &str, filter: &Filter, binds: &mut Vec<BindParam>) -> Result<String> {
     let op = match filter.op {
         FilterOp::Eq => "=",
@@ -768,6 +844,30 @@ mod tests {
 
         assert!(sql.contains("platform.wifi_radius_group_observations r"));
         assert!(sql.contains("COALESCE(r.all_server_groups, '{}'::text[]) && $1"));
+    }
+
+    #[test]
+    fn wifi_site_jsonb_breakdown_filters_match_keys() {
+        let sql = translate(
+            "in:wifi_sites ap_family:(6xx,7xx) wlc_model:7030 aos_version:%8.11% limit:10",
+        );
+
+        assert!(sql.contains("jsonb_exists_any(COALESCE(latest.model_breakdown, '{}'::jsonb), $1)"));
+        assert!(sql.contains("jsonb_exists(COALESCE(latest.wlc_model_breakdown, '{}'::jsonb), $2)"));
+        assert!(
+            sql.contains("jsonb_object_keys(COALESCE(latest.aos_version_breakdown, '{}'::jsonb))")
+        );
+        assert!(sql.contains("wifi_map_jsonb_key.key_name ILIKE $3"));
+    }
+
+    #[test]
+    fn wifi_site_jsonb_breakdown_filters_support_negation() {
+        let sql = translate("in:wifi_sites !ap_family:(2xx,3xx) !wlc_model:7205");
+
+        assert!(sql
+            .contains("NOT (jsonb_exists_any(COALESCE(latest.model_breakdown, '{}'::jsonb), $1))"));
+        assert!(sql
+            .contains("NOT (jsonb_exists(COALESCE(latest.wlc_model_breakdown, '{}'::jsonb), $2))"));
     }
 
     #[test]

@@ -235,14 +235,50 @@
 /* This file is for your main application CSS */
 
 .sr-ops-shell {
+  --sr-ops-shell-bg: radial-gradient(circle at 28% 10%, rgba(14, 165, 233, 0.12), transparent 26rem),
+    radial-gradient(circle at 80% 0%, rgba(34, 197, 94, 0.08), transparent 24rem), #020617;
+  --sr-ops-shell-text: #e2e8f0;
+  --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(3, 7, 18, 0.98), rgba(8, 13, 30, 0.96));
+  --sr-ops-border: rgba(30, 64, 111, 0.75);
+  --sr-ops-border-soft: rgba(30, 64, 111, 0.68);
+  --sr-ops-topbar-bg: rgba(2, 6, 23, 0.86);
+  --sr-ops-query-bg: rgba(2, 6, 23, 0.72);
+  --sr-ops-querybuilder-bg: rgba(2, 8, 23, 0.9);
+  --sr-ops-title: #f1f5f9;
+  --sr-ops-muted: #94a3b8;
+  --sr-ops-hover-bg: rgba(30, 41, 59, 0.75);
+  --sr-ops-hover-text: #e0f2fe;
+  --sr-ops-avatar-bg: rgba(15, 23, 42, 0.9);
+  --sr-ops-avatar-border: rgba(51, 65, 85, 0.9);
+
   min-height: 100vh;
   display: grid;
   grid-template-columns: 4.25rem minmax(0, 1fr);
+  background: var(--sr-ops-shell-bg);
+  color: var(--sr-ops-shell-text);
+}
+
+[data-theme="light"] .sr-ops-shell {
+  --sr-ops-shell-bg: radial-gradient(circle at 25% 8%, rgba(14, 165, 233, 0.12), transparent 28rem),
+    radial-gradient(circle at 82% 0%, rgba(16, 185, 129, 0.1), transparent 26rem), #f8fafc;
+  --sr-ops-shell-text: #0f172a;
+  --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.94));
+  --sr-ops-border: rgba(148, 163, 184, 0.45);
+  --sr-ops-border-soft: rgba(148, 163, 184, 0.4);
+  --sr-ops-topbar-bg: rgba(255, 255, 255, 0.88);
+  --sr-ops-query-bg: rgba(255, 255, 255, 0.76);
+  --sr-ops-querybuilder-bg: rgba(248, 250, 252, 0.94);
+  --sr-ops-title: #0f172a;
+  --sr-ops-muted: #475569;
+  --sr-ops-hover-bg: rgba(226, 232, 240, 0.8);
+  --sr-ops-hover-text: #0369a1;
+  --sr-ops-avatar-bg: rgba(248, 250, 252, 0.92);
+  --sr-ops-avatar-border: rgba(148, 163, 184, 0.55);
   background:
-    radial-gradient(circle at 28% 10%, rgba(14, 165, 233, 0.12), transparent 26rem),
-    radial-gradient(circle at 80% 0%, rgba(34, 197, 94, 0.08), transparent 24rem),
-    #020617;
-  color: #e2e8f0;
+    radial-gradient(circle at 25% 8%, rgba(14, 165, 233, 0.12), transparent 28rem),
+    radial-gradient(circle at 82% 0%, rgba(16, 185, 129, 0.1), transparent 26rem),
+    #f8fafc;
+  color: #0f172a;
 }
 
 .sr-ops-sidebar {
@@ -252,9 +288,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  border-right: 1px solid rgba(30, 64, 111, 0.75);
-  background: linear-gradient(180deg, rgba(3, 7, 18, 0.98), rgba(8, 13, 30, 0.96));
+  border-right: 1px solid var(--sr-ops-border);
+  background: var(--sr-ops-sidebar-bg);
   padding: 0.75rem 0.5rem;
+}
+
+[data-theme="light"] .sr-ops-sidebar {
+  border-right-color: rgba(148, 163, 184, 0.45);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.94));
 }
 
 .sr-ops-logo,
@@ -295,14 +336,14 @@
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 0.5rem;
-  color: #94a3b8;
+  color: var(--sr-ops-muted);
 }
 
 .sr-ops-nav-button:hover,
 .sr-ops-topbar-icon:hover,
 .sr-ops-avatar:hover {
-  background: rgba(30, 41, 59, 0.75);
-  color: #e0f2fe;
+  background: var(--sr-ops-hover-bg);
+  color: var(--sr-ops-hover-text);
 }
 
 .sr-ops-nav-button.is-active {
@@ -324,10 +365,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  border-bottom: 1px solid rgba(30, 64, 111, 0.68);
-  background: rgba(2, 6, 23, 0.86);
+  border-bottom: 1px solid var(--sr-ops-border-soft);
+  background: var(--sr-ops-topbar-bg);
   padding: 0 1.25rem;
   backdrop-filter: blur(12px);
+}
+
+[data-theme="light"] .sr-ops-topbar {
+  border-bottom-color: rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .sr-ops-topbar-title {
@@ -343,9 +389,31 @@
   gap: 0.75rem;
 }
 
+.sr-ops-brand-name {
+  color: var(--sr-ops-title);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+[data-theme="light"] .sr-ops-brand-name,
+[data-theme="light"] .sr-ops-page-title {
+  color: #0f172a;
+}
+
+.sr-ops-topbar-divider {
+  width: 1px;
+  height: 1.75rem;
+  background: var(--sr-ops-border);
+}
+
+[data-theme="light"] .sr-ops-topbar-divider {
+  background: rgba(148, 163, 184, 0.45);
+}
+
 .sr-ops-page-title {
   min-width: 0;
-  color: #f1f5f9;
+  color: var(--sr-ops-title);
   font-size: 1.125rem;
   font-weight: 500;
   line-height: 1.25;
@@ -358,7 +426,31 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #cbd5e1;
+  color: var(--sr-ops-muted);
+}
+
+[data-theme="light"] .sr-ops-topbar-actions,
+[data-theme="light"] .sr-ops-nav-button,
+[data-theme="light"] .sr-ops-topbar-icon,
+[data-theme="light"] .sr-ops-avatar {
+  color: #475569;
+}
+
+.sr-ops-topbar-query {
+  flex: 0 1 min(48vw, 44rem);
+  min-width: 18rem;
+  display: flex;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.sr-ops-topbar-query #srql-query-bar {
+  width: 100%;
+  max-width: 44rem;
+}
+
+.sr-ops-topbar-query input {
+  min-height: 2.15rem;
 }
 
 .sr-page-loading-bar {
@@ -381,10 +473,15 @@
 }
 
 .sr-ops-avatar {
-  border: 1px solid rgba(51, 65, 85, 0.9);
-  background: rgba(15, 23, 42, 0.9);
-  color: #cbd5e1;
+  border: 1px solid var(--sr-ops-avatar-border);
+  background: var(--sr-ops-avatar-bg);
+  color: var(--sr-ops-muted);
   font-weight: 700;
+}
+
+[data-theme="light"] .sr-ops-avatar {
+  border-color: rgba(148, 163, 184, 0.55);
+  background: rgba(248, 250, 252, 0.92);
 }
 
 .sr-ops-content {
@@ -394,13 +491,22 @@
 
 .sr-ops-querybar,
 .sr-ops-querybuilder {
-  border-bottom: 1px solid rgba(30, 64, 111, 0.68);
-  background: rgba(2, 6, 23, 0.72);
+  border-bottom: 1px solid var(--sr-ops-border-soft);
+  background: var(--sr-ops-query-bg);
   padding: 0.65rem 0.75rem;
 }
 
+[data-theme="light"] .sr-ops-querybar {
+  border-bottom-color: rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.76);
+}
+
 .sr-ops-querybuilder {
-  background: rgba(2, 8, 23, 0.9);
+  background: var(--sr-ops-querybuilder-bg);
+}
+
+[data-theme="light"] .sr-ops-querybuilder {
+  background: rgba(248, 250, 252, 0.94);
 }
 
 .sr-ops-query-error {
@@ -3099,6 +3205,13 @@
     gap: 0;
   }
 
+  .sr-ops-topbar-query {
+    order: 3;
+    flex: 1 0 100%;
+    min-width: 0;
+    padding: 0.25rem 0;
+  }
+
   .sr-ops-topbar-brand,
   .sr-ops-topbar-actions > .card,
   .sr-ops-avatar {
@@ -3126,7 +3239,7 @@
     flex-direction: row;
     justify-content: center;
     border-right: 0;
-    border-top: 1px solid rgba(30, 64, 111, 0.75);
+    border-top: 1px solid var(--sr-ops-border);
     padding: 0.45rem;
   }
 
