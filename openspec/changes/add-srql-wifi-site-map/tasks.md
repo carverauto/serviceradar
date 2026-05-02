@@ -67,24 +67,28 @@
 
 ## 6. Dashboard Packages and Browser WASM
 
-- [x] 6.1 Define the dashboard package JSON manifest schema: package ID, version, vendor, description, data-frame contracts, SRQL query definitions, renderer WASM reference, settings schema, signing metadata, and requested browser capabilities.
+- [x] 6.1 Define the dashboard package JSON manifest schema: package ID, version, vendor, description, data-frame contracts, SRQL query definitions, React/browser-module renderer reference, optional renderer WASM reference, settings schema, signing metadata, and requested browser capabilities.
 - [x] 6.2 Add `platform` schema resources for imported dashboard packages, package versions, sync provenance, verification state, administrator settings, and enabled dashboard instances.
 - [ ] 6.3 Extend customer-owned Git source sync to discover dashboard package manifests alongside agent plugin manifests without exposing repository credentials to browsers or agents.
-- [ ] 6.4 Verify dashboard package WASM artifacts against digest and trust policy before making them available in the UI.
-- [ ] 6.5 Build a web-ng dashboard WASM host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-wasm-v1` ABI, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
+- [ ] 6.4 Verify dashboard package renderer artifacts against digest and trust policy before making them available in the UI.
+- [ ] 6.5 Build a web-ng dashboard renderer host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-browser-module-v1` and optional `dashboard-wasm-v1` interfaces, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
 - [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
 - [x] 6.6.1 Expose the dashboard-frame Arrow IPC payload contract to trusted browser modules and dashboard WASM renderers, with JSON row fallback when the active SRQL backend cannot emit Arrow.
 - [x] 6.6.2 Extend SRQL execution so selected queries can emit real Arrow IPC directly from PostgreSQL result sets instead of row JSON.
-- [ ] 6.6.3 Add WASM SDK examples/tests that decode Arrow IPC frames for a custom topology-style renderer.
+- [ ] 6.6.3 Add SDK examples/tests that decode Arrow IPC frames for custom topology-style renderers, including React browser-module and WASM paths.
 - [x] 6.6.4 Add dashboard frame live delivery over Phoenix Channels/WebSockets: initial snapshot, bounded refresh/replacement frames, auth checks, and reconnect semantics.
 - [ ] 6.7 Convert the United WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
-- [x] 6.7.1 Create the initial external `~/src/ual-dashboard` dashboard package workspace with a TinyGo `dashboard-wasm-v1` renderer, manifest build, sample frames, and harness instructions.
+- [x] 6.7.1 Create the initial external `~/src/ual-dashboard` dashboard package workspace with manifest build, sample frames, and harness instructions.
+- [ ] 6.7.2 Migrate the UAL dashboard package renderer to React using `dashboard-browser-module-v1`, preserving SRQL-driven filters, clustering, popups, Mapbox basemap behavior, device detail links, and ServiceRadar theme integration.
+- [ ] 6.7.3 Add Playwright parity checks for the React UAL package against the SDK harness and the Docker Compose dashboard route.
 - [ ] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
 - [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
 - [ ] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
-- [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard WASM packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
-- [x] 6.10 Provide a local customer dashboard package dev harness in `~/src/serviceradar-sdk-dashboard` that loads manifest JSON, WASM, validated settings, and sample SRQL frames without deploying to production.
-- [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` TinyGo SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
+- [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard renderer packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
+- [x] 6.10 Provide a local customer dashboard package dev harness in `~/src/serviceradar-sdk-dashboard` that loads manifest JSON, renderer artifacts, validated settings, and sample SRQL frames without deploying to production.
+- [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
+- [ ] 6.11.1 Add a React SDK package surface in `~/src/serviceradar-sdk-dashboard` with host API types, SRQL query helpers, frame access hooks, theme hooks, navigation helpers, and a browser-module mount helper.
+- [ ] 6.11.2 Add a React/Vite dashboard package template and harness path that emits `dashboard-browser-module-v1` renderer artifacts consumable by web-ng.
 - [ ] 6.12 Migrate built-in topology and netflow map experiences toward dashboard packages so they can be versioned and updated outside core/web-ng.
 
 ## 7. Live Aruba Collector Follow-Up

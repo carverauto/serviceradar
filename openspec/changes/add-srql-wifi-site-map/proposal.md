@@ -6,7 +6,7 @@ Wireless operators need the Aruba WiFi map that currently exists as a standalone
 
 The near-term source of truth is the CSV seed data in `tmp/wifi-map/`; the long-term source is a customer-owned Go SDK WiFi-map plugin that collects the same Aruba AP database, controller switchinfo, and RADIUS server-group data directly from controllers. Airport/site reference CSV data is expected to remain a long-lived source of truth and should refresh on a much slower cadence than polling data. The plugin should live in the customer's own repository, not in the ServiceRadar OSS repository.
 
-The browser experience should not become a United Airlines-specific feature baked into ServiceRadar. ServiceRadar should provide the data contracts, SRQL execution, signed package sync, and dashboard runtime needed to host customer dashboards. The customer-specific map/dashboard should live as a signed dashboard WASM package that can be imported from a customer repository.
+The browser experience should not become a United Airlines-specific feature baked into ServiceRadar. ServiceRadar should provide the data contracts, SRQL execution, signed package sync, and dashboard runtime needed to host customer dashboards. The customer-specific map/dashboard should live as a signed dashboard renderer package that can be imported from a customer repository. React browser modules should be the preferred authoring path for interactive dashboards, while WASM remains available for constrained render-model engines and lower-level use cases.
 
 ## What Changes
 
@@ -22,8 +22,8 @@ The browser experience should not become a United Airlines-specific feature bake
 - Extend SRQL with WiFi site map entities and fields so map payloads are driven by SRQL queries rather than static CSV fetches.
 - Add dashboard package selection so operators can expose verified location-aware map packages alongside the existing NetFlow map without compiling customer-specific views into web-ng.
 - Do not add `/wifi-map` or `/network-map` as product routes; customer map experiences use enabled dashboard package routes such as `/dashboards/:route_slug`.
-- Add a dashboard WASM plugin runtime where imported dashboard packages define custom views, interactions, popups, and layout logic without compiling customer-specific UI into web-ng.
-- Use JSON dashboard package manifests for dashboard identity, versioning, required SRQL queries, data-frame contracts, permissions, renderer WASM references, signing metadata, and settings schema.
+- Add a dashboard renderer runtime where imported dashboard packages define custom views, interactions, popups, and layout logic without compiling customer-specific UI into web-ng.
+- Use JSON dashboard package manifests for dashboard identity, versioning, required SRQL queries, data-frame contracts, permissions, React/browser-module renderer references, optional renderer WASM references, signing metadata, and settings schema.
 - Add settings UI for importing dashboard packages, selecting default dashboard/map views, and configuring approved dashboard package settings.
 
 ## Impact
@@ -39,13 +39,13 @@ The browser experience should not become a United Airlines-specific feature bake
 - Affected code:
   - `/home/mfreeman/src/serviceradar-sdk-go`: SDK helpers for structured inventory result batches if needed.
   - Customer plugin repository: WiFi-map plugin package, manifests, signatures, and seed/live collector implementation.
-  - `/home/mfreeman/src/serviceradar-sdk-dashboard`: dashboard WASM SDK helpers for customer browser dashboard packages.
+  - `/home/mfreeman/src/serviceradar-sdk-dashboard`: React-first dashboard SDK helpers, browser-module host typings/hooks, SRQL helpers, and optional WASM SDK helpers for customer dashboard packages.
   - `go/` agent runtime/package handling if approved seed-file access or payload handoff host functions are insufficient.
   - `proto/monitoring.proto` and agent/gateway handling if current plugin-result payload limits or typing are insufficient.
   - `elixir/serviceradar_core/priv/repo/migrations/`: platform schema migrations for WiFi map storage.
   - `elixir/serviceradar_core/`: plugin source sync, encrypted credential references, ingestion resources, Ash actions, and plugin-result handlers.
   - `rust/srql/`: parser/entity support, SQL generation, fixtures, and tests for WiFi map entities.
-  - `elixir/web-ng/`: customer plugin source UI, dashboard package import UI, dashboard/package selector, browser-side dashboard WASM host, SRQL builder/data-frame integration, settings UI.
+  - `elixir/web-ng/`: customer plugin source UI, dashboard package import UI, dashboard/package selector, browser-side dashboard renderer host, SRQL builder/data-frame integration, settings UI.
 
 ## Source Material Reviewed
 
