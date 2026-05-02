@@ -218,7 +218,7 @@ region and cluster filters, site popups, AP/WLC detail layouts, migration views,
 and customer-specific labels. Other customers can install different packages
 without inheriting United-specific UI.
 
-### D8: Dashboard packages use JSON manifests plus signed browser WASM
+### D8: Dashboard packages use JSON manifests plus signed browser renderers
 
 Dashboard packages should be source-controlled artifacts, but the package
 manifest should use JSON rather than YAML so it can be validated consistently in
@@ -237,16 +237,18 @@ manifest should declare:
   saved query read, or dashboard preference write.
 
 JSON defines the package contract; the actual custom dashboard behavior runs
-from the verified renderer artifact. The first renderer classes are constrained
-WASM render models and administrator-approved trusted browser modules for
-customers that need custom deck.gl layers and interactions. ServiceRadar should
-ship curated dashboard package templates, but administrators should be able to
-import customer-owned dashboard packages from configured Git sources without
-rebuilding web-ng.
+from the verified renderer artifact. The preferred renderer class for
+interactive dashboards is an administrator-approved trusted browser module,
+normally authored with React and the ServiceRadar dashboard SDK. Constrained
+WASM render models remain supported for lower-level engines that should emit a
+ServiceRadar-defined render model instead of owning DOM and interaction state.
+ServiceRadar should ship curated dashboard package templates, but administrators
+should be able to import customer-owned dashboard packages from configured Git
+sources without rebuilding web-ng.
 
-### D9: Dashboard WASM plugins are separate from agent WASM plugins
+### D9: Dashboard renderers are separate from agent WASM plugins
 
-Dashboard WASM plugins run in the browser and must be treated as a different
+Dashboard renderers run in the browser and must be treated as a different
 execution class from agent-side WASM plugins:
 
 - They never receive agent credentials, Git credentials, repository URLs, or raw
@@ -260,14 +262,17 @@ execution class from agent-side WASM plugins:
 - They use existing package signing and trust-policy concepts, but with
   browser-specific capabilities and review metadata.
 
-For deck.gl-heavy dashboards, the preferred default contract is declarative:
-the WASM renderer receives approved data frames and settings, computes layer
-state or interaction state, and returns/updates a ServiceRadar-defined render
-model. When a customer needs custom deck.gl layers, clustering, or interaction
-logic beyond the generic render model, ServiceRadar supports an explicitly
-trusted same-origin browser module renderer. That module still receives only
-bounded package frames, theme context, approved settings, shared map/deck
-constructors, and approved host APIs.
+For deck.gl-heavy dashboards, the preferred default contract is a trusted
+same-origin browser module renderer authored through the React dashboard SDK.
+That module receives only bounded package frames, theme context, approved
+settings, shared map/deck constructors, and approved host APIs. It may own DOM,
+component state, clustering, popups, and interactions, but data filtering must
+flow back through SRQL host APIs so the server remains the source of truth.
+
+When a customer needs a constrained engine rather than a full browser module,
+a WASM renderer can receive approved data frames and settings, compute layer
+state or interaction state, and return/update a ServiceRadar-defined render
+model.
 
 The first stable host ABI is `dashboard-wasm-v1`. The preferred entrypoint is
 `sr_dashboard_init_json(ptr, len)`, with `sr_dashboard_render_json(ptr, len)` as
@@ -283,12 +288,16 @@ subscriptions. This keeps custom topology/map engines on the same host contract
 as smaller dashboard packages.
 
 The browser-module host interface is `dashboard-browser-module-v1`. It receives
-the same approved frames as the WASM host. Frames that request
-`encoding: "arrow_ipc"` are delivered as base64 Arrow IPC payloads when the SRQL
-backend supports Arrow output, with `api.arrow.table(frame_id)` available to
-decode them in the host bundle. If Arrow is unavailable for a query, the frame
-falls back to `json_rows` under the same frame id so customer renderers can
-remain compatible while the backend encoder is expanded.
+the same approved frames as the WASM host and is the normal authoring target for
+React dashboards. The dashboard SDK provides a `mountDashboard` helper, typed
+host API, `useDashboardFrames`, `useDashboardFrame`, `useDashboardTheme`,
+`useDashboardSrql`, and navigation helpers so package authors do not copy
+host glue. Frames that request `encoding: "arrow_ipc"` are delivered as base64
+Arrow IPC payloads when the SRQL backend supports Arrow output, with
+`api.arrow.table(frame_id)` available to decode them in the host bundle. If
+Arrow is unavailable for a query, the frame falls back to `json_rows` under the
+same frame id so customer renderers can remain compatible while the backend
+encoder is expanded.
 
 Long term, the built-in topology view and netflow map should move behind this
 same dashboard-package boundary. Core/web-ng should remain the stable host and
@@ -323,15 +332,15 @@ popups, and ServiceRadar-owned Mapbox/OSM basemap selection.
 
 The browser never fetches from the customer repository directly. The control
 plane fetches the repo or release artifact, verifies the manifest, digest,
-signature, and trust policy, mirrors the WASM blob into ServiceRadar-managed
-package storage, and exposes only a content-addressed authenticated asset URL to
-the browser. The browser host can cache that mirrored asset aggressively because
-the URL includes the content hash; mutable source repository state remains a
-control-plane concern.
+signature, and trust policy, mirrors the renderer artifact into
+ServiceRadar-managed package storage, and exposes only a content-addressed
+authenticated asset URL to the browser. The browser host can cache that mirrored
+asset aggressively because the URL includes the content hash; mutable source
+repository state remains a control-plane concern.
 
 Dashboard package settings must be validated against the package JSON schema
-before the WASM entrypoint is invoked. Invalid settings block instance creation
-or update and must not be handed to the renderer.
+before the renderer entrypoint is invoked. Invalid settings block instance
+creation or update and must not be handed to the renderer.
 
 This lets ServiceRadar support fully custom dashboards while keeping core product
 navigation, authentication, authorization, SRQL execution, and theming under
@@ -341,16 +350,17 @@ ServiceRadar control.
 
 Customer dashboard authors need a local dev loop that does not require deploying
 to a production ServiceRadar instance for every renderer iteration. ServiceRadar
-should provide a small dashboard WASM harness that:
+should provide a small React/browser-module-first dashboard harness that:
 
-- Loads a local or repo-served dashboard JSON manifest and WASM blob.
+- Loads a local or repo-served dashboard JSON manifest and renderer artifact.
 - Validates the manifest and settings against the same schema rules used by
   web-ng.
-- Supplies sample SRQL frame payloads in the same `dashboard-wasm-v1`
-  data-provider shape.
-- Renders the emitted `deck_map` model through the same ServiceRadar-owned
-  host JS used in web-ng where practical, or at minimum validates the emitted
-  model and shows host diagnostics.
+- Supplies sample SRQL frame payloads in the same `dashboard-browser-module-v1`
+  host API shape and the optional `dashboard-wasm-v1` data-provider shape.
+- Mounts React browser-module renderers with the same bounded host API used by
+  web-ng; for WASM renderers, renders the emitted `deck_map` model through the
+  same ServiceRadar-owned host JS where practical, or at minimum validates the
+  emitted model and shows host diagnostics.
 - Can be run by customer CI to catch ABI, schema, and digest failures before a
   dashboard package is pushed to a private source repo.
 

@@ -7,7 +7,7 @@ The dashboard SHALL allow users to choose between the existing NetFlow map and e
 #### Scenario: User opens an enabled dashboard map package
 - **GIVEN** a verified dashboard package has been enabled with dashboard placement
 - **WHEN** a user selects that package from the dashboard map/package control
-- **THEN** the dashboard SHALL navigate to or preview the package through the dashboard WASM host
+- **THEN** the dashboard SHALL navigate to or preview the package through the dashboard renderer host
 - **AND** the package SHALL render from approved SRQL data frames instead of browser-loaded CSV files
 
 #### Scenario: No dashboard map packages are enabled
@@ -115,7 +115,7 @@ The United WiFi dashboard package SHALL provide the core interactions present in
 The UI SHALL allow authorized administrators to import signed dashboard packages and enable them as custom dashboard views without rebuilding web-ng.
 
 #### Scenario: Admin imports dashboard package manifest
-- **GIVEN** a customer-owned source exposes a dashboard package JSON manifest with a signed WASM renderer artifact
+- **GIVEN** a customer-owned source exposes a dashboard package JSON manifest with a signed renderer artifact
 - **WHEN** an authorized administrator imports the package
 - **THEN** the UI SHALL show package identity, version, vendor, source provenance, requested capabilities, required SRQL data frames, and verification state
 - **AND** the package SHALL remain disabled until verification succeeds and the administrator enables it
@@ -126,22 +126,28 @@ The UI SHALL allow authorized administrators to import signed dashboard packages
 - **THEN** the UI SHALL persist approved settings and make the dashboard available from the configured dashboard location
 - **AND** the custom dashboard SHALL render through the ServiceRadar dashboard host rather than product-specific compiled routes
 
-### Requirement: Browser WASM dashboard renderer host
+### Requirement: Browser dashboard renderer host
 
-The dashboard SHALL host signed browser-side WASM renderers for custom dashboards while keeping authentication, authorization, theming, SRQL execution, and navigation under ServiceRadar control.
+The dashboard SHALL host signed browser-side renderers for custom dashboards while keeping authentication, authorization, theming, SRQL execution, and navigation under ServiceRadar control.
 
 #### Scenario: Versioned host interface is enforced
-- **GIVEN** a dashboard package declares a browser WASM renderer interface version
+- **GIVEN** a dashboard package declares a browser renderer interface version
 - **WHEN** the dashboard host loads the package
-- **THEN** it SHALL allow only explicitly supported interface versions such as `dashboard-wasm-v1`
+- **THEN** it SHALL allow only explicitly supported interface versions such as `dashboard-browser-module-v1` and `dashboard-wasm-v1`
 - **AND** unsupported or missing interface versions SHALL fail with a product-native diagnostic instead of executing the renderer
 
-#### Scenario: Custom renderer receives SRQL data frames
-- **GIVEN** an enabled dashboard package declares SRQL data frames and a browser WASM renderer
+#### Scenario: React browser-module renderer receives SRQL data frames
+- **GIVEN** an enabled dashboard package declares SRQL data frames and a React browser-module renderer
 - **WHEN** a user opens that dashboard
 - **THEN** web-ng SHALL execute the approved SRQL queries server-side
-- **AND** it SHALL pass validated settings and data frames to the WASM renderer through the versioned dashboard host API
+- **AND** it SHALL pass validated settings and data frames to the renderer through the versioned dashboard host API
 - **AND** the renderer SHALL NOT receive database credentials, API tokens, repository credentials, or unrestricted network access
+
+#### Scenario: React renderer updates SRQL filters
+- **GIVEN** an enabled React dashboard renderer uses the ServiceRadar dashboard SDK
+- **WHEN** a user clicks a map cluster, selects a sidebar filter, changes search text, or resets the view
+- **THEN** the renderer SHALL update the active SRQL query through the host API rather than filtering only in browser memory
+- **AND** web-ng SHALL rerun approved SRQL frames server-side and deliver refreshed rows without remounting the entire dashboard when the renderer artifact is unchanged
 
 #### Scenario: Custom renderer emits a deck.gl render model
 - **GIVEN** a dashboard WASM renderer emits a `deck_map` render model through the dashboard host API
@@ -149,14 +155,20 @@ The dashboard SHALL host signed browser-side WASM renderers for custom dashboard
 - **THEN** ServiceRadar-owned JavaScript SHALL render the declared deck.gl layers over the configured basemap
 - **AND** custom interactions SHALL be limited to approved host actions such as native popups, details navigation, and saved view updates
 
+#### Scenario: React renderer owns custom map interactions
+- **GIVEN** a trusted React browser-module renderer is approved for map and navigation capabilities
+- **WHEN** it renders custom deck.gl/Mapbox layers, popups, clusters, or detail panels
+- **THEN** those interactions SHALL run inside the ServiceRadar-owned dashboard host container
+- **AND** device detail navigation SHALL use host-approved navigation helpers or same-origin ServiceRadar routes
+
 #### Scenario: Renderer asset is served from ServiceRadar package storage
 - **GIVEN** a dashboard package was imported from a customer-owned repository
 - **WHEN** a user opens the dashboard
 - **THEN** the browser SHALL fetch the renderer from an authenticated ServiceRadar asset URL backed by verified package storage
-- **AND** it SHALL NOT fetch WASM, JSON, or credentials directly from the customer repository
+- **AND** it SHALL NOT fetch renderer code, JSON, WASM, or credentials directly from the customer repository
 
 #### Scenario: Custom renderer fails
-- **GIVEN** a dashboard WASM renderer traps, times out, requests an unapproved capability, or receives a non-mappable result set
+- **GIVEN** a dashboard renderer throws, traps, times out, requests an unapproved capability, or receives a non-mappable result set
 - **WHEN** the dashboard host detects the failure
 - **THEN** the UI SHALL show a bounded product-native failure state with diagnostics for authorized users
 - **AND** the failure SHALL NOT break the surrounding ServiceRadar shell, navigation, or other dashboard cards

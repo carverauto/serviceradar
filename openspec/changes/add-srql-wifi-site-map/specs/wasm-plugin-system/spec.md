@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: Dashboard WASM package class
+### Requirement: Dashboard renderer package class
 
-The plugin package system SHALL support a browser-side dashboard WASM package class that is distinct from agent-executed WASM plugins.
+The plugin package system SHALL support a browser-side dashboard renderer package class that is distinct from agent-executed WASM plugins.
 
 #### Scenario: Dashboard package is discovered from a customer source
 - **GIVEN** a customer-owned Git source contains a dashboard package JSON manifest
@@ -12,15 +12,15 @@ The plugin package system SHALL support a browser-side dashboard WASM package cl
 - **AND** it SHALL NOT be assignable to agents
 
 #### Scenario: Dashboard package declares renderer artifact
-- **GIVEN** a dashboard package manifest declares a WASM renderer artifact, digest, signature metadata, and required host APIs
+- **GIVEN** a dashboard package manifest declares a renderer artifact, digest, signature metadata, and required host APIs
 - **WHEN** the package is validated
 - **THEN** the control plane SHALL verify artifact integrity and trust policy before enabling import
-- **AND** it SHALL require an explicitly supported dashboard WASM interface version
+- **AND** it SHALL require an explicitly supported dashboard renderer interface version such as `dashboard-browser-module-v1` or `dashboard-wasm-v1`
 - **AND** unsupported browser capabilities SHALL block enablement until explicitly supported by ServiceRadar
 
-### Requirement: Dashboard WASM sandbox boundaries
+### Requirement: Dashboard renderer sandbox boundaries
 
-Dashboard WASM renderers SHALL execute only inside the web dashboard host and SHALL receive data exclusively through approved host APIs.
+Dashboard renderers SHALL execute only inside the web dashboard host and SHALL receive data exclusively through approved host APIs.
 
 #### Scenario: Renderer requests SRQL data
 - **GIVEN** an enabled dashboard package declares an approved SRQL data frame
@@ -29,10 +29,16 @@ Dashboard WASM renderers SHALL execute only inside the web dashboard host and SH
 - **AND** the renderer SHALL NOT receive raw database credentials, service tokens, Git credentials, or agent plugin credentials
 
 #### Scenario: Renderer uses the versioned data provider
-- **GIVEN** a dashboard renderer runs under `dashboard-wasm-v1`
+- **GIVEN** a dashboard renderer runs under `dashboard-browser-module-v1` or `dashboard-wasm-v1`
 - **WHEN** it needs dashboard data
 - **THEN** it SHALL read only the data frames exposed through the versioned host data-provider imports
 - **AND** it SHALL NOT subscribe directly to internal database, MQTT, repository, or browser network sources
+
+#### Scenario: React renderer uses the dashboard SDK
+- **GIVEN** a dashboard renderer is authored as a React browser module
+- **WHEN** it reads frames, changes filters, reacts to theme changes, or navigates to device details
+- **THEN** it SHALL use the ServiceRadar dashboard SDK host API helpers for those operations
+- **AND** server-side SRQL execution SHALL remain the source of truth for filtered dashboard data
 
 #### Scenario: Renderer requests an unapproved capability
 - **GIVEN** a dashboard renderer requests network, repository, filesystem, secret, or unapproved ServiceRadar API access
