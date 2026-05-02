@@ -1,6 +1,7 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
+import DashboardWasmHost from "./DashboardWasmHost"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
@@ -28,6 +29,7 @@ export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
   DashboardMapViewSelect,
+  DashboardWasmHost,
   JdmEditorHook,
   LocalTime,
   MapboxFlowMap,

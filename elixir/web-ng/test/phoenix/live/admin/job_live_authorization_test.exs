@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLiveAuthorizationTest do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
 
-      assert {:error, {:live_redirect, %{to: "/analytics"} = info}} = live(conn, ~p"/admin/jobs")
+      assert {:error, {:live_redirect, %{to: "/dashboard"} = info}} = live(conn, ~p"/admin/jobs")
       assert is_map(info.flash)
     end
 

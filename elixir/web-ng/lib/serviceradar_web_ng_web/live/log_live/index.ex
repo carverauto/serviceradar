@@ -7026,6 +7026,50 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp load_metrics_counts(srql_module, scope) do
+    case load_metrics_counts_from_repo() do
+      %{total: total} = counts when total > 0 ->
+        counts
+
+      _ ->
+        load_metrics_counts_from_srql(srql_module, scope)
+    end
+  rescue
+    _ -> load_metrics_counts_from_srql(srql_module, scope)
+  end
+
+  defp load_metrics_counts_from_repo do
+    sql = """
+    SELECT
+      count(*)::bigint AS total,
+      count(*) FILTER (WHERE is_slow IS TRUE)::bigint AS slow_spans,
+      count(*) FILTER (
+        WHERE level IN ('error', 'ERROR')
+           OR http_status_code LIKE '4%'
+           OR http_status_code LIKE '5%'
+           OR (
+             grpc_status_code IS NOT NULL
+             AND grpc_status_code <> ''
+             AND grpc_status_code <> '0'
+           )
+      )::bigint AS error_spans
+    FROM platform.otel_metrics
+    WHERE timestamp >= now() - interval '24 hours'
+    """
+
+    case Repo.query(sql, [], timeout: 5_000) do
+      {:ok, %{rows: [[total, slow_spans, error_spans]]}} ->
+        %{
+          total: to_int(total),
+          slow_spans: to_int(slow_spans),
+          error_spans: to_int(error_spans)
+        }
+
+      _ ->
+        empty_metrics_stats()
+    end
+  end
+
+  defp load_metrics_counts_from_srql(srql_module, scope) do
     total_query = ~s|in:otel_metrics time:last_24h stats:"count() as total"|
     slow_query = ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|
 

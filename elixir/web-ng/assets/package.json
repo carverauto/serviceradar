@@ -19,6 +19,7 @@
     "@deck.gl/aggregation-layers": "^9.2.9",
     "@deck.gl/core": "^9.2.2",
     "@deck.gl/layers": "^9.2.2",
+    "@deck.gl/mapbox": "^9.2.9",
     "@deck.gl/mesh-layers": "^9.2.9",
     "@gorules/jdm-editor": "^1.50.4",
     "@loaders.gl/core": "^4.3.4",

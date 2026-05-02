@@ -18,7 +18,7 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     rewrite_on: [:x_forwarded_proto],
     exclude: [
       paths: ["/health", "/health/live", "/health/ready", "/metrics"],
-      hosts: ["localhost", "127.0.0.1"]
+      hosts: ["localhost", "127.0.0.1", "web-ng"]
     ]
   ]
 

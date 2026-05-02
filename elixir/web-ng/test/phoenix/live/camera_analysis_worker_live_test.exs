@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     viewer = viewer_user_fixture()
     conn = log_in_user(build_conn(), viewer)
 
-    assert {:error, {:live_redirect, %{to: "/analytics"} = info}} =
+    assert {:error, {:live_redirect, %{to: "/dashboard"} = info}} =
              live(conn, ~p"/observability/camera-relays/workers")
 
     assert is_map(info.flash)

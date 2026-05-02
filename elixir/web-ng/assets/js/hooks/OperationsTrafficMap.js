@@ -942,14 +942,14 @@ export default {
     const target = event.target
     if (!target || target.id !== "traffic-map-view-select") return
 
-    this.el.dataset.mapView = MAP_VIEWS.has(target.value) ? target.value : "topology_traffic"
+    this.el.dataset.mapView = MAP_VIEWS.has(target.value) ? target.value : "netflow"
     this._syncData()
   },
 
   _onExternalMapViewChange(event) {
     this.el.dataset.mapView = MAP_VIEWS.has(event.detail?.mapView)
       ? event.detail.mapView
-      : "topology_traffic"
+      : "netflow"
     this._syncData()
   },
 
@@ -1702,7 +1702,7 @@ export default {
   },
 
   _syncData() {
-    this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "topology_traffic"
+    this.mapView = MAP_VIEWS.has(this.el.dataset.mapView) ? this.el.dataset.mapView : "netflow"
     this._ensureWorldMapBackground()
     this.el.parentElement?.classList.toggle("is-netflow-view", this.mapView === "netflow")
     this.topologyLinks = this.mapView === "topology_traffic" ? normalizeLinks(parseJson(this.el.dataset.topologyLinks, [])) : []

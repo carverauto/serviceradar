@@ -68,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Cluster.")
-       |> redirect(to: ~p"/analytics")}
+       |> redirect(to: ~p"/dashboard")}
     end
   end
 

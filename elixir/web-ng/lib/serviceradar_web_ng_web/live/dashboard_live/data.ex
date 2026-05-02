@@ -151,6 +151,35 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     }
   end
 
+  @spec load_netflow_map(term(), keyword()) :: map()
+  def load_netflow_map(_scope, opts \\ []) do
+    time_window = Keyword.get(opts, :time_window, @default_time_window)
+    collector_counts = TenantUsage.collector_counts_by_type()
+    flow_summary = flow_summary(time_window)
+    traffic_links = traffic_links(time_window)
+    topology_links = topology_links(time_window)
+    flow_summary = Map.put(flow_summary, :link_count, max(length(traffic_links), length(topology_links)))
+    mtr_overlays = mtr_overlays()
+    mtr_summary = summarize_mtr_overlays(mtr_overlays)
+    netflow_state = netflow_source_state(collector_counts, flow_summary, traffic_links)
+
+    %{
+      time_window: time_window,
+      time_window_label: time_window_label(time_window),
+      netflow_state: netflow_state,
+      map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
+      traffic_links_window_label: netflow_map_window_label(),
+      topology_links: topology_links,
+      topology_links_json: Jason.encode!(topology_links),
+      traffic_links: traffic_links,
+      traffic_links_json: Jason.encode!(traffic_links),
+      mtr_overlays: mtr_overlays,
+      mtr_overlays_json: Jason.encode!(mtr_overlays),
+      map_empty_title: map_empty_title(netflow_state),
+      map_empty_detail: map_empty_detail(netflow_state)
+    }
+  end
+
   @spec load_survey_summary(term()) :: map()
   def load_survey_summary(scope), do: survey_summary(scope)
 
@@ -2034,6 +2063,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     }
   end
 
+  defp netflow_source_state(collector_counts, flow_summary, traffic_links) do
+    netflow_configured? = Map.get(collector_counts, "netflow", 0) > 0 or Map.get(collector_counts, "sflow", 0) > 0
+    flow_active? = flow_summary.flow_count > 0 or traffic_links != []
+
+    source_state(netflow_configured?, flow_active?)
+  end
+
   defp source_state(_configured?, true), do: :active
   defp source_state(true, false), do: :configured_empty
   defp source_state(false, false), do: :unconfigured
@@ -2078,8 +2114,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         tone: "info",
         sparkline: Map.get(sparklines, :camera, [])
       },
-      survey_kpi_card(survey, Map.get(sparklines, :survey, []))
+      survey_kpi_card(survey, Map.get(sparklines, :survey, [])),
+      %{
+        title: "Active Alerts",
+        value: format_compact_count(active_alert_count(alerts)),
+        detail: "#{format_count(alerts.total)} total alerts",
+        icon: "hero-bell-alert",
+        tone: if(active_alert_count(alerts) > 0, do: "error", else: "success"),
+        sparkline: Map.get(sparklines, :threats, [])
+      },
+      %{
+        title: "Recent Events",
+        value: format_compact_count(events.total),
+        detail: "#{format_count(priority_event_count(events))} high priority",
+        icon: "hero-document-text",
+        tone: if(priority_event_count(events) > 0, do: "error", else: "info"),
+        sparkline: Map.get(sparklines, :threats, [])
+      }
     ]
+  end
+
+  defp active_alert_count(alerts), do: to_int(alerts.pending) + to_int(alerts.escalated)
+
+  defp priority_event_count(events) do
+    to_int(events.fatal) + to_int(events.critical) + to_int(events.high)
   end
 
   defp map_stats(_flows, _mtr, traffic_links) do

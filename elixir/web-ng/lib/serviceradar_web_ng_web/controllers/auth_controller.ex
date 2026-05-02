@@ -75,13 +75,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
         case User.authenticate(email, password, actor: actor) do
           {:ok, user} ->
-            # Record authentication timestamp for sudo mode
-            User.record_authentication(user, actor: actor)
-
-            # Trigger auth hooks
-            Hooks.on_user_authenticated(user, %{"method" => "password"})
-
-            _ = UserAuthEvents.record_login(conn, user, :password)
+            record_successful_auth_async(conn, user, :password)
 
             conn
             |> put_flash(:info, "Signed in successfully.")
@@ -137,13 +131,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
           {:ok, user} ->
             Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
 
-            # Record authentication timestamp
-            User.record_authentication(user, actor: actor)
-
-            # Trigger auth hooks
-            Hooks.on_user_authenticated(user, %{"method" => "local_password"})
-
-            _ = UserAuthEvents.record_login(conn, user, :password)
+            record_successful_auth_async(conn, user, :password, hook_method: "local_password")
 
             conn
             |> put_flash(:info, "Signed in successfully.")
@@ -209,6 +197,25 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
 
     :ok
+  end
+
+  defp record_successful_auth_async(conn, user, auth_method, opts \\ []) do
+    hook_method = Keyword.get(opts, :hook_method, Atom.to_string(auth_method))
+    ip = ClientIP.get(conn)
+    user_agent = conn |> Plug.Conn.get_req_header("user-agent") |> List.first()
+    actor = SystemActor.system(:auth_controller)
+
+    task = fn ->
+      _ = User.record_authentication(user, actor: actor)
+      _ = Hooks.on_user_authenticated(user, %{"method" => hook_method})
+      _ = UserAuthEvents.record_login_context(user, auth_method, ip, user_agent)
+      :ok
+    end
+
+    case Task.Supervisor.start_child(ServiceRadarWebNG.TaskSupervisor, task) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> Logger.warning("Unable to start auth audit task: #{inspect(reason)}")
+    end
   end
 
   @doc """

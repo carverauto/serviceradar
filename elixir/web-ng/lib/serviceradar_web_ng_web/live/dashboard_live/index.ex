@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       |> assign(:page_title, "Unified Operations Dashboard")
       |> assign(:current_path, "/dashboard")
       |> assign(:camera_preview_tiles, [])
+      |> assign(:dashboard_package_instances, [])
       |> assign_dashboard(Data.empty())
 
     socket =
@@ -26,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         socket
         |> start_async(:dashboard_load, fn -> Data.load(scope) end)
         |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
+        |> start_async(:dashboard_packages_load, fn -> dashboard_package_instances(scope) end)
       else
         socket
       end
@@ -49,6 +52,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {:noreply, assign_survey_summary(socket, survey_summary)}
   end
 
+  def handle_async(:dashboard_packages_load, {:ok, instances}, socket) do
+    {:noreply, assign(socket, :dashboard_package_instances, instances)}
+  end
+
   def handle_async(_name, {:exit, _reason}, socket), do: {:noreply, socket}
 
   @impl true
@@ -67,17 +74,45 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         data-dashboard-modules={Enum.join(@dashboard_modules, " ")}
       >
         <section class="sr-ops-kpi-grid" aria-label="Operational summary">
-          <.kpi_card :for={card <- @kpi_cards} card={card} />
+          <.kpi_card
+            :for={card <- visible_kpi_cards(@kpi_cards, @camera_summary, @survey_summary)}
+            card={card}
+          />
         </section>
 
         <section class="sr-ops-grid-primary">
           <.panel title={map_panel_title(@map_view)} class="lg:col-span-7">
             <:actions>
-              <.link href={~p"/topology"} class="sr-ops-button">Full Topology</.link>
+              <select
+                id="traffic-map-view-select"
+                name="map_view"
+                phx-hook="DashboardMapViewSelect"
+                class="sr-ops-select"
+                aria-label="Dashboard map view"
+              >
+                <option
+                  value="netflow"
+                  selected={@map_view == "netflow"}
+                >
+                  NetFlow Map
+                </option>
+                <option
+                  :for={instance <- @dashboard_package_instances}
+                  value={"dashboard:#{instance.route_slug}"}
+                >
+                  {instance.name}
+                </option>
+              </select>
+              <.link href={map_fullscreen_path(@map_view)} class="sr-ops-button">
+                Full Screen
+              </.link>
             </:actions>
 
-            <div class="sr-ops-map-shell">
-              <div class="sr-ops-map-controls">
+            <div class={[
+              "sr-ops-map-shell",
+              @map_view == "netflow" && "is-netflow-view"
+            ]}>
+              <div :if={@map_view == "netflow"} class="sr-ops-map-controls">
                 <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
                   <li><span class="bg-teal-400"></span>Network cluster</li>
                   <li><span class="bg-sky-400"></span>Private/public flow</li>
@@ -120,7 +155,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               />
 
               <div
-                :if={map_empty?(@map_view, @topology_links, @traffic_links)}
+                :if={
+                  @map_view == "netflow" and map_empty?(@map_view, @topology_links, @traffic_links)
+                }
                 class="sr-ops-map-empty"
                 data-testid="traffic-map-empty"
               >
@@ -129,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               </div>
             </div>
 
-            <div class="sr-ops-map-stats">
+            <div :if={@map_view == "netflow"} class="sr-ops-map-stats">
               <.small_stat :for={stat <- @map_stats} label={stat.label} value={stat.value} />
             </div>
           </.panel>
@@ -224,7 +261,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         </section>
 
         <section class="sr-ops-grid-secondary">
-          <.panel title="FieldSurvey Heatmap" class="lg:col-span-6">
+          <.panel
+            :if={survey_panel_visible?(@survey_summary)}
+            title="FieldSurvey Heatmap"
+            class="lg:col-span-6"
+          >
             <:actions>
               <.link href={~p"/spatial/field-surveys"} class="sr-ops-button">Open FieldSurvey</.link>
             </:actions>
@@ -348,7 +389,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
           </.panel>
 
-          <.panel title="Camera Operations" class="lg:col-span-6">
+          <.panel
+            :if={camera_panel_visible?(@camera_summary)}
+            title="Camera Operations"
+            class="lg:col-span-6"
+          >
             <:actions>
               <.link href={~p"/cameras"} class="sr-ops-button">
                 View All Cameras
@@ -554,15 +599,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   @impl true
+  def handle_event("select_map_view", %{"map_view" => "dashboard:" <> route_slug}, socket) do
+    if dashboard_package_route?(socket.assigns.dashboard_package_instances, route_slug) do
+      {:noreply, push_navigate(socket, to: ~p"/dashboards/#{route_slug}")}
+    else
+      {:noreply, assign(socket, :map_view, "netflow")}
+    end
+  end
+
   def handle_event("select_map_view", %{"map_view" => map_view}, socket) do
     {:noreply, assign(socket, :map_view, normalize_map_view(map_view))}
   end
 
   def handle_event("select_map_view", %{"value" => map_view}, socket) do
-    {:noreply, assign(socket, :map_view, normalize_map_view(map_view))}
+    handle_event("select_map_view", %{"map_view" => map_view}, socket)
   end
 
   @impl true
+  def handle_info({_ref, {:access_token_present, _field, _result}}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, socket}
+  end
+
   def handle_info({:refresh_dashboard_camera_relay_session, relay_session_id}, socket) do
     tiles =
       Enum.map(socket.assigns.camera_preview_tiles, fn tile ->
@@ -577,6 +638,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     {:noreply, assign(socket, :camera_preview_tiles, tiles)}
   end
+
+  defp dashboard_package_instances(scope) do
+    Dashboards.enabled_instances(scope: scope)
+    |> Enum.filter(&(&1.placement in [:dashboard, :map]))
+    |> Enum.sort_by(&String.downcase(&1.name || &1.route_slug || ""))
+  rescue
+    _ -> []
+  end
+
+  defp dashboard_package_route?(instances, route_slug) when is_binary(route_slug) do
+    Enum.any?(instances, &(&1.route_slug == route_slug))
+  end
+
+  defp dashboard_package_route?(_instances, _route_slug), do: false
 
   attr(:card, :map, required: true)
 
@@ -788,9 +863,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp assign_dashboard(socket, dashboard_assigns) when is_map(dashboard_assigns) do
+    dashboard_assigns = ensure_valid_map_view(dashboard_assigns)
+
     Enum.reduce(dashboard_assigns, socket, fn {key, value}, acc ->
       assign(acc, key, value)
     end)
+  end
+
+  defp ensure_valid_map_view(assigns) when is_map(assigns) do
+    map_view = Map.get(assigns, :map_view, "netflow")
+
+    valid_view =
+      cond do
+        map_view == "netflow" -> "netflow"
+        true -> "netflow"
+      end
+
+    Map.put(assigns, :map_view, valid_view)
   end
 
   defp assign_survey_summary(socket, survey_summary) do
@@ -843,6 +932,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp replace_survey_kpi_card(_kpi_cards, _survey_card), do: []
+
+  defp visible_kpi_cards(kpi_cards, camera_summary, survey_summary) when is_list(kpi_cards) do
+    kpi_cards
+    |> Enum.reject(fn
+      %{title: "Camera Fleet"} -> not camera_panel_visible?(camera_summary)
+      %{title: "Wi-Fi Coverage"} -> not survey_panel_visible?(survey_summary)
+      _card -> false
+    end)
+    |> Enum.take(5)
+  end
+
+  defp visible_kpi_cards(_kpi_cards, _camera_summary, _survey_summary), do: []
 
   defp survey_raster_cell_count(%{raster_cell_count: count}) when is_integer(count), do: count
   defp survey_raster_cell_count(_summary), do: 0
@@ -939,6 +1040,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp normalize_map_view(_), do: "netflow"
 
   defp map_panel_title(_), do: "NetFlow Map"
+
+  defp map_fullscreen_path(_), do: ~p"/netflow-map"
+
+  defp survey_panel_visible?(summary) do
+    survey_raster_cell_count(summary) > 0 or Map.get(summary || %{}, :sample_count, 0) > 0
+  end
+
+  defp camera_panel_visible?(summary), do: Map.get(summary || %{}, :total, 0) > 0
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 
@@ -1156,10 +1265,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp map_empty?(_map_view, topology_links, traffic_links), do: topology_links == [] and traffic_links == []
 
+  defp map_empty_title("netflow", :unconfigured), do: "NetFlow collector not configured"
+  defp map_empty_title("netflow", :configured_empty), do: "Awaiting observed NetFlow summaries"
   defp map_empty_title("netflow", _state), do: "No NetFlow paths"
   defp map_empty_title(_map_view, :configured_empty), do: "Awaiting observed NetFlow summaries"
   defp map_empty_title(_map_view, :unconfigured), do: "NetFlow collector not configured"
   defp map_empty_title(_map_view, _state), do: "No topology or flow data"
+
+  defp map_empty_detail("netflow", :unconfigured),
+    do: "Configure a NetFlow, IPFIX, or sFlow collector to enable this map."
+
+  defp map_empty_detail("netflow", :configured_empty),
+    do: "Collector configuration exists, but no recent flow summaries were found."
 
   defp map_empty_detail("netflow", _state),
     do: "Recent flow conversations need GeoIP enrichment or private-network anchors before they can be mapped."

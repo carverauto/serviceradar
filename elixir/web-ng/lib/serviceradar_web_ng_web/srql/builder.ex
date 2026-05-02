@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   # Builder-side safety cap; must be high enough to represent chart queries (e.g. flows downsample uses 4000).
   @max_limit 5000
-  @allowed_filter_ops ["contains", "not_contains", "equals", "not_equals"]
+  @allowed_filter_ops ["contains", "not_contains", "equals", "not_equals", "gt", "gte", "lt", "lte"]
   @allowed_downsample_aggs ["avg", "min", "max", "sum", "count"]
 
   @type state :: map()
@@ -465,7 +465,28 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
   end
 
+  defp build_filter_by_op(field, "gt", values, _array_fields) do
+    build_comparison_token(field, ">", values)
+  end
+
+  defp build_filter_by_op(field, "gte", values, _array_fields) do
+    build_comparison_token(field, ">=", values)
+  end
+
+  defp build_filter_by_op(field, "lt", values, _array_fields) do
+    build_comparison_token(field, "<", values)
+  end
+
+  defp build_filter_by_op(field, "lte", values, _array_fields) do
+    build_comparison_token(field, "<=", values)
+  end
+
   defp build_filter_by_op(_field, _op, _values, _array_fields), do: nil
+
+  defp build_comparison_token(field, op, values) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "#{field}:#{op}#{escape_value(value)}"
+  end
 
   # Expand comma-separated values into individual items (for equals/not_equals only)
   defp expand_comma_values(values) do
@@ -656,6 +677,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
         op = if negated, do: "not_equals", else: "equals"
         {op, inner}
+
+      String.starts_with?(value, ">=") ->
+        {"gte", String.replace_prefix(value, ">=", "")}
+
+      String.starts_with?(value, "<=") ->
+        {"lte", String.replace_prefix(value, "<=", "")}
+
+      String.starts_with?(value, ">") ->
+        {"gt", String.replace_prefix(value, ">", "")}
+
+      String.starts_with?(value, "<") ->
+        {"lt", String.replace_prefix(value, "<", "")}
 
       String.contains?(value, "%") ->
         op = if negated, do: "not_contains", else: "contains"
