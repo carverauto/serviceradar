@@ -78,6 +78,33 @@ data:
         { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
       ]
     }
+  falco_normalize.json: |
+    {
+      "nodes": [
+        { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
+        {
+          "id": "normalizeFalco",
+          "type": "expressionNode",
+          "name": "Normalize Falco Log",
+          "position": { "x": 300, "y": 150 },
+          "content": {
+            "expressions": [
+              { "id": "expr1", "key": "source", "value": "\"falco\"" },
+              { "id": "expr2", "key": "service_name", "value": "\"falco\"" },
+              { "id": "expr3", "key": "body", "value": "output ?? body ?? message ?? \"\"" },
+              { "id": "expr4", "key": "event_name", "value": "rule ?? event_name ?? \"Falco Event\"" },
+              { "id": "expr5", "key": "severity_text", "value": "priority ?? severity_text ?? severity ?? \"INFO\"" },
+              { "id": "expr6", "key": "severity", "value": "priority ?? severity ?? severity_text ?? \"INFO\"" }
+            ]
+          }
+        },
+        { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+      ],
+      "edges": [
+        { "id": "e1", "sourceId": "inputNode", "targetId": "normalizeFalco", "type": "edge" },
+        { "id": "e2", "sourceId": "normalizeFalco", "targetId": "outputNode", "type": "edge" }
+      ]
+    }
   passthrough.json: |
     {
       "nodes": [

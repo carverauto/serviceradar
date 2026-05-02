@@ -526,7 +526,7 @@ data:
         "stream_name": "events",
         "stream_replicas": {{ default 1 .Values.zen.streamReplicas }},
         "consumer_name": "zen-consumer",
-        "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
+        "subjects": ["logs.syslog", "logs.snmp", "logs.otel", "falco.logs"],
         "discover_rules_from_kv": true,
         "decision_groups": [
           {
@@ -546,6 +546,12 @@ data:
             "subjects": ["logs.otel"],
             "rules": [],
             "format": "protobuf"
+          },
+          {
+            "name": "falco",
+            "subjects": ["falco.logs"],
+            "rules": [],
+            "format": "json"
           }
         ],
         "agent_id": "default-agent",
