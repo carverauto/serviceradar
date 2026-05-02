@@ -458,6 +458,15 @@ const DashboardWasmHost = {
       this.pushEvent("dashboard_srql_query", payload)
     }
     const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery})
+    const navigate = (target) => {
+      if (!capabilityAllowed("navigation.open")) {
+        throw new Error("dashboard capability is not approved: navigation.open")
+      }
+
+      const path = this.navigationPath(target)
+      if (!path) return
+      window.location.assign(path)
+    }
 
     return {
       version: "dashboard-browser-module-host-v1",
@@ -471,6 +480,9 @@ const DashboardWasmHost = {
       frame: (id) => resolveFrame(id),
       srql,
       setSrqlQuery: srql.update,
+      navigate,
+      openDevice: (uid) => navigate({type: "device", uid}),
+      openDashboard: (routeSlug) => navigate({type: "dashboard", route_slug: routeSlug}),
       onFrameUpdate: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -505,6 +517,32 @@ const DashboardWasmHost = {
         return () => observer.disconnect()
       },
     }
+  },
+
+  navigationPath(target) {
+    if (typeof target === "string") {
+      const path = target.trim()
+      return path.startsWith("/") ? path : null
+    }
+
+    const type = String(target?.type || "").trim()
+
+    if (type === "device") {
+      const uid = String(target?.uid || target?.device_uid || "").trim()
+      return uid ? `/devices/${encodeURIComponent(uid)}` : null
+    }
+
+    if (type === "dashboard") {
+      const routeSlug = String(target?.route_slug || target?.routeSlug || "").trim()
+      return routeSlug ? `/dashboards/${encodeURIComponent(routeSlug)}` : null
+    }
+
+    if (type === "path") {
+      const path = String(target?.path || "").trim()
+      return path.startsWith("/") ? path : null
+    }
+
+    return null
   },
 
   srqlUrlFor(payload) {
