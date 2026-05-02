@@ -306,9 +306,15 @@ defmodule ServiceRadar.Observability.LogPromotion do
   defp enrich_security_signal_event(event, log) do
     attributes = Map.get(log, :attributes) || %{}
 
-    case get_nested_value(attributes, "event_type") do
-      "waf.finding" -> enrich_waf_finding_event(event, attributes)
-      _ -> event
+    cond do
+      get_nested_value(attributes, "event_type") == "waf.finding" ->
+        enrich_waf_finding_event(event, attributes)
+
+      is_map(get_nested_value(attributes, "falco")) ->
+        enrich_falco_event(event, log, attributes)
+
+      true ->
+        event
     end
   end
 
@@ -359,6 +365,89 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp put_waf_unmapped(unmapped, waf) when is_map(unmapped), do: Map.put(unmapped, :waf, waf)
   defp put_waf_unmapped(_, waf), do: %{waf: waf}
+
+  defp enrich_falco_event(event, log, attributes) do
+    falco = get_nested_value(attributes, "falco") || %{}
+    resource_attributes = Map.get(log, :resource_attributes) || %{}
+    output_fields = get_nested_value(falco, "output_fields") || %{}
+
+    rule = get_nested_value(falco, "rule")
+    priority = get_nested_value(falco, "priority")
+
+    hostname =
+      get_nested_value(resource_attributes, "host.name") ||
+        get_nested_value(output_fields, "hostname") ||
+        Map.get(log, :service_instance)
+
+    namespace =
+      get_nested_value(resource_attributes, "k8s.namespace.name") ||
+        get_nested_value(output_fields, "k8s.ns.name")
+
+    pod =
+      get_nested_value(resource_attributes, "k8s.pod.name") ||
+        get_nested_value(output_fields, "k8s.pod.name")
+
+    container =
+      get_nested_value(resource_attributes, "container.name") ||
+        get_nested_value(output_fields, "container.name")
+
+    container_id =
+      get_nested_value(resource_attributes, "container.id") ||
+        get_nested_value(output_fields, "container.id")
+
+    event
+    |> Map.put(:observables, falco_observables(rule, hostname, namespace, pod, container))
+    |> update_in([:metadata], &put_falco_metadata(&1, falco, rule, priority, hostname))
+    |> update_in(
+      [:unmapped],
+      &put_falco_unmapped(&1, falco, %{
+        "hostname" => hostname,
+        "namespace" => namespace,
+        "pod" => pod,
+        "container" => container,
+        "container_id" => container_id
+      })
+    )
+  end
+
+  defp falco_observables(rule, hostname, namespace, pod, container) do
+    []
+    |> maybe_add_observable(rule, &OCSF.build_observable(&1, "Falco Rule", 99))
+    |> maybe_add_observable(hostname, &OCSF.build_observable(&1, "Hostname", 1))
+    |> maybe_add_observable(namespace, &OCSF.build_observable(&1, "Kubernetes Namespace", 99))
+    |> maybe_add_observable(pod, &OCSF.build_observable(&1, "Kubernetes Pod", 99))
+    |> maybe_add_observable(container, &OCSF.build_observable(&1, "Container Name", 99))
+    |> Enum.reverse()
+  end
+
+  defp put_falco_metadata(metadata, falco, rule, priority, hostname) when is_map(metadata) do
+    signal =
+      %{
+        "kind" => "runtime",
+        "source" => "falco",
+        "rule" => rule,
+        "priority" => priority,
+        "uuid" => get_nested_value(falco, "uuid")
+      }
+      |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+      |> Map.new()
+
+    metadata
+    |> Map.put("rule", rule)
+    |> Map.put("hostname", hostname)
+    |> Map.put("priority", priority)
+    |> Map.put(:security_signal, signal)
+  end
+
+  defp put_falco_metadata(_, falco, rule, priority, hostname) do
+    put_falco_metadata(%{}, falco, rule, priority, hostname)
+  end
+
+  defp put_falco_unmapped(unmapped, falco, context) when is_map(unmapped) do
+    Map.put(unmapped, :falco, Map.merge(falco, context))
+  end
+
+  defp put_falco_unmapped(_, falco, context), do: %{falco: Map.merge(falco, context)}
 
   defp maybe_create_alerts(promotions) do
     {created, attempted} =

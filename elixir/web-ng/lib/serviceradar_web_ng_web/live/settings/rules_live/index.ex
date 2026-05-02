@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias Datasvc.KV
 
   @impl true
   def mount(_params, _session, socket) do
@@ -406,12 +407,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   <%= for rule <- @zen_rules do %>
                     <tr class="hover">
                       <td>
-                        <.link
-                          navigate={~p"/settings/rules/zen/#{rule.id}"}
-                          class="font-mono text-sm link link-primary"
-                        >
-                          {rule.name}
-                        </.link>
+                        <div class="flex items-center gap-2">
+                          <.link
+                            :if={not kv_only_rule?(rule)}
+                            navigate={~p"/settings/rules/zen/#{rule.id}"}
+                            class="font-mono text-sm link link-primary"
+                          >
+                            {rule.name}
+                          </.link>
+                          <span :if={kv_only_rule?(rule)} class="font-mono text-sm">
+                            {rule.name}
+                          </span>
+                          <span :if={kv_only_rule?(rule)} class="badge badge-outline badge-xs">
+                            KV
+                          </span>
+                        </div>
                       </td>
                       <td>
                         <span class="badge badge-ghost badge-sm font-mono">{rule.subject}</span>
@@ -425,6 +435,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                           <input
                             type="checkbox"
                             checked={rule.enabled}
+                            disabled={kv_only_rule?(rule)}
                             phx-click="toggle_zen"
                             phx-value-id={rule.id}
                           />
@@ -435,18 +446,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
                           <.link
+                            :if={not kv_only_rule?(rule)}
                             navigate={~p"/settings/rules/zen/#{rule.id}"}
                             class="btn btn-ghost btn-xs"
                           >
                             <.icon name="hero-pencil-square" class="w-4 h-4" />
                           </.link>
                           <.link
+                            :if={not kv_only_rule?(rule)}
                             navigate={~p"/settings/rules/zen/clone/#{rule.id}"}
                             class="btn btn-ghost btn-xs"
                           >
                             <.icon name="hero-document-duplicate" class="w-4 h-4" />
                           </.link>
                           <button
+                            :if={not kv_only_rule?(rule)}
                             type="button"
                             class="btn btn-ghost btn-xs text-error"
                             phx-click="delete_zen"
@@ -791,12 +805,104 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   end
 
   defp list_zen_rules(scope) do
-    ZenRule
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.sort([:subject, :order, :name])
-    |> Ash.read(scope: scope)
-    |> unwrap_page()
+    db_rules =
+      ZenRule
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.sort([:subject, :order, :name])
+      |> Ash.read(scope: scope)
+      |> unwrap_page()
+
+    db_keys = MapSet.new(db_rules, &zen_rule_key/1)
+
+    kv_rules =
+      "agents/"
+      |> list_kv_zen_rules()
+      |> Enum.reject(&(zen_rule_key(&1) in db_keys))
+
+    (db_rules ++ kv_rules)
+    |> Enum.sort_by(&{&1.subject, &1.order || 0, &1.name})
   end
+
+  defp list_kv_zen_rules(prefix) do
+    with {:ok, keys} <- KV.list_keys(prefix, timeout: 2_000) do
+      index_orders = kv_index_orders(keys)
+
+      keys
+      |> Enum.reject(&String.ends_with?(&1, "/_rules.json"))
+      |> Enum.flat_map(&kv_zen_rule(&1, index_orders))
+    else
+      _ -> []
+    end
+  end
+
+  defp kv_index_orders(keys) do
+    keys
+    |> Enum.filter(&String.ends_with?(&1, "/_rules.json"))
+    |> Enum.reduce(%{}, fn key, acc ->
+      with {:ok, value, _revision} <- KV.get(key, timeout: 2_000),
+           {:ok, decoded} <- Jason.decode(value),
+           [fallback_agent_id, fallback_stream_name, fallback_subject, "_rules.json"] <-
+             parse_kv_rule_key(key),
+           rules when is_list(rules) <- Map.get(decoded, "rules") do
+        agent_id = Map.get(decoded, "agent_id", fallback_agent_id)
+        stream_name = Map.get(decoded, "stream_name", fallback_stream_name)
+        subject = Map.get(decoded, "subject", fallback_subject)
+
+        Enum.reduce(rules, acc, fn rule, orders ->
+          name = Map.get(rule, "key")
+          order = Map.get(rule, "order", 0)
+
+          if is_binary(name) do
+            Map.put(orders, {agent_id, stream_name, subject, name}, order)
+          else
+            orders
+          end
+        end)
+      else
+        _ -> acc
+      end
+    end)
+  end
+
+  defp kv_zen_rule(key, index_orders) do
+    with [agent_id, stream_name, subject, filename] <- parse_kv_rule_key(key),
+         name <- Path.basename(filename, ".json"),
+         {:ok, value, revision} <- KV.get(key, timeout: 2_000),
+         {:ok, compiled_jdm} <- Jason.decode(value) do
+      [
+        %{
+          id: "kv:" <> Base.url_encode64(key, padding: false),
+          name: name,
+          description: "Runtime rule loaded from KV",
+          enabled: true,
+          order: Map.get(index_orders, {agent_id, stream_name, subject, name}, 0),
+          stream_name: stream_name,
+          subject: subject,
+          template: name,
+          compiled_jdm: compiled_jdm,
+          kv_revision: revision,
+          agent_id: agent_id,
+          kv_only?: true
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp parse_kv_rule_key(key) do
+    case String.split(key, "/", parts: 5) do
+      ["agents", agent_id, stream_name, subject, filename] ->
+        [agent_id, stream_name, subject, filename]
+
+      _ ->
+        :error
+    end
+  end
+
+  defp zen_rule_key(rule), do: {rule.agent_id, rule.stream_name, rule.subject, rule.name}
+  defp kv_only_rule?(%{kv_only?: true}), do: true
+  defp kv_only_rule?(_rule), do: false
 
   defp list_event_rules(scope) do
     EventRule
@@ -844,8 +950,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     merged_form = Map.merge(default_stateful_rule_form(), params)
 
     with {:ok, group_by} <- parse_group_by(merged_form["group_by"]),
-         {:ok, cooldown_seconds} <- parse_positive_int(merged_form["cooldown_seconds"], "Cooldown"),
-         {:ok, renotify_seconds} <- parse_non_negative_int(merged_form["renotify_seconds"], "Renotify") do
+         {:ok, cooldown_seconds} <-
+           parse_positive_int(merged_form["cooldown_seconds"], "Cooldown"),
+         {:ok, renotify_seconds} <-
+           parse_non_negative_int(merged_form["renotify_seconds"], "Renotify") do
       {:ok,
        %{
          enabled: merged_form["enabled"] != "false",
@@ -898,8 +1006,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   defp format_error(reason), do: inspect(reason)
 
   # Component to display match conditions summary
-  attr :match, :map, default: nil
-  attr :rule, :map, required: true
+  attr(:match, :map, default: nil)
+  attr(:rule, :map, required: true)
 
   defp event_rule_source(assigns) do
     %{rule: rule} = assigns
@@ -917,7 +1025,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     """
   end
 
-  attr :source, :map, default: %{}
+  attr(:source, :map, default: %{})
 
   defp metric_rule_summary(assigns) do
     metric = source_value(assigns.source, "metric") || "metric"
