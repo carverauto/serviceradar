@@ -74,6 +74,32 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
   end
 
   defp migrations_ready? do
+    case migration_marker_status() do
+      :ok ->
+        :ok
+
+      {:error, :pending_migrations} ->
+        {:error, :pending_migrations}
+
+      :unknown ->
+        repo_migrations_ready?()
+    end
+  end
+
+  defp migration_marker_status do
+    case System.get_env("SERVICERADAR_MIGRATIONS_MARKER_PATH") do
+      nil ->
+        :unknown
+
+      "" ->
+        :unknown
+
+      path ->
+        if File.regular?(path), do: :ok, else: {:error, :pending_migrations}
+    end
+  end
+
+  defp repo_migrations_ready? do
     case Process.whereis(ServiceRadar.Repo) do
       nil ->
         {:error, {:repo_unavailable, :repo_down}}

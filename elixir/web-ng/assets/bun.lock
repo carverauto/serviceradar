@@ -8,6 +8,7 @@
         "@deck.gl/aggregation-layers": "^9.2.9",
         "@deck.gl/core": "^9.2.2",
         "@deck.gl/layers": "^9.2.2",
+        "@deck.gl/mapbox": "^9.2.9",
         "@deck.gl/mesh-layers": "^9.2.9",
         "@gorules/jdm-editor": "^1.50.4",
         "@loaders.gl/core": "^4.3.4",
@@ -76,6 +77,8 @@
     "@deck.gl/core": ["@deck.gl/core@9.2.7", "", { "dependencies": { "@loaders.gl/core": "^4.3.4", "@loaders.gl/images": "^4.3.4", "@luma.gl/constants": "^9.2.6", "@luma.gl/core": "^9.2.6", "@luma.gl/engine": "^9.2.6", "@luma.gl/shadertools": "^9.2.6", "@luma.gl/webgl": "^9.2.6", "@math.gl/core": "^4.1.0", "@math.gl/sun": "^4.1.0", "@math.gl/types": "^4.1.0", "@math.gl/web-mercator": "^4.1.0", "@probe.gl/env": "^4.1.0", "@probe.gl/log": "^4.1.0", "@probe.gl/stats": "^4.1.0", "@types/offscreencanvas": "^2019.6.4", "gl-matrix": "^3.0.0", "mjolnir.js": "^3.0.0" } }, "sha512-mltYFDC2dMtAZPkAaVIadccbM3iy9jjnhLa5obFnWzPtXyc1UBr7OW50Cjy0IlQmAsgDI2BATzcw5a/p4zU8zw=="],
 
     "@deck.gl/layers": ["@deck.gl/layers@9.2.7", "", { "dependencies": { "@loaders.gl/images": "^4.3.4", "@loaders.gl/schema": "^4.3.4", "@luma.gl/shadertools": "^9.2.6", "@mapbox/tiny-sdf": "^2.0.5", "@math.gl/core": "^4.1.0", "@math.gl/polygon": "^4.1.0", "@math.gl/web-mercator": "^4.1.0", "earcut": "^2.2.4" }, "peerDependencies": { "@deck.gl/core": "~9.2.0", "@loaders.gl/core": "^4.3.4", "@luma.gl/core": "~9.2.6", "@luma.gl/engine": "~9.2.6" } }, "sha512-oGRv3s+i+Rq4qQFTfdCBx2S650K4p0gGS/bPYpURCXW0a0LQBHqN8AkKbhdos7b7Lawp1iMwkIggBZSZaNkyXg=="],
+
+    "@deck.gl/mapbox": ["@deck.gl/mapbox@9.3.2", "", { "dependencies": { "@math.gl/web-mercator": "^4.1.0" }, "peerDependencies": { "@deck.gl/core": "~9.3.0", "@luma.gl/core": "~9.3.3" } }, "sha512-+T9pJwsOXwjUxyGN6oiBMfIs28VtDIG1V1Rqz4qqn4TjjNEFFw+xO0olJIg8FO5IAqw2OtePdsrMj0tX8tHdGQ=="],
 
     "@deck.gl/mesh-layers": ["@deck.gl/mesh-layers@9.2.9", "", { "dependencies": { "@loaders.gl/gltf": "^4.3.4", "@loaders.gl/schema": "^4.3.4", "@luma.gl/gltf": "^9.2.6", "@luma.gl/shadertools": "^9.2.6" }, "peerDependencies": { "@deck.gl/core": "~9.2.0", "@luma.gl/core": "~9.2.6", "@luma.gl/engine": "~9.2.6" } }, "sha512-JxsCLZGqczS9RSbdFZQ7o57sTVg7ryMsBoSuGJ/xN829kAsfi4NGirxquv9McuSqWS9ncYaBiZ8Vve6vUDsJyA=="],
 

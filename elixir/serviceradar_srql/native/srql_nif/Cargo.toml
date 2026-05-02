@@ -10,6 +10,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0.89"
+arrow-array = "58"
+arrow-ipc = "58"
+arrow-schema = "58"
 capnp = "0.25.1"
 chrono = "0.4"
 rustler = "0.36.1"

@@ -696,21 +696,16 @@ if config_env() == :prod do
     cloak_key: cloak_key
 
   config :serviceradar_core,
-    mapper_topology_edge_stale_minutes:
-      parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+    mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
   config :serviceradar_core,
     mtr_automation_enabled: mtr_automation_enabled,
-    mtr_automation_baseline_enabled:
-      parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
-    mtr_automation_trigger_enabled:
-      parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
-    mtr_automation_consensus_enabled:
-      parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
+    mtr_automation_baseline_enabled: parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
+    mtr_automation_trigger_enabled: parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
+    mtr_automation_consensus_enabled: parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
 
   config :serviceradar_core,
-    run_startup_migrations:
-      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
   # Status handler for agent-gateway push results (core-elx only)
   config :serviceradar_core,
@@ -782,7 +777,8 @@ if config_env() == :prod do
       Oban.Plugins.Pruner,
       {Oban.Plugins.Cron,
        crontab: [
-         {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+         {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker,
+          queue: :maintenance},
          {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
          {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
        ]}

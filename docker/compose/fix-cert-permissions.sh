@@ -14,9 +14,10 @@ chown -R "${APP_UID}:${APP_GID}" "${CERT_DIR}"
 # Allow other service users to traverse the cert dir (but not list contents).
 find "${CERT_DIR}" -type d -exec chmod 711 {} \;
 
-# Public certs are non-sensitive; private keys stay owner/group readable only
+# Public certs are non-sensitive; private keys stay owner-readable only. libpq
+# rejects non-root-owned private keys when group/world readable.
 find "${CERT_DIR}" -type f -name '*.pem' ! -name '*-key.pem' -exec chmod 644 {} \;
-find "${CERT_DIR}" -type f -name '*-key.pem' -exec chmod 640 {} \;
+find "${CERT_DIR}" -type f -name '*-key.pem' -exec chmod 600 {} \;
 
 # Keep authentication/bootstrap secrets root-only even though certs are shared with runtime users.
 for secret_file in \
@@ -40,4 +41,4 @@ if [ -f "${CERT_DIR}/cnpg-key.pem" ]; then
   echo "  CNPG key: uid 26, mode 600"
 fi
 
-echo "✅ Certificate permissions fixed (uid ${APP_UID}, gid ${APP_GID}, keys 640)"
+echo "✅ Certificate permissions fixed (uid ${APP_UID}, gid ${APP_GID}, keys 600)"

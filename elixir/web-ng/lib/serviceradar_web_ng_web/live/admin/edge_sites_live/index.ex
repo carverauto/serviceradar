@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Edge Sites.")
-       |> redirect(to: ~p"/analytics")}
+       |> redirect(to: ~p"/dashboard")}
     end
   end
 

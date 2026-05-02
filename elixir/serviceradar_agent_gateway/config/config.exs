@@ -5,14 +5,14 @@ config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id, :gateway_id, :partition_id]
 
-# General application configuration
-config :serviceradar_agent_gateway,
-  namespace: ServiceRadarAgentGateway
-
 config :serviceradar_agent_gateway, :metrics,
   enabled: true,
   ip: {0, 0, 0, 0},
   port: 9090
+
+# General application configuration
+config :serviceradar_agent_gateway,
+  namespace: ServiceRadarAgentGateway
 
 config :serviceradar_core,
   ash_domains: [
@@ -25,6 +25,7 @@ config :serviceradar_core,
     ServiceRadar.Integrations,
     ServiceRadar.Jobs,
     ServiceRadar.AgentConfig,
+    ServiceRadar.Dashboards,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,

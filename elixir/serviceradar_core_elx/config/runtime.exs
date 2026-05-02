@@ -654,7 +654,8 @@ if config_env() == :prod do
 
   extra_cron_entries = [
     {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+    {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker,
+     queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
     {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
   ]

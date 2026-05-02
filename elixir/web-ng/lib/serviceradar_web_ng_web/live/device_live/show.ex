@@ -143,6 +143,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:mtr_traces, [])
      |> assign(:mtr_pending_jobs, [])
      |> assign(:mtr_trends, %{hops: [], latency: []})
+     |> assign(:has_mtr, false)
      |> assign(:show_mtr_trace_modal, false)
      |> assign(:selected_mtr_trace, nil)
      |> assign(:selected_mtr_hops, [])
@@ -373,7 +374,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       resolve_active_tab(
         requested_tab,
         socket.assigns.has_ifaces,
-        socket.assigns.has_flows
+        socket.assigns.has_flows,
+        socket.assigns.has_mtr
       )
 
     srql = srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
@@ -586,7 +588,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       has_ifaces = Map.get(supplemental_assigns, :has_ifaces, false)
       has_flows = Map.get(supplemental_assigns, :has_flows, false)
-      active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows)
+      has_mtr = Map.get(supplemental_assigns, :has_mtr, false)
+      active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows, has_mtr)
       srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
       {:noreply,
@@ -700,13 +703,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         Map.get(parallel_results, :has_ifaces, false)
       )
 
-    has_flows =
-      determine_has_flows(
-        load_flows_data?,
-        flows_error,
-        device_flows,
-        Map.get(parallel_results, :has_flows, false)
-      )
+      has_flows =
+        determine_has_flows(
+          load_flows_data?,
+          flows_error,
+          device_flows,
+          Map.get(parallel_results, :has_flows, false)
+        )
+
+    has_mtr = detect_has_mtr(scope, uid, device_ip)
 
     {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
 
@@ -737,7 +742,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       process_metrics: Map.get(parallel_results, :process, []),
       sysmon_presence: sysmon_presence,
       has_ifaces: has_ifaces,
-      has_flows: has_flows
+      has_flows: has_flows,
+      has_mtr: has_mtr
     }
   end
 
@@ -917,9 +923,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp resolve_active_tab("interfaces", false, _has_flows), do: "details"
-  defp resolve_active_tab("flows", _has_ifaces, false), do: "details"
-  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows), do: requested_tab
+  defp resolve_active_tab("interfaces", false, _has_flows, _has_mtr), do: "details"
+  defp resolve_active_tab("flows", _has_ifaces, false, _has_mtr), do: "details"
+  defp resolve_active_tab("mtr", _has_ifaces, _has_flows, false), do: "details"
+  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_mtr), do: requested_tab
 
   @impl true
   def handle_event("srql_change", %{"q" => q}, socket) do
@@ -1201,6 +1208,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    tab =
+      resolve_active_tab(
+        tab,
+        socket.assigns.has_ifaces,
+        socket.assigns.has_flows,
+        socket.assigns.has_mtr
+      )
+
     srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
 
     # Update URL with tab parameter for shareable/bookmarkable links
@@ -3305,6 +3320,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
             </button>
             <button
+              :if={@has_mtr}
               type="button"
               phx-click="switch_tab"
               phx-value-tab="mtr"
@@ -7868,6 +7884,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:mtr_pending_jobs, pending_jobs)
       |> assign(:mtr_trends, MtrData.build_trends(traces))
     end
+  end
+
+  defp detect_has_mtr(scope, device_uid, device_ip) do
+    traces? =
+      case MtrData.list_traces(device_uid: device_uid, device_ip: device_ip, limit: 1) do
+        {:ok, [_ | _]} -> true
+        _ -> false
+      end
+
+    pending? =
+      case MtrData.list_pending_jobs(scope, device_uid: device_uid, device_ip: device_ip) do
+        {:ok, [_ | _]} -> true
+        _ -> false
+      end
+
+    traces? or pending?
+  rescue
+    _ -> false
   end
 
   defp format_mtr_time(nil), do: "-"

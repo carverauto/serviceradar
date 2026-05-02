@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Plugins.")
-       |> redirect(to: ~p"/analytics")}
+       |> redirect(to: ~p"/dashboard")}
     end
   end
 

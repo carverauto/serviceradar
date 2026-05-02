@@ -17,7 +17,12 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path="/settings/profile"
+      page_title="Settings"
+    >
       <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Account Settings</h1>

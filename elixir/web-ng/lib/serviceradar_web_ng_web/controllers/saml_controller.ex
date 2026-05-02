@@ -688,7 +688,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         _ = UserAuthEvents.record_login(conn, user, :saml)
 
         # Determine redirect destination
-        return_to = relay_state || ~p"/analytics"
+        return_to = relay_state || ~p"/dashboard"
 
         conn
         |> put_flash(:info, "Signed in successfully via SAML.")

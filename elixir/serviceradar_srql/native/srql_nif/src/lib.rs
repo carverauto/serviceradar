@@ -1,3 +1,6 @@
+use arrow_array::{ArrayRef, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray};
+use arrow_ipc::writer::FileWriter;
+use arrow_schema::{DataType, Field, Schema};
 use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize;
 use chrono::{TimeZone, Utc};
@@ -6,6 +9,7 @@ use serde_json::{Map, Value};
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
+use std::sync::Arc;
 
 mod atoms {
     rustler::atoms! {
@@ -67,6 +71,164 @@ fn translate(
             format!("failed to encode SRQL translation: {err}"),
         )
             .encode(env),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ColumnKind {
+    Bool,
+    Int64,
+    Float64,
+    Utf8,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn encode_arrow_json<'a>(env: Env<'a>, columns: Vec<String>, rows_json: String) -> Term<'a> {
+    match encode_arrow_json_impl(env, columns, rows_json) {
+        Ok(binary) => (atoms::ok(), binary).encode(env),
+        Err(err) => (atoms::error(), err).encode(env),
+    }
+}
+
+fn encode_arrow_json_impl<'a>(
+    env: Env<'a>,
+    columns: Vec<String>,
+    rows_json: String,
+) -> Result<Binary<'a>, String> {
+    let rows: Vec<Value> =
+        serde_json::from_str(&rows_json).map_err(|err| format!("invalid rows JSON: {err}"))?;
+
+    let column_kinds = columns
+        .iter()
+        .map(|column| infer_column_kind(column, &rows))
+        .collect::<Vec<_>>();
+
+    let fields = columns
+        .iter()
+        .zip(column_kinds.iter())
+        .map(|(column, kind)| Field::new(column, data_type_for(*kind), true))
+        .collect::<Vec<_>>();
+
+    let schema = Arc::new(Schema::new(fields));
+    let arrays = columns
+        .iter()
+        .zip(column_kinds.iter())
+        .map(|(column, kind)| build_array(column, *kind, &rows))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let batch = RecordBatch::try_new(Arc::clone(&schema), arrays)
+        .map_err(|err| format!("failed to build Arrow record batch: {err}"))?;
+
+    let mut payload = Vec::new();
+    {
+        let mut writer = FileWriter::try_new(&mut payload, &schema)
+            .map_err(|err| format!("failed to create Arrow writer: {err}"))?;
+        writer
+            .write(&batch)
+            .map_err(|err| format!("failed to write Arrow batch: {err}"))?;
+        writer
+            .finish()
+            .map_err(|err| format!("failed to finish Arrow payload: {err}"))?;
+    }
+
+    let mut out = OwnedBinary::new(payload.len()).ok_or("failed to allocate Arrow payload")?;
+    out.as_mut_slice().copy_from_slice(&payload);
+
+    Ok(Binary::from_owned(out, env))
+}
+
+fn infer_column_kind(column: &str, rows: &[Value]) -> ColumnKind {
+    let mut kind: Option<ColumnKind> = None;
+
+    for row in rows {
+        let Some(value) = row.get(column) else {
+            continue;
+        };
+
+        let Some(value_kind) = value_kind(value) else {
+            continue;
+        };
+
+        kind = Some(match (kind, value_kind) {
+            (None, next) => next,
+            (Some(ColumnKind::Utf8), _) | (_, ColumnKind::Utf8) => ColumnKind::Utf8,
+            (Some(ColumnKind::Float64), _) | (_, ColumnKind::Float64) => ColumnKind::Float64,
+            (Some(ColumnKind::Int64), ColumnKind::Int64) => ColumnKind::Int64,
+            (Some(ColumnKind::Bool), ColumnKind::Bool) => ColumnKind::Bool,
+            _ => ColumnKind::Utf8,
+        });
+    }
+
+    kind.unwrap_or(ColumnKind::Utf8)
+}
+
+fn value_kind(value: &Value) -> Option<ColumnKind> {
+    match value {
+        Value::Null => None,
+        Value::Bool(_) => Some(ColumnKind::Bool),
+        Value::Number(number) if number.is_i64() || number.is_u64() => Some(ColumnKind::Int64),
+        Value::Number(_) => Some(ColumnKind::Float64),
+        Value::String(_) => Some(ColumnKind::Utf8),
+        Value::Array(_) | Value::Object(_) => Some(ColumnKind::Utf8),
+    }
+}
+
+fn data_type_for(kind: ColumnKind) -> DataType {
+    match kind {
+        ColumnKind::Bool => DataType::Boolean,
+        ColumnKind::Int64 => DataType::Int64,
+        ColumnKind::Float64 => DataType::Float64,
+        ColumnKind::Utf8 => DataType::Utf8,
+    }
+}
+
+fn build_array(column: &str, kind: ColumnKind, rows: &[Value]) -> Result<ArrayRef, String> {
+    match kind {
+        ColumnKind::Bool => Ok(Arc::new(BooleanArray::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(Value::as_bool))
+                .collect::<Vec<_>>(),
+        ))),
+        ColumnKind::Int64 => Ok(Arc::new(Int64Array::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_i64))
+                .collect::<Vec<_>>(),
+        ))),
+        ColumnKind::Float64 => Ok(Arc::new(Float64Array::from(
+            rows.iter()
+                .map(|row| row.get(column).and_then(value_as_f64))
+                .collect::<Vec<_>>(),
+        ))),
+        ColumnKind::Utf8 => {
+            let values = rows
+                .iter()
+                .map(|row| row.get(column).and_then(value_as_string))
+                .collect::<Vec<_>>();
+
+            Ok(Arc::new(StringArray::from(values)))
+        }
+    }
+}
+
+fn value_as_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|v| i64::try_from(v).ok()))
+}
+
+fn value_as_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value_as_i64(value).map(|v| v as f64))
+}
+
+fn value_as_string(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(value) => Some(value.clone()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Array(_) | Value::Object(_) => Some(value.to_string()),
     }
 }
 

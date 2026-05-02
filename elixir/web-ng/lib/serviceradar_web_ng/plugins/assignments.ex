@@ -60,6 +60,8 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
     attrs = drop_nil_values(attrs)
 
     schema = fetch_config_schema(attrs, scope)
@@ -68,7 +70,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     PluginAssignment
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.Changeset.set_context(%{config_schema: schema})
-    |> create_resource(scope)
+    |> create_resource_with_opts(ash_opts)
     |> maybe_sync_assignment_service_state()
     |> maybe_redact_assignment()
   end
@@ -80,6 +82,8 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
     attrs = drop_nil_values(attrs)
 
     with {:ok, assignment} <- get_raw(id, scope: scope) do
@@ -89,7 +93,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       assignment
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.Changeset.set_context(%{config_schema: schema})
-      |> update_resource(scope)
+      |> update_resource_with_opts(ash_opts)
       |> maybe_sync_assignment_service_state()
       |> maybe_redact_assignment()
     end
@@ -102,12 +106,14 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   def delete(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
 
     with {:ok, assignment} <- get(id, scope: scope) do
       result =
         assignment
         |> Ash.Changeset.for_destroy(:destroy)
-        |> destroy_resource(scope)
+        |> destroy_resource_with_opts(ash_opts)
 
       case result do
         :ok ->
@@ -159,14 +165,42 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     |> Ash.read_one(scope: scope)
   end
 
-  defp create_resource(changeset, nil), do: Ash.create(changeset)
-  defp create_resource(changeset, scope), do: Ash.create(changeset, scope: scope)
+  defp create_resource_with_opts(changeset, opts) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
 
-  defp update_resource(changeset, nil), do: Ash.update(changeset)
-  defp update_resource(changeset, scope), do: Ash.update(changeset, scope: scope)
+    cond do
+      not is_nil(scope) -> Ash.create(changeset, scope: scope)
+      not is_nil(actor) -> Ash.create(changeset, actor: actor)
+      true -> Ash.create(changeset)
+    end
+  end
 
-  defp destroy_resource(changeset, nil), do: Ash.destroy(changeset)
-  defp destroy_resource(changeset, scope), do: Ash.destroy(changeset, scope: scope)
+  defp update_resource_with_opts(changeset, opts) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    cond do
+      not is_nil(scope) -> Ash.update(changeset, scope: scope)
+      not is_nil(actor) -> Ash.update(changeset, actor: actor)
+      true -> Ash.update(changeset)
+    end
+  end
+
+  defp destroy_resource_with_opts(changeset, opts) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    cond do
+      not is_nil(scope) -> Ash.destroy(changeset, scope: scope)
+      not is_nil(actor) -> Ash.destroy(changeset, actor: actor)
+      true -> Ash.destroy(changeset)
+    end
+  end
+
+  defp ash_opts(scope, _actor) when not is_nil(scope), do: [scope: scope]
+  defp ash_opts(_scope, actor) when not is_nil(actor), do: [actor: actor]
+  defp ash_opts(_scope, _actor), do: []
 
   defp maybe_filter_agent_uid(query, filters) do
     agent_uid = Map.get(filters, :agent_uid) || Map.get(filters, "agent_uid")

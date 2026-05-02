@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.ObanResolver do
 
   @impl true
   def resolve_access(scope) do
-    if admin_access?(scope), do: :all, else: {:forbidden, "/analytics"}
+    if admin_access?(scope), do: :all, else: {:forbidden, "/dashboard"}
   end
 
   @impl true

@@ -12,8 +12,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "[data-testid='operations-dashboard']")
     assert has_element?(view, "a[aria-current='page'][href='/dashboard']")
     assert has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
-    assert has_element?(view, "select[name='map_view']", "Topology + Traffic")
+    assert has_element?(view, "select[name='map_view']", "NetFlow Map")
+    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
+  end
+
+  test "dashboard falls back to NetFlow for unsupported map modes", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboard")
+
+    html = render_hook(view, "select_map_view", %{"map_view" => "unsupported"})
+
+    assert html =~ "NetFlow Map"
+    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
   end
 
   test "renders honest empty states for feeds that are not implemented yet", %{conn: conn} do

@@ -139,6 +139,7 @@ mod timeseries_metrics;
 mod trace_summaries;
 mod traces;
 mod viz;
+mod wifi_map;
 
 use crate::{
     config::AppConfig,
@@ -221,6 +222,13 @@ impl QueryEngine {
                 | Entity::FieldSurveySpectrumObservations => {
                     field_survey::execute(&mut conn, &plan).await?
                 }
+                Entity::WifiSites
+                | Entity::WifiSiteSnapshots
+                | Entity::WifiAccessPoints
+                | Entity::WifiControllers
+                | Entity::WifiRadiusGroups
+                | Entity::WifiFleetHistory
+                | Entity::WifiSiteReferences => wifi_map::execute(&mut conn, &plan).await?,
                 Entity::Flows => flows::execute(&mut conn, &plan).await?,
                 Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
@@ -749,6 +757,13 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::FieldSurveyPoseSamples
             | Entity::FieldSurveyRfPoseMatches
             | Entity::FieldSurveySpectrumObservations => field_survey::to_sql_and_params(&plan)?,
+            Entity::WifiSites
+            | Entity::WifiSiteSnapshots
+            | Entity::WifiAccessPoints
+            | Entity::WifiControllers
+            | Entity::WifiRadiusGroups
+            | Entity::WifiFleetHistory
+            | Entity::WifiSiteReferences => wifi_map::to_sql_and_params(&plan)?,
             Entity::Flows => flows::to_sql_and_params(&plan)?,
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,

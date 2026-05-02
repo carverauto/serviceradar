@@ -9,28 +9,29 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
 
+  @frame_src if Mix.env() == :dev, do: "'self'", else: "'none'"
   @csp "default-src 'self'; " <>
-         "script-src 'self' blob:; " <>
+         "script-src 'self' blob: 'wasm-unsafe-eval'; " <>
          "style-src 'self' 'unsafe-inline'; " <>
-         "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com; " <>
+         "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; " <>
          "font-src 'self' data:; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
          "child-src blob:; " <>
-         "frame-src 'none'; " <>
+         "frame-src #{@frame_src}; " <>
          "object-src 'none'; " <>
          "base-uri 'self'; " <>
          "form-action 'self'"
 
   @api_docs_csp "default-src 'self'; " <>
-                  "script-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; " <>
+                  "script-src 'self' blob: 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; " <>
                   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " <>
                   "img-src 'self' data: https:; " <>
                   "font-src 'self' data: https://fonts.gstatic.com; " <>
                   "connect-src 'self' https: wss:; " <>
                   "worker-src 'self' blob:; " <>
                   "child-src blob:; " <>
-                  "frame-src 'none'; " <>
+                  "frame-src #{@frame_src}; " <>
                   "object-src 'none'; " <>
                   "base-uri 'self'; " <>
                   "form-action 'self'"
@@ -55,7 +56,6 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :browser_raw_auth do
     plug(:fetch_session)
     plug(:fetch_live_flash)
-    plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
@@ -445,6 +445,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/topology/snapshot/latest", TopologySnapshotController, :show)
     get("/god_view_exec.wasm", WasmAssetController, :plain)
     get("/god_view_exec-:digest", WasmAssetController, :hashed)
+    get("/dashboard-packages/:id/renderer", DashboardPackageAssetController, :show)
+    get("/dashboard-packages/:id/renderer.wasm", DashboardPackageAssetController, :show)
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -455,13 +457,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
-
+    get("/analytics", PageController, :redirect_to_dashboard)
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
       ] do
       live("/dashboard", DashboardLive.Index, :index)
-      live("/analytics", AnalyticsLive.Index, :index)
+      live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
@@ -493,6 +495,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
+      live("/netflow-map", MapLive.NetflowMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
 
@@ -556,6 +559,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/agents/plugins", Admin.PluginPackageLive.Index, :index)
       live("/settings/agents/plugins/new", Admin.PluginPackageLive.Index, :new)
       live("/settings/agents/plugins/:id", Admin.PluginPackageLive.Index, :show)
+      live("/settings/dashboards/packages", Admin.DashboardPackageLive.Index, :index)
+      live("/settings/dashboards/packages/new", Admin.DashboardPackageLive.Index, :new)
+      live("/settings/dashboards/packages/:id", Admin.DashboardPackageLive.Index, :show)
 
       # Zen Rule Editor - visual JDM editor for rule logic
       live("/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new)
