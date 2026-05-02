@@ -615,7 +615,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path="/settings/networks/integrations"
+      page_title={@page_title}
+    >
       <.settings_shell current_path="/settings/networks/integrations">
         <.settings_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
         <.network_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
@@ -832,7 +837,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div>
               <div class="text-sm font-semibold">Mapbox</div>
               <p class="text-xs text-base-content/60">
-                Configure the Mapbox token and map style used for flow details maps.
+                Configure the Mapbox token and map styles used for flow maps and dashboard packages.
               </p>
             </div>
           </:header>

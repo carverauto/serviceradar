@@ -114,7 +114,13 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
 
   defp password_form(assigns) do
     ~H"""
-    <.form for={@form} action={~p"/auth/sign-in"} method="post" class="space-y-4">
+    <.form
+      for={@form}
+      action={~p"/auth/sign-in"}
+      method="post"
+      class="space-y-4"
+      data-disable-on-submit="true"
+    >
       <div class="form-control w-full">
         <label class="label" for="user_email">
           <span class="label-text">Email</span>
@@ -146,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
       </div>
 
       <div class="form-control">
-        <button type="submit" class="btn btn-primary w-full">
+        <button type="submit" class="btn btn-primary w-full" data-submit-label="Signing in...">
           Sign in
         </button>
       </div>

@@ -54,6 +54,69 @@ function looksLikeMapboxPublicToken(token) {
   return /^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(String(token || "").trim())
 }
 
+function shouldUseMapbox(mapbox) {
+  return looksLikeMapboxPublicToken(mapbox?.access_token)
+}
+
+function createSrqlApi({frames, pushQuery}) {
+  const currentQuery = (frameId = "sites") => {
+    const preferred = frames.find((frame) => String(frame?.id || "") === String(frameId || ""))
+    return preferred?.query || frames[0]?.query || ""
+  }
+  const update = (query, frameQueries = {}) => pushQuery(query, frameQueries)
+  const api = Object.assign(() => ({query: currentQuery()}), {
+    query: currentQuery,
+    update,
+    updateQuery: update,
+    setQuery: update,
+    escapeValue: srqlValue,
+    list: (values) => `(${Array.from(values || []).map(srqlValue).join(",")})`,
+    build: buildSrqlQuery,
+  })
+
+  return api
+}
+
+function buildSrqlQuery(options = {}) {
+  const entity = String(options.entity || "devices").trim()
+  const tokens = [`in:${entity || "devices"}`]
+  const search = String(options.search || "").trim()
+  const searchField = String(options.searchField || "").trim()
+
+  if (search && searchField) tokens.push(`${searchField}:%${srqlValue(search)}%`)
+  appendSrqlFilters(tokens, options.include)
+
+  for (const [field, values] of Object.entries(options.exclude || {})) {
+    const list = Array.from(values || []).filter(Boolean)
+    if (field && list.length > 0) tokens.push(`!${field}:${apiSrqlList(list)}`)
+  }
+
+  for (const clause of Array.from(options.where || [])) {
+    const text = String(clause || "").trim()
+    if (text) tokens.push(text)
+  }
+
+  const limit = Number(options.limit)
+  if (Number.isInteger(limit) && limit > 0) tokens.push(`limit:${limit}`)
+
+  return tokens.join(" ")
+}
+
+function appendSrqlFilters(tokens, filters) {
+  for (const [field, values] of Object.entries(filters || {})) {
+    const list = Array.from(values || []).filter(Boolean)
+    if (field && list.length > 0) tokens.push(`${field}:${apiSrqlList(list)}`)
+  }
+}
+
+function apiSrqlList(values) {
+  return `(${Array.from(values || []).map(srqlValue).join(",")})`
+}
+
+function srqlValue(value) {
+  return String(value || "").trim().replace(/\s+/g, "\\ ")
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -179,6 +242,7 @@ const DashboardWasmHost = {
   mounted() {
     this.cancelled = false
     this._frameUpdateCallbacks = []
+    this._hostPayloadSignature = null
     this._onResize = () => this.resizeMap()
     this._onThemeChange = () => this.applyThemeStyle()
     window.addEventListener("resize", this._onResize)
@@ -194,6 +258,57 @@ const DashboardWasmHost = {
     })
 
     this.boot()
+  },
+
+  updated() {
+    const signature = this.el.dataset.host || ""
+    if (!signature || signature === this._hostPayloadSignature) return
+
+    const nextHost = this.readHostPayload()
+    if (nextHost && this.updateBrowserModuleHost(nextHost, signature)) return
+
+    this.cancelled = true
+
+    try {
+      this._moduleDestroy?.()
+    } catch (_error) {}
+
+    this.disconnectFrameStream()
+    this.teardownMap()
+    this._frameUpdateCallbacks = []
+    this._moduleDestroy = null
+    this._wasmContext = null
+    this._wasmInstance = null
+    this._host = null
+    this.cancelled = false
+    this.boot()
+  },
+
+  updateBrowserModuleHost(nextHost, signature) {
+    if (!this._host || this.rendererKind(this._host) !== "browser_module" || this.rendererKind(nextHost) !== "browser_module") {
+      return false
+    }
+
+    const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
+    const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
+    if (!currentUrl || currentUrl !== nextUrl) return false
+
+    const currentFrames = Array.isArray(this._host.package?.frames) ? this._host.package.frames : []
+    const nextFrames = Array.isArray(nextHost.package?.frames) ? nextHost.package.frames : []
+    currentFrames.splice(0, currentFrames.length, ...nextFrames)
+
+    this._host = {
+      ...this._host,
+      ...nextHost,
+      package: {
+        ...(this._host.package || {}),
+        ...(nextHost.package || {}),
+        frames: currentFrames,
+      },
+    }
+    this._hostPayloadSignature = signature
+    this.notifyFrameUpdate({frames: currentFrames, host_update: true})
+    return true
   },
 
   destroyed() {
@@ -215,6 +330,7 @@ const DashboardWasmHost = {
   async boot() {
     const host = this.readHostPayload()
     if (!host) return
+    this._hostPayloadSignature = this.el.dataset.host || ""
 
     this.renderState("loading", "Loading dashboard renderer")
 
@@ -327,6 +443,21 @@ const DashboardWasmHost = {
 
       return new Uint8Array()
     }
+    const pushSrqlQuery = (query, frameQueries = {}) => {
+      const payload = {q: String(query || "")}
+
+      if (frameQueries && typeof frameQueries === "object") {
+        for (const [id, value] of Object.entries(frameQueries)) {
+          const frameId = String(id || "").trim()
+          const frameQuery = String(value || "").trim()
+          if (frameId && frameQuery) payload[`frame_${frameId}`] = frameQuery
+        }
+      }
+
+      this.updateVisibleSrqlQuery(payload.q)
+      this.pushEvent("dashboard_srql_query", payload)
+    }
+    const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery})
 
     return {
       version: "dashboard-browser-module-host-v1",
@@ -338,6 +469,8 @@ const DashboardWasmHost = {
       isDarkMode: () => this.isDarkMode(),
       frames: () => frames,
       frame: (id) => resolveFrame(id),
+      srql,
+      setSrqlQuery: srql.update,
       onFrameUpdate: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -372,6 +505,35 @@ const DashboardWasmHost = {
         return () => observer.disconnect()
       },
     }
+  },
+
+  srqlUrlFor(payload) {
+    const url = new URL(window.location.href)
+
+    url.searchParams.delete("_probe")
+    url.searchParams.delete("q")
+
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (key.startsWith("frame_")) url.searchParams.delete(key)
+    }
+
+    if (payload.q) url.searchParams.set("q", payload.q)
+
+    for (const [key, value] of Object.entries(payload)) {
+      if (key.startsWith("frame_") && value) url.searchParams.set(key, value)
+    }
+
+    return url
+  },
+
+  currentSrqlUrlMatches(nextUrl) {
+    const current = new URL(window.location.href)
+    return current.pathname === nextUrl.pathname && current.search === nextUrl.search
+  },
+
+  updateVisibleSrqlQuery(query) {
+    const input = document.querySelector("#srql-query-bar input[name='q']")
+    if (input instanceof HTMLInputElement) input.value = String(query || "")
   },
 
   connectFrameStream(host) {
@@ -699,7 +861,7 @@ const DashboardWasmHost = {
 
   createMap() {
     const mapbox = this._host?.mapbox || {}
-    const useMapbox = Boolean(mapbox.enabled) && looksLikeMapboxPublicToken(mapbox.access_token)
+    const useMapbox = shouldUseMapbox(mapbox)
     const style = this.currentStyle(useMapbox)
     const initialViewState = this.initialViewState()
 
@@ -1127,29 +1289,48 @@ const DashboardWasmHost = {
 
   currentStyle(useMapbox = null) {
     const mapbox = this._host?.mapbox || {}
-    const enabled = useMapbox === null ? Boolean(mapbox.enabled) && looksLikeMapboxPublicToken(mapbox.access_token) : useMapbox
+    const enabled = useMapbox === null ? shouldUseMapbox(mapbox) : useMapbox
     if (!enabled) return rasterStyle(this.isDarkMode())
     return this.isDarkMode() ? mapbox.style_dark || DEFAULT_DARK_STYLE : mapbox.style_light || DEFAULT_LIGHT_STYLE
   },
 
   currentStyleId(useMapbox = null) {
     const mapbox = this._host?.mapbox || {}
-    const enabled = useMapbox === null ? Boolean(mapbox.enabled) && looksLikeMapboxPublicToken(mapbox.access_token) : useMapbox
+    const enabled = useMapbox === null ? shouldUseMapbox(mapbox) : useMapbox
     if (!enabled) return `${OSM_STYLE_ID}-${this.isDarkMode() ? "dark" : "light"}`
     return this.isDarkMode() ? mapbox.style_dark || DEFAULT_DARK_STYLE : mapbox.style_light || DEFAULT_LIGHT_STYLE
   },
 
   isDarkMode() {
-    const theme =
-      document.documentElement.getAttribute("data-theme") || document.body?.getAttribute?.("data-theme") || ""
-
-    if (String(theme).toLowerCase() === "dark") return true
-    if (String(theme).toLowerCase() === "light") return false
-
     try {
       const colorScheme = window.getComputedStyle(document.documentElement).colorScheme
-      if (colorScheme.includes("dark")) return true
-      if (colorScheme.includes("light")) return false
+      if (typeof colorScheme === "string") {
+        if (colorScheme.includes("dark")) return true
+        if (colorScheme.includes("light")) return false
+      }
+    } catch (_error) {}
+
+    const theme =
+      document.documentElement.getAttribute("data-theme") || document.body?.getAttribute?.("data-theme") || ""
+    const normalizedTheme = String(theme || "").toLowerCase().trim()
+
+    if (normalizedTheme === "dark") return true
+    if (normalizedTheme === "light") return false
+
+    try {
+      const background =
+        (document.body && window.getComputedStyle(document.body).backgroundColor) ||
+        window.getComputedStyle(document.documentElement).backgroundColor ||
+        ""
+      const match = String(background).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+
+      if (match) {
+        const red = Number(match[1]) / 255
+        const green = Number(match[2]) / 255
+        const blue = Number(match[3]) / 255
+        const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance < 0.45
+      }
     } catch (_error) {}
 
     return Boolean(window.matchMedia?.("(prefers-color-scheme: dark)")?.matches)

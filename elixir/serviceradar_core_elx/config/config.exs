@@ -38,7 +38,8 @@ config :serviceradar_core,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
-    ServiceRadar.Spatial
+    ServiceRadar.Spatial,
+    ServiceRadar.WifiMap
   ]
 
 config :serviceradar_core_elx, :metrics,

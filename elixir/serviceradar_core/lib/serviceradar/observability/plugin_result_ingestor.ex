@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
+  alias ServiceRadar.WifiMap.BatchIngestor
 
   require Logger
 
@@ -355,6 +356,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp platform_contract_handlers do
     [
       DeviceDiscoveryIngestor,
+      BatchIngestor,
       ThreatIntelPluginIngestor,
       EventIngestor,
       InventoryIngestor

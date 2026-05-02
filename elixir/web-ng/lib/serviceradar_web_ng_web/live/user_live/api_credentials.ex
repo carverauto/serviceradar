@@ -18,7 +18,12 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path="/settings/api-credentials"
+      page_title="Settings"
+    >
       <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
         <div class="flex justify-between items-center">
           <div>

@@ -8,6 +8,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+
+  @mapbox_public_token_regex ~r/^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
   @impl true
   def mount(%{"route_slug" => route_slug}, _session, socket) do
@@ -22,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:query_text, "")
       |> assign(:frame_query_overrides, %{})
       |> assign(:host_payload_json, "{}")
+      |> assign(:srql, %{enabled: false, page_path: "/dashboards/#{route_slug}"})
 
     {:ok, socket}
   end
@@ -30,12 +35,22 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   def handle_params(%{"route_slug" => route_slug} = params, _uri, socket) do
     overrides = frame_query_overrides(params)
 
+    keep_host_mounted? =
+      connected?(socket) and socket.assigns.load_state == :ready and
+        socket.assigns.route_slug == route_slug
+
     socket =
       socket
       |> assign(:route_slug, route_slug)
       |> assign(:current_path, "/dashboards/#{route_slug}")
       |> assign(:frame_query_overrides, overrides)
-      |> assign(:load_state, :loading)
+
+    socket =
+      if keep_host_mounted? do
+        socket
+      else
+        assign(socket, :load_state, :loading)
+      end
 
     socket =
       if connected?(socket) do
@@ -52,17 +67,54 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   end
 
   @impl true
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    query = params |> Map.get("q", "") |> to_string() |> String.trim()
+    {:noreply, push_dashboard_queries(socket, query, %{})}
+  end
+
+  def handle_event("dashboard_srql_query", params, socket) do
+    query = params |> Map.get("q", "") |> to_string() |> String.trim()
+    frame_queries = params |> frame_query_overrides() |> Map.delete("__first__")
+    {:noreply, push_dashboard_queries(socket, query, frame_queries)}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "wifi_sites", limit_assign_key: :dashboard_limit)}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "wifi_sites")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "wifi_sites")}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    query =
+      socket.assigns
+      |> Map.get(:srql, %{})
+      |> Map.get(:builder, %{})
+      |> SRQLBuilder.build()
+
+    {:noreply, push_dashboard_queries(socket, query, %{})}
+  end
+
   def handle_event("run_query", %{"query" => %{"q" => query}}, socket) do
-    query = String.trim(to_string(query || ""))
-
-    to =
-      if query == "" do
-        ~p"/dashboards/#{socket.assigns.route_slug}"
-      else
-        ~p"/dashboards/#{socket.assigns.route_slug}?#{[q: query]}"
-      end
-
-    {:noreply, push_patch(socket, to: to)}
+    {:noreply, push_dashboard_queries(socket, query, %{})}
   end
 
   @impl true
@@ -80,6 +132,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:package, package)
       |> assign(:page_title, instance.name)
       |> assign(:query_text, first_frame_query(data_frames))
+      |> assign(:dashboard_limit, 500)
+      |> assign_dashboard_srql(first_frame_query(data_frames))
       |> assign(:host_payload_json, Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox)))
 
     {:noreply, socket}
@@ -104,9 +158,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       flash={@flash}
       current_scope={@current_scope}
       current_path={@current_path}
+      page_title={@page_title}
       shell={:operations}
       hide_breadcrumb
-      srql={%{enabled: false, page_path: @current_path}}
+      srql={@srql}
     >
       <div class="min-h-[calc(100vh-5rem)] bg-base-100">
         <div :if={@load_state == :loading} class="flex min-h-[28rem] items-center justify-center">
@@ -134,39 +189,12 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         </div>
 
         <section :if={@load_state == :ready} class="flex min-h-[calc(100vh-5rem)] flex-col">
-          <header class="flex flex-col gap-3 border-b border-base-300 bg-base-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between lg:px-6">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <h1 class="truncate text-base font-semibold">{@instance.name}</h1>
-                <span class="badge badge-outline">{@package.version}</span>
-                <span :if={@package.vendor} class="badge badge-ghost">{@package.vendor}</span>
-              </div>
-              <p class="mt-1 text-xs text-base-content/60">
-                Browser WASM dashboard package
-              </p>
-            </div>
-
-            <div class="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[32rem] sm:flex-row sm:items-center">
-              <.form for={%{}} as={:query} phx-submit="run_query" class="join w-full">
-                <input
-                  type="search"
-                  name="query[q]"
-                  value={@query_text}
-                  class="input input-sm input-bordered join-item w-full font-mono text-xs"
-                  aria-label="Dashboard SRQL query"
-                />
-                <button type="submit" class="btn btn-sm btn-primary join-item">Run</button>
-              </.form>
-              <.link navigate={~p"/dashboard"} class="btn btn-ghost btn-sm">Dashboard</.link>
-            </div>
-          </header>
-
           <div
             id={"dashboard-package-host-#{@instance.id}"}
             phx-hook="DashboardWasmHost"
             phx-update="ignore"
             data-host={@host_payload_json}
-            class="relative min-h-[calc(100vh-10rem)] flex-1 bg-base-100"
+            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-base-100"
           >
             <div class="absolute inset-0 flex items-center justify-center">
               <div class="text-center">
@@ -190,6 +218,64 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       mapbox = read_mapbox(scope)
       {:ok, instance, data_frames, frames, mapbox}
     end
+  end
+
+  defp assign_dashboard_srql(socket, query) do
+    query = to_string(query || "")
+    {builder_supported, builder_sync, builder} = dashboard_builder(query)
+
+    srql = %{
+      enabled: true,
+      placement: :topbar,
+      entity: "wifi_sites",
+      page_path: socket.assigns.current_path,
+      query: query,
+      draft: query,
+      error: nil,
+      loading: false,
+      builder_available: true,
+      builder_open: false,
+      builder_supported: builder_supported,
+      builder_sync: builder_sync,
+      builder: builder
+    }
+
+    assign(socket, :srql, srql)
+  end
+
+  defp dashboard_builder(query) do
+    case SRQLBuilder.parse(query) do
+      {:ok, builder} -> {true, true, builder}
+      {:error, _} -> {false, false, SRQLBuilder.default_state("wifi_sites", 500)}
+    end
+  end
+
+  defp push_dashboard_queries(socket, query, frame_queries) do
+    query = query |> to_string() |> String.trim()
+
+    frame_params =
+      Enum.reduce(frame_queries, %{}, fn {frame_id, frame_query}, acc ->
+        frame_id = frame_id |> to_string() |> String.trim()
+        frame_query = frame_query |> to_string() |> String.trim()
+
+        if frame_id != "" and frame_query != "" do
+          Map.put(acc, "frame_#{frame_id}", frame_query)
+        else
+          acc
+        end
+      end)
+
+    to =
+      if query == "" do
+        case frame_params do
+          params when map_size(params) == 0 -> ~p"/dashboards/#{socket.assigns.route_slug}"
+          params -> ~p"/dashboards/#{socket.assigns.route_slug}?#{params}"
+        end
+      else
+        ~p"/dashboards/#{socket.assigns.route_slug}?#{Map.put(frame_params, "q", query)}"
+      end
+
+    push_patch(socket, to: to)
   end
 
   defp host_payload(%DashboardInstance{} = instance, %DashboardPackage{} = package, data_frames, frames, mapbox) do
@@ -304,11 +390,20 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     _ -> nil
   end
 
-  defp mapbox_enabled?(%MapboxSettings{} = settings), do: settings.enabled
+  defp mapbox_enabled?(%MapboxSettings{} = settings) do
+    settings.enabled || mapbox_public_token?(settings.access_token)
+  end
+
   defp mapbox_enabled?(_), do: false
 
   defp mapbox_access_token(%MapboxSettings{} = settings), do: settings.access_token || ""
   defp mapbox_access_token(_), do: ""
+
+  defp mapbox_public_token?(token) when is_binary(token) do
+    Regex.match?(@mapbox_public_token_regex, String.trim(token))
+  end
+
+  defp mapbox_public_token?(_), do: false
 
   defp mapbox_style_light(%MapboxSettings{} = settings) do
     settings.style_light || "mapbox://styles/mapbox/light-v11"

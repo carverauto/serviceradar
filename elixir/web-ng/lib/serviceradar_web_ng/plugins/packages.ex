@@ -88,6 +88,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def approve(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
 
     with {:ok, package} <- get(id, scope: scope),
          :ok <- enforce_verification_policy(package) do
@@ -98,7 +100,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
       package
       |> Ash.Changeset.for_update(:approve, attrs)
-      |> update_resource(scope)
+      |> update_resource_with_opts(ash_opts)
     end
   end
 
@@ -109,11 +111,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def deny(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
 
     with {:ok, package} <- get(id, scope: scope) do
       package
       |> Ash.Changeset.for_update(:deny, attrs)
-      |> update_resource(scope)
+      |> update_resource_with_opts(ash_opts)
     end
   end
 
@@ -124,11 +128,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def revoke(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
 
     with {:ok, package} <- get(id, scope: scope) do
       package
       |> Ash.Changeset.for_update(:revoke, attrs)
-      |> update_resource(scope)
+      |> update_resource_with_opts(ash_opts)
       |> case do
         {:ok, updated} = result ->
           ServiceStateRegistry.deactivate_for_package(updated)
@@ -147,11 +153,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def restage(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
 
     with {:ok, package} <- get(id, scope: scope) do
       package
       |> Ash.Changeset.for_update(:restage, %{})
-      |> update_resource(scope)
+      |> update_resource_with_opts(ash_opts)
     end
   end
 
@@ -505,9 +513,6 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp ash_opts(scope, _actor) when not is_nil(scope), do: [scope: scope]
   defp ash_opts(_scope, actor) when not is_nil(actor), do: [actor: actor]
   defp ash_opts(_scope, _actor), do: []
-
-  defp update_resource(changeset, nil), do: Ash.update(changeset)
-  defp update_resource(changeset, scope), do: Ash.update(changeset, scope: scope)
 
   defp update_resource_with_opts(changeset, opts) do
     scope = Keyword.get(opts, :scope)

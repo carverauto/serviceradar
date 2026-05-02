@@ -47,6 +47,16 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </div>
 
         <.ui_icon_button
+          :if={String.trim(@draft || @query || "") != ""}
+          aria-label="Reset SRQL filters"
+          title="Reset SRQL filters"
+          phx-click="srql_submit"
+          phx-value-q=""
+        >
+          <.icon name="hero-x-mark" class="size-4" />
+        </.ui_icon_button>
+
+        <.ui_icon_button
           :if={@builder_available}
           active={@builder_open}
           aria-label="Toggle query builder"

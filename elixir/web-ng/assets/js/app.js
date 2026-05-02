@@ -63,6 +63,26 @@ window.addEventListener("phx:page-loading-start", _info => {
 window.addEventListener("phx:page-loading-stop", _info => hideTopbar())
 registerGlobalWindowEvents()
 
+document.addEventListener("submit", event => {
+  const form = event.target
+  if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-disable-on-submit")) return
+  if (form.dataset.submitting === "true") {
+    event.preventDefault()
+    return
+  }
+
+  form.dataset.submitting = "true"
+  const submitter = event.submitter || form.querySelector("button[type='submit'], input[type='submit']")
+  if (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) {
+    const label = submitter.dataset.submitLabel
+    if (label) {
+      if (submitter instanceof HTMLInputElement) submitter.value = label
+      else submitter.textContent = label
+    }
+    submitter.disabled = true
+  }
+})
+
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 
