@@ -75,7 +75,7 @@
 - [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
 - [x] 6.6.1 Expose the dashboard-frame Arrow IPC payload contract to trusted browser modules and dashboard WASM renderers, with JSON row fallback when the active SRQL backend cannot emit Arrow.
 - [x] 6.6.2 Extend SRQL execution so selected queries can emit real Arrow IPC directly from PostgreSQL result sets instead of row JSON.
-- [ ] 6.6.3 Add SDK examples/tests that decode Arrow IPC frames for custom topology-style renderers, including React browser-module and WASM paths.
+- [x] 6.6.3 Add SDK examples/tests that decode Arrow IPC frames for custom topology-style renderers, including React browser-module and WASM paths.
 - [x] 6.6.4 Add dashboard frame live delivery over Phoenix Channels/WebSockets: initial snapshot, bounded refresh/replacement frames, auth checks, and reconnect semantics.
 - [ ] 6.7 Convert the United WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
 - [x] 6.7.1 Create the initial external `~/src/ual-dashboard` dashboard package workspace with manifest build, sample frames, and harness instructions.
