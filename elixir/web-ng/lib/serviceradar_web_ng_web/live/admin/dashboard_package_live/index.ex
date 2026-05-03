@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           max_file_size: @manifest_upload_bytes
         )
         |> allow_upload(:wasm,
-          accept: ~w(.wasm),
+          accept: ~w(.js .wasm),
           max_entries: 1,
           max_file_size: Storage.max_upload_bytes()
         )
@@ -146,9 +146,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     scope = socket.assigns.current_scope
 
     with {:ok, manifest_json} <- consume_single_upload(socket, :manifest),
-         {:ok, wasm} <- consume_single_upload(socket, :wasm),
+         {:ok, renderer_artifact} <- consume_single_upload(socket, :wasm),
          {:ok, package} <-
-           Dashboards.import_package_json(manifest_json, wasm,
+           Dashboards.import_package_json(manifest_json, renderer_artifact,
              scope: scope,
              source_type: :upload,
              source_ref: blank_to_nil(params["source_ref"]),
@@ -260,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Dashboard Packages</h1>
             <p class="text-sm text-base-content/60">
-              Import browser WASM dashboard packages and expose them as ServiceRadar dashboard routes.
+              Import browser dashboard packages and expose them as ServiceRadar dashboard routes.
             </p>
           </div>
           <div class="flex gap-2">
@@ -290,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             <div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
               <div class="text-sm font-semibold">No dashboard packages imported</div>
               <p class="mt-1 text-xs text-base-content/60">
-                Import a manifest JSON file and browser WASM renderer to create the first package.
+                Import a manifest JSON file and matching renderer artifact to create the first package.
               </p>
             </div>
           <% else %>
@@ -409,7 +409,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           <div>
             <h2 class="text-lg font-semibold">Import Dashboard Package</h2>
             <p class="text-sm text-base-content/60">
-              Upload the manifest JSON and matching browser WASM renderer.
+              Upload the manifest JSON and matching renderer artifact.
             </p>
           </div>
           <button class="btn btn-ghost btn-sm btn-square" phx-click="close_modal">
@@ -435,7 +435,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               />
             </label>
             <label class="form-control">
-              <span class="label-text">Renderer WASM</span>
+              <span class="label-text">Renderer artifact</span>
               <.live_file_input
                 upload={@uploads.wasm}
                 class="file-input file-input-bordered file-input-sm w-full"
@@ -712,10 +712,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
            {:ok, File.read!(path)}
          end) do
       [payload] -> {:ok, payload}
-      [] -> {:error, "Upload #{upload_name} before importing"}
-      _ -> {:error, "Upload exactly one #{upload_name} file"}
+      [] -> {:error, "Upload #{upload_label(upload_name)} before importing"}
+      _ -> {:error, "Upload exactly one #{upload_label(upload_name)} file"}
     end
   end
+
+  defp upload_label(:manifest), do: "manifest"
+  defp upload_label(:wasm), do: "renderer artifact"
+  defp upload_label(upload_name), do: to_string(upload_name)
 
   defp parse_settings(nil), do: {:ok, %{}}
   defp parse_settings(""), do: {:ok, %{}}
