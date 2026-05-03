@@ -36,9 +36,8 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
 
   defp maybe_bootstrap_admin(email, password) do
     case Users.get_by_email(email, authorize?: false) do
-      %User{} ->
-        Logger.info("[bootstrap] Admin user #{email} already exists; skipping")
-        :ok
+      %User{} = user ->
+        maybe_sync_admin_password(user, password)
 
       nil ->
         if admin_exists?() do
@@ -47,6 +46,52 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
         else
           create_admin_user(email, password)
         end
+    end
+  end
+
+  # When the operator explicitly opts in via SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC,
+  # treat the env/file password as authoritative and reset the stored hash if it
+  # has drifted (typical after the admin-creds volume is regenerated while the
+  # database volume persists). Without the opt-in we leave the existing hash
+  # alone so a UI password change isn't silently overwritten on restart.
+  defp maybe_sync_admin_password(%User{email: email} = user, password) do
+    cond do
+      not force_password_sync?() ->
+        Logger.info("[bootstrap] Admin user #{email} already exists; skipping")
+        :ok
+
+      Users.valid_password?(user, password) ->
+        Logger.info("[bootstrap] Admin user #{email} already exists and password matches; skipping")
+
+        :ok
+
+      true ->
+        reset_admin_password(user, password)
+    end
+  end
+
+  defp reset_admin_password(%User{email: email} = user, password) do
+    actor = SystemActor.system(:bootstrap)
+
+    case User.admin_set_password(user, %{password: password}, actor: actor) do
+      {:ok, _user} ->
+        Logger.warning(
+          "[bootstrap] Admin user #{email} password reset from " <>
+            "SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=true (env/file is authoritative)"
+        )
+
+        :ok
+
+      {:error, error} ->
+        Logger.error("[bootstrap] Failed to reset admin password: #{inspect(error)}")
+        :error
+    end
+  end
+
+  defp force_password_sync? do
+    case "SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC" |> System.get_env() |> blank_to_nil() do
+      nil -> false
+      value -> String.downcase(value) in ~w(1 true yes on)
     end
   end
 
