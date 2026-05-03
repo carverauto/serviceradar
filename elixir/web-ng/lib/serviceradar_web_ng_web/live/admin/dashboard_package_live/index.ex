@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Plugins.Storage
@@ -221,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
     with {:ok, package} <- ensure_package_enabled(package, scope),
          {:ok, settings} <- parse_settings(params["settings_json"]),
-         {:ok, _instance} <-
+         {:ok, instance} <-
            Dashboards.create_instance(
              package,
              %{
@@ -232,7 +233,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                settings: settings
              },
              scope: scope
-           ) do
+           ),
+         {:ok, _instance} <- maybe_set_default_instance(instance, params, scope) do
       {:noreply,
        socket
        |> put_flash(:info, "Dashboard route enabled")
@@ -248,6 +250,80 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   def handle_event("create_instance", _params, socket) do
     {:noreply, put_flash(socket, :error, "Select a package before creating a dashboard route.")}
+  end
+
+  def handle_event("edit_instance", %{"id" => _id}, %{assigns: %{can_manage_packages: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to edit dashboard routes.")}
+  end
+
+  def handle_event("edit_instance", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Dashboards.get_instance(id, scope: scope) do
+      {:ok, instance} ->
+        {:noreply, socket |> assign(:instance_form, instance_form(instance)) |> assign(:form_errors, [])}
+
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Dashboard route not found: #{format_error(error)}")}
+    end
+  end
+
+  def handle_event("cancel_instance_edit", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:instance_form, default_instance_form(socket.assigns.selected_package))
+     |> assign(:form_errors, [])}
+  end
+
+  def handle_event("update_instance", %{"instance" => _params}, %{assigns: %{can_manage_packages: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to edit dashboard routes.")}
+  end
+
+  def handle_event("update_instance", %{"instance" => %{"id" => id} = params}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, settings} <- parse_settings(params["settings_json"]),
+         {:ok, _instance} <-
+           Dashboards.update_instance(
+             id,
+             %{
+               name: normalize_string(params["name"]),
+               route_slug: normalize_slug(params["route_slug"]),
+               placement: normalize_placement(params["placement"]),
+               enabled: truthy?(params["enabled"]),
+               settings: settings
+             },
+             scope: scope
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Dashboard route updated")
+       |> assign(:enabled_instances, list_enabled_instances(scope))
+       |> assign(:instance_form, default_instance_form(socket.assigns.selected_package))}
+    else
+      {:error, error} ->
+        message = format_error(error)
+        {:noreply, socket |> assign(:form_errors, [message]) |> put_flash(:error, message)}
+    end
+  end
+
+  def handle_event("set_default_instance", %{"id" => _id}, %{assigns: %{can_manage_packages: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to choose default dashboard routes.")}
+  end
+
+  def handle_event("set_default_instance", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Dashboards.set_default_instance(id, scope: scope) do
+      {:ok, instance} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{instance.name} is now the default #{placement_label(instance.placement)} route")
+         |> assign(:enabled_instances, list_enabled_instances(scope))}
+
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Failed to set default route: #{format_error(error)}")}
+    end
   end
 
   @impl true
@@ -594,10 +670,45 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <div :if={@instances == []} class="mt-2 text-xs text-base-content/60">
                 No enabled routes.
               </div>
-              <div :for={instance <- @instances} class="mt-2 text-xs">
-                <.link navigate={~p"/dashboards/#{instance.route_slug}"} class="link link-primary">
-                  /dashboards/{instance.route_slug}
-                </.link>
+              <div :for={instance <- @instances} class="mt-3 rounded-lg bg-base-200/50 p-3 text-xs">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <.link
+                        navigate={~p"/dashboards/#{instance.route_slug}"}
+                        class="link link-primary"
+                      >
+                        /dashboards/{instance.route_slug}
+                      </.link>
+                      <span :if={instance.is_default} class="badge badge-info badge-xs">Default</span>
+                      <span class="badge badge-ghost badge-xs">
+                        {placement_label(instance.placement)}
+                      </span>
+                    </div>
+                    <div class="mt-1 truncate text-base-content/60">{instance.name}</div>
+                  </div>
+                  <div :if={@can_manage_packages} class="flex shrink-0 items-center gap-1">
+                    <button
+                      :if={!instance.is_default}
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square"
+                      phx-click="set_default_instance"
+                      phx-value-id={instance.id}
+                      title="Set as default"
+                    >
+                      <.icon name="hero-star" class="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square"
+                      phx-click="edit_instance"
+                      phx-value-id={instance.id}
+                      title="Edit route settings"
+                    >
+                      <.icon name="hero-pencil" class="size-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -606,10 +717,34 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               for={@instance_form}
               as={:instance}
               phx-change="instance_change"
-              phx-submit="create_instance"
+              phx-submit={
+                if editing_instance?(@instance_form), do: "update_instance", else: "create_instance"
+              }
               class="rounded-box border border-base-300 p-4 space-y-3"
             >
-              <div class="text-sm font-semibold">Create Dashboard Route</div>
+              <input
+                :if={editing_instance?(@instance_form)}
+                type="hidden"
+                name="instance[id]"
+                value={@instance_form["id"]}
+              />
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold">
+                  <%= if editing_instance?(@instance_form) do %>
+                    Edit Dashboard Route
+                  <% else %>
+                    Create Dashboard Route
+                  <% end %>
+                </div>
+                <button
+                  :if={editing_instance?(@instance_form)}
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  phx-click="cancel_instance_edit"
+                >
+                  Cancel
+                </button>
+              </div>
               <label class="form-control">
                 <span class="label-text">Name</span>
                 <input
@@ -638,6 +773,32 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   </option>
                 </select>
               </label>
+              <label
+                :if={editing_instance?(@instance_form)}
+                class="label cursor-pointer justify-start gap-3 p-0"
+              >
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm"
+                  name="instance[enabled]"
+                  checked={@instance_form["enabled"] == "true"}
+                  value="true"
+                />
+                <span class="label-text">Route enabled</span>
+              </label>
+              <label
+                :if={!editing_instance?(@instance_form)}
+                class="label cursor-pointer justify-start gap-3 p-0"
+              >
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm"
+                  name="instance[is_default]"
+                  checked={@instance_form["is_default"] == "true"}
+                  value="true"
+                />
+                <span class="label-text">Use as default for this placement</span>
+              </label>
               <label class="form-control">
                 <span class="label-text">Settings JSON</span>
                 <textarea
@@ -646,7 +807,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 >{@instance_form["settings_json"]}</textarea>
               </label>
               <button type="submit" class="btn btn-primary btn-sm w-full">
-                <.icon name="hero-plus" class="size-4" /> Create Route
+                <%= if editing_instance?(@instance_form) do %>
+                  <.icon name="hero-check" class="size-4" /> Save Route
+                <% else %>
+                  <.icon name="hero-plus" class="size-4" /> Create Route
+                <% end %>
               </button>
             </.form>
           </aside>
@@ -688,20 +853,31 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp maybe_enable_after_import(package, _params, _scope), do: {:ok, package}
 
   defp maybe_create_instance_after_import(package, %{"create_instance" => "true"}, scope) do
-    Dashboards.create_instance(
-      package,
-      %{
-        name: package.name,
-        route_slug: default_route_slug(package),
-        placement: :dashboard,
-        enabled: true,
-        settings: %{}
-      },
-      scope: scope
-    )
+    with {:ok, instance} <-
+           Dashboards.create_instance(
+             package,
+             %{
+               name: package.name,
+               route_slug: default_route_slug(package),
+               placement: :dashboard,
+               enabled: true,
+               settings: %{}
+             },
+             scope: scope
+           ) do
+      Dashboards.set_default_instance(instance.id, scope: scope)
+    end
   end
 
   defp maybe_create_instance_after_import(_package, _params, _scope), do: {:ok, nil}
+
+  defp maybe_set_default_instance(%DashboardInstance{} = instance, params, scope) do
+    if truthy?(params["is_default"]) do
+      Dashboards.set_default_instance(instance.id, scope: scope)
+    else
+      {:ok, instance}
+    end
+  end
 
   defp ensure_package_enabled(%DashboardPackage{status: :enabled} = package, _scope), do: {:ok, package}
 
@@ -777,13 +953,37 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
       "name" => package.name,
       "route_slug" => default_route_slug(package),
       "placement" => "dashboard",
+      "is_default" => "false",
       "settings_json" => "{}"
     }
   end
 
   defp default_instance_form do
-    %{"name" => "", "route_slug" => "", "placement" => "dashboard", "settings_json" => "{}"}
+    %{
+      "name" => "",
+      "route_slug" => "",
+      "placement" => "dashboard",
+      "is_default" => "false",
+      "settings_json" => "{}"
+    }
   end
+
+  defp instance_form(%DashboardInstance{} = instance) do
+    %{
+      "id" => instance.id,
+      "name" => instance.name || "",
+      "route_slug" => instance.route_slug || "",
+      "placement" => Atom.to_string(instance.placement || :dashboard),
+      "enabled" => bool_string(instance.enabled),
+      "settings_json" => encode_settings(instance.settings || %{})
+    }
+  end
+
+  defp editing_instance?(%{"id" => id}) when is_binary(id) and id != "", do: true
+  defp editing_instance?(_form), do: false
+
+  defp encode_settings(settings) when is_map(settings), do: Jason.encode!(settings, pretty: true)
+  defp encode_settings(_settings), do: "{}"
 
   defp default_route_slug(%DashboardPackage{} = package) do
     [package.dashboard_id, package.version]
@@ -825,6 +1025,17 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp normalize_string(_value), do: nil
 
   defp blank_to_nil(value), do: normalize_string(value)
+
+  defp truthy?(value), do: value in [true, "true", "on", "1", 1]
+
+  defp bool_string(true), do: "true"
+  defp bool_string(_), do: "false"
+
+  defp placement_label(value) when is_atom(value), do: value |> Atom.to_string() |> placement_label()
+  defp placement_label("dashboard"), do: "Dashboard"
+  defp placement_label("map"), do: "Map"
+  defp placement_label("custom"), do: "Custom"
+  defp placement_label(value), do: to_string(value || "Dashboard")
 
   defp short_hash(value) when is_binary(value) and byte_size(value) >= 12, do: String.slice(value, 0, 12)
   defp short_hash(value) when is_binary(value), do: value

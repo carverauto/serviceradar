@@ -16,6 +16,9 @@ defmodule ServiceRadarWebNG.Dashboards do
   defdelegate enable_package(id, opts \\ []), to: Packages, as: :enable
   defdelegate disable_package(id, opts \\ []), to: Packages, as: :disable
   defdelegate create_instance(package, attrs, opts \\ []), to: Packages
+  defdelegate get_instance(id, opts \\ []), to: Packages
+  defdelegate update_instance(id, attrs, opts \\ []), to: Packages
+  defdelegate set_default_instance(id, opts \\ []), to: Packages
   defdelegate enabled_instances(opts \\ []), to: Packages
   defdelegate get_enabled_instance_by_slug(slug, opts \\ []), to: Packages
 end
