@@ -33,4 +33,34 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
     {:ok, users} = Ash.read(query)
     assert length(users) == 1
   end
+
+  test "preserves UI-changed password when force-sync is unset" do
+    assert :ok = AdminUser.ensure_admin_user()
+    user = Users.get_by_email("root@localhost", authorize?: false)
+
+    System.put_env("SERVICERADAR_ADMIN_PASSWORD", "drifted_env_password_123!")
+    assert :ok = AdminUser.ensure_admin_user()
+
+    refreshed = Users.get_by_email("root@localhost", authorize?: false)
+    assert refreshed.hashed_password == user.hashed_password
+  end
+
+  test "resets stored hash to env value when force-sync is enabled" do
+    assert :ok = AdminUser.ensure_admin_user()
+    original = Users.get_by_email("root@localhost", authorize?: false)
+
+    new_password = "force_synced_password_123!"
+    System.put_env("SERVICERADAR_ADMIN_PASSWORD", new_password)
+    System.put_env("SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC", "true")
+
+    on_exit(fn ->
+      System.delete_env("SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC")
+    end)
+
+    assert :ok = AdminUser.ensure_admin_user()
+
+    refreshed = Users.get_by_email("root@localhost", authorize?: false)
+    refute refreshed.hashed_password == original.hashed_password
+    assert Users.valid_password?(refreshed, new_password)
+  end
 end
