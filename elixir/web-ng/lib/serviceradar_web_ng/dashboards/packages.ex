@@ -118,13 +118,69 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   def create_instance(_package, _attrs, _opts), do: {:error, :invalid_attributes}
 
+  @spec get_instance(String.t(), keyword()) ::
+          {:ok, DashboardInstance.t()} | {:error, :not_found} | {:error, term()}
+  def get_instance(id, opts \\ [])
+
+  def get_instance(id, opts) when is_binary(id) do
+    scope = Keyword.get(opts, :scope)
+
+    query =
+      DashboardInstance
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^id)
+      |> Ash.Query.load(:dashboard_package)
+
+    case read_one(query, scope) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, instance} -> {:ok, instance}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  def get_instance(_id, _opts), do: {:error, :not_found}
+
+  @spec update_instance(String.t(), map(), keyword()) ::
+          {:ok, DashboardInstance.t()} | {:error, term()}
+  def update_instance(id, attrs, opts \\ [])
+
+  def update_instance(id, attrs, opts) when is_binary(id) and is_map(attrs) do
+    scope = Keyword.get(opts, :scope)
+
+    with {:ok, instance} <- get_instance(id, scope: scope),
+         {:ok, attrs} <- normalize_instance_update_attrs(instance, attrs) do
+      instance
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> update_resource(scope)
+    end
+  end
+
+  def update_instance(_id, _attrs, _opts), do: {:error, :invalid_attributes}
+
+  @spec set_default_instance(String.t(), keyword()) ::
+          {:ok, DashboardInstance.t()} | {:error, term()}
+  def set_default_instance(id, opts \\ [])
+
+  def set_default_instance(id, opts) when is_binary(id) do
+    scope = Keyword.get(opts, :scope)
+
+    with {:ok, instance} <- get_instance(id, scope: scope),
+         :ok <- unset_other_default_instances(instance, scope) do
+      instance
+      |> Ash.Changeset.for_update(:update, %{enabled: true, is_default: true})
+      |> update_resource(scope)
+    end
+  end
+
+  def set_default_instance(_id, _opts), do: {:error, :invalid_attributes}
+
   @spec enabled_instances(keyword()) :: [DashboardInstance.t()]
   def enabled_instances(opts \\ []) do
     scope = Keyword.get(opts, :scope)
 
     DashboardInstance
     |> Ash.Query.for_read(:enabled)
-    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.sort(is_default: :desc, inserted_at: :desc)
     |> read(scope)
   end
 
@@ -181,6 +237,51 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
       :ok -> {:ok, normalized}
       {:error, errors} -> {:error, {:invalid_settings, errors}}
     end
+  end
+
+  defp normalize_instance_update_attrs(%DashboardInstance{} = instance, attrs) do
+    attrs = stringify_or_atom_map(attrs)
+
+    with {:ok, settings} <- maybe_validate_instance_settings(instance, attrs) do
+      attrs =
+        if Map.has_key?(attrs, :settings) or Map.has_key?(attrs, "settings") do
+          Map.put(attrs, :settings, settings)
+        else
+          attrs
+        end
+
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_validate_instance_settings(%DashboardInstance{dashboard_package: %DashboardPackage{} = package}, attrs) do
+    if Map.has_key?(attrs, :settings) or Map.has_key?(attrs, "settings") do
+      validate_instance_settings(package, attrs)
+    else
+      {:ok, instance_settings(attrs)}
+    end
+  end
+
+  defp maybe_validate_instance_settings(_instance, _attrs), do: {:error, :not_found}
+
+  defp instance_settings(attrs), do: Map.get(attrs, :settings) || Map.get(attrs, "settings") || %{}
+
+  defp unset_other_default_instances(%DashboardInstance{} = instance, scope) do
+    query =
+      DashboardInstance
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(placement == ^instance.placement and is_default == true and id != ^instance.id)
+
+    query
+    |> read(scope)
+    |> Enum.reduce_while(:ok, fn other, :ok ->
+      case other
+           |> Ash.Changeset.for_update(:update, %{is_default: false})
+           |> update_resource(scope) do
+        {:ok, _updated} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
   end
 
   defp maybe_filter_dashboard_id(query, filters) do

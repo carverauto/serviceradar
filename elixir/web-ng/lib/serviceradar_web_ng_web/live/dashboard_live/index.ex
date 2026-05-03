@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   def handle_async(:dashboard_packages_load, {:ok, instances}, socket) do
-    {:noreply, assign(socket, :dashboard_package_instances, instances)}
+    {:noreply, assign_dashboard_package_instances(socket, instances)}
   end
 
   def handle_async(_name, {:exit, _reason}, socket), do: {:noreply, socket}
@@ -99,6 +99,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 <option
                   :for={instance <- @dashboard_package_instances}
                   value={"dashboard:#{instance.route_slug}"}
+                  selected={@map_view == "dashboard:#{instance.route_slug}"}
                 >
                   {instance.name}
                 </option>
@@ -125,6 +126,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               </div>
 
               <canvas
+                :if={@map_view == "netflow"}
                 id="ops-traffic-map"
                 phx-hook="OperationsTrafficMap"
                 class="sr-ops-traffic-canvas"
@@ -134,6 +136,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 data-mtr-overlays={@mtr_overlays_json}
                 aria-label="Network traffic map"
               />
+              <div :if={@map_view != "netflow"} class="sr-ops-map-empty">
+                <p>{map_panel_title(@map_view)}</p>
+                <span>Open the full-screen dashboard package view to interact with this map.</span>
+              </div>
               <svg
                 id="ops-traffic-map-world"
                 phx-update="ignore"
@@ -640,11 +646,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp dashboard_package_instances(scope) do
-    Dashboards.enabled_instances(scope: scope)
+    [scope: scope]
+    |> Dashboards.enabled_instances()
     |> Enum.filter(&(&1.placement in [:dashboard, :map]))
-    |> Enum.sort_by(&String.downcase(&1.name || &1.route_slug || ""))
+    |> Enum.sort_by(fn instance ->
+      {not instance.is_default, String.downcase(instance.name || instance.route_slug || "")}
+    end)
   rescue
     _ -> []
+  end
+
+  defp assign_dashboard_package_instances(socket, instances) do
+    socket =
+      assign(socket, :dashboard_package_instances, instances)
+
+    case Enum.find(instances, &(&1.placement == :map and &1.is_default)) do
+      nil -> socket
+      instance -> assign(socket, :map_view, "dashboard:#{instance.route_slug}")
+    end
   end
 
   defp dashboard_package_route?(instances, route_slug) when is_binary(route_slug) do
@@ -863,7 +882,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp assign_dashboard(socket, dashboard_assigns) when is_map(dashboard_assigns) do
-    dashboard_assigns = ensure_valid_map_view(dashboard_assigns)
+    dashboard_assigns =
+      case socket.assigns[:map_view] do
+        "dashboard:" <> _route_slug = current_map_view -> Map.put(dashboard_assigns, :map_view, current_map_view)
+        _other -> ensure_valid_map_view(dashboard_assigns)
+      end
 
     Enum.reduce(dashboard_assigns, socket, fn {key, value}, acc ->
       assign(acc, key, value)
@@ -874,9 +897,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     map_view = Map.get(assigns, :map_view, "netflow")
 
     valid_view =
-      cond do
-        map_view == "netflow" -> "netflow"
-        true -> "netflow"
+      if map_view == "netflow" do
+        "netflow"
+      else
+        "netflow"
       end
 
     Map.put(assigns, :map_view, valid_view)
@@ -1037,10 +1061,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end
   end
 
+  defp normalize_map_view("dashboard:" <> route_slug) when route_slug != "", do: "dashboard:" <> route_slug
   defp normalize_map_view(_), do: "netflow"
 
+  defp map_panel_title("dashboard:" <> _route_slug), do: "Dashboard Map"
   defp map_panel_title(_), do: "NetFlow Map"
 
+  defp map_fullscreen_path("dashboard:" <> route_slug), do: ~p"/dashboards/#{route_slug}"
   defp map_fullscreen_path(_), do: ~p"/netflow-map"
 
   defp survey_panel_visible?(summary) do

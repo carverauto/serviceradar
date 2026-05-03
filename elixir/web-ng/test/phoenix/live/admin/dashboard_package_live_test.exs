@@ -66,6 +66,77 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLiveTest do
     assert package.status == :enabled
   end
 
+  test "admin can choose a default route and edit instance settings", %{conn: conn} do
+    suffix = System.unique_integer([:positive])
+    route_one = "live-route-one-#{suffix}"
+    route_two = "live-route-two-#{suffix}"
+
+    {:ok, package} =
+      Dashboards.import_package_json(manifest_json(), @renderer,
+        source_type: :upload,
+        signature: %{"kind" => "test"}
+      )
+
+    {:ok, package} = Dashboards.enable_package(package.id)
+
+    {:ok, first} =
+      Dashboards.create_instance(package, %{
+        name: "First Route",
+        route_slug: route_one,
+        placement: :map,
+        enabled: true,
+        settings: %{"title" => "First"}
+      })
+
+    {:ok, second} =
+      Dashboards.create_instance(package, %{
+        name: "Second Route",
+        route_slug: route_two,
+        placement: :map,
+        enabled: true,
+        settings: %{"title" => "Second"}
+      })
+
+    {:ok, _first} = Dashboards.set_default_instance(first.id)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/dashboards/packages/#{package.id}")
+    assert html =~ "First Route"
+    assert html =~ "Default"
+
+    lv
+    |> element("button[phx-click='set_default_instance'][phx-value-id='#{second.id}']")
+    |> render_click()
+
+    {:ok, first} = Dashboards.get_instance(first.id)
+    {:ok, second} = Dashboards.get_instance(second.id)
+
+    refute first.is_default
+    assert second.is_default
+
+    lv
+    |> element("button[phx-click='edit_instance'][phx-value-id='#{second.id}']")
+    |> render_click()
+
+    assert render(lv) =~ "Edit Dashboard Route"
+
+    lv
+    |> form("form[phx-submit='update_instance']", %{
+      "instance" => %{
+        "id" => second.id,
+        "name" => "Second Route Updated",
+        "route_slug" => route_two,
+        "placement" => "map",
+        "enabled" => "true",
+        "settings_json" => ~s({"title":"Updated","defaultZoom":4})
+      }
+    })
+    |> render_submit()
+
+    {:ok, second} = Dashboards.get_instance(second.id)
+    assert second.name == "Second Route Updated"
+    assert second.settings == %{"title" => "Updated", "defaultZoom" => 4}
+  end
+
   defp manifest_json do
     Jason.encode!(%{
       "id" => @dashboard_id,
