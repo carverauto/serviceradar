@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, test, vi} from "vitest"
+import {afterEach, beforeEach, describe, expect, test, vi} from "vitest"
 
 import DashboardWasmHost from "./DashboardWasmHost"
 
@@ -49,29 +49,33 @@ function hookContext(overrides = {}) {
   }
 }
 
+beforeEach(() => {
+  vi.restoreAllMocks()
+
+  globalThis.window = {
+    location: {
+      href: "https://example.test/dashboards/ual-network-map",
+      assign: vi.fn(),
+    },
+  }
+  globalThis.document = {
+    createElement: vi.fn(() => ({
+      className: "",
+      innerHTML: "",
+      style: {},
+      textContent: "",
+      setAttribute: vi.fn(),
+      appendChild: vi.fn(),
+      remove: vi.fn(),
+    })),
+  }
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe("DashboardWasmHost browser-module API", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
-
-    globalThis.window = {
-      location: {
-        href: "https://example.test/dashboards/ual-network-map",
-        assign: vi.fn(),
-      },
-    }
-    globalThis.document = {
-      createElement: vi.fn(() => ({
-        className: "",
-        innerHTML: "",
-        style: {},
-        textContent: "",
-        setAttribute: vi.fn(),
-        appendChild: vi.fn(),
-        remove: vi.fn(),
-      })),
-    }
-  })
-
   test("pushes SRQL updates for the primary query and frame-specific queries", () => {
     const hook = hookContext()
     const api = hook.browserModuleApi(baseHost())
@@ -206,6 +210,49 @@ describe("DashboardWasmHost browser-module API", () => {
     popup.close()
     expect(hook._children[0].remove).toHaveBeenCalled()
   })
+
+  test("filters non-mappable rows before creating map layer data", () => {
+    const hook = hookContext({
+      _host: {
+        package: {
+          frames: [
+            {
+              id: "sites",
+              results: [
+                {site_code: "DEN", longitude: -104.6737, latitude: 39.8561},
+                {site_code: "NO_LAT", longitude: -104.6737},
+                {site_code: "BAD_LNG", longitude: 230, latitude: 39.8561},
+              ],
+            },
+            {
+              id: "links",
+              results: [
+                {id: "valid", source_lng: -104.6737, source_lat: 39.8561, target_lng: -95.3414, target_lat: 29.9844},
+                {id: "bad_target", source_lng: -104.6737, source_lat: 39.8561, target_lng: -95.3414},
+              ],
+            },
+          ],
+        },
+      },
+    })
+
+    expect(
+      hook.layerData({
+        type: "scatterplot",
+        data_frame: "sites",
+        position: ["longitude", "latitude"],
+      }),
+    ).toEqual([{site_code: "DEN", longitude: -104.6737, latitude: 39.8561}])
+
+    expect(
+      hook.layerData({
+        type: "line",
+        data_frame: "links",
+        source_position: ["source_lng", "source_lat"],
+        target_position: ["target_lng", "target_lat"],
+      }),
+    ).toEqual([{id: "valid", source_lng: -104.6737, source_lat: 39.8561, target_lng: -95.3414, target_lat: 29.9844}])
+  })
 })
 
 describe("DashboardWasmHost browser-module boot validation", () => {
@@ -244,6 +291,46 @@ describe("DashboardWasmHost browser-module boot validation", () => {
         }),
       ),
     ).rejects.toThrow("dashboard browser module renderer must declare trust: trusted")
+  })
+
+  test("renders a native error state when a browser module crashes during mount", async () => {
+    const hook = hookContext()
+    const rendererUrl = "data:text/javascript,export function mountDashboard() { throw new Error('renderer boom') }"
+
+    hook.el.dataset.host = JSON.stringify(
+      baseHost({
+        package: {
+          ...baseHost().package,
+          renderer_url: rendererUrl,
+        },
+      }),
+    )
+
+    await hook.boot()
+
+    expect(hook.el.innerHTML).toContain("Dashboard renderer failed")
+    expect(hook.el.innerHTML).toContain("renderer boom")
+  })
+
+  test("times out slow browser module renderers", async () => {
+    const hook = hookContext()
+    const rendererUrl = "data:text/javascript,export function mountDashboard() { return new Promise(() => {}) }"
+
+    const boot = hook.bootBrowserModule(
+      baseHost({
+        package: {
+          ...baseHost().package,
+          renderer_url: rendererUrl,
+          renderer: {
+            ...baseHost().package.renderer,
+            timeout_ms: 100,
+          },
+        },
+      }),
+    )
+
+    await expect(boot).rejects.toThrow("dashboard renderer timed out after 100ms")
+    expect(hook.connectFrameStream).not.toHaveBeenCalled()
   })
 
   test("mounts trusted browser modules with the bounded host API", async () => {
