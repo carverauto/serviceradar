@@ -66,10 +66,10 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
-# Phoenix React Server - React rendering for components (GoRules JDM editor)
+# Phoenix React NG - React rendering for components (GoRules JDM editor)
 # Bun runtime renders React components, LiveView handles the interactivity
-config :phoenix_react_server, Phoenix.React,
-  runtime: Phoenix.React.Runtime.Bun,
+config :phoenix_react_ng, Phoenix.ReactServer,
+  runtime: Phoenix.ReactServer.Runtime.Bun,
   component_base: Path.expand("../assets/component/src", __DIR__),
   render_timeout: 5_000,
   cache_ttl: 60
