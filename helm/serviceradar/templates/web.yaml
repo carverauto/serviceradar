@@ -219,6 +219,13 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: admin-password
+        {{- if default false $webNg.adminPasswordForceSync }}
+        - name: SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC
+          # Treat the secret as authoritative — when the secret is rotated
+          # while the database persists, the next bootstrap resets the stored
+          # hash to match instead of silently locking the operator out.
+          value: "true"
+        {{- end }}
         - name: SERVICERADAR_GATEWAY_ADDR
           value: {{ $gatewayAddress | quote }}
         - name: NATS_URL

@@ -569,6 +569,13 @@ webNg:
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  # When true, the bootstrap step resets the stored admin password hash to
+  # match SERVICERADAR_ADMIN_PASSWORD on every restart. Use this in
+  # environments where the secret is the source of truth (e.g. demo, where
+  # rotating admin-password should re-grant login). Leave false for tenants
+  # that rely on UI-driven password changes — otherwise restarts overwrite
+  # them.
+  adminPasswordForceSync: false
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.
