@@ -129,7 +129,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:igniter, "~> 0.5", only: [:dev, :test]},
 
       # Phoenix React Server - Server-side rendering for React components
-      {:phoenix_react_server, "~> 0.7.3"}
+      {:phoenix_react_ng, "~> 0.8.5"}
     ]
   end
 
