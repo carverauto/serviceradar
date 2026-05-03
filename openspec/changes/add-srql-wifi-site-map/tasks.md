@@ -70,7 +70,7 @@
 - [x] 6.1 Define the dashboard package JSON manifest schema: package ID, version, vendor, description, data-frame contracts, SRQL query definitions, React/browser-module renderer reference, optional renderer WASM reference, settings schema, signing metadata, and requested browser capabilities.
 - [x] 6.2 Add `platform` schema resources for imported dashboard packages, package versions, sync provenance, verification state, administrator settings, and enabled dashboard instances.
 - [ ] 6.3 Extend customer-owned Git source sync to discover dashboard package manifests alongside agent plugin manifests without exposing repository credentials to browsers or agents.
-- [ ] 6.4 Verify dashboard package renderer artifacts against digest and trust policy before making them available in the UI.
+- [x] 6.4 Verify dashboard package renderer artifacts against digest and trust policy before making them available in the UI.
 - [ ] 6.5 Build a web-ng dashboard renderer host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-browser-module-v1` and optional `dashboard-wasm-v1` interfaces, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
 - [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
 - [x] 6.6.1 Expose the dashboard-frame Arrow IPC payload contract to trusted browser modules and dashboard WASM renderers, with JSON row fallback when the active SRQL backend cannot emit Arrow.
