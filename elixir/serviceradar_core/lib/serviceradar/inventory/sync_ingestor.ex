@@ -113,13 +113,48 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     {resolved_updates, device_records, identifier_records} =
       resolve_updates(normalized_updates, actor)
 
-    device_result = upsert_devices(device_records)
-    identifier_result = upsert_identifiers(identifier_records)
+    case upsert_devices(device_records) do
+      {:ok, remap} ->
+        # An IP-conflict recovery may have rewritten device uids during the
+        # device upsert. Apply the same mapping to identifier records and the
+        # resolved-update tuples so downstream steps reference uids that
+        # actually landed in `ocsf_devices` and don't trip the FK constraint.
+        identifier_records = apply_uid_remap_to_identifier_records(identifier_records, remap)
+        resolved_updates = apply_uid_remap_to_resolved_updates(resolved_updates, remap)
 
-    _ = maybe_process_alias_conflicts(device_result, resolved_updates, actor)
-    alias_result = maybe_process_alias_updates(device_result, resolved_updates, actor)
+        identifier_result = upsert_identifiers(identifier_records)
 
-    finalize_ingest_results(device_result, identifier_result, alias_result)
+        _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
+        alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
+
+        finalize_ingest_results(:ok, identifier_result, alias_result)
+
+      {:error, _} = error ->
+        finalize_ingest_results(error, :ok, :ok)
+    end
+  end
+
+  defp apply_uid_remap_to_identifier_records(records, remap) when map_size(remap) == 0,
+    do: records
+
+  defp apply_uid_remap_to_identifier_records(records, remap) do
+    records
+    |> Enum.map(fn record ->
+      case Map.get(remap, record.device_id) do
+        nil -> record
+        canonical_uid -> %{record | device_id: canonical_uid}
+      end
+    end)
+    |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
+  end
+
+  defp apply_uid_remap_to_resolved_updates(resolved, remap) when map_size(remap) == 0,
+    do: resolved
+
+  defp apply_uid_remap_to_resolved_updates(resolved, remap) do
+    Enum.map(resolved, fn {update, device_id} ->
+      {update, Map.get(remap, device_id, device_id)}
+    end)
   end
 
   defp normalize_updates(updates) do
@@ -157,7 +192,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     {resolved_updates, device_records, identifier_records}
   end
 
-  defp upsert_devices([]), do: :ok
+  defp upsert_devices([]), do: {:ok, %{}}
   defp upsert_devices(records), do: bulk_upsert_devices(records)
 
   defp upsert_identifiers([]), do: :ok
@@ -428,7 +463,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       )
     end)
 
-    :ok
+    {:ok, %{}}
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
@@ -440,12 +475,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp recover_ip_conflict_and_retry(records, update_query, original_error) do
-    recovered_records =
-      records
-      |> remap_records_to_existing_ip()
-      |> merge_records_by_uid()
+    {remapped_records, remap} = remap_records_to_existing_ip(records)
+    recovered_records = merge_records_by_uid(remapped_records)
 
-    if recovered_records == records do
+    if map_size(remap) == 0 and recovered_records == records do
       Logger.warning("Bulk device upsert failed: #{inspect(original_error)}")
       {:error, original_error}
     else
@@ -453,7 +486,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records to #{length(recovered_records)} and retrying"
       )
 
-      do_bulk_upsert_devices_once(recovered_records, update_query)
+      case do_bulk_upsert_devices_once(recovered_records, update_query) do
+        :ok -> {:ok, remap}
+        {:error, _} = error -> error
+      end
     end
   end
 
@@ -474,6 +510,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       {:error, e}
   end
 
+  # Returns `{remapped_records, remap}` where `remap` is a map of
+  # `original_uid => canonical_uid` for every record whose uid was rewritten to
+  # match an existing active device sharing the same IP. Callers must apply the
+  # same mapping to any other record set referencing those uids (identifier
+  # rows, alias-state updates) before issuing dependent inserts.
   defp remap_records_to_existing_ip(records) do
     ips =
       records
@@ -494,12 +535,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         query |> Repo.all() |> Map.new()
       end
 
-    Enum.map(records, fn record ->
+    Enum.map_reduce(records, %{}, fn record, remap ->
       ip = Map.get(record, :ip)
 
       case Map.get(existing_by_ip, ip) do
-        nil -> record
-        existing_uid -> Map.put(record, :uid, existing_uid)
+        nil ->
+          {record, remap}
+
+        existing_uid when existing_uid == record.uid ->
+          {record, remap}
+
+        existing_uid ->
+          {Map.put(record, :uid, existing_uid), Map.put(remap, record.uid, existing_uid)}
       end
     end)
   end
