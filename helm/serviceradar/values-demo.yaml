@@ -27,6 +27,18 @@ natsCreds:
 
 cnpg:
   storageClass: local-path-big
+  # Demo runs ~6+ ServiceRadar deployments (web-ng, core-elx, datasvc,
+  # db-event-writer, agent-gateway, etc.). Even with the pgBouncer Pooler
+  # in front of the primary, the default 100-slot ceiling is too tight:
+  # workloads that bypass the pooler (core-elx Oban, migrations, db-event-
+  # writer ADBC, etc.) saturated the `serviceradar` role and pushed web-ng
+  # into CrashLoopBackOff with "remaining connection slots are reserved for
+  # roles with the SUPERUSER attribute". 500 + 1 GiB shared_buffers gives
+  # ample headroom; the pooler keeps server-side counts well below the cap.
+  postgresqlParameters:
+    max_connections: "500"
+    shared_buffers: "1GB"
+    work_mem: "16MB"
   pooler:
     enabled: true
     instances: 3
@@ -244,6 +256,10 @@ webNg:
       memory: 2Gi
   devRoutes: "true"
   localMailer: "false"
+  # The serviceradar-secrets/admin-password is the source of truth for demo;
+  # if it gets rotated while the database persists, force-sync resets the
+  # stored hash on the next restart instead of locking us out of the UI.
+  adminPasswordForceSync: true
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true
