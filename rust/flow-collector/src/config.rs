@@ -36,9 +36,47 @@ pub struct Config {
     // Observability
     pub metrics_addr: Option<String>,
 
+    /// Optional shared template store for NetFlow / IPFIX templates.
+    /// When configured, every NetFlow listener writes through learned
+    /// templates to this store and consults it on cache miss, allowing
+    /// multiple flow-collector replicas to share template state behind
+    /// a UDP load balancer. Leaving this `None` keeps the legacy
+    /// in-process-only behavior.
+    #[serde(default)]
+    pub template_store: Option<TemplateStoreConfig>,
+
     // Listeners
     pub listeners: Vec<ListenerConfig>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TemplateStoreConfig {
+    /// NATS JetStream KV bucket name (must already exist or will be
+    /// created/updated on startup).
+    pub kv_bucket: String,
+    /// Number of historical revisions to retain per key. Templates rarely
+    /// change so 1 is fine; larger values support audit/debug. NATS KV
+    /// caps history at 64. Validated at config load.
+    #[serde(default = "default_kv_history")]
+    pub kv_history: u8,
+    /// Optional TTL (seconds) for entries in the KV bucket. NATS will
+    /// expire stale templates automatically. `0` disables TTL. Default 0.
+    #[serde(default)]
+    pub kv_ttl_secs: u64,
+    /// Optional NATS URL override for the template store. When unset
+    /// (default), the top-level `nats_url` is used. Setting this lets
+    /// template state live on a different NATS cluster from publish
+    /// traffic — useful for multi-tenant or split-fault-domain setups.
+    #[serde(default)]
+    pub nats_url: Option<String>,
+}
+
+fn default_kv_history() -> u8 {
+    1
+}
+
+/// NATS KV server-side cap.
+const NATS_KV_MAX_HISTORY: u8 = 64;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "protocol", rename_all = "lowercase")]
@@ -231,6 +269,23 @@ impl Config {
         }
         if self.listeners.is_empty() {
             anyhow::bail!("at least one listener is required");
+        }
+        if let Some(ts) = &self.template_store {
+            if ts.kv_bucket.is_empty() {
+                anyhow::bail!("template_store.kv_bucket cannot be empty");
+            }
+            if ts.kv_history < 1 || ts.kv_history > NATS_KV_MAX_HISTORY {
+                anyhow::bail!(
+                    "template_store.kv_history must be in 1..={} (got {})",
+                    NATS_KV_MAX_HISTORY,
+                    ts.kv_history
+                );
+            }
+            if let Some(url) = &ts.nats_url
+                && url.is_empty()
+            {
+                anyhow::bail!("template_store.nats_url, if set, cannot be empty");
+            }
         }
 
         // Check for duplicate listen addresses
@@ -481,5 +536,48 @@ mod tests {
     #[test]
     fn test_drop_policy_default() {
         assert_eq!(DropPolicy::default(), DropPolicy::DropOldest);
+    }
+
+    #[test]
+    fn template_store_block_deserializes() {
+        // Mirrors what the kustomize manifest and Helm values render.
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "template_store": {
+                "kv_bucket": "flow_templates",
+                "kv_history": 1,
+                "kv_ttl_secs": 0
+            },
+            "listeners": [
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }
+            ]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("deserialize");
+        let ts = cfg.template_store.expect("template_store should parse");
+        assert_eq!(ts.kv_bucket, "flow_templates");
+        assert_eq!(ts.kv_history, 1);
+        assert_eq!(ts.kv_ttl_secs, 0);
+    }
+
+    #[test]
+    fn template_store_omitted_means_disabled() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("deserialize");
+        assert!(cfg.template_store.is_none());
     }
 }

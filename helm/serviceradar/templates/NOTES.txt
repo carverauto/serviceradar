@@ -1,0 +1,29 @@
+{{- if .Values.flowCollector.enabled }}
+
+ServiceRadar Flow Collector — deployment notes
+==============================================
+
+The flow collector now runs as a **DaemonSet** (one pod per node) behind
+a `Service: LoadBalancer` with `externalTrafficPolicy: Local`. Templates
+are optionally shared across pods via a NATS JetStream KV bucket.
+
+If you are upgrading from a release that used a single `Deployment`:
+
+  * `flowCollector.replicaCount` is no longer used — scale comes from
+    node count, not a replica setting.
+  * `flowCollector.data.*` (the PVC block) is no longer used — the
+    collector writes nothing to disk.
+  * The previous `Deployment serviceradar-flow-collector` and its
+    `PersistentVolumeClaim serviceradar-flow-collector-data` are not
+    cleaned up automatically. After this upgrade, run:
+
+      kubectl -n {{ .Release.Namespace }} delete deployment serviceradar-flow-collector --ignore-not-found
+      kubectl -n {{ .Release.Namespace }} delete pvc serviceradar-flow-collector-data --ignore-not-found
+
+  * For the NATS KV template store to work, your platform creds need
+    permission to create-or-update KV buckets (or pre-create the bucket
+    named `{{ .Values.flowCollector.config.template_store.kv_bucket | default "flow_templates" }}` out of band).
+
+See docs/flow-collector-scaling.md for sizing, configuration knobs,
+metrics, and the deploy verification checklist.
+{{- end }}
