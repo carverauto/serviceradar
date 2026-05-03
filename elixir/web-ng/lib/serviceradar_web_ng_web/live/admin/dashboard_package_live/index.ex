@@ -38,12 +38,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
         |> allow_upload(:manifest,
           accept: ~w(.json),
           max_entries: 1,
-          max_file_size: @manifest_upload_bytes
+          max_file_size: @manifest_upload_bytes,
+          auto_upload: true
         )
         |> allow_upload(:wasm,
           accept: ~w(.js .wasm),
           max_entries: 1,
-          max_file_size: Storage.max_upload_bytes()
+          max_file_size: Storage.max_upload_bytes(),
+          auto_upload: true
         )
 
       {:ok, socket}
@@ -145,8 +147,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   def handle_event("import_package", %{"import" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, manifest_json} <- consume_single_upload(socket, :manifest),
-         {:ok, renderer_artifact} <- consume_single_upload(socket, :wasm),
+    with {:ok, manifest_json, renderer_artifact} <- consume_package_uploads(socket),
          {:ok, package} <-
            Dashboards.import_package_json(manifest_json, renderer_artifact,
              scope: scope,
@@ -706,6 +707,30 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp ensure_package_enabled(%DashboardPackage{} = package, scope),
     do: Dashboards.enable_package(package.id, scope: scope)
+
+  defp consume_package_uploads(socket) do
+    with :ok <- validate_upload_ready(socket, :manifest),
+         :ok <- validate_upload_ready(socket, :wasm),
+         {:ok, manifest_json} <- consume_single_upload(socket, :manifest),
+         {:ok, renderer_artifact} <- consume_single_upload(socket, :wasm) do
+      {:ok, manifest_json, renderer_artifact}
+    end
+  end
+
+  defp validate_upload_ready(socket, upload_name) do
+    {completed_entries, in_progress_entries} = uploaded_entries(socket, upload_name)
+
+    cond do
+      completed_entries == [] and in_progress_entries == [] ->
+        {:error, "Upload #{upload_label(upload_name)} before importing"}
+
+      in_progress_entries != [] ->
+        {:error, "Wait for the #{upload_label(upload_name)} upload to finish before importing"}
+
+      true ->
+        :ok
+    end
+  end
 
   defp consume_single_upload(socket, upload_name) do
     case consume_uploaded_entries(socket, upload_name, fn %{path: path}, _entry ->
