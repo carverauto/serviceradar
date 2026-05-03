@@ -87,7 +87,7 @@
 - [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard renderer packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
 - [x] 6.10 Provide a local customer dashboard package dev harness in `~/src/serviceradar-sdk-dashboard` that loads manifest JSON, renderer artifacts, validated settings, and sample SRQL frames without deploying to production.
 - [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
-- [ ] 6.11.1 Add a React SDK package surface in `~/src/serviceradar-sdk-dashboard` with host API types, SRQL query helpers, frame access hooks, theme hooks, navigation helpers, and a browser-module mount helper.
+- [x] 6.11.1 Add a React SDK package surface in `~/src/serviceradar-sdk-dashboard` with host API types, SRQL query helpers, frame access hooks, theme hooks, navigation helpers, and a browser-module mount helper.
 - [ ] 6.11.2 Add a React/Vite dashboard package template and harness path that emits `dashboard-browser-module-v1` renderer artifacts consumable by web-ng.
 - [ ] 6.12 Migrate built-in topology and netflow map experiences toward dashboard packages so they can be versioned and updated outside core/web-ng.
 
