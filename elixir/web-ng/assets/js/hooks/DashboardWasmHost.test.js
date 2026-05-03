@@ -4,6 +4,9 @@ import DashboardWasmHost from "./DashboardWasmHost"
 
 function baseHost(overrides = {}) {
   return {
+    instance: {
+      settings: {},
+    },
     package: {
       name: "Test Dashboard",
       capabilities: [],
@@ -26,13 +29,17 @@ function baseHost(overrides = {}) {
 }
 
 function hookContext(overrides = {}) {
+  const children = []
+
   return {
     ...DashboardWasmHost,
     el: {
       dataset: {},
       innerHTML: "<div>loading</div>",
       classList: {add: vi.fn()},
+      appendChild: vi.fn((node) => children.push(node)),
     },
+    _children: children,
     _frameUpdateCallbacks: [],
     connectFrameStream: vi.fn(),
     updateVisibleSrqlQuery: vi.fn(),
@@ -51,6 +58,17 @@ describe("DashboardWasmHost browser-module API", () => {
         href: "https://example.test/dashboards/ual-network-map",
         assign: vi.fn(),
       },
+    }
+    globalThis.document = {
+      createElement: vi.fn(() => ({
+        className: "",
+        innerHTML: "",
+        style: {},
+        textContent: "",
+        setAttribute: vi.fn(),
+        appendChild: vi.fn(),
+        remove: vi.fn(),
+      })),
     }
   })
 
@@ -131,6 +149,62 @@ describe("DashboardWasmHost browser-module API", () => {
 
     expect(Array.from(api.arrow.frameBytes("arrow-sites"))).toEqual([1, 2, 3, 4])
     expect(() => api.arrow.frameBytes("json-sites")).toThrow("not arrow_ipc")
+  })
+
+  test("enforces preferences and saved query capabilities", () => {
+    const hook = hookContext()
+    const denied = hook.browserModuleApi(baseHost())
+
+    expect(() => denied.preferences.set("density", "compact")).toThrow("dashboard capability is not approved: dashboard.preferences.write")
+    expect(() => denied.savedQueries.list()).toThrow("dashboard capability is not approved: saved_queries.read")
+
+    const host = baseHost({
+      instance: {
+        settings: {
+          preferences: {density: "comfortable"},
+          saved_queries: [{id: "den", name: "DEN", query: "in:wifi_sites site_code:(DEN) limit:500"}],
+        },
+      },
+      package: {
+        ...baseHost().package,
+        capabilities: ["dashboard.preferences.write", "saved_queries.read"],
+      },
+    })
+    const api = hook.browserModuleApi(host)
+
+    expect(api.preferences.get("density")).toEqual("comfortable")
+    expect(api.savedQueries.list()).toEqual([{id: "den", name: "DEN", query: "in:wifi_sites site_code:(DEN) limit:500"}])
+    expect(api.preferences.set("density", "compact")).toEqual({density: "compact"})
+    expect(hook.pushEvent).toHaveBeenCalledWith("dashboard_preference_update", {key: "density", value: "compact"})
+  })
+
+  test("enforces popup and detail host actions", () => {
+    const hook = hookContext()
+    const denied = hook.browserModuleApi(baseHost())
+
+    expect(() => denied.popup.open({title: "Denied"})).toThrow("dashboard capability is not approved: popup.open")
+    expect(() => denied.details.open({type: "site", site_code: "DEN"})).toThrow("dashboard capability is not approved: details.open")
+
+    const allowed = hook.browserModuleApi(
+      baseHost({
+        package: {
+          ...baseHost().package,
+          capabilities: ["popup.open", "details.open"],
+        },
+      }),
+    )
+
+    const popup = allowed.popup.open({title: "DEN", fields: [{label: "APs", value: 42}]}, {x: 24, y: 36})
+    allowed.details.open({type: "site", site_code: "DEN"})
+
+    expect(hook.el.appendChild).toHaveBeenCalled()
+    expect(hook._children[0].innerHTML).toContain("DEN")
+    expect(hook._children[0].style.left).toEqual("24px")
+    expect(hook._children[0].style.top).toEqual("36px")
+    expect(hook.pushEvent).toHaveBeenCalledWith("dashboard_detail_request", {type: "site", site_code: "DEN"})
+
+    popup.close()
+    expect(hook._children[0].remove).toHaveBeenCalled()
   })
 })
 

@@ -467,6 +467,58 @@ const DashboardWasmHost = {
       if (!path) return
       window.location.assign(path)
     }
+    const preferencesApi = {
+      all: () => ({...this.dashboardPreferences(host)}),
+      get: (key, fallback = undefined) => {
+        const preferences = this.dashboardPreferences(host)
+        const normalized = String(key || "")
+        return Object.prototype.hasOwnProperty.call(preferences, normalized) ? preferences[normalized] : fallback
+      },
+      set: (key, value) => {
+        if (!capabilityAllowed("dashboard.preferences.write")) {
+          throw new Error("dashboard capability is not approved: dashboard.preferences.write")
+        }
+
+        const normalized = String(key || "").trim()
+        if (!normalized) throw new Error("dashboard preference key is required")
+
+        const settings = this.dashboardSettings(host)
+        const nextPreferences = {...this.dashboardPreferences(host), [normalized]: value}
+        settings.preferences = nextPreferences
+        this.pushEvent("dashboard_preference_update", {key: normalized, value})
+        return {...nextPreferences}
+      },
+    }
+    const savedQueriesApi = {
+      list: () => {
+        if (!capabilityAllowed("saved_queries.read")) {
+          throw new Error("dashboard capability is not approved: saved_queries.read")
+        }
+
+        return this.dashboardSavedQueries(host).map((query) => ({...query}))
+      },
+      current: (frameId = "sites") => srql.query(frameId),
+      apply: (query, frameQueries = {}) => srql.update(query, frameQueries),
+    }
+    const popupApi = {
+      open: (content, options = {}) => {
+        if (!capabilityAllowed("popup.open")) {
+          throw new Error("dashboard capability is not approved: popup.open")
+        }
+
+        return this.openHostPopup(content, options)
+      },
+      close: () => this.closeHostPopup(),
+    }
+    const detailsApi = {
+      open: (target) => {
+        if (!capabilityAllowed("details.open")) {
+          throw new Error("dashboard capability is not approved: details.open")
+        }
+
+        this.pushEvent("dashboard_detail_request", this.detailRequestPayload(target))
+      },
+    }
 
     return {
       version: "dashboard-browser-module-host-v1",
@@ -483,6 +535,10 @@ const DashboardWasmHost = {
       navigate,
       openDevice: (uid) => navigate({type: "device", uid}),
       openDashboard: (routeSlug) => navigate({type: "dashboard", route_slug: routeSlug}),
+      preferences: preferencesApi,
+      savedQueries: savedQueriesApi,
+      popup: popupApi,
+      details: detailsApi,
       onFrameUpdate: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -517,6 +573,88 @@ const DashboardWasmHost = {
         return () => observer.disconnect()
       },
     }
+  },
+
+  dashboardSettings(host) {
+    if (host?.instance && typeof host.instance === "object") {
+      if (!host.instance.settings || typeof host.instance.settings !== "object") host.instance.settings = {}
+      return host.instance.settings
+    }
+
+    if (host && typeof host === "object") {
+      if (!host.settings || typeof host.settings !== "object") host.settings = {}
+      return host.settings
+    }
+
+    return {}
+  },
+
+  dashboardPreferences(host) {
+    const preferences = this.dashboardSettings(host).preferences
+    return preferences && typeof preferences === "object" && !Array.isArray(preferences) ? preferences : {}
+  },
+
+  dashboardSavedQueries(host) {
+    const savedQueries = this.dashboardSettings(host).saved_queries || this.dashboardSettings(host).savedQueries
+    return Array.isArray(savedQueries) ? savedQueries : []
+  },
+
+  openHostPopup(content, options = {}) {
+    this.closeHostPopup()
+
+    const popup = document.createElement("div")
+    popup.className = "sr-dashboard-host-popup absolute z-20 max-w-96 rounded-box border border-base-300 bg-base-100 p-3 text-base-content shadow-xl"
+    popup.setAttribute("role", "dialog")
+    popup.setAttribute("aria-label", String(options.title || "Dashboard popup"))
+
+    if (typeof globalThis.HTMLElement !== "undefined" && content instanceof globalThis.HTMLElement) {
+      popup.appendChild(content)
+    } else if (typeof content === "object" && content !== null) {
+      popup.innerHTML = this.hostPopupHtml(content, options)
+    } else {
+      popup.textContent = String(content || "")
+    }
+
+    popup.style.left = `${numberOr(options.x, 16)}px`
+    popup.style.top = `${numberOr(options.y, 16)}px`
+    this.el.appendChild(popup)
+    this._hostPopup = popup
+    return {
+      close: () => this.closeHostPopup(),
+    }
+  },
+
+  closeHostPopup() {
+    try {
+      this._hostPopup?.remove()
+    } catch (_error) {}
+
+    this._hostPopup = null
+  },
+
+  hostPopupHtml(content, options = {}) {
+    const title = content.title || options.title
+    const body = content.body || content.message || ""
+    const rows = Array.isArray(content.fields) ? content.fields : []
+
+    return `
+      ${title ? `<div class="pb-2 text-sm font-semibold">${escapeHtml(title)}</div>` : ""}
+      ${body ? `<div class="text-xs text-base-content/80">${escapeHtml(body)}</div>` : ""}
+      ${rows
+        .map((row) => {
+          const label = row.label || row.field || ""
+          const value = row.value ?? row.text ?? ""
+          if (!label && !value) return ""
+          return `<div class="flex justify-between gap-4 border-t border-base-300 py-1.5 text-xs"><span class="text-base-content/60">${escapeHtml(label)}</span><strong class="max-w-48 text-right font-medium">${escapeHtml(formatPopupValue(value))}</strong></div>`
+        })
+        .join("")}
+    `
+  },
+
+  detailRequestPayload(target) {
+    if (typeof target === "string") return {type: "id", id: target}
+    if (target && typeof target === "object") return {...target}
+    return {}
   },
 
   navigationPath(target) {
@@ -571,7 +709,9 @@ const DashboardWasmHost = {
 
   updateVisibleSrqlQuery(query) {
     const input = document.querySelector("#srql-query-bar input[name='q']")
-    if (input instanceof HTMLInputElement) input.value = String(query || "")
+    if (typeof globalThis.HTMLInputElement !== "undefined" && input instanceof globalThis.HTMLInputElement) {
+      input.value = String(query || "")
+    }
   },
 
   connectFrameStream(host) {
@@ -764,7 +904,7 @@ const DashboardWasmHost = {
         random_get: (ptr, len) => {
           const memory = wasmContext.memory || wasmContext.instance?.exports?.memory
           if (!memory) return 1
-          crypto.getRandomValues(new Uint8Array(memory.buffer, ptr, len))
+          globalThis.crypto.getRandomValues(new Uint8Array(memory.buffer, ptr, len))
           return 0
         },
       },
