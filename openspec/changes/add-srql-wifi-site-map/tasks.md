@@ -81,7 +81,7 @@
 - [x] 6.7.1 Create the initial external `~/src/ual-dashboard` dashboard package workspace with manifest build, sample frames, and harness instructions.
 - [x] 6.7.2 Migrate the UAL dashboard package renderer to React using `dashboard-browser-module-v1`, preserving SRQL-driven filters, clustering, popups, Mapbox basemap behavior, device detail links, and ServiceRadar theme integration.
 - [x] 6.7.3 Add Playwright parity checks for the React UAL package against the SDK harness and the Docker Compose dashboard route.
-- [ ] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
+- [x] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
 - [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
 - [x] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
 - [x] 6.9 Add sandbox, permission, and failure-state tests for dashboard renderer packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
