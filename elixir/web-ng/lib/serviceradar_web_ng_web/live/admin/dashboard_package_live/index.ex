@@ -148,15 +148,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   def handle_event("import_package", %{"import" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, manifest_json, renderer_artifact} <- consume_package_uploads(socket),
-         {:ok, package} <-
-           Dashboards.import_package_json(manifest_json, renderer_artifact,
-             scope: scope,
-             source_type: :upload,
-             source_ref: blank_to_nil(params["source_ref"]),
-             source_manifest_path: blank_to_nil(params["source_manifest_path"]),
-             signature: %{"kind" => "local_upload"}
-           ),
+    with {:ok, package} <- import_package_from_source(socket, params, scope),
          {:ok, package} <- maybe_enable_after_import(package, params, scope),
          {:ok, _instance} <- maybe_create_instance_after_import(package, params, scope) do
       {:noreply,
@@ -486,7 +478,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           <div>
             <h2 class="text-lg font-semibold">Import Dashboard Package</h2>
             <p class="text-sm text-base-content/60">
-              Upload the manifest JSON and matching renderer artifact.
+              Import a browser dashboard package from an upload or trusted GitHub source.
             </p>
           </div>
           <button class="btn btn-ghost btn-sm btn-square" phx-click="close_modal">
@@ -503,41 +495,92 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           phx-submit="import_package"
           class="mt-5 space-y-4"
         >
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label class="form-control">
-              <span class="label-text">Manifest JSON</span>
-              <.live_file_input
-                upload={@uploads.manifest}
-                class="file-input file-input-bordered file-input-sm w-full"
-              />
-            </label>
-            <label class="form-control">
-              <span class="label-text">Renderer artifact</span>
-              <.live_file_input
-                upload={@uploads.wasm}
-                class="file-input file-input-bordered file-input-sm w-full"
-              />
-            </label>
-          </div>
+          <label class="form-control">
+            <span class="label-text">Source</span>
+            <select name="import[source_type]" class="select select-bordered select-sm">
+              <option value="upload" selected={@form["source_type"] in [nil, "", "upload"]}>
+                Upload
+              </option>
+              <option value="github" selected={@form["source_type"] == "github"}>GitHub</option>
+            </select>
+          </label>
 
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label class="form-control">
-              <span class="label-text">Source ref</span>
-              <input
-                class="input input-bordered input-sm"
-                name="import[source_ref]"
-                value={@form["source_ref"]}
-              />
-            </label>
-            <label class="form-control">
-              <span class="label-text">Manifest path</span>
-              <input
-                class="input input-bordered input-sm"
-                name="import[source_manifest_path]"
-                value={@form["source_manifest_path"]}
-              />
-            </label>
-          </div>
+          <%= if @form["source_type"] == "github" do %>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="form-control sm:col-span-2">
+                <span class="label-text">GitHub repo URL</span>
+                <input
+                  class="input input-bordered input-sm"
+                  name="import[source_repo_url]"
+                  placeholder="https://github.com/org/repo"
+                  value={@form["source_repo_url"]}
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text">Ref</span>
+                <input
+                  class="input input-bordered input-sm"
+                  name="import[source_ref]"
+                  placeholder="main"
+                  value={@form["source_ref"]}
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text">Manifest path</span>
+                <input
+                  class="input input-bordered input-sm"
+                  name="import[source_manifest_path]"
+                  placeholder="dashboard.json"
+                  value={@form["source_manifest_path"]}
+                />
+              </label>
+              <label class="form-control sm:col-span-2">
+                <span class="label-text">Renderer path override</span>
+                <input
+                  class="input input-bordered input-sm"
+                  name="import[renderer_path]"
+                  placeholder="Use manifest renderer.artifact"
+                  value={@form["renderer_path"]}
+                />
+              </label>
+            </div>
+          <% else %>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="form-control">
+                <span class="label-text">Manifest JSON</span>
+                <.live_file_input
+                  upload={@uploads.manifest}
+                  class="file-input file-input-bordered file-input-sm w-full"
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text">Renderer artifact</span>
+                <.live_file_input
+                  upload={@uploads.wasm}
+                  class="file-input file-input-bordered file-input-sm w-full"
+                />
+              </label>
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="form-control">
+                <span class="label-text">Source ref</span>
+                <input
+                  class="input input-bordered input-sm"
+                  name="import[source_ref]"
+                  value={@form["source_ref"]}
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text">Manifest path</span>
+                <input
+                  class="input input-bordered input-sm"
+                  name="import[source_manifest_path]"
+                  value={@form["source_manifest_path"]}
+                />
+              </label>
+            </div>
+          <% end %>
 
           <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
             <label class="label cursor-pointer justify-start gap-3 p-0">
@@ -852,6 +895,30 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp maybe_enable_after_import(package, _params, _scope), do: {:ok, package}
 
+  defp import_package_from_source(_socket, %{"source_type" => "github"} = params, scope) do
+    Dashboards.import_package_github(
+      %{
+        source_repo_url: blank_to_nil(params["source_repo_url"]),
+        source_commit: blank_to_nil(params["source_ref"]),
+        source_manifest_path: blank_to_nil(params["source_manifest_path"]),
+        renderer_path: blank_to_nil(params["renderer_path"])
+      },
+      scope: scope
+    )
+  end
+
+  defp import_package_from_source(socket, params, scope) do
+    with {:ok, manifest_json, renderer_artifact} <- consume_package_uploads(socket) do
+      Dashboards.import_package_json(manifest_json, renderer_artifact,
+        scope: scope,
+        source_type: :upload,
+        source_ref: blank_to_nil(params["source_ref"]),
+        source_manifest_path: blank_to_nil(params["source_manifest_path"]),
+        signature: %{"kind" => "local_upload"}
+      )
+    end
+  end
+
   defp maybe_create_instance_after_import(package, %{"create_instance" => "true"}, scope) do
     with {:ok, instance} <-
            Dashboards.create_instance(
@@ -939,8 +1006,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp default_import_form do
     %{
+      "source_type" => "upload",
+      "source_repo_url" => "",
       "source_ref" => "",
       "source_manifest_path" => "",
+      "renderer_path" => "",
       "enable" => "true",
       "create_instance" => "true"
     }
