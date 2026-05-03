@@ -69,7 +69,7 @@
 
 - [x] 6.1 Define the dashboard package JSON manifest schema: package ID, version, vendor, description, data-frame contracts, SRQL query definitions, React/browser-module renderer reference, optional renderer WASM reference, settings schema, signing metadata, and requested browser capabilities.
 - [x] 6.2 Add `platform` schema resources for imported dashboard packages, package versions, sync provenance, verification state, administrator settings, and enabled dashboard instances.
-- [ ] 6.3 Extend customer-owned Git source sync to discover dashboard package manifests alongside agent plugin manifests without exposing repository credentials to browsers or agents.
+- [x] 6.3 Extend customer-owned Git source sync to discover dashboard package manifests alongside agent plugin manifests without exposing repository credentials to browsers or agents.
 - [x] 6.4 Verify dashboard package renderer artifacts against digest and trust policy before making them available in the UI.
 - [x] 6.5 Build a web-ng dashboard renderer host that loads signed browser renderers, passes theme/layout context, enforces the versioned `dashboard-browser-module-v1` and optional `dashboard-wasm-v1` interfaces, and exposes bounded host APIs for SRQL execution, saved queries, preferences, navigation, and popup/detail requests.
 - [ ] 6.6 Support Arrow IPC or equivalent columnar data frames from SRQL results for high-volume dashboard renderers while retaining JSON row delivery for smaller payloads.
@@ -106,7 +106,7 @@
 - [x] 8.1 Run `openspec validate add-srql-wifi-site-map --strict`.
 - [x] 8.2 Run focused Go SDK/runtime tests for any new host functions or payload helpers.
 - [x] 8.3 Run core-elx migrations and ingestion tests against the local Docker Compose CNPG database only; do not load proprietary customer seed data into the Kubernetes `demo` namespace.
-- [ ] 8.4 Run customer plugin source sync/import tests.
+- [x] 8.4 Run customer plugin source sync/import tests.
 - [x] 8.5 Run `cd rust/srql && cargo test --lib` for the current SRQL implementation; run full integration coverage before final merge.
 - [ ] 8.6 Run `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` after web changes.
 - [x] 8.7 Confirm the default Docker Compose stack has no faker service; if a dev faker overlay/profile is active, disable or scale it down for WiFi-map validation so synthetic demo devices do not clutter the local map/device inventory.
