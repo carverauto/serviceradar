@@ -1,15 +1,17 @@
 defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   @moduledoc """
-  Fetches plugin packages from GitHub repositories.
+  Fetches plugin and dashboard packages from GitHub repositories.
   """
 
-  alias ServiceRadar.Plugins.Manifest
+  alias ServiceRadar.Dashboards.Manifest, as: DashboardManifest
+  alias ServiceRadar.Plugins.Manifest, as: PluginManifest
   alias ServiceRadarWebNG.Plugins.Storage
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @default_manifest_path "plugin.yaml"
   @default_wasm_path "plugin.wasm"
+  @default_dashboard_manifest_path "dashboard.json"
   @max_ref_length 200
   @max_path_length 240
 
@@ -52,6 +54,46 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   def fetch(_), do: {:error, :invalid_attributes}
+
+  @spec fetch_dashboard(map()) :: {:ok, map()} | {:error, term()}
+  def fetch_dashboard(attrs) when is_map(attrs) do
+    repo_url = fetch_value(attrs, [:source_repo_url, "source_repo_url"])
+    commit = fetch_value(attrs, [:source_commit, "source_commit"])
+
+    manifest_path =
+      fetch_value(attrs, [:manifest_path, "manifest_path", :source_manifest_path, "source_manifest_path"]) ||
+        @default_dashboard_manifest_path
+
+    with {:ok, repo} <- parse_repo_url(repo_url),
+         :ok <- enforce_repo_boundary(repo),
+         {:ok, %{sha: sha, verification: verification}} <- resolve_ref(repo, commit),
+         {:ok, manifest_map, manifest_json, normalized_manifest_path} <-
+           fetch_dashboard_manifest(repo, sha, manifest_path),
+         {:ok, manifest_struct} <- validate_dashboard_manifest(manifest_map),
+         {:ok, renderer_path} <- dashboard_renderer_path(attrs, manifest_struct),
+         {:ok, renderer_artifact, normalized_renderer_path} <- fetch_renderer_artifact(repo, sha, renderer_path),
+         :ok <- enforce_verification_policy(%{verification: verification}) do
+      {signature, gpg_verified_at, gpg_key_id, source_commit} =
+        verification_metadata(%{verification: verification, sha: sha}, sha)
+
+      {:ok,
+       %{
+         manifest: manifest_map,
+         manifest_json: manifest_json,
+         manifest_struct: manifest_struct,
+         renderer_artifact: renderer_artifact,
+         content_hash: Storage.sha256(renderer_artifact),
+         signature: signature,
+         gpg_verified_at: gpg_verified_at,
+         gpg_key_id: gpg_key_id,
+         source_commit: source_commit,
+         source_manifest_path: normalized_manifest_path,
+         source_renderer_path: normalized_renderer_path
+       }}
+    end
+  end
+
+  def fetch_dashboard(_), do: {:error, :invalid_attributes}
 
   defp parse_repo_url(nil), do: {:error, :missing_repo_url}
   defp parse_repo_url(""), do: {:error, :missing_repo_url}
@@ -141,6 +183,41 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp fetch_wasm(_repo, _ref, _path), do: {:error, :invalid_wasm_path}
+
+  defp fetch_dashboard_manifest(repo, ref, path) when is_binary(path) do
+    with {:ok, normalized_path} <- normalize_repo_path(path, :invalid_manifest_path),
+         {:ok, body} <- fetch_raw(repo, ref, normalized_path),
+         {:ok, manifest_map} <- decode_json_map(body) do
+      {:ok, manifest_map, Jason.encode!(manifest_map), normalized_path}
+    else
+      {:error, errors} when is_list(errors) -> {:error, {:invalid_manifest, errors}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_dashboard_manifest(_repo, _ref, _path), do: {:error, :invalid_manifest_path}
+
+  defp dashboard_renderer_path(attrs, %DashboardManifest{} = manifest) do
+    path =
+      fetch_value(attrs, [:renderer_path, "renderer_path", :wasm_path, "wasm_path"]) ||
+        manifest.renderer["artifact"]
+
+    case path do
+      value when is_binary(value) -> normalize_repo_path(value, :invalid_renderer_path)
+      _ -> {:error, :invalid_renderer_path}
+    end
+  end
+
+  defp fetch_renderer_artifact(repo, ref, path) when is_binary(path) do
+    with {:ok, normalized_path} <- normalize_repo_path(path, :invalid_renderer_path),
+         {:ok, body} <- fetch_raw(repo, ref, normalized_path),
+         :ok <- ensure_size(body) do
+      payload = if is_binary(body), do: body, else: to_string(body)
+      {:ok, payload, normalized_path}
+    end
+  end
+
+  defp fetch_renderer_artifact(_repo, _ref, _path), do: {:error, :invalid_renderer_path}
 
   defp fetch_commit_verification(%{owner: owner, repo: repo}, ref) do
     with {:ok, normalized_ref} <- normalize_ref(ref) do
@@ -393,13 +470,32 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp decode_yaml(body) when is_binary(body) do
-    Manifest.parse_yaml_map(body)
+    PluginManifest.parse_yaml_map(body)
   end
 
   defp decode_yaml(_), do: {:error, ["manifest yaml is invalid"]}
 
+  defp decode_json_map(body) when is_binary(body) do
+    with {:ok, decoded} <- Jason.decode(body),
+         true <- is_map(decoded) do
+      {:ok, decoded}
+    else
+      false -> {:error, ["manifest json must decode to an object"]}
+      {:error, %Jason.DecodeError{} = error} -> {:error, ["invalid json: #{Exception.message(error)}"]}
+    end
+  end
+
+  defp decode_json_map(_), do: {:error, ["manifest json is invalid"]}
+
   defp validate_manifest(manifest_map) do
-    case Manifest.from_map(manifest_map) do
+    case PluginManifest.from_map(manifest_map) do
+      {:ok, manifest_struct} -> {:ok, manifest_struct}
+      {:error, errors} when is_list(errors) -> {:error, {:invalid_manifest, errors}}
+    end
+  end
+
+  defp validate_dashboard_manifest(manifest_map) do
+    case DashboardManifest.from_map(manifest_map) do
       {:ok, manifest_struct} -> {:ok, manifest_struct}
       {:error, errors} when is_list(errors) -> {:error, {:invalid_manifest, errors}}
     end

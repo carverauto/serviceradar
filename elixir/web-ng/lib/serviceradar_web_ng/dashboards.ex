@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Dashboards do
   defdelegate list_packages(filters \\ %{}, opts \\ []), to: Packages, as: :list
   defdelegate get_package(id, opts \\ []), to: Packages, as: :get
   defdelegate import_package_json(manifest_json, wasm, opts \\ []), to: Packages, as: :import_json
+  defdelegate import_package_github(attrs, opts \\ []), to: Packages, as: :import_github
   defdelegate enable_package(id, opts \\ []), to: Packages, as: :enable
   defdelegate disable_package(id, opts \\ []), to: Packages, as: :disable
   defdelegate create_instance(package, attrs, opts \\ []), to: Packages

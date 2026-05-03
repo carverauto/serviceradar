@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Dashboards.PackageImport
   alias ServiceRadar.Plugins.ConfigSchema
+  alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
 
   require Ash.Query
@@ -62,6 +63,23 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   end
 
   def import_json(_manifest_json, _wasm, _opts), do: {:error, :invalid_attributes}
+
+  @spec import_github(map(), keyword()) :: {:ok, DashboardPackage.t()} | {:error, term()}
+  def import_github(attrs, opts \\ [])
+
+  def import_github(attrs, opts) when is_map(attrs) do
+    ash_opts = ash_opts(Keyword.get(opts, :scope), Keyword.get(opts, :actor))
+
+    with {:ok, import} <- GitHubImporter.fetch_dashboard(attrs),
+         :ok <- PackageImport.verify_artifact_digest(import.renderer_artifact, import.manifest_struct),
+         {:ok, package_attrs} <-
+           PackageImport.attrs_from_manifest(import.manifest_struct, import_github_options(import, attrs, opts)),
+         {:ok, package} <- upsert_package(package_attrs, ash_opts) do
+      store_wasm_blob(package, import.renderer_artifact, package_attrs.content_hash, ash_opts)
+    end
+  end
+
+  def import_github(_attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec enable(String.t(), keyword()) :: {:ok, DashboardPackage.t()} | {:error, term()}
   def enable(id, opts \\ [])
@@ -325,6 +343,28 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     ]
   end
 
+  defp import_github_options(import, attrs, opts) do
+    source_metadata =
+      Map.merge(import.manifest_struct.source, %{
+        "source" => "github",
+        "manifest_path" => import.source_manifest_path,
+        "renderer_path" => import.source_renderer_path
+      })
+
+    opts
+    |> Keyword.put(:signature, import.signature)
+    |> Keyword.put(:source_type, :git)
+    |> Keyword.put(:source_repo_url, fetch_value(attrs, [:source_repo_url, "source_repo_url"]))
+    |> Keyword.put(:source_ref, fetch_value(attrs, [:source_commit, "source_commit"]))
+    |> Keyword.put(:source_manifest_path, import.source_manifest_path)
+    |> Keyword.put(:source_commit, import.source_commit)
+    |> Keyword.put(:source_bundle_digest, Storage.sha256(import.manifest_json <> import.renderer_artifact))
+    |> Keyword.put(:source_metadata, source_metadata)
+    |> Keyword.put(:verification_status, "verified")
+    |> Keyword.put(:verification_error, nil)
+    |> import_options()
+  end
+
   defp read(query, nil), do: Ash.read!(query)
   defp read(query, scope), do: Ash.read!(query, scope: scope)
 
@@ -418,6 +458,12 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
         pair
     end)
   end
+
+  defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+  end
+
+  defp fetch_value(_map, _keys), do: nil
 
   defp default_route_slug(%DashboardPackage{} = package) do
     [package.dashboard_id, package.version]
