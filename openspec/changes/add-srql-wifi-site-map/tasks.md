@@ -88,7 +88,7 @@
 - [x] 6.10 Provide a local customer dashboard package dev harness in `~/src/serviceradar-sdk-dashboard` that loads manifest JSON, renderer artifacts, validated settings, and sample SRQL frames without deploying to production.
 - [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
 - [x] 6.11.1 Add a React SDK package surface in `~/src/serviceradar-sdk-dashboard` with host API types, SRQL query helpers, frame access hooks, theme hooks, navigation helpers, and a browser-module mount helper.
-- [ ] 6.11.2 Add a React/Vite dashboard package template and harness path that emits `dashboard-browser-module-v1` renderer artifacts consumable by web-ng.
+- [x] 6.11.2 Add a React/Vite dashboard package template and harness path that emits `dashboard-browser-module-v1` renderer artifacts consumable by web-ng.
 - [ ] 6.12 Migrate built-in topology and netflow map experiences toward dashboard packages so they can be versioned and updated outside core/web-ng.
 
 ## 7. Live Aruba Collector Follow-Up
