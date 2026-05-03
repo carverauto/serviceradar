@@ -84,7 +84,7 @@
 - [ ] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
 - [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
 - [x] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
-- [ ] 6.9 Add sandbox, permission, and failure-state tests for dashboard renderer packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
+- [x] 6.9 Add sandbox, permission, and failure-state tests for dashboard renderer packages, including invalid signature, unsupported capability, renderer crash, slow renderer, and non-mappable SRQL result behavior.
 - [x] 6.10 Provide a local customer dashboard package dev harness in `~/src/serviceradar-sdk-dashboard` that loads manifest JSON, renderer artifacts, validated settings, and sample SRQL frames without deploying to production.
 - [x] 6.11 Create the initial external `~/src/serviceradar-sdk-dashboard` SDK workspace and update example/customer renderers to use it instead of copying ABI glue.
 - [x] 6.11.1 Add a React SDK package surface in `~/src/serviceradar-sdk-dashboard` with host API types, SRQL query helpers, frame access hooks, theme hooks, navigation helpers, and a browser-module mount helper.

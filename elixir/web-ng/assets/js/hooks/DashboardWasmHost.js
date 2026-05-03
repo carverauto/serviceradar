@@ -7,6 +7,7 @@ const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const OSM_STYLE_ID = "serviceradar-dashboard-osm-raster"
 const MAX_INLINE_LAYER_ROWS = 10000
+const DEFAULT_RENDERER_BOOT_TIMEOUT_MS = 10000
 const DASHBOARD_WASM_INTERFACE = "dashboard-wasm-v1"
 const DASHBOARD_BROWSER_MODULE_INTERFACE = "dashboard-browser-module-v1"
 const MAX_MERCATOR_LAT = 85.05112878
@@ -159,6 +160,27 @@ function binaryMessageBytes(message) {
   if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength)
   if (Array.isArray(message) && message[0] === "binary" && typeof message[1] === "string") return base64ToBytes(message[1])
   return new Uint8Array()
+}
+
+function rendererBootTimeoutMs(host) {
+  const timeout =
+    host?.package?.renderer?.timeout_ms ??
+    host?.package?.renderer?.timeoutMs ??
+    host?.host?.renderer_timeout_ms ??
+    host?.host?.rendererTimeoutMs ??
+    DEFAULT_RENDERER_BOOT_TIMEOUT_MS
+
+  return clamp(numberOr(timeout, DEFAULT_RENDERER_BOOT_TIMEOUT_MS), 100, 60000)
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeout
+
+  const timer = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  return Promise.race([promise, timer]).finally(() => clearTimeout(timeout))
 }
 
 function parseFrameBinaryMessage(message) {
@@ -415,7 +437,11 @@ const DashboardWasmHost = {
     this.el.classList.add("sr-dashboard-browser-module")
     this._host = host
 
-    const mounted = await mount(this.el, host, this.browserModuleApi(host))
+    const mounted = await withTimeout(
+      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
+      rendererBootTimeoutMs(host),
+      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
+    )
     this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
     this.connectFrameStream(host)
   },
@@ -1197,7 +1223,7 @@ const DashboardWasmHost = {
   },
 
   layerData(layer) {
-    const results = this.rawLayerData(layer)
+    const results = this.mappableLayerData(layer, this.rawLayerData(layer))
     return this.clusteredLayerData(layer, results)
   },
 
@@ -1209,6 +1235,24 @@ const DashboardWasmHost = {
     const frame = frames.find((item) => item?.id === frameId)
     const results = Array.isArray(frame?.results) ? frame.results : []
     return results.slice(0, MAX_INLINE_LAYER_ROWS)
+  },
+
+  mappableLayerData(layer, rows) {
+    const type = String(layer?.type || "").toLowerCase()
+
+    if (type === "scatterplot" || type === "text") {
+      const getPosition = positionAccessor(layer.position)
+      return rows.filter((row) => isFinitePosition(getPosition(row)))
+    }
+
+    if (type === "line" || type === "arc") {
+      const getSourcePosition = positionAccessor(layer.source_position)
+      const getTargetPosition = positionAccessor(layer.target_position)
+
+      return rows.filter((row) => isFinitePosition(getSourcePosition(row)) && isFinitePosition(getTargetPosition(row)))
+    }
+
+    return rows
   },
 
   clusteredLayerData(layer, rows) {
