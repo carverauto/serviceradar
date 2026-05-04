@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Identity.User
@@ -43,13 +44,16 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   require Logger
 
-  # Defaults that move onto AuthorizationSettings in Section 12 of the
-  # add-cli-device-auth proposal.
   @device_ttl_seconds 900
   @poll_interval 5
-  @session_ttl_days 30
   @valid_clients ["serviceradar-cli"]
-  @allowed_scopes ["dashboard.publish"]
+
+  # Fallback scopes used when AuthorizationSettings can't be read
+  # (database unreachable during early request handling, etc). Matches
+  # the migration default so the failure mode mirrors a freshly-installed
+  # instance.
+  @fallback_allowed_scopes ["dashboard.publish"]
+  @fallback_session_ttl_days 30
 
   # Rate-limit shape — see ServiceRadarWebNGWeb.Auth.RateLimiter.
   @device_rate_limit 10
@@ -67,12 +71,17 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   """
   def device(conn, params) do
     client_ip = ClientIP.get(conn)
+    settings = load_settings()
 
-    with :ok <- enforce_device_rate_limit(client_ip),
+    with :ok <- enforce_cli_auth_enabled(settings),
+         :ok <- enforce_device_rate_limit(client_ip),
          {:ok, client_id} <- validate_client(params["client_id"]),
-         {:ok, scope} <- validate_scope(params["scope"]) do
+         {:ok, scope} <- validate_scope(params["scope"], settings) do
       mint_device_authorization(conn, client_id, scope)
     else
+      {:error, :cli_auth_disabled} ->
+        error_response(conn, 503, "cli_auth_disabled", "CLI authentication is disabled on this instance")
+
       {:error, :rate_limited, retry_after} ->
         rate_limited_response(conn, retry_after)
 
@@ -93,12 +102,25 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   the resulting 400 until then.
   """
   def token(conn, %{"grant_type" => "urn:ietf:params:oauth:grant-type:device_code"} = params) do
-    case Map.get(params, "device_code") do
-      device_code when is_binary(device_code) and device_code != "" ->
-        handle_token_poll(conn, device_code)
+    settings = load_settings()
 
-      _ ->
-        error_response(conn, 400, "invalid_request", "Missing device_code")
+    case enforce_cli_auth_enabled(settings) do
+      {:error, :cli_auth_disabled} ->
+        error_response(
+          conn,
+          503,
+          "cli_auth_disabled",
+          "CLI authentication is disabled on this instance"
+        )
+
+      :ok ->
+        case Map.get(params, "device_code") do
+          device_code when is_binary(device_code) and device_code != "" ->
+            handle_token_poll(conn, device_code, settings)
+
+          _ ->
+            error_response(conn, 400, "invalid_request", "Missing device_code")
+        end
     end
   end
 
@@ -191,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   ## Token-poll helpers
 
-  defp handle_token_poll(conn, device_code) do
+  defp handle_token_poll(conn, device_code, settings) do
     actor = SystemActor.system(:cli_auth)
     device_code_hash = sha256_hex(device_code)
 
@@ -203,11 +225,11 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
         error_response(conn, 400, "invalid_grant", "Unknown device_code")
 
       {:ok, row} ->
-        enforce_token_rate_limit(conn, row, actor)
+        enforce_token_rate_limit(conn, row, settings, actor)
     end
   end
 
-  defp enforce_token_rate_limit(conn, row, actor) do
+  defp enforce_token_rate_limit(conn, row, settings, actor) do
     case RateLimiter.check_rate_limit_and_record(
            "cli_auth_token",
            row.id,
@@ -216,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
          ) do
       :ok ->
         DeviceAuthorization.record_poll(row, actor: actor)
-        dispatch_poll_state(conn, row, actor)
+        dispatch_poll_state(conn, row, settings, actor)
 
       {:error, _retry_after} ->
         # Polling too fast — bump the row's interval and tell the CLI to
@@ -226,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
     end
   end
 
-  defp dispatch_poll_state(conn, row, actor) do
+  defp dispatch_poll_state(conn, row, settings, actor) do
     cond do
       DateTime.compare(row.expires_at, DateTime.utc_now()) == :lt ->
         DeviceAuthorization.expire(row, actor: actor)
@@ -242,21 +264,23 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
         error_response(conn, 400, "expired_token", "Device code expired")
 
       row.status == :approved ->
-        issue_token(conn, row, actor)
+        issue_token(conn, row, settings, actor)
 
       true ->
         error_response(conn, 400, "invalid_grant", "Device authorization in unexpected state")
     end
   end
 
-  defp issue_token(conn, row, actor) do
+  defp issue_token(conn, row, settings, actor) do
+    ttl_days = settings[:cli_session_ttl_days] || @fallback_session_ttl_days
+
     with {:ok, user} <- load_user(row.user_id, actor),
          scopes = parse_scopes(row.scope),
          scopes_atoms = Enum.map(scopes, &scope_to_atom/1),
          {:ok, jwt, claims} <-
            Guardian.create_api_token(user,
              scopes: scopes_atoms,
-             ttl: {@session_ttl_days, :day}
+             ttl: {ttl_days, :day}
            ),
          {:ok, _session} <- persist_cli_session(row, user, claims, actor) do
       expires_in =
@@ -265,7 +289,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
             max(0, exp - System.system_time(:second))
 
           _ ->
-            @session_ttl_days * 24 * 60 * 60
+            ttl_days * 24 * 60 * 60
         end
 
       conn
@@ -308,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
     expires_at =
       unix_to_dt(claims["exp"]) ||
-        DateTime.add(DateTime.utc_now(), @session_ttl_days * 24 * 60 * 60, :second)
+        DateTime.add(DateTime.utc_now(), @fallback_session_ttl_days * 24 * 60 * 60, :second)
 
     attrs = %{
       jti: claims["jti"],
@@ -328,20 +352,53 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   defp validate_client(client_id) when client_id in @valid_clients, do: {:ok, client_id}
   defp validate_client(_), do: {:error, :invalid_client}
 
-  defp validate_scope(nil), do: {:ok, "dashboard.publish"}
-  defp validate_scope(""), do: {:ok, "dashboard.publish"}
+  defp validate_scope(nil, settings), do: {:ok, default_scope(settings)}
+  defp validate_scope("", settings), do: {:ok, default_scope(settings)}
 
-  defp validate_scope(scope) when is_binary(scope) do
+  defp validate_scope(scope, settings) when is_binary(scope) do
     requested = parse_scopes(scope)
+    allowed = settings[:cli_allowed_scopes] || @fallback_allowed_scopes
 
-    if Enum.all?(requested, &(&1 in @allowed_scopes)) do
+    if Enum.all?(requested, &(&1 in allowed)) do
       {:ok, scope}
     else
       {:error, :invalid_scope}
     end
   end
 
-  defp validate_scope(_), do: {:error, :invalid_scope}
+  defp validate_scope(_, _), do: {:error, :invalid_scope}
+
+  defp default_scope(settings) do
+    case settings[:cli_allowed_scopes] || @fallback_allowed_scopes do
+      [first | _] -> first
+      _ -> "dashboard.publish"
+    end
+  end
+
+  ## Settings cache
+
+  defp load_settings do
+    actor = SystemActor.system(:cli_auth)
+
+    case AuthorizationSettings.get_settings(actor: actor) do
+      {:ok, %{} = record} ->
+        %{
+          cli_auth_enabled: record.cli_auth_enabled,
+          cli_session_ttl_days: record.cli_session_ttl_days,
+          cli_allowed_scopes: record.cli_allowed_scopes
+        }
+
+      _ ->
+        %{
+          cli_auth_enabled: true,
+          cli_session_ttl_days: @fallback_session_ttl_days,
+          cli_allowed_scopes: @fallback_allowed_scopes
+        }
+    end
+  end
+
+  defp enforce_cli_auth_enabled(%{cli_auth_enabled: false}), do: {:error, :cli_auth_disabled}
+  defp enforce_cli_auth_enabled(_), do: :ok
 
   defp parse_scopes(nil), do: []
 

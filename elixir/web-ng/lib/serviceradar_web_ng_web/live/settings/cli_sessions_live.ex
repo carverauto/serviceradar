@@ -21,16 +21,33 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Identity.CliSession
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Auth.CliSessions, as: CliSessionsContext
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
+  @perm_read_own "cli.session.read_own"
+  @perm_read_any "cli.session.read_any"
+  @perm_revoke_own "cli.session.revoke_own"
+  @perm_revoke_any "cli.session.revoke_any"
+
   @impl true
   def mount(_params, _session, socket) do
+    permissions =
+      case socket.assigns[:current_scope] do
+        %{user: %{} = user} -> RBAC.permissions_for_user(user)
+        _ -> MapSet.new()
+      end
+
     socket =
       socket
       |> assign(:page_title, "CLI Sessions")
       |> assign(:current_path, "/settings/cli-sessions")
+      |> assign(:permissions, permissions)
+      |> assign(:can_read_any?, MapSet.member?(permissions, @perm_read_any))
+      |> assign(:can_read_own?, MapSet.member?(permissions, @perm_read_own))
+      |> assign(:can_revoke_any?, MapSet.member?(permissions, @perm_revoke_any))
+      |> assign(:can_revoke_own?, MapSet.member?(permissions, @perm_revoke_own))
       |> load_sessions()
 
     {:ok, socket}
@@ -40,22 +57,26 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
   def handle_event("revoke", %{"jti" => jti}, socket) do
     actor = current_actor(socket)
 
-    case Enum.find(socket.assigns.sessions, &(&1.jti == jti)) do
+    with %CliSession{} = session <- Enum.find(socket.assigns.sessions, &(&1.jti == jti)),
+         :ok <- ensure_can_revoke(session, socket) do
+      case CliSessionsContext.revoke(session, actor: actor) do
+        {:ok, _updated} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "CLI session revoked.")
+           |> load_sessions()}
+
+        {:error, reason} ->
+          {:noreply,
+           put_flash(socket, :error, "Failed to revoke: #{inspect(reason)}")}
+      end
+    else
       nil ->
         {:noreply, put_flash(socket, :error, "Session no longer present.")}
 
-      %CliSession{} = session ->
-        case CliSessionsContext.revoke(session, actor: actor) do
-          {:ok, _updated} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "CLI session revoked.")
-             |> load_sessions()}
-
-          {:error, reason} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to revoke: #{inspect(reason)}")}
-        end
+      {:error, :forbidden} ->
+        {:noreply,
+         put_flash(socket, :error, "Your role does not allow revoking this CLI session.")}
     end
   end
 
@@ -119,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
                       </span>
                     </td>
                     <td class="text-right">
-                      <%= if session.status == :active do %>
+                      <%= if session.status == :active and can_revoke_session?(session, @socket) do %>
                         <button
                           type="button"
                           phx-click="revoke"
@@ -146,24 +167,26 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
 
   defp load_sessions(socket) do
     actor = current_actor(socket)
-    show_admin? = admin?(socket)
 
     {sessions, show_user_column?} =
       cond do
         is_nil(actor) ->
           {[], false}
 
-        show_admin? ->
+        socket.assigns[:can_read_any?] ->
           case CliSessionsContext.list_all(actor: actor) do
             {:ok, rows} -> {sort_sessions(rows), true}
             _ -> {[], false}
           end
 
-        true ->
+        socket.assigns[:can_read_own?] ->
           case CliSessionsContext.list_active_for_user(actor.id, actor: actor) do
             {:ok, rows} -> {sort_sessions(rows), false}
             _ -> {[], false}
           end
+
+        true ->
+          {[], false}
       end
 
     socket
@@ -179,8 +202,22 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
   defp current_actor(%{assigns: %{ash_actor: actor}}) when not is_nil(actor), do: actor
   defp current_actor(_), do: nil
 
-  defp admin?(%{assigns: %{current_scope: %{user: %{role: role}}}}) when role in [:admin, "admin"], do: true
-  defp admin?(_), do: false
+  defp ensure_can_revoke(%CliSession{user_id: user_id}, socket) do
+    actor = current_actor(socket)
+
+    cond do
+      socket.assigns[:can_revoke_any?] -> :ok
+      socket.assigns[:can_revoke_own?] and actor && actor.id == user_id -> :ok
+      true -> {:error, :forbidden}
+    end
+  end
+
+  defp can_revoke_session?(%CliSession{} = session, socket) do
+    case ensure_can_revoke(session, socket) do
+      :ok -> true
+      _ -> false
+    end
+  end
 
   defp format_timestamp(nil), do: "—"
 

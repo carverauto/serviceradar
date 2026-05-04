@@ -31,16 +31,21 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
 
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RBAC
 
   @valid_user_code ~r/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/
+  @approval_permission "cli.session.create"
 
   @impl true
   def mount(params, _session, socket) do
     case socket.assigns[:current_scope] do
-      %{user: %{} = _user} ->
+      %{user: %{} = user} ->
+        permissions = RBAC.permissions_for_user(user)
+
         socket =
           socket
           |> assign(:page_title, "Authorize CLI Session")
+          |> assign(:can_approve?, MapSet.member?(permissions, @approval_permission))
           |> load_state(params)
 
         {:ok, socket}
@@ -57,46 +62,64 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
   end
 
   def handle_event("approve", _params, socket) do
-    case socket.assigns.row do
-      %DeviceAuthorization{status: :pending} = row ->
-        actor = SystemActor.system(:cli_auth)
+    if socket.assigns[:can_approve?] do
+      case socket.assigns.row do
+        %DeviceAuthorization{status: :pending} = row ->
+          actor = SystemActor.system(:cli_auth)
 
-        case DeviceAuthorization.approve(row, socket.assigns.current_scope.user.id, actor: actor) do
-          {:ok, updated} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "CLI session approved. You can close this tab.")
-             |> assign(:row, updated)
-             |> assign(:state, :approved)}
+          case DeviceAuthorization.approve(row, socket.assigns.current_scope.user.id, actor: actor) do
+            {:ok, updated} ->
+              {:noreply,
+               socket
+               |> put_flash(:info, "CLI session approved. You can close this tab.")
+               |> assign(:row, updated)
+               |> assign(:state, :approved)}
 
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to approve: #{inspect(reason)}")}
-        end
+            {:error, reason} ->
+              {:noreply, put_flash(socket, :error, "Failed to approve: #{inspect(reason)}")}
+          end
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "This authorization is no longer pending.")}
+        _ ->
+          {:noreply, put_flash(socket, :error, "This authorization is no longer pending.")}
+      end
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Your role does not allow CLI authentication. Ask an admin for the cli.session.create permission."
+       )}
     end
   end
 
   def handle_event("deny", _params, socket) do
-    case socket.assigns.row do
-      %DeviceAuthorization{status: :pending} = row ->
-        actor = SystemActor.system(:cli_auth)
+    if socket.assigns[:can_approve?] do
+      case socket.assigns.row do
+        %DeviceAuthorization{status: :pending} = row ->
+          actor = SystemActor.system(:cli_auth)
 
-        case DeviceAuthorization.deny(row, actor: actor) do
-          {:ok, updated} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "CLI session denied.")
-             |> assign(:row, updated)
-             |> assign(:state, :denied)}
+          case DeviceAuthorization.deny(row, actor: actor) do
+            {:ok, updated} ->
+              {:noreply,
+               socket
+               |> put_flash(:info, "CLI session denied.")
+               |> assign(:row, updated)
+               |> assign(:state, :denied)}
 
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to deny: #{inspect(reason)}")}
-        end
+            {:error, reason} ->
+              {:noreply, put_flash(socket, :error, "Failed to deny: #{inspect(reason)}")}
+          end
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "This authorization is no longer pending.")}
+        _ ->
+          {:noreply, put_flash(socket, :error, "This authorization is no longer pending.")}
+      end
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Your role does not allow CLI authentication. Ask an admin for the cli.session.create permission."
+       )}
     end
   end
 
@@ -156,23 +179,38 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             </div>
 
-            <div class="flex gap-3">
-              <button
-                type="button"
-                phx-click="deny"
-                data-confirm="Deny this CLI session?"
-                class="btn btn-ghost flex-1"
-              >
-                Deny
-              </button>
-              <button
-                type="button"
-                phx-click="approve"
-                class="btn btn-primary flex-1"
-              >
-                Approve
-              </button>
-            </div>
+            <%= if @can_approve? do %>
+              <div class="flex gap-3">
+                <button
+                  type="button"
+                  phx-click="deny"
+                  data-confirm="Deny this CLI session?"
+                  class="btn btn-ghost flex-1"
+                >
+                  Deny
+                </button>
+                <button
+                  type="button"
+                  phx-click="approve"
+                  class="btn btn-primary flex-1"
+                >
+                  Approve
+                </button>
+              </div>
+            <% else %>
+              <div class="alert alert-warning">
+                <div>
+                  <h2 class="font-semibold">Your role does not allow CLI authentication.</h2>
+                  <p class="text-sm">
+                    Ask an admin to grant the
+                    <code class="font-mono">cli.session.create</code>
+                    permission. The polling CLI will receive an
+                    <code class="font-mono">expired_token</code>
+                    error after the device code TTL elapses.
+                  </p>
+                </div>
+              </div>
+            <% end %>
 
           <% :approved -> %>
             <div class="alert alert-success">

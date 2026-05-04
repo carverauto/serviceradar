@@ -19,7 +19,13 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
   @auth_manage_permission Constants.auth_manage_permission()
   @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                       permission: @auth_manage_permission}
-  @settings_fields [:default_role, :role_mappings]
+  @settings_fields [
+    :default_role,
+    :role_mappings,
+    :cli_auth_enabled,
+    :cli_session_ttl_days,
+    :cli_allowed_scopes
+  ]
 
   postgres do
     table "authorization_settings"
@@ -87,6 +93,28 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       default []
       public? true
       description "List of role mappings derived from IdP claims or groups"
+    end
+
+    attribute :cli_auth_enabled, :boolean do
+      allow_nil? false
+      default true
+      public? true
+      description "Whether the RFC 8628 CLI device-code flow accepts new authorizations on this instance"
+    end
+
+    attribute :cli_session_ttl_days, :integer do
+      allow_nil? false
+      default 30
+      public? true
+      constraints min: 1, max: 365
+      description "Default TTL (days) for JWTs issued by the CLI device-code flow"
+    end
+
+    attribute :cli_allowed_scopes, {:array, :string} do
+      allow_nil? false
+      default ["dashboard.publish"]
+      public? true
+      description "Scopes the CLI device-code flow may request; out-of-list scopes 400 with invalid_scope"
     end
 
     timestamps()
