@@ -195,6 +195,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arcstr"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -566,7 +572,7 @@ dependencies = [
  "serde_json 1.0.149",
  "serde_path_to_error",
  "serde_urlencoded",
- "sha1 0.10.6",
+ "sha1",
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-tungstenite",
@@ -4810,17 +4816,20 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.21.7"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "152f3863635cbb76b73bc247845781098302c6c9ad2060e1a9a7de56840346b6"
+checksum = "72d32a1ac9123f0d84fda64bfc02a271d9868483162dd2d9099b5c362ece064c"
 dependencies = [
- "async-trait",
+ "arcstr",
  "combine",
  "itoa 1.0.18",
+ "num-bigint",
  "percent-encoding",
  "ryu",
- "sha1 0.6.1",
+ "sha1_smol",
+ "socket2 0.6.3",
  "url",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -4973,7 +4982,7 @@ dependencies = [
  "serde 1.0.228",
  "serde_json 1.0.149",
  "serde_urlencoded",
- "sha1 0.10.6",
+ "sha1",
 ]
 
 [[package]]
@@ -4998,7 +5007,7 @@ dependencies = [
  "rsa",
  "serde 1.0.228",
  "serde_json 1.0.149",
- "sha1 0.10.6",
+ "sha1",
  "sha2",
 ]
 
@@ -5030,7 +5039,7 @@ dependencies = [
  "http 1.4.0",
  "log 0.4.29",
  "percent-encoding",
- "sha1 0.10.6",
+ "sha1",
  "sha2",
  "thiserror 2.0.18",
  "windows-sys 0.60.2",
@@ -6049,15 +6058,6 @@ dependencies = [
  "tonic-health 0.12.3",
  "tonic-reflection 0.12.3",
  "zen-engine",
-]
-
-[[package]]
-name = "sha1"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1da05c97445caa12d05e848c4a4fcbbea29e748ac28f7e80e9b010392063770"
-dependencies = [
- "sha1_smol",
 ]
 
 [[package]]
@@ -7276,7 +7276,7 @@ dependencies = [
  "httparse",
  "log 0.4.29",
  "rand 0.8.5",
- "sha1 0.10.6",
+ "sha1",
  "thiserror 1.0.69",
  "utf-8",
 ]
@@ -8205,6 +8205,12 @@ name = "xml-rs"
 version = "0.8.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
 
 [[package]]
 name = "yansi"
