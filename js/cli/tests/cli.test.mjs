@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import {execFile} from "node:child_process"
-import {mkdtemp, readFile, writeFile} from "node:fs/promises"
+import {mkdtemp, readFile, stat, writeFile} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {promisify} from "node:util"
@@ -202,6 +202,44 @@ test("init rejects an unknown template", async () => {
     },
   )
 })
+
+for (const template of ["react-blank", "react-map", "react-table"]) {
+  test(`init scaffold for ${template} produces a structurally complete project`, async () => {
+    const parentDir = await mkdtemp(join(tmpdir(), `sr-dashboard-tmpl-${template}-`))
+    const projectName = `${template}-smoke`
+    const packageId = `com.example.${template.replace(/-/g, "")}`
+    await execFileAsync(
+      process.execPath,
+      [cliPath.pathname, "init", projectName, "--template", template, "--no-install", "--package-id", packageId, "--title", `${template} smoke`],
+      {cwd: parentDir},
+    )
+
+    const projectDir = join(parentDir, projectName)
+
+    const pkg = JSON.parse(await readFile(join(projectDir, "package.json"), "utf8"))
+    assert.equal(pkg.name, projectName)
+    assert.match(pkg.scripts.dev, /serviceradar-cli dashboard dev/)
+    assert.match(pkg.scripts.build, /serviceradar-cli dashboard build/)
+    assert.match(pkg.scripts.validate, /serviceradar-cli dashboard validate/)
+    assert.equal(pkg.dependencies["@serviceradar/dashboard-sdk"]?.startsWith("^") ?? false, true)
+
+    const config = await readFile(join(projectDir, "dashboard.config.mjs"), "utf8")
+    assert.match(config, new RegExp(`id: "${packageId.replace(/\./g, "\\.")}"`))
+    assert.match(config, /defineDashboardConfig/)
+    assert.match(config, /@serviceradar\/dashboard-sdk\/config/)
+
+    const entryMatch = config.match(/entry:\s*"([^"]+)"/)
+    assert.ok(entryMatch, "renderer.entry not declared in dashboard.config.mjs")
+    const entryStat = await stat(join(projectDir, entryMatch[1]))
+    assert.equal(entryStat.isFile(), true, `renderer entry ${entryMatch[1]} missing`)
+
+    const fixturesMatch = [...config.matchAll(/path:\s*"([^"]+)"/g)].map((m) => m[1])
+    for (const fixturePath of fixturesMatch) {
+      const fStat = await stat(join(projectDir, fixturePath))
+      assert.equal(fStat.isFile(), true, `fixture ${fixturePath} missing`)
+    }
+  })
+}
 
 test("validate flags a missing renderer entry with a suggested fix", async () => {
   const projectDir = await mkdtemp(join(tmpdir(), "sr-dashboard-validate-entry-"))
