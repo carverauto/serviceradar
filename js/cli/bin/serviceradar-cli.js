@@ -37,6 +37,43 @@ main().catch((error) => {
   process.exitCode = 1
 })
 
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorStack(error) {
+  return error instanceof Error && error.stack ? error.stack : errorMessage(error)
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorCode(error) {
+  if (!error || typeof error !== "object" || !("code" in error)) return ""
+  const code = /** @type {{code?: unknown}} */ (error).code
+  return typeof code === "string" ? code : ""
+}
+
+/**
+ * @param {string} message
+ * @param {string} code
+ * @returns {Error & {code: string}}
+ */
+function codedError(message, code) {
+  const error = /** @type {Error & {code: string}} */ (new Error(message))
+  error.code = code
+  return error
+}
+
 async function main() {
   const argv = process.argv.slice(2)
   const [first = "help", ...rest] = argv
@@ -290,6 +327,28 @@ function credentialsPath() {
   return join(credentialsDir(), CREDENTIALS_FILENAME)
 }
 
+/**
+ * @typedef {Object} CredentialEntry
+ * @property {string} token            Bearer token issued by the ServiceRadar instance.
+ * @property {string} [user]           Identifier of the authenticated user (email or username).
+ * @property {string} [obtained_at]    ISO 8601 timestamp at which the token was issued.
+ * @property {string} [expires_at]     ISO 8601 timestamp at which the token expires; empty when no explicit expiry is recorded.
+ */
+
+/**
+ * @typedef {Object} CredentialStore
+ * @property {number}                       version
+ * @property {Record<string, CredentialEntry>} instances
+ */
+
+/**
+ * @typedef {Object} ResolvedCredential
+ * @property {string}                  token
+ * @property {"flag"|"env"|"stored"}   source
+ * @property {string}                  [user]
+ */
+
+/** @returns {CredentialStore} */
 function readCredentials() {
   const path = credentialsPath()
   if (!existsSync(path)) return {version: CREDENTIALS_VERSION, instances: {}}
@@ -360,6 +419,16 @@ function deleteStoredCredential(instanceUrl) {
   return true
 }
 
+/**
+ * Resolve a bearer token for an instance-touching CLI command.
+ *
+ * Resolution order: `--token` flag → `SERVICERADAR_TOKEN` env → stored
+ * credential matching `instanceUrl`. Returns null when no source resolves.
+ *
+ * @param {string}                                            instanceUrl
+ * @param {{token?: string, env?: NodeJS.ProcessEnv}}         [opts]
+ * @returns {ResolvedCredential|null}
+ */
 export function resolveCredentialToken(instanceUrl, {token, env = process.env} = {}) {
   if (token && String(token).trim()) return {token: String(token).trim(), source: "flag"}
   const fromEnv = env.SERVICERADAR_TOKEN ? String(env.SERVICERADAR_TOKEN).trim() : ""
@@ -383,7 +452,7 @@ async function authLoginCommand(options) {
   try {
     credential = await runDeviceCodeFlow(instance, options)
   } catch (error) {
-    if (error?.code !== "DEVICE_CODE_UNAVAILABLE") throw error
+    if (errorCode(error) !== "DEVICE_CODE_UNAVAILABLE") throw error
     console.warn("Device-code login is not available on this instance yet.")
     console.warn("Falling back to manual token entry. Generate a long-lived CLI token in the ServiceRadar UI and paste it below.")
     credential = await promptManualToken(instance, options)
@@ -407,15 +476,11 @@ async function runDeviceCodeFlow(instance, options) {
       }),
     })
   } catch (error) {
-    const wrapped = new Error(`device-code request failed: ${error?.message || error}`)
-    wrapped.code = "DEVICE_CODE_UNAVAILABLE"
-    throw wrapped
+    throw codedError(`device-code request failed: ${errorMessage(error)}`, "DEVICE_CODE_UNAVAILABLE")
   }
 
   if (response.status === 404) {
-    const error = new Error("device-code endpoint not implemented")
-    error.code = "DEVICE_CODE_UNAVAILABLE"
-    throw error
+    throw codedError("device-code endpoint not implemented", "DEVICE_CODE_UNAVAILABLE")
   }
   if (!response.ok) {
     throw new Error(`device-code request failed: HTTP ${response.status}`)
@@ -429,9 +494,7 @@ async function runDeviceCodeFlow(instance, options) {
   const expiresInMs = Math.max(60_000, Number(payload.expires_in || 600) * 1000)
 
   if (!deviceCode || !verificationUri) {
-    const error = new Error("device-code response missing fields")
-    error.code = "DEVICE_CODE_UNAVAILABLE"
-    throw error
+    throw codedError("device-code response missing fields", "DEVICE_CODE_UNAVAILABLE")
   }
 
   console.log("")
@@ -689,13 +752,13 @@ async function devCommandHmr({projectDir, config, options}) {
     } catch (error) {
       try { vite.ssrFixStacktrace?.(error) } catch (_) { /* noop */ }
       response.writeHead(500)
-      response.end(error?.stack || error?.message || "internal error")
+      response.end(errorStack(error))
     }
   })
 
   await new Promise((resolveListen, rejectListen) => {
     httpServer.once("error", rejectListen)
-    httpServer.listen(port, httpHost, resolveListen)
+    httpServer.listen(port, httpHost, () => resolveListen(undefined))
   })
 
   const baseUrl = `http://${httpHost}:${port}/`
@@ -734,7 +797,7 @@ async function devCommandStatic({projectDir, config, options}) {
 
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen)
-    server.listen(port, httpHost, resolveListen)
+    server.listen(port, httpHost, () => resolveListen(undefined))
   })
 
   const url = `http://${httpHost}:${port}/?${query.toString()}`
@@ -999,8 +1062,34 @@ function normalizeManifest(config, {artifact, digest}) {
 // Static check of a dashboard project. No build, no network. Returns
 // {failures, notes} so callers can either print (validateCommand) or
 // short-circuit a build (buildCommand).
+/**
+ * @typedef {Object} ValidationFailure
+ * @property {"config"|"manifest"|"renderer"|"samples"} category
+ * @property {string} message
+ * @property {string} [where]
+ * @property {string} [suggest]
+ */
+
+/**
+ * @typedef {Object} ValidationResult
+ * @property {ValidationFailure[]} failures
+ * @property {string[]}            notes
+ */
+
+/**
+ * Static check of a dashboard project. Same code path the build invokes
+ * pre-flight; lifted into a standalone command so authors can run it
+ * without bundling.
+ *
+ * @param {string}                          projectDir
+ * @param {Record<string, unknown>}         config
+ * @param {{skipDigestCheck?: boolean}}     [options]
+ * @returns {ValidationResult}
+ */
 function validateProject(projectDir, config, options = {}) {
+  /** @type {ValidationFailure[]} */
   const failures = []
+  /** @type {string[]} */
   const notes = []
   const skipDigestCheck = options.skipDigestCheck !== false
 
@@ -1016,7 +1105,7 @@ function validateProject(projectDir, config, options = {}) {
       digest: skipDigestCheck ? "0".repeat(64) : "missing",
     })
   } catch (error) {
-    failures.push({category: "manifest", message: error.message, suggest: "set the missing field in `dashboard.config.mjs#manifest`"})
+    failures.push({category: "manifest", message: errorMessage(error), suggest: "set the missing field in `dashboard.config.mjs#manifest`"})
     return {failures, notes}
   }
 
@@ -1233,7 +1322,7 @@ async function sha256File(path) {
     createReadStream(path)
       .on("data", (chunk) => hash.update(chunk))
       .on("error", rejectHash)
-      .on("end", resolveHash)
+      .on("end", () => resolveHash(undefined))
   })
   return hash.digest("hex")
 }
