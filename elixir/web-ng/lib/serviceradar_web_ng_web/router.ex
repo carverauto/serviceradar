@@ -607,6 +607,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live("/users/log-in", AuthLive.SignIn, :sign_in)
       live("/auth/local", AuthLive.LocalSignIn, :local_sign_in)
+      # CLI device-code approval — handles its own redirect-to-log-in so
+      # the user_code stays pinned through authentication.
+      live("/cli/auth/device", CliDeviceAuthorizeLive)
     end
   end
 
