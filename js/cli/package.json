@@ -36,7 +36,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@serviceradar/dashboard-sdk": "file:../../../serviceradar-sdk-dashboard",
     "@vitejs/plugin-react": "^5.0.4",
     "ajv": "^8.17.1",
     "vite": "^7.1.12"
