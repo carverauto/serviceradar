@@ -114,9 +114,10 @@ typecheck → build → test → pack dry-run, mirroring CI.
 
 ## Development
 
-This package depends on `@carverauto/serviceradar-dashboard-sdk` via `file:` link during
-local development. To work on it, run `npm install` here first; the SDK
-should already be checked out at `~/src/serviceradar-sdk-dashboard/`.
+The CLI is a leaf package — no `@carverauto/*` runtime deps. To work on
+it, `cd js/cli && npm install` then `npm run ci` (typecheck → build →
+test → pack dry-run). The bazel target `//js/cli:ci` runs the same
+pipeline opt-in.
 
 ## Documentation
 
