@@ -1,14 +1,14 @@
-use crate::config::{Config, SecurityMode};
-use anyhow::{Context, Result};
+use crate::config::Config;
+use crate::nats_client;
+use anyhow::Result;
 use async_nats::jetstream::{self, stream::StorageType};
-use async_nats::{Client, ConnectOptions};
+use async_nats::Client;
 use log::{error, info, warn};
-use std::cmp::min;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 
 pub struct Publisher {
     config: Arc<Config>,
@@ -86,33 +86,7 @@ impl Publisher {
     }
 
     async fn connect_once(&self) -> Result<(Client, jetstream::Context)> {
-        let mut options = ConnectOptions::new();
-
-        if let Some(sec) = &self.config.security {
-            match sec.mode {
-                SecurityMode::Mtls => {
-                    if let Some(ca_path) = sec.ca_file_path() {
-                        options = options.add_root_certificates(ca_path);
-                    }
-                    if let (Some(cert_path), Some(key_path)) =
-                        (sec.cert_file_path(), sec.key_file_path())
-                    {
-                        options = options.add_client_certificate(cert_path, key_path);
-                    }
-                }
-                SecurityMode::None => {}
-            }
-        }
-
-        if let Some(creds_file) = &self.config.nats_creds_file {
-            options = options
-                .credentials_file(creds_file)
-                .await
-                .with_context(|| format!("Failed to load NATS creds file {}", creds_file))?;
-        }
-
-        let client = options.connect(&self.config.nats_url).await?;
-        let js = jetstream::new(client.clone());
+        let (client, js) = nats_client::connect_once(&self.config.nats_url, &self.config).await?;
 
         let required_subjects = self.config.stream_subjects_resolved();
         match js.get_stream(&self.config.stream_name).await {
@@ -163,34 +137,41 @@ impl Publisher {
         Ok((client, js))
     }
 
+    /// Wraps `connect_once` (which connects + sets up the events stream)
+    /// with the shared retry helper.
     async fn connect_with_retry(&self) -> Result<(Client, jetstream::Context)> {
         let mut attempt: u32 = 0;
         let initial_backoff = Duration::from_millis(500);
         let max_backoff = Duration::from_secs(30);
-        let mut backoff = min(initial_backoff, max_backoff);
+        let mut backoff = initial_backoff;
         let max_attempts = 60;
 
         loop {
             attempt += 1;
             match self.connect_once().await {
-                Ok(conn) => return Ok(conn),
+                Ok(conn) => {
+                    if attempt > 1 {
+                        info!("Publisher NATS connected on attempt {}", attempt);
+                    }
+                    return Ok(conn);
+                }
                 Err(err) => {
                     if attempt >= max_attempts {
                         error!(
-                            "NATS connection attempt {} failed: {}. Giving up after {} attempts.",
+                            "Publisher NATS connection attempt {} failed: {}. Giving up after {} attempts.",
                             attempt, err, max_attempts
                         );
                         return Err(err);
                     }
 
                     warn!(
-                        "NATS connection attempt {} failed: {}. Retrying in {:?}...",
+                        "Publisher NATS connection attempt {} failed: {}. Retrying in {:?}...",
                         attempt, err, backoff
                     );
-                    sleep(backoff).await;
+                    tokio::time::sleep(backoff).await;
 
                     let doubled = backoff.checked_mul(2).unwrap_or(max_backoff);
-                    backoff = min(doubled, max_backoff);
+                    backoff = std::cmp::min(doubled, max_backoff);
                 }
             }
         }

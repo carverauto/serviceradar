@@ -1,4 +1,16 @@
 # ServiceRadar Flow Collector Service (NetFlow/IPFIX + sFlow)
+#
+# Deployment model: DaemonSet behind a `Service: LoadBalancer` with
+# `externalTrafficPolicy: Local`. One pod runs on every schedulable node;
+# the cloud L4 LB distributes UDP flow datagrams across nodes and source
+# IP is preserved into the pod (kube-proxy skips SNAT under `Local`).
+#
+# Per-pod template caches are shared via a NATS JetStream KV bucket
+# (`flow_templates`) so a flow record routed to a pod that hasn't seen
+# the corresponding template can read it through from NATS rather than
+# dropping the record. AutoScopedParser inside netflow_parser scopes
+# templates per (source_ip, source_id) so exporters with the same
+# template ID do not collide in the shared bucket.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,10 +34,23 @@ data:
         }
       },
       "metrics_addr": "0.0.0.0:50046",
+      "template_store": {
+        "kv_bucket": "flow_templates",
+        "kv_history": 1,
+        "kv_ttl_secs": 0
+      },
       "listeners": [
         {
           "protocol": "netflow",
           "listen_addr": "0.0.0.0:2055",
+          "subject": "flows.raw.netflow",
+          "buffer_size": 65536,
+          "max_templates": 2000,
+          "max_template_fields": 10000
+        },
+        {
+          "protocol": "netflow",
+          "listen_addr": "0.0.0.0:4739",
           "subject": "flows.raw.netflow",
           "buffer_size": 65536,
           "max_templates": 2000,
@@ -39,29 +64,22 @@ data:
       ]
     }
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: serviceradar-flow-collector-data
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: serviceradar-flow-collector
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: serviceradar-flow-collector
       app.kubernetes.io/part-of: serviceradar
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # One pod at a time so flows keep landing somewhere during upgrades.
+      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -94,23 +112,21 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
-        # Process-based health checks
+        # HTTP probe against the Prometheus endpoint — also confirms the
+        # async runtime is alive (a deadlocked-but-running collector
+        # would pass a `pgrep` check but fail this).
         livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "pgrep -f flow-collector > /dev/null"
+          httpGet:
+            path: /metrics
+            port: 50046
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "pgrep -f flow-collector > /dev/null"
+          httpGet:
+            path: /metrics
+            port: 50046
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
@@ -135,8 +151,6 @@ spec:
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
-        - name: flow-collector-data
-          mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
       volumes:
@@ -148,10 +162,7 @@ spec:
           secretName: serviceradar-runtime-certs
       - name: nats-creds
         secret:
-          name: serviceradar-nats-creds
-      - name: flow-collector-data
-        persistentVolumeClaim:
-          claimName: serviceradar-flow-collector-data
+          secretName: serviceradar-nats-creds
       - name: logs
         emptyDir: {}
 ---
@@ -164,6 +175,8 @@ metadata:
 spec:
   selector:
     app: serviceradar-flow-collector
+  # Preserves the exporter's source IP through the LB → kube-proxy → pod
+  # path. AutoScopedParser depends on this for per-source template scoping.
   externalTrafficPolicy: Local
   ports:
   - name: netflow

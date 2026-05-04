@@ -812,9 +812,29 @@ trapd:
         protocol: UDP
 flowCollector:
   enabled: false
-  replicaCount: 1
+  # flow-collector runs as a DaemonSet (one pod per node). `replicaCount`
+  # is no longer used; scale comes from node count + the per-node LB
+  # distribution. The optional NATS KV `template_store` (see config below)
+  # shares parsed templates across pods so a flow that lands on a node
+  # which hasn't seen the template can read it through from NATS.
+
   # flow-collector publishes raw flow subjects into the shared "events" stream.
   streamReplicas: 1
+
+  # Optional: schedule the DaemonSet onto specific nodes only. By default
+  # one pod runs per schedulable node. Common patterns:
+  #   nodeSelector:
+  #     node-role.serviceradar.io/flow-ingest: "true"
+  # Or to *exclude* control-plane nodes (no toleration for the taint):
+  #   tolerations: []     # default — pods won't land on tainted CP nodes
+  # Or to also run on control-plane nodes:
+  #   tolerations:
+  #     - key: node-role.kubernetes.io/control-plane
+  #       operator: Exists
+  #       effect: NoSchedule
+  nodeSelector: {}
+  tolerations: []
+
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
@@ -825,6 +845,23 @@ flowCollector:
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
+    metrics_addr: "0.0.0.0:50046"
+
+    # Optional: shared template store. When set, every flow-collector pod
+    # writes through learned NetFlow/IPFIX templates to this NATS KV bucket
+    # and consults it on cache miss, so a packet routed to a fresh pod can
+    # decode templates other pods have already seen. Comment out the
+    # whole block to disable (each pod uses only its in-process LRU).
+    template_store:
+      kv_bucket: "flow_templates"
+      # Number of historical revisions per key. Templates rarely change so
+      # 1 is fine; larger values support audit / debug. NATS KV history is
+      # capped at 64.
+      kv_history: 1
+      # Optional TTL (seconds) for entries. 0 disables expiration; NATS
+      # will then keep templates indefinitely (or until withdrawn).
+      kv_ttl_secs: 0
+
     listeners:
       - protocol: "sflow"
         listen_addr: "0.0.0.0:6343"
@@ -832,6 +869,18 @@ flowCollector:
       - protocol: "netflow"
         listen_addr: "0.0.0.0:2055"
         subject: "flows.raw.netflow"
+        max_templates: 2000
+        max_template_fields: 10000
+      # IPFIX uses the same parser as NetFlow v9 (the netflow_parser crate
+      # auto-detects v5/v9/IPFIX from the datagram header), so a second
+      # `protocol: netflow` listener bound to the IANA IPFIX port is what
+      # turns the advertised `service.ports.ipfix` into a real socket.
+      # If you set `service.ports.ipfix.enabled: false`, drop this entry.
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:4739"
+        subject: "flows.raw.netflow"
+        max_templates: 2000
+        max_template_fields: 10000
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"
@@ -839,16 +888,15 @@ flowCollector:
         cert_file: "flow-collector.pem"
         key_file: "flow-collector-key.pem"
         ca_file: "ca.crt"
-  data:
-    enabled: true
-    existingClaim: ""
-    size: 1Gi
-    storageClassName: ""
+
   service:
-    type: ClusterIP
+    # LoadBalancer + Local preserves the exporter's source IP through the
+    # LB → kube-proxy → pod path, which AutoScopedParser depends on for
+    # per-source template scoping.
+    type: LoadBalancer
     annotations: {}
     loadBalancerIP: ""
-    externalTrafficPolicy: Cluster
+    externalTrafficPolicy: Local
     sessionAffinity: None
     ports:
       netflow:
@@ -861,6 +909,16 @@ flowCollector:
         port: 6343
         targetPort: 6343
         protocol: UDP
+      ipfix:
+        enabled: true
+        port: 4739
+        targetPort: 4739
+        protocol: UDP
+      metrics:
+        enabled: true
+        port: 50046
+        targetPort: 50046
+        protocol: TCP
   resources:
     requests:
       memory: "256Mi"
