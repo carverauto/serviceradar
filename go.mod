@@ -17,7 +17,7 @@ require (
 	github.com/nats-io/jwt/v2 v2.8.1
 	github.com/nats-io/nats.go v1.51.0
 	github.com/oschwald/maxminddb-golang v1.13.1
-	github.com/pion/rtp v1.10.1
+	github.com/pion/rtp v1.10.2
 	github.com/rs/zerolog v1.35.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/spiffe/go-spiffe/v2 v2.6.0
