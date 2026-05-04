@@ -16,7 +16,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
 env_logger = "0.10"
-tonic-health = "0.9"
+tonic-health = "0.12"
 tonic-reflection = "0.9"
 tonic = { version = "0.9", features = ["tls"] }
 clap = "~2.33.3"
