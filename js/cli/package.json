@@ -18,15 +18,19 @@
   },
   "files": [
     "bin",
+    "dist",
     "harness",
+    "schemas",
     "templates",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run .",
-    "ci": "npm run typecheck && npm test && npm run pack:check"
+    "prepublishOnly": "npm run build",
+    "ci": "npm run typecheck && npm run build && node --test tests/*.test.mjs && npm run pack:check"
   },
   "engines": {
     "node": ">=20"
@@ -34,6 +38,7 @@
   "dependencies": {
     "@serviceradar/dashboard-sdk": "file:../../../serviceradar-sdk-dashboard",
     "@vitejs/plugin-react": "^5.0.4",
+    "ajv": "^8.17.1",
     "vite": "^7.1.12"
   },
   "devDependencies": {

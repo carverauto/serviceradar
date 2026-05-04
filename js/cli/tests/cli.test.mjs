@@ -91,8 +91,48 @@ test("validate flags a missing manifest field", async () => {
     () => execFileAsync(process.execPath, [cliPath.pathname, "validate"], {cwd: projectDir}),
     (error) => {
       assert.match(error.stderr, /Dashboard config validation failed/)
-      assert.match(error.stderr, /missing required field: name/)
+      assert.match(error.stderr, /\/manifest: missing required property "name"/)
+      assert.match(error.stderr, /\/manifest: missing required property "version"/)
       assert.notEqual(error.code, 0)
+      return true
+    },
+  )
+})
+
+test("validate flags an unknown top-level property as a typo", async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), "sr-dashboard-validate-typo-"))
+  await execFileAsync("mkdir", ["-p", join(projectDir, "src")])
+  await writeFile(join(projectDir, "src/main.jsx"), "export function mountDashboard() {}\n")
+  await writeFile(join(projectDir, "dashboard.config.json"), JSON.stringify({
+    manifest: {id: "com.example.dashboard", name: "Demo", version: "1.0.0"},
+    renderer: {entry: "src/main.jsx"},
+    fixtuers: {hello: "fixtures/sample-frames.json"}, // typo of "fixtures"
+  }))
+
+  await assert.rejects(
+    () => execFileAsync(process.execPath, [cliPath.pathname, "validate"], {cwd: projectDir}),
+    (error) => {
+      assert.match(error.stderr, /unknown property "fixtuers"/)
+      assert.match(error.stderr, /check for typos/)
+      return true
+    },
+  )
+})
+
+test("validate rejects an invalid version pattern with a semver hint", async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), "sr-dashboard-validate-semver-"))
+  await execFileAsync("mkdir", ["-p", join(projectDir, "src")])
+  await writeFile(join(projectDir, "src/main.jsx"), "export function mountDashboard() {}\n")
+  await writeFile(join(projectDir, "dashboard.config.json"), JSON.stringify({
+    manifest: {id: "com.example.dashboard", name: "Demo", version: "v1.0"},
+    renderer: {entry: "src/main.jsx"},
+  }))
+
+  await assert.rejects(
+    () => execFileAsync(process.execPath, [cliPath.pathname, "validate"], {cwd: projectDir}),
+    (error) => {
+      assert.match(error.stderr, /\/manifest\/version.*does not match required pattern/)
+      assert.match(error.stderr, /use semver/)
       return true
     },
   )
@@ -185,6 +225,152 @@ test("init react-map template lays out fixtures + map entry", async () => {
   const mainEntry = await readFile(join(parentDir, "smoke-map", "src", "main.jsx"), "utf8")
   assert.match(mainEntry, /useDeckMap/)
   assert.match(mainEntry, /useFrameRows/)
+})
+
+test("auth login --web completes a PKCE flow against a stub authorize+token server", async () => {
+  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-pkce-"))
+  const {createServer} = await import("node:http")
+  const {spawn} = await import("node:child_process")
+
+  const captured = {
+    authorizeQuery: null,
+    tokenBody: null,
+    probeMethod: null,
+  }
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, `http://127.0.0.1`)
+    if (url.pathname === "/api/v1/cli/auth/authorize") {
+      // First hit is the CLI's probe (redirect: manual) — record the method
+      // and respond with an HTTP redirect that includes the code + state.
+      // The CLI ignores the redirect target on probes; the simulated
+      // browser GET (issued from the test below with redirect:follow)
+      // follows the redirect and hits the CLI's local callback server.
+      captured.authorizeQuery = Object.fromEntries(url.searchParams)
+      captured.probeMethod = req.method
+      const redirect = url.searchParams.get("redirect_uri")
+      const state = url.searchParams.get("state")
+      if (!redirect) {
+        res.writeHead(400)
+        res.end("missing redirect_uri")
+        return
+      }
+      const dest = new URL(redirect)
+      dest.searchParams.set("code", "stub-auth-code")
+      dest.searchParams.set("state", state || "")
+      res.writeHead(302, {location: dest.toString()})
+      res.end()
+      return
+    }
+    if (url.pathname === "/api/v1/cli/auth/token") {
+      let body = ""
+      req.on("data", (chunk) => {
+        body += chunk
+      })
+      req.on("end", () => {
+        captured.tokenBody = body ? JSON.parse(body) : null
+        res.writeHead(200, {"content-type": "application/json"})
+        res.end(JSON.stringify({
+          access_token: "pkce-issued-token-xyz",
+          token_type: "Bearer",
+          expires_in: 86400,
+          user: "alice@example.com",
+        }))
+      })
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+  await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen))
+  const port = server.address().port
+  const instance = `http://127.0.0.1:${port}`
+
+  try {
+    const child = spawn(
+      process.execPath,
+      [cliPath.pathname, "auth", "login", "--instance", instance, "--web", "--no-browser"],
+      {env: {...process.env, HOME: credsHome, XDG_CONFIG_HOME: credsHome, SERVICERADAR_TOKEN: ""}, stdio: ["ignore", "pipe", "pipe"]},
+    )
+
+    let stdout = ""
+    let stderr = ""
+    let triggered = false
+
+    child.stdout.setEncoding("utf8")
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk
+      if (!triggered) {
+        const match = stdout.match(/(http:\/\/127\.0\.0\.1:\d+\/api\/v1\/cli\/auth\/authorize\?[^\s]+)/)
+        if (match) {
+          triggered = true
+          // Simulate the browser following the authorize URL → 302 → callback.
+          fetch(match[1], {redirect: "follow"}).catch(() => {/* swallow */})
+        }
+      }
+    })
+    child.stderr.setEncoding("utf8")
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk
+    })
+
+    const exitCode = await new Promise((res, rej) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGTERM")
+        rej(new Error(`CLI did not exit within 15s. stdout=${stdout} stderr=${stderr}`))
+      }, 15_000)
+      child.on("close", (code) => {
+        clearTimeout(timer)
+        res(code)
+      })
+    })
+
+    assert.equal(exitCode, 0, `CLI exited with code ${exitCode}\nstdout=${stdout}\nstderr=${stderr}`)
+    assert.match(stdout, /Authenticated/)
+    assert.equal(captured.authorizeQuery?.response_type, "code")
+    assert.equal(captured.authorizeQuery?.client_id, "serviceradar-cli")
+    assert.equal(captured.authorizeQuery?.code_challenge_method, "S256")
+    assert.match(captured.authorizeQuery?.code_challenge || "", /^[A-Za-z0-9_-]{43}$/)
+    assert.match(captured.authorizeQuery?.state || "", /^[A-Za-z0-9_-]+$/)
+    assert.match(captured.authorizeQuery?.redirect_uri || "", /^http:\/\/127\.0\.0\.1:\d+\/cli\/auth\/callback$/)
+
+    assert.equal(captured.tokenBody?.grant_type, "authorization_code")
+    assert.equal(captured.tokenBody?.code, "stub-auth-code")
+    assert.match(captured.tokenBody?.code_verifier || "", /^[A-Za-z0-9_-]{43}$/)
+
+    const stored = JSON.parse(await readFile(join(credsHome, "serviceradar", "credentials.json"), "utf8"))
+    assert.equal(stored.instances?.[instance]?.token, "pkce-issued-token-xyz")
+    assert.equal(stored.instances?.[instance]?.user, "alice@example.com")
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose))
+  }
+})
+
+test("auth login --web falls back to manual token when authorize endpoint is missing", async () => {
+  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-pkce-fallback-"))
+  const {createServer} = await import("node:http")
+  const server = createServer((req, res) => {
+    res.writeHead(404, {"content-type": "application/json"})
+    res.end(JSON.stringify({error: "endpoint not implemented"}))
+  })
+  await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen))
+  const port = server.address().port
+  const instance = `http://127.0.0.1:${port}`
+
+  try {
+    const {stderr} = await execFileAsync(
+      process.execPath,
+      [cliPath.pathname, "auth", "login", "--instance", instance, "--web", "--no-browser", "--token", "manual-pkce-fallback-token"],
+      {env: {...process.env, HOME: credsHome, XDG_CONFIG_HOME: credsHome, SERVICERADAR_TOKEN: ""}},
+    )
+    assert.match(stderr, /PKCE web login is not available/)
+    assert.match(stderr, /Falling back to manual token entry/)
+
+    const stored = JSON.parse(await readFile(join(credsHome, "serviceradar", "credentials.json"), "utf8"))
+    assert.equal(stored.instances?.[instance]?.token, "manual-pkce-fallback-token")
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose))
+  }
 })
 
 test("init rejects an unknown template", async () => {
