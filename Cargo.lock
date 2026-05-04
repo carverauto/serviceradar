@@ -1492,7 +1492,7 @@ dependencies = [
  "itoa 1.0.18",
  "pq-sys",
  "serde_json 1.0.149",
- "uuid 1.23.0",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -1906,7 +1906,7 @@ dependencies = [
  "mac_address",
  "nom",
  "serde 1.0.228",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -5159,7 +5159,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -6310,7 +6310,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -7420,9 +7420,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.23.0"
+version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
@@ -7437,7 +7437,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8"
 dependencies = [
  "outref",
- "uuid 1.23.0",
+ "uuid 1.23.1",
  "vsimd",
 ]
 
