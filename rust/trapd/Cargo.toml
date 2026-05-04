@@ -16,7 +16,7 @@ futures = "0.3"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-snmp2 = { version = "0.4.8", features = ["tokio"] }
+snmp2 = { version = "0.5.0", features = ["tokio"] }
 tokio = { version = "1.44", features = ["full"] }
 prost = { workspace = true }
 tonic = { workspace = true }
