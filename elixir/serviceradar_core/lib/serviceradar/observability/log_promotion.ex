@@ -395,9 +395,26 @@ defmodule ServiceRadar.Observability.LogPromotion do
       get_nested_value(resource_attributes, "container.id") ||
         get_nested_value(output_fields, "container.id")
 
+    diagnostics =
+      falco_diagnostics(falco, output_fields, %{
+        "rule" => rule,
+        "priority" => priority,
+        "hostname" => hostname,
+        "namespace" => namespace,
+        "pod" => pod,
+        "container" => container,
+        "container_id" => container_id
+      })
+
     event
-    |> Map.put(:observables, falco_observables(rule, hostname, namespace, pod, container))
-    |> update_in([:metadata], &put_falco_metadata(&1, falco, rule, priority, hostname))
+    |> Map.put(
+      :observables,
+      falco_observables(rule, hostname, namespace, pod, container, container_id)
+    )
+    |> update_in(
+      [:metadata],
+      &put_falco_metadata(&1, falco, rule, priority, hostname, diagnostics)
+    )
     |> update_in(
       [:unmapped],
       &put_falco_unmapped(&1, falco, %{
@@ -405,32 +422,34 @@ defmodule ServiceRadar.Observability.LogPromotion do
         "namespace" => namespace,
         "pod" => pod,
         "container" => container,
-        "container_id" => container_id
+        "container_id" => container_id,
+        "diagnostics" => diagnostics
       })
     )
   end
 
-  defp falco_observables(rule, hostname, namespace, pod, container) do
+  defp falco_observables(rule, hostname, namespace, pod, container, container_id) do
     []
     |> maybe_add_observable(rule, &OCSF.build_observable(&1, "Falco Rule", 99))
     |> maybe_add_observable(hostname, &OCSF.build_observable(&1, "Hostname", 1))
     |> maybe_add_observable(namespace, &OCSF.build_observable(&1, "Kubernetes Namespace", 99))
     |> maybe_add_observable(pod, &OCSF.build_observable(&1, "Kubernetes Pod", 99))
     |> maybe_add_observable(container, &OCSF.build_observable(&1, "Container Name", 99))
+    |> maybe_add_observable(container_id, &OCSF.build_observable(&1, "Container ID", 99))
     |> Enum.reverse()
   end
 
-  defp put_falco_metadata(metadata, falco, rule, priority, hostname) when is_map(metadata) do
+  defp put_falco_metadata(metadata, falco, rule, priority, hostname, diagnostics)
+       when is_map(metadata) do
     signal =
-      %{
+      compact_map(%{
         "kind" => "runtime",
         "source" => "falco",
         "rule" => rule,
         "priority" => priority,
-        "uuid" => get_nested_value(falco, "uuid")
-      }
-      |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-      |> Map.new()
+        "uuid" => get_nested_value(falco, "uuid"),
+        "diagnostics" => diagnostics
+      })
 
     metadata
     |> Map.put("rule", rule)
@@ -439,8 +458,8 @@ defmodule ServiceRadar.Observability.LogPromotion do
     |> Map.put(:security_signal, signal)
   end
 
-  defp put_falco_metadata(_, falco, rule, priority, hostname) do
-    put_falco_metadata(%{}, falco, rule, priority, hostname)
+  defp put_falco_metadata(_, falco, rule, priority, hostname, diagnostics) do
+    put_falco_metadata(%{}, falco, rule, priority, hostname, diagnostics)
   end
 
   defp put_falco_unmapped(unmapped, falco, context) when is_map(unmapped) do
@@ -448,6 +467,157 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp put_falco_unmapped(_, falco, context), do: %{falco: Map.merge(falco, context)}
+
+  defp falco_diagnostics(falco, output_fields, context) do
+    rule = context["rule"]
+    hostname = context["hostname"]
+    namespace = context["namespace"]
+    pod = context["pod"]
+    container = context["container"]
+    container_id = context["container_id"]
+
+    compact_map(%{
+      "rule" => %{
+        "name" => rule,
+        "priority" => context["priority"],
+        "uuid" => get_nested_value(falco, "uuid")
+      },
+      "host" => %{
+        "name" => hostname
+      },
+      "process" => falco_process_diagnostics(output_fields),
+      "parent_process" => falco_parent_process_diagnostics(output_fields),
+      "user" => falco_user_diagnostics(output_fields),
+      "container" =>
+        falco_container_diagnostics(output_fields, %{
+          "name" => container,
+          "id" => container_id
+        }),
+      "kubernetes" => %{
+        "namespace" => namespace,
+        "pod" => pod
+      },
+      "event" => falco_event_diagnostics(output_fields, falco),
+      "attribution" => falco_attribution(namespace, pod, container, container_id)
+    })
+  end
+
+  defp falco_process_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["proc.name"]),
+      "short_name" => falco_field(output_fields, ["proc.sname"]),
+      "executable" => falco_field(output_fields, ["proc.exe", "proc.exepath"]),
+      "executable_path" => falco_field(output_fields, ["proc.exepath"]),
+      "command" => falco_field(output_fields, ["proc.cmdline", "proc.args"]),
+      "cwd" => falco_field(output_fields, ["proc.cwd"]),
+      "tty" => falco_field(output_fields, ["proc.tty"]),
+      "pid" => falco_field(output_fields, ["proc.pid"]),
+      "executable_flags" =>
+        compact_map(%{
+          "upper_layer" => falco_field(output_fields, ["proc.is_exe_upper_layer"]),
+          "from_memfd" => falco_field(output_fields, ["proc.is_exe_from_memfd"]),
+          "from_disk" => falco_field(output_fields, ["proc.is_exe_from_disk"]),
+          "lower_layer" => falco_field(output_fields, ["proc.is_exe_lower_layer"]),
+          "evt_flags" => falco_field(output_fields, ["evt.arg.flags"])
+        })
+    })
+  end
+
+  defp falco_parent_process_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["proc.pname"]),
+      "ancestor" => falco_field(output_fields, ["proc.aname[2]", "proc.aname[3]"])
+    })
+  end
+
+  defp falco_user_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["user.name"]),
+      "uid" => falco_field(output_fields, ["user.uid"]),
+      "login_uid" => falco_field(output_fields, ["user.loginuid"])
+    })
+  end
+
+  defp falco_container_diagnostics(output_fields, context) do
+    compact_map(%{
+      "id" => context["id"],
+      "name" => context["name"],
+      "image" => falco_field(output_fields, ["container.image"]),
+      "image_repository" => falco_field(output_fields, ["container.image.repository"]),
+      "image_tag" => falco_field(output_fields, ["container.image.tag"]),
+      "image_digest" => falco_field(output_fields, ["container.image.digest"])
+    })
+  end
+
+  defp falco_event_diagnostics(output_fields, falco) do
+    compact_map(%{
+      "type" => falco_field(output_fields, ["evt.type"]),
+      "time" => falco_field(output_fields, ["evt.time"]) || get_nested_value(falco, "time"),
+      "flags" => falco_field(output_fields, ["evt.arg.flags"])
+    })
+  end
+
+  defp falco_attribution(namespace, pod, container, container_id) do
+    status =
+      cond do
+        present?(namespace) and present?(pod) ->
+          "resolved"
+
+        present?(namespace) or present?(pod) or present?(container) or present?(container_id) ->
+          "partial"
+
+        true ->
+          "missing"
+      end
+
+    missing =
+      Enum.reject(
+        [
+          if(present?(namespace), do: nil, else: "kubernetes.namespace"),
+          if(present?(pod), do: nil, else: "kubernetes.pod")
+        ],
+        &is_nil/1
+      )
+
+    compact_map(%{
+      "status" => status,
+      "missing" => missing
+    })
+  end
+
+  defp falco_field(output_fields, keys) do
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      case get_nested_value(output_fields, key) do
+        nil -> {:cont, nil}
+        "" -> {:cont, nil}
+        value -> {:halt, value}
+      end
+    end)
+  end
+
+  defp compact_map(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      value = compact_value(value)
+
+      if empty_value?(value) do
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp compact_value(value) when is_map(value), do: compact_map(value)
+  defp compact_value(value) when is_list(value), do: Enum.reject(value, &empty_value?/1)
+  defp compact_value(value), do: value
+
+  defp empty_value?(nil), do: true
+  defp empty_value?(""), do: true
+  defp empty_value?(%{} = value), do: map_size(value) == 0
+  defp empty_value?(value) when is_list(value), do: value == []
+  defp empty_value?(_value), do: false
+
+  defp present?(value), do: not empty_value?(value)
 
   defp maybe_create_alerts(promotions) do
     {created, attempted} =

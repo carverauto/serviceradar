@@ -80,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <div :if={is_map(@event)} class="space-y-4">
           <.event_summary event={@event} />
           <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
+          <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
           <.related_links related={@related} />
           <.event_details event={@event} />
         </div>
@@ -169,6 +170,88 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           {Map.get(@event, "message")}
         </p>
       </div>
+    </div>
+    """
+  end
+
+  attr :event, :map, required: true
+
+  defp falco_runtime_summary(assigns) do
+    diagnostics = falco_diagnostics(assigns.event)
+
+    assigns =
+      assigns
+      |> assign(:diagnostics, diagnostics)
+      |> assign(:rule, diagnostic_value(diagnostics, ["rule"]))
+      |> assign(:host, diagnostic_value(diagnostics, ["host"]))
+      |> assign(:process, diagnostic_value(diagnostics, ["process"]))
+      |> assign(:parent_process, diagnostic_value(diagnostics, ["parent_process"]))
+      |> assign(:user, diagnostic_value(diagnostics, ["user"]))
+      |> assign(:container, diagnostic_value(diagnostics, ["container"]))
+      |> assign(:kubernetes, diagnostic_value(diagnostics, ["kubernetes"]))
+      |> assign(:attribution, diagnostic_value(diagnostics, ["attribution"]))
+
+    ~H"""
+    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <span class="text-xs text-error uppercase tracking-wider block mb-2">
+            Falco Runtime Event
+          </span>
+          <h2 class="text-lg font-semibold leading-tight">
+            {diagnostic_value(@rule, ["name"]) || Map.get(@event, "message") || "Falco rule matched"}
+          </h2>
+        </div>
+        <.severity_badge value={diagnostic_value(@rule, ["priority"]) || Map.get(@event, "severity")} />
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <.diagnostic_fact label="Rule" value={diagnostic_value(@rule, ["name"])} />
+        <.diagnostic_fact label="Host" value={diagnostic_value(@host, ["name"])} mono />
+        <.diagnostic_fact label="Process" value={diagnostic_value(@process, ["name"])} />
+        <.diagnostic_fact label="Parent" value={diagnostic_value(@parent_process, ["name"])} />
+        <.diagnostic_fact label="Command" value={diagnostic_value(@process, ["command"])} mono />
+        <.diagnostic_fact label="Working Dir" value={diagnostic_value(@process, ["cwd"])} mono />
+        <.diagnostic_fact label="Executable" value={diagnostic_value(@process, ["executable"])} mono />
+        <.diagnostic_fact
+          label="Executable Flags"
+          value={diagnostic_value(@process, ["executable_flags"])}
+          mono
+        />
+        <.diagnostic_fact label="User" value={diagnostic_value(@user, ["name"])} />
+        <.diagnostic_fact label="Container" value={container_display(@container)} mono />
+        <.diagnostic_fact label="Image" value={image_display(@container)} mono />
+        <.diagnostic_fact
+          label="Kubernetes Namespace"
+          value={diagnostic_value(@kubernetes, ["namespace"])}
+        />
+        <.diagnostic_fact label="Kubernetes Pod" value={diagnostic_value(@kubernetes, ["pod"])} />
+        <.diagnostic_fact
+          label="Attribution"
+          value={attribution_display(@attribution)}
+        />
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+
+  defp diagnostic_fact(assigns) do
+    ~H"""
+    <div class="min-w-0">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+        {@label}
+      </span>
+      <span class={[
+        "text-sm break-words",
+        if(@mono, do: "font-mono", else: nil),
+        if(blank?(@value), do: "text-base-content/40", else: nil)
+      ]}>
+        {display_diagnostic_value(@value)}
+      </span>
     </div>
     """
   end
@@ -466,6 +549,41 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp waf_event?(_), do: false
 
+  defp falco_event?(event) when is_map(event) do
+    signal = get_in(event, ["metadata", "security_signal"]) || %{}
+    falco = falco_payload(event)
+
+    Map.get(signal, "source") == "falco" or
+      Map.get(signal, "kind") == "runtime" or
+      (is_map(falco) and map_size(falco) > 0)
+  end
+
+  defp falco_event?(_), do: false
+
+  defp falco_diagnostics(event) when is_map(event) do
+    signal = get_in(event, ["metadata", "security_signal"]) || %{}
+    falco = falco_payload(event)
+
+    Map.get(signal, "diagnostics") ||
+      Map.get(falco, "diagnostics") ||
+      %{}
+  end
+
+  defp falco_diagnostics(_), do: %{}
+
+  defp falco_payload(event) when is_map(event) do
+    unmapped = Map.get(event, "unmapped") || %{}
+    attrs = Map.get(unmapped, "log_attributes") || %{}
+    attr_falco = Map.get(attrs, "falco") || Map.get(attrs, :falco)
+
+    Map.get(unmapped, "falco") ||
+      Map.get(unmapped, :falco) ||
+      attr_falco ||
+      %{}
+  end
+
+  defp falco_payload(_), do: %{}
+
   defp waf_payload(event) when is_map(event) do
     unmapped = Map.get(event, "unmapped") || %{}
     attrs = Map.get(unmapped, "log_attributes") || %{}
@@ -506,6 +624,87 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp display_value(value) when value in [nil, ""], do: "—"
   defp display_value(value) when is_binary(value), do: value
   defp display_value(value), do: to_string(value)
+
+  defp display_diagnostic_value(value) when value in [nil, ""], do: "—"
+  defp display_diagnostic_value(value) when is_binary(value), do: value
+  defp display_diagnostic_value(value) when is_boolean(value), do: to_string(value)
+  defp display_diagnostic_value(value) when is_number(value), do: to_string(value)
+
+  defp display_diagnostic_value(value) when is_list(value) do
+    Enum.map_join(value, ", ", &display_diagnostic_value/1)
+  end
+
+  defp display_diagnostic_value(value) when is_map(value) do
+    Enum.map_join(value, ", ", fn {key, item} -> "#{field_label(to_string(key))}: #{display_diagnostic_value(item)}" end)
+  end
+
+  defp container_display(container) when is_map(container) do
+    diagnostic_value(container, ["name"]) || diagnostic_value(container, ["id"])
+  end
+
+  defp container_display(_), do: nil
+
+  defp image_display(container) when is_map(container) do
+    repository = diagnostic_value(container, ["image_repository"])
+    tag = diagnostic_value(container, ["image_tag"])
+
+    cond do
+      is_binary(repository) and is_binary(tag) -> "#{repository}:#{tag}"
+      is_binary(repository) -> repository
+      true -> diagnostic_value(container, ["image"])
+    end
+  end
+
+  defp image_display(_), do: nil
+
+  defp attribution_display(attribution) when is_map(attribution) do
+    status = diagnostic_value(attribution, ["status"])
+    missing = diagnostic_value(attribution, ["missing"])
+
+    case {status, missing} do
+      {nil, _} -> nil
+      {value, []} -> value
+      {value, nil} -> value
+      {value, missing_values} -> "#{value} (missing #{display_diagnostic_value(missing_values)})"
+    end
+  end
+
+  defp attribution_display(_), do: nil
+
+  defp diagnostic_value(data, [key]) when is_map(data), do: Map.get(data, key) || Map.get(data, diagnostic_atom_key(key))
+
+  defp diagnostic_value(data, [key | rest]) when is_map(data) do
+    case diagnostic_value(data, [key]) do
+      %{} = nested -> diagnostic_value(nested, rest)
+      _ -> nil
+    end
+  end
+
+  defp diagnostic_value(_, _), do: nil
+
+  defp diagnostic_atom_key("rule"), do: :rule
+  defp diagnostic_atom_key("host"), do: :host
+  defp diagnostic_atom_key("process"), do: :process
+  defp diagnostic_atom_key("parent_process"), do: :parent_process
+  defp diagnostic_atom_key("user"), do: :user
+  defp diagnostic_atom_key("container"), do: :container
+  defp diagnostic_atom_key("kubernetes"), do: :kubernetes
+  defp diagnostic_atom_key("attribution"), do: :attribution
+  defp diagnostic_atom_key("name"), do: :name
+  defp diagnostic_atom_key("priority"), do: :priority
+  defp diagnostic_atom_key("command"), do: :command
+  defp diagnostic_atom_key("cwd"), do: :cwd
+  defp diagnostic_atom_key("executable"), do: :executable
+  defp diagnostic_atom_key("executable_flags"), do: :executable_flags
+  defp diagnostic_atom_key("namespace"), do: :namespace
+  defp diagnostic_atom_key("pod"), do: :pod
+  defp diagnostic_atom_key("status"), do: :status
+  defp diagnostic_atom_key("missing"), do: :missing
+  defp diagnostic_atom_key("id"), do: :id
+  defp diagnostic_atom_key("image"), do: :image
+  defp diagnostic_atom_key("image_repository"), do: :image_repository
+  defp diagnostic_atom_key("image_tag"), do: :image_tag
+  defp diagnostic_atom_key(_), do: :__unknown__
 
   defp blank?(value), do: value in [nil, ""]
 
