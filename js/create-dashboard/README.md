@@ -1,16 +1,16 @@
-# @serviceradar/create-dashboard
+# @carverauto/create-dashboard
 
 npm-create scaffolder for ServiceRadar dashboards.
 
 ```bash
-npm create @serviceradar/dashboard@latest my-dashboard
+npm create @carverauto/dashboard@latest my-dashboard
 # or with a template:
-npm create @serviceradar/dashboard@latest my-dashboard -- --template react-map
+npm create @carverauto/dashboard@latest my-dashboard -- --template react-map
 ```
 
 This package is a thin shim that forwards to `serviceradar-cli dashboard init`.
 The canonical command-line surface lives in
-[`@serviceradar/cli`](https://www.npmjs.com/package/@serviceradar/cli);
+[`@carverauto/serviceradar-cli`](https://www.npmjs.com/package/@carverauto/serviceradar-cli);
 this package exists so the npm-create idiom (`npm create @scope/name`) works
 without a separate install step.
 

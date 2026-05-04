@@ -407,12 +407,12 @@ for (const template of ["react-blank", "react-map", "react-table"]) {
     assert.match(pkg.scripts.dev, /serviceradar-cli dashboard dev/)
     assert.match(pkg.scripts.build, /serviceradar-cli dashboard build/)
     assert.match(pkg.scripts.validate, /serviceradar-cli dashboard validate/)
-    assert.equal(pkg.dependencies["@serviceradar/dashboard-sdk"]?.startsWith("^") ?? false, true)
+    assert.equal(pkg.dependencies["@carverauto/serviceradar-dashboard-sdk"]?.startsWith("^") ?? false, true)
 
     const config = await readFile(join(projectDir, "dashboard.config.mjs"), "utf8")
     assert.match(config, new RegExp(`id: "${packageId.replace(/\./g, "\\.")}"`))
     assert.match(config, /defineDashboardConfig/)
-    assert.match(config, /@serviceradar\/dashboard-sdk\/config/)
+    assert.match(config, /@carverauto\/serviceradar-dashboard-sdk\/config/)
 
     const entryMatch = config.match(/entry:\s*"([^"]+)"/)
     assert.ok(entryMatch, "renderer.entry not declared in dashboard.config.mjs")
@@ -578,7 +578,7 @@ test("publish refuses when no credential is resolvable", async () => {
 
 test("--version prints the installed CLI version", async () => {
   const {stdout} = await execFileAsync(process.execPath, [cliPath.pathname, "--version"])
-  assert.match(stdout, /^@serviceradar\/cli \d+\.\d+\.\d+/m)
+  assert.match(stdout, /^@carverauto\/serviceradar-cli \d+\.\d+\.\d+/m)
 })
 
 test("doctor prints runtime + project diagnostics", async () => {
@@ -586,7 +586,7 @@ test("doctor prints runtime + project diagnostics", async () => {
   assert.match(stdout, /ServiceRadar CLI doctor/)
   assert.match(stdout, /node:\s+v\d+/)
   assert.match(stdout, /platform:/)
-  assert.match(stdout, /@serviceradar\/cli:\s+\d+\.\d+\.\d+/)
+  assert.match(stdout, /@carverauto\/serviceradar-cli:\s+\d+\.\d+\.\d+/)
   assert.match(stdout, /credentials path:/)
 })
 

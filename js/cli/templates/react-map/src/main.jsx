@@ -5,9 +5,9 @@ import {
   useFilterState,
   useFrameRows,
   useIndexedRows,
-} from "@serviceradar/dashboard-sdk/react"
-import {scatter, useDeckLayers, useDeckMap} from "@serviceradar/dashboard-sdk/map"
-import {useMapPopup} from "@serviceradar/dashboard-sdk/popup"
+} from "@carverauto/serviceradar-dashboard-sdk/react"
+import {scatter, useDeckLayers, useDeckMap} from "@carverauto/serviceradar-dashboard-sdk/map"
+import {useMapPopup} from "@carverauto/serviceradar-dashboard-sdk/popup"
 
 const SITE_SHAPE = Object.freeze({
   site_code: (row) => String(row.site_code || row.iata || "").toUpperCase(),

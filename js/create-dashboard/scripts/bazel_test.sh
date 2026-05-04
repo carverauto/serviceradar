@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bazel test wrapper for @serviceradar/create-dashboard. Same shape as the CLI
+# Bazel test wrapper for @carverauto/create-dashboard. Same shape as the CLI
 # wrapper at js/cli/scripts/bazel_test.sh — see that file for path-resolution
 # rationale.
 

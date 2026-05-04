@@ -63,7 +63,7 @@ Groups:
   dashboard   Author and operate ServiceRadar dashboard packages.
 
 Top-level commands:
-  --version   Print the installed @serviceradar/cli version.
+  --version   Print the installed @carverauto/serviceradar-cli version.
   doctor      Print runtime + project diagnostics (Node, npm, SDK, Vite, config path, auth state).
 
 Common dashboard subcommands:

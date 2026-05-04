@@ -1,7 +1,7 @@
 // Dashboard config loader. Resolves dashboard.config.{mjs,js,json} (or a
 // `serviceradarDashboard` key inside package.json), imports/parses it, and
 // returns a plain object the CLI can validate + normalize. The returned
-// shape matches `DashboardConfig` from @serviceradar/dashboard-sdk/config;
+// shape matches `DashboardConfig` from @carverauto/serviceradar-dashboard-sdk/config;
 // `defineDashboardConfig()` is identity-at-runtime so wrapped + unwrapped
 // configs both pass through unchanged.
 

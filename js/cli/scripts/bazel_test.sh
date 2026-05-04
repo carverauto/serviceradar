@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bazel test wrapper for @serviceradar/cli. Runs the same `npm run ci` pipeline
+# Bazel test wrapper for @carverauto/serviceradar-cli. Runs the same `npm run ci` pipeline
 # (typecheck → unit tests → pack dry-run) that contributors run locally.
 #
 # Marked `local = True` + `no-sandbox` in BUILD.bazel because it shells out to

@@ -1,5 +1,5 @@
 import React from "react"
-import {mountReactDashboard, useDashboardFrame} from "@serviceradar/dashboard-sdk/react"
+import {mountReactDashboard, useDashboardFrame} from "@carverauto/serviceradar-dashboard-sdk/react"
 
 function Dashboard() {
   const frame = useDashboardFrame("primary")

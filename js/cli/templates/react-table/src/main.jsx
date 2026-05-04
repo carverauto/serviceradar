@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from "react"
-import {mountReactDashboard, useFilterState, useFrameRows} from "@serviceradar/dashboard-sdk/react"
+import {mountReactDashboard, useFilterState, useFrameRows} from "@carverauto/serviceradar-dashboard-sdk/react"
 
 const PAGE_SIZE = 25
 

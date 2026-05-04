@@ -1,9 +1,9 @@
-# `@serviceradar/cli` Changelog
+# `@carverauto/serviceradar-cli` Changelog
 
 ## 0.1.0 (initial)
 
 The canonical ServiceRadar developer CLI, split out from
-`@serviceradar/dashboard-sdk`. Lives in the ServiceRadar monorepo at
+`@carverauto/serviceradar-dashboard-sdk`. Lives in the ServiceRadar monorepo at
 `~/src/serviceradar/js/cli/` and ships independently to npm.
 
 ### Subcommand groups
@@ -28,8 +28,8 @@ The canonical ServiceRadar developer CLI, split out from
 
 ### Single install for developers
 
-`@serviceradar/dashboard-sdk` declares `@serviceradar/cli` in its
-`dependencies`, so `npm install @serviceradar/dashboard-sdk` lands the CLI in
+`@carverauto/serviceradar-dashboard-sdk` declares `@carverauto/serviceradar-cli` in its
+`dependencies`, so `npm install @carverauto/serviceradar-dashboard-sdk` lands the CLI in
 `./node_modules/.bin/serviceradar-cli` automatically. Project npm scripts
 (`"dev": "serviceradar-cli dashboard dev"`) resolve through the local `.bin/`.
 For ad-hoc invocation: `npx serviceradar-cli ...`.

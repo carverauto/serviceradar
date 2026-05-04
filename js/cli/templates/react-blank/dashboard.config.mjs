@@ -1,4 +1,4 @@
-import {defineDashboardConfig} from "@serviceradar/dashboard-sdk/config"
+import {defineDashboardConfig} from "@carverauto/serviceradar-dashboard-sdk/config"
 
 export default defineDashboardConfig({
   manifest: {

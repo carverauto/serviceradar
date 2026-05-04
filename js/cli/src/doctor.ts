@@ -26,7 +26,7 @@ export function readPackageVersion(directory: string): string | null {
 
 export function printVersion(): void {
   const cliVersion = readPackageVersion(CLI_ROOT) || "unknown"
-  console.log(`@serviceradar/cli ${cliVersion}`)
+  console.log(`@carverauto/serviceradar-cli ${cliVersion}`)
 }
 
 export async function doctorCommand(options: Record<string, any>): Promise<void> {
@@ -43,13 +43,13 @@ export async function doctorCommand(options: Record<string, any>): Promise<void>
 
   console.log("")
   console.log("CLI install:")
-  console.log(`  @serviceradar/cli:    ${cliVersion}`)
+  console.log(`  @carverauto/serviceradar-cli:    ${cliVersion}`)
   console.log(`  bin path:             ${join(CLI_ROOT, "bin", "serviceradar-cli.js")}`)
   console.log(`  templates dir:        ${TEMPLATES_DIR}`)
   console.log(`  harness dir:          ${HARNESS_DIR}`)
 
   const sdkVersion = resolveSdkVersion(projectDir)
-  console.log(`  @serviceradar/dashboard-sdk: ${sdkVersion || "(not resolvable from this project)"}`)
+  console.log(`  @carverauto/serviceradar-dashboard-sdk: ${sdkVersion || "(not resolvable from this project)"}`)
 
   const viteVersion = await dynamicVersion("vite")
   console.log(`  vite (cli dep):       ${viteVersion || "(not resolvable)"}`)
@@ -98,8 +98,8 @@ async function detectExecVersion(command: string): Promise<string | null> {
 
 function resolveSdkVersion(projectDir: string): string | null {
   for (const candidate of [
-    join(projectDir, "node_modules", "@serviceradar", "dashboard-sdk", "package.json"),
-    join(CLI_ROOT, "node_modules", "@serviceradar", "dashboard-sdk", "package.json"),
+    join(projectDir, "node_modules", "@carverauto", "serviceradar-dashboard-sdk", "package.json"),
+    join(CLI_ROOT, "node_modules", "@carverauto", "serviceradar-dashboard-sdk", "package.json"),
   ]) {
     if (existsSync(candidate)) {
       try {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.serviceradar.dev/dashboard-config-v1.json",
   "title": "ServiceRadar dashboard.config",
-  "description": "Schema for dashboard.config.mjs / dashboard.config.json. The runtime equivalent is the DashboardConfig TypeScript type exported from @serviceradar/dashboard-sdk/config — keep them in sync. Authors typically wrap their config in defineDashboardConfig() for editor type-checking; the schema is what the CLI's `validate` command enforces at the JSON layer.",
+  "description": "Schema for dashboard.config.mjs / dashboard.config.json. The runtime equivalent is the DashboardConfig TypeScript type exported from @carverauto/serviceradar-dashboard-sdk/config — keep them in sync. Authors typically wrap their config in defineDashboardConfig() for editor type-checking; the schema is what the CLI's `validate` command enforces at the JSON layer.",
   "type": "object",
   "required": ["manifest"],
   "additionalProperties": false,
