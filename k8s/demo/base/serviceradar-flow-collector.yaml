@@ -49,6 +49,14 @@ data:
           "max_template_fields": 10000
         },
         {
+          "protocol": "netflow",
+          "listen_addr": "0.0.0.0:4739",
+          "subject": "flows.raw.netflow",
+          "buffer_size": 65536,
+          "max_templates": 2000,
+          "max_template_fields": 10000
+        },
+        {
           "protocol": "sflow",
           "listen_addr": "0.0.0.0:6343",
           "subject": "flows.raw.sflow"

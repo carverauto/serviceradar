@@ -84,9 +84,12 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
+        {{- if and .Values.flowCollector.service.ports.metrics.enabled .Values.flowCollector.config.metrics_addr }}
         # HTTP probe against the Prometheus endpoint — also confirms the
         # async runtime is alive (a deadlocked-but-running collector
-        # would pass a `pgrep` check but fail this).
+        # would pass a `pgrep` check but fail this). Only used when the
+        # metrics server is actually running; otherwise probes fall back
+        # to the `pgrep` exec form below.
         livenessProbe:
           httpGet:
             path: /metrics
@@ -103,6 +106,29 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
+        {{- else }}
+        # Metrics are disabled (either `service.ports.metrics.enabled` is
+        # false or `config.metrics_addr` is unset), so the Rust binary
+        # never starts the Prometheus server and an HTTP probe would
+        # crashloop the pod. Fall back to a process-existence check via
+        # `pgrep` (procps is installed in the runtime image). This only
+        # catches process death, not async-runtime deadlocks — re-enable
+        # metrics for a richer liveness signal.
+        livenessProbe:
+          exec:
+            command: ["pgrep", "-f", "serviceradar-flow-collector"]
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command: ["pgrep", "-f", "serviceradar-flow-collector"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        {{- end }}
         resources:
           {{- toYaml .Values.flowCollector.resources | nindent 10 }}
         volumeMounts:

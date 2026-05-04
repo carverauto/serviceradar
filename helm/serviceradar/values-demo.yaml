@@ -526,6 +526,14 @@ flowCollector:
         port: 4739
         targetPort: 4739
         protocol: UDP
+      # Metrics port is intentionally hidden from the public LoadBalancer in
+      # the demo. Because `service.ports.metrics.enabled` is false, the
+      # chart switches the flow-collector pod's liveness/readiness probes
+      # from `httpGet /metrics` to a `pgrep` exec probe — see the gating
+      # block in templates/flow-collector.yaml. The Rust binary still
+      # starts the in-process Prometheus server (since `config.metrics_addr`
+      # remains set in base values) so cluster-internal scrapers can hit
+      # the pod IP directly.
       metrics:
         enabled: false
         port: 50046

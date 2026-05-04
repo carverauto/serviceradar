@@ -871,6 +871,16 @@ flowCollector:
         subject: "flows.raw.netflow"
         max_templates: 2000
         max_template_fields: 10000
+      # IPFIX uses the same parser as NetFlow v9 (the netflow_parser crate
+      # auto-detects v5/v9/IPFIX from the datagram header), so a second
+      # `protocol: netflow` listener bound to the IANA IPFIX port is what
+      # turns the advertised `service.ports.ipfix` into a real socket.
+      # If you set `service.ports.ipfix.enabled: false`, drop this entry.
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:4739"
+        subject: "flows.raw.netflow"
+        max_templates: 2000
+        max_template_fields: 10000
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"
