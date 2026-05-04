@@ -7,6 +7,7 @@ const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const OSM_STYLE_ID = "serviceradar-dashboard-osm-raster"
 const MAX_INLINE_LAYER_ROWS = 10000
+const DEFAULT_RENDERER_BOOT_TIMEOUT_MS = 10000
 const DASHBOARD_WASM_INTERFACE = "dashboard-wasm-v1"
 const DASHBOARD_BROWSER_MODULE_INTERFACE = "dashboard-browser-module-v1"
 const MAX_MERCATOR_LAT = 85.05112878
@@ -159,6 +160,27 @@ function binaryMessageBytes(message) {
   if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength)
   if (Array.isArray(message) && message[0] === "binary" && typeof message[1] === "string") return base64ToBytes(message[1])
   return new Uint8Array()
+}
+
+function rendererBootTimeoutMs(host) {
+  const timeout =
+    host?.package?.renderer?.timeout_ms ??
+    host?.package?.renderer?.timeoutMs ??
+    host?.host?.renderer_timeout_ms ??
+    host?.host?.rendererTimeoutMs ??
+    DEFAULT_RENDERER_BOOT_TIMEOUT_MS
+
+  return clamp(numberOr(timeout, DEFAULT_RENDERER_BOOT_TIMEOUT_MS), 100, 60000)
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeout
+
+  const timer = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  return Promise.race([promise, timer]).finally(() => clearTimeout(timeout))
 }
 
 function parseFrameBinaryMessage(message) {
@@ -415,7 +437,11 @@ const DashboardWasmHost = {
     this.el.classList.add("sr-dashboard-browser-module")
     this._host = host
 
-    const mounted = await mount(this.el, host, this.browserModuleApi(host))
+    const mounted = await withTimeout(
+      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
+      rendererBootTimeoutMs(host),
+      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
+    )
     this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
     this.connectFrameStream(host)
   },
@@ -455,9 +481,74 @@ const DashboardWasmHost = {
       }
 
       this.updateVisibleSrqlQuery(payload.q)
+      const nextUrl = this.srqlUrlFor(payload)
+      if (!this.currentSrqlUrlMatches(nextUrl)) {
+        window.history.replaceState(window.history.state, "", nextUrl)
+      }
       this.pushEvent("dashboard_srql_query", payload)
     }
     const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery})
+    const navigate = (target) => {
+      if (!capabilityAllowed("navigation.open")) {
+        throw new Error("dashboard capability is not approved: navigation.open")
+      }
+
+      const path = this.navigationPath(target)
+      if (!path) return
+      window.location.assign(path)
+    }
+    const preferencesApi = {
+      all: () => ({...this.dashboardPreferences(host)}),
+      get: (key, fallback = undefined) => {
+        const preferences = this.dashboardPreferences(host)
+        const normalized = String(key || "")
+        return Object.prototype.hasOwnProperty.call(preferences, normalized) ? preferences[normalized] : fallback
+      },
+      set: (key, value) => {
+        if (!capabilityAllowed("dashboard.preferences.write")) {
+          throw new Error("dashboard capability is not approved: dashboard.preferences.write")
+        }
+
+        const normalized = String(key || "").trim()
+        if (!normalized) throw new Error("dashboard preference key is required")
+
+        const settings = this.dashboardSettings(host)
+        const nextPreferences = {...this.dashboardPreferences(host), [normalized]: value}
+        settings.preferences = nextPreferences
+        this.pushEvent("dashboard_preference_update", {key: normalized, value})
+        return {...nextPreferences}
+      },
+    }
+    const savedQueriesApi = {
+      list: () => {
+        if (!capabilityAllowed("saved_queries.read")) {
+          throw new Error("dashboard capability is not approved: saved_queries.read")
+        }
+
+        return this.dashboardSavedQueries(host).map((query) => ({...query}))
+      },
+      current: (frameId = "sites") => srql.query(frameId),
+      apply: (query, frameQueries = {}) => srql.update(query, frameQueries),
+    }
+    const popupApi = {
+      open: (content, options = {}) => {
+        if (!capabilityAllowed("popup.open")) {
+          throw new Error("dashboard capability is not approved: popup.open")
+        }
+
+        return this.openHostPopup(content, options)
+      },
+      close: () => this.closeHostPopup(),
+    }
+    const detailsApi = {
+      open: (target) => {
+        if (!capabilityAllowed("details.open")) {
+          throw new Error("dashboard capability is not approved: details.open")
+        }
+
+        this.pushEvent("dashboard_detail_request", this.detailRequestPayload(target))
+      },
+    }
 
     return {
       version: "dashboard-browser-module-host-v1",
@@ -471,6 +562,13 @@ const DashboardWasmHost = {
       frame: (id) => resolveFrame(id),
       srql,
       setSrqlQuery: srql.update,
+      navigate,
+      openDevice: (uid) => navigate({type: "device", uid}),
+      openDashboard: (routeSlug) => navigate({type: "dashboard", route_slug: routeSlug}),
+      preferences: preferencesApi,
+      savedQueries: savedQueriesApi,
+      popup: popupApi,
+      details: detailsApi,
       onFrameUpdate: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -507,6 +605,114 @@ const DashboardWasmHost = {
     }
   },
 
+  dashboardSettings(host) {
+    if (host?.instance && typeof host.instance === "object") {
+      if (!host.instance.settings || typeof host.instance.settings !== "object") host.instance.settings = {}
+      return host.instance.settings
+    }
+
+    if (host && typeof host === "object") {
+      if (!host.settings || typeof host.settings !== "object") host.settings = {}
+      return host.settings
+    }
+
+    return {}
+  },
+
+  dashboardPreferences(host) {
+    const preferences = this.dashboardSettings(host).preferences
+    return preferences && typeof preferences === "object" && !Array.isArray(preferences) ? preferences : {}
+  },
+
+  dashboardSavedQueries(host) {
+    const savedQueries = this.dashboardSettings(host).saved_queries || this.dashboardSettings(host).savedQueries
+    return Array.isArray(savedQueries) ? savedQueries : []
+  },
+
+  openHostPopup(content, options = {}) {
+    this.closeHostPopup()
+
+    const popup = document.createElement("div")
+    popup.className = "sr-dashboard-host-popup absolute z-20 max-w-96 rounded-box border border-base-300 bg-base-100 p-3 text-base-content shadow-xl"
+    popup.setAttribute("role", "dialog")
+    popup.setAttribute("aria-label", String(options.title || "Dashboard popup"))
+
+    if (typeof globalThis.HTMLElement !== "undefined" && content instanceof globalThis.HTMLElement) {
+      popup.appendChild(content)
+    } else if (typeof content === "object" && content !== null) {
+      popup.innerHTML = this.hostPopupHtml(content, options)
+    } else {
+      popup.textContent = String(content || "")
+    }
+
+    popup.style.left = `${numberOr(options.x, 16)}px`
+    popup.style.top = `${numberOr(options.y, 16)}px`
+    this.el.appendChild(popup)
+    this._hostPopup = popup
+    return {
+      close: () => this.closeHostPopup(),
+    }
+  },
+
+  closeHostPopup() {
+    try {
+      this._hostPopup?.remove()
+    } catch (_error) {}
+
+    this._hostPopup = null
+  },
+
+  hostPopupHtml(content, options = {}) {
+    const title = content.title || options.title
+    const body = content.body || content.message || ""
+    const rows = Array.isArray(content.fields) ? content.fields : []
+
+    return `
+      ${title ? `<div class="pb-2 text-sm font-semibold">${escapeHtml(title)}</div>` : ""}
+      ${body ? `<div class="text-xs text-base-content/80">${escapeHtml(body)}</div>` : ""}
+      ${rows
+        .map((row) => {
+          const label = row.label || row.field || ""
+          const value = row.value ?? row.text ?? ""
+          if (!label && !value) return ""
+          return `<div class="flex justify-between gap-4 border-t border-base-300 py-1.5 text-xs"><span class="text-base-content/60">${escapeHtml(label)}</span><strong class="max-w-48 text-right font-medium">${escapeHtml(formatPopupValue(value))}</strong></div>`
+        })
+        .join("")}
+    `
+  },
+
+  detailRequestPayload(target) {
+    if (typeof target === "string") return {type: "id", id: target}
+    if (target && typeof target === "object") return {...target}
+    return {}
+  },
+
+  navigationPath(target) {
+    if (typeof target === "string") {
+      const path = target.trim()
+      return path.startsWith("/") ? path : null
+    }
+
+    const type = String(target?.type || "").trim()
+
+    if (type === "device") {
+      const uid = String(target?.uid || target?.device_uid || "").trim()
+      return uid ? `/devices/${encodeURIComponent(uid)}` : null
+    }
+
+    if (type === "dashboard") {
+      const routeSlug = String(target?.route_slug || target?.routeSlug || "").trim()
+      return routeSlug ? `/dashboards/${encodeURIComponent(routeSlug)}` : null
+    }
+
+    if (type === "path") {
+      const path = String(target?.path || "").trim()
+      return path.startsWith("/") ? path : null
+    }
+
+    return null
+  },
+
   srqlUrlFor(payload) {
     const url = new URL(window.location.href)
 
@@ -533,7 +739,9 @@ const DashboardWasmHost = {
 
   updateVisibleSrqlQuery(query) {
     const input = document.querySelector("#srql-query-bar input[name='q']")
-    if (input instanceof HTMLInputElement) input.value = String(query || "")
+    if (typeof globalThis.HTMLInputElement !== "undefined" && input instanceof globalThis.HTMLInputElement) {
+      input.value = String(query || "")
+    }
   },
 
   connectFrameStream(host) {
@@ -726,7 +934,7 @@ const DashboardWasmHost = {
         random_get: (ptr, len) => {
           const memory = wasmContext.memory || wasmContext.instance?.exports?.memory
           if (!memory) return 1
-          crypto.getRandomValues(new Uint8Array(memory.buffer, ptr, len))
+          globalThis.crypto.getRandomValues(new Uint8Array(memory.buffer, ptr, len))
           return 0
         },
       },
@@ -1019,7 +1227,7 @@ const DashboardWasmHost = {
   },
 
   layerData(layer) {
-    const results = this.rawLayerData(layer)
+    const results = this.mappableLayerData(layer, this.rawLayerData(layer))
     return this.clusteredLayerData(layer, results)
   },
 
@@ -1031,6 +1239,24 @@ const DashboardWasmHost = {
     const frame = frames.find((item) => item?.id === frameId)
     const results = Array.isArray(frame?.results) ? frame.results : []
     return results.slice(0, MAX_INLINE_LAYER_ROWS)
+  },
+
+  mappableLayerData(layer, rows) {
+    const type = String(layer?.type || "").toLowerCase()
+
+    if (type === "scatterplot" || type === "text") {
+      const getPosition = positionAccessor(layer.position)
+      return rows.filter((row) => isFinitePosition(getPosition(row)))
+    }
+
+    if (type === "line" || type === "arc") {
+      const getSourcePosition = positionAccessor(layer.source_position)
+      const getTargetPosition = positionAccessor(layer.target_position)
+
+      return rows.filter((row) => isFinitePosition(getSourcePosition(row)) && isFinitePosition(getTargetPosition(row)))
+    }
+
+    return rows
   },
 
   clusteredLayerData(layer, rows) {

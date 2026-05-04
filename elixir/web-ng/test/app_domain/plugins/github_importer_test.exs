@@ -27,12 +27,40 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   """
 
   @wasm_blob <<0, 1, 2, 3, 4>>
+  @dashboard_renderer "export function mountDashboard(element, host) { element.dataset.dashboard = host.package.name; }"
   @large_wasm :binary.copy(<<1>>, Storage.max_upload_bytes() + 1)
 
   def manifest_yaml, do: @manifest_yaml
   def alias_manifest, do: @alias_manifest
   def wasm_blob, do: @wasm_blob
+  def dashboard_renderer, do: @dashboard_renderer
   def large_wasm, do: @large_wasm
+
+  def dashboard_manifest_json do
+    Jason.encode!(%{
+      "id" => "com.test.github-dashboard",
+      "name" => "GitHub Dashboard",
+      "version" => "1.0.0",
+      "renderer" => %{
+        "kind" => "browser_module",
+        "interface_version" => "dashboard-browser-module-v1",
+        "artifact" => "dashboard-renderer.js",
+        "sha256" => Storage.sha256(@dashboard_renderer),
+        "trust" => "trusted",
+        "exports" => ["mountDashboard"]
+      },
+      "data_frames" => [
+        %{
+          "id" => "sites",
+          "query" => "in:wifi_sites limit:1",
+          "encoding" => "json_rows"
+        }
+      ],
+      "capabilities" => ["srql.execute", "map.deck.render", "navigation.open"],
+      "settings_schema" => %{},
+      "source" => %{"homepage" => "https://github.com/acme/demo"}
+    })
+  end
 
   defmodule MockClient do
     @moduledoc false
@@ -70,6 +98,23 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
            %Req.Response{
              status: 200,
              body: GitHubImporterTest.wasm_blob()
+           }}
+
+        String.contains?(url, "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/dashboard.json") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: GitHubImporterTest.dashboard_manifest_json()
+           }}
+
+        String.contains?(
+          url,
+          "raw.githubusercontent.com/acme/demo/#{String.duplicate("a", 40)}/dashboard-renderer.js"
+        ) ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: GitHubImporterTest.dashboard_renderer()
            }}
 
         true ->
@@ -178,6 +223,24 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
     assert result.gpg_key_id == "octo"
     assert result.gpg_verified_at
     assert result.source_commit == String.duplicate("a", 40)
+  end
+
+  test "fetches dashboard manifest, renderer artifact, and verification metadata" do
+    assert {:ok, result} =
+             GitHubImporter.fetch_dashboard(%{
+               source_repo_url: @repo_url,
+               source_commit: ""
+             })
+
+    assert result.manifest["id"] == "com.test.github-dashboard"
+    assert result.manifest_json == dashboard_manifest_json()
+    assert result.renderer_artifact == @dashboard_renderer
+    assert result.content_hash == Storage.sha256(@dashboard_renderer)
+    assert result.gpg_key_id == "octo"
+    assert result.gpg_verified_at
+    assert result.source_commit == String.duplicate("a", 40)
+    assert result.source_manifest_path == "dashboard.json"
+    assert result.source_renderer_path == "dashboard-renderer.js"
   end
 
   test "rejects unverified commits when policy requires gpg" do

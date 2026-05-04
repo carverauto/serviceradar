@@ -82,6 +82,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     {:noreply, push_dashboard_queries(socket, query, frame_queries)}
   end
 
+  def handle_event("dashboard_preference_update", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("dashboard_detail_request", _params, socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "wifi_sites", limit_assign_key: :dashboard_limit)}
