@@ -352,12 +352,14 @@ oci_ext.pull(
 )
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
+    # PostgreSQL 18.3 system/bookworm operand image.
+    # Pinned from ghcr.io/cloudnative-pg/postgresql:18.3-202604270853-system-bookworm
+    # so rebuilds do not silently resolve to an older or prerelease 18.x image.
+    digest = "sha256:73110ae76402e63a849eb4f4dfb7608d2222758cbf2d66a2df60628458b9cd4f",
     image = "ghcr.io/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
     ],
-    reproducible = False,
-    tag = "18-bookworm",
 )
 use_repo(
     oci_ext,
@@ -811,6 +813,30 @@ http_file(
     sha256 = "afc115928cceca97aa93f4b803012af51ce51cef111962b8cbc72746416b6738",
     urls = [
         "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.3-1.pgdg12%2B1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "timescaledb_2_loader_postgresql_18_deb",
+    sha256 = "38ed0eb38d425febe37d4dd0103ff1ffb08d41aca2ffb897b1c2da2ebe68e960",
+    urls = [
+        "https://packagecloud.io/timescale/timescaledb/debian/pool/bookworm/main/t/timescaledb-2-2.24.0-postgresql-18/timescaledb-2-loader-postgresql-18_2.24.0~debian12-1803_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "timescaledb_2_postgresql_18_deb",
+    sha256 = "1d50dec7beb6717021daa491873fe5cdb5034aeaf309927ec6ded79a36926afc",
+    urls = [
+        "https://packagecloud.io/timescale/timescaledb/debian/pool/bookworm/main/t/timescaledb-2-postgresql-18/timescaledb-2-postgresql-18_2.24.0~debian12-1803_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "postgresql_18_age_amd64_deb",
+    sha256 = "8d385e706dd16363e2f0f55efcaab20f68177046c345b191de9b2456192487a7",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18-age/postgresql-18-age_1.7.0~rc0-1.pgdg12%2B1_amd64.deb",
     ],
 )
 

@@ -8,7 +8,7 @@ This runbook defines the PostgreSQL 18 upgrade path for ServiceRadar CNPG cluste
 
 ## Target Versions
 
-- PostgreSQL: `18.x` (CNPG upstream `18-bookworm` base)
+- PostgreSQL: `18.3` (CNPG upstream `18.3-202604270853-system-bookworm` base, pinned by digest)
 - TimescaleDB: `2.24.0`
 - Apache AGE: `1.7.x`
 - PostGIS: `3.6.2`
@@ -45,7 +45,7 @@ bazel build //docker/images:cnpg_image_amd64
 bazel run //docker/images:cnpg_image_amd64_push
 ```
 
-Tag and publish as `ghcr.io/carverauto/serviceradar-cnpg:18.3.0-sr2` (or your release tag), then update cluster manifests/Helm values.
+Tag and publish as `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5` (or your release tag), then update cluster manifests/Helm values.
 
 ## Post-Upgrade Validation
 

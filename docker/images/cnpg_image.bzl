@@ -60,154 +60,46 @@ tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
     native.genrule(
         name = "timescaledb_extension_layer",
         srcs = [
-            ":cnpg_postgresql_18_rootfs_tar",
-            "@postgresql_server_dev_18_deb//file",
-            "@debian_bison_amd64_deb//file",
-            "@debian_flex_amd64_deb//file",
-            "@debian_libpq_dev_amd64_deb//file",
-            "@debian_gcc_15_base_amd64_deb//file",
-            "@debian_libgcc_s1_amd64_deb//file",
-            "@debian_libc6_amd64_deb//file",
-            "//database/timescaledb:source_tree",
-            "//docker/images:pg_config_wrapper.sh",
+            "@timescaledb_2_loader_postgresql_18_deb//file",
+            "@timescaledb_2_postgresql_18_deb//file",
         ],
         outs = ["timescaledb_extension_layer.tar"],
         tools = [
-            "//docker/images:extract_rootfs.py",
             "//docker/images:overlay_deb_packages.py",
-            "//docker/images:pg_config_rewrite.py",
-            "@cmake_linux_amd64_prebuilt//:cmake_bin",
-            "@cmake_linux_amd64_prebuilt//:cmake_share",
         ],
         cmd = """
 set -euo pipefail
 OUT_DIR="$$(pwd)/$(@D)"
 OUT_TAR="$$(pwd)/$@"
-ROOT_DIR="$${OUT_DIR}/rootfs_timescaledb"
-python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_18_rootfs_tar)" "$${ROOT_DIR}"
+ROOT_DIR="$${OUT_DIR}/timescaledb_debs"
+rm -rf "$${ROOT_DIR}"
+mkdir -p "$${ROOT_DIR}"
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
-  "$(location @postgresql_server_dev_18_deb//file)" \
-  "$(location @debian_bison_amd64_deb//file)" \
-  "$(location @debian_flex_amd64_deb//file)" \
-  "$(location @debian_libpq_dev_amd64_deb//file)" \
-  "$(location @debian_gcc_15_base_amd64_deb//file)" \
-  "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
-sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-
-SRC_TREE="$$(pwd)/$(execpath //database/timescaledb:source_tree)"
-echo "Copying TimescaleDB sources from $${SRC_TREE}"
-if [[ -d "$${OUT_DIR}/timescaledb" ]]; then
-  chmod -R u+w "$${OUT_DIR}/timescaledb"
-  rm -rf "$${OUT_DIR}/timescaledb"
-fi
-mkdir -p "$${OUT_DIR}/timescaledb"
-cp -R "$${SRC_TREE}/." "$${OUT_DIR}/timescaledb"
-chmod -R u+w "$${OUT_DIR}/timescaledb"
-cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_ts.sh"
-chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
-cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
-
-CMAKE_RELATIVE="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
-if [[ "$${CMAKE_RELATIVE}" != /* ]]; then
-  CMAKE_BIN="$$(pwd)/$${CMAKE_RELATIVE}"
-else
-  CMAKE_BIN="$${CMAKE_RELATIVE}"
-fi
-# Don't use readlink -f - cmake needs the original path to find its modules
-chmod +x "$${CMAKE_BIN}"
-CMAKE_DIR="$$(dirname "$${CMAKE_BIN}")"
-mkdir -p "$${OUT_DIR}/bin"
-ln -sf "$${CMAKE_BIN}" "$${OUT_DIR}/bin/cmake"
-export CMAKE="$${CMAKE_BIN}"
-export CNPG_ROOT="$${ROOT_DIR}"
-export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/18/bin/pg_config"
-export PATH="$${OUT_DIR}/bin:$${CMAKE_DIR}:$${ROOT_DIR}/usr/lib/postgresql/18/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
-export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
-cd "$${OUT_DIR}/timescaledb"
-BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DPROJECT_INSTALL_METHOD=docker -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPG_CONFIG="$${OUT_DIR}/pg_config_wrapper_ts.sh"
-cd build
-make -j4
-mkdir -p "$${OUT_DIR}/install"
-make DESTDIR="$${OUT_DIR}/install_ts" install
-INSTALL_PREFIX="$${OUT_DIR}/install_ts$${CNPG_ROOT}"
-if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
-  echo "Timescale install prefix $${INSTALL_PREFIX} not found" >&2
-  exit 1
-fi
-tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
+  "$(location @timescaledb_2_loader_postgresql_18_deb//file)" \
+  "$(location @timescaledb_2_postgresql_18_deb//file)"
+tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
 """,
     )
 
     native.genrule(
         name = "age_extension_layer",
         srcs = [
-            ":cnpg_postgresql_18_rootfs_tar",
-            "@postgresql_server_dev_18_deb//file",
-            "@debian_libpq_dev_amd64_deb//file",
-            "@debian_gcc_15_base_amd64_deb//file",
-            "@debian_libgcc_s1_amd64_deb//file",
-            "@debian_libc6_amd64_deb//file",
-            "//database/age:source_tree",
-            "//docker/images:pg_config_wrapper.sh",
+            "@postgresql_18_age_amd64_deb//file",
         ],
         outs = ["age_extension_layer.tar"],
         tools = [
-            "//docker/images:extract_rootfs.py",
             "//docker/images:overlay_deb_packages.py",
-            "//docker/images:pg_config_rewrite.py",
         ],
         cmd = """
 set -euo pipefail
-REPO_ROOT="$$(pwd)"
 OUT_DIR="$$(pwd)/$(@D)"
 OUT_TAR="$$(pwd)/$@"
-ROOT_DIR="$${OUT_DIR}/rootfs_age"
-python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_18_rootfs_tar)" "$${ROOT_DIR}"
+ROOT_DIR="$${OUT_DIR}/age_deb"
+rm -rf "$${ROOT_DIR}"
+mkdir -p "$${ROOT_DIR}"
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
-  "$(location @postgresql_server_dev_18_deb//file)" \
-  "$(location @debian_libpq_dev_amd64_deb//file)" \
-  "$(location @debian_gcc_15_base_amd64_deb//file)" \
-  "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
-sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-
-AGE_TREE="$$(pwd)/$(execpath //database/age:source_tree)"
-if [[ -d "$${OUT_DIR}/age" ]]; then
-  chmod -R u+w "$${OUT_DIR}/age"
-  rm -rf "$${OUT_DIR}/age"
-fi
-mkdir -p "$${OUT_DIR}/age"
-cp -R "$${AGE_TREE}/." "$${OUT_DIR}/age"
-chmod -R u+w "$${OUT_DIR}/age"
-
-cp "$${REPO_ROOT}/$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_age.sh"
-chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
-cp "$${REPO_ROOT}/$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
-
-for tool in flex bison gperf; do
-  if ! command -v "$${tool}" >/dev/null 2>&1; then
-    echo "Missing required build tool: $${tool} (expected in the RBE executor image or host toolchain)" >&2
-    exit 1
-  fi
-done
-
-export CNPG_ROOT="$${ROOT_DIR}"
-export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/18/bin/pg_config"
-export PATH="$${ROOT_DIR}/usr/lib/postgresql/18/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin:$${PATH:-}"
-export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig:$${PKG_CONFIG_PATH:-}"
-cd "$${OUT_DIR}/age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" -j4
-mkdir -p "$${OUT_DIR}/install_age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" DESTDIR="$${OUT_DIR}/install_age" install
-INSTALL_PREFIX="$${OUT_DIR}/install_age$${CNPG_ROOT}"
-if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
-  echo "AGE install prefix $${INSTALL_PREFIX} not found" >&2
-  exit 1
-fi
-tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
+  "$(location @postgresql_18_age_amd64_deb//file)"
+tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
 """,
     )
 
