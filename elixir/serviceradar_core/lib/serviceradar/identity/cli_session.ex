@@ -131,33 +131,37 @@ defmodule ServiceRadar.Identity.CliSession do
     # Read paths gated on the cli.session.read_* permissions.
     policy action(:by_jti) do
       authorize_if actor_attribute_equals(:role, :system)
-      authorize_if expr(^actor(:permissions) |> contains("cli.session.read_any"))
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "cli.session.read_any"}
     end
 
     policy action(:active_by_user) do
-      authorize_if expr(
-                     ^arg(:user_id) == ^actor(:id) and
-                       (^actor(:permissions) |> contains("cli.session.read_own"))
-                   )
+      # Admin-style: anyone with read_any may scope by any user_id.
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "cli.session.read_any"}
 
-      authorize_if expr(^actor(:permissions) |> contains("cli.session.read_any"))
+      # Self-scope: the requested user_id must match the actor's id. The
+      # default RBAC catalog grants cli.session.read_own to every role, so
+      # this is the path the LiveView Settings page uses for non-admins.
+      authorize_if expr(^arg(:user_id) == ^actor(:id))
     end
 
     policy action([:active, :read, :expired_active]) do
       authorize_if actor_attribute_equals(:role, :system)
-      authorize_if expr(^actor(:permissions) |> contains("cli.session.read_any"))
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "cli.session.read_any"}
     end
 
-    # Revoke gated on the matching cli.session.revoke_* permission.
+    # Revoke gated on the matching cli.session.revoke_* permission. The
+    # Settings LiveView's `ensure_can_revoke/2` enforces own-vs-any at the
+    # call site; the resource policy here mirrors the read pattern.
     policy action(:revoke) do
       authorize_if actor_attribute_equals(:role, :system)
 
-      authorize_if expr(
-                     user_id == ^actor(:id) and
-                       (^actor(:permissions) |> contains("cli.session.revoke_own"))
-                   )
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "cli.session.revoke_any"}
 
-      authorize_if expr(^actor(:permissions) |> contains("cli.session.revoke_any"))
+      authorize_if expr(user_id == ^actor(:id))
     end
 
     # Inserts + housekeeping run as system actors.

@@ -33,10 +33,14 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    permissions =
+    {permissions, ash_actor} =
       case socket.assigns[:current_scope] do
-        %{user: %{} = user} -> RBAC.permissions_for_user(user)
-        _ -> MapSet.new()
+        %{user: %{} = user} ->
+          perms = RBAC.permissions_for_user(user)
+          {perms, build_actor(user, perms)}
+
+        _ ->
+          {MapSet.new(), nil}
       end
 
     socket =
@@ -44,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
       |> assign(:page_title, "CLI Sessions")
       |> assign(:current_path, "/settings/cli-sessions")
       |> assign(:permissions, permissions)
+      |> assign(:ash_actor, ash_actor)
       |> assign(:can_read_any?, MapSet.member?(permissions, @perm_read_any))
       |> assign(:can_read_own?, MapSet.member?(permissions, @perm_read_own))
       |> assign(:can_revoke_any?, MapSet.member?(permissions, @perm_revoke_any))
@@ -140,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
                       </span>
                     </td>
                     <td class="text-right">
-                      <%= if session.status == :active and can_revoke_session?(session, @socket) do %>
+                      <%= if session.status == :active and can_revoke_session?(session, assigns) do %>
                         <button
                           type="button"
                           phx-click="revoke"
@@ -198,24 +203,49 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
     Enum.sort_by(rows, & &1.issued_at, {:desc, DateTime})
   end
 
+  defp current_actor(%{assigns: %{ash_actor: %{} = actor}}), do: actor
   defp current_actor(%{assigns: %{current_scope: %{user: %{id: _} = user}}}), do: user
-  defp current_actor(%{assigns: %{ash_actor: actor}}) when not is_nil(actor), do: actor
   defp current_actor(_), do: nil
 
-  defp ensure_can_revoke(%CliSession{user_id: user_id}, socket) do
-    actor = current_actor(socket)
+  defp build_actor(user, permissions) do
+    %{
+      id: user.id,
+      role: Map.get(user, :role),
+      email: Map.get(user, :email),
+      permissions: permissions
+    }
+  end
 
+  defp ensure_can_revoke(%CliSession{user_id: user_id}, socket) do
     cond do
-      socket.assigns[:can_revoke_any?] -> :ok
-      socket.assigns[:can_revoke_own?] and actor && actor.id == user_id -> :ok
-      true -> {:error, :forbidden}
+      socket.assigns[:can_revoke_any?] ->
+        :ok
+
+      socket.assigns[:can_revoke_own?] && current_user_id(socket) == user_id ->
+        :ok
+
+      true ->
+        {:error, :forbidden}
     end
   end
 
-  defp can_revoke_session?(%CliSession{} = session, socket) do
-    case ensure_can_revoke(session, socket) do
-      :ok -> true
-      _ -> false
+  defp current_user_id(%{assigns: %{current_scope: %{user: %{id: id}}}}), do: id
+  defp current_user_id(_), do: nil
+
+  # Template-side helper. Receives the LiveView's `assigns` map directly so
+  # the `@socket.assigns[...]` access pattern (which fails in change-tracking
+  # mode) is avoided.
+  defp can_revoke_session?(%CliSession{user_id: user_id}, assigns) do
+    cond do
+      assigns[:can_revoke_any?] ->
+        true
+
+      assigns[:can_revoke_own?] and assigns[:current_scope] != nil and
+          assigns[:current_scope].user != nil and assigns[:current_scope].user.id == user_id ->
+        true
+
+      true ->
+        false
     end
   end
 

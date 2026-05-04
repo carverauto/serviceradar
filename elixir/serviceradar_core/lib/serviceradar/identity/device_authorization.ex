@@ -172,7 +172,9 @@ defmodule ServiceRadar.Identity.DeviceAuthorization do
     # Anyone with `cli.session.create` can approve / deny their own pending
     # codes. The LiveView re-checks this before exposing the buttons.
     policy action([:approve, :deny]) do
-      authorize_if expr(^actor(:permissions) |> contains("cli.session.create"))
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "cli.session.create"}
+
       authorize_if is_admin()
     end
 
