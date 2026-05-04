@@ -37,6 +37,17 @@ the clean-tree check.
 USAGE
 }
 
+sed_in_place() {
+    local expression=$1
+    local file=$2
+
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$expression" "$file"
+    else
+        sed -i '' "$expression" "$file"
+    fi
+}
+
 version=""
 tag_prefix="v"
 push=false
@@ -167,8 +178,8 @@ chart_file="helm/serviceradar/Chart.yaml"
 if [[ "$dry_run" == "true" ]]; then
     echo "[dry-run] Would update $chart_file version and appVersion to $version"
 else
-    sed -i "s/^version: .*/version: $version/" "$chart_file"
-    sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
+    sed_in_place "s/^version: .*/version: $version/" "$chart_file"
+    sed_in_place "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
 fi
 
 if [[ "$dry_run" == "true" ]]; then

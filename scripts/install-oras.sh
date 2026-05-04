@@ -32,4 +32,11 @@ mkdir -p "${INSTALL_DIR}"
 curl --fail --location --retry 5 --retry-all-errors --output "${tmpdir}/${archive}" "${url}"
 tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
 install -m 0755 "${tmpdir}/oras" "${INSTALL_DIR}/oras"
+
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+else
+  export PATH="${INSTALL_DIR}:${PATH}"
+fi
+
 echo "Installed oras $(${INSTALL_DIR}/oras version | awk '/Version:/ {print $2; exit}') to ${INSTALL_DIR}/oras"

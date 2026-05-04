@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.28
+
+CNPG PostgreSQL 18.3 image refresh for the pgcrypto CVE fix, with pinned image inputs and Debian bookworm extension packages to keep Kubernetes rollouts ABI-compatible.
+
+## Whats New
+
+**1.2.28**
+- Upgraded the custom ServiceRadar CNPG image to PostgreSQL 18.3 and pinned the CloudNativePG upstream base by digest so rebuilds cannot silently resolve to older PostgreSQL 18 prerelease images.
+- Switched the CNPG TimescaleDB and AGE layers to pinned Debian bookworm PostgreSQL 18 packages, avoiding remote-executor glibc leakage in extension shared libraries.
+- Updated Helm, demo, srql-fixtures, Docker Compose migration, and RBE references to the signed `serviceradar-cnpg:18.3.0-sr5` digest.
+
 # ServiceRadar v1.2.27
 
 Coraza WAF log persistence fix needed to keep normalized Zen output readable after it is inserted into observability storage.

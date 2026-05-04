@@ -328,7 +328,7 @@ func uploadPackageArtifacts(ctx *publishContext, rel *release, existingAssets ma
 		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
 			sourcePath: artifact,
 			uploadName: uploadName,
-		}, ctx.config.overwriteAssets); err != nil {
+		}, ctx.config.tag, ctx.config.overwriteAssets); err != nil {
 			return fmt.Errorf("failed to upload asset %q: %w", uploadName, err)
 		}
 	}
@@ -346,7 +346,7 @@ func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAsse
 	if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
 		sourcePath: agentRuntimeArtifact,
 		uploadName: runtimeUploadName,
-	}, ctx.config.overwriteAssets); err != nil {
+	}, ctx.config.tag, ctx.config.overwriteAssets); err != nil {
 		return fmt.Errorf("failed to upload managed agent runtime asset %q: %w", runtimeUploadName, err)
 	}
 
@@ -371,7 +371,7 @@ func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAsse
 	}()
 
 	for _, asset := range manifestAssets {
-		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, asset, ctx.config.overwriteAssets); err != nil {
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, asset, ctx.config.tag, ctx.config.overwriteAssets); err != nil {
 			return fmt.Errorf("failed to upload asset %q: %w", asset.uploadName, err)
 		}
 	}
@@ -379,7 +379,7 @@ func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAsse
 	return nil
 }
 
-func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets map[string]int64, asset uploadAsset, overwrite bool) error {
+func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets map[string]int64, asset uploadAsset, tag string, overwrite bool) error {
 	if id, ok := existingAssets[asset.uploadName]; ok {
 		if overwrite {
 			fmt.Printf("Replacing existing asset %s\n", asset.uploadName)
@@ -394,6 +394,13 @@ func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets m
 	}
 
 	if err := client.uploadAsset(uploadURL, asset.sourcePath, asset.uploadName); err != nil {
+		if id, ok, lookupErr := client.getReleaseAssetIDByName(tag, asset.uploadName); lookupErr != nil {
+			return fmt.Errorf("%w; failed to confirm asset presence after upload error: %v", err, lookupErr)
+		} else if ok {
+			existingAssets[asset.uploadName] = id
+			fmt.Printf("Upload of %s returned an error, but the asset is present; continuing\n", asset.uploadName)
+			return nil
+		}
 		return err
 	}
 	fmt.Printf("Uploaded %s\n", asset.uploadName)
@@ -780,6 +787,26 @@ func (c *githubClient) deleteAsset(id int64) error {
 		_ = resp.Body.Close()
 	}
 	return nil
+}
+
+func (c *githubClient) getReleaseAssetIDByName(tag, assetName string) (int64, bool, error) {
+	if strings.TrimSpace(tag) == "" || strings.TrimSpace(assetName) == "" {
+		return 0, false, nil
+	}
+
+	rel, err := c.getReleaseByTag(tag)
+	if err != nil {
+		return 0, false, err
+	}
+	if rel == nil {
+		return 0, false, nil
+	}
+	for _, asset := range rel.Assets {
+		if asset.Name == assetName {
+			return asset.ID, true, nil
+		}
+	}
+	return 0, false, nil
 }
 
 func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) error {
