@@ -33,6 +33,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     "info" => OCSF.severity_informational(),
     "informational" => OCSF.severity_informational()
   }
+  @diagnostic_sample_limit 5
+  @diagnostic_source_limit 10
 
   @spec evaluate_logs([map()]) :: :ok | {:error, term()}
   def evaluate_logs(rows) when is_list(rows) do
@@ -210,7 +212,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       last_fired_at: snapshot.last_fired_at,
       last_notification_at: snapshot.last_notification_at,
       cooldown_until: snapshot.cooldown_until,
-      alert_id: snapshot.alert_id
+      alert_id: snapshot.alert_id,
+      first_seen_at: snapshot.last_seen_at,
+      diagnostics: empty_diagnostics()
     }
   end
 
@@ -273,7 +277,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
           last_fired_at: nil,
           last_notification_at: nil,
           cooldown_until: nil,
-          alert_id: nil
+          alert_id: nil,
+          first_seen_at: record_timestamp(record),
+          diagnostics: empty_diagnostics()
         }
     end
   end
@@ -301,6 +307,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       |> Map.put(:previous_last_seen_at, previous_last_seen_at)
       |> Map.put(:bucket_changed, bucket_changed)
       |> Map.put(:window_count, window_count)
+      |> Map.put(:first_seen_at, snapshot.first_seen_at || now)
+      |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
       |> Map.put_new(:flush_required, false)
 
     handle_threshold(snapshot, rule, record, now)
@@ -376,6 +384,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       |> Map.put(:alert_id, nil)
       |> Map.put(:last_notification_at, nil)
       |> Map.put(:cooldown_until, nil)
+      |> Map.put(:first_seen_at, now)
+      |> Map.put(:diagnostics, update_diagnostics(empty_diagnostics(), record, now))
       |> Map.put(:flush_required, true)
 
     handle_firing(refreshed_snapshot, rule, record, now)
@@ -600,6 +610,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Map.put("incident_first_seen_at", first_seen_at)
     |> Map.put("incident_last_seen_at", DateTime.to_iso8601(now))
     |> Map.put("incident_window_count", snapshot.window_count || 0)
+    |> Map.put("incident_diagnostics", diagnostic_summary(rule, snapshot, now))
   end
 
   defp normalize_incident_count(value) when is_integer(value) and value > 0, do: value
@@ -631,6 +642,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         "Stateful rule #{rule.name} triggered for #{snapshot.group_key} (#{snapshot.window_count}/#{rule.threshold} in #{rule.window_seconds}s)"
 
     source = source_record_details(record)
+    diagnostics = diagnostic_summary(rule, snapshot, now, source)
 
     Map.put(
       %{
@@ -655,7 +667,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
           |> Map.put(:serviceradar, %{
             stateful_rule: true,
             rule_id: to_string(rule.id),
-            group_key: snapshot.group_key
+            group_key: snapshot.group_key,
+            diagnostics: diagnostics
           }),
         actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
         log_name: rule.event["log_name"] || rule.event[:log_name] || "alert.rule.threshold",
@@ -663,11 +676,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         log_level: log_level_for_severity(severity_id)
       },
       :unmapped,
-      build_unmapped(rule, snapshot, source)
+      build_unmapped(rule, snapshot, source, diagnostics)
     )
   end
 
-  defp build_unmapped(rule, snapshot, source) do
+  defp build_unmapped(rule, snapshot, source, diagnostics) do
     Map.merge(
       %{
         "rule_id" => to_string(rule.id),
@@ -679,11 +692,253 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         "bucket_seconds" => rule.bucket_seconds,
         "window_count" => snapshot.window_count,
         "cooldown_seconds" => rule.cooldown_seconds,
-        "renotify_seconds" => rule.renotify_seconds
+        "renotify_seconds" => rule.renotify_seconds,
+        "diagnostics" => diagnostics
       },
       source
     )
   end
+
+  defp empty_diagnostics do
+    %{
+      "source_event_ids" => [],
+      "samples" => %{
+        "processes" => [],
+        "containers" => [],
+        "kubernetes" => []
+      }
+    }
+  end
+
+  defp update_diagnostics(nil, record, now),
+    do: update_diagnostics(empty_diagnostics(), record, now)
+
+  defp update_diagnostics(diagnostics, record, now) when is_map(diagnostics) do
+    context = record_diagnostic_context(record)
+    source_event_id = source_event_id(record)
+
+    diagnostics
+    |> Map.put_new("source_event_ids", [])
+    |> Map.put_new("samples", empty_diagnostics()["samples"])
+    |> update_in(
+      ["source_event_ids"],
+      &add_bounded_value(&1, source_event_id, @diagnostic_source_limit)
+    )
+    |> update_in(["samples"], &update_diagnostic_samples(&1, context, now))
+  end
+
+  defp update_diagnostics(_diagnostics, record, now),
+    do: update_diagnostics(empty_diagnostics(), record, now)
+
+  defp update_diagnostic_samples(samples, context, now) when is_map(samples) do
+    samples
+    |> Map.put_new("processes", [])
+    |> Map.put_new("containers", [])
+    |> Map.put_new("kubernetes", [])
+    |> update_in(
+      ["processes"],
+      &add_bounded_value(&1, process_sample(context, now), @diagnostic_sample_limit)
+    )
+    |> update_in(
+      ["containers"],
+      &add_bounded_value(&1, container_sample(context, now), @diagnostic_sample_limit)
+    )
+    |> update_in(
+      ["kubernetes"],
+      &add_bounded_value(&1, kubernetes_sample(context, now), @diagnostic_sample_limit)
+    )
+  end
+
+  defp update_diagnostic_samples(_samples, context, now) do
+    update_diagnostic_samples(empty_diagnostics()["samples"], context, now)
+  end
+
+  defp record_diagnostic_context(record) do
+    metadata = fetch_attr(record, :metadata) || %{}
+    unmapped = event_unmapped(record)
+    signal = map_value(metadata, "security_signal") || %{}
+    falco = map_value(unmapped, "falco") || %{}
+
+    diagnostic_payload =
+      map_value(signal, "diagnostics") ||
+        map_value(falco, "diagnostics") ||
+        %{}
+
+    %{
+      "rule" => map_value(diagnostic_payload, "rule") || fallback_rule(record),
+      "host" => map_value(diagnostic_payload, "host") || fallback_host(record),
+      "process" => map_value(diagnostic_payload, "process") || %{},
+      "parent_process" => map_value(diagnostic_payload, "parent_process") || %{},
+      "container" => map_value(diagnostic_payload, "container") || fallback_container(record),
+      "kubernetes" => map_value(diagnostic_payload, "kubernetes") || fallback_kubernetes(record),
+      "attribution" => map_value(diagnostic_payload, "attribution") || %{}
+    }
+  end
+
+  defp process_sample(context, now) do
+    process = map_value(context, "process") || %{}
+    parent = map_value(context, "parent_process") || %{}
+
+    compact_map(%{
+      "name" => map_value(process, "name"),
+      "parent" => map_value(parent, "name"),
+      "command" => map_value(process, "command"),
+      "cwd" => map_value(process, "cwd"),
+      "executable" => map_value(process, "executable"),
+      "executable_flags" => map_value(process, "executable_flags"),
+      "observed_at" => iso8601(now)
+    })
+  end
+
+  defp container_sample(context, now) do
+    container = map_value(context, "container") || %{}
+
+    compact_map(%{
+      "id" => map_value(container, "id"),
+      "name" => map_value(container, "name"),
+      "image" => map_value(container, "image"),
+      "image_repository" => map_value(container, "image_repository"),
+      "image_tag" => map_value(container, "image_tag"),
+      "observed_at" => iso8601(now)
+    })
+  end
+
+  defp kubernetes_sample(context, now) do
+    kubernetes = map_value(context, "kubernetes") || %{}
+    attribution = map_value(context, "attribution") || %{}
+
+    compact_map(%{
+      "namespace" => map_value(kubernetes, "namespace"),
+      "pod" => map_value(kubernetes, "pod"),
+      "attribution_status" => map_value(attribution, "status"),
+      "missing" => map_value(attribution, "missing"),
+      "observed_at" => iso8601(now)
+    })
+  end
+
+  defp diagnostic_summary(rule, snapshot, now, source \\ %{}) do
+    diagnostics = snapshot.diagnostics || empty_diagnostics()
+    first_seen_at = snapshot.first_seen_at || now
+    last_seen_at = snapshot.last_seen_at || now
+
+    compact_map(%{
+      "rule_id" => to_string(rule.id),
+      "rule_name" => rule.name,
+      "group_key" => snapshot.group_key,
+      "group_values" => snapshot.group_values || %{},
+      "threshold" => rule.threshold,
+      "window_seconds" => rule.window_seconds,
+      "bucket_seconds" => rule.bucket_seconds,
+      "window_count" => snapshot.window_count || 0,
+      "first_seen_at" => iso8601(first_seen_at),
+      "last_seen_at" => iso8601(last_seen_at),
+      "representative_event_ids" => Map.get(diagnostics, "source_event_ids", []),
+      "samples" => Map.get(diagnostics, "samples", %{}),
+      "source" => source
+    })
+  end
+
+  defp fallback_rule(record) do
+    metadata = fetch_attr(record, :metadata) || %{}
+    unmapped = event_unmapped(record)
+
+    compact_map(%{
+      "name" => map_value(metadata, "rule") || map_value(unmapped, "rule"),
+      "priority" => map_value(metadata, "priority") || map_value(unmapped, "priority")
+    })
+  end
+
+  defp fallback_host(record) do
+    metadata = fetch_attr(record, :metadata) || %{}
+    unmapped = event_unmapped(record)
+
+    compact_map(%{
+      "name" => map_value(metadata, "hostname") || map_value(unmapped, "hostname")
+    })
+  end
+
+  defp fallback_container(record) do
+    unmapped = event_unmapped(record)
+    falco = map_value(unmapped, "falco") || %{}
+
+    compact_map(%{
+      "id" => map_value(falco, "container_id") || map_value(unmapped, "container_id"),
+      "name" => map_value(falco, "container") || map_value(unmapped, "container")
+    })
+  end
+
+  defp fallback_kubernetes(record) do
+    unmapped = event_unmapped(record)
+    falco = map_value(unmapped, "falco") || %{}
+
+    compact_map(%{
+      "namespace" => map_value(falco, "namespace") || map_value(unmapped, "namespace"),
+      "pod" => map_value(falco, "pod") || map_value(unmapped, "pod")
+    })
+  end
+
+  defp source_event_id(record) do
+    case fetch_attr(record, :id) do
+      nil -> nil
+      id -> to_string(id)
+    end
+  end
+
+  defp add_bounded_value(values, nil, _limit), do: values || []
+  defp add_bounded_value(values, %{} = value, _limit) when map_size(value) == 0, do: values || []
+  defp add_bounded_value(values, [] = _value, _limit), do: values || []
+
+  defp add_bounded_value(values, value, limit) do
+    values = if is_list(values), do: values, else: []
+
+    if Enum.member?(values, value) do
+      values
+    else
+      Enum.take(values ++ [value], limit)
+    end
+  end
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || fetch_existing_atom_key(map, key)
+  end
+
+  defp map_value(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp fetch_existing_atom_key(map, key) do
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp compact_map(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      value = compact_value(value)
+
+      if empty_value?(value) do
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp compact_value(%DateTime{} = value), do: iso8601(value)
+  defp compact_value(value) when is_map(value), do: compact_map(value)
+  defp compact_value(value) when is_list(value), do: Enum.reject(value, &empty_value?/1)
+  defp compact_value(value), do: value
+
+  defp empty_value?(nil), do: true
+  defp empty_value?(""), do: true
+  defp empty_value?(%{} = value), do: map_size(value) == 0
+  defp empty_value?(value) when is_list(value), do: value == []
+  defp empty_value?(_value), do: false
+
+  defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp iso8601(value), do: value
 
   defp severity_id(alert_overrides) do
     overrides = alert_overrides || %{}

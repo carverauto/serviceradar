@@ -295,4 +295,117 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert unmapped["falco"]["rule"] == falco_rule
     assert unmapped["falco"]["hostname"] == "k8s-worker-1"
   end
+
+  test "promotes Falco drop-and-execute logs with runtime diagnostics and partial attribution" do
+    actor = %{id: "system", role: :admin}
+    message = "File below a known binary directory opened for writing then executed"
+    rule_name = "drop-execute-falco-test-#{Ash.UUID.generate()}"
+    falco_rule = "Drop and execute new binary in container"
+    container_id = "d2d34c8e90ab1234567890abcdef1234567890abcdef1234567890abcdef1234"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: rule_name,
+          source_type: :log,
+          source: %{},
+          match: %{
+            "subject_prefix" => "falco.",
+            "service_name" => "falco",
+            "attribute_equals" => %{
+              "falco.rule" => falco_rule
+            }
+          },
+          event: %{
+            "log_name" => "falco.drop_execute",
+            "severity" => "critical",
+            "alert" => false
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    log = %{
+      id: Ash.UUID.generate(),
+      timestamp: DateTime.utc_now(),
+      severity_text: "Critical",
+      severity_number: 21,
+      body: message,
+      service_name: "falco",
+      service_instance: "k8s-cp2-worker2",
+      attributes: %{
+        "falco" => %{
+          "uuid" => "drop-execute-test-1",
+          "rule" => falco_rule,
+          "priority" => "Critical",
+          "output" => message,
+          "output_fields" => %{
+            "container.id" => container_id,
+            "container.image.repository" => "code.forgejo.org/forgejo/runner",
+            "container.image.tag" => "latest",
+            "container.name" => "forgejo-runner",
+            "evt.arg.flags" => "O_RDONLY|O_CLOEXEC",
+            "evt.type" => "execve",
+            "hostname" => "k8s-cp2-worker2",
+            "proc.cmdline" => "/tmp/.build/tool --lint",
+            "proc.cwd" => "/workspace/carverauto/serviceradar",
+            "proc.exe" => "/tmp/.build/tool",
+            "proc.is_exe_from_memfd" => false,
+            "proc.is_exe_upper_layer" => true,
+            "proc.name" => "tool",
+            "proc.pname" => "bash",
+            "user.name" => "root",
+            "user.uid" => 0
+          }
+        },
+        "serviceradar" => %{"ingest" => %{"subject" => "falco.logs.processed"}}
+      },
+      resource_attributes: %{
+        "host.name" => "k8s-cp2-worker2",
+        "container.id" => container_id,
+        "container.name" => "forgejo-runner"
+      },
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+
+    assert %Result{rows: [[metadata, observables, unmapped]]} =
+             SQL.query!(
+               Repo,
+               """
+               SELECT metadata, observables, unmapped
+               FROM ocsf_events
+               WHERE log_name = $1 AND message = $2
+               ORDER BY time DESC
+               LIMIT 1
+               """,
+               ["falco.drop_execute", message]
+             )
+
+    diagnostics = metadata["security_signal"]["diagnostics"]
+
+    assert diagnostics["rule"]["name"] == falco_rule
+    assert diagnostics["host"]["name"] == "k8s-cp2-worker2"
+    assert diagnostics["process"]["name"] == "tool"
+    assert diagnostics["process"]["command"] == "/tmp/.build/tool --lint"
+    assert diagnostics["process"]["cwd"] == "/workspace/carverauto/serviceradar"
+    assert diagnostics["process"]["executable_flags"]["upper_layer"] == true
+    assert diagnostics["process"]["executable_flags"]["from_memfd"] == false
+    assert diagnostics["parent_process"]["name"] == "bash"
+    assert diagnostics["user"]["name"] == "root"
+    assert diagnostics["container"]["id"] == container_id
+    assert diagnostics["container"]["image_repository"] == "code.forgejo.org/forgejo/runner"
+    assert diagnostics["container"]["image_tag"] == "latest"
+    assert diagnostics["attribution"]["status"] == "partial"
+    assert "kubernetes.namespace" in diagnostics["attribution"]["missing"]
+    assert "kubernetes.pod" in diagnostics["attribution"]["missing"]
+
+    assert %{"name" => container_id, "type" => "Container ID", "type_id" => 99} in observables
+    assert unmapped["falco"]["diagnostics"] == diagnostics
+    assert unmapped["falco"]["output_fields"]["proc.cmdline"] == "/tmp/.build/tool --lint"
+  end
 end

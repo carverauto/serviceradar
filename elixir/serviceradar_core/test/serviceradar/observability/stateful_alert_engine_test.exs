@@ -159,8 +159,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     base_time = DateTime.utc_now()
 
     event = fn timestamp ->
+      event_id = Ash.UUID.generate()
+
+      diagnostics = %{
+        "rule" => %{
+          "name" => rule_name,
+          "priority" => "Critical"
+        },
+        "host" => %{"name" => "core-elx"},
+        "process" => %{
+          "name" => "tool",
+          "command" => "/tmp/.build/tool --lint",
+          "cwd" => "/workspace/carverauto/serviceradar",
+          "executable_flags" => %{"upper_layer" => true, "from_memfd" => false}
+        },
+        "parent_process" => %{"name" => "bash"},
+        "container" => %{
+          "id" => "d2d34c8e90ab",
+          "name" => "forgejo-runner",
+          "image_repository" => "code.forgejo.org/forgejo/runner",
+          "image_tag" => "latest"
+        },
+        "kubernetes" => %{},
+        "attribution" => %{
+          "status" => "partial",
+          "missing" => ["kubernetes.namespace", "kubernetes.pod"]
+        }
+      }
+
       %{
-        id: Ash.UUID.generate(),
+        id: event_id,
         time: timestamp,
         severity_id: OCSF.severity_critical(),
         severity: OCSF.severity_name(OCSF.severity_critical()),
@@ -170,11 +198,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         metadata: %{
           "subject" => subject,
           "rule" => rule_name,
-          "hostname" => "core-elx"
+          "hostname" => "core-elx",
+          "security_signal" => %{
+            "kind" => "runtime",
+            "source" => "falco",
+            "diagnostics" => diagnostics
+          }
         },
         unmapped: %{
           "rule" => rule_name,
-          "hostname" => "core-elx"
+          "hostname" => "core-elx",
+          "falco" => %{
+            "diagnostics" => diagnostics,
+            "output_fields" => %{"proc.cmdline" => "/tmp/.build/tool --lint"}
+          }
         }
       }
     end
@@ -203,6 +240,44 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
            }
 
     assert active_alert.metadata["incident_occurrence_count"] == 3
+
+    diagnostics = active_alert.metadata["incident_diagnostics"]
+
+    assert diagnostics["rule_id"] == to_string(rule.id)
+    assert diagnostics["rule_name"] == "falco-incident-#{unique}"
+    assert diagnostics["threshold"] == 1
+    assert diagnostics["window_seconds"] == 300
+    assert diagnostics["window_count"] == 3
+    assert length(diagnostics["representative_event_ids"]) == 3
+
+    assert [
+             %{
+               "name" => "tool",
+               "parent" => "bash",
+               "command" => "/tmp/.build/tool --lint",
+               "cwd" => "/workspace/carverauto/serviceradar",
+               "executable_flags" => %{"upper_layer" => true, "from_memfd" => false}
+             }
+             | _
+           ] = diagnostics["samples"]["processes"]
+
+    assert [
+             %{
+               "id" => "d2d34c8e90ab",
+               "name" => "forgejo-runner",
+               "image_repository" => "code.forgejo.org/forgejo/runner",
+               "image_tag" => "latest"
+             }
+             | _
+           ] = diagnostics["samples"]["containers"]
+
+    assert [
+             %{
+               "attribution_status" => "partial",
+               "missing" => ["kubernetes.namespace", "kubernetes.pod"]
+             }
+             | _
+           ] = diagnostics["samples"]["kubernetes"]
 
     history =
       rule.id

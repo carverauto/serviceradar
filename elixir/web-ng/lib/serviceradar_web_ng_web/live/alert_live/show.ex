@@ -64,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
         <div :if={is_map(@alert)} class="space-y-4">
           <.alert_summary alert={@alert} />
+          <.stateful_incident_summary :if={stateful_incident?(@alert)} alert={@alert} />
           <.alert_links alert={@alert} />
           <.alert_details alert={@alert} />
         </div>
@@ -106,6 +107,93 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
           <p class="text-sm whitespace-pre-wrap">{Map.get(@alert, "description")}</p>
         </div>
       </div>
+    </div>
+    """
+  end
+
+  attr :alert, :map, required: true
+
+  defp stateful_incident_summary(assigns) do
+    diagnostics = incident_diagnostics(assigns.alert)
+
+    assigns =
+      assigns
+      |> assign(:diagnostics, diagnostics)
+      |> assign(:samples, diagnostic_value(diagnostics, ["samples"]) || %{})
+      |> assign(:process, first_sample(diagnostics, "processes"))
+      |> assign(:container, first_sample(diagnostics, "containers"))
+      |> assign(:kubernetes, first_sample(diagnostics, "kubernetes"))
+
+    ~H"""
+    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <span class="text-xs text-error uppercase tracking-wider block mb-2">
+            Stateful Incident
+          </span>
+          <h2 class="text-lg font-semibold leading-tight">
+            {diagnostic_value(@diagnostics, ["rule_name"]) || Map.get(@alert, "title") ||
+              "Rule threshold fired"}
+          </h2>
+        </div>
+        <.severity_badge value={Map.get(@alert, "severity")} />
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <.diagnostic_fact label="Group" value={diagnostic_value(@diagnostics, ["group_key"])} mono />
+        <.diagnostic_fact
+          label="Window Count"
+          value={diagnostic_value(@diagnostics, ["window_count"])}
+          mono
+        />
+        <.diagnostic_fact
+          label="Threshold"
+          value={diagnostic_value(@diagnostics, ["threshold"])}
+          mono
+        />
+        <.diagnostic_fact label="Window" value={window_display(@diagnostics)} mono />
+        <.diagnostic_fact
+          label="First Seen"
+          value={diagnostic_value(@diagnostics, ["first_seen_at"])}
+          mono
+        />
+        <.diagnostic_fact
+          label="Last Seen"
+          value={diagnostic_value(@diagnostics, ["last_seen_at"])}
+          mono
+        />
+        <.diagnostic_fact
+          label="Representative Events"
+          value={diagnostic_value(@diagnostics, ["representative_event_ids"])}
+          mono
+        />
+        <.diagnostic_fact label="Process" value={process_display(@process)} mono />
+        <.diagnostic_fact label="Container" value={container_display(@container)} mono />
+        <.diagnostic_fact label="Image" value={image_display(@container)} mono />
+        <.diagnostic_fact label="Kubernetes Pod" value={kubernetes_display(@kubernetes)} mono />
+        <.diagnostic_fact label="Attribution" value={attribution_display(@kubernetes)} />
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+
+  defp diagnostic_fact(assigns) do
+    ~H"""
+    <div class="min-w-0">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+        {@label}
+      </span>
+      <span class={[
+        "text-sm break-words",
+        if(@mono, do: "font-mono", else: nil),
+        if(blank?(@value), do: "text-base-content/40", else: nil)
+      ]}>
+        {display_diagnostic_value(@value)}
+      </span>
     </div>
     """
   end
@@ -313,6 +401,144 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       _ -> true
     end
   end
+
+  defp stateful_incident?(alert) when is_map(alert) do
+    metadata = Map.get(alert, "metadata") || %{}
+
+    is_map(incident_diagnostics(alert)) and
+      (Map.has_key?(metadata, "incident_rule_id") or Map.has_key?(metadata, "incident_diagnostics"))
+  end
+
+  defp stateful_incident?(_), do: false
+
+  defp incident_diagnostics(alert) when is_map(alert) do
+    metadata = Map.get(alert, "metadata") || %{}
+    diagnostic_value(metadata, ["incident_diagnostics"]) || %{}
+  end
+
+  defp incident_diagnostics(_), do: %{}
+
+  defp first_sample(diagnostics, sample_key) do
+    diagnostics
+    |> diagnostic_value(["samples", sample_key])
+    |> case do
+      [sample | _] when is_map(sample) -> sample
+      _ -> %{}
+    end
+  end
+
+  defp window_display(diagnostics) do
+    case diagnostic_value(diagnostics, ["window_seconds"]) do
+      nil -> nil
+      seconds -> "#{seconds}s"
+    end
+  end
+
+  defp process_display(process) when is_map(process) do
+    diagnostic_value(process, ["command"]) || diagnostic_value(process, ["name"])
+  end
+
+  defp process_display(_), do: nil
+
+  defp container_display(container) when is_map(container) do
+    diagnostic_value(container, ["name"]) || diagnostic_value(container, ["id"])
+  end
+
+  defp container_display(_), do: nil
+
+  defp image_display(container) when is_map(container) do
+    repository = diagnostic_value(container, ["image_repository"])
+    tag = diagnostic_value(container, ["image_tag"])
+
+    cond do
+      is_binary(repository) and is_binary(tag) -> "#{repository}:#{tag}"
+      is_binary(repository) -> repository
+      true -> diagnostic_value(container, ["image"])
+    end
+  end
+
+  defp image_display(_), do: nil
+
+  defp kubernetes_display(kubernetes) when is_map(kubernetes) do
+    namespace = diagnostic_value(kubernetes, ["namespace"])
+    pod = diagnostic_value(kubernetes, ["pod"])
+
+    cond do
+      is_binary(namespace) and is_binary(pod) -> "#{namespace}/#{pod}"
+      is_binary(pod) -> pod
+      is_binary(namespace) -> namespace
+      true -> nil
+    end
+  end
+
+  defp kubernetes_display(_), do: nil
+
+  defp attribution_display(kubernetes) when is_map(kubernetes) do
+    status = diagnostic_value(kubernetes, ["attribution_status"])
+    missing = diagnostic_value(kubernetes, ["missing"])
+
+    case {status, missing} do
+      {nil, _} -> nil
+      {value, []} -> value
+      {value, nil} -> value
+      {value, missing_values} -> "#{value} (missing #{display_diagnostic_value(missing_values)})"
+    end
+  end
+
+  defp attribution_display(_), do: nil
+
+  defp display_diagnostic_value(value) when value in [nil, ""], do: "—"
+  defp display_diagnostic_value(value) when is_binary(value), do: value
+  defp display_diagnostic_value(value) when is_boolean(value), do: to_string(value)
+  defp display_diagnostic_value(value) when is_number(value), do: to_string(value)
+
+  defp display_diagnostic_value(value) when is_list(value) do
+    Enum.map_join(value, ", ", &display_diagnostic_value/1)
+  end
+
+  defp display_diagnostic_value(value) when is_map(value) do
+    Enum.map_join(value, ", ", fn {key, item} ->
+      "#{field_label(to_string(key))}: #{display_diagnostic_value(item)}"
+    end)
+  end
+
+  defp diagnostic_value(data, [key]) when is_map(data), do: Map.get(data, key) || Map.get(data, diagnostic_atom_key(key))
+
+  defp diagnostic_value(data, [key | rest]) when is_map(data) do
+    case diagnostic_value(data, [key]) do
+      %{} = nested -> diagnostic_value(nested, rest)
+      _ -> nil
+    end
+  end
+
+  defp diagnostic_value(_, _), do: nil
+
+  defp diagnostic_atom_key("incident_diagnostics"), do: :incident_diagnostics
+  defp diagnostic_atom_key("samples"), do: :samples
+  defp diagnostic_atom_key("processes"), do: :processes
+  defp diagnostic_atom_key("containers"), do: :containers
+  defp diagnostic_atom_key("kubernetes"), do: :kubernetes
+  defp diagnostic_atom_key("rule_name"), do: :rule_name
+  defp diagnostic_atom_key("group_key"), do: :group_key
+  defp diagnostic_atom_key("window_count"), do: :window_count
+  defp diagnostic_atom_key("threshold"), do: :threshold
+  defp diagnostic_atom_key("window_seconds"), do: :window_seconds
+  defp diagnostic_atom_key("first_seen_at"), do: :first_seen_at
+  defp diagnostic_atom_key("last_seen_at"), do: :last_seen_at
+  defp diagnostic_atom_key("representative_event_ids"), do: :representative_event_ids
+  defp diagnostic_atom_key("command"), do: :command
+  defp diagnostic_atom_key("name"), do: :name
+  defp diagnostic_atom_key("id"), do: :id
+  defp diagnostic_atom_key("image"), do: :image
+  defp diagnostic_atom_key("image_repository"), do: :image_repository
+  defp diagnostic_atom_key("image_tag"), do: :image_tag
+  defp diagnostic_atom_key("namespace"), do: :namespace
+  defp diagnostic_atom_key("pod"), do: :pod
+  defp diagnostic_atom_key("attribution_status"), do: :attribution_status
+  defp diagnostic_atom_key("missing"), do: :missing
+  defp diagnostic_atom_key(_), do: :__unknown__
+
+  defp blank?(value), do: value in [nil, ""]
 
   defp field_label(field) when is_binary(field), do: humanize_field(field)
   defp field_label(field), do: to_string(field)
