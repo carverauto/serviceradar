@@ -9,11 +9,25 @@
 
 set -euo pipefail
 
-# Resolve the package directory (the wrapper is invoked from Bazel's runfiles).
+# Resolve the source `js/cli` directory. Three invocation modes are supported:
+#   1. `bazel run //js/cli:ci`  — BUILD_WORKSPACE_DIRECTORY is set.
+#   2. `bazel test //js/cli:ci` — TEST_SRCDIR + TEST_WORKSPACE are set; resolve
+#      through the runfiles symlink to reach the real source dir so that
+#      `npm pack` and friends operate on the workspace tree, not the read-only
+#      runfiles tree.
+#   3. Direct invocation outside Bazel — walk up from the script's location.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [[ -n "${BUILD_WORKSPACE_DIRECTORY:-}" && -f "${BUILD_WORKSPACE_DIRECTORY}/js/cli/package.json" ]]; then
   CLI_DIR="${BUILD_WORKSPACE_DIRECTORY}/js/cli"
-else
+elif [[ -n "${TEST_SRCDIR:-}" && -n "${TEST_WORKSPACE:-}" ]]; then
+  RUNFILES_PKG="${TEST_SRCDIR}/${TEST_WORKSPACE}/js/cli/package.json"
+  if [[ -e "$RUNFILES_PKG" ]]; then
+    CLI_DIR="$(dirname "$(readlink -f "$RUNFILES_PKG")")"
+  fi
+fi
+
+if [[ -z "${CLI_DIR:-}" ]]; then
   CLI_DIR="$SCRIPT_DIR"
   while [[ "$CLI_DIR" != "/" && ! -f "$CLI_DIR/package.json" ]]; do
     CLI_DIR="$(dirname "$CLI_DIR")"
