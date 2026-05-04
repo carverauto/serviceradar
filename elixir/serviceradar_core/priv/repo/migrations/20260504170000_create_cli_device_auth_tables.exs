@@ -27,7 +27,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateCliDeviceAuthTables do
 
       add(
         :user_id,
-        references(:users, type: :uuid, on_delete: :nilify_all, prefix: @prefix)
+        references(:ng_users,
+          column: :id,
+          type: :uuid,
+          on_delete: :nilify_all,
+          name: "device_authorizations_user_id_fkey",
+          prefix: @prefix
+        )
       )
 
       add(:expires_at, :utc_datetime_usec, null: false)
@@ -88,7 +94,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateCliDeviceAuthTables do
 
       add(
         :user_id,
-        references(:users, type: :uuid, on_delete: :delete_all, prefix: @prefix),
+        references(:ng_users,
+          column: :id,
+          type: :uuid,
+          on_delete: :delete_all,
+          name: "cli_sessions_user_id_fkey",
+          prefix: @prefix
+        ),
         null: false
       )
 
