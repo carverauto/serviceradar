@@ -112,6 +112,51 @@ The existing `ApiAuth` plug SHALL reject Guardian-issued JWTs whose `jti` belong
 - **THEN** the revocation lookup SHALL come from an in-process cache (no DB round-trip per request)
 - **AND** revoking the session SHALL invalidate the cache entry so the next request 401s
 
+### Requirement: RBAC controls for CLI authentication
+The CLI authentication surface SHALL be gated by RBAC permissions named `cli.session.create`, `cli.session.read_own`, `cli.session.revoke_own`, `cli.session.read_any`, `cli.session.revoke_any`, and `cli.policy.manage`, plus instance-level `cli_auth_enabled`, `cli_session_ttl_days`, and `cli_allowed_scopes` settings on the existing `AuthorizationSettings` resource.
+
+#### Scenario: User without `cli.session.create` opens the approval page
+- **GIVEN** a signed-in user whose role grants neither `cli.session.create` nor admin
+- **WHEN** the user navigates to `/cli/auth/device?user_code=WDJB-MJHT`
+- **THEN** the LiveView SHALL render an explanatory error state ("your role does not allow CLI authentication; ask an admin")
+- **AND** the LiveView SHALL NOT surface Approve or Deny buttons
+- **AND** the polling CLI SHALL eventually receive `error: expired_token` once the device authorization's TTL elapses
+
+#### Scenario: Issued JWT cannot exceed approving user's permissions
+- **GIVEN** a user with operator-level permissions approves a device authorization that requested `scope=admin`
+- **WHEN** the token endpoint mints the JWT
+- **THEN** the JWT's permission claims SHALL be drawn from the approving user's actual permission set, not the requested scope
+- **AND** subsequent API requests bearing this JWT SHALL be authorized as the operator user, never as an admin
+
+#### Scenario: Instance disables the CLI auth flow
+- **GIVEN** an admin has set `AuthorizationSettings.cli_auth_enabled = false`
+- **WHEN** any client calls `POST /api/v1/cli/auth/device` or `POST /api/v1/cli/auth/token`
+- **THEN** the server SHALL respond `503 Service Unavailable` with `error: cli_auth_disabled`
+- **AND** the CLI SHALL fall back to manual-token paste per its existing behavior
+
+#### Scenario: Requested scope outside the allow-list
+- **GIVEN** an instance with `AuthorizationSettings.cli_allowed_scopes = ["dashboard.publish"]`
+- **WHEN** `POST /api/v1/cli/auth/device` is called with `scope=admin`
+- **THEN** the server SHALL respond `400 Bad Request` with `error: invalid_scope`
+
+#### Scenario: User without `cli.session.read_any` views Settings → CLI sessions
+- **GIVEN** a non-admin user on the Settings → CLI sessions page
+- **WHEN** the page renders
+- **THEN** the page SHALL list only the user's own CLI sessions
+- **AND** no "User" column SHALL appear
+
+#### Scenario: Admin views Settings → CLI sessions
+- **GIVEN** an admin user on the Settings → CLI sessions page
+- **WHEN** the page renders
+- **THEN** the page SHALL list every user's CLI sessions
+- **AND** a "User" column SHALL be visible
+- **AND** Revoke buttons SHALL be enabled for any row
+
+#### Scenario: Admin policy panel gated on `cli.policy.manage`
+- **GIVEN** a user without `cli.policy.manage`
+- **WHEN** the user navigates to the "CLI authentication" admin sub-page
+- **THEN** the page SHALL respond with the standard "you do not have access" rendering used elsewhere in the Settings UI
+
 ### Requirement: Cleanup of stale device authorizations and sessions
 The ServiceRadar deployment SHALL run a scheduled cleanup that expires pending device authorizations past their TTL, expires `cli_sessions` whose JWTs have passed their natural `expires_at`, and hard-deletes terminal rows older than 90 days.
 

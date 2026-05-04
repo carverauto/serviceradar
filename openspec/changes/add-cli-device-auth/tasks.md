@@ -68,7 +68,17 @@
 - [ ] 11.1 Verify the existing `runDeviceCodeFlow` in `js/cli/src/auth/login.ts` parses every RFC 8628 error code we emit (the CLI was written against the same contract; this is a sanity-check pass).
 - [ ] 11.2 Add an end-to-end smoke test that runs `serviceradar-cli auth login` against a Phoenix test server stood up from `web-ng/test/support/conn_case.ex` (skip if the test server isn't bootable without the rest of the runtime). If too heavy, defer to CI.
 
-## 12. Validation
-- [ ] 12.1 Run `openspec validate add-cli-device-auth --strict`.
-- [ ] 12.2 Run `mix test elixir/web-ng/test/serviceradar_web_ng_web/controllers/cli_auth_controller_test.exs` (and the LiveView tests) — full suite green.
-- [ ] 12.3 Run an end-to-end manual test: spin up a local web-ng, run `serviceradar-cli auth login --instance http://localhost:4000`, confirm the browser opens, approve, observe `~/.config/serviceradar/credentials.json` populated, run `serviceradar-cli dashboard publish` (or any instance-touching command) and confirm the issued JWT validates.
+## 12. RBAC + admin policy
+- [ ] 12.1 Add a new `cli` section to `ServiceRadar.Identity.RBAC.Catalog` exposing `cli.session.create`, `cli.session.read_own`, `cli.session.revoke_own`, `cli.session.read_any`, `cli.session.revoke_any`, `cli.policy.manage` with the default-role assignments documented in design.md.
+- [ ] 12.2 Extend `ServiceRadar.Identity.AuthorizationSettings` with `cli_auth_enabled` (boolean, default `true`), `cli_session_ttl_days` (integer, default `30`, max `365`), and `cli_allowed_scopes` (list of strings, default `["dashboard.publish"]`). Migration adds the columns; the existing notifier picks up changes.
+- [ ] 12.3 Gate `POST /api/v1/cli/auth/device` and `POST /api/v1/cli/auth/token` on `cli_auth_enabled` — return `503 Service Unavailable` with `error: cli_auth_disabled` when the flag is off so the CLI's manual-token fallback takes over cleanly. Reject scopes outside `cli_allowed_scopes` with `400 Bad Request` and `error: invalid_scope`.
+- [ ] 12.4 Gate the `/cli/auth/device` approval LiveView's Approve / Deny actions on `cli.session.create`. Without the permission, render an explanatory error state and skip the buttons — the CLI's polling will surface `expired_token` once the device row TTLs out.
+- [ ] 12.5 When the token endpoint flips a row to `approved` and mints a JWT, embed the approving user's permission set (looked up via `ServiceRadar.Identity.RBAC.permissions_for_user/1`) in the JWT claims so the issued session can never grant more than the user themselves had at approval time.
+- [ ] 12.6 Gate the Settings → CLI sessions page on `cli.session.read_own` (rendering own rows) and `cli.session.read_any` (rendering everyone's rows + the User column). Gate revoke actions on `cli.session.revoke_own` / `cli.session.revoke_any`.
+- [ ] 12.7 Add a new "CLI authentication" admin sub-page under the existing Authentication settings. Surface the three `cli_*` AuthorizationSettings fields with form controls. Gate the page on `cli.policy.manage`.
+- [ ] 12.8 Add unit tests for: `cli_auth_enabled = false` returning 503 on both endpoints, scope outside `cli_allowed_scopes` returning 400, approve LiveView refusing Approve without `cli.session.create`, Settings page hiding rows without `read_own`, admin user seeing the User column with `read_any`, admin policy page gated on `cli.policy.manage`.
+
+## 13. Validation
+- [ ] 13.1 Run `openspec validate add-cli-device-auth --strict`.
+- [ ] 13.2 Run `mix test elixir/web-ng/test/serviceradar_web_ng_web/controllers/cli_auth_controller_test.exs` (and the LiveView tests) — full suite green.
+- [ ] 13.3 Run an end-to-end manual test: spin up a local web-ng, run `serviceradar-cli auth login --instance http://localhost:4000`, confirm the browser opens, approve, observe `~/.config/serviceradar/credentials.json` populated, run `serviceradar-cli dashboard publish` (or any instance-touching command) and confirm the issued JWT validates.

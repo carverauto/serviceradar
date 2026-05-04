@@ -82,3 +82,35 @@ This matches the shape the CLI's `runDeviceCodeFlow` already parses, including t
 ## Migration
 
 Single migration adds `device_authorizations` and `cli_sessions`. Both are deployment-scoped (search_path-isolated). No back-fill — every existing CLI session today was minted via the manual-token fallback into the existing `ApiToken` table; those keep working unchanged.
+
+## RBAC permission catalog additions
+
+New section `cli` in `ServiceRadar.Identity.RBAC.Catalog`:
+
+| Permission key             | Default roles      | What it gates                                                                 |
+| -------------------------- | ------------------ | ----------------------------------------------------------------------------- |
+| `cli.session.create`       | operators + admins | Approving a pending device code. Without it, the LiveView refuses Approve.   |
+| `cli.session.read_own`     | all roles          | Listing one's own CLI sessions in Settings.                                  |
+| `cli.session.revoke_own`   | all roles          | Revoking one's own CLI session.                                              |
+| `cli.session.read_any`     | admins             | Listing every user's CLI sessions + the "User" column on the Settings page. |
+| `cli.session.revoke_any`   | admins             | Revoking another user's CLI session.                                         |
+| `cli.policy.manage`        | admins             | Disable the whole CLI auth flow + change its TTL/scope policy per instance.  |
+
+The defaults match the conservative side of "everyone authenticated can use the CLI to do their own work, only admins manage other people's CLI access." Operators picked it up by default because the typical CLI workflow is "publish a dashboard package" — that lives in the operator role bucket already.
+
+## RBAC enforcement points
+
+- **Approval LiveView** (`/cli/auth/device`): on mount, check `cli.session.create`. If absent, render an explanatory error state and refuse to surface Approve / Deny. The polling CLI keeps receiving `authorization_pending` until the row's TTL hits, at which point it observes `expired_token` and falls back to manual-token paste. We deliberately don't return `access_denied` here so the CLI's status reporting stays clean — "you can't do this" is a UI-side message, not a CLI-flow side message.
+- **Token endpoint**: when the device row flips to `approved`, the controller calls `Guardian.create_api_token/2` with the **approving user's actual permission set** (looked up via `RBAC.permissions_for_user/1`). The JWT therefore can never grant capabilities the user lacked at approval time, even if the request body asked for `scope=admin`. Per-request authorization still runs through the normal `ApiAuth` plug → `ash_actor` chain — the JWT carries the user, and policies reapply on every API call.
+- **Settings UI**: standard `cli.session.read_*` / `cli.session.revoke_*` checks via the existing `permissions_for_user/1` flow; rendering follows the same pattern as the existing API tokens page.
+- **Admin policy panel**: `cli.policy.manage` gates rendering and editing.
+
+## Instance policy storage
+
+`ServiceRadar.Identity.AuthorizationSettings` already holds instance-level RBAC tunables. Add three fields:
+
+- `cli_auth_enabled` (boolean, default `true`).
+- `cli_session_ttl_days` (integer, default `30`, max `365`).
+- `cli_allowed_scopes` (list of strings, default `["dashboard.publish"]`).
+
+When `cli_auth_enabled = false`, both endpoints return `503 Service Unavailable` with `error: "cli_auth_disabled"`. When the requested scope isn't in `cli_allowed_scopes`, the device endpoint returns `400` with `error: "invalid_scope"`.

@@ -25,8 +25,16 @@ PKCE-with-localhost-callback (`--web`) is **out of scope** for this change; the 
 - **Router**: wire `:api_token_auth` (no session, just `accepts: ["json"]`) for the two endpoint pairs and `:browser` for the LiveView.
 
 ### Settings UI (Elixir web-ng LiveView)
-- New "CLI sessions" page under Settings (parallel to "API tokens"). Lists every `DeviceAuthorization` belonging to the current user (admin sees everyone). Each row shows: client display name, scope, issued-at, last-used-at, expires-at, status (active / revoked / expired). Each row has a Revoke button.
+- New "CLI sessions" page under Settings (parallel to "API tokens"). Lists every `cli_sessions` row belonging to the current user (admin sees everyone). Each row shows: client display name, scope, issued-at, last-used-at, expires-at, status (active / revoked / expired). Each row has a Revoke button.
 - The existing "Authorize a CLI session" approval page (the LiveView under `/cli/auth/device`) is linked from the Settings → CLI sessions page so users can approve a code they typed into a terminal even if they didn't follow the verification URL.
+- New "CLI authentication" admin panel (under the existing Authentication settings) lets admins toggle the device-code flow per-instance, set the issued-token TTL, and pin the allowed scope list. Disabling the flow makes `POST /api/v1/cli/auth/device` return `503 Service Unavailable` so the CLI falls back to manual-token paste.
+
+### RBAC controls
+- Add a new `cli` section to `ServiceRadar.Identity.RBAC.Catalog` exposing six permissions: `cli.session.create` (approve a device code), `cli.session.read_own`, `cli.session.revoke_own`, `cli.session.read_any` (admin), `cli.session.revoke_any` (admin), `cli.policy.manage` (admin). Default role assignments mirror the existing API-tokens permission set: operators+admins can create + manage their own; admins can read/revoke across users and toggle the policy.
+- The `/cli/auth/device` approval LiveView checks `cli.session.create` before rendering the Approve button. A user without the permission sees a clear "your role does not allow CLI authentication; ask an admin" message and the polling CLI keeps receiving `authorization_pending` until the row expires (the LiveView never flips status without the permission).
+- The `POST /api/v1/cli/auth/token` endpoint embeds the approving user's permission set into the issued JWT's claims so the resulting token can never grant capabilities the user themselves lacked at approval time. Revoking the user's `cli.session.create` permission later does **not** retroactively revoke active sessions — that's what the Settings → CLI sessions revoke button is for.
+- The Settings → CLI sessions page is gated on `cli.session.read_own` (rendering own rows) and `cli.session.read_any` (rendering everyone's rows + the User column). Revoke buttons are gated on `cli.session.revoke_own` / `cli.session.revoke_any`.
+- The "CLI authentication" admin panel is gated on `cli.policy.manage`.
 
 ### Documentation
 - Move the device-code endpoint contract from "specs the CLI targets" to "implemented by ServiceRadar" in `~/src/developer/priv/content/docs/v2/dashboard-sdk.md`. The CLI-side fallback paragraph stays — instances on older ServiceRadar versions still need it.
