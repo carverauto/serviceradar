@@ -403,6 +403,18 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/token", OAuthController, :token)
   end
 
+  ## CLI device-code auth (RFC 8628)
+  # No session auth — these are called directly from @carverauto/serviceradar-cli.
+  # The /cli/auth/device LiveView (browser-side approval) lives in the
+  # browser scope below.
+
+  scope "/api/v1/cli/auth", ServiceRadarWebNGWeb do
+    pipe_through(:api_token_auth)
+
+    post("/device", CliAuthController, :device)
+    post("/token", CliAuthController, :token)
+  end
+
   ## Authentication routes
   # Password login, logout, and password reset
 

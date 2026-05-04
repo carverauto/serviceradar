@@ -42,6 +42,7 @@ defmodule ServiceRadar.Identity.DeviceAuthorization do
     define :approve, args: [:user_id]
     define :deny, args: []
     define :record_poll, args: []
+    define :slow_down, args: []
     define :expire, args: []
   end
 
