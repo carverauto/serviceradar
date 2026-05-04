@@ -1,0 +1,38 @@
+{
+  "name": "@serviceradar/cli",
+  "version": "0.1.0",
+  "description": "ServiceRadar developer CLI: dashboard authoring loop, auth, and tooling. Companion to @serviceradar/dashboard-sdk.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@code.carverauto.dev/carverauto/serviceradar.git",
+    "directory": "js/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "serviceradar-cli": "bin/serviceradar-cli.js",
+    "serviceradar-dashboard": "bin/serviceradar-dashboard.js"
+  },
+  "files": [
+    "bin",
+    "harness",
+    "templates",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "pack:check": "npm pack --dry-run",
+    "ci": "npm test && npm run pack:check"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@serviceradar/dashboard-sdk": "file:../../../serviceradar-sdk-dashboard",
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.1.12"
+  }
+}

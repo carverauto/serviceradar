@@ -222,9 +222,39 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
            Dashboards.get_enabled_instance_by_slug(route_slug, scope: scope) do
       package = instance.dashboard_package
       data_frames = apply_frame_query_overrides(package.data_frames || [], overrides)
-      frames = FrameRunner.run(data_frames, scope)
+      initial_data_frames = initial_data_frames(data_frames)
+      frames = FrameRunner.run(initial_data_frames, scope)
       mapbox = read_mapbox(scope)
       {:ok, instance, data_frames, frames, mapbox}
+    end
+  end
+
+  defp initial_data_frames(data_frames) when is_list(data_frames) do
+    required_frames = Enum.filter(data_frames, &required_frame?/1)
+
+    case required_frames do
+      [] -> Enum.take(data_frames, 1)
+      frames -> frames
+    end
+  end
+
+  defp initial_data_frames(_data_frames), do: []
+
+  defp required_frame?(frame) when is_map(frame) do
+    case frame_value(frame, "required", :required) do
+      false -> false
+      "false" -> false
+      _ -> true
+    end
+  end
+
+  defp required_frame?(_frame), do: true
+
+  defp frame_value(frame, string_key, atom_key) when is_map(frame) do
+    cond do
+      Map.has_key?(frame, string_key) -> Map.get(frame, string_key)
+      Map.has_key?(frame, atom_key) -> Map.get(frame, atom_key)
+      true -> nil
     end
   end
 

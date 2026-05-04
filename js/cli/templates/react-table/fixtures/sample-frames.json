@@ -1,0 +1,19 @@
+[
+  {
+    "id": "rows",
+    "query": "in:devices limit:1000",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 1000,
+    "results": [
+      {"device_id": "d-1001", "name": "core-rtr-1", "site_code": "ZZC", "status": "Up", "model": "Catalyst 9500", "last_seen": "2 min ago"},
+      {"device_id": "d-1002", "name": "core-rtr-2", "site_code": "ZZC", "status": "Up", "model": "Catalyst 9500", "last_seen": "1 min ago"},
+      {"device_id": "d-1003", "name": "edge-fw-1", "site_code": "ORD", "status": "Up", "model": "Palo Alto PA-3260", "last_seen": "3 min ago"},
+      {"device_id": "d-1004", "name": "edge-fw-2", "site_code": "ORD", "status": "Up", "model": "Palo Alto PA-3260", "last_seen": "5 min ago"},
+      {"device_id": "d-1005", "name": "wlc-1", "site_code": "ZZA", "status": "Up", "model": "Aruba 7220", "last_seen": "1 min ago"},
+      {"device_id": "d-1006", "name": "wlc-2", "site_code": "ZZA", "status": "Up", "model": "Aruba 7030", "last_seen": "1 min ago"},
+      {"device_id": "d-1007", "name": "wlc-3", "site_code": "FRA", "status": "Up", "model": "Aruba 7030", "last_seen": "8 min ago"},
+      {"device_id": "d-1008", "name": "spine-sw-1", "site_code": "ZZC", "status": "Up", "model": "Arista 7280R3", "last_seen": "2 min ago"}
+    ]
+  }
+]

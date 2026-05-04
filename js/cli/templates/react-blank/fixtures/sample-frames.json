@@ -1,0 +1,14 @@
+[
+  {
+    "id": "primary",
+    "query": "in:devices limit:50",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 50,
+    "results": [
+      {"device_id": "d-1", "name": "Edge router 1", "ip": "10.0.0.1", "status": "up"},
+      {"device_id": "d-2", "name": "Edge router 2", "ip": "10.0.0.2", "status": "up"},
+      {"device_id": "d-3", "name": "Spine switch", "ip": "10.0.0.3", "status": "down"}
+    ]
+  }
+]
