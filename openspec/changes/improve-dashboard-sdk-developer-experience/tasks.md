@@ -58,11 +58,11 @@
 - [x] 7.4 Add a `serviceradar-cli doctor` subcommand that prints the resolved Node, npm, Vite, and SDK versions plus the project's config path, renderer entry, and stored credential summary. (`doctor` covers runtime info, CLI install paths, dashboard config resolution, and credentials path; surfaces actionable suggestions when pieces are missing.)
 
 ## 8. Documentation
-- [ ] 8.1 Update `~/src/developer/priv/content/docs/v2/dashboard-sdk.md` with a "Quickstart" section that walks through `npm create @serviceradar/dashboard` → `dev` → edit → publish in five minutes.
-- [ ] 8.2 Document `defineDashboardConfig`, the dashboard config schema, and the validate / publish commands.
-- [ ] 8.3 Update `~/src/serviceradar-sdk-dashboard/README.md` with the same quickstart, kept short and pointing at the developer portal as canonical.
-- [ ] 8.4 Add a "Templates" reference page describing each scaffolder template with screenshots.
-- [ ] 8.5 Document the `--no-hmr` deprecation timeline in the SDK changelog.
+- [x] 8.1 Update `~/src/developer/priv/content/docs/v2/dashboard-sdk.md` with a "Quickstart" section that walks through `npm create @serviceradar/dashboard` → `dev` → edit → publish. Also adds dedicated "Authenticating", "Publishing", "Local Harness" (rewritten around `serviceradar-cli dashboard dev`), and "CLI Diagnostics" sections.
+- [x] 8.2 Document `defineDashboardConfig`, the dashboard config schema, and the validate / publish commands. (`defineDashboardConfig` example shown in Quickstart and Composed Example; `validate` + `publish` get full subsections.)
+- [x] 8.3 Update `~/src/serviceradar-sdk-dashboard/README.md` with the install-pulls-CLI-transitively note + a CLI section that points at the developer portal as canonical. Existing example npm scripts now use `serviceradar-cli dashboard *` form.
+- [ ] 8.4 Add a "Templates" reference page describing each scaffolder template with screenshots. (Deferred — the scaffolder section in the developer portal doc covers the templates inline; a dedicated screenshot tour is a follow-up once Example parity verification produces canonical screenshots.)
+- [x] 8.5 Document the `--no-hmr` deprecation timeline in the SDK changelog. (`~/src/serviceradar/js/cli/CHANGELOG.md` 0.1.0 entry covers the rename, the alias bin removal schedule, and the auth-endpoint coordination note.)
 
 ## 9. TypeScript Migration of the CLI
 - [ ] 9.1 Convert `bin/serviceradar-dashboard.js` and the new subcommand modules to TypeScript (`bin/*.ts` source files).
