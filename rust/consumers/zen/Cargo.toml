@@ -17,7 +17,7 @@ pem = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { workspace = true, features = ["full"] }
-zen-engine = "0.52"
+zen-engine = "0.55"
 futures = "0.3"
 prost = { workspace = true }
 tonic = { workspace = true }
