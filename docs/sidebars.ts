@@ -53,6 +53,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Extend',
+      items: [
+        {type: 'doc', id: 'dashboard-sdk', label: 'Dashboard SDK'},
+      ],
+    },
+    {
+      type: 'category',
       label: 'Operations',
       items: [
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
