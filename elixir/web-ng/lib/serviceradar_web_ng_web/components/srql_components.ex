@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign_new(:builder, fn -> %{} end)
 
     ~H"""
-    <div class="w-full max-w-4xl">
+    <div class="w-full">
       <form
         id="srql-query-bar"
         phx-hook="SRQLTimeCookie"
@@ -50,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           :if={String.trim(@draft || @query || "") != ""}
           aria-label="Reset SRQL filters"
           title="Reset SRQL filters"
+          data-srql-reset
           phx-click="srql_submit"
           phx-value-q=""
         >

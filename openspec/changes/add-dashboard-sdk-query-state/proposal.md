@@ -11,10 +11,11 @@ A parity audit of the Example WiFi map against the standalone reference at `tmp/
 - Add a frame ergonomics surface so dashboard packages receive stable row references between identical host pushes, can request Arrow IPC decode without shipping their own Apache Arrow integration, and can declare a row shape that is validated and projected at the SDK boundary.
 - Add an indexed-rows helper that builds inverted indexes once per data refresh so filter application becomes Set-intersection against precomputed indexes rather than O(n×m) linear scans on every render.
 - Add map runtime primitives that wrap Mapbox + deck.gl host injection, validate the required libraries, own the lifecycle, and return memoized layer factories so accessor functions and layer instances do not churn on every parent render.
+- Add SDK-owned dashboard package tooling so customer projects do not maintain bespoke renderer build scripts, manifest digest stamping, harness URLs, or import commands. The customer-owned project still emits a `dist/renderer.js` package artifact, but the SDK owns the command that creates and validates it.
 - Document the intended integration pattern so custom dashboard packages can preserve renderer portability while using ServiceRadar host capabilities naturally.
 - Update Example dashboard integration to consume the helpers after approval; the consumption refactor should retire the equivalent plumbing in `wifi-dashboard/src/map/` rather than ship in parallel.
 
 ## Impact
 - Affected specs: dashboard-sdk
-- Affected code: `/home/mfreeman/src/serviceradar-sdk-dashboard/src/*`, Example dashboard package React/map code (notably `frameData.js`, `mapState.js`, `filterCounts.js`, `createUalMapController.js`, `deckLayers.js`, `srqlQuery.js`), dashboard SDK README/tests
+- Affected code: `/home/mfreeman/src/serviceradar-sdk-dashboard/src/*`, `/home/mfreeman/src/serviceradar-sdk-dashboard/tools/*`, Example dashboard package React/map code (notably `frameData.js`, `mapState.js`, `filterCounts.js`, `createUalMapController.js`, `deckLayers.js`, `srqlQuery.js`), dashboard SDK README/tests
 - Follow-up validation: SDK unit tests, Example unit/parity tests, Docker/local web-ng Playwright checks

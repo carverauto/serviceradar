@@ -68,6 +68,17 @@ Mapbox GL JS, `MapboxOverlay`, and deck.gl layer constructors are injected by th
 - `useDeckLayers(spec)` accepts a layer spec keyed by stable layer IDs, with `data`, `accessors`, and `visualProps` declared separately so the SDK can memoize accessor functions across renders. Layer instances SHALL be reused when the data reference, the accessor identities, and the visual props are unchanged.
 - The map runtime primitives SHALL accept theme tokens via `useDashboardTheme()` and recolor layers without rebuilding GPU buffers when only token values change.
 
+## Proposed Shape — Package Tooling
+
+The SDK should own the repeatable dashboard package workflow instead of requiring every customer package to copy a local `build.sh`, Vite library config, manifest digest writer, and harness URL:
+
+- `serviceradar-dashboard build` builds a trusted browser-module renderer with SDK-provided Vite defaults and writes `dist/renderer.js`.
+- `serviceradar-dashboard manifest` reads a project-owned dashboard package descriptor, computes the renderer SHA256 digest, validates required fields, and writes `dist/manifest.json`.
+- `serviceradar-dashboard dev` starts the SDK harness against the current package's manifest, renderer, sample frames, and sample settings.
+- `serviceradar-dashboard import` optionally uploads or imports the generated package into a ServiceRadar instance for local validation.
+
+Customer packages should keep ownership of domain-specific React code, styles, frame declarations, settings schema, sample frames, and package identity. They should not own generic renderer output naming, digest stamping, harness URL construction, or ServiceRadar import plumbing. The package descriptor can live in `dashboard.config.js` or `package.json` metadata, but the command behavior should remain SDK-owned and consistent across customer packages.
+
 ## Example Intended Usage
 Example should use the SDK helpers for:
 - sidebar filter changes
@@ -78,6 +89,7 @@ Example should use the SDK helpers for:
 - row-shape projection of `wifi_sites`, `wifi_aps`, `wifi_controllers` frames at the SDK boundary instead of hand-rolled `normalizeSites`/`normalizeDevices`
 - precomputed indexes for region, AP family, WLC model, AOS version, RADIUS cluster, and a device search haystack
 - deck.gl layer instantiation and accessor memoization for site cluster, site label, and drill-detail layers
+- renderer package build, manifest generation, harness launch, and local import commands
 
 Example-specific code should focus on map rendering decisions (icon design, popup layout, visual tokens), site-domain interactions, and the dashboard's own visual chrome; it should not own general SRQL host synchronization mechanics, generic frame normalization, generic filter index construction, or generic deck.gl/Mapbox bootstrap.
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web NG Docker Loop"
+  short_description: "Run web-ng locally against Docker CNPG"
+  default_prompt: "Use $web-ng-docker-loop to start local web-ng against Docker CNPG and verify a dashboard with Playwright."

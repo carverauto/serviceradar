@@ -77,9 +77,14 @@ export default {
       this._debounceTimer = setTimeout(() => persistFromInput(), 150)
     }
     this._onSubmit = () => persistFromInput()
+    this._onResetClick = (event) => {
+      if (!event.target.closest("[data-srql-reset]")) return
+      this._input.value = ""
+    }
 
     this._input.addEventListener("input", this._onInput)
     this.el.addEventListener("submit", this._onSubmit)
+    this.el.addEventListener("click", this._onResetClick)
 
     maybeRestore()
   },
@@ -91,8 +96,6 @@ export default {
     if (document.activeElement === this._input) return
 
     const desired = (this.el.dataset.query || "").toString()
-    if (!desired) return
-
     const current = (this._input.value || "").toString()
     if (current !== desired) {
       this._input.value = desired
@@ -102,6 +105,7 @@ export default {
   destroyed() {
     if (this._input && this._onInput) this._input.removeEventListener("input", this._onInput)
     if (this._onSubmit) this.el.removeEventListener("submit", this._onSubmit)
+    if (this._onResetClick) this.el.removeEventListener("click", this._onResetClick)
     clearTimeout(this._debounceTimer)
   }
 }

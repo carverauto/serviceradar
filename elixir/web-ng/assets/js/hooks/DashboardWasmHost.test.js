@@ -57,6 +57,12 @@ beforeEach(() => {
       href: "https://example.test/dashboards/wifi-network-map",
       assign: vi.fn(),
     },
+    history: {
+      state: {},
+      replaceState: vi.fn((_state, _title, url) => {
+        globalThis.window.location.href = url.toString()
+      }),
+    },
   }
   globalThis.document = {
     createElement: vi.fn(() => ({
@@ -86,6 +92,11 @@ describe("DashboardWasmHost browser-module API", () => {
     })
 
     expect(hook.updateVisibleSrqlQuery).toHaveBeenCalledWith("in:wifi_sites site_code:(ZZC) limit:500")
+    expect(window.history.replaceState).toHaveBeenCalledWith(
+      window.history.state,
+      "",
+      new URL("https://example.test/dashboards/wifi-network-map?q=in%3Awifi_sites+site_code%3A%28ZZC%29+limit%3A500&frame_devices=in%3Awifi_devices+site_code%3A%28ZZC%29+limit%3A1000"),
+    )
     expect(hook.pushEvent).toHaveBeenCalledWith("dashboard_srql_query", {
       q: "in:wifi_sites site_code:(ZZC) limit:500",
       frame_devices: "in:wifi_devices site_code:(ZZC) limit:1000",

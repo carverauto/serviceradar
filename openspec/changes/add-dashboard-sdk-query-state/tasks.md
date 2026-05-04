@@ -44,3 +44,9 @@
 - [x] 6.5 Add or update Example unit tests for zoom-out reset, cluster/site drill behavior, frame ingest stability, indexed-filter parity with the reference, and layer memoization. (Existing 11 Example unit tests still pass against the indexed-filter implementation.)
 - [ ] 6.6 Run Example harness parity and Docker/local web-ng browser parity checks; capture per-keystroke filter latency and compare against the reference HTML.
 - [ ] 6.7 Capture Playwright screenshots for the topbar SRQL and map interaction regressions.
+
+## 7. SDK-Owned Renderer Tooling
+- [x] 7.1 Add an SDK CLI entry point for `serviceradar-dashboard build`, `manifest`, `dev`, and `import`.
+- [x] 7.2 Move renderer manifest generation and digest stamping into SDK-owned commands.
+- [x] 7.3 Move the browser harness launcher into SDK-owned tooling so customer dashboards can run it through the installed package.
+- [ ] 7.4 Replace Example-local renderer scripts with SDK CLI commands while preserving the same package output.

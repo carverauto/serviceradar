@@ -481,6 +481,10 @@ const DashboardWasmHost = {
       }
 
       this.updateVisibleSrqlQuery(payload.q)
+      const nextUrl = this.srqlUrlFor(payload)
+      if (!this.currentSrqlUrlMatches(nextUrl)) {
+        window.history.replaceState(window.history.state, "", nextUrl)
+      }
       this.pushEvent("dashboard_srql_query", payload)
     }
     const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery})

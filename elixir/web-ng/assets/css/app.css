@@ -377,7 +377,9 @@
 }
 
 .sr-ops-topbar-title {
-  min-width: 0;
+  flex: 0 1 20rem;
+  min-width: 10rem;
+  max-width: 22rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -423,6 +425,7 @@
 }
 
 .sr-ops-topbar-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -437,16 +440,17 @@
 }
 
 .sr-ops-topbar-query {
-  flex: 0 1 min(48vw, 44rem);
-  min-width: 18rem;
+  flex: 1 1 44rem;
+  min-width: 28rem;
+  max-width: 78rem;
   display: flex;
-  justify-content: flex-end;
-  margin-left: auto;
+  justify-content: stretch;
 }
 
 .sr-ops-topbar-query #srql-query-bar {
+  flex: 1 1 auto;
   width: 100%;
-  max-width: 44rem;
+  max-width: none;
 }
 
 .sr-ops-topbar-query input {
