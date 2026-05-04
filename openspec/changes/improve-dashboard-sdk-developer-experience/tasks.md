@@ -65,12 +65,22 @@
 - [x] 8.5 Document the `--no-hmr` deprecation timeline in the SDK changelog. (`~/src/serviceradar/js/cli/CHANGELOG.md` 0.1.0 entry covers the rename, the alias bin removal schedule, and the auth-endpoint coordination note.)
 
 ## 9. TypeScript Migration of the CLI
-- [ ] 9.1 Convert `bin/serviceradar-dashboard.js` and the new subcommand modules to TypeScript (`bin/*.ts` source files).
-- [ ] 9.2 Add a `tsc` (or `tsup`) compile step that emits the runnable `bin/*.js` artifacts shipped in the publish bundle.
-- [ ] 9.3 Update `package.json#bin` and `package.json#files` so the published artifacts point at compiled JS, never raw TS.
-- [ ] 9.4 Confirm `npm pack --dry-run` does not ship the `bin/*.ts` source in the tarball.
-- [ ] 9.5 Confirm the existing `node --test tests/*.test.mjs` suite continues to pass against the compiled output.
-- [ ] 9.6 Document the CLI build flow (compile-on-publish, source-only-in-repo) in the SDK contributor README.
+
+### Phase 1 — type-checked JS (this commit)
+- [x] 9.1.1 Add `tsconfig.json` with `allowJs: true`, `checkJs: true`, `noEmit: true` so the existing JS gets type-checked without a full source rewrite.
+- [x] 9.1.2 Add `typescript` and `@types/node` as dev deps; ship a `npm run typecheck` script gated on `tsc --noEmit`.
+- [x] 9.1.3 Annotate the public CLI surface with JSDoc typedefs: `CredentialEntry`, `CredentialStore`, `ResolvedCredential`, `ValidationFailure`, `ValidationResult`. `resolveCredentialToken` and `validateProject` are fully typed.
+- [x] 9.1.4 Wire `npm run ci` to run `typecheck` before `test` + `pack:check` so the type-check is enforced.
+- [x] 9.1.5 Confirm `npm run typecheck` passes against the existing JS source.
+
+### Phase 2 — full TS source rewrite (deferred)
+- [ ] 9.2.1 Convert `bin/serviceradar-cli.js` and split into TypeScript modules under `src/{cli,args,config,manifest,validation,doctor,utils}.ts` plus `src/auth/{credentials,login,status,logout,index}.ts` and `src/dashboard/{init,build,manifest,validate,dev,publish,import,index}.ts`.
+- [ ] 9.2.2 Add a `tsc` (or `tsup`) compile step that emits the runnable artifacts to `dist/` shipped in the publish bundle.
+- [ ] 9.2.3 Rewrite `bin/serviceradar-cli.js` and `bin/serviceradar-dashboard.js` as thin shebang re-exports from the compiled `dist/`.
+- [ ] 9.2.4 Update `package.json#bin` and `package.json#files` so the published artifacts include compiled JS plus source maps; the `.ts` source stays out of the tarball.
+- [ ] 9.2.5 Confirm `npm pack --dry-run` does not ship the `src/*.ts` source in the tarball.
+- [ ] 9.2.6 Confirm the existing `node --test tests/*.test.mjs` suite continues to pass against the compiled output.
+- [ ] 9.2.7 Document the CLI build flow (compile-on-publish, source-only-in-repo) in the CLI contributor section of `README.md`.
 
 ## 11. Move CLI to ServiceRadar Monorepo (`~/src/serviceradar/js/cli/`)
 - [x] 11.1 Create the `~/src/serviceradar/js/` top-level directory (sibling to `go/`, `elixir/`, `rust/`) and scaffold `js/cli/` as the home of `@serviceradar/cli`. (`bin/`, `harness/`, `templates/`, `tests/`, `package.json`, `README.md` written.)

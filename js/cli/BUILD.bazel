@@ -1,0 +1,42 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "node_modules",
+            "node_modules/**",
+            "**/node_modules/**",
+            "dist/**",
+            ".npm/**",
+            "bazel-*/**",
+        ],
+        exclude_directories = 1,
+        allow_empty = False,
+    ),
+)
+
+# `bazel test //js/cli:ci` runs the same pipeline as `npm run ci` from the
+# package directory (typecheck → node --test → npm pack --dry-run).
+#
+# Tagged `manual` while the wider monorepo CI is still coordinating how npm
+# packages slot into the build graph; remove the tag once the workflow is
+# wired up. Marked `local = True` + `no-sandbox` because the wrapper shells
+# out to host npm to install dependencies.
+sh_test(
+    name = "ci",
+    srcs = ["scripts/bazel_test.sh"],
+    data = [
+        ":srcs",
+    ],
+    local = True,
+    tags = [
+        "manual",
+        "no-remote",
+        "no-sandbox",
+    ],
+    timeout = "long",
+)
