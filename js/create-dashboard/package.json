@@ -28,6 +28,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@carverauto/serviceradar-cli": "file:../cli"
+    "@carverauto/serviceradar-cli": "^0.1.0"
   }
 }
