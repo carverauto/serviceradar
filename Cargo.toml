@@ -18,7 +18,7 @@ members = [
 
 [workspace.dependencies]
 tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
+prost = "0.14"
 tonic-build = "0.12"
 tokio = { version = "1" }
 tokio-stream = "0.1"
