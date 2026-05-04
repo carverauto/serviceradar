@@ -14,7 +14,7 @@ anyhow = "1"
 arrow-array = "58"
 arrow-ipc = "58"
 arrow-schema = "58"
-axum = { version = "0.7", features = ["json", "tokio", "http1", "ws"] }
+axum = { version = "0.8", features = ["json", "tokio", "http1", "ws"] }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
