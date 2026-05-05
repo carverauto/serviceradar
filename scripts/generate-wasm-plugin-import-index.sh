@@ -6,8 +6,10 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-ORAS_BIN="${ORAS_BIN:-oras}"
-if ! command -v "${ORAS_BIN}" >/dev/null 2>&1; then
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+
+ORAS_BIN="$(cosign_resolve_executable "${ORAS_BIN:-oras}" || true)"
+if [[ -z "${ORAS_BIN}" ]]; then
   echo "error: oras is required" >&2
   exit 1
 fi

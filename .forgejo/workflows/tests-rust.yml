@@ -147,6 +147,66 @@ jobs:
             echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
           } >> "$GITHUB_ENV"
 
+      - name: Check SRQL fixture reachability
+        if: ${{ matrix.project == 'rust/srql' && env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+        run: |
+          set -euo pipefail
+
+          if python3 - <<'PY'
+          import os
+          import re
+          import socket
+          import sys
+          from urllib.parse import urlparse, unquote
+
+          raw = os.environ["SRQL_TEST_ADMIN_URL"].strip()
+          host = ""
+          port = 5432
+
+          if "://" in raw:
+              parsed = urlparse(raw)
+              host = parsed.hostname or ""
+              port = parsed.port or 5432
+          else:
+              fields = dict(
+                  (key, unquote(value.strip("'\"")))
+                  for key, value in re.findall(r"(\w+)=('[^']*'|\"[^\"]*\"|\S+)", raw)
+              )
+              host = fields.get("host", "")
+              port = int(fields.get("port", "5432"))
+
+          if not host:
+              print("unable to resolve SRQL fixture host from SRQL_TEST_ADMIN_URL", file=sys.stderr)
+              sys.exit(1)
+
+          try:
+              with socket.create_connection((host, port), timeout=10):
+                  print(f"SRQL fixture reachable at {host}:{port}")
+          except OSError as exc:
+              print(f"SRQL fixture unreachable at {host}:{port}: {exc}", file=sys.stderr)
+              sys.exit(1)
+          PY
+          then
+            exit 0
+          fi
+
+          {
+            echo "SRQL_TEST_DATABASE_URL="
+            echo "SRQL_TEST_ADMIN_URL="
+            echo "SRQL_TEST_DATABASE_CA_CERT="
+            echo "PGSSLROOTCERT="
+            echo "SRQL_TEST_DATABASE_CA_CERT_FILE="
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "## SRQL Fixture"
+            echo
+            echo "SRQL fixture secrets are configured, but the fixture service is unreachable from this runner."
+            echo "Falling back to non-fixture SRQL tests for this workflow run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Configure remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |

@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.32
+
+Release pipeline hotfix for v1.2.31 that keeps the Helm HA release payload intact while fixing CI-only publication and fixture reachability failures.
+
+## Whats New
+
+**1.2.32**
+- Fixed the release workflow ORAS installation path and Wasm plugin import-index generator so published Wasm plugin artifacts can be indexed and attached to Forgejo releases.
+- Hardened Rust CI so SRQL fixture-backed tests fall back to non-fixture coverage when configured fixture secrets point at a service that is unreachable from the runner.
+
 # ServiceRadar v1.2.31
 
 Production Helm HA hotfix that keeps the release chart aligned with the demo high-availability shape while avoiding shared ReadWriteOnce volume rollouts and release workflow races.

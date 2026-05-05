@@ -33,3 +33,7 @@ curl --fail --location --retry 5 --retry-all-errors --output "${tmpdir}/${archiv
 tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
 install -m 0755 "${tmpdir}/oras" "${INSTALL_DIR}/oras"
 echo "Installed oras $(${INSTALL_DIR}/oras version | awk '/Version:/ {print $2; exit}') to ${INSTALL_DIR}/oras"
+
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  printf '%s\n' "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+fi
