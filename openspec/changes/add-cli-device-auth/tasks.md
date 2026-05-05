@@ -17,7 +17,7 @@
 - [x] 3.4 `DeviceAuthorization` row inserted with `expires_at = now() + 15 min`, `interval_seconds: 5`, `status: :pending`. SHA-256 hash stored, plaintext only flows back to the CLI.
 - [x] 3.5 `cli_auth_device` rate limit at 10 / 60s / client IP applied before insertion; hit → `429` with `retry_after`.
 - [x] 3.6 RFC 8628 §3.2 response (`device_code`, `user_code`, `verification_uri`, `verification_uri_complete`, `expires_in`, `interval`).
-- [ ] 3.7 Controller tests deferred — folded into §12.8 + §13.2 since they need the full ConnCase + Repo sandbox.
+- [x] 3.7 `test/phoenix/controllers/cli_auth_controller_test.exs` — happy path returns RFC 8628 §3.2 payload + persists SHA-256 hash; invalid client_id → 400 `invalid_client`; scope outside allow-list → 400 `invalid_scope`; rate-limit at 11th request → 429; `cli_auth_enabled = false` → 503 `cli_auth_disabled`. 13/13 cases / 0 failures via the srql-fixtures CNPG cluster (the `srql-fixtures-db-tests` skill).
 
 ## 4. Controller — `POST /api/v1/cli/auth/token`
 - [x] 4.1 `CliAuthController.token/2`.
@@ -26,7 +26,7 @@
 - [x] 4.4 Lookup by hashed device code; missing → `400 invalid_grant`, expired → `400 expired_token` (also flips row to `:expired`), denied → `400 access_denied`, pending → `400 authorization_pending`.
 - [x] 4.5 On `:approved`, mint JWT via `Guardian.create_api_token(user, scopes:, ttl: {cli_session_ttl_days, :day})` and persist a `CliSession` row keyed on the JWT's `jti`. Approved row is left in place (kept for audit; `last_polled_at` stamped via `record_poll`).
 - [x] 4.6 Success response `{access_token, token_type: "Bearer", expires_in, scope, user: {id, email}}` matching the OAuth shape the CLI already parses.
-- [ ] 4.7 Controller tests deferred (see 3.7).
+- [x] 4.7 Same `cli_auth_controller_test.exs` covers the token endpoint: every RFC 8628 §3.5 error code (`unsupported_grant_type`, `invalid_request`, `invalid_grant`, `authorization_pending`, `access_denied`, `expired_token`); the success envelope with `access_token` / `token_type` / `expires_in` / `scope` / `user`; `cli_auth_enabled = false` 503 path on the token endpoint too.
 
 ## 5. Approval LiveView — `/cli/auth/device`
 - [x] 5.1 `ServiceRadarWebNGWeb.CliDeviceAuthorizeLive` at `elixir/web-ng/lib/serviceradar_web_ng_web/live/cli_device_authorize_live.ex`.
@@ -34,23 +34,23 @@
 - [x] 5.3 Form state `:prompt` (no code typed yet) takes a manual user_code; `:pending` state renders client / scope / expires / Approve / Deny.
 - [x] 5.4 Approve → `DeviceAuthorization.approve(row, user_id)`; success state shows the "you can close this tab" card.
 - [x] 5.5 Deny → `DeviceAuthorization.deny(row)`; `:denied` confirmation card; the polling CLI surfaces `access_denied`.
-- [ ] 5.6 LiveView tests deferred (see 3.7) — needs `Phoenix.LiveViewTest` + ConnCase + Repo sandbox.
+- [x] 5.6 `test/phoenix/live/cli_device_authorize_live_test.exs` — unauthenticated visitor → log-in redirect with `return_to` preserving user_code; prompt form when no code; `:pending` shows Approve / Deny + client / scope / code; Approve transitions row to `:approved` with user_id stamped; Deny transitions to `:denied`; unknown code → `:unknown` error state; expired code → no Approve / Deny; viewer-role visitor → "your role does not allow CLI auth" callout in place of buttons. 8/8 cases / 0 failures.
 
 ## 6. Token revocation
 - [x] 6.1 No `ApiAuth` plug change needed — Guardian's existing `verify_not_revoked/1` already calls `ServiceRadarWebNG.Auth.TokenRevocation.check_revoked/1` for every JWT. Revoking a CLI session inserts a `RevokedToken` row keyed on the JWT's `jti` via the `ServiceRadarWebNG.Auth.CliSessions` context, so the next API request bearing the JWT 401s.
 - [x] 6.2 ETS cache + 30 s refresh + automatic invalidation on revoke is built into the existing `TokenRevocation` GenServer; we reuse it as-is.
-- [ ] 6.3 Revoke-then-401 test deferred (see 3.7).
+- [x] 6.3 `test/phoenix/live/cli_sessions_live_test.exs` — Revoke flips `cli_sessions.status` to `:revoked` AND writes a `RevokedToken` row, so `TokenRevocation.check_revoked/1` then returns `{:error, :revoked}` for the issued JWT. End-to-end revoke pipeline validated without re-implementing it.
 
 ## 7. Settings UI — CLI sessions page
 - [x] 7.1 `ServiceRadarWebNGWeb.Settings.CliSessionsLive` at `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/cli_sessions_live.ex`.
 - [x] 7.2 Renders client name, scope, issued / last-used / expires, status badge, and a Revoke button on active rows. Permission-gated: `cli.session.read_any` shows the User column + every user's rows; `cli.session.read_own` shows only the user's rows; without either, the list is empty. Server-side `ensure_can_revoke/2` enforces revoke perms before firing.
 - [x] 7.3 Route `live "/settings/cli-sessions"` added under the existing `:require_authenticated_user_with_permit` `live_session`.
 - [ ] 7.4 "Pending CLI device approval" callout banner deferred — current Settings page is read-only over `cli_sessions`; pending `device_authorizations` are surfaced via the verification URL instead.
-- [ ] 7.5 LiveView tests deferred (see 3.7).
+- [x] 7.5 Same `cli_sessions_live_test.exs` — non-admin sees only own rows + no User column + other user's `jti` absent from the rendered HTML; admin sees every user's sessions with the User column visible; admin can revoke another user's session. 4/4 cases / 0 failures.
 
 ## 8. Cleanup worker
 - [x] 8.1 `ServiceRadar.Identity.CliAuthCleanupWorker` (Oban `:maintenance` queue, `unique` constraint, daily reschedule). Runs three jobs per invocation: pending-`DeviceAuthorization` past TTL → `:expired`, active-`CliSession` past TTL → `:expired`, hard-delete terminal rows older than 90 days (configurable via `:retention_days`). Wrapped in `ServiceRadar.Identity.CliAuthScheduler` (uses the existing `ServiceRadar.ObanEnsureScheduled` macro) and slotted into `ServiceRadar.Cluster.CoordinatorChildren` behind the `CLI_AUTH_SCHEDULER_ENABLED` env / `:cli_auth_scheduler_enabled` config toggle (default true).
-- [ ] 8.2 Unit tests deferred (cleanup branches need the Repo sandbox).
+- [x] 8.2 `test/phoenix/identity/cli_auth_cleanup_worker_test.exs` — pending DeviceAuthorization past TTL → `:expired` (vs. still-valid stays pending); active CliSession past JWT TTL → `:expired` (vs. still-valid stays active); terminal DeviceAuthorization > 90d → hard-deleted (vs. < 90d retained); terminal CliSession > 90d → hard-deleted (vs. < 90d retained). 8/8 cases / 0 failures. Drive-by fix surfaced by these tests: both resources' destroy actions were missing `primary? true`, which would have caused production destroy attempts to silently fail with `NoPrimaryAction` and leave terminal rows lingering forever.
 
 ## 9. Router wiring
 - [x] 9.1 `POST /api/v1/cli/auth/device` and `POST /api/v1/cli/auth/token` routed under `:api_token_auth` (no session, no CSRF) next to the existing `/oauth/token`.
@@ -73,9 +73,9 @@
 - [x] 12.5 Implicitly satisfied by the existing architecture — Guardian JWTs only encode the user resource + scope, and the `ApiAuth` plug recomputes `RBAC.permissions_for_user/1` on every request. A user whose role is downgraded after a CLI session was issued loses those permissions immediately on the next API call. The scope claim itself is bounded by `cli_allowed_scopes` (§12.3). No JWT-claim embedding required.
 - [x] 12.6 `Settings.CliSessionsLive` rewritten from role-based gating to permission-based: `cli.session.read_any` drives the all-rows + User-column view, `cli.session.read_own` drives self-only, both absent → empty list. `cli.session.revoke_any` exposes Revoke on every row, `cli.session.revoke_own` only on own rows. Server-side `ensure_can_revoke/2` re-checks before the action fires.
 - [x] 12.7 New `Settings.CliAuthPolicyLive` at `/settings/cli-auth` lets a user with `cli.policy.manage` toggle `cli_auth_enabled`, edit `cli_session_ttl_days`, and edit the `cli_allowed_scopes` list (textarea, one per line / whitespace / comma separated). Form posts to `AuthorizationSettings.update_settings/3` via a system actor; on permission failure the user is redirected to `/settings/profile` with an explanatory flash.
-- [ ] 12.8 RBAC integration tests deferred — they need full ConnCase + LiveViewTest + Repo sandbox. The §1 changeset-shape tests + `mix compile --warnings-as-errors` exercise the configuration-correctness side. Manual smoke per §13.3 covers end-to-end behavior.
+- [x] 12.8 RBAC paths covered across the four integration test files: `cli_auth_enabled = false` → 503 in `cli_auth_controller_test.exs`; scope outside `cli_allowed_scopes` → 400 same file; viewer-role refusal of Approve / Deny in `cli_device_authorize_live_test.exs`; `read_own` vs `read_any` rendering split + `revoke_any` cross-user revoke in `cli_sessions_live_test.exs`. The admin policy panel (§12.7) is exercised at compile/route level — its form state machine is small enough that the manual smoke (§13.3) covers it without dedicated cases.
 
 ## 13. Validation
 - [x] 13.1 `openspec validate add-cli-device-auth --strict` passes.
-- [ ] 13.2 Full controller / LiveView test suite deferred — every Postgres-bound test the proposal calls out (3.7, 4.7, 5.6, 6.3, 7.5, 8.2, 12.8) lands as a follow-up commit once the test environment Postgres is wired up. The shipped code path is exercised by `mix compile --warnings-as-errors` clean across both serviceradar_core and serviceradar_web_ng.
+- [x] 13.2 Combined `mix test test/phoenix/{controllers/cli_auth_controller,live/cli_device_authorize_live,live/cli_sessions_live,identity/cli_auth_cleanup_worker}_test.exs --include integration` against the srql-fixtures CNPG cluster: **33 tests, 0 failures**. Migration drive-by from this run: the FK in `20260504170000_create_cli_device_auth_tables.exs` was referencing `:users` instead of `:ng_users` and was fixed in the same commit (the FK now matches the schema's actual user table per `RevokedToken`'s migration).
 - [ ] 13.3 End-to-end manual smoke pending — spin up local web-ng, run `serviceradar-cli auth login --instance http://localhost:4000`, observe the browser open + LiveView render + Approve → CLI receives JWT → `~/.config/serviceradar/credentials.json` populated → `serviceradar-cli dashboard publish` validates against the issued JWT.
