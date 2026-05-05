@@ -563,12 +563,15 @@ impl RemoteFixtureGuard {
 fn read_env_value(key: &str) -> anyhow::Result<Option<String>> {
     if let Ok(value) = std::env::var(key) {
         if value.trim().is_empty() {
-            anyhow::bail!("{key} is set but empty");
+            return Ok(None);
         }
         return Ok(Some(value));
     }
     let file_key = format!("{key}_FILE");
     if let Ok(path) = std::env::var(&file_key) {
+        if path.trim().is_empty() {
+            return Ok(None);
+        }
         let value = fs::read_to_string(&path)
             .map_err(|err| anyhow::anyhow!("failed to read {file_key} ({path}): {err}"))?
             .trim()
