@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
 spec:
   accessModes:
-    - ReadWriteOnce
+{{ toYaml (default (list "ReadWriteOnce") $geoipMmdb.accessModes) | indent 4 }}
   resources:
     requests:
       storage: {{ default "1Gi" $geoipMmdb.size | quote }}
@@ -17,4 +17,3 @@ spec:
   storageClassName: {{ $geoipMmdb.storageClassName | quote }}
   {{- end }}
 {{- end }}
-

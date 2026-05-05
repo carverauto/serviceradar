@@ -88,7 +88,7 @@ metadata:
   name: serviceradar-log-collector-data
 spec:
   accessModes:
-    - ReadWriteOnce
+{{ toYaml (default (list "ReadWriteOnce") $logCollectorData.accessModes) | indent 4 }}
   resources:
     requests:
       storage: {{ default "1Gi" $logCollectorData.size | quote }}

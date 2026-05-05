@@ -19,6 +19,14 @@ const (
 	severityERROR = "ERROR"
 	severityWARN  = "WARN"
 	severityDEBUG = "DEBUG"
+
+	securitySeverityEmergency = "emergency"
+	securitySeverityAlert     = "alert"
+	securitySeverityFatal     = "fatal"
+	securitySeverityCritical  = "critical"
+	securitySeverityError     = "error"
+	securitySeverityWarning   = "warning"
+	securitySeverityInfo      = "info"
 )
 
 //nolint:gochecknoglobals // package-level lookup table for performance
@@ -336,35 +344,31 @@ func isWAFFinding(entry map[string]interface{}, eventName string) bool {
 	}
 
 	attributes := extractAttributesMap(entry, "attributes")
-	if firstStringFromMap(attributes, "event_type", "eventType") == "waf.finding" {
-		return true
-	}
-
-	return false
+	return firstStringFromMap(attributes, "event_type", "eventType") == "waf.finding"
 }
 
 func normalizeSecuritySeverityText(text string) (string, int32) {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 
 	switch normalized {
-	case "emergency":
-		return "emergency", 23
-	case "alert":
-		return "alert", 22
-	case "fatal":
-		return "fatal", 23
-	case "critical":
-		return "critical", 21
-	case "high", "error":
-		return "error", severityNumberForText(severityERROR)
-	case "medium", "warn", "warning":
-		return "warning", severityNumberForText(severityWARN)
-	case "low", "info", "informational", "notice", "unknown":
-		return "info", severityNumberForText(severityINFO)
+	case securitySeverityEmergency:
+		return securitySeverityEmergency, 23
+	case securitySeverityAlert:
+		return securitySeverityAlert, 22
+	case securitySeverityFatal:
+		return securitySeverityFatal, 23
+	case securitySeverityCritical:
+		return securitySeverityCritical, 21
+	case "high", securitySeverityError:
+		return securitySeverityError, severityNumberForText(severityERROR)
+	case "medium", "warn", securitySeverityWarning:
+		return securitySeverityWarning, severityNumberForText(severityWARN)
+	case "low", securitySeverityInfo, "informational", "notice", "unknown":
+		return securitySeverityInfo, severityNumberForText(severityINFO)
 	case "debug", "trace":
 		return normalized, severityNumberForText(severityDEBUG)
 	default:
-		return "info", severityNumberForText(severityINFO)
+		return securitySeverityInfo, severityNumberForText(severityINFO)
 	}
 }
 
@@ -372,13 +376,13 @@ func normalizeSeverityText(text string) (string, int32) {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 
 	switch normalized {
-	case "fatal", "critical", "emergency", "alert", "very high", "very_high":
+	case securitySeverityFatal, securitySeverityCritical, securitySeverityEmergency, securitySeverityAlert, "very high", "very_high":
 		return severityFATAL, severityNumberForText(severityFATAL)
-	case "high", "error":
+	case "high", securitySeverityError:
 		return severityERROR, severityNumberForText(severityERROR)
-	case "medium", "warn", "warning":
+	case "medium", "warn", securitySeverityWarning:
 		return severityWARN, severityNumberForText(severityWARN)
-	case "low", "info", "informational", "notice", "unknown":
+	case "low", securitySeverityInfo, "informational", "notice", "unknown":
 		return severityINFO, severityNumberForText(severityINFO)
 	case "debug", "trace":
 		return severityDEBUG, severityNumberForText(severityDEBUG)

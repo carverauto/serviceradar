@@ -61,6 +61,30 @@ jobs:
           fi
           echo "${OCI_TOKEN}" | docker login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
 
+      - name: Wait for release images
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t repositories < <(./scripts/list-publishable-oci-repositories.sh)
+          for attempt in $(seq 1 180); do
+            missing=()
+            for repository in "${repositories[@]}"; do
+              image_ref="${repository}:${RELEASE_TAG}"
+              if ! docker manifest inspect "${image_ref}" >/dev/null 2>&1; then
+                missing+=("${image_ref}")
+              fi
+            done
+            if [[ "${#missing[@]}" -eq 0 ]]; then
+              exit 0
+            fi
+            echo "Waiting for ${#missing[@]} release image(s) for ${RELEASE_TAG}; attempt ${attempt}/180"
+            printf '  missing %s\n' "${missing[@]:0:5}"
+            sleep 20
+          done
+          echo "Timed out waiting for release images for ${RELEASE_TAG}" >&2
+          exit 1
+
       - name: Generate image SBOMs and OSV reports
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -100,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 360); do
             if curl -fsS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "${api_url}" >/dev/null; then
               exit 0
             fi

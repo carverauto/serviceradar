@@ -150,7 +150,7 @@ metadata:
   name: serviceradar-datasvc-data
 spec:
   accessModes:
-    - ReadWriteOnce
+{{ toYaml (default (list "ReadWriteOnce") (get $datasvcData "accessModes")) | indent 4 }}
   resources:
     requests:
       storage: {{ get $datasvcData "size" | default "5Gi" | quote }}

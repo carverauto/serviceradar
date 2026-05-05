@@ -4,6 +4,10 @@
 {{- $writer := default (dict) .Values.dbEventWriter -}}
 {{- $writerData := default (dict) (get $writer "data") -}}
 {{- $writerDataEnabled := ne false (get $writerData "enabled") -}}
+{{- $writerEnableMigrations := "true" -}}
+{{- if hasKey $writer "enableMigrations" -}}
+{{- $writerEnableMigrations = toString (get $writer "enableMigrations") -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -132,7 +136,7 @@ spec:
         - name: CORE_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .Values.coreClient.certDir | quote }}
         - name: ENABLE_DB_MIGRATIONS
-          value: {{ default "true" .Values.dbEventWriter.enableMigrations | quote }}
+          value: {{ $writerEnableMigrations | quote }}
         - name: LOG_LEVEL
           value: "info"
         resources:
@@ -209,7 +213,7 @@ metadata:
   name: serviceradar-db-event-writer-data
 spec:
   accessModes:
-    - ReadWriteOnce
+{{ toYaml (default (list "ReadWriteOnce") (get $writerData "accessModes")) | indent 4 }}
   resources:
     requests:
       storage: {{ get $writerData "size" | default "5Gi" | quote }}

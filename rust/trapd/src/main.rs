@@ -489,6 +489,7 @@ mod tests {
             nats_url: "tls://serviceradar-nats:4222".into(),
             nats_domain: None,
             stream_name: "events".into(),
+            stream_replicas: 1,
             subject: "logs.snmp".into(),
             nats_creds_file: None,
             nats_security: None,

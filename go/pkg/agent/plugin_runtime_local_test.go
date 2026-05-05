@@ -68,7 +68,12 @@ func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
 	base := &http.Client{Timeout: 20 * time.Millisecond}
 	client := pluginHTTPClient(base, false, 500*time.Millisecond)
 
-	resp, err := client.Get(server.URL)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("request should use plugin request timeout instead of base timeout: %v", err)
 	}

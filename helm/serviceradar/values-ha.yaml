@@ -18,6 +18,13 @@ topologySpread:
 nats:
   replicas: 3
 
+# Avoid scaling workloads with shared ReadWriteOnce volumes by default. Enable
+# this in an environment-specific values file only when existingClaim or
+# storageClassName points at RWX-capable storage, and set accessModes to
+# ReadWriteMany for newly created claims.
+geoipMmdb:
+  enabled: false
+
 cnpg:
   pooler:
     enabled: true
@@ -40,6 +47,10 @@ webNg:
   replicas: 3
   database:
     poolSize: 8
+  pluginStorage:
+    enabled: true
+    backend: "jetstream"
+    jetstreamReplicas: 3
 
 core:
   replicas: 3
@@ -58,18 +69,27 @@ agentGateway:
 dbEventWriter:
   replicaCount: 3
   cnpgMaxConnections: 4
+  enableMigrations: false
+  data:
+    enabled: false
 
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
+  data:
+    enabled: false
 
 zen:
   replicaCount: 3
   streamReplicas: 3
+  data:
+    enabled: false
 
 logCollector:
   replicaCount: 3
   streamReplicas: 3
+  data:
+    enabled: false
   tcpCollector:
     enabled: true
     replicaCount: 3
@@ -86,3 +106,5 @@ flowCollector:
   streamReplicas: 3
   config:
     stream_replicas: 3
+  data:
+    enabled: false

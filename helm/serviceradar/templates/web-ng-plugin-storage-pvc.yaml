@@ -9,7 +9,7 @@ metadata:
   name: serviceradar-web-ng-plugins
 spec:
   accessModes:
-    - ReadWriteOnce
+{{ toYaml (default (list "ReadWriteOnce") $pluginStorage.accessModes) | indent 4 }}
   resources:
     requests:
       storage: {{ default "10Gi" $pluginStorage.size | quote }}

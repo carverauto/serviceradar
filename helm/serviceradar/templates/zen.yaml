@@ -146,7 +146,7 @@ metadata:
   name: serviceradar-zen-data
 spec:
   accessModes:
-    - ReadWriteOnce
+{{ toYaml (default (list "ReadWriteOnce") (get $zenData "accessModes")) | indent 4 }}
   resources:
     requests:
       storage: {{ get $zenData "size" | default "5Gi" | quote }}

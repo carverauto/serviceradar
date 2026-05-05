@@ -78,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 360); do
             if curl -fsS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "${api_url}" >/dev/null; then
               exit 0
             fi

@@ -276,10 +276,6 @@ impl Config {
         }
     }
 
-    pub fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
-        self.configured_rules_for_subject(subject)
-    }
-
     pub fn configured_rules_for_subject(&self, subject: &str) -> Vec<String> {
         if !self.decision_groups.is_empty() {
             if let Some(group) = self.match_decision_group(subject) {
@@ -586,7 +582,7 @@ mod tests {
             "logs.syslog"
         );
         assert_eq!(
-            cfg.ordered_rules_for_subject("platform.logs.syslog"),
+            cfg.configured_rules_for_subject("platform.logs.syslog"),
             vec!["rule1"]
         );
         assert_eq!(

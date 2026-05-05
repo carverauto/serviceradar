@@ -310,16 +310,16 @@ mod tests {
     }
 
     #[test]
-    fn test_ordered_rules_for_subject() {
+    fn test_configured_rules_for_subject() {
         let cfg = create_test_config();
 
-        let json_rules = cfg.ordered_rules_for_subject("events.json");
+        let json_rules = cfg.configured_rules_for_subject("events.json");
         assert_eq!(json_rules, vec!["test_rule"]);
 
-        let protobuf_rules = cfg.ordered_rules_for_subject("events.protobuf");
+        let protobuf_rules = cfg.configured_rules_for_subject("events.protobuf");
         assert_eq!(protobuf_rules, vec!["test_rule"]);
 
-        let metrics_rules = cfg.ordered_rules_for_subject("events.metrics");
+        let metrics_rules = cfg.configured_rules_for_subject("events.metrics");
         assert_eq!(metrics_rules, vec!["test_rule"]);
     }
 

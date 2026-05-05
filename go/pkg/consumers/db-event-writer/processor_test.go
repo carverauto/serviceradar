@@ -176,7 +176,7 @@ func TestParseJSONLogsCorazaProcessedPayload(t *testing.T) {
 	if row.Source != "waf" {
 		t.Fatalf("expected WAF source to override syslog subject source, got %q", row.Source)
 	}
-	if row.SeverityText != "critical" {
+	if row.SeverityText != securitySeverityCritical {
 		t.Fatalf("expected WAF severity text to stay critical, got %q", row.SeverityText)
 	}
 	if row.SeverityNumber != 21 {

@@ -530,6 +530,8 @@ geoipMmdb:
   enabled: true
   basePath: "/var/lib/serviceradar/geoip"
   existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
   size: 1Gi
   storageClassName: ""
 webNg:
@@ -617,6 +619,8 @@ webNg:
     backend: "file"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
@@ -685,6 +689,8 @@ dbEventWriter:
     enabled: true
   data:
     enabled: true
+    accessModes:
+      - ReadWriteOnce
     size: 5Gi
     storageClassName: ""
 datasvc:
@@ -700,6 +706,8 @@ datasvc:
   objectStoreBytes: 2147483648
   data:
     enabled: true
+    accessModes:
+      - ReadWriteOnce
     size: 5Gi
     storageClassName: ""
 zen:
@@ -708,6 +716,8 @@ zen:
   streamReplicas: 1
   data:
     enabled: true
+    accessModes:
+      - ReadWriteOnce
     size: 5Gi
     storageClassName: ""
 logCollector:
@@ -719,6 +729,8 @@ logCollector:
   data:
     enabled: true
     existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
     size: 1Gi
     storageClassName: ""
   probes:
