@@ -1,5 +1,15 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## 0.1.4
+
+- Serve Mapbox GL JS and deck.gl HMR harness libraries from the CLI npm
+  dependency graph instead of browser-side CDN imports. This avoids blank local
+  dashboards when corporate networks block `esm.sh` or external module imports.
+- Add a collapsible dev harness side panel so full-screen dashboard testing can
+  reclaim the right-side tools space.
+- Prefer explicit CLI/env/settings Mapbox tokens over saved local dev tokens,
+  avoiding stale localStorage credentials during handoff testing.
+
 ## 0.1.3
 
 - Fix `dashboard dev` HMR host library injection so browser-module dashboards

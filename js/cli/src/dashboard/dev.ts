@@ -9,6 +9,7 @@
 import {existsSync, readFileSync, statSync, watchFile} from "node:fs"
 import {readFile} from "node:fs/promises"
 import {createServer, type IncomingMessage, type ServerResponse} from "node:http"
+import {createRequire} from "node:module"
 import {extname, isAbsolute, join, relative, resolve} from "node:path"
 
 import {loadConfig} from "../config.js"
@@ -20,6 +21,7 @@ import {buildCommand} from "./build.js"
 
 const DEFAULT_HOST = "127.0.0.1"
 const DEFAULT_PORT = 4177
+const cliRequire = createRequire(import.meta.url)
 
 interface DevContext {
   projectDir: string
@@ -66,12 +68,16 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
       ...(config.vite?.define || {}),
     },
     resolve: {
-      alias: {
-        react: join(projectDir, "node_modules/react"),
-        "react-dom/client": join(projectDir, "node_modules/react-dom/client"),
-        ...(config.vite?.resolve?.alias || {}),
-      },
       ...(config.vite?.resolve || {}),
+      alias: [
+        {find: /^react$/, replacement: join(projectDir, "node_modules/react")},
+        {find: /^react-dom\/client$/, replacement: join(projectDir, "node_modules/react-dom/client")},
+        {find: /^mapbox-gl\/dist\/mapbox-gl\.css$/, replacement: cliRequire.resolve("mapbox-gl/dist/mapbox-gl.css")},
+        {find: /^mapbox-gl$/, replacement: cliRequire.resolve("mapbox-gl")},
+        {find: /^@deck\.gl\/layers$/, replacement: cliRequire.resolve("@deck.gl/layers")},
+        {find: /^@deck\.gl\/mapbox$/, replacement: cliRequire.resolve("@deck.gl/mapbox")},
+        ...normalizeViteAlias(config.vite?.resolve?.alias),
+      ],
     },
   })
 
@@ -109,10 +115,6 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
         const transformed = await vite.transformIndexHtml(request.url || "/", harnessHtml)
         response.writeHead(200, {"content-type": "text/html; charset=utf-8"})
         response.end(transformed)
-        return
-      }
-      if (url.pathname === "/@harness/dev.js") {
-        await serveFile(response, join(harnessAssets, "dev.js"))
         return
       }
       if (url.pathname === "/@harness/dev.css") {
@@ -159,6 +161,12 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
   watchProjectForValidation(projectDir, config)
 
   if (options.open) await openBrowser(baseUrl)
+}
+
+function normalizeViteAlias(alias: any): any[] {
+  if (Array.isArray(alias)) return alias
+  if (!alias || typeof alias !== "object") return []
+  return Object.entries(alias).map(([find, replacement]) => ({find, replacement}))
 }
 
 function dashboardHarnessPlugin() {
@@ -311,7 +319,10 @@ function renderDevHarnessHtml({entry, manifest, samples, fixtures, mapboxToken}:
       </div>
     </div>
     <aside id="sr-sidepanel">
-      <h2>${htmlEscape(manifest?.id || "Dashboard")}</h2>
+      <header>
+        <h2>${htmlEscape(manifest?.id || "Dashboard")}</h2>
+        <button type="button" data-sidepanel-toggle aria-expanded="true">Hide</button>
+      </header>
       <section>
         <label>Theme<button type="button" data-theme-toggle>☾ Dark</button></label>
       </section>
@@ -325,6 +336,7 @@ function renderDevHarnessHtml({entry, manifest, samples, fixtures, mapboxToken}:
         <button type="button" data-reload>Reload renderer</button>
       </section>
     </aside>
+    <button id="sr-sidepanel-restore" type="button" data-sidepanel-toggle aria-expanded="false">Tools</button>
     <div id="sr-status-bar">
       <span data-status>booting…</span>
       <span data-call-log>—</span>
