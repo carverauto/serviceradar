@@ -69,6 +69,7 @@ spec:
         command: ["/bin/sh", "-ec"]
         args:
         - |
+          {{- if gt $replicas 1 }}
           ROUTES_BLOCK=""
           for i in $(seq 0 $((NATS_REPLICAS - 1))); do
             peer="serviceradar-nats-${i}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local"
@@ -76,6 +77,7 @@ spec:
               ROUTES_BLOCK="${ROUTES_BLOCK}        nats://${peer}:6222,\n"
             fi
           done
+          {{- end }}
 
           cat >/tmp/nats-server.conf <<EOF
           server_name: ${POD_NAME}
@@ -96,6 +98,7 @@ spec:
             verify_and_map: true
           }
 
+          {{- if gt $replicas 1 }}
           cluster {
             name: {{ $clusterName | quote }}
             listen: 0.0.0.0:6222
@@ -110,6 +113,7 @@ spec:
           $(printf "%b" "${ROUTES_BLOCK}")      ]
           }
 
+          {{- end }}
           accounts {
             SYS: {
               users: []
