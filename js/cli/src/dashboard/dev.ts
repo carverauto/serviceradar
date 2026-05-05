@@ -77,7 +77,9 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
 
   const harnessAssets = HARNESS_DIR
   const mapboxToken = options.mapboxToken
+    || process.env.SERVICERADAR_MAPBOX_TOKEN
     || process.env.MAPBOX_TOKEN
+    || process.env.MAPBOX_ACCESS_TOKEN
     || readMapboxFromSettings(projectDir, config)
     || ""
   const samples = computeSampleUrls(projectDir, config, "/@samples/")

@@ -1,6 +1,6 @@
 {
   "name": "@carverauto/serviceradar-cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "ServiceRadar developer CLI: dashboard authoring loop, auth, and tooling. Companion to @carverauto/serviceradar-dashboard-sdk.",
   "type": "module",
   "license": "UNLICENSED",

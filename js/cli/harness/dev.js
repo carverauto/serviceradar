@@ -58,7 +58,7 @@ function createContext(initialState) {
           return
         }
 
-        api = createHostApi(state, frames, {
+        api = await createHostApi(state, frames, {
           themeListeners,
           frameListeners,
           onCall: appendCallLog,
@@ -198,9 +198,10 @@ function createHost(state) {
   }
 }
 
-function createHostApi(state, initialFrames, hooks) {
+async function createHostApi(state, initialFrames, hooks) {
   const {themeListeners, frameListeners, onCall} = hooks
   let frames = initialFrames
+  const libraries = await loadBrowserModuleLibraries()
 
   return {
     version: "dashboard-browser-module-host-v1",
@@ -230,8 +231,10 @@ function createHostApi(state, initialFrames, hooks) {
     mapbox: () => ({
       enabled: Boolean(state.mapboxToken),
       access_token: state.mapboxToken,
+      style_dark: state.settings?.mapbox?.style_dark || state.settings?.mapbox_style_dark,
+      style_light: state.settings?.mapbox?.style_light || state.settings?.mapbox_style_light,
     }),
-    libraries: {},
+    libraries,
     onThemeChange(callback) {
       themeListeners.add(callback)
       return () => themeListeners.delete(callback)
@@ -274,6 +277,31 @@ function createSrqlClient(getFrames, onCall) {
     list: (values) => `(${Array.from(values || []).map((value) => String(value || "").trim()).join(",")})`,
     build: (options = {}) => `in:${options.entity || "devices"} limit:${options.limit || 100}`,
   })
+}
+
+async function loadBrowserModuleLibraries() {
+  ensureStylesheet("https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.css")
+
+  const [mapboxModule, deckLayers, deckMapbox] = await Promise.all([
+    import("https://esm.sh/mapbox-gl@3.10.0"),
+    import("https://esm.sh/@deck.gl/layers@9.3.2?bundle"),
+    import("https://esm.sh/@deck.gl/mapbox@9.3.2?bundle"),
+  ])
+
+  return {
+    mapboxgl: mapboxModule.default || mapboxModule,
+    MapboxOverlay: deckMapbox.MapboxOverlay,
+    ScatterplotLayer: deckLayers.ScatterplotLayer,
+    TextLayer: deckLayers.TextLayer,
+  }
+}
+
+function ensureStylesheet(href) {
+  if (document.querySelector(`link[href="${href}"]`)) return
+  const link = document.createElement("link")
+  link.rel = "stylesheet"
+  link.href = href
+  document.head.appendChild(link)
 }
 
 function wireSidePanel(ctx, state) {
