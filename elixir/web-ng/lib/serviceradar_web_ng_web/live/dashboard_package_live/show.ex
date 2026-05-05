@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
@@ -439,10 +440,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   defp row_count(results) when is_list(results), do: length(results)
   defp row_count(_results), do: 0
 
-  defp read_mapbox(nil), do: nil
-
-  defp read_mapbox(scope) do
-    case MapboxSettings.get_settings(scope: scope) do
+  defp read_mapbox(_scope) do
+    case MapboxSettings.get_settings(actor: SystemActor.system(:dashboard_package_host)) do
       {:ok, %MapboxSettings{} = settings} -> settings
       _ -> nil
     end
