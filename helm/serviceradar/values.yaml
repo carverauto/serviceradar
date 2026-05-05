@@ -1080,6 +1080,9 @@ ingress:
   enabled: false
   host: ""
   className: nginx
+  websocketPaths:
+    - /live/websocket
+    - /socket/websocket
   annotations: {}
   tls:
     enabled: false
