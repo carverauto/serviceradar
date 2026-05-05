@@ -1,5 +1,11 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## 0.1.2
+
+- Fix `dashboard dev` HMR harness startup by registering the harness JS/CSS
+  modules with Vite before import analysis runs. This restores `npm run dev`
+  for dashboard packages that use the default HMR mode.
+
 ## 0.1.0 (initial)
 
 The canonical ServiceRadar developer CLI, split out from
