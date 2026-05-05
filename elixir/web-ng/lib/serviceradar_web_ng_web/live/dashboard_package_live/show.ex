@@ -142,7 +142,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:query_text, first_frame_query(data_frames))
       |> assign(:dashboard_limit, 500)
       |> assign_dashboard_srql(first_frame_query(data_frames))
-      |> assign(:host_payload_json, Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox)))
+      |> assign(
+        :host_payload_json,
+        Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox, socket.assigns.frame_query_overrides))
+      )
 
     {:noreply, socket}
   end
@@ -316,7 +319,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     push_patch(socket, to: to)
   end
 
-  defp host_payload(%DashboardInstance{} = instance, %DashboardPackage{} = package, data_frames, frames, mapbox) do
+  defp host_payload(
+         %DashboardInstance{} = instance,
+         %DashboardPackage{} = package,
+         data_frames,
+         frames,
+         mapbox,
+         overrides
+       ) do
     %{
       "host" => %{
         "version" => "dashboard-host-v1",
@@ -326,7 +336,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "version" => "dashboard-data-v1",
         "frames" => Enum.map(frames, &frame_summary/1),
         "stream_topic" => "dashboards:#{instance.route_slug}",
-        "stream_token" => DashboardFrameChannel.stream_token(instance.route_slug, data_frames),
+        "stream_token" =>
+          DashboardFrameChannel.stream_token(instance.route_slug, data_frames, active_optional_frame_ids(overrides)),
         "refresh_interval_ms" => 15_000
       },
       "mapbox" => %{
@@ -375,6 +386,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   defp maybe_put_first_query(overrides, ""), do: overrides
   defp maybe_put_first_query(overrides, query), do: Map.put(overrides, "__first__", query)
+
+  defp active_optional_frame_ids(overrides) when is_map(overrides) do
+    overrides
+    |> Map.keys()
+    |> Enum.reject(&(&1 == "__first__"))
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp active_optional_frame_ids(_overrides), do: []
 
   defp apply_frame_query_overrides(data_frames, overrides) when is_list(data_frames) do
     data_frames

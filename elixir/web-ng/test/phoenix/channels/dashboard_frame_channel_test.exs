@@ -17,11 +17,23 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     @moduledoc false
 
     def query("in:test_rows", _opts) do
+      notify_query("in:test_rows")
       {:ok, %{"results" => [%{"id" => "row-1", "value" => 7}], "pagination" => %{"limit" => 1}}}
+    end
+
+    def query("in:test_optional_rows", _opts) do
+      notify_query("in:test_optional_rows")
+      {:ok, %{"results" => [%{"id" => "row-optional", "value" => 9}], "pagination" => %{"limit" => 1}}}
     end
 
     def query_arrow("in:test_arrow", _opts) do
       {:ok, %{payload: "arrow bytes", schema: %{"columns" => ["id"]}}}
+    end
+
+    defp notify_query(query) do
+      if pid = Application.get_env(:serviceradar_web_ng, :dashboard_frame_test_pid) do
+        send(pid, {:srql_query, query})
+      end
     end
   end
 
@@ -98,6 +110,89 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     assert id == "arrow"
     assert Jason.decode!(metadata)["byte_length"] == byte_size("arrow bytes")
     assert payload == "arrow bytes"
+  end
+
+  test "skips optional frames until the stream token marks them active", %{user: user, scope: scope} do
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+    data_frames = [
+      %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+      %{"id" => "optional", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1, "required" => false}
+    ]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+
+    inactive_token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+
+    assert {:ok, _reply, _socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => inactive_token})
+
+    assert_push "frames:replace", %{
+      "frames" => [
+        %{"id" => "required", "status" => "ok"}
+      ]
+    }
+
+    active_token = DashboardFrameChannel.stream_token(route_slug, data_frames, ["optional"])
+
+    assert {:ok, _reply, _socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => active_token})
+
+    assert_push "frames:replace", %{
+      "frames" => [
+        %{"id" => "required", "status" => "ok"},
+        %{"id" => "optional", "status" => "ok"}
+      ]
+    }
+  end
+
+  test "refresh ticks keep cached optional frames without re-running them", %{user: user, scope: scope} do
+    Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid)
+    end)
+
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+    data_frames = [
+      %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+      %{
+        "id" => "optional",
+        "query" => "in:test_optional_rows",
+        "encoding" => "json_rows",
+        "limit" => 1,
+        "required" => false
+      }
+    ]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, ["optional"])
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_push "frames:replace", %{
+      "frames" => [
+        %{"id" => "required", "status" => "ok"},
+        %{"id" => "optional", "status" => "ok"}
+      ]
+    }
+
+    assert_receive {:srql_query, "in:test_rows"}
+    assert_receive {:srql_query, "in:test_optional_rows"}
+    refute_receive {:srql_query, _query}, 50
+
+    send(socket.channel_pid, :dashboard_frame_tick)
+
+    assert_receive {:srql_query, "in:test_rows"}
+    refute_receive {:srql_query, "in:test_optional_rows"}, 100
   end
 
   test "rejects missing or mismatched stream tokens", %{user: user, scope: scope} do

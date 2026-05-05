@@ -344,6 +344,57 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook.connectFrameStream).not.toHaveBeenCalled()
   })
 
+  test("reconnects the frame stream when a browser module host update changes the stream token", () => {
+    const rendererUrl = "data:text/javascript,export function mountDashboard() {}"
+    const frames = [
+      {
+        id: "sites",
+        query: "in:wifi_sites limit:500",
+        status: "ok",
+        results: [{site_code: "ZZC"}],
+      },
+    ]
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:wifi-network-map",
+        stream_token: "required-only",
+        refresh_interval_ms: 15_000,
+      },
+      package: {
+        ...baseHost().package,
+        renderer_url: rendererUrl,
+        frames,
+      },
+    })
+
+    const nextHost = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:wifi-network-map",
+        stream_token: "devices-active",
+        refresh_interval_ms: 15_000,
+      },
+      package: {
+        ...baseHost().package,
+        renderer_url: rendererUrl,
+        frames: [
+          frames[0],
+          {
+            id: "devices",
+            query: "in:wifi_aps site_code:(ZZC) limit:20000",
+            status: "ok",
+            results: [{site_code: "ZZC", name: "ZZC-AP-001"}],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(nextHost, "host-payload-v2")).toEqual(true)
+    expect(hook.disconnectFrameStream).toHaveBeenCalledTimes(1)
+    expect(hook.connectFrameStream).toHaveBeenCalledWith(hook._host)
+    expect(hook._host.package.frames.map((frame) => frame.id)).toEqual(["sites", "devices"])
+  })
+
   test("mounts trusted browser modules with the bounded host API", async () => {
     const hook = hookContext()
     const rendererUrl =

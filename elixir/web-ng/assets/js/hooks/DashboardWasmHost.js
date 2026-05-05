@@ -330,6 +330,12 @@ const DashboardWasmHost = {
     const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
     const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
     if (!currentUrl || currentUrl !== nextUrl) return false
+    const currentStreamToken = this._host?.data_provider?.stream_token || ""
+    const currentStreamTopic = this._host?.data_provider?.stream_topic || ""
+    const nextStreamToken = nextHost?.data_provider?.stream_token || ""
+    const nextStreamTopic = nextHost?.data_provider?.stream_topic || ""
+    const shouldReconnectFrameStream =
+      currentStreamToken !== nextStreamToken || currentStreamTopic !== nextStreamTopic
 
     const currentFrames = Array.isArray(this._host.package?.frames) ? this._host.package.frames : []
     const nextFrames = Array.isArray(nextHost.package?.frames) ? nextHost.package.frames : []
@@ -346,6 +352,10 @@ const DashboardWasmHost = {
     }
     this._hostPayloadSignature = signature
     this.notifyFrameUpdate({frames: currentFrames, host_update: true})
+    if (shouldReconnectFrameStream) {
+      this.disconnectFrameStream()
+      this.connectFrameStream(this._host)
+    }
     return true
   },
 

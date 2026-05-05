@@ -26,7 +26,10 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket =
         socket
         |> assign(:route_slug, route_slug)
-        |> assign(:data_frames, normalize_data_frames(stream["data_frames"] || stream[:data_frames]))
+        |> assign(:initial_data_frames, stream_data_frames(stream))
+        |> assign(:refresh_data_frames, refresh_data_frames(stream))
+        |> assign(:last_frames, [])
+        |> assign(:initial_frame_sent, false)
         |> assign(:refresh_ms, refresh_ms(payload["refresh_interval_ms"]))
         |> assign(:last_frame_hash, nil)
 
@@ -44,18 +47,31 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   @impl true
   def handle_info(:dashboard_frame_tick, socket) do
-    socket = push_frame_snapshot(socket)
+    socket =
+      socket
+      |> push_frame_snapshot(tick_data_frames(socket))
+      |> assign(:initial_frame_sent, true)
+
     Process.send_after(self(), :dashboard_frame_tick, socket.assigns.refresh_ms)
     {:noreply, socket}
   end
 
   @impl true
   def handle_in("frames:refresh", _payload, socket) do
-    {:reply, {:ok, %{}}, push_frame_snapshot(assign(socket, :last_frame_hash, nil))}
+    socket =
+      socket
+      |> assign(:last_frame_hash, nil)
+      |> push_frame_snapshot(socket.assigns.initial_data_frames)
+
+    {:reply, {:ok, %{}}, socket}
   end
 
-  defp push_frame_snapshot(socket) do
-    frames = FrameRunner.run(socket.assigns.data_frames, socket.assigns.current_scope)
+  defp push_frame_snapshot(socket, data_frames) do
+    frames =
+      socket.assigns
+      |> Map.get(:last_frames, [])
+      |> merge_frames(FrameRunner.run(data_frames, socket.assigns.current_scope))
+
     hash = :erlang.phash2(frames)
 
     if socket.assigns[:last_frame_hash] == hash do
@@ -77,7 +93,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         push(socket, "frame:binary", {:binary, encode_binary_frame(frame)})
       end)
 
-      assign(socket, :last_frame_hash, hash)
+      socket
+      |> assign(:last_frames, frames)
+      |> assign(:last_frame_hash, hash)
     end
   rescue
     error ->
@@ -86,10 +104,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket
   end
 
-  def stream_token(route_slug, data_frames) when is_binary(route_slug) and is_list(data_frames) do
+  def stream_token(route_slug, data_frames, active_frame_ids \\ []) when is_binary(route_slug) and is_list(data_frames) do
     Phoenix.Token.sign(Endpoint, @stream_salt, %{
       "route_slug" => route_slug,
-      "data_frames" => data_frames
+      "data_frames" => data_frames,
+      "active_frame_ids" => normalize_frame_ids(active_frame_ids)
     })
   end
 
@@ -105,6 +124,75 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   defp normalize_data_frames(data_frames) when is_list(data_frames), do: data_frames
   defp normalize_data_frames(_data_frames), do: []
+
+  defp tick_data_frames(%{assigns: %{initial_frame_sent: false, initial_data_frames: data_frames}}), do: data_frames
+  defp tick_data_frames(%{assigns: %{refresh_data_frames: data_frames}}), do: data_frames
+
+  defp stream_data_frames(stream) do
+    data_frames = normalize_data_frames(stream["data_frames"] || stream[:data_frames])
+    active_frame_ids = MapSet.new(normalize_frame_ids(stream["active_frame_ids"] || stream[:active_frame_ids]))
+
+    Enum.filter(data_frames, fn frame ->
+      required_frame?(frame) or MapSet.member?(active_frame_ids, frame_id(frame))
+    end)
+  end
+
+  defp refresh_data_frames(stream) do
+    stream
+    |> then(&normalize_data_frames(&1["data_frames"] || &1[:data_frames]))
+    |> Enum.filter(&required_frame?/1)
+  end
+
+  defp required_frame?(frame) when is_map(frame) do
+    case frame_value(frame, "required", :required) do
+      false -> false
+      "false" -> false
+      _ -> true
+    end
+  end
+
+  defp required_frame?(_frame), do: true
+
+  defp frame_id(%{"id" => id}) when is_binary(id), do: id
+  defp frame_id(%{id: id}) when is_binary(id), do: id
+  defp frame_id(_frame), do: ""
+
+  defp frame_value(frame, string_key, atom_key) when is_map(frame) do
+    cond do
+      Map.has_key?(frame, string_key) -> Map.get(frame, string_key)
+      Map.has_key?(frame, atom_key) -> Map.get(frame, atom_key)
+      true -> nil
+    end
+  end
+
+  defp normalize_frame_ids(ids) when is_list(ids) do
+    ids
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp normalize_frame_ids(_ids), do: []
+
+  defp merge_frames([], updates), do: updates
+
+  defp merge_frames(previous, updates) do
+    update_by_id = Map.new(updates, fn frame -> {frame["id"], frame} end)
+    previous_ids = MapSet.new(Enum.map(previous, & &1["id"]))
+
+    replaced =
+      Enum.map(previous, fn frame ->
+        Map.get(update_by_id, frame["id"], frame)
+      end)
+
+    appended =
+      Enum.reject(updates, fn frame ->
+        MapSet.member?(previous_ids, frame["id"])
+      end)
+
+    replaced ++ appended
+  end
 
   defp refresh_ms(value) when is_integer(value), do: value |> max(@min_refresh_ms) |> min(@max_refresh_ms)
 
