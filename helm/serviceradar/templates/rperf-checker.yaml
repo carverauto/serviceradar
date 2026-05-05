@@ -33,7 +33,7 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
       - name: rperf-checker
-        image: registry.carverauto.dev/serviceradar/serviceradar-rperf-client{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "rperfClient") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-rperf-client" "service" "rperfClient") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

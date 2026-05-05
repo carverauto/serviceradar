@@ -12,7 +12,7 @@ image:
 
 bmpCollector:
   image:
-    repository: registry.carverauto.dev/serviceradar/arancini
+    repository: ""
     tag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
 
 agentGateway:
