@@ -1,6 +1,14 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $pooler := default (dict) $cnpg.pooler -}}
-{{- if and (default true $cnpg.enabled) (default false $pooler.enabled) }}
+{{- $cnpgEnabled := true -}}
+{{- if hasKey $cnpg "enabled" -}}
+{{- $cnpgEnabled = $cnpg.enabled -}}
+{{- end -}}
+{{- $create := true -}}
+{{- if hasKey $pooler "create" -}}
+{{- $create = $pooler.create -}}
+{{- end -}}
+{{- if and $cnpgEnabled (default false $pooler.enabled) $create }}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $poolerName := include "serviceradar.cnpgPoolerName" . -}}
 {{- $ha := default (dict) $pooler.ha -}}
