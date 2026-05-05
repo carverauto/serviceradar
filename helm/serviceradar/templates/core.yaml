@@ -67,7 +67,7 @@ spec:
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
       - name: core-elx
-        image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

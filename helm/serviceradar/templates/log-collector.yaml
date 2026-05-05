@@ -168,7 +168,7 @@ spec:
       {{- end }}
       containers:
       - name: log-collector
-        image: registry.carverauto.dev/serviceradar/serviceradar-log-collector{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "logCollector") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-log-collector" "service" "logCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:

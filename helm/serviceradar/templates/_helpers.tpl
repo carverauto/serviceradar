@@ -18,9 +18,25 @@ Usage: {{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core
 {{- end -}}
 
 {{/*
+Get the base registry/repository prefix for first-party ServiceRadar images.
+*/}}
+{{- define "serviceradar.imageRegistry" -}}
+{{- $image := .Values.image | default dict -}}
+{{- trimSuffix "/" (default "registry.carverauto.dev/serviceradar" $image.registry) -}}
+{{- end -}}
+
+{{/*
+Build a first-party ServiceRadar image repository.
+Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-web-ng") }}
+*/}}
+{{- define "serviceradar.imageRepository" -}}
+{{- printf "%s/%s" (include "serviceradar.imageRegistry" .) .name -}}
+{{- end -}}
+
+{{/*
 Build an image ref suffix for a service.
 Uses image.digests.<service> when set, otherwise falls back to :tag behavior.
-Usage: registry.carverauto.dev/serviceradar/serviceradar-core-elx{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "core") }}
+Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-core-elx") }}{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "core") }}
 */}}
 {{- define "serviceradar.imageRefSuffix" -}}
 {{- $image := .Values.image | default dict -}}
@@ -34,6 +50,27 @@ Usage: registry.carverauto.dev/serviceradar/serviceradar-core-elx{{ include "ser
 {{- end -}}
 {{- else -}}
 {{- printf ":%s" (include "serviceradar.imageTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Build a full first-party ServiceRadar image reference.
+Usage: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}
+*/}}
+{{- define "serviceradar.imageRef" -}}
+{{- printf "%s%s" (include "serviceradar.imageRepository" .) (include "serviceradar.imageRefSuffix" .) -}}
+{{- end -}}
+
+{{/*
+Build the default ServiceRadar CNPG image name. cnpg.imageName can still override
+the full ref when a deployment needs a bespoke database image.
+*/}}
+{{- define "serviceradar.cnpgImageName" -}}
+{{- $cnpg := .cnpg | default (default dict .Values.cnpg) -}}
+{{- if $cnpg.imageName -}}
+{{- $cnpg.imageName -}}
+{{- else -}}
+{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) (default "18.3.0-sr2-a78b3afd" $cnpg.imageTag) -}}
 {{- end -}}
 {{- end -}}
 

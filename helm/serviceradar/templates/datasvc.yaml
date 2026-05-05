@@ -34,7 +34,7 @@ spec:
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
       - name: datasvc
-        image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "datasvc") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-datasvc" "service" "datasvc") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

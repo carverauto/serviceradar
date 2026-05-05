@@ -59,7 +59,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flow-collector
-        image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "flowCollector") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-flow-collector" "service" "flowCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:

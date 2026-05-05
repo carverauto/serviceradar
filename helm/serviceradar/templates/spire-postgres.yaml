@@ -44,8 +44,8 @@
   -}}
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
-  {{- $imageRepo := default "registry.carverauto.dev/serviceradar/serviceradar-cnpg" $pg.image }}
-  {{- $imageTag := default "latest" $pg.imageTag }}
+  {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) $pg.image }}
+  {{- $imageTag := default "18.3.0-sr2-a78b3afd" $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}
