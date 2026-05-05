@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.29
+
+Dashboard light-mode fixes and Helm image-registry configurability for deployments that need to switch first-party ServiceRadar images between Harbor and GHCR.
+
+## Whats New
+
+**1.2.29**
+- Fixed the operations dashboard shell so light mode consistently updates dashboard panels, cards, map surfaces, activity feeds, chart elements, FieldSurvey previews, camera widgets, alert rows, and dashboard topbar title spacing.
+- Added Helm first-party image registry helpers and an `image.registry` value so deployments can switch ServiceRadar workload images, CNPG, and arancini from `registry.carverauto.dev/serviceradar` to `ghcr.io/carverauto` without editing templates.
+
 # ServiceRadar v1.2.27
 
 Coraza WAF log persistence fix needed to keep normalized Zen output readable after it is inserted into observability storage.
