@@ -1,5 +1,13 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## 0.1.3
+
+- Fix `dashboard dev` HMR host library injection so browser-module dashboards
+  receive `api.libraries.mapboxgl` and deck.gl constructors just like the
+  legacy harness.
+- Let `dashboard dev` read Mapbox tokens from `SERVICERADAR_MAPBOX_TOKEN` and
+  `MAPBOX_ACCESS_TOKEN` in addition to `MAPBOX_TOKEN` and `--mapbox-token`.
+
 ## 0.1.2
 
 - Fix `dashboard dev` HMR harness startup by registering the harness JS/CSS
