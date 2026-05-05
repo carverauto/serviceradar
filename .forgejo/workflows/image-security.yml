@@ -21,7 +21,7 @@ jobs:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      FORGEJO_URL: https://code.carverauto.dev
+      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
       FORGEJO_REPOSITORY: carverauto/serviceradar
       FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
     steps:

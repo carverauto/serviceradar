@@ -71,7 +71,7 @@ jobs:
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-      FORGEJO_URL: https://code.carverauto.dev
+      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
       FORGEJO_REPOSITORY: carverauto/serviceradar
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
@@ -511,7 +511,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           DRY_RUN: ${{ steps.release.outputs.dry_run }}
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          FORGEJO_URL: https://code.carverauto.dev
+          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
           FORGEJO_REPOSITORY: carverauto/serviceradar
         run: |
           set -euo pipefail
@@ -550,7 +550,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           DRAFT: ${{ steps.release.outputs.draft }}
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          FORGEJO_URL: https://code.carverauto.dev
+          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
           FORGEJO_REPOSITORY: carverauto/serviceradar
         run: |
           set -euo pipefail
@@ -585,7 +585,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          FORGEJO_URL: https://code.carverauto.dev
+          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
           FORGEJO_REPOSITORY: carverauto/serviceradar
           REQUIRE_MAC_PKG: ${{ env.REQUIRE_MAC_PKG }}
         run: |

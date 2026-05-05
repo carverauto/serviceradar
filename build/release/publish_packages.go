@@ -787,16 +787,15 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 		return errEmptyUploadURL
 	}
 
-	base := uploadURL
-	if idx := strings.Index(uploadURL, "{"); idx != -1 {
-		base = uploadURL[:idx]
-	}
-
 	name := uploadName
 	if strings.TrimSpace(name) == "" {
 		name = filepath.Base(assetPath)
 	}
-	endpoint := fmt.Sprintf("%s?name=%s", strings.TrimRight(base, "/"), url.QueryEscape(name))
+
+	endpoint, err := c.assetUploadEndpoint(uploadURL, name)
+	if err != nil {
+		return err
+	}
 
 	file, err := os.Open(assetPath)
 	if err != nil {
@@ -844,6 +843,34 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 		return fmt.Errorf("%w: %s (%s)", errForgejoUpload, resp.Status, strings.TrimSpace(string(data)))
 	}
 	return nil
+}
+
+func (c *githubClient) assetUploadEndpoint(uploadURL, uploadName string) (string, error) {
+	base := uploadURL
+	if idx := strings.Index(uploadURL, "{"); idx != -1 {
+		base = uploadURL[:idx]
+	}
+
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+
+	if parsed.IsAbs() {
+		internalBase, err := url.Parse(c.baseURL)
+		if err != nil {
+			return "", err
+		}
+		parsed.Scheme = internalBase.Scheme
+		parsed.Host = internalBase.Host
+		parsed.User = internalBase.User
+	}
+
+	values := parsed.Query()
+	values.Set("name", uploadName)
+	parsed.RawQuery = values.Encode()
+
+	return parsed.String(), nil
 }
 
 func (c *githubClient) getReleaseAssetDownloadURL(tag, assetName string) (string, error) {

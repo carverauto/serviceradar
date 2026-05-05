@@ -122,3 +122,23 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 		t.Fatalf("signature verification failed")
 	}
 }
+
+func TestAssetUploadEndpointUsesConfiguredForgejoBaseURL(t *testing.T) {
+	client := &githubClient{
+		baseURL: "http://forgejo-http.forgejo.svc.cluster.local:3000",
+		repo:    "carverauto/serviceradar",
+	}
+
+	got, err := client.assetUploadEndpoint(
+		"https://code.carverauto.dev/api/v1/repos/carverauto/serviceradar/releases/362/assets{?name,label}",
+		"serviceradar-agent-gateway.rpm",
+	)
+	if err != nil {
+		t.Fatalf("assetUploadEndpoint() error = %v", err)
+	}
+
+	want := "http://forgejo-http.forgejo.svc.cluster.local:3000/api/v1/repos/carverauto/serviceradar/releases/362/assets?name=serviceradar-agent-gateway.rpm"
+	if got != want {
+		t.Fatalf("assetUploadEndpoint() = %q, want %q", got, want)
+	}
+}

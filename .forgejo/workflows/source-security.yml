@@ -21,7 +21,7 @@ jobs:
   source-security:
     runs-on: ubuntu-24.04
     env:
-      FORGEJO_URL: https://code.carverauto.dev
+      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
       FORGEJO_REPOSITORY: carverauto/serviceradar
       FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
     steps:
