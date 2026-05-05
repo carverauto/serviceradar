@@ -367,6 +367,37 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         }
       ]
+    },
+    %{
+      section: "dashboards",
+      label: "Dashboards",
+      permissions: [
+        %{
+          key: "cli.dashboard.publish",
+          label: "Publish dashboard packages via API",
+          description:
+            "Upload a dashboard package (manifest + renderer) through the " <>
+              "/api/v1/dashboard-packages endpoint, typically from " <>
+              "serviceradar-cli dashboard publish.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "cli.dashboard.enable",
+          label: "Enable dashboard packages via API",
+          description:
+            "Flip a dashboard package live and (re)bind a route slug via " <>
+              "/api/v1/dashboard-packages/:id/enable.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "cli.dashboard.disable",
+          label: "Disable dashboard packages via API",
+          description:
+            "Take a dashboard package out of service via " <>
+              "/api/v1/dashboard-packages/:id/disable without deleting it.",
+          default_roles: @admin_roles
+        }
+      ]
     }
   ]
 

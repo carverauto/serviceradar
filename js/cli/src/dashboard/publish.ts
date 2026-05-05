@@ -91,21 +91,24 @@ export async function publishCommand(options: Record<string, any>): Promise<void
     body: form,
   })
 
+  const payload = await readJson(response)
   if (!response.ok) {
-    let detail = ""
-    try { detail = (await response.text()).slice(0, 800) } catch (_) { /* noop */ }
-    throw new Error(`publish failed: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`)
+    throw publishError("publish", response.status, payload, response.headers)
   }
 
-  const payload = await response.json().catch(() => ({}))
-  const installedId = payload?.id || payload?.dashboard_id || manifest.id
-  console.log(`✓ Published ${installedId}@${manifest.version} to ${instance}`)
+  if (payload?.result === "idempotent_noop") {
+    console.log(`✓ Re-published ${payload.dashboard_id || manifest.id}@${manifest.version} (already at this content_hash; nothing changed)`)
+  } else {
+    const installedId = payload?.id || payload?.dashboard_id || manifest.id
+    console.log(`✓ Published ${installedId}@${manifest.version} to ${instance}`)
+  }
 
   if (!options.enable) {
     console.log(`→ enable the dashboard route in the ServiceRadar UI, or rerun with --enable.`)
     return
   }
 
+  const installedId = payload?.id || payload?.dashboard_id || manifest.id
   const enableUrl = `${instance}/api/v1/dashboard-packages/${encodeURIComponent(installedId)}/enable`
   const enableResponse = await fetch(enableUrl, {
     method: "POST",
@@ -117,11 +120,63 @@ export async function publishCommand(options: Record<string, any>): Promise<void
     body: JSON.stringify({route}),
   })
 
+  const enablePayload = await readJson(enableResponse)
   if (!enableResponse.ok) {
-    let detail = ""
-    try { detail = (await enableResponse.text()).slice(0, 800) } catch (_) { /* noop */ }
-    throw new Error(`enable failed: HTTP ${enableResponse.status}${detail ? ` — ${detail}` : ""}`)
+    throw publishError("enable", enableResponse.status, enablePayload, enableResponse.headers)
   }
 
   console.log(`✓ Enabled ${installedId} at /dashboards/${route}`)
+}
+
+async function readJson(response: Response): Promise<any> {
+  // Treat any parse failure as an absent body — the controller may legitimately
+  // return an empty 204-style body or a non-JSON 5xx from a misbehaving proxy.
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
+function publishError(stage: "publish" | "enable", status: number, body: any, headers: Headers): Error {
+  // Server returns RFC-7807-style envelopes: {error, ...} for the structured
+  // error cases this proposal defines. Surface a friendly hint per case so a
+  // dashboard author doesn't have to read the raw body to recover.
+  const code = typeof body?.error === "string" ? body.error : ""
+  const hint = errorHint(stage, status, code, body, headers)
+  const detail = hint || (typeof body === "object" ? JSON.stringify(body).slice(0, 800) : String(body || "").slice(0, 800))
+  return new Error(`${stage} failed: HTTP ${status}${code ? ` ${code}` : ""}${detail ? ` — ${detail}` : ""}`)
+}
+
+function errorHint(stage: "publish" | "enable", status: number, code: string, body: any, headers: Headers): string {
+  switch (code) {
+    case "insufficient_scope":
+      return `your CLI session token is missing the "${body?.required || "dashboard.publish"}" scope — run \`serviceradar-cli auth login --instance <url>\` to mint a fresh one`
+    case "forbidden":
+      return `your account is missing the "${body?.permission || "cli.dashboard.publish"}" permission — ask an admin to grant it in Settings → Permissions`
+    case "slug_in_use":
+      return `route "${body?.route}" is already bound to "${body?.owner_dashboard_id}" — pick a different --route or have an admin disable that dashboard first`
+    case "version_already_published": {
+      const sha = body?.existing_content_hash ? ` (content_hash=${String(body.existing_content_hash).slice(0, 12)}…)` : ""
+      return `dashboard ${body?.dashboard_id || ""}@${body?.version || ""} is already published with different bytes${sha} — bump manifest.version, or run \`dashboard disable\` first`
+    }
+    case "unprocessable_renderer":
+      return `the manifest's renderer.sha256 does not match the uploaded renderer bytes — rebuild with \`serviceradar-cli dashboard build\` so the digest re-stamps`
+    case "payload_too_large":
+      return `the ${body?.part || "request"} part exceeds the server's size cap`
+    case "unsupported_media_type":
+      return `the ${body?.part || "request"} part has an unexpected content type`
+    case "invalid_route":
+      return `route "${body?.route ?? ""}" is invalid — slugs must match ${body?.reason || "[a-z0-9][a-z0-9-]{1,62}"}`
+    case "rate_limited": {
+      const retryAfter = headers.get("retry-after") || body?.retry_after
+      return retryAfter ? `rate limited; retry after ${retryAfter}s` : "rate limited"
+    }
+    case "not_found":
+      return stage === "enable" ? `dashboard package ${body?.id || "<unknown>"} not found — check the id from the publish response` : ""
+    case "verification_required":
+      return `dashboard package ${body?.id || "<unknown>"} has not been verified yet — re-publish or verify before enabling`
+    default:
+      return ""
+  }
 }

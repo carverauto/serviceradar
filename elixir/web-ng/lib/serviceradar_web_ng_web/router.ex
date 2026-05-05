@@ -112,6 +112,19 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:accepts, ["json"])
   end
 
+  # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
+  # `:api_key_auth` so the bearer token is validated first, then this plug
+  # rejects any request whose `scopes` claim does not include
+  # `dashboard.publish`. The fallback `cli.dashboard.publish` permission lets
+  # the existing Settings → Dashboard Packages LiveView upload modal continue
+  # to work (session-auth, no JWT, no `oauth_token_scope` assign).
+  pipeline :require_dashboard_publish_scope do
+    plug(ServiceRadarWebNGWeb.Plugs.RequireOauthScope,
+      scope: "dashboard.publish",
+      fallback_permission: "cli.dashboard.publish"
+    )
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     get("/health", HealthController, :ready)
     get("/health/live", HealthController, :live)
@@ -413,6 +426,18 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     post("/device", CliAuthController, :device)
     post("/token", CliAuthController, :token)
+  end
+
+  ## CLI dashboard publish (multipart upload + lifecycle).
+  # Bearer-token gated on `dashboard.publish` scope; per-action RBAC enforced
+  # inside the controller (`cli.dashboard.publish` for create,
+  # `cli.dashboard.enable` / `cli.dashboard.disable` for the lifecycle calls).
+  scope "/api/v1", ServiceRadarWebNGWeb do
+    pipe_through([:api_key_auth, :require_dashboard_publish_scope])
+
+    post("/dashboard-packages", DashboardPackagePublishController, :create)
+    post("/dashboard-packages/:id/enable", DashboardPackagePublishController, :enable)
+    post("/dashboard-packages/:id/disable", DashboardPackagePublishController, :disable)
   end
 
   ## Authentication routes

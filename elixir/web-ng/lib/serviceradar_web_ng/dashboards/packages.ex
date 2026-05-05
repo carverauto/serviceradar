@@ -52,17 +52,82 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   def import_json(manifest_json, wasm, opts \\ [])
 
   def import_json(manifest_json, wasm, opts) when is_binary(manifest_json) and is_binary(wasm) do
-    ash_opts = ash_opts(Keyword.get(opts, :scope), Keyword.get(opts, :actor))
-
-    with {:ok, manifest} <- ServiceRadar.Dashboards.Manifest.from_json(manifest_json),
-         :ok <- PackageImport.verify_artifact_digest(wasm, manifest),
-         {:ok, attrs} <- PackageImport.attrs_from_manifest(manifest, import_options(opts)),
-         {:ok, package} <- upsert_package(attrs, ash_opts) do
-      store_wasm_blob(package, wasm, attrs.content_hash, ash_opts)
+    case publish(manifest_json, wasm, opts) do
+      {:ok, %{package: package}} -> {:ok, package}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   def import_json(_manifest_json, _wasm, _opts), do: {:error, :invalid_attributes}
+
+  @typedoc """
+  Result returned by `publish/3`. The controller uses `result` to distinguish
+  a fresh write from an idempotent re-publish for audit-log purposes; the
+  LiveView path collapses this back to a `{:ok, package}` via `import_json/3`.
+  """
+  @type publish_result :: %{
+          package: DashboardPackage.t(),
+          instance: DashboardInstance.t() | nil,
+          result: :written | :idempotent_noop
+        }
+
+  @doc """
+  Canonical publish entry-point used by both the API controller and (via
+  `import_json/3`) the Settings → Dashboard Packages LiveView upload modal.
+
+  ## Options
+
+    * `:scope` / `:actor` — Ash actor (mutually exclusive in callers; either is fine).
+    * `:route_slug` — when present, the published package SHALL be bound to
+      a `DashboardInstance` row keyed on this slug. The bind enforces the
+      slug-ownership rule (no enabled row for a different `dashboard_id`).
+    * `:enable_route` — defaults to `false`. When `true` and a route slug is
+      provided, the bound instance is created with `enabled: true`. Used by the
+      enable endpoint, NOT by the publish endpoint.
+
+  ## Errors
+
+    * `{:error, {:version_already_published, %{existing_content_hash: h}}}`
+    * `{:error, {:slug_in_use, %{owner_dashboard_id: id, route_slug: slug}}}`
+    * Any error returned by `Manifest.from_json/1`, `PackageImport.verify_artifact_digest/2`,
+      or the underlying Ash actions.
+  """
+  @spec publish(binary(), binary(), keyword()) :: {:ok, publish_result()} | {:error, term()}
+  def publish(manifest_json, wasm, opts \\ [])
+
+  def publish(manifest_json, wasm, opts) when is_binary(manifest_json) and is_binary(wasm) do
+    ash_opts = ash_opts(Keyword.get(opts, :scope), Keyword.get(opts, :actor))
+    route_slug = Keyword.get(opts, :route_slug)
+    enable_route? = Keyword.get(opts, :enable_route, false)
+
+    with {:ok, manifest} <- ServiceRadar.Dashboards.Manifest.from_json(manifest_json),
+         :ok <- PackageImport.verify_artifact_digest(wasm, manifest),
+         {:ok, attrs} <- PackageImport.attrs_from_manifest(manifest, import_options(opts)),
+         {:ok, version_decision} <- check_version_overwrite(manifest, attrs, ash_opts),
+         :ok <- check_slug_ownership(route_slug, manifest, ash_opts) do
+      finalize_publish(version_decision, manifest, attrs, wasm, route_slug, enable_route?, ash_opts)
+    end
+  end
+
+  def publish(_manifest_json, _wasm, _opts), do: {:error, :invalid_attributes}
+
+  @doc """
+  Bind (or rebind) the named slug to the given package. Enforces slug-ownership.
+
+  Used by the `:id/enable` endpoint when the operator passes `{"route": <slug>}`
+  to point an existing slug at a fresh package version.
+  """
+  @spec bind_route(DashboardPackage.t(), String.t(), keyword()) ::
+          {:ok, DashboardInstance.t()} | {:error, term()}
+  def bind_route(%DashboardPackage{} = package, route_slug, opts \\ [])
+      when is_binary(route_slug) do
+    ash_opts = ash_opts(Keyword.get(opts, :scope), Keyword.get(opts, :actor))
+    enabled? = Keyword.get(opts, :enabled, true)
+
+    with :ok <- check_slug_ownership_for_package(route_slug, package, ash_opts) do
+      upsert_route_binding(package, route_slug, enabled?, ash_opts)
+    end
+  end
 
   @spec import_github(map(), keyword()) :: {:ok, DashboardPackage.t()} | {:error, term()}
   def import_github(attrs, opts \\ [])
@@ -245,6 +310,151 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   defp require_verified(%DashboardPackage{verification_status: "verified"}), do: :ok
   defp require_verified(_package), do: {:error, :verification_required}
+
+  # Version-overwrite enforcement: same (dashboard_id, version) re-push.
+  # Returns {:ok, decision} where decision is one of:
+  #   {:fresh}                      — no existing row; proceed normally.
+  #   {:idempotent, package}        — existing row, same content_hash. Skip blob write.
+  #   {:reset, package, attrs}      — existing row is :disabled with different bytes;
+  #                                   allow but force verification_status: "pending".
+  # Returns {:error, {:version_already_published, ...}} when an enabled or verified
+  # row's content would silently change under operator browsers.
+  defp check_version_overwrite(manifest, attrs, ash_opts) do
+    case fetch_existing_version(manifest.id, manifest.version, ash_opts) do
+      {:ok, nil} ->
+        {:ok, {:fresh}}
+
+      {:ok, %DashboardPackage{content_hash: hash} = existing} when hash == attrs.content_hash ->
+        {:ok, {:idempotent, existing}}
+
+      {:ok, %DashboardPackage{status: status, verification_status: vs} = existing}
+      when status in [:enabled, :revoked] or vs == "verified" ->
+        {:error,
+         {:version_already_published,
+          %{
+            dashboard_id: existing.dashboard_id,
+            version: existing.version,
+            existing_content_hash: existing.content_hash
+          }}}
+
+      {:ok, %DashboardPackage{} = _existing} ->
+        # Disabled (and not verified) — allow overwrite but reset verification.
+        {:ok, {:reset, Map.merge(attrs, %{verification_status: "pending", verification_error: nil})}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp fetch_existing_version(dashboard_id, version, ash_opts) do
+    query =
+      DashboardPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(dashboard_id == ^dashboard_id and version == ^version)
+
+    case ash_opts do
+      [] -> Ash.read_one(query)
+      opts -> Ash.read_one(query, opts)
+    end
+  end
+
+  # Slug-ownership enforcement: any enabled DashboardInstance row for this slug
+  # must already belong to the same dashboard_id, OR no row may exist for it.
+  defp check_slug_ownership(nil, _manifest, _ash_opts), do: :ok
+
+  defp check_slug_ownership(slug, manifest, ash_opts) when is_binary(slug) do
+    case fetch_enabled_instance_for_slug(slug, ash_opts) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: id}}}
+      when id == manifest.id ->
+        :ok
+
+      {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: owner}}} ->
+        {:error, {:slug_in_use, %{owner_dashboard_id: owner, route_slug: slug}}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp check_slug_ownership_for_package(slug, %DashboardPackage{dashboard_id: id}, ash_opts) do
+    case fetch_enabled_instance_for_slug(slug, ash_opts) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: owner}}}
+      when owner == id ->
+        :ok
+
+      {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: owner}}} ->
+        {:error, {:slug_in_use, %{owner_dashboard_id: owner, route_slug: slug}}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp fetch_enabled_instance_for_slug(slug, ash_opts) do
+    query =
+      DashboardInstance
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(route_slug == ^slug and enabled == true)
+      |> Ash.Query.load(:dashboard_package)
+
+    case ash_opts do
+      [] -> Ash.read_one(query)
+      opts -> Ash.read_one(query, opts)
+    end
+  end
+
+  defp finalize_publish({:idempotent, %DashboardPackage{} = package}, _manifest, _attrs, _wasm,
+         route_slug, enable_route?, ash_opts) do
+    # Nothing to write on the package side — blob is already there with matching SHA.
+    # The slug binding may or may not exist; honor the route opt either way.
+    with {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
+      {:ok, %{package: package, instance: instance, result: :idempotent_noop}}
+    end
+  end
+
+  defp finalize_publish({:fresh}, _manifest, attrs, wasm, route_slug, enable_route?, ash_opts) do
+    do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
+  end
+
+  defp finalize_publish({:reset, attrs}, _manifest, _orig_attrs, wasm, route_slug, enable_route?,
+         ash_opts) do
+    do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
+  end
+
+  defp do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts) do
+    with {:ok, package} <- upsert_package(attrs, ash_opts),
+         {:ok, package} <- store_wasm_blob(package, wasm, attrs.content_hash, ash_opts),
+         {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
+      {:ok, %{package: package, instance: instance, result: :written}}
+    end
+  end
+
+  defp maybe_bind_route(_package, nil, _enable_route?, _ash_opts), do: {:ok, nil}
+
+  defp maybe_bind_route(%DashboardPackage{} = package, slug, enable_route?, ash_opts)
+       when is_binary(slug) do
+    upsert_route_binding(package, slug, enable_route?, ash_opts)
+  end
+
+  defp upsert_route_binding(%DashboardPackage{} = package, slug, enabled?, ash_opts) do
+    attrs = %{
+      dashboard_package_id: package.id,
+      route_slug: slug,
+      name: package.name || package.dashboard_id,
+      enabled: enabled? == true,
+      placement: :dashboard
+    }
+
+    DashboardInstance
+    |> Ash.Changeset.for_create(:upsert, attrs)
+    |> create_resource_with_opts(ash_opts)
+  end
 
   defp validate_instance_settings(%DashboardPackage{} = package, attrs) do
     settings_schema = package.settings_schema || %{}

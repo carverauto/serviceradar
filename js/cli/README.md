@@ -60,6 +60,42 @@ side, the CLI falls back to manual token paste. Tokens persist to
 `auth status` prints the resolved identity without leaking the token.
 `auth logout` removes a credential entry.
 
+## Publish
+
+`serviceradar-cli dashboard publish --instance <url> [--route <slug>] [--enable] [--yes]`
+posts the built manifest + renderer to `/api/v1/dashboard-packages` as a
+multipart upload. The bearer JWT must carry the `dashboard.publish` scope
+(minted by `auth login`) and the user must hold the `cli.dashboard.publish`
+RBAC permission.
+
+Behavior worth knowing about:
+
+- **Idempotent re-publish.** Pushing the same `manifest.id@version` whose
+  renderer SHA256 matches the persisted `content_hash` is a no-op: the CLI
+  prints `✓ Re-published … (already at this content_hash; nothing
+  changed)` and the server returns `result: "idempotent_noop"`. Safe to
+  retry.
+- **Version overwrite is rejected.** Pushing the same `id@version` with
+  different bytes against an enabled or verified package returns 409
+  `version_already_published`. Bump `manifest.version`, or run
+  `dashboard disable` first.
+- **Slug ownership.** A `--route <slug>` belongs to one `dashboard_id` while
+  enabled. Trying to bind a slug that's already enabled for a different
+  dashboard returns 409 `slug_in_use` with the conflicting `owner_dashboard_id`.
+  Pick a different `--route` or have an admin disable the existing dashboard
+  first.
+- **Slug regex.** Slugs must match `^[a-z0-9][a-z0-9-]{1,62}$`; anything
+  else returns 400 `invalid_route`.
+- **Per-token rate limit.** 10 publishes/minute/JWT (429 + `Retry-After`),
+  30/min for enable/disable.
+- **Disable is symmetric.** `serviceradar-cli` does not ship `dashboard
+  disable` directly today; use the API at
+  `POST /api/v1/dashboard-packages/:id/disable` or the Settings UI.
+
+The CLI surfaces structured server errors with actionable hints for each
+of these cases — the raw HTTP status and `error` code are also included so
+they can be parsed by automation.
+
 ## Repository structure
 
 ```text

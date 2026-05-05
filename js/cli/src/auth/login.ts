@@ -103,25 +103,51 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
 
   const tokenUrl = `${instance}/api/v1/cli/auth/token`
   const deadline = Date.now() + expiresInMs
+  let pollIntervalMs = interval
   while (Date.now() < deadline) {
-    await new Promise((res) => setTimeout(res, interval))
+    await new Promise((res) => setTimeout(res, pollIntervalMs))
     const pollResponse = await fetch(tokenUrl, {
       method: "POST",
       headers: {"content-type": "application/json"},
       body: JSON.stringify({grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: deviceCode}),
     })
+
+    let body: any = null
+    try {
+      body = await pollResponse.json()
+    } catch {
+      // Non-JSON body — fall through; status-only handling below.
+    }
+
+    // RFC 8628 §3.5: pending/slow_down/access_denied/expired_token all come
+    // back as HTTP 400 with an `error` field in the JSON body. Branch on the
+    // body's `error` first so we don't treat polling-while-pending as fatal.
+    if (pollResponse.status === 400 && body && typeof body.error === "string") {
+      if (body.error === "authorization_pending") continue
+      if (body.error === "slow_down") {
+        pollIntervalMs += 5_000
+        continue
+      }
+      if (body.error === "access_denied") throw new Error("device login was denied")
+      if (body.error === "expired_token") throw new Error("device code expired before login completed")
+      throw new Error(`token poll failed: ${body.error}${body.error_description ? ` — ${body.error_description}` : ""}`)
+    }
+
+    // Some legacy/proxy flavors may use 428/425/410/403 instead of RFC 8628's
+    // 400+error envelope. Keep handling them so older instances still work.
     if (pollResponse.status === 428 || pollResponse.status === 425) continue
     if (pollResponse.status === 410) throw new Error("device code expired before login completed")
     if (pollResponse.status === 403) throw new Error("device login was denied")
+
     if (!pollResponse.ok) throw new Error(`token poll failed: HTTP ${pollResponse.status}`)
-    const tokenPayload = await pollResponse.json()
-    if (!tokenPayload.access_token) continue
+
+    if (!body || !body.access_token) continue
     return {
-      token: String(tokenPayload.access_token),
-      user: tokenPayload.user || tokenPayload.email || "",
+      token: String(body.access_token),
+      user: extractUserLabel(body),
       obtained_at: new Date().toISOString(),
-      expires_at: tokenPayload.expires_at
-        || (tokenPayload.expires_in ? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString() : ""),
+      expires_at: body.expires_at
+        || (body.expires_in ? new Date(Date.now() + Number(body.expires_in) * 1000).toISOString() : ""),
     }
   }
 
@@ -231,7 +257,7 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
 
   return {
     token: String(tokenPayload.access_token),
-    user: tokenPayload.user || tokenPayload.email || "",
+    user: extractUserLabel(tokenPayload),
     obtained_at: new Date().toISOString(),
     expires_at: tokenPayload.expires_at
       || (tokenPayload.expires_in ? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString() : ""),
@@ -285,6 +311,19 @@ function startPkceCallbackServer(_expectedState: string): Promise<PkceServerHand
       resolveSetup({server, port, callbackPromise})
     })
   })
+}
+
+function extractUserLabel(body: any): string {
+  // The token endpoint may return `user` as a nested {id, email} object, a
+  // bare string, or omit it entirely. Pick a human-friendly label.
+  if (body == null) return ""
+  if (typeof body.user === "string") return body.user
+  if (body.user && typeof body.user === "object") {
+    if (typeof body.user.email === "string") return body.user.email
+    if (typeof body.user.id === "string") return body.user.id
+  }
+  if (typeof body.email === "string") return body.email
+  return ""
 }
 
 function base64UrlEncode(buf: Buffer | Uint8Array): string {
