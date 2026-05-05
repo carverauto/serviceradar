@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.30
+
+Helm upgrade hotfix for production installs that need the demo high-availability control-plane profile without hand-editing chart templates.
+
+## Whats New
+
+**1.2.30**
+- Fixed single-replica NATS chart rendering so it no longer enables clustered JetStream with an empty route set, avoiding startup failures like `JetStream cluster requires configured routes`.
+- Added `helm/serviceradar/values-ha.yaml`, a production-oriented HA overlay that enables three NATS replicas, CNPG PgBouncer Pooler, three-pod control-plane replicas, and the TCP syslog collector while keeping stateful flow collector ingress single-replica.
+
 # ServiceRadar v1.2.29
 
 Dashboard light-mode fixes and Helm image-registry configurability for deployments that need to switch first-party ServiceRadar images between Harbor and GHCR.
