@@ -67,7 +67,7 @@ natsCreds:
   system: ""
   operator: ""
 nats:
-  replicas: 1
+  replicas: 3
   clusterName: "serviceradar"
   jetstream:
     maxMemoryStore: 1G
@@ -154,7 +154,7 @@ observability:
       folder: ServiceRadar
 
 core:
-  replicas: 1
+  replicas: 3
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
   clusterStrategy: "dns"
@@ -447,6 +447,9 @@ cnpg:
     - age
     - pg_stat_statements
   postgresqlParameters:
+    max_connections: "500"
+    shared_buffers: "1GB"
+    work_mem: "16MB"
     log_min_duration_statement: "500ms"
     log_lock_waits: "on"
     deadlock_timeout: "1s"
@@ -480,9 +483,12 @@ cnpg:
   # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
   pooler:
-    # CNPG-managed PgBouncer pooler. Disabled by default to preserve existing
-    # direct-to-CNPG behavior unless operators explicitly opt in.
-    enabled: false
+    # CNPG-managed PgBouncer pooler for web/core traffic.
+    # Set enabled=false to route all workloads directly to CNPG.
+    enabled: true
+    # Set false to route workloads through an existing/admin-managed Pooler
+    # service without Helm managing the Pooler custom resource.
+    create: true
     # Defaults to <cnpg.clusterName>-pooler-rw when empty.
     name: ""
     # Override generated service DNS only when using an externally managed pooler.
@@ -527,7 +533,9 @@ cnpg:
 # might need local lookups (web-ng). Enrichment should never do external API calls
 # at query time.
 geoipMmdb:
-  enabled: true
+  # Disabled by default because the bundled claim is ReadWriteOnce. Enable only
+  # with a single web-ng replica, an existing RWX claim, or an external updater.
+  enabled: false
   basePath: "/var/lib/serviceradar/geoip"
   existingClaim: ""
   accessModes:
@@ -535,7 +543,7 @@ geoipMmdb:
   size: 1Gi
   storageClassName: ""
 webNg:
-  replicas: 1
+  replicas: 3
   database:
     poolSize: 10
     queueTargetMs: 2000
@@ -616,7 +624,7 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
-    backend: "file"
+    backend: "jetstream"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     accessModes:
@@ -624,7 +632,7 @@ webNg:
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
-    jetstreamReplicas: 1
+    jetstreamReplicas: 3
 agent:
   enabled: true
   agentId: "k8s-agent"
@@ -650,7 +658,7 @@ agent:
       memory: 512Mi
 agentGateway:
   enabled: true
-  replicas: 1
+  replicas: 3
   gatewayId: "gateway-platform"
   partitionId: "default"
   domain: "default"
@@ -679,55 +687,55 @@ agentGateway:
       cpu: "200m"
       memory: "512Mi"
 dbEventWriter:
-  replicaCount: 1
-  cnpgMaxConnections: 32
+  replicaCount: 3
+  cnpgMaxConnections: 4
   # Enable database migrations on startup (creates otel_traces, logs, etc. tables)
-  enableMigrations: true
+  enableMigrations: false
   # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
   configSource: file
   kvBootstrap:
     enabled: true
   data:
-    enabled: true
+    enabled: false
     accessModes:
       - ReadWriteOnce
     size: 5Gi
     storageClassName: ""
 datasvc:
-  replicaCount: 1
+  replicaCount: 3
   # Replica count for datasvc-owned JetStream streams (KV/object metadata).
-  jetstreamReplicas: 1
+  jetstreamReplicas: 3
   # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
-  bucketMaxBytes: 5368709120
+  bucketMaxBytes: "5368709120"
   # Reserved capacity for the object metadata stream (OBJ_serviceradar-objects).
-  objectMaxBytes: 536870912
+  objectMaxBytes: "536870912"
   # Object-store budget exposed to datasvc config; keep this aligned with the
   # object stream reservation unless you intentionally want a tighter logical limit.
-  objectStoreBytes: 2147483648
+  objectStoreBytes: "2147483648"
   data:
-    enabled: true
+    enabled: false
     accessModes:
       - ReadWriteOnce
     size: 5Gi
     storageClassName: ""
 zen:
-  replicaCount: 1
+  replicaCount: 3
   # zen shares the JetStream durable consumers used for event normalization.
-  streamReplicas: 1
+  streamReplicas: 3
   data:
-    enabled: true
+    enabled: false
     accessModes:
       - ReadWriteOnce
     size: 5Gi
     storageClassName: ""
 logCollector:
-  replicaCount: 1
+  replicaCount: 3
   # Shared "events" stream replica count for OTEL/syslog writers.
-  streamReplicas: 1
+  streamReplicas: 3
   # Reserved capacity for the shared "events" stream.
   streamMaxBytes: 2147483648
   data:
-    enabled: true
+    enabled: false
     existingClaim: ""
     accessModes:
       - ReadWriteOnce
@@ -778,10 +786,10 @@ logCollector:
         targetPort: 2055
         protocol: UDP
   tcpCollector:
-    enabled: false
-    replicaCount: 1
+    enabled: true
+    replicaCount: 3
     # TCP syslog also publishes into the shared "events" stream.
-    streamReplicas: 1
+    streamReplicas: 3
     listen: "0.0.0.0:514"
     format: "rfc3164"
     framing: "line"
@@ -817,9 +825,9 @@ logCollector:
         memory: "512Mi"
         cpu: "500m"
 trapd:
-  replicaCount: 1
+  replicaCount: 3
   # trapd publishes into the shared "events" stream.
-  streamReplicas: 1
+  streamReplicas: 3
   # External service configuration for SNMP trap ingestion from outside the cluster.
   # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
   externalService:
@@ -838,14 +846,14 @@ flowCollector:
   enabled: false
   replicaCount: 1
   # flow-collector publishes raw flow subjects into the shared "events" stream.
-  streamReplicas: 1
+  streamReplicas: 3
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "events"
     # Reserved capacity for the shared "events" stream when flow collectors reconcile it.
     stream_max_bytes: 10737418240
-    stream_replicas: 1
+    stream_replicas: 3
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
