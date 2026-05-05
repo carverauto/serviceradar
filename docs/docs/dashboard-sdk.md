@@ -7,21 +7,19 @@ description: React-first SDK for browser-module dashboards loaded by ServiceRada
 
 # Dashboard SDK
 
-`@serviceradar/dashboard-sdk` is the customer-facing surface for building
-browser-module dashboards that ServiceRadar imports, verifies, and renders.
+`@carverauto/serviceradar-dashboard-sdk` is the customer-facing surface for
+building browser-module dashboards that ServiceRadar imports, verifies, and renders.
 Dashboards ship from a customer repository as a signed `renderer.js` artifact
 plus a manifest; ServiceRadar handles the host shell, SRQL execution, frame
 transport, theme, navigation, and Mapbox/deck.gl injection.
-
-The reference implementation is the Example Network Map at `~/src/wifi-dashboard`.
 
 ## Canonical reference
 
 The canonical Dashboard SDK reference — including the React hook surface
 (`useDashboardQueryState`, `useFrameRows`, `useFilterState`, `useIndexedRows`,
-`useDeckMap`, `useDeckLayers`, `useMapPopup`), the composed Example pattern, the
-Arrow IPC and SRQL primitives, the WASM render-model path, and the local
-harness — lives on the ServiceRadar developer portal:
+`useMapboxMap`, `useDeckMap`, `useDeckLayers`, `useMapPopup`), composed map
+patterns, the Arrow IPC and SRQL primitives, the WASM render-model path, and
+the local harness — lives on the ServiceRadar developer portal:
 
 [**Dashboard SDK on developer.serviceradar.cloud**](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk)
 
@@ -44,5 +42,4 @@ against them.
 ## Repositories
 
 - SDK source: <https://code.carverauto.dev/carverauto/serviceradar-sdk-dashboard>
-- Reference dashboard: <https://code.carverauto.dev/carverauto/wifi-dashboard>
 - Developer portal: <https://developer.serviceradar.cloud>
