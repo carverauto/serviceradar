@@ -27,6 +27,15 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
+          {{- range .Values.ingress.websocketPaths }}
+          - path: {{ . | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
+          {{- end }}
           - path: /api/query
             pathType: Prefix
             backend:
