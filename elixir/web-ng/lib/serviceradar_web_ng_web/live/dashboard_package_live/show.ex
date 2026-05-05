@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
@@ -142,7 +143,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:query_text, first_frame_query(data_frames))
       |> assign(:dashboard_limit, 500)
       |> assign_dashboard_srql(first_frame_query(data_frames))
-      |> assign(:host_payload_json, Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox)))
+      |> assign(
+        :host_payload_json,
+        Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox, socket.assigns.frame_query_overrides))
+      )
 
     {:noreply, socket}
   end
@@ -222,9 +226,39 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
            Dashboards.get_enabled_instance_by_slug(route_slug, scope: scope) do
       package = instance.dashboard_package
       data_frames = apply_frame_query_overrides(package.data_frames || [], overrides)
-      frames = FrameRunner.run(data_frames, scope)
+      initial_data_frames = initial_data_frames(data_frames)
+      frames = FrameRunner.run(initial_data_frames, scope)
       mapbox = read_mapbox(scope)
       {:ok, instance, data_frames, frames, mapbox}
+    end
+  end
+
+  defp initial_data_frames(data_frames) when is_list(data_frames) do
+    required_frames = Enum.filter(data_frames, &required_frame?/1)
+
+    case required_frames do
+      [] -> Enum.take(data_frames, 1)
+      frames -> frames
+    end
+  end
+
+  defp initial_data_frames(_data_frames), do: []
+
+  defp required_frame?(frame) when is_map(frame) do
+    case frame_value(frame, "required", :required) do
+      false -> false
+      "false" -> false
+      _ -> true
+    end
+  end
+
+  defp required_frame?(_frame), do: true
+
+  defp frame_value(frame, string_key, atom_key) when is_map(frame) do
+    cond do
+      Map.has_key?(frame, string_key) -> Map.get(frame, string_key)
+      Map.has_key?(frame, atom_key) -> Map.get(frame, atom_key)
+      true -> nil
     end
   end
 
@@ -286,7 +320,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     push_patch(socket, to: to)
   end
 
-  defp host_payload(%DashboardInstance{} = instance, %DashboardPackage{} = package, data_frames, frames, mapbox) do
+  defp host_payload(
+         %DashboardInstance{} = instance,
+         %DashboardPackage{} = package,
+         data_frames,
+         frames,
+         mapbox,
+         overrides
+       ) do
     %{
       "host" => %{
         "version" => "dashboard-host-v1",
@@ -296,7 +337,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "version" => "dashboard-data-v1",
         "frames" => Enum.map(frames, &frame_summary/1),
         "stream_topic" => "dashboards:#{instance.route_slug}",
-        "stream_token" => DashboardFrameChannel.stream_token(instance.route_slug, data_frames),
+        "stream_token" =>
+          DashboardFrameChannel.stream_token(instance.route_slug, data_frames, active_optional_frame_ids(overrides)),
         "refresh_interval_ms" => 15_000
       },
       "mapbox" => %{
@@ -346,6 +388,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   defp maybe_put_first_query(overrides, ""), do: overrides
   defp maybe_put_first_query(overrides, query), do: Map.put(overrides, "__first__", query)
 
+  defp active_optional_frame_ids(overrides) when is_map(overrides) do
+    overrides
+    |> Map.keys()
+    |> Enum.reject(&(&1 == "__first__"))
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp active_optional_frame_ids(_overrides), do: []
+
   defp apply_frame_query_overrides(data_frames, overrides) when is_list(data_frames) do
     data_frames
     |> Enum.with_index()
@@ -387,10 +440,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   defp row_count(results) when is_list(results), do: length(results)
   defp row_count(_results), do: 0
 
-  defp read_mapbox(nil), do: nil
-
-  defp read_mapbox(scope) do
-    case MapboxSettings.get_settings(scope: scope) do
+  defp read_mapbox(_scope) do
+    case MapboxSettings.get_settings(actor: SystemActor.system(:dashboard_package_host)) do
       {:ok, %MapboxSettings{} = settings} -> settings
       _ -> nil
     end

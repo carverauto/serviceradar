@@ -1,6 +1,3 @@
-import mapboxgl from "mapbox-gl"
-import {ArcLayer, LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
-import {MapboxOverlay} from "@deck.gl/mapbox"
 import {Socket} from "phoenix"
 
 const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
@@ -11,6 +8,25 @@ const DEFAULT_RENDERER_BOOT_TIMEOUT_MS = 10000
 const DASHBOARD_WASM_INTERFACE = "dashboard-wasm-v1"
 const DASHBOARD_BROWSER_MODULE_INTERFACE = "dashboard-browser-module-v1"
 const MAX_MERCATOR_LAT = 85.05112878
+
+let mapDependenciesPromise = null
+
+async function loadMapDependencies() {
+  mapDependenciesPromise ||= Promise.all([
+    import("mapbox-gl"),
+    import("@deck.gl/layers"),
+    import("@deck.gl/mapbox"),
+  ]).then(([mapboxModule, layerModule, mapboxDeckModule]) => ({
+    mapboxgl: mapboxModule.default || mapboxModule,
+    ArcLayer: layerModule.ArcLayer,
+    LineLayer: layerModule.LineLayer,
+    ScatterplotLayer: layerModule.ScatterplotLayer,
+    TextLayer: layerModule.TextLayer,
+    MapboxOverlay: mapboxDeckModule.MapboxOverlay,
+  }))
+
+  return mapDependenciesPromise
+}
 
 function rasterStyle(dark) {
   const mode = dark ? "dark" : "light"
@@ -314,6 +330,12 @@ const DashboardWasmHost = {
     const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
     const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
     if (!currentUrl || currentUrl !== nextUrl) return false
+    const currentStreamToken = this._host?.data_provider?.stream_token || ""
+    const currentStreamTopic = this._host?.data_provider?.stream_topic || ""
+    const nextStreamToken = nextHost?.data_provider?.stream_token || ""
+    const nextStreamTopic = nextHost?.data_provider?.stream_topic || ""
+    const shouldReconnectFrameStream =
+      currentStreamToken !== nextStreamToken || currentStreamTopic !== nextStreamTopic
 
     const currentFrames = Array.isArray(this._host.package?.frames) ? this._host.package.frames : []
     const nextFrames = Array.isArray(nextHost.package?.frames) ? nextHost.package.frames : []
@@ -330,6 +352,10 @@ const DashboardWasmHost = {
     }
     this._hostPayloadSignature = signature
     this.notifyFrameUpdate({frames: currentFrames, host_update: true})
+    if (shouldReconnectFrameStream) {
+      this.disconnectFrameStream()
+      this.connectFrameStream(this._host)
+    }
     return true
   },
 
@@ -436,6 +462,8 @@ const DashboardWasmHost = {
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-browser-module")
     this._host = host
+    this._dashboardLibraries = await loadMapDependencies()
+    if (this.cancelled) return
 
     const mounted = await withTimeout(
       Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
@@ -585,14 +613,7 @@ const DashboardWasmHost = {
         },
       },
       mapbox: () => (capabilityAllowed("map.basemap.read") ? host?.mapbox || {} : {}),
-      libraries: {
-        mapboxgl,
-        MapboxOverlay,
-        ArcLayer,
-        LineLayer,
-        ScatterplotLayer,
-        TextLayer,
-      },
+      libraries: this._dashboardLibraries || {loadDependencies: loadMapDependencies},
       onThemeChange: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -749,7 +770,9 @@ const DashboardWasmHost = {
     const token = host?.data_provider?.stream_token
     if (!topic || !token || this._frameChannel || this.cancelled) return
 
-    this._frameSocket = new Socket("/socket", {params: {}})
+    const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
+
+    this._frameSocket = new Socket("/socket", {params: {_csrf_token: csrfToken}})
     this._frameSocket.connect()
     this._frameChannel = this._frameSocket.channel(topic, {
       token,
@@ -1067,18 +1090,27 @@ const DashboardWasmHost = {
     this.el.appendChild(this._mapContainer)
   },
 
-  createMap() {
+  async createMap() {
     const mapbox = this._host?.mapbox || {}
     const useMapbox = shouldUseMapbox(mapbox)
     const style = this.currentStyle(useMapbox)
     const initialViewState = this.initialViewState()
+    const libraries = await loadMapDependencies()
+    if (this.cancelled) return
+
+    this._mapboxgl = libraries.mapboxgl
+    this._MapboxOverlay = libraries.MapboxOverlay
+    this._ArcLayer = libraries.ArcLayer
+    this._LineLayer = libraries.LineLayer
+    this._ScatterplotLayer = libraries.ScatterplotLayer
+    this._TextLayer = libraries.TextLayer
 
     if (useMapbox) {
-      mapboxgl.accessToken = mapbox.access_token
+      this._mapboxgl.accessToken = mapbox.access_token
     }
 
     try {
-      this._map = new mapboxgl.Map({
+      this._map = new this._mapboxgl.Map({
         container: this._mapContainer,
         style,
         center: [initialViewState.longitude, initialViewState.latitude],
@@ -1094,7 +1126,7 @@ const DashboardWasmHost = {
       return
     }
 
-    this._map.addControl(new mapboxgl.NavigationControl({showCompass: true}), "top-right")
+    this._map.addControl(new this._mapboxgl.NavigationControl({showCompass: true}), "top-right")
     this._map.once("webglcontextlost", () => this.handleRenderingUnavailable())
     this._map.getCanvas?.()?.addEventListener?.("webglcontextlost", () => this.handleRenderingUnavailable(), {once: true})
 
@@ -1117,7 +1149,7 @@ const DashboardWasmHost = {
 
   createDeckOverlay() {
     try {
-      this._overlay = new MapboxOverlay({
+      this._overlay = new this._MapboxOverlay({
         interleaved: false,
         onError: (error) => {
           console.warn("[DashboardWasmHost] deck error:", error?.message || error)
@@ -1164,7 +1196,7 @@ const DashboardWasmHost = {
     const id = String(layer?.id || `${type}-${Math.random().toString(16).slice(2)}`)
 
     if (type === "scatterplot") {
-      return new ScatterplotLayer({
+      return new this._ScatterplotLayer({
         id,
         data,
         pickable: layer.pickable !== false,
@@ -1180,7 +1212,7 @@ const DashboardWasmHost = {
     }
 
     if (type === "text") {
-      return new TextLayer({
+      return new this._TextLayer({
         id,
         data,
         pickable: layer.pickable === true,
@@ -1198,7 +1230,7 @@ const DashboardWasmHost = {
     }
 
     if (type === "line") {
-      return new LineLayer({
+      return new this._LineLayer({
         id,
         data,
         pickable: layer.pickable === true,
@@ -1210,7 +1242,7 @@ const DashboardWasmHost = {
     }
 
     if (type === "arc") {
-      return new ArcLayer({
+      return new this._ArcLayer({
         id,
         data,
         pickable: layer.pickable === true,
@@ -1412,7 +1444,7 @@ const DashboardWasmHost = {
         this._popup?.remove()
       } catch (_error) {}
 
-      this._popup = new mapboxgl.Popup({offset: 18, closeButton: true})
+      this._popup = new this._mapboxgl.Popup({offset: 18, closeButton: true})
         .setLngLat(position)
         .setHTML(this.popupHtml(row, layerModel.popup || {}))
         .addTo(this._map)
@@ -1499,7 +1531,7 @@ const DashboardWasmHost = {
       return
     }
 
-    const bounds = positions.reduce((acc, coord) => acc.extend(coord), new mapboxgl.LngLatBounds(positions[0], positions[0]))
+    const bounds = positions.reduce((acc, coord) => acc.extend(coord), new this._mapboxgl.LngLatBounds(positions[0], positions[0]))
     this._map.fitBounds(bounds, {padding: 72, duration: 0, maxZoom: numberOr(this._renderModel?.max_fit_zoom, 8)})
     this.setViewState(
       {

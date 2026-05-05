@@ -145,14 +145,35 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
         scope = Scope.for_user(user)
         conn = assign_scope(conn, scope, user)
 
-        # Check if this is an OAuth client credential token (typ=api with client_id)
+        # Surface the JWT id for downstream auditing (CLI session record_use,
+        # dashboard publish events) without re-decoding the token.
         conn =
-          if claims["typ"] == "api" && claims["client_id"] do
+          if is_binary(claims["jti"]) do
+            assign(conn, :jwt_jti, claims["jti"])
+          else
             conn
-            |> assign(:oauth_client_id, claims["client_id"])
-            # OAuth uses a space-separated scope string in responses; internally we
-            # use the Guardian "scopes" claim (list), so normalize.
-            |> assign(:oauth_token_scope, oauth_scope_string(claims))
+          end
+
+        # Any `typ: "api"` token may carry a `scopes` claim — both the OAuth
+        # client_credentials path (which also sets `client_id`) and the
+        # cli-device-auth path (user-bound, no `client_id`). Surface the scope
+        # string for `RequireOauthScope` to gate publish-style routes uniformly.
+        conn =
+          if claims["typ"] == "api" do
+            scope_string = oauth_scope_string(claims)
+
+            conn =
+              if claims["client_id"] do
+                assign(conn, :oauth_client_id, claims["client_id"])
+              else
+                conn
+              end
+
+            if scope_string != "" do
+              assign(conn, :oauth_token_scope, scope_string)
+            else
+              conn
+            end
           else
             conn
           end

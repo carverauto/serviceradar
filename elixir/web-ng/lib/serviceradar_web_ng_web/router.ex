@@ -112,6 +112,19 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:accepts, ["json"])
   end
 
+  # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
+  # `:api_key_auth` so the bearer token is validated first, then this plug
+  # rejects any request whose `scopes` claim does not include
+  # `dashboard.publish`. The fallback `cli.dashboard.publish` permission lets
+  # the existing Settings → Dashboard Packages LiveView upload modal continue
+  # to work (session-auth, no JWT, no `oauth_token_scope` assign).
+  pipeline :require_dashboard_publish_scope do
+    plug(ServiceRadarWebNGWeb.Plugs.RequireOauthScope,
+      scope: "dashboard.publish",
+      fallback_permission: "cli.dashboard.publish"
+    )
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     get("/health", HealthController, :ready)
     get("/health/live", HealthController, :live)
@@ -403,6 +416,30 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/token", OAuthController, :token)
   end
 
+  ## CLI device-code auth (RFC 8628)
+  # No session auth — these are called directly from @carverauto/serviceradar-cli.
+  # The /cli/auth/device LiveView (browser-side approval) lives in the
+  # browser scope below.
+
+  scope "/api/v1/cli/auth", ServiceRadarWebNGWeb do
+    pipe_through(:api_token_auth)
+
+    post("/device", CliAuthController, :device)
+    post("/token", CliAuthController, :token)
+  end
+
+  ## CLI dashboard publish (multipart upload + lifecycle).
+  # Bearer-token gated on `dashboard.publish` scope; per-action RBAC enforced
+  # inside the controller (`cli.dashboard.publish` for create,
+  # `cli.dashboard.enable` / `cli.dashboard.disable` for the lifecycle calls).
+  scope "/api/v1", ServiceRadarWebNGWeb do
+    pipe_through([:api_key_auth, :require_dashboard_publish_scope])
+
+    post("/dashboard-packages", DashboardPackagePublishController, :create)
+    post("/dashboard-packages/:id/enable", DashboardPackagePublishController, :enable)
+    post("/dashboard-packages/:id/disable", DashboardPackagePublishController, :disable)
+  end
+
   ## Authentication routes
   # Password login, logout, and password reset
 
@@ -505,6 +542,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/diagnostics/mtr/:trace_id", DiagnosticsLive.MtrTrace, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
+      live("/settings/cli-sessions", Settings.CliSessionsLive, :index)
+      live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users
@@ -595,6 +634,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live("/users/log-in", AuthLive.SignIn, :sign_in)
       live("/auth/local", AuthLive.LocalSignIn, :local_sign_in)
+      # CLI device-code approval — handles its own redirect-to-log-in so
+      # the user_code stays pinned through authentication.
+      live("/cli/auth/device", CliDeviceAuthorizeLive)
     end
   end
 

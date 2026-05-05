@@ -145,9 +145,17 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   end
 
   defp required?(frame) do
-    case frame["required"] || frame[:required] do
+    case frame_value(frame, "required", :required) do
       false -> false
       _ -> true
+    end
+  end
+
+  defp frame_value(frame, string_key, atom_key) when is_map(frame) do
+    cond do
+      Map.has_key?(frame, string_key) -> Map.get(frame, string_key)
+      Map.has_key?(frame, atom_key) -> Map.get(frame, atom_key)
+      true -> nil
     end
   end
 

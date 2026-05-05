@@ -318,6 +318,86 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         }
       ]
+    },
+    %{
+      section: "cli",
+      label: "CLI Sessions",
+      permissions: [
+        %{
+          key: "cli.session.create",
+          label: "Approve CLI device authorizations",
+          description:
+            "Approve a pending serviceradar-cli device-code request, " <>
+              "issuing a long-lived bearer token bound to your account.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "cli.session.read_own",
+          label: "View own CLI sessions",
+          description:
+            "List your own active and historical CLI sessions in Settings → CLI sessions.",
+          default_roles: @all_roles
+        },
+        %{
+          key: "cli.session.revoke_own",
+          label: "Revoke own CLI sessions",
+          description: "Revoke a CLI session you previously authorized.",
+          default_roles: @all_roles
+        },
+        %{
+          key: "cli.session.read_any",
+          label: "View all CLI sessions",
+          description:
+            "List every user's CLI sessions in Settings → CLI sessions, " <>
+              "with the User column visible.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "cli.session.revoke_any",
+          label: "Revoke any CLI session",
+          description: "Revoke a CLI session that belongs to another user.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "cli.policy.manage",
+          label: "Manage CLI authentication policy",
+          description:
+            "Toggle the CLI device-code flow per instance, change the " <>
+              "issued-token TTL, and pin the allowed scope list.",
+          default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
+      section: "dashboards",
+      label: "Dashboards",
+      permissions: [
+        %{
+          key: "cli.dashboard.publish",
+          label: "Publish dashboard packages via API",
+          description:
+            "Upload a dashboard package (manifest + renderer) through the " <>
+              "/api/v1/dashboard-packages endpoint, typically from " <>
+              "serviceradar-cli dashboard publish.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "cli.dashboard.enable",
+          label: "Enable dashboard packages via API",
+          description:
+            "Flip a dashboard package live and (re)bind a route slug via " <>
+              "/api/v1/dashboard-packages/:id/enable.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "cli.dashboard.disable",
+          label: "Disable dashboard packages via API",
+          description:
+            "Take a dashboard package out of service via " <>
+              "/api/v1/dashboard-packages/:id/disable without deleting it.",
+          default_roles: @admin_roles
+        }
+      ]
     }
   ]
 

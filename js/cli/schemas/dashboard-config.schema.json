@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.serviceradar.dev/dashboard-config-v1.json",
+  "title": "ServiceRadar dashboard.config",
+  "description": "Schema for dashboard.config.mjs / dashboard.config.json. The runtime equivalent is the DashboardConfig TypeScript type exported from @carverauto/serviceradar-dashboard-sdk/config — keep them in sync. Authors typically wrap their config in defineDashboardConfig() for editor type-checking; the schema is what the CLI's `validate` command enforces at the JSON layer.",
+  "type": "object",
+  "required": ["manifest"],
+  "additionalProperties": false,
+  "properties": {
+    "manifest": {"$ref": "#/$defs/manifest"},
+    "renderer": {"$ref": "#/$defs/renderer"},
+    "samples": {"$ref": "#/$defs/samples"},
+    "fixtures": {
+      "type": "object",
+      "description": "Named sample-frames fixtures the dev harness side panel can swap between. Keys are display labels; values are project-relative JSON paths.",
+      "additionalProperties": {"type": "string"}
+    },
+    "vite": {
+      "type": "object",
+      "description": "Optional Vite UserConfig overrides merged into the SDK's default Vite config."
+    },
+    "build": {
+      "type": "object",
+      "description": "If set, replaces the default Vite-driven build with an arbitrary shell command, or tweaks bundler options.",
+      "additionalProperties": false,
+      "properties": {
+        "command": {"type": "string", "description": "Shell command to run instead of the SDK's default Vite build."},
+        "sourcemap": {"type": "boolean"},
+        "minify": {"type": "boolean"}
+      }
+    },
+    "afterBuild": {
+      "description": "Hook invoked after the build completes. Function-typed at runtime; presented to JSON validators as `true` so any non-null value is accepted."
+    },
+    "outDir": {
+      "type": "string",
+      "description": "Backwards-compatible alias for renderer.outDir."
+    },
+    "entry": {
+      "type": "string",
+      "description": "Backwards-compatible alias for renderer.entry."
+    }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["id", "name", "version"],
+      "properties": {
+        "schema_version": {"type": "integer", "minimum": 1},
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9_.-]*\\.[a-z0-9_.-]+$",
+          "description": "Reverse-DNS package id, e.g. com.acme.network. Must include at least one dot."
+        },
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
+        "description": {"type": "string"},
+        "vendor": {"type": "string"},
+        "capabilities": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "data_frames": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/dataFrame"}
+        },
+        "renderer": {"$ref": "#/$defs/manifestRenderer"},
+        "settings_schema": {"type": "object"},
+        "metadata": {"type": "object"}
+      }
+    },
+    "dataFrame": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "query": {"type": "string"},
+        "encoding": {"type": "string"},
+        "limit": {"type": "integer", "minimum": 0},
+        "required": {"type": "boolean"},
+        "fields": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {"type": "string"},
+              {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "type": {"type": "string"},
+                  "description": {"type": "string"}
+                }
+              }
+            ]
+          }
+        },
+        "coordinates": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "longitude": {"type": "string"},
+            "latitude": {"type": "string"}
+          }
+        },
+        "description": {"type": "string"}
+      }
+    },
+    "manifestRenderer": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string"},
+        "interface_version": {"type": "string"},
+        "artifact": {"type": "string"},
+        "trust": {"type": "string"},
+        "entrypoint": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "encoding": {"type": "string"}
+      }
+    },
+    "renderer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entry": {"type": "string"},
+        "outDir": {"type": "string"},
+        "artifact": {"type": "string"},
+        "minify": {"type": "boolean"},
+        "sourcemap": {"type": "boolean"}
+      }
+    },
+    "samples": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frames": {"$ref": "#/$defs/sampleSource"},
+        "settings": {"$ref": "#/$defs/sampleSource"}
+      }
+    },
+    "sampleSource": {
+      "oneOf": [
+        {"type": "string"},
+        {
+          "type": "object",
+          "required": ["source"],
+          "additionalProperties": false,
+          "properties": {
+            "source": {"type": "string"},
+            "target": {"type": "string"}
+          }
+        }
+      ]
+    }
+  }
+}

@@ -946,7 +946,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "/app/release/bin/serviceradar_web_ng eval 'case :gen_tcp.connect(~c\"127.0.0.1\", 4000, [:binary, active: false], 2000) do {:ok, socket} -> :gen_tcp.close(socket); System.halt(0); other -> IO.inspect(other); System.halt(1) end'"
+          "/app/bin/serviceradar_web_ng eval 'case :gen_tcp.connect(~c\"127.0.0.1\", 4000, [:binary, active: false], 2000) do {:ok, socket} -> :gen_tcp.close(socket); System.halt(0); other -> IO.inspect(other); System.halt(1) end'"
         ]
       interval: 30s
       timeout: 10s

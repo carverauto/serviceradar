@@ -50,6 +50,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         mtr_consensus_worker_child(),
         topology_state_scheduler_child(),
         plugin_target_policy_scheduler_child(),
+        cli_auth_scheduler_child(),
         log_promotion_consumer_child(),
         event_writer_child()
       ],
@@ -219,6 +220,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
          true
        ) do
       ServiceRadar.Plugins.PluginTargetPolicyScheduler
+    end
+  end
+
+  defp cli_auth_scheduler_child do
+    if enabled?("CLI_AUTH_SCHEDULER_ENABLED", :cli_auth_scheduler_enabled, true) do
+      ServiceRadar.Identity.CliAuthScheduler
     end
   end
 

@@ -11,6 +11,7 @@ elixir/serviceradar_poller/deps
 elixir/protobuf/deps
 elixir/protobuf/_build
 node_modules
+js/cli/node_modules
 dist
 target
 third_party/vendor/tools_opam

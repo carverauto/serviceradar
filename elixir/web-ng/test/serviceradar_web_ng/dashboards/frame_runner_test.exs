@@ -92,6 +92,14 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
            ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
   end
 
+  test "preserves explicit optional frame metadata" do
+    frames = [
+      %{"id" => "optional", "query" => "in:devices", "encoding" => "json_rows", "limit" => 1, "required" => false}
+    ]
+
+    assert [%{"id" => "optional", "required" => false}] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
+  end
+
   test "caps frame count and row limit" do
     frames =
       for index <- 1..20 do

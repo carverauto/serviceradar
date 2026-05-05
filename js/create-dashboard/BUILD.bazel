@@ -1,0 +1,38 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "node_modules",
+            "node_modules/**",
+            "**/node_modules/**",
+            "dist/**",
+            ".npm/**",
+            "bazel-*/**",
+        ],
+        exclude_directories = 1,
+        allow_empty = False,
+    ),
+)
+
+# `bazel test //js/create-dashboard:ci` mirrors `npm run ci` from the package
+# directory. Tagged manual + local + no-sandbox + no-remote for the same
+# reasons as //js/cli:ci.
+sh_test(
+    name = "ci",
+    srcs = ["scripts/bazel_test.sh"],
+    data = [
+        ":srcs",
+    ],
+    local = True,
+    tags = [
+        "manual",
+        "no-remote",
+        "no-sandbox",
+    ],
+    timeout = "long",
+)

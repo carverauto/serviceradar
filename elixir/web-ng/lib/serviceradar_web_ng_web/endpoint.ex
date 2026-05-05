@@ -50,7 +50,13 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
   plug ServiceRadarWebNGWeb.Plugs.SafeParsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # Bumped from Plug's 8 MB default to fit the dashboard-package publish
+    # multipart upload: a 50 MB renderer cap (`Storage.max_upload_bytes`)
+    # plus the 256 KB manifest plus multipart framing overhead. The
+    # DashboardPackagePublishController enforces strict per-part caps
+    # before any DB write — this is just the outer envelope.
+    length: 67_108_864
 
   plug Plug.MethodOverride
   plug Plug.Head
