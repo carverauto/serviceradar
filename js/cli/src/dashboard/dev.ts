@@ -60,7 +60,7 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
     configFile: false,
     appType: "custom",
     server: {middlewareMode: true},
-    plugins: [react()],
+    plugins: [dashboardHarnessPlugin(), react()],
     define: {
       "process.env.NODE_ENV": JSON.stringify("development"),
       ...(config.vite?.define || {}),
@@ -157,6 +157,27 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
   watchProjectForValidation(projectDir, config)
 
   if (options.open) await openBrowser(baseUrl)
+}
+
+function dashboardHarnessPlugin() {
+  return {
+    name: "serviceradar-dashboard-harness",
+    enforce: "pre" as const,
+    resolveId(id: string) {
+      if (id === "/@harness/dev.js") return id
+      if (id === "/@harness/dev.css") return id
+      return null
+    },
+    async load(id: string) {
+      if (id === "/@harness/dev.js") {
+        return await readFile(join(HARNESS_DIR, "dev.js"), "utf8")
+      }
+      if (id === "/@harness/dev.css") {
+        return await readFile(join(HARNESS_DIR, "dev.css"), "utf8")
+      }
+      return null
+    },
+  }
 }
 
 async function devCommandStatic({projectDir, config, options}: DevContext): Promise<void> {
