@@ -1,0 +1,88 @@
+# High-availability overlay for production-like ServiceRadar installs.
+#
+# Usage:
+#   helm upgrade --install serviceradar ./helm/serviceradar \
+#     -n <namespace> \
+#     -f helm/serviceradar/values.yaml \
+#     -f helm/serviceradar/values-ha.yaml
+#
+# This mirrors the demo namespace control-plane shape without carrying
+# demo-specific hostnames, MetalLB addresses, or sample-data services.
+
+topologySpread:
+  enabled: true
+  maxSkew: 2
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+nats:
+  replicas: 3
+
+cnpg:
+  pooler:
+    enabled: true
+    instances: 3
+    monitoring:
+      podMonitor:
+        enabled: true
+    route:
+      core: true
+      webNg: true
+      dbEventWriter: false
+    parameters:
+      ignore_startup_parameters: "search_path"
+      max_client_conn: "2000"
+      default_pool_size: "40"
+      reserve_pool_size: "10"
+      reserve_pool_timeout: "5"
+
+webNg:
+  replicas: 3
+  database:
+    poolSize: 8
+
+core:
+  replicas: 3
+  database:
+    poolSize: 10
+  controlDatabase:
+    enabled: true
+    poolSize: 3
+  obanQueues:
+    default: 2
+    maintenance: 1
+
+agentGateway:
+  replicas: 3
+
+dbEventWriter:
+  replicaCount: 3
+  cnpgMaxConnections: 4
+
+datasvc:
+  replicaCount: 3
+  jetstreamReplicas: 3
+
+zen:
+  replicaCount: 3
+  streamReplicas: 3
+
+logCollector:
+  replicaCount: 3
+  streamReplicas: 3
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
+    streamReplicas: 3
+
+trapd:
+  replicaCount: 3
+  streamReplicas: 3
+
+# Flow/IPFIX template state is process-local, so keep this single-replica even
+# in the HA overlay until exporter sharding or shared template state lands.
+flowCollector:
+  replicaCount: 1
+  streamReplicas: 3
+  config:
+    stream_replicas: 3
