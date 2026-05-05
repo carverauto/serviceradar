@@ -16,8 +16,10 @@ const FIXTURE_SELECT_SELECTOR = "[data-fixture-select]"
 const THEME_SELECTOR = "[data-theme-toggle]"
 const TOKEN_INPUT_SELECTOR = "[data-mapbox-token]"
 const RELOAD_BUTTON_SELECTOR = "[data-reload]"
+const SIDEPANEL_TOGGLE_SELECTOR = "[data-sidepanel-toggle]"
 const TOKEN_STORAGE_KEY = "sr-dashboard-mapbox-token"
 const THEME_STORAGE_KEY = "sr-dashboard-theme"
+const SIDEPANEL_STORAGE_KEY = "sr-dashboard-sidepanel-collapsed"
 
 export async function bootstrap({state, renderer}) {
   const ctx = createContext(state)
@@ -32,7 +34,7 @@ function createContext(initialState) {
   const state = {
     ...initialState,
     activeFixture: initialState.initialFixture || "",
-    mapboxToken: readTokenFromStorage() ?? initialState.mapboxToken ?? "",
+    mapboxToken: initialState.mapboxToken || readTokenFromStorage() || "",
     theme: readThemeFromStorage() ?? "light",
   }
 
@@ -280,12 +282,12 @@ function createSrqlClient(getFrames, onCall) {
 }
 
 async function loadBrowserModuleLibraries() {
-  ensureStylesheet("https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.css")
+  await import("mapbox-gl/dist/mapbox-gl.css")
 
   const [mapboxModule, deckLayers, deckMapbox] = await Promise.all([
-    import("https://esm.sh/mapbox-gl@3.10.0"),
-    import("https://esm.sh/@deck.gl/layers@9.3.2?bundle"),
-    import("https://esm.sh/@deck.gl/mapbox@9.3.2?bundle"),
+    import("mapbox-gl"),
+    import("@deck.gl/layers"),
+    import("@deck.gl/mapbox"),
   ])
 
   return {
@@ -294,14 +296,6 @@ async function loadBrowserModuleLibraries() {
     ScatterplotLayer: deckLayers.ScatterplotLayer,
     TextLayer: deckLayers.TextLayer,
   }
-}
-
-function ensureStylesheet(href) {
-  if (document.querySelector(`link[href="${href}"]`)) return
-  const link = document.createElement("link")
-  link.rel = "stylesheet"
-  link.href = href
-  document.head.appendChild(link)
 }
 
 function wireSidePanel(ctx, state) {
@@ -341,6 +335,20 @@ function wireSidePanel(ctx, state) {
   if (reloadButton) {
     reloadButton.addEventListener("click", () => window.location.reload())
   }
+
+  const app = document.getElementById("sr-app")
+  const sidePanelButtons = Array.from(document.querySelectorAll(SIDEPANEL_TOGGLE_SELECTOR))
+  if (app && sidePanelButtons.length > 0) {
+    let collapsed = readSidePanelCollapsed()
+    applySidePanelState(app, sidePanelButtons, collapsed)
+    for (const button of sidePanelButtons) {
+      button.addEventListener("click", () => {
+        collapsed = !collapsed
+        writeSidePanelCollapsed(collapsed)
+        applySidePanelState(app, sidePanelButtons, collapsed)
+      })
+    }
+  }
 }
 
 function readTokenFromStorage() {
@@ -357,6 +365,26 @@ function readThemeFromStorage() {
 
 function writeThemeToStorage(value) {
   try { window.localStorage?.setItem(THEME_STORAGE_KEY, value) } catch (_) { /* noop */ }
+}
+
+function readSidePanelCollapsed() {
+  try { return window.localStorage?.getItem(SIDEPANEL_STORAGE_KEY) === "true" } catch (_) { return false }
+}
+
+function writeSidePanelCollapsed(value) {
+  try { window.localStorage?.setItem(SIDEPANEL_STORAGE_KEY, value ? "true" : "false") } catch (_) { /* noop */ }
+}
+
+function applySidePanelState(app, buttons, collapsed) {
+  app.dataset.sidepanelCollapsed = collapsed ? "true" : "false"
+  for (const button of buttons) {
+    button.textContent = collapsed ? "Tools" : "Hide"
+    button.setAttribute("aria-expanded", collapsed ? "false" : "true")
+  }
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new Event("resize"))
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")))
+  })
 }
 
 function formatError(error) {
