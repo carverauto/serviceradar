@@ -136,7 +136,9 @@ defmodule ServiceRadar.Identity.DeviceAuthorization do
       change set_attribute(:status, :expired)
     end
 
-    destroy :destroy
+    destroy :destroy do
+      primary? true
+    end
   end
 
   policies do
