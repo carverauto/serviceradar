@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.31
+
+Production Helm HA hotfix that keeps the release chart aligned with the demo high-availability shape while avoiding shared ReadWriteOnce volume rollouts and release workflow races.
+
+## Whats New
+
+**1.2.31**
+- Updated the Helm HA overlay to use JetStream-backed web-ng plugin storage, disable shared local data PVCs for horizontally scaled services, and leave GeoIP MMDB storage disabled unless an environment supplies RWX-capable storage.
+- Added Helm access mode knobs for shared service PVC templates so deployments can opt into ReadWriteMany storage explicitly where supported.
+- Fixed db-event-writer Helm rendering so `enableMigrations: false` is preserved instead of being replaced by the default true value.
+- Fixed Go lint and Rust CI failures in db-event-writer log severity handling, plugin runtime tests, zen rule configuration tests, and trapd test config initialization.
+- Hardened release security workflows so source and image security jobs wait for the Forgejo release and published image tags before uploading bundles or scanning images.
+
 # ServiceRadar v1.2.30
 
 Helm upgrade hotfix for production installs that need the demo high-availability control-plane profile without hand-editing chart templates.
