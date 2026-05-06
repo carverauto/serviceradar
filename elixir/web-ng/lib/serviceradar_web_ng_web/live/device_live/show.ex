@@ -19,6 +19,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadar.Inventory.VirtualizationDatastore
+  alias ServiceRadar.Inventory.VirtualizationGuest
+  alias ServiceRadar.Inventory.VirtualizationHost
+  alias ServiceRadar.Inventory.VirtualizationHostDisk
+  alias ServiceRadar.Inventory.VirtualizationNetworkInterface
+  alias ServiceRadar.Inventory.VirtualizationStorageSystem
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
@@ -91,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:available_profiles, [])
      |> assign(:availability, nil)
      |> assign(:healthcheck_summary, nil)
+     |> assign(:virtualization_summary, nil)
      |> assign(:sweep_results, nil)
      |> assign(:process_metrics, nil)
      |> assign(:limit, @default_limit)
@@ -569,6 +576,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:last_camera_relay_session, last_camera_relay_session)
        |> assign(:availability, nil)
        |> assign(:healthcheck_summary, nil)
+       |> assign(:virtualization_summary, nil)
        |> assign(:sweep_results, nil)
        |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
        |> assign(:srql, base_srql)}
@@ -703,13 +711,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         Map.get(parallel_results, :has_ifaces, false)
       )
 
-      has_flows =
-        determine_has_flows(
-          load_flows_data?,
-          flows_error,
-          device_flows,
-          Map.get(parallel_results, :has_flows, false)
-        )
+    has_flows =
+      determine_has_flows(
+        load_flows_data?,
+        flows_error,
+        device_flows,
+        Map.get(parallel_results, :has_flows, false)
+      )
 
     has_mtr = detect_has_mtr(scope, uid, device_ip)
 
@@ -723,6 +731,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     %{
       availability: Map.get(parallel_results, :availability, %{}),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
+      virtualization_summary: Map.get(parallel_results, :virtualization),
       sweep_results: Map.get(parallel_results, :sweep, []),
       sysmon_profile_info: sysmon_profile_info,
       available_profiles: available_profiles,
@@ -766,7 +775,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Task.async(fn -> {:sweep, load_sweep_results(socket.assigns.current_scope, device_ip)} end),
       Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
       Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid, device_row)} end),
-      Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end)
+      Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end),
+      Task.async(fn -> {:virtualization, load_virtualization_summary(scope, uid)} end)
     ]
 
     base_tasks
@@ -3357,6 +3367,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
                 summary={@healthcheck_summary}
+              />
+
+              <.virtualization_section
+                :if={is_map(@virtualization_summary)}
+                summary={@virtualization_summary}
               />
 
               <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
@@ -7102,6 +7117,138 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # Data Loading Functions
   # ---------------------------------------------------------------------------
 
+  defp load_virtualization_summary(nil, _device_uid), do: nil
+
+  defp load_virtualization_summary(scope, device_uid) do
+    host = load_proxmox_host(scope, device_uid)
+    guest = load_proxmox_guest(scope, device_uid)
+
+    cond do
+      host ->
+        host_id = host.id
+
+        %{
+          kind: :host,
+          host: host,
+          guest: nil,
+          datastores: load_proxmox_datastores(scope, host_id),
+          disks: load_proxmox_disks(scope, host_id),
+          network_interfaces: load_proxmox_network_interfaces(scope, host_id),
+          storage_systems: load_proxmox_storage_systems(scope, host_id),
+          guests: load_proxmox_guests_for_host(scope, host_id)
+        }
+
+      guest ->
+        %{
+          kind: :guest,
+          host: nil,
+          guest: guest,
+          datastores: [],
+          disks: [],
+          network_interfaces: [],
+          storage_systems: [],
+          guests: []
+        }
+
+      true ->
+        nil
+    end
+  rescue
+    error ->
+      Logger.warning("Failed to load Proxmox virtualization summary for #{device_uid}: #{inspect(error)}")
+      nil
+  end
+
+  defp load_proxmox_host(scope, device_uid) do
+    VirtualizationHost
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and device_uid == ^device_uid)
+    |> Ash.Query.sort(observed_at: :desc)
+    |> Ash.Query.limit(1)
+    |> ash_read_first(scope)
+  end
+
+  defp load_proxmox_guest(scope, device_uid) do
+    VirtualizationGuest
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and device_uid == ^device_uid)
+    |> Ash.Query.sort(observed_at: :desc)
+    |> Ash.Query.limit(1)
+    |> ash_read_first(scope)
+  end
+
+  defp load_proxmox_datastores(scope, host_id) do
+    VirtualizationDatastore
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.Query.limit(24)
+    |> ash_read_many(scope)
+  end
+
+  defp load_proxmox_disks(scope, host_id) do
+    VirtualizationHostDisk
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.sort(path: :asc)
+    |> Ash.Query.limit(24)
+    |> ash_read_many(scope)
+  end
+
+  defp load_proxmox_network_interfaces(scope, host_id) do
+    VirtualizationNetworkInterface
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.Query.limit(32)
+    |> ash_read_many(scope)
+  end
+
+  defp load_proxmox_storage_systems(scope, host_id) do
+    VirtualizationStorageSystem
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.Query.limit(16)
+    |> ash_read_many(scope)
+  end
+
+  defp load_proxmox_guests_for_host(scope, host_id) do
+    VirtualizationGuest
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.Query.limit(100)
+    |> ash_read_many(scope)
+  end
+
+  defp virtualization_query(resource, nil), do: Ash.Query.for_read(resource, :read, %{})
+
+  defp virtualization_query(resource, scope), do: Ash.Query.for_read(resource, :read, %{}, scope: scope)
+
+  defp ash_read_first(query, scope) do
+    case ash_read_many(query, scope) do
+      [first | _] -> first
+      _ -> nil
+    end
+  end
+
+  defp ash_read_many(query, scope) do
+    result =
+      if scope do
+        Ash.read(query, scope: scope)
+      else
+        Ash.read(query)
+      end
+
+    case result do
+      {:ok, rows} when is_list(rows) -> rows
+      {:ok, %Ash.Page.Keyset{results: rows}} -> rows
+      {:ok, %Ash.Page.Offset{results: rows}} -> rows
+      _ -> []
+    end
+  end
+
   defp load_availability(srql_module, device_uid, scope) do
     escaped_id = escape_value(device_uid)
 
@@ -7215,6 +7362,280 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_bytes(_), do: "—"
+
+  # ---------------------------------------------------------------------------
+  # Virtualization Section (Proxmox)
+  # ---------------------------------------------------------------------------
+
+  attr(:summary, :map, required: true)
+
+  defp virtualization_section(assigns) do
+    summary = assigns.summary
+    host = Map.get(summary, :host)
+    guest = Map.get(summary, :guest)
+    datastores = Map.get(summary, :datastores, [])
+    disks = Map.get(summary, :disks, [])
+    network_interfaces = Map.get(summary, :network_interfaces, [])
+    storage_systems = Map.get(summary, :storage_systems, [])
+    guests = Map.get(summary, :guests, [])
+    storage_total = Enum.sum(Enum.map(datastores, &(&1.total_bytes || 0)))
+    storage_used = Enum.sum(Enum.map(datastores, &(&1.used_bytes || 0)))
+    storage_pct = percent_of(storage_used, storage_total)
+    running_guests = Enum.count(guests, &(to_string(&1.status) == "running"))
+    ceph = Enum.find(storage_systems, &(to_string(&1.storage_system_type) == "ceph"))
+    observed_at = observed_at_for_virtualization(host, guest)
+
+    assigns =
+      assigns
+      |> assign(:host, host)
+      |> assign(:guest, guest)
+      |> assign(:datastores, datastores)
+      |> assign(:disks, disks)
+      |> assign(:network_interfaces, network_interfaces)
+      |> assign(:storage_systems, storage_systems)
+      |> assign(:guests, guests)
+      |> assign(:storage_total, storage_total)
+      |> assign(:storage_used, storage_used)
+      |> assign(:storage_pct, storage_pct)
+      |> assign(:running_guests, running_guests)
+      |> assign(:ceph, ceph)
+      |> assign(:observed_at, observed_at)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-server-stack" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Virtualization</span>
+          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            Proxmox
+          </span>
+        </div>
+        <span class="text-xs text-base-content/50 font-mono">{format_timestamp(@observed_at)}</span>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div :if={@host} class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <.virtualization_stat
+            icon="hero-cpu-chip"
+            label="CPU"
+            value={format_virtualization_pct(@host.cpu_ratio)}
+            subvalue={@host.status}
+          />
+          <.virtualization_stat
+            icon="hero-circle-stack"
+            label="Memory"
+            value={format_bytes(@host.memory_used_bytes)}
+            subvalue={"of #{format_bytes(@host.memory_total_bytes)}"}
+          />
+          <.virtualization_stat
+            icon="hero-square-3-stack-3d"
+            label="Storage"
+            value={format_bytes(@storage_used)}
+            subvalue={"#{format_pct(@storage_pct)}% of #{format_bytes(@storage_total)}"}
+          />
+          <.virtualization_stat
+            icon="hero-squares-2x2"
+            label="Guests"
+            value={Integer.to_string(length(@guests))}
+            subvalue={"#{@running_guests} running"}
+          />
+        </div>
+
+        <div :if={@guest} class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <.virtualization_stat
+            icon="hero-squares-2x2"
+            label="Guest Type"
+            value={virtualization_guest_type_label(@guest.guest_type)}
+            subvalue={@guest.status}
+          />
+          <.virtualization_stat
+            icon="hero-cpu-chip"
+            label="CPU"
+            value={format_virtualization_pct(@guest.cpu_ratio)}
+          />
+          <.virtualization_stat
+            icon="hero-circle-stack"
+            label="Memory"
+            value={format_bytes(@guest.memory_used_bytes)}
+            subvalue={"of #{format_bytes(@guest.memory_total_bytes)}"}
+          />
+          <.virtualization_stat
+            icon="hero-square-3-stack-3d"
+            label="Disk"
+            value={format_bytes(@guest.disk_used_bytes)}
+            subvalue={"of #{format_bytes(@guest.disk_total_bytes)}"}
+          />
+        </div>
+
+        <div :if={@ceph} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <.icon name="hero-circle-stack" class="size-4 text-info" />
+              <span class="text-sm font-medium">Ceph</span>
+            </div>
+            <.virtualization_health_badge value={@ceph.health || @ceph.status} />
+          </div>
+        </div>
+
+        <div :if={@datastores != []} class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase text-base-content/50">Datastores</h4>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th class="text-right">Used</th>
+                  <th class="text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={store <- Enum.take(@datastores, 8)}>
+                  <td class="font-medium">{store.name}</td>
+                  <td>{store.storage_type || "—"}</td>
+                  <td>
+                    <span class={["badge badge-xs", store.active && "badge-success"]}>
+                      {virtualization_datastore_status(store)}
+                    </span>
+                  </td>
+                  <td class="text-right font-mono">{format_bytes(store.used_bytes)}</td>
+                  <td class="text-right font-mono">{format_bytes(store.total_bytes)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div :if={@disks != []} class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase text-base-content/50">Host Disks</h4>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Model</th>
+                  <th>Type</th>
+                  <th>Health</th>
+                  <th class="text-right">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={disk <- Enum.take(@disks, 8)}>
+                  <td class="font-mono">{disk.path || disk.by_id || "—"}</td>
+                  <td>{disk.model || "—"}</td>
+                  <td>{disk.disk_type || "—"}</td>
+                  <td><.virtualization_health_badge value={disk.health} /></td>
+                  <td class="text-right font-mono">{format_bytes(disk.size_bytes)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div :if={@network_interfaces != []} class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase text-base-content/50">Network</h4>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>State</th>
+                  <th>Address</th>
+                  <th>Bridge Ports</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={iface <- Enum.take(@network_interfaces, 8)}>
+                  <td class="font-medium">{iface.name}</td>
+                  <td>{iface.interface_type || "—"}</td>
+                  <td>
+                    <span class={["badge badge-xs", iface.active && "badge-success"]}>
+                      {if iface.active, do: "active", else: "inactive"}
+                    </span>
+                  </td>
+                  <td class="font-mono">{iface.address || iface.cidr || "—"}</td>
+                  <td>{iface.bridge_ports || "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:icon, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:subvalue, :string, default: nil)
+
+  defp virtualization_stat(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+      <div class="flex items-center gap-2 text-xs text-base-content/60">
+        <.icon name={@icon} class="size-4" />
+        <span>{@label}</span>
+      </div>
+      <div class="mt-2 text-lg font-semibold">{@value}</div>
+      <div :if={present?(@subvalue)} class="text-xs text-base-content/50">{@subvalue}</div>
+    </div>
+    """
+  end
+
+  attr(:value, :any, default: nil)
+
+  defp virtualization_health_badge(assigns) do
+    label = assigns.value |> to_string() |> String.trim() |> blank_to_value("unknown")
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:class, virtualization_health_class(label))
+
+    ~H"""
+    <span class={["badge badge-xs", @class]}>{@label}</span>
+    """
+  end
+
+  defp observed_at_for_virtualization(%{observed_at: observed_at}, _guest), do: observed_at
+  defp observed_at_for_virtualization(_host, %{observed_at: observed_at}), do: observed_at
+  defp observed_at_for_virtualization(_host, _guest), do: nil
+
+  defp percent_of(_used, total) when total in [nil, 0], do: nil
+  defp percent_of(used, total) when is_number(used) and is_number(total), do: used / total * 100.0
+  defp percent_of(_used, _total), do: nil
+
+  defp format_virtualization_pct(value) when is_number(value), do: "#{format_pct(value * 100.0)}%"
+  defp format_virtualization_pct(_value), do: "—"
+
+  defp virtualization_guest_type_label("vm"), do: "VM"
+  defp virtualization_guest_type_label("container"), do: "LXC"
+  defp virtualization_guest_type_label(value) when is_binary(value), do: String.upcase(value)
+  defp virtualization_guest_type_label(_value), do: "Guest"
+
+  defp virtualization_datastore_status(%{active: true, enabled: false}), do: "disabled"
+  defp virtualization_datastore_status(%{active: true}), do: "active"
+  defp virtualization_datastore_status(%{enabled: false}), do: "disabled"
+  defp virtualization_datastore_status(_store), do: "inactive"
+
+  defp virtualization_health_class(value) do
+    normalized = value |> to_string() |> String.downcase()
+
+    cond do
+      normalized in ["passed", "ok", "health_ok", "online"] -> "badge-success"
+      String.contains?(normalized, "warn") -> "badge-warning"
+      String.contains?(normalized, "fail") or String.contains?(normalized, "crit") -> "badge-error"
+      true -> "badge-ghost"
+    end
+  end
+
+  defp blank_to_value("", fallback), do: fallback
+  defp blank_to_value(nil, fallback), do: fallback
+  defp blank_to_value(value, _fallback), do: value
 
   # ---------------------------------------------------------------------------
   # Healthcheck Section (GRPC/Service Health)
