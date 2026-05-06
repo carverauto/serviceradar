@@ -30,6 +30,7 @@
 - [x] 5.4 Emit resource-efficiency metrics and bottleneck events for CPU, memory, disk, I/O wait where available.
 - [x] 5.5 Add plugin manifest, config schema, fixture tests, and TinyGo build coverage.
 - [x] 5.6 Add first-party plugin bundle registration and publish/sign verification wiring.
+- [x] 5.7 Add env-driven local Proxmox API smoke test path for command-line validation without agent deployment.
 
 ## 6. Enrichment Ingestion
 - [ ] 6.1 Add typed Proxmox enrichment payload validation in core-elx/web-ng ingestion.
