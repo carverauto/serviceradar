@@ -12,6 +12,7 @@ Dependency security refresh for Rust, Go, and dashboard JavaScript packages, inc
 - Updated dashboard and documentation npm lockfiles and overrides for Dependabot-reported packages such as postcss, fast-xml-parser, and uuid.
 - Fixed core coordinator advisory-lock error handling so failed lock attempts stop their dedicated Postgrex pool instead of leaking idle connections until Postgres refuses new clients.
 - Fixed the web-ng FieldSurvey ADBC database URI builder so pooler-backed `verify-full` deployments keep routing through the configured CNPG pooler while still verifying the cluster CA.
+- Fixed Bazel crate metadata for patched reqsign crates and the updated OpenSSL source crate so release image publishing can analyze the full `//:push` graph in CI.
 
 # ServiceRadar v1.2.32
 
