@@ -8,7 +8,7 @@
 - [x] 2.3 Implement SRQL preview and conflict detection for target queries.
 - [x] 2.4 Implement agent/site scope validation and per-agent materialization boundaries.
 - [x] 2.5 Add tests proving plaintext secrets are never returned by API/UI reads.
-- [ ] 2.6 Add SSH private key credential type with AshCloak encryption, passphrase support, redacted fingerprint display, and rotation metadata.
+- [x] 2.6 Add SSH private key credential type with AshCloak encryption, passphrase support, redacted fingerprint display, and rotation metadata.
 
 ## 3. Settings UI
 - [ ] 3.1 Add Settings -> Networks -> Credential Rules navigation.
