@@ -1,6 +1,7 @@
 <div align=center>
   
 [![Website](https://img.shields.io/website?up_message=SERVICERADAR&down_message=DOWN&url=https%3A%2F%2Fserviceradar.cloud&style=for-the-badge)](https://serviceradar.cloud)
+[![Developer Portal](https://img.shields.io/badge/developer%20portal-SDKs%20%26%20guides-4f46e5?style=for-the-badge)](https://developer.serviceradar.cloud)
 [![Apache 2.0 License](https://img.shields.io/badge/license-Apache%202.0-blueviolet?style=for-the-badge)](https://www.apache.org/licenses/LICENSE-2.0)
 
 </div>
@@ -28,6 +29,7 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` p
 - **Distributed Architecture**: Multi-component design (Agent, Gateway, Core) for flexible edge deployments.
 - **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
 - **Topology**: GPU-native topology engine capable of rendering millions of interactive nodes and edges at 60fps via [deck.gl](https://deck.gl/), [Apache Arrow](https://arrow.apache.org/) for zero-copy streaming, and WASM-native logic layer.
+- **Custom React Dashboards**: Build powerful, data-driven dashboards with the [Dashboard SDK](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk). Dashboards run inside ServiceRadar, receive SRQL-backed data frames, and can be developed locally with hot module reloading before publishing.
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
@@ -54,6 +56,33 @@ ServiceRadar replaces traditional "script-and-shell" plugins with a [modern WebA
 **Go**: https://code.carverauto.dev/carverauto/serviceradar-sdk-go
 
 **Rust**: https://code.carverauto.dev/carverauto/serviceradar-sdk-rust
+
+## Dashboard SDK
+
+ServiceRadar supports customer-owned dashboard packages that are authored in
+React and rendered directly inside the web UI. The Dashboard SDK gives dashboard
+authors a stable browser-module API for SRQL queries, Arrow-backed data frames,
+query state, Mapbox/deck.gl maps, popups, filters, and local development.
+
+The published npm packages make it straightforward to create and validate a
+dashboard from a normal JavaScript workspace:
+
+```bash
+npm create @carverauto/create-dashboard@latest my-dashboard -- --template react-map
+cd my-dashboard
+npm ci
+npm run dev
+```
+
+Use `npm run dev` for the local HMR harness, `npm run validate` before handing a
+package to ServiceRadar, and `npx serviceradar-cli dashboard publish` when you
+are ready to upload a signed dashboard package to a ServiceRadar instance.
+
+Dashboard SDK documentation:
+**[developer.serviceradar.cloud/docs/v2/dashboard-sdk](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk)**
+
+Developer portal:
+**[developer.serviceradar.cloud](https://developer.serviceradar.cloud)**
 
 ## Quick Installation (Docker Compose)
 
@@ -193,8 +222,8 @@ spec:
 For detailed guides on setup and security, visit:
 **[https://docs.serviceradar.cloud](https://docs.serviceradar.cloud)**
 
-For WASM SDK usage, visit:
-**[http://developer.serviceradar.cloud](http://developer.serviceradar.cloud/)**
+For SDKs, dashboard authoring, and extension guides, visit:
+**[https://developer.serviceradar.cloud](https://developer.serviceradar.cloud/)**
 
 ## Contributing
 
