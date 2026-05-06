@@ -10,6 +10,8 @@ Dependency security refresh for Rust, Go, and dashboard JavaScript packages, inc
 - Reworked rperf packaging so ServiceRadar builds and ships a patched local rperf binary instead of depending on the stale crates.io rperf package and its vulnerable dependency graph.
 - Updated Go dependencies and moved the Go/Bazel toolchain target to Go 1.26.2, including the pgx security update.
 - Updated dashboard and documentation npm lockfiles and overrides for Dependabot-reported packages such as postcss, fast-xml-parser, and uuid.
+- Fixed core coordinator advisory-lock error handling so failed lock attempts stop their dedicated Postgrex pool instead of leaking idle connections until Postgres refuses new clients.
+- Fixed the web-ng FieldSurvey ADBC database URI builder so pooler-backed `verify-full` deployments keep routing through the configured CNPG pooler while still verifying the cluster CA.
 
 # ServiceRadar v1.2.32
 
