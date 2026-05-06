@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.33
+
+Dependency security refresh for Rust, Go, and dashboard JavaScript packages, including the rperf migration needed to clear stale crate alerts.
+
+## Whats New
+
+**1.2.33**
+- Updated vulnerable Rust dependencies across the workspace, including OpenSSL, Diesel, rustls-webpki, rand, async-nats, and SPIFFE-related integrations.
+- Patched the reqsign Google and Azure Storage crates locally to move Zen transitive authentication dependencies onto the fixed jsonwebtoken stack until upstream publishes compatible releases.
+- Reworked rperf packaging so ServiceRadar builds and ships a patched local rperf binary instead of depending on the stale crates.io rperf package and its vulnerable dependency graph.
+- Updated Go dependencies and moved the Go/Bazel toolchain target to Go 1.26.2, including the pgx security update.
+- Updated dashboard and documentation npm lockfiles and overrides for Dependabot-reported packages such as postcss, fast-xml-parser, and uuid.
+
 # ServiceRadar v1.2.32
 
 Release pipeline hotfix for v1.2.31 that keeps the Helm HA release payload intact while fixing CI-only publication and fixture reachability failures.
