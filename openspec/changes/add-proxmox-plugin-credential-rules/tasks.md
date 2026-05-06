@@ -5,8 +5,8 @@
 ## 2. Network Credential Rules
 - [x] 2.1 Add Elixir migration(s) under `elixir/serviceradar_core/priv/repo/migrations/` for platform-schema credential rule tables and indexes.
 - [x] 2.2 Add Ash resources/actions for credential rules, encrypted secret references, rule tests, and redacted reads.
-- [ ] 2.3 Implement SRQL preview and conflict detection for target queries.
-- [ ] 2.4 Implement agent/site scope validation and per-agent materialization boundaries.
+- [x] 2.3 Implement SRQL preview and conflict detection for target queries.
+- [x] 2.4 Implement agent/site scope validation and per-agent materialization boundaries.
 - [ ] 2.5 Add tests proving plaintext secrets are never returned by API/UI reads.
 - [ ] 2.6 Add SSH private key credential type with AshCloak encryption, passphrase support, redacted fingerprint display, and rotation metadata.
 
