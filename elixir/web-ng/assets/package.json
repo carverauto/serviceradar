@@ -50,5 +50,13 @@
     "eslint": "^9.39.3",
     "tailwindcss": "4.1.12",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "brace-expansion": "^2.0.3",
+    "lodash": "^4.18.1",
+    "lodash-es": "^4.18.1",
+    "postcss": "^8.5.14",
+    "protocol-buffers-schema": "^3.6.1",
+    "vite": "^7.3.2"
   }
 }

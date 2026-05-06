@@ -1,22 +1,23 @@
 # Build stage
 FROM rust:1.78-bullseye AS builder
 
-WORKDIR /usr/src/serviceradar-rperf-checker
+WORKDIR /usr/src/serviceradar
 
 # Install dependencies for building
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
-COPY rust/rperf-client/Cargo.toml rust/rperf-client/Cargo.lock* ./
-COPY rust/rperf-client/src ./src/
+# Copy workspace files so path dependencies resolve and the patched rperf
+# binary is built from the same dependency graph as the checker.
+COPY Cargo.toml Cargo.lock ./
+COPY rust ./rust/
+COPY third_party/rust_patches ./third_party/rust_patches/
 COPY proto ./proto/
-COPY rust/rperf-client/build.rs ./
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
-    cargo build --release --target x86_64-unknown-linux-gnu
+    cargo build -p serviceradar-rperf-checker -p rperf --release --target x86_64-unknown-linux-gnu
 
 # Runtime stage
 FROM debian:bullseye-slim
@@ -30,8 +31,10 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /output
 
 # Copy the binary from the builder stage to both /usr/local/bin and /output
-COPY --from=builder /usr/src/serviceradar-rperf-checker/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker /usr/local/bin/serviceradar-rperf-checker
-COPY --from=builder /usr/src/serviceradar-rperf-checker/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker /output/serviceradar-rperf-checker
+COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker /usr/local/bin/serviceradar-rperf-checker
+COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker /output/serviceradar-rperf-checker
+COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/rperf /usr/local/bin/serviceradar-rperf
+COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/rperf /output/serviceradar-rperf
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar/checkers

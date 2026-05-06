@@ -85,7 +85,8 @@ fn parse_structured_token(
 
     let data = URL_SAFE_NO_PAD.decode(encoded_payload)?;
     let signature_bytes = URL_SAFE_NO_PAD.decode(encoded_signature)?;
-    let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|_| Error::TokenMalformed)?;
+    let signature =
+        Signature::try_from(signature_bytes.as_slice()).map_err(|_| Error::TokenMalformed)?;
     let public_key = onboarding_token_public_key()?;
     public_key
         .verify(&data, &signature)
@@ -130,9 +131,7 @@ fn onboarding_token_public_key() -> Result<VerifyingKey> {
     }
 
     let key_bytes = decode_onboarding_token_key(&raw)?;
-    let key_bytes: [u8; 32] = key_bytes
-        .try_into()
-        .map_err(|_| Error::TokenMalformed)?;
+    let key_bytes: [u8; 32] = key_bytes.try_into().map_err(|_| Error::TokenMalformed)?;
     VerifyingKey::from_bytes(&key_bytes).map_err(|_| Error::TokenMalformed)
 }
 

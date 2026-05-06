@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 arancini-lib = "0.7.1"
-async-nats = "0.42"
+async-nats = "0.47"
 bgpkit-parser = "0.15"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }

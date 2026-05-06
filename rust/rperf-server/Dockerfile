@@ -3,8 +3,9 @@ FROM --platform=linux/amd64 ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest 
 
 WORKDIR /usr/src/rperf
 
-# Install rperf from crates.io
-RUN cargo install --target x86_64-unknown-linux-gnu --root /usr/local rperf && \
+# Install the patched rperf crate from this repository.
+COPY third_party/rust_patches/rperf-0.1.25 ./
+RUN cargo install --path . --target x86_64-unknown-linux-gnu --root /usr/local && \
     ls -l /usr/local/bin/rperf
 
 # Set up RPM build environment

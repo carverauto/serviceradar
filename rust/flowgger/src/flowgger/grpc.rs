@@ -219,7 +219,6 @@ async fn serve_with_spiffe(addr: SocketAddr, cfg: SpiffeSettings) -> Result<()> 
         .await
         .context("failed to load SPIFFE credentials for flowgger gRPC server")?;
     let mut updates = credentials.watch_updates();
-    updates.borrow_and_update();
 
     loop {
         let (mut reporter, health_service) = health_reporter();
@@ -264,7 +263,6 @@ async fn serve_with_spiffe(addr: SocketAddr, cfg: SpiffeSettings) -> Result<()> 
 
         if reload {
             info!("SPIFFE update detected; reloading flowgger gRPC server identity");
-            updates.borrow_and_update();
             server_future.await?;
             continue;
         }

@@ -1,14 +1,12 @@
 use anyhow::{anyhow, Result};
-use log::{info, warn};
+use log::warn;
 use pem::Pem;
+use spiffe::bundle::BundleSource;
 use spiffe::cert::Certificate as SpiffeCertificate;
-use spiffe::error::GrpcClientError;
-use spiffe::workload_api::x509_source::X509SourceError;
-use spiffe::{
-    BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
-};
+use spiffe::workload_api::WorkloadApiError;
+use spiffe::X509SourceError;
+use spiffe::{TrustDomain, X509Source, X509SourceBuilder};
 use std::sync::Arc;
-use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 use tonic::transport::{Certificate, Identity};
 
@@ -31,24 +29,13 @@ pub async fn load_server_credentials(
 
     loop {
         attempts += 1;
-        let client = match WorkloadApiClient::new_from_path(workload_socket).await {
-            Ok(client) => client,
-            Err(err) => {
-                let mapped = map_grpc_error("connect to SPIFFE Workload API", workload_socket, err);
-                if attempts >= max_retries {
-                    return Err(anyhow!(
-                        "{mapped}; exceeded {max_retries} attempts connecting to SPIFFE Workload API"
-                    ));
-                }
-                warn!("{mapped}; retrying in {}s", retry_delay.as_secs());
-                sleep(retry_delay).await;
-                continue;
-            }
-        };
-
-        let source = match X509SourceBuilder::new().with_client(client).build().await {
+        let source = match X509SourceBuilder::new()
+            .endpoint(workload_socket)
+            .build()
+            .await
+        {
             Ok(source) => source,
-            Err(X509SourceError::GrpcError(grpc_err)) => {
+            Err(X509SourceError::Source(grpc_err)) => {
                 if is_no_identity_issued(&grpc_err) {
                     let message = format_no_identity_message(&trust_domain);
                     if attempts >= max_retries {
@@ -90,7 +77,7 @@ pub async fn load_server_credentials(
         };
 
         let guard = SpiffeSourceGuard {
-            source,
+            source: Arc::new(source),
             trust_domain: trust_domain.clone(),
         };
 
@@ -136,7 +123,7 @@ impl ServerCredentials {
         self.guard.tls_materials()
     }
 
-    pub fn watch_updates(&self) -> watch::Receiver<()> {
+    pub fn watch_updates(&self) -> spiffe::X509SourceUpdates {
         self.guard.updated()
     }
 }
@@ -148,15 +135,13 @@ pub struct SpiffeSourceGuard {
 
 impl SpiffeSourceGuard {
     fn tls_materials(&self) -> Result<(Identity, Certificate)> {
-        let svid = self
-            .source
-            .get_svid()
-            .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
-            .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
+        let svid = self.source.svid().map_err(|err| {
+            anyhow!("failed to fetch default X.509 SVID from workload API: {err}")
+        })?;
 
         let bundle = self
             .source
-            .get_bundle_for_trust_domain(&self.trust_domain)
+            .bundle_for_trust_domain(&self.trust_domain)
             .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
             .ok_or_else(|| {
                 anyhow!(
@@ -175,41 +160,21 @@ impl SpiffeSourceGuard {
         ))
     }
 
-    fn updated(&self) -> watch::Receiver<()> {
+    fn updated(&self) -> spiffe::X509SourceUpdates {
         self.source.updated()
     }
 }
 
-fn map_grpc_error(action: &str, socket: &str, err: GrpcClientError) -> anyhow::Error {
-    match &err {
-        GrpcClientError::Grpc(status) => anyhow!(
-            "failed to {action} at {socket}: gRPC status {:?} ({})",
-            status.code(),
-            status.message()
-        ),
-        GrpcClientError::Transport(transport) => {
-            anyhow!("failed to {action} at {socket}: transport error {transport}")
-        }
-        _ => anyhow!(err),
-    }
+fn map_grpc_error(action: &str, socket: &str, err: WorkloadApiError) -> anyhow::Error {
+    anyhow!("failed to {action} at {socket}: {err}")
 }
 
-fn should_retry_grpc(err: &GrpcClientError) -> bool {
-    matches!(err, GrpcClientError::Grpc(_)) || matches!(err, GrpcClientError::Transport(_))
+fn should_retry_grpc(err: &WorkloadApiError) -> bool {
+    matches!(err, WorkloadApiError::Transport(_))
 }
 
-fn is_no_identity_issued(err: &GrpcClientError) -> bool {
-    match err {
-        GrpcClientError::Grpc(status) => {
-            is_no_identity_issued_status(&status.code().to_string(), status.message())
-        }
-        _ => false,
-    }
-}
-
-fn is_no_identity_issued_status(code: &str, message: &str) -> bool {
-    code.eq_ignore_ascii_case("PermissionDenied")
-        && message.to_ascii_lowercase().contains("no identity issued")
+fn is_no_identity_issued(err: &WorkloadApiError) -> bool {
+    matches!(err, WorkloadApiError::NoIdentityIssued)
 }
 
 fn format_no_identity_message(trust_domain: &TrustDomain) -> String {
@@ -232,16 +197,7 @@ fn is_retryable_tls_error(err: &anyhow::Error) -> bool {
 }
 
 impl Drop for SpiffeSourceGuard {
-    fn drop(&mut self) {
-        if let Err(err) = self.source.close() {
-            warn!("Failed to close SPIFFE X.509 source: {err}");
-        } else {
-            info!(
-                "Closed SPIFFE X.509 source for trust domain {}",
-                self.trust_domain
-            );
-        }
-    }
+    fn drop(&mut self) {}
 }
 
 #[cfg(test)]
@@ -250,18 +206,12 @@ mod tests {
 
     #[test]
     fn detects_no_identity_permission_denied() {
-        assert!(is_no_identity_issued_status(
-            "PermissionDenied",
-            "no identity issued"
-        ));
+        assert!(is_no_identity_issued(&WorkloadApiError::NoIdentityIssued));
     }
 
     #[test]
-    fn ignores_other_grpc_errors() {
-        assert!(!is_no_identity_issued_status(
-            "Unavailable",
-            "temporarily unavailable"
-        ));
+    fn ignores_other_workload_errors() {
+        assert!(!is_no_identity_issued(&WorkloadApiError::EmptyResponse));
     }
 
     #[test]

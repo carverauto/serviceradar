@@ -196,7 +196,6 @@ async fn serve_with_spiffe(
 ) -> Result<()> {
     let credentials = spiffe::load_server_credentials(workload_socket, trust_domain).await?;
     let mut updates = credentials.watch_updates();
-    updates.borrow_and_update();
 
     loop {
         let (identity, client_ca) = credentials.tls_materials()?;
@@ -246,7 +245,6 @@ async fn serve_with_spiffe(
 
         if reload {
             info!("SPIFFE update detected; reloading zen gRPC server identity");
-            updates.borrow_and_update();
             server_future.await?;
             continue;
         }

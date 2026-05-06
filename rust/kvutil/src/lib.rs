@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
+use spiffe::bundle::BundleSource;
 use spiffe::cert::Certificate as SpiffeCertificate;
-use spiffe::error::GrpcClientError;
-use spiffe::workload_api::x509_source::X509SourceError;
-use spiffe::{
-    BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
-};
+use spiffe::workload_api::WorkloadApiError;
+use spiffe::X509SourceError;
+use spiffe::{TrustDomain, X509Source, X509SourceBuilder};
 use std::fs;
 use std::sync::Arc;
 use thiserror::Error;
@@ -152,25 +151,13 @@ async fn load_spiffe_tls(workload_socket: &str, trust_domain: &str) -> Result<Cl
     loop {
         attempts += 1;
 
-        let client = match WorkloadApiClient::new_from_path(workload_socket).await {
-            Ok(client) => client,
-            Err(err) => {
-                if should_retry_grpc(&err) && attempts < max_retries {
-                    sleep(retry_delay).await;
-                    continue;
-                }
-                return Err(KvError::Other(
-                    anyhow::anyhow!(
-                        "failed to connect to SPIFFE Workload API after {attempts} attempts: {err}"
-                    )
-                    .into(),
-                ));
-            }
-        };
-
-        let source = match X509SourceBuilder::new().with_client(client).build().await {
+        let source = match X509SourceBuilder::new()
+            .endpoint(workload_socket)
+            .build()
+            .await
+        {
             Ok(source) => source,
-            Err(X509SourceError::GrpcError(grpc_err)) => {
+            Err(X509SourceError::Source(grpc_err)) => {
                 if should_retry_grpc(&grpc_err) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
@@ -197,7 +184,7 @@ async fn load_spiffe_tls(workload_socket: &str, trust_domain: &str) -> Result<Cl
         };
 
         let guard = SpiffeSourceGuard {
-            source,
+            source: Arc::new(source),
             trust_domain: trust_domain.clone(),
         };
 
@@ -237,13 +224,12 @@ impl SpiffeSourceGuard {
     fn tls_materials(&self) -> std::result::Result<(Identity, Certificate), anyhow::Error> {
         let svid = self
             .source
-            .get_svid()
-            .map_err(|err| anyhow::anyhow!("failed to fetch default X.509 SVID: {err}"))?
-            .ok_or_else(|| anyhow::anyhow!("workload API returned no default X.509 SVID"))?;
+            .svid()
+            .map_err(|err| anyhow::anyhow!("failed to fetch default X.509 SVID: {err}"))?;
 
         let bundle = self
             .source
-            .get_bundle_for_trust_domain(&self.trust_domain)
+            .bundle_for_trust_domain(&self.trust_domain)
             .map_err(|err| anyhow::anyhow!("failed to fetch X.509 bundle: {err}"))?
             .ok_or_else(|| {
                 anyhow::anyhow!(
@@ -274,11 +260,8 @@ fn encode_block(tag: &str, der: &[u8]) -> String {
     pem::encode(&pem::Pem::new(tag.to_string(), der.to_vec()))
 }
 
-fn should_retry_grpc(err: &GrpcClientError) -> bool {
-    matches!(
-        err,
-        GrpcClientError::Grpc(_) | GrpcClientError::Transport(_)
-    )
+fn should_retry_grpc(err: &WorkloadApiError) -> bool {
+    matches!(err, WorkloadApiError::Transport(_))
 }
 
 fn is_retryable_source_error(err: &X509SourceError) -> bool {

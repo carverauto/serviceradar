@@ -1,13 +1,11 @@
 use anyhow::{anyhow, Result};
-use log::warn;
 use pem::Pem;
+use spiffe::bundle::BundleSource;
 use spiffe::cert::Certificate as SpiffeCertificate;
-use spiffe::error::GrpcClientError;
-use spiffe::workload_api::x509_source::X509SourceError;
-use spiffe::X509SourceBuilder;
-use spiffe::{BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source};
+use spiffe::workload_api::WorkloadApiError;
+use spiffe::X509SourceError;
+use spiffe::{TrustDomain, X509Source, X509SourceBuilder};
 use std::sync::Arc;
-use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 use tonic::transport::{Certificate, Identity};
 
@@ -24,11 +22,7 @@ pub struct SpiffeSourceGuard {
 }
 
 impl Drop for SpiffeSourceGuard {
-    fn drop(&mut self) {
-        if let Err(err) = self.source.close() {
-            warn!("Failed to close SPIFFE X.509 source: {err}");
-        }
-    }
+    fn drop(&mut self) {}
 }
 
 pub async fn load_server_credentials(
@@ -48,15 +42,13 @@ pub async fn load_server_credentials(
 
     loop {
         attempts += 1;
-        let client = WorkloadApiClient::new_from_path(workload_socket)
+        let source = match X509SourceBuilder::new()
+            .endpoint(workload_socket)
+            .build()
             .await
-            .map_err(|err| {
-                map_grpc_error("connect to SPIFFE Workload API", workload_socket, err)
-            })?;
-
-        let source = match X509SourceBuilder::new().with_client(client).build().await {
+        {
             Ok(source) => source,
-            Err(X509SourceError::GrpcError(grpc_err)) => {
+            Err(X509SourceError::Source(grpc_err)) => {
                 if should_retry_grpc(&grpc_err) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
@@ -79,7 +71,7 @@ pub async fn load_server_credentials(
         };
 
         let guard = SpiffeSourceGuard {
-            source,
+            source: Arc::new(source),
             trust_domain: trust_domain.clone(),
         };
 
@@ -124,22 +116,12 @@ fn encode_block(tag: &str, der: &[u8]) -> String {
     pem::encode(&Pem::new(tag.to_string(), der.to_vec()))
 }
 
-fn map_grpc_error(action: &str, socket: &str, err: GrpcClientError) -> anyhow::Error {
-    match &err {
-        GrpcClientError::Grpc(status) => anyhow!(
-            "failed to {action} at {socket}: gRPC status {:?} ({})",
-            status.code(),
-            status.message()
-        ),
-        GrpcClientError::Transport(transport) => {
-            anyhow!("failed to {action} at {socket}: transport error {transport}")
-        }
-        _ => anyhow!(err),
-    }
+fn map_grpc_error(action: &str, socket: &str, err: WorkloadApiError) -> anyhow::Error {
+    anyhow!("failed to {action} at {socket}: {err}")
 }
 
-fn should_retry_grpc(err: &GrpcClientError) -> bool {
-    matches!(err, GrpcClientError::Grpc(_)) || matches!(err, GrpcClientError::Transport(_))
+fn should_retry_grpc(err: &WorkloadApiError) -> bool {
+    matches!(err, WorkloadApiError::Transport(_))
 }
 
 fn is_retryable_source_error(err: &X509SourceError) -> bool {
@@ -151,22 +133,20 @@ impl ServerCredentials {
         self.guard.tls_materials()
     }
 
-    pub fn watch_updates(&self) -> watch::Receiver<()> {
+    pub fn watch_updates(&self) -> spiffe::X509SourceUpdates {
         self.guard.updated()
     }
 }
 
 impl SpiffeSourceGuard {
     fn tls_materials(&self) -> Result<(Identity, Certificate)> {
-        let svid = self
-            .source
-            .get_svid()
-            .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?
-            .ok_or_else(|| anyhow!("workload API returned no default X.509 SVID"))?;
+        let svid = self.source.svid().map_err(|err| {
+            anyhow!("failed to fetch default X.509 SVID from workload API: {err}")
+        })?;
 
         let bundle = self
             .source
-            .get_bundle_for_trust_domain(&self.trust_domain)
+            .bundle_for_trust_domain(&self.trust_domain)
             .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
             .ok_or_else(|| {
                 anyhow!(
@@ -178,7 +158,7 @@ impl SpiffeSourceGuard {
         Ok(build_tls_identity(&svid, bundle.authorities()))
     }
 
-    fn updated(&self) -> watch::Receiver<()> {
+    fn updated(&self) -> spiffe::X509SourceUpdates {
         self.source.updated()
     }
 }
@@ -252,11 +232,11 @@ mod tests {
         let err = map_grpc_error(
             "connect to SPIFFE Workload API",
             "unix:/run/spire/sockets/agent.sock",
-            GrpcClientError::MissingEndpointSocketPath,
+            WorkloadApiError::MissingEndpointSocket,
         );
         let message = err.to_string();
         assert!(
-            message.contains("missing endpoint socket address"),
+            message.contains("missing SPIFFE endpoint socket path"),
             "expected original error preserved: {}",
             message
         );

@@ -224,12 +224,11 @@ mod tests {
     use super::*;
     use crate::flowgger::merger::LineMerger;
     use std::fs;
+    use std::io::Result;
     use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
     use std::sync::{Arc, Mutex};
     use std::{thread, time};
-    extern crate tempdir;
-    use std::io::Result;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     /// Helper for the test to initialize some test data, create a writer,  and verify it
     struct WriterTest {

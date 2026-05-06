@@ -62,14 +62,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&rperf_descriptor_path)
-        .compile(&["src/proto/rperf.proto"], &["src/proto"])?;
+        .compile_protos(&["src/proto/rperf.proto"], &["src/proto"])?;
 
     tonic_build::configure()
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&monitoring_descriptor_path)
         .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
-        .compile(&["src/proto/monitoring.proto"], &["src/proto"])?;
+        .compile_protos(&["src/proto/monitoring.proto"], &["src/proto"])?;
 
     println!("cargo:rerun-if-changed=src/proto/rperf.proto");
     println!("cargo:rerun-if-changed=src/proto/monitoring.proto");

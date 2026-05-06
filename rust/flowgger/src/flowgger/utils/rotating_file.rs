@@ -376,9 +376,8 @@ impl Write for RotatingFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    extern crate tempdir;
     use crate::flowgger::utils::test_utils::rfc_test_utils::new_date_time;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use time::Month;
 
     fn build_pattern_list(count: u32, length: usize) -> Vec<String> {
