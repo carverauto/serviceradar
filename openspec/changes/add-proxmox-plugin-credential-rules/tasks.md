@@ -42,7 +42,7 @@
 - [x] 6.3 Map PVE nodes, QEMU guests, and LXC guests into canonical inventory plus virtualization tables, avoiding infrastructure blobs in device metadata.
 - [x] 6.4 Persist hosted virtualization topology relations without creating physical adjacency.
 - [x] 6.5 Add SRQL filters/fields for Proxmox provider, cluster, node, guest type, VMID, storage, Ceph health, and enrichment freshness.
-- [ ] 6.6 Add ingestion tests for duplicate identity, stale enrichment, secret rejection, and provider-neutral virtualization records.
+- [x] 6.6 Add ingestion tests for duplicate identity, stale enrichment, secret rejection, and provider-neutral virtualization records.
 - [x] 6.7 Leave vSphere/vCenter provider IDs and schema affordances in place without implementing vCenter ingestion yet.
 
 ## 7. UI and Documentation

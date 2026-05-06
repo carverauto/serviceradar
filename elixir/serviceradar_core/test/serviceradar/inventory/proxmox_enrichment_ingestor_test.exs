@@ -82,6 +82,46 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     refute sensitive_value?(records)
   end
 
+  test "merges duplicate Proxmox identities and keeps the newest enrichment" do
+    parent = self()
+    stale_at = DateTime.add(@observed_at, -300, :second)
+    fresh_at = DateTime.add(@observed_at, 300, :second)
+
+    stale_details =
+      details_fixture()
+      |> put_in(["targets", Access.at(0), "nodes", Access.at(0), "cpu"], 0.05)
+      |> put_in(["targets", Access.at(0), "guests", Access.at(0), "status"], "stopped")
+
+    fresh_details =
+      details_fixture()
+      |> put_in(["targets", Access.at(0), "nodes", Access.at(0), "cpu"], 0.75)
+      |> put_in(["targets", Access.at(0), "guests", Access.at(0), "status"], "running")
+
+    stale_payload = payload_with_details(stale_details, stale_at)
+    fresh_payload = payload_with_details(fresh_details, fresh_at)
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(
+               [stale_payload, %{"status" => "OK"}, fresh_payload],
+               %{},
+               persist: fn records ->
+                 send(parent, {:records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:records, records}
+
+    assert Enum.count(records.hosts, &(&1.provider_ref == "proxmox:node:pve-a")) == 1
+    assert Enum.count(records.guests, &(&1.provider_ref == "proxmox:guest:pve-a:qemu:100")) == 1
+
+    assert find_record!(records.hosts, "proxmox:node:pve-a").cpu_ratio == 0.75
+
+    guest = find_record!(records.guests, "proxmox:guest:pve-a:qemu:100")
+    assert guest.status == "running"
+    assert guest.observed_at == fresh_at
+  end
+
   defp details_fixture do
     %{
       "schema" => "serviceradar.proxmox_enrichment.v1",
@@ -162,6 +202,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
           ]
         }
       ]
+    }
+  end
+
+  defp payload_with_details(details, observed_at) do
+    %{
+      "observed_at" => DateTime.to_iso8601(observed_at),
+      "details" => Jason.encode!(details)
     }
   end
 
