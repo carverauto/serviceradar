@@ -29,7 +29,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     partition_id = resolve_partition(opts, required_partition)
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
     required_gateway_node = resolve_required_gateway_node(opts, context)
-    payload_json = encode_payload(payload)
+    transmit_payload = Keyword.get(opts, :transmit_payload, payload)
+    payload_json = encode_payload(transmit_payload)
     payload_map = normalize_payload(payload)
 
     command_attrs = %{

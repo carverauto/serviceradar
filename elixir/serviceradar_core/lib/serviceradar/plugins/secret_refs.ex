@@ -121,6 +121,21 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     @network_credential_prefix <> secret_id
   end
 
+  @spec network_credential_ref_id(String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def network_credential_ref_id(ref) when is_binary(ref) do
+    if network_credential_ref?(ref) do
+      secret_id = String.replace_prefix(ref, @network_credential_prefix, "")
+
+      if secret_id == "" do
+        {:error, "has an empty network credential reference"}
+      else
+        {:ok, secret_id}
+      end
+    else
+      {:error, "is not a network credential reference"}
+    end
+  end
+
   defp preserve_secret_field(acc, material, field, params, existing_params, existing_material) do
     incoming = normalize_string(Map.get(params, field))
     existing_ref = secret_ref_value(existing_params, field)
@@ -359,16 +374,6 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   end
 
   defp network_credential_ref?(_value), do: false
-
-  defp network_credential_ref_id(ref) do
-    secret_id = String.replace_prefix(ref, @network_credential_prefix, "")
-
-    if secret_id == "" do
-      {:error, "has an empty network credential reference"}
-    else
-      {:ok, secret_id}
-    end
-  end
 
   defp remove_secret_material(%{} = map) do
     map

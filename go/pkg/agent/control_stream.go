@@ -18,9 +18,12 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -45,6 +48,7 @@ const (
 	commandTypeCameraRelayOpen = "camera.open_relay"
 	commandTypeCameraRelayStop = "camera.close_relay"
 	commandTypeAgentUpdate     = "agent.update_release"
+	commandTypeProxmoxTest     = "proxmox.credential_test"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
@@ -66,6 +70,28 @@ type mtrRunPayload struct {
 	Target   string `json:"target"`
 	Protocol string `json:"protocol,omitempty"`
 	MaxHops  int    `json:"max_hops,omitempty"`
+}
+
+type proxmoxCredentialTestPayload struct {
+	Schema           string            `json:"schema,omitempty"`
+	CredentialRuleID string            `json:"credential_rule_id,omitempty"`
+	APIToken         string            `json:"api_token"`
+	Target           proxmoxTestTarget `json:"target"`
+	TLS              proxmoxTestTLS    `json:"tls,omitempty"`
+	TimeoutMS        int               `json:"timeout_ms,omitempty"`
+	Preview          map[string]any    `json:"preview,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+}
+
+type proxmoxTestTarget struct {
+	DeviceUID string `json:"device_uid,omitempty"`
+	BaseURL   string `json:"base_url"`
+	Hostname  string `json:"hostname,omitempty"`
+	IP        string `json:"ip,omitempty"`
+}
+
+type proxmoxTestTLS struct {
+	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
 type controlStreamSender struct {
@@ -338,6 +364,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleCameraRelayStop(ctx, cmd, sender)
 		case commandTypeAgentUpdate:
 			p.handleAgentUpdateRelease(ctx, cmd, sender)
+		case commandTypeProxmoxTest:
+			p.handleProxmoxCredentialTest(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
@@ -523,6 +551,37 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		Msg("On-demand MTR trace completed")
 
 	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+func (p *PushLoop) handleProxmoxCredentialTest(
+	ctx context.Context,
+	cmd *proto.CommandRequest,
+	sender *controlStreamSender,
+) {
+	payload := proxmoxCredentialTestPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid proxmox credential test payload", nil))
+			return
+		}
+	}
+
+	runTimeout := commandTimeoutCap(cmd)
+	if runTimeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command deadline exceeded", nil))
+		return
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+
+	result, err := runProxmoxCredentialTest(runCtx, payload, nil)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), result))
+		return
+	}
+
+	_ = sender.Send(commandResult(cmd, true, "proxmox credential test completed", result))
 }
 
 func (p *PushLoop) handleCameraRelayOpen(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
@@ -770,6 +829,124 @@ func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
 	}
 
 	return opts
+}
+
+func runProxmoxCredentialTest(
+	ctx context.Context,
+	payload proxmoxCredentialTestPayload,
+	client *http.Client,
+) (map[string]any, error) {
+	baseURL, err := proxmoxCredentialTestBaseURL(payload.Target.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payload.APIToken) == "" {
+		return nil, errors.New("missing proxmox api token")
+	}
+
+	if client == nil {
+		client = proxmoxCredentialTestHTTPClient(payload.TLS.InsecureSkipVerify, payload.TimeoutMS)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api2/json/nodes", nil)
+	if err != nil {
+		return nil, errors.New("invalid proxmox test request")
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", proxmoxCredentialTestAuthHeader(payload.APIToken))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return proxmoxCredentialTestResult(payload, baseURL, 0, 0), err
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if readErr != nil {
+		return proxmoxCredentialTestResult(payload, baseURL, resp.StatusCode, 0), readErr
+	}
+
+	nodeCount := proxmoxCredentialTestNodeCount(body)
+	result := proxmoxCredentialTestResult(payload, baseURL, resp.StatusCode, nodeCount)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return result, errors.New("proxmox API credential test failed")
+	}
+
+	return result, nil
+}
+
+func proxmoxCredentialTestHTTPClient(insecureSkipVerify bool, timeoutMS int) *http.Client {
+	timeout := 30 * time.Second
+	if timeoutMS > 0 {
+		timeout = time.Duration(clampInt(timeoutMS, 300000)) * time.Millisecond
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if insecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator-controlled Proxmox TLS policy
+	}
+
+	return &http.Client{Timeout: timeout, Transport: transport}
+}
+
+func proxmoxCredentialTestBaseURL(raw string) (string, error) {
+	value := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if value == "" {
+		return "", errors.New("missing proxmox base_url")
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return "", errors.New("invalid proxmox base_url")
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return "", errors.New("invalid proxmox base_url scheme")
+	}
+
+	return value, nil
+}
+
+func proxmoxCredentialTestAuthHeader(token string) string {
+	token = strings.TrimSpace(token)
+	if strings.HasPrefix(token, "PVEAPIToken=") {
+		return token
+	}
+	return "PVEAPIToken=" + token
+}
+
+func proxmoxCredentialTestNodeCount(body []byte) int {
+	var envelope struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return 0
+	}
+	return len(envelope.Data)
+}
+
+func proxmoxCredentialTestResult(
+	payload proxmoxCredentialTestPayload,
+	baseURL string,
+	statusCode int,
+	nodeCount int,
+) map[string]any {
+	result := map[string]any{
+		"schema":             "serviceradar.proxmox_credential_test_result.v1",
+		"credential_rule_id": payload.CredentialRuleID,
+		"base_url":           baseURL,
+		"status_code":        statusCode,
+		"node_count":         nodeCount,
+	}
+	if payload.Target.DeviceUID != "" {
+		result["device_uid"] = payload.Target.DeviceUID
+	}
+	if payload.Target.Hostname != "" {
+		result["hostname"] = payload.Target.Hostname
+	}
+	if payload.Target.IP != "" {
+		result["ip"] = payload.Target.IP
+	}
+	return result
 }
 
 func commandTimeoutCap(cmd *proto.CommandRequest) time.Duration {

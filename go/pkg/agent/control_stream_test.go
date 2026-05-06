@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -129,6 +131,58 @@ func TestOnDemandMtrOptions_ClampsMaxHops(t *testing.T) {
 
 	if opts.MaxHops != mtrMaxHopsUpperBound {
 		t.Fatalf("expected clamped max_hops %d, got %d", mtrMaxHopsUpperBound, opts.MaxHops)
+	}
+}
+
+func TestRunProxmoxCredentialTest_UsesAPITokenAndReturnsNodeCount(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api2/json/nodes" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "PVEAPIToken=root@pam!sr=test-secret" {
+			t.Fatalf("unexpected authorization header %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"node":"pve-a"},{"node":"pve-b"}]}`))
+	}))
+	defer server.Close()
+
+	result, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		CredentialRuleID: "rule-1",
+		APIToken:         "root@pam!sr=test-secret",
+		Target: proxmoxTestTarget{
+			DeviceUID: "device-1",
+			BaseURL:   server.URL,
+			Hostname:  "pve-a",
+		},
+		TimeoutMS: 1000,
+	}, server.Client())
+	if err != nil {
+		t.Fatalf("runProxmoxCredentialTest() error = %v", err)
+	}
+
+	if result["node_count"] != 2 {
+		t.Fatalf("expected node_count=2, got %#v", result["node_count"])
+	}
+	if result["device_uid"] != "device-1" {
+		t.Fatalf("expected device_uid device-1, got %#v", result["device_uid"])
+	}
+	if body := result["api_token"]; body != nil {
+		t.Fatalf("result leaked api_token: %#v", body)
+	}
+}
+
+func TestRunProxmoxCredentialTest_RejectsMissingToken(t *testing.T) {
+	t.Parallel()
+
+	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		Target: proxmoxTestTarget{BaseURL: "https://pve.example:8006"},
+	}, nil)
+	if err == nil || err.Error() != "missing proxmox api token" {
+		t.Fatalf("expected missing token error, got %v", err)
 	}
 }
 
