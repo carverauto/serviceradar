@@ -51,7 +51,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{conn_mon: ref} = state) do
     Logger.warning("Coordinator DB lock connection exited", reason: inspect(reason))
-    {:noreply, demote(%{state | conn: nil, conn_mon: nil})}
+    {:noreply, demote_after_connection_exit(state)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{coordinator_child_mon: ref} = state) do
@@ -98,7 +98,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
 
       {:error, reason} ->
         Logger.warning("Coordinator lock attempt failed", reason: inspect(reason))
-        demote(%{state | conn: nil, conn_mon: nil})
+        demote_after_connection_error(state)
     end
   end
 
@@ -109,7 +109,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
 
       {:error, reason} ->
         Logger.warning("Coordinator lock heartbeat failed", reason: inspect(reason))
-        demote(%{state | conn: nil, conn_mon: nil})
+        demote_after_connection_error(state)
     end
   end
 
@@ -151,11 +151,44 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
     end
   end
 
+  defp demote_after_connection_exit(state) do
+    state
+    |> demote()
+    |> Map.merge(%{conn: nil, conn_mon: nil})
+  end
+
+  defp demote_after_connection_error(%{leader?: true} = state) do
+    state
+    |> demote()
+    |> Map.merge(%{conn: nil, conn_mon: nil})
+  end
+
+  defp demote_after_connection_error(state) do
+    # Postgrex.start_link/1 starts a linked DBConnection pool process. If the
+    # lock query fails before this node becomes leader, demote/1 is otherwise a
+    # no-op and the pool remains alive until it exhausts Postgres connections.
+    maybe_stop_connection(state.conn)
+
+    %{state | conn: nil, conn_mon: nil}
+  end
+
   defp maybe_unlock(nil), do: :ok
 
   defp maybe_unlock(conn) when is_pid(conn) do
     _ = Postgrex.query(conn, @unlock_sql, [@lock_key], timeout: @connection_timeout_ms)
-    GenServer.stop(conn, :normal)
+    maybe_stop_connection(conn)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp maybe_stop_connection(nil), do: :ok
+
+  defp maybe_stop_connection(conn) when is_pid(conn) do
+    if Process.alive?(conn) do
+      GenServer.stop(conn, :normal)
+    end
+
     :ok
   rescue
     _ -> :ok

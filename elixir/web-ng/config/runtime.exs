@@ -302,7 +302,8 @@ nats_tls_config =
       cacertfile: Path.join(cert_dir, "root.pem"),
       certfile: Path.join(cert_dir, "core.pem"),
       keyfile: Path.join(cert_dir, "core-key.pem"),
-      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+      server_name_indication:
+        "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
     ]
   else
     false
@@ -982,6 +983,20 @@ if config_env() == :prod do
         value
 
       _ ->
+        adbc_ssl_mode =
+          case System.get_env("FIELDSURVEY_ADBC_SSL_MODE") do
+            value when is_binary(value) and value != "" ->
+              value
+
+            _ ->
+              if cnpg_ssl_mode == "verify-full" and cnpg_tls_server_name not in [nil, ""] and
+                   cnpg_host not in [nil, ""] and cnpg_tls_server_name != cnpg_host do
+                "verify-ca"
+              else
+                cnpg_ssl_mode
+              end
+          end
+
         adbc_base_uri =
           cond do
             String.starts_with?(repo_url, "ecto://") ->
@@ -996,8 +1011,9 @@ if config_env() == :prod do
 
         adbc_params =
           %{
-            "sslmode" => cnpg_ssl_mode,
-            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
+            "sslmode" => adbc_ssl_mode,
+            "options" =>
+              "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
           }
           |> then(fn params ->
             if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
@@ -1009,16 +1025,7 @@ if config_env() == :prod do
             if cnpg_key_file == "", do: params, else: Map.put(params, "sslkey", cnpg_key_file)
           end)
 
-        parsed_adbc_uri =
-          adbc_base_uri
-          |> URI.parse()
-          |> then(fn uri ->
-            if cnpg_ssl_mode == "verify-full" and cnpg_tls_server_name != "" do
-              %{uri | host: cnpg_tls_server_name}
-            else
-              uri
-            end
-          end)
+        parsed_adbc_uri = URI.parse(adbc_base_uri)
 
         merged_query =
           parsed_adbc_uri.query
@@ -1178,7 +1185,9 @@ if config_env() == :prod do
       timeout: String.to_integer(System.get_env("DATABASE_TIMEOUT_MS") || "120000"),
       pool_timeout: String.to_integer(System.get_env("DATABASE_POOL_TIMEOUT_MS") || "120000"),
       socket_options: maybe_ipv6,
-      parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+      parameters: [
+        search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
+      ],
       types: ServiceRadar.PostgresTypes
     ]
 
@@ -1290,7 +1299,8 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do
