@@ -1,0 +1,55 @@
+## 1. Proposal Approval
+- [ ] 1.1 Review and approve the OpenSpec proposal.
+- [ ] 1.2 Decide final wording for read-only first iteration versus future mutating management actions.
+
+## 2. Network Credential Rules
+- [ ] 2.1 Add Elixir migration(s) under `elixir/serviceradar_core/priv/repo/migrations/` for platform-schema credential rule tables and indexes.
+- [ ] 2.2 Add Ash resources/actions for credential rules, encrypted secret references, rule tests, and redacted reads.
+- [ ] 2.3 Implement SRQL preview and conflict detection for target queries.
+- [ ] 2.4 Implement agent/site scope validation and per-agent materialization boundaries.
+- [ ] 2.5 Add tests proving plaintext secrets are never returned by API/UI reads.
+- [ ] 2.6 Add SSH private key credential type with AshCloak encryption, passphrase support, redacted fingerprint display, and rotation metadata.
+
+## 3. Settings UI
+- [ ] 3.1 Add Settings -> Networks -> Credential Rules navigation.
+- [ ] 3.2 Build list/create/edit/disable/test flows using existing settings UI patterns.
+- [ ] 3.3 Add Proxmox PVE API provider preset fields for token ID, token secret, realm, and TLS policy.
+- [ ] 3.4 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
+- [ ] 3.5 Add LiveView/controller tests for authorization, validation, redaction, and preview behavior.
+
+## 4. Policy Reconciliation and Agent Config
+- [ ] 4.1 Extend plugin target policy reconciliation to bind credential rules to resolved device batches.
+- [ ] 4.2 Deliver only scoped credential material to the assigned edge agent over existing authenticated config channels.
+- [ ] 4.3 Redact sensitive fields from logs, API responses, plugin status, and cached config debug output.
+- [ ] 4.4 Add tests for priority resolution, equal-priority conflicts, disabled rules, and agent-scope denial.
+
+## 5. Proxmox Plugin
+- [ ] 5.1 Add first-party Go WASM plugin package under `go/cmd/wasm-plugins/proxmox/`.
+- [ ] 5.2 Implement SDK host-HTTP Proxmox client for version, cluster, nodes, QEMU, and LXC status/config endpoints.
+- [ ] 5.3 Emit `serviceradar.device_discovery.v1` devices for PVE nodes, QEMU VMs, and LXC containers.
+- [ ] 5.4 Emit resource-efficiency metrics and bottleneck events for CPU, memory, disk, I/O wait where available.
+- [ ] 5.5 Add plugin manifest, config schema, fixture tests, and TinyGo build coverage.
+- [ ] 5.6 Add first-party plugin bundle registration and publish/sign verification wiring.
+
+## 6. Enrichment Ingestion
+- [ ] 6.1 Add typed Proxmox enrichment payload validation in core-elx/web-ng ingestion.
+- [ ] 6.2 Map PVE nodes, QEMU guests, and LXC guests into canonical inventory fields and metadata.
+- [ ] 6.3 Persist hosted virtualization topology relations without creating physical adjacency.
+- [ ] 6.4 Add SRQL filters/fields for Proxmox provider, cluster, node, guest type, VMID, and enrichment freshness.
+- [ ] 6.5 Add ingestion tests for duplicate identity, stale enrichment, and secret rejection.
+
+## 7. UI and Documentation
+- [ ] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
+- [ ] 7.2 Add edge agent/gateway console broker for SSH host sessions and optional Proxmox termproxy/vncwebsocket sessions.
+- [ ] 7.3 Build React/xterm.js terminal component mounted from Phoenix/LiveView using existing web-ng React integration.
+- [ ] 7.4 Add device details actions for "Open PVE shell", "Open VM console", and "Open LXC console" only when policy and reachability allow them.
+- [ ] 7.5 Add idle timeout, absolute session timeout, resize handling, close handling, and error rendering.
+- [ ] 7.6 Add tests for console RBAC, ticket single-use semantics, credential redaction, and agent-scope denial.
+
+## 8. UI and Documentation
+- [ ] 8.1 Surface Proxmox enrichment on device details and topology views.
+- [ ] 8.2 Add dashboard-ready resource efficiency panels backed by SRQL/metrics data.
+- [ ] 8.3 Document required Proxmox API token permissions, SSH key permissions, and least-privilege examples.
+- [ ] 8.4 Document example credential rules for single site and multi-datacenter deployments.
+- [ ] 8.5 Document console session security model, audit events, and timeout behavior.
+- [ ] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
