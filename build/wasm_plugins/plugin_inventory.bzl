@@ -29,6 +29,12 @@ WASM_BUILD_TARGETS = [
         "main_go": "//go/cmd/wasm-plugins/alienvault-otx:main.go",
         "tags": [],
     },
+    {
+        "name": "proxmox_inventory",
+        "srcs": ["//go/cmd/wasm-plugins/proxmox:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/proxmox:main.go",
+        "tags": [],
+    },
 ]
 
 WASM_PLUGIN_BUNDLES = [
@@ -108,6 +114,17 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/alienvault-otx:plugin.yaml"),
             ("plugin.wasm", ":alienvault_otx_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/alienvault-otx:config.schema.json"),
+        ],
+    },
+    {
+        "name": "proxmox_inventory_bundle",
+        "plugin_id": "proxmox-inventory",
+        "repository_name": "wasm-plugin-proxmox-inventory",
+        "wasm_target": ":proxmox_inventory_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/proxmox:plugin.yaml"),
+            ("plugin.wasm", ":proxmox_inventory_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/proxmox:config.schema.json"),
         ],
     },
 ]
