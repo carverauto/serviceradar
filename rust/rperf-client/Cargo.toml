@@ -20,6 +20,7 @@ tonic = { version = "0.12", features = ["tls"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1.0"
 pem = "3"
+rustls = "0.23"
 spiffe = { version = "0.14", default-features = false, features = ["x509-source"] }
 config-bootstrap = { path = "../config-bootstrap" }
 

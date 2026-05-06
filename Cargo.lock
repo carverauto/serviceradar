@@ -5718,6 +5718,7 @@ dependencies = [
  "log 0.4.29",
  "pem",
  "prost 0.13.5",
+ "rustls",
  "serde 1.0.228",
  "serde_json 1.0.149",
  "spiffe",
