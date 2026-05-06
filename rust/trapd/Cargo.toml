@@ -8,7 +8,7 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
-async-nats = "0.42.0"
+async-nats = "0.47"
 bytes = "1.11"
 clap = { version = "4.3", features = ["derive", "env"] }
 env_logger = "0.10"
@@ -23,7 +23,7 @@ tonic = { workspace = true }
 tonic-health = { workspace = true }
 tonic-reflection = { workspace = true }
 pem = "3"
-spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
+spiffe = { version = "0.14", default-features = false, features = ["x509-source"] }
 config-bootstrap = { path = "../../rust/config-bootstrap" }
 rustls = "0.23"
 

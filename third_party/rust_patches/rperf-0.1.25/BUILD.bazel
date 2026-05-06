@@ -1,0 +1,29 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rust_crates//:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "rperf_srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+rust_library(
+    name = "rperf_lib",
+    srcs = [":rperf_srcs"],
+    crate_name = "rperf",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = all_crate_deps(normal = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_binary(
+    name = "rperf_bin",
+    srcs = [":rperf_srcs"],
+    crate_name = "rperf",
+    crate_root = "src/main.rs",
+    edition = "2021",
+    deps = [":rperf_lib"] + all_crate_deps(normal = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)

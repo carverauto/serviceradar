@@ -140,7 +140,7 @@ impl RPerfTestOrchestrator {
         let reflection_service = ReflectionBuilder::configure()
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_RPERF)
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
-            .build()?;
+            .build_v1()?;
 
         let mut server_builder = Server::builder();
 

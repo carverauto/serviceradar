@@ -17,12 +17,11 @@
 use anyhow::Result;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 use std::vec::Vec;
+use tokio::process::Command;
 
 use crate::config::TargetConfig;
 use crate::server::rperf_service::TestRequest;
-use rperf::{client::state::ClientRunState, run_client_with_output};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RPerfSummary {
@@ -215,8 +214,7 @@ impl RPerfRunner {
             self.target_address, self.port, self.protocol
         );
 
-        let mut owned_args: Vec<String> = vec![
-            "rperf".to_string(),
+        let mut args: Vec<String> = vec![
             format!("--client={}", self.target_address),
             format!("--port={}", self.port),
             "--format=json".to_string(),
@@ -228,68 +226,81 @@ impl RPerfRunner {
         ];
 
         if self.length > 0 {
-            owned_args.push(format!("--length={}", self.length));
+            args.push(format!("--length={}", self.length));
         }
 
-        owned_args.push(format!("--send-buffer={}", self.send_buffer));
-        owned_args.push(format!("--receive-buffer={}", self.receive_buffer));
+        args.push(format!("--send-buffer={}", self.send_buffer));
+        args.push(format!("--receive-buffer={}", self.receive_buffer));
 
         if self.protocol == "udp" {
-            owned_args.push("--udp".to_string());
+            args.push("--udp".to_string());
         }
         if self.reverse {
-            owned_args.push("--reverse".to_string());
+            args.push("--reverse".to_string());
         }
         if self.no_delay {
-            owned_args.push("--no-delay".to_string());
+            args.push("--no-delay".to_string());
         }
 
-        debug!("Executing rperf with args: {owned_args:?}");
+        debug!("Executing rperf with args: {args:?}");
 
-        let output_buffer = Arc::new(Mutex::new(Vec::new()));
-        let output_clone = output_buffer.clone();
-        let run_state = ClientRunState::new();
-        let run_state_clone = run_state.clone();
-
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs((self.duration + 10.0) as u64),
-            tokio::task::spawn_blocking(move || {
-                // Convert Vec<String> to Vec<&str> inside the closure to ensure ownership
-                let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
-                run_client_with_output(args, output_clone)
-                    .map_err(|e| anyhow::anyhow!("rperf execution failed: {}", e))
-            }),
-        )
-        .await;
+        let result = tokio::time::timeout(self.timeout(), run_rperf_command(&args)).await;
 
         match result {
-            Ok(join_result) => match join_result {
-                Ok(Ok(_)) => {
-                    let output = output_buffer.lock().unwrap().clone();
-                    parse_rperf_output(&output, &self.protocol)
-                }
-                Ok(Err(e)) => Ok(RPerfResult {
-                    success: false,
-                    error: Some(format!("rperf test execution failed: {e}")),
-                    results_json: String::new(),
-                    summary: Default::default(),
-                }),
-                Err(e) => Ok(RPerfResult {
-                    success: false,
-                    error: Some(format!("Task panic: {e}")),
-                    results_json: String::new(),
-                    summary: Default::default(),
-                }),
-            },
-            Err(_) => {
-                run_state_clone.request_shutdown();
-                Ok(RPerfResult {
-                    success: false,
-                    error: Some("Test timed out".to_string()),
-                    results_json: String::new(),
-                    summary: Default::default(),
-                })
-            }
+            Ok(Ok(output)) => parse_rperf_output(&output, &self.protocol),
+            Ok(Err(e)) => Ok(RPerfResult {
+                success: false,
+                error: Some(format!("rperf test execution failed: {e}")),
+                results_json: String::new(),
+                summary: Default::default(),
+            }),
+            Err(_) => Ok(RPerfResult {
+                success: false,
+                error: Some("Test timed out".to_string()),
+                results_json: String::new(),
+                summary: Default::default(),
+            }),
         }
+    }
+
+    fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs((self.duration + 10.0) as u64)
+    }
+}
+
+async fn run_rperf_command(args: &[String]) -> Result<Vec<u8>> {
+    let binary = std::env::var("RPERF_BINARY").unwrap_or_else(|_| "serviceradar-rperf".to_string());
+    match run_command(&binary, args).await {
+        Ok(output) => Ok(output),
+        Err(primary_err) if binary != "rperf" => {
+            debug!("failed to execute {binary}: {primary_err}; falling back to rperf");
+            run_command("rperf", args).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn run_command(binary: &str, args: &[String]) -> Result<Vec<u8>> {
+    let output = Command::new(binary)
+        .args(args)
+        .output()
+        .await
+        .map_err(|err| anyhow::anyhow!("failed to spawn {binary}: {err}"))?;
+
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(serde_json::to_vec(&serde_json::json!({
+            "success": false,
+            "error": format!(
+                "{binary} exited with status {}; stderr: {}; stdout: {}",
+                output.status,
+                stderr.trim(),
+                stdout.trim()
+            ),
+        }))
+        .unwrap_or_default())
     }
 }

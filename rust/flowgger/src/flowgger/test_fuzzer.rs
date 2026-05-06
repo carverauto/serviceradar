@@ -17,12 +17,11 @@
 #[cfg(all(test, feature = "file"))]
 mod tests {
     extern crate quickcheck;
-    extern crate tempdir;
 
     use crate::flowgger;
 
     use quickcheck::QuickCheck;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     use std::fs;
     use std::io::{BufRead, BufReader};

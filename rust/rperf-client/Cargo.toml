@@ -8,23 +8,21 @@ license = "Apache-2.0"
 
 [dependencies]
 chrono = "0.4"
-#rperf = { path = "../../../../rperf" }
-rperf = "0.1.25"
 tokio = { version = "1.44", features = ["full"] }
-prost = "0.11"
+prost = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
-env_logger = "0.10"
-tonic-health = "0.9"
-tonic-reflection = "0.9"
-tonic = { version = "0.9", features = ["tls"] }
-clap = "~2.33.3"
+env_logger = "0.11"
+tonic-health = "0.12"
+tonic-reflection = "0.12"
+tonic = { version = "0.12", features = ["tls"] }
+clap = { version = "4", features = ["derive"] }
 anyhow = "1.0"
 pem = "3"
-spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
+spiffe = { version = "0.14", default-features = false, features = ["x509-source"] }
 config-bootstrap = { path = "../config-bootstrap" }
 
 [build-dependencies]
-tonic-build = "0.9"
+tonic-build = "0.12"
 which = "7.0"

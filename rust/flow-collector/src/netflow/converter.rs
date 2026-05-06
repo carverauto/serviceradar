@@ -695,7 +695,8 @@ fn parse_bgp_communities(value: &FieldValue) -> Vec<u32> {
         }
         // Community list as string (format: "65000:100,65000:200")
         FieldValue::String(s) => {
-            s.value.split(',')
+            s.value
+                .split(',')
                 .filter_map(|community_str| {
                     let parts: Vec<&str> = community_str.trim().split(':').collect();
                     if parts.len() == 2 {
@@ -716,9 +717,7 @@ fn parse_bgp_communities(value: &FieldValue) -> Vec<u32> {
             // Each community is 4 bytes (32-bit value)
             bytes
                 .chunks_exact(4)
-                .map(|chunk| {
-                    u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
-                })
+                .map(|chunk| u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                 .collect()
         }
         _ => vec![],

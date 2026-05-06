@@ -601,7 +601,6 @@ crates.from_cargo(
 use_repo(
     crates,
     "rust_crates",
-    "rust_crates__rperf-0.1.25",
 )
 
 # --- Node.js toolchain -------------------------------------------------------

@@ -47,7 +47,10 @@ fn encode_signed_token(payload: &TokenPayload) -> String {
 fn set_verification_key_env() {
     let signing_key = test_signing_key();
     let verifying_key = signing_key.verifying_key();
-    std::env::set_var(PUBLIC_KEY_ENV, base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes()));
+    std::env::set_var(
+        PUBLIC_KEY_ENV,
+        base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes()),
+    );
 }
 
 fn set_signing_key_env() {

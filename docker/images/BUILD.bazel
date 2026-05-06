@@ -361,11 +361,13 @@ declare_service_container_amd64(
     runtime = "ubuntu",
     image_title = "serviceradar-rperf-client",
     files = {
+        "//rust/rperf-server:rperf": "usr/local/bin/serviceradar-rperf",
         "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
         "//docker/compose:entrypoint-rperf-client.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:rperf-client.docker.json": "tmp/rperf-client.docker.json",
     },
     modes = {
+        "usr/local/bin/serviceradar-rperf": "0755",
         "usr/local/bin/serviceradar-rperf-checker": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "tmp/rperf-client.docker.json": "0644",

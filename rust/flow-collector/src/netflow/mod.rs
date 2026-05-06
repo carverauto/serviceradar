@@ -95,15 +95,17 @@ impl NetflowHandler {
             .on_template_event(make_template_event_callback(pending_enabled));
 
         if let Some(pf) = pending_flows {
-            let mut pf_config =
-                PendingFlowsConfig::with_ttl(pf.max_pending_flows, Duration::from_secs(pf.ttl_secs));
+            let mut pf_config = PendingFlowsConfig::with_ttl(
+                pf.max_pending_flows,
+                Duration::from_secs(pf.ttl_secs),
+            );
             pf_config.max_entries_per_template = pf.max_entries_per_template;
             pf_config.max_entry_size_bytes = pf.max_entry_size_bytes;
             builder = builder.with_pending_flows(pf_config);
         }
 
-        let parser = AutoScopedParser::try_with_builder(builder)
-            .expect("failed to build netflow parser");
+        let parser =
+            AutoScopedParser::try_with_builder(builder).expect("failed to build netflow parser");
 
         Self {
             parser: Mutex::new(parser),
