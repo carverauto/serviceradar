@@ -33,14 +33,6 @@ repository = "https://github.com/Xuanwo/reqsign"
 name = "reqsign_azure_storage"
 path = "src/lib.rs"
 
-[[example]]
-name = "blob_storage"
-path = "examples/blob_storage.rs"
-
-[[test]]
-name = "main"
-path = "tests/main.rs"
-
 [dependencies.anyhow]
 version = "1"
 
@@ -88,34 +80,6 @@ version = "0.10"
 [dependencies.sha2]
 version = "0.10"
 features = ["oid"]
-
-[dev-dependencies.async-trait]
-version = "0.1"
-
-[dev-dependencies.dotenv]
-version = "0.15"
-
-[dev-dependencies.env_logger]
-version = "0.11"
-
-[dev-dependencies.reqsign-command-execute-tokio]
-version = "1.0.0"
-
-[dev-dependencies.reqsign-file-read-tokio]
-version = "1.0.0"
-
-[dev-dependencies.reqsign-http-send-reqwest]
-version = "1.0.0"
-
-[dev-dependencies.reqwest]
-version = "0.12"
-features = ["rustls-tls"]
-default-features = false
-
-[dev-dependencies.tokio]
-version = "1"
-features = ["full"]
-default-features = false
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.jsonwebtoken]
 version = "10.3.0"
