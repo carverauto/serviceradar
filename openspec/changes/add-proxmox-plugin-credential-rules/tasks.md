@@ -37,13 +37,13 @@
 - [x] 5.11 Confirm Proxmox syslog/journal API endpoints are read-only log access paths and keep log-forwarding configuration out of inventory collection.
 
 ## 6. Enrichment Ingestion
-- [ ] 6.1 Add provider-neutral virtualization schema/resources for clusters, hypervisor hosts, guests, host relationships, datastores/storage pools, disks, NICs, and provider extension fields.
+- [x] 6.1 Add provider-neutral virtualization schema/resources for clusters, hypervisor hosts, guests, host relationships, datastores/storage pools, disks, NICs, and provider extension fields.
 - [ ] 6.2 Add typed Proxmox enrichment payload validation in core-elx/web-ng ingestion.
 - [ ] 6.3 Map PVE nodes, QEMU guests, and LXC guests into canonical inventory plus virtualization tables, avoiding infrastructure blobs in device metadata.
 - [ ] 6.4 Persist hosted virtualization topology relations without creating physical adjacency.
 - [ ] 6.5 Add SRQL filters/fields for Proxmox provider, cluster, node, guest type, VMID, storage, Ceph health, and enrichment freshness.
 - [ ] 6.6 Add ingestion tests for duplicate identity, stale enrichment, secret rejection, and provider-neutral virtualization records.
-- [ ] 6.7 Leave vSphere/vCenter provider IDs and schema affordances in place without implementing vCenter ingestion yet.
+- [x] 6.7 Leave vSphere/vCenter provider IDs and schema affordances in place without implementing vCenter ingestion yet.
 
 ## 7. UI and Documentation
 - [ ] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
