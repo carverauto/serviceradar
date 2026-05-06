@@ -9,6 +9,6 @@ if [[ ! -f "${inventory_file}" ]]; then
   exit 1
 fi
 
-rg -o '"repository": "[^"]+"' "${inventory_file}" \
+grep -Eo '"repository": "[^"]+"' "${inventory_file}" \
   | sed -E 's/.*"repository": "([^"]+)"/\1/' \
   | sort -u

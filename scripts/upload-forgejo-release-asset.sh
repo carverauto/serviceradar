@@ -43,7 +43,7 @@ if [[ -n "${existing_asset_id}" ]]; then
   curl -fsSL -X DELETE \
     -H "${accept_header}" \
     -H "${auth_header}" \
-    "${forgejo_url}/api/v1/repos/${forgejo_repo}/releases/assets/${existing_asset_id}" \
+    "${forgejo_url}/api/v1/repos/${forgejo_repo}/releases/${release_id}/assets/${existing_asset_id}" \
     >/dev/null
 fi
 
