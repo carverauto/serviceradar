@@ -14,6 +14,7 @@ Dependency security refresh for Rust, Go, and dashboard JavaScript packages, inc
 - Fixed the web-ng FieldSurvey ADBC database URI builder so pooler-backed `verify-full` deployments keep routing through the configured CNPG pooler while still verifying the cluster CA.
 - Fixed Bazel crate metadata for patched reqsign crates and the updated OpenSSL source crate so release image publishing can analyze the full `//:push` graph in CI.
 - Fixed Bazel provider dependencies for the patched reqsign Azure and Google crates so release image builds can compile Zen's reqsign-enabled dependency graph.
+- Updated the pinned TinyGo toolchain to 0.41.1 so first-party Wasm plugin publishing remains compatible with the Go 1.26 release toolchain.
 
 # ServiceRadar v1.2.32
 
