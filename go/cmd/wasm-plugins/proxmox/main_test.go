@@ -82,6 +82,69 @@ func boolPtr(value bool) *bool {
 	return &value
 }
 
+func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
+	cfg, err := configFromMap(map[string]any{
+		"schema":         sdk.PluginInputsSchemaV1,
+		"policy_id":      "policy-1",
+		"policy_version": 1,
+		"agent_id":       "agent-1",
+		"generated_at":   "2026-05-06T19:00:00Z",
+		"template": map[string]any{
+			"api_token":      "PVEAPIToken=root@pam!sr=test-token",
+			"include_guests": false,
+			"timeout_ms":     45000,
+		},
+		"inputs": []any{
+			map[string]any{
+				"name":        "targets",
+				"entity":      "devices",
+				"query":       "in:devices tags.provider:proxmox",
+				"chunk_index": 0,
+				"chunk_total": 1,
+				"chunk_hash":  strings.Repeat("a", 64),
+				"items": []any{
+					map[string]any{
+						"uid":       "sr:device:1",
+						"ip":        "10.10.0.11",
+						"hostname":  "pve-a",
+						"partition": "dc-a",
+					},
+					map[string]any{
+						"uid":              "sr:device:2",
+						"proxmox_base_url": "https://pve-b.example:8006/",
+						"hostname":         "pve-b",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("configFromMap() error = %v", err)
+	}
+
+	if cfg.TimeoutMS != 45000 {
+		t.Fatalf("unexpected timeout: %d", cfg.TimeoutMS)
+	}
+	if cfg.includeGuests() {
+		t.Fatalf("expected include_guests=false from template")
+	}
+	if got := len(cfg.Targets); got != 2 {
+		t.Fatalf("expected two generated targets, got %d", got)
+	}
+	if cfg.Targets[0].BaseURL != "https://10.10.0.11:8006" {
+		t.Fatalf("unexpected first target URL: %s", cfg.Targets[0].BaseURL)
+	}
+	if cfg.Targets[0].APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("expected template token on generated target")
+	}
+	if cfg.Targets[0].DeviceID != "sr:device:1" || cfg.Targets[0].Partition != "dc-a" {
+		t.Fatalf("unexpected first target metadata: %#v", cfg.Targets[0])
+	}
+	if cfg.Targets[1].BaseURL != "https://pve-b.example:8006" {
+		t.Fatalf("unexpected second target URL: %s", cfg.Targets[1].BaseURL)
+	}
+}
+
 func TestRunProxmoxCheckRequiresTargetAndToken(t *testing.T) {
 	if _, err := runProxmoxCheck(Config{APIToken: "token"}); err != errMissingTarget {
 		t.Fatalf("expected missing target, got %v", err)

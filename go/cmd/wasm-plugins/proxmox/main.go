@@ -107,8 +107,8 @@ func run_check() {
 	primeTinyGoJSON()
 
 	_ = sdk.Execute(func() (*sdk.Result, error) {
-		cfg := defaultConfig()
-		if err := sdk.LoadConfig(&cfg); err != nil {
+		cfg, err := loadConfig()
+		if err != nil {
 			return sdk.Unknown("Proxmox configuration could not be loaded"), nil
 		}
 
@@ -119,6 +119,54 @@ func run_check() {
 
 		return result, nil
 	})
+}
+
+func loadConfig() (Config, error) {
+	var raw map[string]any
+	if err := sdk.LoadConfig(&raw); err != nil {
+		return defaultConfig(), err
+	}
+	if len(raw) == 0 {
+		return defaultConfig(), nil
+	}
+
+	return configFromMap(raw)
+}
+
+func configFromMap(raw map[string]any) (Config, error) {
+	if looksLikePluginInputs(raw) {
+		return configFromPluginInputs(raw)
+	}
+
+	cfg := defaultConfig()
+	if err := applyConfigMap(raw, &cfg); err != nil {
+		return defaultConfig(), err
+	}
+
+	return cfg, nil
+}
+
+func configFromPluginInputs(raw map[string]any) (Config, error) {
+	payload, err := sdk.ParsePluginInputsMap(raw)
+	if err != nil {
+		return defaultConfig(), err
+	}
+
+	cfg := defaultConfig()
+	if payload.Template != nil {
+		if err := applyConfigMap(payload.Template, &cfg); err != nil {
+			return defaultConfig(), err
+		}
+	}
+
+	generatedTargets := targetsFromPluginInputs(payload, cfg)
+	if len(generatedTargets) > 0 {
+		cfg.Targets = append(cfg.Targets, generatedTargets...)
+		cfg.Targets = dedupeTargets(cfg.Targets)
+		cfg.BaseURL = ""
+	}
+
+	return cfg, nil
 }
 
 func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
@@ -200,6 +248,18 @@ func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 
 func defaultConfig() Config {
 	return Config{TimeoutMS: defaultTimeoutMS}
+}
+
+func applyConfigMap(raw map[string]any, cfg *Config) error {
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(encoded, cfg); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func fetchTargetInventory(cfg Config, target Target) ([]proxmoxNode, []proxmoxResource, error) {
@@ -372,6 +432,131 @@ func (cfg Config) effectiveTargets() []Target {
 	return targets
 }
 
+func looksLikePluginInputs(raw map[string]any) bool {
+	if strings.TrimSpace(stringValue(raw, "schema")) == sdk.PluginInputsSchemaV1 {
+		return true
+	}
+	if _, ok := raw["inputs"]; ok {
+		return true
+	}
+
+	return false
+}
+
+func targetsFromPluginInputs(payload *sdk.PluginInputsPayload, cfg Config) []Target {
+	if payload == nil {
+		return nil
+	}
+
+	targets := make([]Target, 0)
+	for _, input := range payload.FlattenItems() {
+		if input.Entity != "devices" {
+			continue
+		}
+
+		target := targetFromInputItem(input.Item, cfg)
+		if strings.TrimSpace(target.BaseURL) != "" {
+			targets = append(targets, target)
+		}
+	}
+
+	return targets
+}
+
+func targetFromInputItem(item map[string]any, cfg Config) Target {
+	hostname := firstNonEmpty(
+		stringValue(item, "hostname"),
+		stringValue(item, "name"),
+	)
+
+	return Target{
+		BaseURL: baseURLForItem(item, cfg),
+		APIToken: firstNonEmpty(
+			stringValue(item, "api_token"),
+			stringValue(item, "proxmox_api_token"),
+			cfg.APIToken,
+		),
+		DeviceID: firstNonEmpty(
+			stringValue(item, "uid"),
+			stringValue(item, "device_uid"),
+			stringValue(item, "device_id"),
+		),
+		Hostname: hostname,
+		Partition: firstNonEmpty(
+			stringValue(item, "partition"),
+			stringValue(item, "site"),
+		),
+	}
+}
+
+func baseURLForItem(item map[string]any, cfg Config) string {
+	direct := firstNonEmpty(
+		stringValue(item, "base_url"),
+		stringValue(item, "proxmox_base_url"),
+		stringValue(item, "endpoint"),
+		stringValue(item, "management_url"),
+	)
+	if direct != "" {
+		return normalizeBaseURL(direct)
+	}
+
+	host := firstNonEmpty(
+		stringValue(item, "ip"),
+		stringValue(item, "device_ip"),
+		stringValue(item, "hostname"),
+		stringValue(item, "name"),
+	)
+	if host != "" {
+		return normalizeBaseURL(host)
+	}
+
+	return normalizeBaseURL(cfg.BaseURL)
+}
+
+func normalizeBaseURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return strings.TrimRight(value, "/")
+	}
+
+	return "https://" + strings.TrimRight(value, "/") + ":8006"
+}
+
+func dedupeTargets(targets []Target) []Target {
+	seen := map[string]bool{}
+	out := make([]Target, 0, len(targets))
+
+	for _, target := range targets {
+		key := target.BaseURL + "|" + target.DeviceID + "|" + target.Hostname
+		if seen[key] || strings.TrimSpace(target.BaseURL) == "" {
+			continue
+		}
+		seen[key] = true
+		out = append(out, target)
+	}
+
+	return out
+}
+
+func stringValue(mapValue map[string]any, key string) string {
+	if mapValue == nil {
+		return ""
+	}
+	if value, ok := mapValue[key]; ok {
+		switch typed := value.(type) {
+		case string:
+			return strings.TrimSpace(typed)
+		case fmt.Stringer:
+			return strings.TrimSpace(typed.String())
+		}
+	}
+
+	return ""
+}
+
 func (target Target) safeName() string {
 	return firstNonEmpty(target.Hostname, target.DeviceID, target.redactedBaseURL())
 }
@@ -451,9 +636,11 @@ func sanitizeError(err error) string {
 
 func primeTinyGoJSON() {
 	var cfg Config
+	var inputs sdk.PluginInputsPayload
 	var nodes proxmoxNodesResponse
 	var resources proxmoxResourcesResponse
 	_ = json.Unmarshal([]byte(`{"base_url":"https://pve.example:8006","api_token":"x","targets":[]}`), &cfg)
+	_ = json.Unmarshal([]byte(`{"schema":"serviceradar.plugin_inputs.v1","policy_id":"p","policy_version":1,"agent_id":"a","generated_at":"2026-05-06T00:00:00Z","inputs":[{"name":"targets","entity":"devices","query":"in:devices","chunk_index":0,"chunk_total":1,"chunk_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","items":[{"uid":"d","ip":"192.0.2.10"}]}]}`), &inputs)
 	_ = json.Unmarshal([]byte(`{"data":[{"node":"pve","status":"online"}]}`), &nodes)
 	_ = json.Unmarshal([]byte(`{"data":[{"id":"qemu/100","node":"pve","type":"qemu","vmid":100}]}`), &resources)
 }
