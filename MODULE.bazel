@@ -529,6 +529,14 @@ crates = use_extension(
     "crate",
 )
 crates.annotation(
+    crate = "reqsign",
+    deps = [
+        "@@//third_party/rust_patches/reqsign-azure-storage-1.0.0:reqsign_azure_storage",
+        "@@//third_party/rust_patches/reqsign-google-1.0.0:reqsign_google",
+    ],
+    repositories = ["rust_crates"],
+)
+crates.annotation(
     additive_build_file_content = """
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 
