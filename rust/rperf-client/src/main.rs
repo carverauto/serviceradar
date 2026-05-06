@@ -19,12 +19,14 @@ use clap::{Arg, Command};
 use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use log::{info, warn};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 
 use serviceradar_rperf_checker::{config::Config, server::RPerfTestOrchestrator, template};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    ensure_rustls_provider_installed();
+
     // Initialize logging
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
@@ -90,4 +92,11 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
