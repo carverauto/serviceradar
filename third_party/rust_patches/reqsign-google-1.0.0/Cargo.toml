@@ -33,18 +33,6 @@ repository = "https://github.com/Xuanwo/reqsign"
 name = "reqsign_google"
 path = "src/lib.rs"
 
-[[example]]
-name = "chain_logging"
-path = "examples/chain_logging.rs"
-
-[[example]]
-name = "custom_chain"
-path = "examples/custom_chain.rs"
-
-[[test]]
-name = "main"
-path = "tests/main.rs"
-
 [dependencies.async-trait]
 version = "0.1"
 
@@ -90,35 +78,3 @@ version = "1"
 [dependencies.sha2]
 version = "0.10"
 features = ["oid"]
-
-[dev-dependencies.dotenv]
-version = "0.15"
-
-[dev-dependencies.env_logger]
-version = "0.11"
-
-[dev-dependencies.pretty_assertions]
-version = "1.3"
-
-[dev-dependencies.reqsign-file-read-tokio]
-version = "1.0.0"
-
-[dev-dependencies.reqsign-http-send-reqwest]
-version = "1.0.0"
-
-[dev-dependencies.reqwest]
-version = "0.12"
-features = ["rustls-tls"]
-default-features = false
-
-[dev-dependencies.sha2]
-version = "0.10"
-features = ["oid"]
-
-[dev-dependencies.temp-env]
-version = "0.3"
-
-[dev-dependencies.tokio]
-version = "1"
-features = ["full"]
-default-features = false
