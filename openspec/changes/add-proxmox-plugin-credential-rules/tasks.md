@@ -1,10 +1,10 @@
 ## 1. Proposal Approval
-- [ ] 1.1 Review and approve the OpenSpec proposal.
-- [ ] 1.2 Decide final wording for read-only first iteration versus future mutating management actions.
+- [x] 1.1 Review and approve the OpenSpec proposal.
+- [x] 1.2 Decide final wording for read-only first iteration versus future mutating management actions.
 
 ## 2. Network Credential Rules
-- [ ] 2.1 Add Elixir migration(s) under `elixir/serviceradar_core/priv/repo/migrations/` for platform-schema credential rule tables and indexes.
-- [ ] 2.2 Add Ash resources/actions for credential rules, encrypted secret references, rule tests, and redacted reads.
+- [x] 2.1 Add Elixir migration(s) under `elixir/serviceradar_core/priv/repo/migrations/` for platform-schema credential rule tables and indexes.
+- [x] 2.2 Add Ash resources/actions for credential rules, encrypted secret references, rule tests, and redacted reads.
 - [ ] 2.3 Implement SRQL preview and conflict detection for target queries.
 - [ ] 2.4 Implement agent/site scope validation and per-agent materialization boundaries.
 - [ ] 2.5 Add tests proving plaintext secrets are never returned by API/UI reads.
@@ -18,18 +18,18 @@
 - [ ] 3.5 Add LiveView/controller tests for authorization, validation, redaction, and preview behavior.
 
 ## 4. Policy Reconciliation and Agent Config
-- [ ] 4.1 Extend plugin target policy reconciliation to bind credential rules to resolved device batches.
-- [ ] 4.2 Deliver only scoped credential material to the assigned edge agent over existing authenticated config channels.
+- [x] 4.1 Extend plugin target policy reconciliation to bind credential rules to resolved device batches.
+- [x] 4.2 Deliver only scoped credential material to the assigned edge agent over existing authenticated config channels.
 - [ ] 4.3 Redact sensitive fields from logs, API responses, plugin status, and cached config debug output.
 - [ ] 4.4 Add tests for priority resolution, equal-priority conflicts, disabled rules, and agent-scope denial.
 
 ## 5. Proxmox Plugin
-- [ ] 5.1 Add first-party Go WASM plugin package under `go/cmd/wasm-plugins/proxmox/`.
+- [x] 5.1 Add first-party Go WASM plugin package under `go/cmd/wasm-plugins/proxmox/`.
 - [ ] 5.2 Implement SDK host-HTTP Proxmox client for version, cluster, nodes, QEMU, and LXC status/config endpoints.
-- [ ] 5.3 Emit `serviceradar.device_discovery.v1` devices for PVE nodes, QEMU VMs, and LXC containers.
+- [x] 5.3 Emit `serviceradar.device_discovery.v1` devices for PVE nodes, QEMU VMs, and LXC containers.
 - [ ] 5.4 Emit resource-efficiency metrics and bottleneck events for CPU, memory, disk, I/O wait where available.
-- [ ] 5.5 Add plugin manifest, config schema, fixture tests, and TinyGo build coverage.
-- [ ] 5.6 Add first-party plugin bundle registration and publish/sign verification wiring.
+- [x] 5.5 Add plugin manifest, config schema, fixture tests, and TinyGo build coverage.
+- [x] 5.6 Add first-party plugin bundle registration and publish/sign verification wiring.
 
 ## 6. Enrichment Ingestion
 - [ ] 6.1 Add typed Proxmox enrichment payload validation in core-elx/web-ng ingestion.
