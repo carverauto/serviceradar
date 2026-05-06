@@ -7,6 +7,7 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   alias ServiceRadar.Plugins.MapUtils
 
   @secret_prefix "secretref:"
+  @network_credential_prefix "credentialref:network-credential-secret:"
   @secret_material_key "_secret_material"
 
   @spec prepare_params_for_storage(map(), map(), map()) :: map()
@@ -109,8 +110,16 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   end
 
   @spec secret_ref?(String.t()) :: boolean()
-  def secret_ref?(value) when is_binary(value), do: String.starts_with?(value, @secret_prefix)
+  def secret_ref?(value) when is_binary(value) do
+    String.starts_with?(value, @secret_prefix) or network_credential_ref?(value)
+  end
+
   def secret_ref?(_value), do: false
+
+  @spec network_credential_ref(String.t()) :: String.t()
+  def network_credential_ref(secret_id) when is_binary(secret_id) do
+    @network_credential_prefix <> secret_id
+  end
 
   defp preserve_secret_field(acc, material, field, params, existing_params, existing_material) do
     incoming = normalize_string(Map.get(params, field))
@@ -142,12 +151,21 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   defp resolve_secret_field(acc, field, material) do
     with ref when not is_nil(ref) <- secret_ref_value(acc, field),
-         {:ok, encrypted} <- fetch_secret_material(material, ref, field),
-         {:ok, secret} <- decrypt_secret_material(encrypted, field) do
+         {:ok, secret} <- resolve_secret_ref(material, ref, field) do
       {:ok, Map.put(acc, runtime_field_name(field), secret)}
     else
       nil -> {:ok, acc}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_secret_ref(material, ref, field) do
+    if network_credential_ref?(ref) do
+      resolve_network_credential_ref(ref, field)
+    else
+      with {:ok, encrypted} <- fetch_secret_material(material, ref, field) do
+        decrypt_secret_material(encrypted, field)
+      end
     end
   end
 
@@ -163,6 +181,23 @@ defmodule ServiceRadar.Plugins.SecretRefs do
       {:ok, secret} -> {:ok, secret}
       {:error, :decrypt_failed} -> {:error, "#{field} could not be decrypted"}
     end
+  end
+
+  defp resolve_network_credential_ref(ref, field) do
+    with {:ok, secret_id} <- network_credential_ref_id(ref),
+         {:ok, secret} <- load_network_credential_secret(secret_id),
+         payload when is_binary(payload) and payload != "" <- Map.get(secret, :secret_payload) do
+      {:ok, payload}
+    else
+      {:error, reason} -> {:error, "#{field} #{reason}"}
+      _ -> {:error, "#{field} referenced network credential has no secret payload"}
+    end
+  end
+
+  defp load_network_credential_secret(secret_id) do
+    actor = ServiceRadar.Actors.SystemActor.system(:plugin_secret_ref_resolution)
+
+    ServiceRadar.Credentials.NetworkCredentialSecret.get_by_id(secret_id, actor: actor)
   end
 
   defp classify_secret_update(nil, existing_ref, _existing_material)
@@ -289,6 +324,9 @@ defmodule ServiceRadar.Plugins.SecretRefs do
         not secret_ref?(ref) ->
           ["#{field} must be a secret reference"]
 
+        network_credential_ref?(ref) ->
+          []
+
         is_nil(Map.get(material, ref)) ->
           ["#{field} is missing linked secret material"]
 
@@ -315,6 +353,22 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   end
 
   defp plugin_inputs_payload?(_params), do: false
+
+  defp network_credential_ref?(value) when is_binary(value) do
+    String.starts_with?(value, @network_credential_prefix)
+  end
+
+  defp network_credential_ref?(_value), do: false
+
+  defp network_credential_ref_id(ref) do
+    secret_id = String.replace_prefix(ref, @network_credential_prefix, "")
+
+    if secret_id == "" do
+      {:error, "has an empty network credential reference"}
+    else
+      {:ok, secret_id}
+    end
+  end
 
   defp remove_secret_material(%{} = map) do
     map
