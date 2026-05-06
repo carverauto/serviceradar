@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.VirtualizationGuest do
     :device_uid,
     :name,
     :guest_type,
+    :vmid,
     :status,
     :cpu_ratio,
     :memory_used_bytes,
@@ -98,6 +99,10 @@ defmodule ServiceRadar.Inventory.VirtualizationGuest do
 
     attribute :guest_type, :string do
       allow_nil? false
+      public? true
+    end
+
+    attribute :vmid, :integer do
       public? true
     end
 

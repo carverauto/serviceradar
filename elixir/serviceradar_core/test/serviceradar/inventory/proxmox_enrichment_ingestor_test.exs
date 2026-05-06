@@ -56,6 +56,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert guest.host_provider_ref == "proxmox:node:pve-a"
     assert guest.device_uid == "proxmox:qemu:100"
     assert guest.guest_type == "vm"
+    assert guest.vmid == 100
 
     assert [datastore] = records.datastores
     assert datastore.provider_ref == "proxmox:datastore:pve-a:local-zfs"
