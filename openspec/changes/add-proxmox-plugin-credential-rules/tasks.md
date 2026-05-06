@@ -32,13 +32,18 @@
 - [x] 5.6 Add first-party plugin bundle registration and publish/sign verification wiring.
 - [x] 5.7 Add env-driven local Proxmox API smoke test path for command-line validation without agent deployment.
 - [x] 5.8 Add env-driven live Go plugin smoke test for direct Proxmox inventory validation without agent deployment.
+- [x] 5.9 Add best-effort Proxmox infrastructure enrichment for node storage, network interfaces, disks, and Ceph health.
+- [x] 5.10 Emit infrastructure metrics/events for storage pressure, disk health, and Ceph health while preserving partial success for least-privilege tokens.
+- [x] 5.11 Confirm Proxmox syslog/journal API endpoints are read-only log access paths and keep log-forwarding configuration out of inventory collection.
 
 ## 6. Enrichment Ingestion
-- [ ] 6.1 Add typed Proxmox enrichment payload validation in core-elx/web-ng ingestion.
-- [ ] 6.2 Map PVE nodes, QEMU guests, and LXC guests into canonical inventory fields and metadata.
-- [ ] 6.3 Persist hosted virtualization topology relations without creating physical adjacency.
-- [ ] 6.4 Add SRQL filters/fields for Proxmox provider, cluster, node, guest type, VMID, and enrichment freshness.
-- [ ] 6.5 Add ingestion tests for duplicate identity, stale enrichment, and secret rejection.
+- [ ] 6.1 Add provider-neutral virtualization schema/resources for clusters, hypervisor hosts, guests, host relationships, datastores/storage pools, disks, NICs, and provider extension fields.
+- [ ] 6.2 Add typed Proxmox enrichment payload validation in core-elx/web-ng ingestion.
+- [ ] 6.3 Map PVE nodes, QEMU guests, and LXC guests into canonical inventory plus virtualization tables, avoiding infrastructure blobs in device metadata.
+- [ ] 6.4 Persist hosted virtualization topology relations without creating physical adjacency.
+- [ ] 6.5 Add SRQL filters/fields for Proxmox provider, cluster, node, guest type, VMID, storage, Ceph health, and enrichment freshness.
+- [ ] 6.6 Add ingestion tests for duplicate identity, stale enrichment, secret rejection, and provider-neutral virtualization records.
+- [ ] 6.7 Leave vSphere/vCenter provider IDs and schema affordances in place without implementing vCenter ingestion yet.
 
 ## 7. UI and Documentation
 - [ ] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
@@ -55,3 +60,10 @@
 - [ ] 8.4 Document example credential rules for single site and multi-datacenter deployments.
 - [ ] 8.5 Document console session security model, audit events, and timeout behavior.
 - [ ] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
+
+## 9. Logs, Metrics, and Alerts
+- [ ] 9.1 Add typed ingestion/schema support for Proxmox infrastructure details: storage, disk, network, Ceph, and future environmental sensor sources.
+- [ ] 9.2 Surface storage, disk, network, Ceph, and environmental summaries in web-ng device details from the virtualization/infrastructure schema, not raw metadata.
+- [ ] 9.3 Add alert rule support for metric windows and baselines, including CPU above baseline for a sustained period.
+- [ ] 9.4 Add Proxmox log-forwarding setup flow that configures host logging toward the ServiceRadar syslog collector through an audited agent/SSH action when no PVE API mutation path is available.
+- [ ] 9.5 Correlate logs/events to canonical devices and expose device-scoped logs on the device details page.

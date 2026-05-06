@@ -57,21 +57,43 @@ The plugin calls PVE API endpoints through SDK host HTTP:
 - `/cluster/status`
 - `/cluster/resources`
 - `/nodes/{node}/status`
+- `/nodes/{node}/storage`
+- `/nodes/{node}/network`
+- `/nodes/{node}/disks/list`
+- `/nodes/{node}/ceph/status`
+- `/nodes/{node}/ceph/osd`
+- `/nodes/{node}/ceph/pool`
+- `/nodes/{node}/ceph/fs`
 - `/nodes/{node}/qemu/{vmid}/status/current`
 - `/nodes/{node}/lxc/{vmid}/status/current`
 - `/nodes/{node}/qemu/{vmid}/config`
 - `/nodes/{node}/lxc/{vmid}/config`
-- `/nodes/{node}/network` where available
 
 The first pass should use API tokens. Ticket login may be supported only when needed for environments that cannot issue tokens, with CSRF handling contained in the plugin and no credential-bearing URLs.
+
+Optional infrastructure endpoints must be partial-success paths. A credential with `Sys.Audit`/VM audit permissions can still collect basic nodes, guests, and network data; additional `Datastore.Audit`, disk, Ceph, or syslog privileges unlock deeper storage, disk, Ceph, and log capabilities without requiring a different plugin configuration. Missing permissions are emitted as redacted warnings, not target failures.
+
+The PVE API exposes read paths for node syslog and journal data, but not an API shape for configuring remote syslog forwarding. Inventory collection must not poll syslog/journal as a substitute for log ingestion. Log forwarding should be a separate, audited configuration action that uses the assigned edge agent and scoped host credential to manage rsyslog/systemd-journald or another supported host-level forwarder toward the ServiceRadar syslog collector.
 
 ## Enrichment Contract
 The plugin result includes:
 - normal plugin status and summary
 - `serviceradar.device_discovery.v1` devices for PVE nodes, QEMU VMs, and LXC containers
 - `proxmox_enrichment` details for cluster/node/guest metadata
-- metrics for CPU, memory, disk, uptime, guest status, and resource-efficiency ratios
+- infrastructure details for node storage, disks, network interfaces, and Ceph health where permissions allow
+- metrics for CPU, memory, disk, storage, uptime, guest status, Ceph health, and resource-efficiency ratios
 - hosted topology hints linking VM/LXC guests to PVE nodes
+
+Infrastructure details must not be treated as arbitrary device metadata long term. The plugin details payload is an ingestion boundary, not the durable query model. Durable storage should use provider-neutral virtualization and infrastructure tables that can support both Proxmox and future vSphere/vCenter inventory:
+- hypervisor clusters and cluster membership
+- hypervisor hosts mapped to canonical inventory devices
+- virtual guests mapped to canonical inventory devices
+- host/guest relationship edges
+- datastore/storage pools and backing provider IDs
+- physical disks and health/SMART summaries
+- virtual and physical NICs, bridges, bonds, VLANs, and SDN objects
+- storage/compute/network/environmental metric samples or rollups where they are not already covered by existing metrics tables
+- provider-specific extension JSON only for fields that have no stable cross-provider meaning
 
 Core ingestion maps this into canonical device inventory:
 - PVE nodes become type `Server`, role `hypervisor`, vendor `Proxmox`, OS `Proxmox VE`
@@ -79,6 +101,8 @@ Core ingestion maps this into canonical device inventory:
 - LXC guests become type `Virtual` with container metadata
 - hosted links use the existing hosted virtualization relation family
 - raw API tokens, ticket values, cookies, and passwords are rejected from enrichment payloads
+
+Environmental data is not first-class in the documented PVE node API beyond system status, disk health, and Ceph/storage telemetry. True chassis-level temperature, fan, power, and PSU data should be modeled as an extension source that can use IPMI, Redfish, SNMP, lm-sensors, or BMC-specific APIs when available, then attach those metrics to the same canonical PVE node.
 
 ## Console Access
 Proxmox console access should reuse the Scion webpty pattern, adapted to ServiceRadar's control plane and edge-agent topology:

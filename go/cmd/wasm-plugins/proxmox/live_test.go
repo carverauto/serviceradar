@@ -61,7 +61,21 @@ func TestRunProxmoxCheckLiveFromEnv(t *testing.T) {
 		t.Fatal("result details leaked Proxmox API token header marker")
 	}
 
-	t.Logf("Proxmox live plugin smoke passed: nodes=%d guests=%d status=%s", details.Summary.Nodes, details.Summary.Guests, result.Status)
+	warnings := 0
+	if len(details.Targets) > 0 {
+		warnings = len(details.Targets[0].Warnings)
+	}
+	t.Logf(
+		"Proxmox live plugin smoke passed: nodes=%d guests=%d storage=%d network=%d disks=%d ceph_nodes=%d warnings=%d status=%s",
+		details.Summary.Nodes,
+		details.Summary.Guests,
+		details.Summary.Storage,
+		details.Summary.NetworkInterfaces,
+		details.Summary.Disks,
+		details.Summary.CephEnabledNodes,
+		warnings,
+		result.Status,
+	)
 }
 
 func liveConfigFromEnv(t *testing.T) (Config, bool) {
