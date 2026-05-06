@@ -17,15 +17,40 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	f.requests = append(f.requests, req)
 
 	switch {
+	case strings.HasSuffix(req.URL, "/api2/json/version"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"version":"8.2.4","release":"8.2","repoid":"test-repo"}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/cluster/status"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"id":"cluster/lab","name":"lab","type":"cluster","nodes":1,"quorate":1},{"id":"node/pve-a","name":"pve-a","type":"node","online":1}]}`),
+		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"node":"pve-a","status":"online","cpu":0.25,"maxcpu":16,"mem":1024,"maxmem":4096,"uptime":3600}]}`),
 		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/status"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"cpu":0.25,"wait":0.01,"memory":{"used":1024,"total":4096},"rootfs":{"used":2048,"total":8192}}}`),
+		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/cluster/resources?type=vm"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":[{"id":"qemu/100","node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048}]}`),
+			Body:   []byte(`{"data":[{"id":"qemu/100","node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048,"disk":1024,"maxdisk":4096}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/status/current"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"status":"running","cpu":0.1,"mem":512,"maxmem":2048}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/config"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55"}}`),
 		}, nil
 	default:
 		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{}`)}, nil
@@ -62,8 +87,8 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if result.DeviceDiscovery[0].Devices[1].DeviceID != "proxmox:qemu:100" {
 		t.Fatalf("unexpected guest device id: %s", result.DeviceDiscovery[0].Devices[1].DeviceID)
 	}
-	if len(client.requests) != 2 {
-		t.Fatalf("expected two Proxmox API requests, got %d", len(client.requests))
+	if len(client.requests) != 7 {
+		t.Fatalf("expected seven Proxmox API requests, got %d", len(client.requests))
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -75,6 +100,21 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if details.Summary.Nodes != 1 || details.Summary.Guests != 1 {
 		t.Fatalf("unexpected details summary: %#v", details.Summary)
+	}
+	if details.Targets[0].Version == nil || details.Targets[0].Version.Version != "8.2.4" {
+		t.Fatalf("expected version details, got %#v", details.Targets[0].Version)
+	}
+	if len(details.Targets[0].Cluster) != 2 {
+		t.Fatalf("expected cluster status details, got %#v", details.Targets[0].Cluster)
+	}
+	if details.Targets[0].Nodes[0].RuntimeState["wait"] != 0.01 {
+		t.Fatalf("expected node runtime status, got %#v", details.Targets[0].Nodes[0].RuntimeState)
+	}
+	if details.Targets[0].Guests[0].Config["api_token"] != "REDACTED" {
+		t.Fatalf("expected guest config token redaction, got %#v", details.Targets[0].Guests[0].Config)
+	}
+	if len(result.Metrics) < 8 {
+		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
 	}
 }
 

@@ -25,9 +25,9 @@
 
 ## 5. Proxmox Plugin
 - [x] 5.1 Add first-party Go WASM plugin package under `go/cmd/wasm-plugins/proxmox/`.
-- [ ] 5.2 Implement SDK host-HTTP Proxmox client for version, cluster, nodes, QEMU, and LXC status/config endpoints.
+- [x] 5.2 Implement SDK host-HTTP Proxmox client for version, cluster, nodes, QEMU, and LXC status/config endpoints.
 - [x] 5.3 Emit `serviceradar.device_discovery.v1` devices for PVE nodes, QEMU VMs, and LXC containers.
-- [ ] 5.4 Emit resource-efficiency metrics and bottleneck events for CPU, memory, disk, I/O wait where available.
+- [x] 5.4 Emit resource-efficiency metrics and bottleneck events for CPU, memory, disk, I/O wait where available.
 - [x] 5.5 Add plugin manifest, config schema, fixture tests, and TinyGo build coverage.
 - [x] 5.6 Add first-party plugin bundle registration and publish/sign verification wiring.
 
