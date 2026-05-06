@@ -240,6 +240,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "settings.credentials.manage",
+          label: "Manage network credentials",
+          description: "Manage encrypted credentials and edge-scoped credential rules",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.snmp_profiles.manage",
           label: "Manage SNMP profiles",
           description: "Manage SNMP profiles",
