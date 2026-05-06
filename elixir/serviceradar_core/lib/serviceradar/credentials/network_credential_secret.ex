@@ -27,6 +27,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :metadata
   ]
 
+  @public_read_fields [:id, :inserted_at, :updated_at | @fields]
+  @secret_read_fields [:id, :encrypted_secret_payload]
+
   postgres do
     table "network_credential_secrets"
     repo ServiceRadar.Repo
@@ -51,23 +54,35 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_secret_by_id, action: :by_id_with_secret, args: [:id]
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
     define :update_secret, action: :update
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      prepare build(select: @public_read_fields)
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+      prepare build(select: @public_read_fields)
+    end
+
+    read :by_id_with_secret do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare build(select: @secret_read_fields)
     end
 
     read :by_provider do
       argument :provider, :string, allow_nil?: false
       filter expr(provider == ^arg(:provider))
+      prepare build(select: @public_read_fields)
     end
 
     create :create do
@@ -83,7 +98,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@credential_manage_check)
+    action_with_permission([:read, :by_id, :by_provider], @credential_manage_check)
     action_type_with_permission([:create, :update], @credential_manage_check)
   end
 

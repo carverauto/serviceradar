@@ -197,7 +197,7 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   defp load_network_credential_secret(secret_id) do
     actor = ServiceRadar.Actors.SystemActor.system(:plugin_secret_ref_resolution)
 
-    ServiceRadar.Credentials.NetworkCredentialSecret.get_by_id(secret_id, actor: actor)
+    ServiceRadar.Credentials.NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor)
   end
 
   defp classify_secret_update(nil, existing_ref, _existing_material)

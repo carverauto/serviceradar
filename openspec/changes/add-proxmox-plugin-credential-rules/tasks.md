@@ -7,7 +7,7 @@
 - [x] 2.2 Add Ash resources/actions for credential rules, encrypted secret references, rule tests, and redacted reads.
 - [x] 2.3 Implement SRQL preview and conflict detection for target queries.
 - [x] 2.4 Implement agent/site scope validation and per-agent materialization boundaries.
-- [ ] 2.5 Add tests proving plaintext secrets are never returned by API/UI reads.
+- [x] 2.5 Add tests proving plaintext secrets are never returned by API/UI reads.
 - [ ] 2.6 Add SSH private key credential type with AshCloak encryption, passphrase support, redacted fingerprint display, and rotation metadata.
 
 ## 3. Settings UI

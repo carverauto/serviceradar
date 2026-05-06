@@ -13,6 +13,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
+  alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
   alias ServiceRadar.Credentials.Validations.TargetQuery
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -63,6 +64,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     define :create_rule, action: :create
     define :update_rule, action: :update
     define :preview, action: :preview, args: [:id]
+    define :proxmox_api_test_plan, action: :proxmox_api_test_plan, args: [:id]
     define :record_test_result, action: :record_test_result
   end
 
@@ -123,6 +125,17 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
         )
       end
     end
+
+    action :proxmox_api_test_plan do
+      argument :id, :uuid, allow_nil?: false
+
+      run fn input, context ->
+        NetworkCredentialRuleTestPlan.proxmox_api_test_by_id(
+          input.arguments.id,
+          actor: context[:actor]
+        )
+      end
+    end
   end
 
   policies do
@@ -132,6 +145,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     read_with_permission(@credential_manage_check)
     action_type_with_permission([:create, :update], @credential_manage_check)
     action_with_permission(:preview, @credential_manage_check)
+    action_with_permission(:proxmox_api_test_plan, @credential_manage_check)
   end
 
   attributes do
