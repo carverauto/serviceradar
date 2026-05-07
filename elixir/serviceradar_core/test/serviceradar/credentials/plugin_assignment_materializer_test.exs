@@ -75,7 +75,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            ]
 
     assert %{
-             "api_token_secret_ref" => ref,
+             "credential_broker" => %{
+               "credential_secret_ref" => ref,
+               "credential_rule_id" => "rule-1",
+               "grant_type" => "proxmox_api_token",
+               "inject" => %{"header" => "Authorization", "scheme" => "PVEAPIToken"}
+             },
              "credential_rule_id" => "rule-1",
              "include_guests" => false,
              "insecure_skip_verify" => true,
@@ -85,6 +90,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
 
     assert ref == "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
     refute Map.has_key?(policy.params_template, "credential_secret_id")
+    refute Map.has_key?(policy.params_template, "api_token_secret_ref")
   end
 
   test "reconcile_rules leaves auto-discovery disabled unless explicitly enabled" do
@@ -222,7 +228,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
       })
     ]
 
-    assert {:error, {:equal_priority_credential_rule_conflict, "in:devices protocol:proxmox-api", 10}} =
+    assert {:error,
+            {:equal_priority_credential_rule_conflict, "in:devices protocol:proxmox-api", 10}} =
              PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
                reconciler: FakeReconciler,
                actor: %{id: "system"},

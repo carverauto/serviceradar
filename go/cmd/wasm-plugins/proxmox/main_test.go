@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -186,7 +187,10 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 		"agent_id":       "agent-1",
 		"generated_at":   "2026-05-06T19:00:00Z",
 		"template": map[string]any{
-			"api_token":      "PVEAPIToken=root@pam!sr=test-token",
+			"credential_broker": map[string]any{
+				"schema":                "serviceradar.edge_credential_broker_grant.v1",
+				"credential_secret_ref": "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+			},
 			"include_guests": false,
 			"timeout_ms":     45000,
 		},
@@ -230,8 +234,11 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 	if cfg.Targets[0].BaseURL != "https://10.10.0.11:8006" {
 		t.Fatalf("unexpected first target URL: %s", cfg.Targets[0].BaseURL)
 	}
-	if cfg.Targets[0].APIToken != "PVEAPIToken=root@pam!sr=test-token" {
-		t.Fatalf("expected template token on generated target")
+	if cfg.Targets[0].APIToken != "" {
+		t.Fatalf("plugin input targets must not inherit raw API tokens")
+	}
+	if cfg.CredentialBroker["schema"] != "serviceradar.edge_credential_broker_grant.v1" {
+		t.Fatalf("expected broker grant to stay in the template")
 	}
 	if cfg.Targets[0].DeviceID != "sr:device:1" || cfg.Targets[0].Partition != "dc-a" {
 		t.Fatalf("unexpected first target metadata: %#v", cfg.Targets[0])
@@ -268,5 +275,38 @@ func TestRunProxmoxCheckRequiresTargetAndToken(t *testing.T) {
 
 	if _, err := runProxmoxCheck(Config{BaseURL: "https://pve.example:8006"}); err == nil || !strings.Contains(err.Error(), errMissingToken.Error()) {
 		t.Fatalf("expected missing token, got %v", err)
+	}
+}
+
+func TestConfigSchemaDoesNotExposeRawAPIToken(t *testing.T) {
+	raw, err := os.ReadFile("config.schema.json")
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+
+	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["api_token"]; ok {
+		t.Fatal("published schema must not expose raw api_token")
+	}
+	if _, ok := properties["api_token_secret_ref"]; ok {
+		t.Fatal("published schema must not expose one-off api_token_secret_ref")
+	}
+	if properties["base_url"].(map[string]any)["x-serviceradar-ui-hidden"] != true {
+		t.Fatal("base_url must stay hidden from central assignment UI")
+	}
+
+	targets := properties["targets"].(map[string]any)
+	if targets["x-serviceradar-ui-hidden"] != true {
+		t.Fatal("targets must stay hidden from central assignment UI")
+	}
+	items := targets["items"].(map[string]any)
+	targetProperties := items["properties"].(map[string]any)
+	if _, ok := targetProperties["api_token"]; ok {
+		t.Fatal("published target schema must not expose raw api_token")
 	}
 }

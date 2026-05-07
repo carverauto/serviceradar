@@ -106,12 +106,36 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp proxmox_params_template(rule, secret_id) do
     %{
-      "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "credential_broker" => proxmox_credential_broker_grant(rule, secret_id),
       "include_guests" => metadata_bool(rule, "include_guests", true),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
       "auto_discovery_enabled" => metadata_bool(rule, "auto_discovery_enabled", false),
       "credential_rule_id" => value_string(rule, [:id, "id"])
+    }
+  end
+
+  defp proxmox_credential_broker_grant(rule, secret_id) do
+    %{
+      "schema" => "serviceradar.edge_credential_broker_grant.v1",
+      "grant_type" => "proxmox_api_token",
+      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "credential_rule_id" => value_string(rule, [:id, "id"]),
+      "inject" => %{
+        "header" => "Authorization",
+        "scheme" => "PVEAPIToken"
+      },
+      "allow" => %{
+        "methods" => ["GET"],
+        "paths" => [
+          "/api2/json/version",
+          "/api2/json/cluster/status",
+          "/api2/json/nodes",
+          "/api2/json/nodes/*",
+          "/api2/json/cluster/resources"
+        ]
+      },
+      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
     }
   end
 
@@ -144,7 +168,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp selected_rules_for_agent(rules, agent_id) do
     rules
-    |> Enum.filter(&(inventory_rule?(&1) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id)))
+    |> Enum.filter(
+      &(inventory_rule?(&1) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
+    )
     |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
     |> collapse_by_target_query()
   end
@@ -249,7 +275,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp scope_allows_agent?(rule, agent_id) do
-    case {raw_rule_value(rule, [:scope_type, "scope_type"]), value_string(rule, [:scope_value, "scope_value"])} do
+    case {raw_rule_value(rule, [:scope_type, "scope_type"]),
+          value_string(rule, [:scope_value, "scope_value"])} do
       {scope, value} when scope in [:agent, "agent"] -> value in [nil, "", agent_id]
       _ -> true
     end
@@ -320,6 +347,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp metadata_atom_key("include_guests"), do: :include_guests
   defp metadata_atom_key("interval_seconds"), do: :interval_seconds
   defp metadata_atom_key("partition_id"), do: :partition_id
+  defp metadata_atom_key("credential_broker_ttl_seconds"), do: :credential_broker_ttl_seconds
   defp metadata_atom_key("timeout_ms"), do: :timeout_ms
   defp metadata_atom_key("timeout_seconds"), do: :timeout_seconds
 

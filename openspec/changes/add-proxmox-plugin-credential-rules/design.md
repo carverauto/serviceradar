@@ -56,6 +56,8 @@ Auto-discovery has two separate phases:
 ## Proxmox Plugin Execution
 The Proxmox plugin receives a resolved `serviceradar.plugin_inputs.v1` payload containing concrete target devices and redacted policy metadata. The control plane includes credential broker grants and secret references, not decrypted credential material. The edge-side credential broker is the only component allowed to resolve a secret reference and inject a credential into an outbound Proxmox request.
 
+For self-hosted or high-sensitivity deployments, the plugin MAY continue to accept an agent-local direct `api_token` in local checker/plugin configuration or environment-driven smoke tests. This mode is intentionally kept out of the central plugin assignment form and is not represented as a normal SaaS-managed plugin parameter.
+
 The plugin calls PVE API endpoints through SDK host HTTP:
 - `/version`
 - `/nodes`
