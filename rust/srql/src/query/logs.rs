@@ -21,7 +21,7 @@ use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Bool, Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -232,6 +232,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
         | "source" | "scope_name" | "scope_version" | "severity_text" | "severity" | "level"
         | "body" | "message" => collect_text_params(params, filter),
+        "device_id" | "uid" | "source_device_uid" | "gateway_id" | "agent_id" => Ok(()),
         "severity_number" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -481,6 +482,34 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
         "body" | "message" => {
             query = apply_text_filter!(query, filter, col_body)?;
         }
+        "device_id" | "uid" | "source_device_uid" => {
+            query = apply_metadata_identity_filter(
+                query,
+                filter,
+                &[
+                    "serviceradar.device_id",
+                    "serviceradar.device.uid",
+                    "device_id",
+                    "device_uid",
+                    "source_device_uid",
+                    "target_device_uid",
+                ],
+            )?;
+        }
+        "gateway_id" => {
+            query = apply_metadata_identity_filter(
+                query,
+                filter,
+                &["serviceradar.gateway_id", "gateway_id"],
+            )?;
+        }
+        "agent_id" => {
+            query = apply_metadata_identity_filter(
+                query,
+                filter,
+                &["serviceradar.agent_id", "agent_id"],
+            )?;
+        }
         "severity_number" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -525,6 +554,70 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
     }
 
     Ok(query)
+}
+
+fn apply_metadata_identity_filter<'a>(
+    query: LogsQuery<'a>,
+    filter: &Filter,
+    keys: &[&str],
+) -> Result<LogsQuery<'a>> {
+    let negate = matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn);
+    let values = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => vec![filter.value.as_scalar()?.to_string()],
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            enforce_list_limit(&filter.field, values.len())?;
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{} filter only supports equality and IN/NOT IN comparisons",
+                filter.field
+            )))
+        }
+    };
+
+    let mut clauses = Vec::new();
+
+    for value in values {
+        for key in keys {
+            let key_pattern = escape_like_fragment(key);
+            let value_pattern = escape_like_fragment(&value);
+            let pattern = sql_string_literal(&format!("%\"{key_pattern}\"%\"{value_pattern}\"%"));
+
+            clauses.push(format!(
+                "(COALESCE(resource_attributes, '') ILIKE {pattern} ESCAPE '\\' OR \
+                  COALESCE(attributes, '') ILIKE {pattern} ESCAPE '\\')"
+            ));
+        }
+    }
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn escape_like_fragment(value: &str) -> String {
+    value
+        .replace('\\', r"\\")
+        .replace('%', r"\%")
+        .replace('_', r"\_")
+}
+
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQuery<'a> {

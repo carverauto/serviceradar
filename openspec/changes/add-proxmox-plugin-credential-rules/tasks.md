@@ -69,4 +69,4 @@
 - [x] 9.2 Surface storage, disk, network, Ceph, and environmental summaries in web-ng device details from the virtualization/infrastructure schema, not raw metadata.
 - [x] 9.3 Add alert rule support for metric windows and baselines, including CPU above baseline for a sustained period.
 - [ ] 9.4 Add Proxmox log-forwarding setup flow that configures host logging toward the ServiceRadar syslog collector through an audited agent/SSH action when no PVE API mutation path is available.
-- [ ] 9.5 Correlate logs/events to canonical devices and expose device-scoped logs on the device details page.
+- [x] 9.5 Correlate logs/events to canonical devices and expose device-scoped logs on the device details page.
