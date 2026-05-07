@@ -49,7 +49,7 @@ bazel run //go/cmd/tools/mapper-baseline:mapper-baseline -- \
 ```bash
 bazel run //go/cmd/tools/mapper-baseline:mapper-baseline -- \
   --mode proxmox \
-  --seed 192.168.2.10 \
+  --seed 192.0.2.10 \
   --type basic
 ```
 

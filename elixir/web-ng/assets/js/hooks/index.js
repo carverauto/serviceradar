@@ -6,6 +6,7 @@ import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import OperationsTrafficMap from "./OperationsTrafficMap"
+import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
@@ -34,6 +35,7 @@ export default {
   LocalTime,
   MapboxFlowMap,
   OperationsTrafficMap,
+  ProxmoxConsoleTerminal,
   SRQLTimeCookie,
   SpatialSurveyMap,
   NetflowSankeyChart,
