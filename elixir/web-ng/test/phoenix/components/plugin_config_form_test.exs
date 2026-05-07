@@ -56,4 +56,29 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ "Stored secret ref: secretref:password_secret_ref:abc123"
     refute html =~ ~s(value="secretref:password_secret_ref:abc123")
   end
+
+  test "does not render internal broker fields" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "credential_broker" => %{
+          "type" => "object",
+          "title" => "Credential Broker",
+          "x-serviceradar-internal" => true
+        },
+        "timeout_ms" => %{"type" => "integer", "title" => "Timeout"}
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{"credential_broker" => %{"credential_secret_ref" => "credentialref:secret"}, "timeout_ms" => 30_000},
+        base_name: "assignment[params]"
+      })
+
+    assert html =~ "Timeout"
+    refute html =~ "Credential Broker"
+    refute html =~ "credential_secret_ref"
+  end
 end
