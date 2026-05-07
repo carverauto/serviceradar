@@ -76,6 +76,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     with {:ok, ticket_hash} <- hash_ticket(ticket),
          {:ok, %ProxmoxConsoleSession{} = session} <-
            ProxmoxConsoleSession.get_by_ticket_hash(ticket_hash, system_opts),
+         :ok <- ensure_session_match(session, Keyword.get(opts, :session_id)),
          {:ok, attached} <- ProxmoxConsoleSession.attach(session, %{}, system_opts) do
       write_audit(:proxmox_console_session_attach, attached, opts,
         close_reason: nil,
@@ -88,6 +89,12 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       {:error, %NotFound{}} -> {:error, :invalid_or_expired_ticket}
       error -> error
     end
+  end
+
+  defp ensure_session_match(_session, nil), do: :ok
+
+  defp ensure_session_match(%{id: id}, expected_id) do
+    if to_string(id) == to_string(expected_id), do: :ok, else: {:error, :invalid_or_expired_ticket}
   end
 
   @doc """
@@ -111,6 +118,33 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       )
 
       {:ok, closing}
+    else
+      {:ok, nil} -> {:error, :not_found}
+      {:error, %NotFound{}} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  @doc """
+  Marks a console session failed from broker-side stream setup or runtime errors.
+  """
+  @spec fail_session(String.t(), term(), keyword()) :: {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
+  def fail_session(session_id, reason, opts \\ []) when is_binary(session_id) do
+    ash_opts = [actor: SystemActor.system(:proxmox_console_fail)]
+
+    with {:ok, %ProxmoxConsoleSession{} = session} <- ProxmoxConsoleSession.get_by_id(session_id, ash_opts),
+         {:ok, failed} <-
+           ProxmoxConsoleSession.fail_session(
+             session,
+             %{failure_reason: format_failure_reason(reason), close_reason: "console_session_failed"},
+             ash_opts
+           ) do
+      write_audit(:proxmox_console_session_failed, failed, opts,
+        close_reason: failed.close_reason,
+        failure_reason: failed.failure_reason
+      )
+
+      {:ok, failed}
     else
       {:ok, nil} -> {:error, :not_found}
       {:error, %NotFound{}} -> {:error, :not_found}
@@ -450,6 +484,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp normalize_close_reason(_reason), do: "operator_requested"
+
+  defp format_failure_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 500)
+  defp format_failure_reason(reason) when is_atom(reason), do: reason |> Atom.to_string() |> format_failure_reason()
+  defp format_failure_reason(reason), do: reason |> inspect() |> format_failure_reason()
 
   defp required_string(map, keys, error_reason) do
     case value_string(map, keys) do
