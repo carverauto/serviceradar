@@ -118,6 +118,122 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.any?(history, &(&1.event_type == :recovered))
   end
 
+  test "fires metric alerts only for sustained baseline violations and recovers", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device_id = "pve-device-#{unique}"
+    alert_title = "Proxmox CPU baseline #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "proxmox-cpu-baseline-#{unique}",
+          enabled: true,
+          signal: :metric,
+          match: %{
+            "metric_name" => "proxmox_node_cpu_ratio_max",
+            "device_id" => device_id,
+            "condition" => %{
+              "comparison" => "gt",
+              "baseline_value" => 0.50,
+              "baseline_offset" => 0.10
+            }
+          },
+          group_by: ["device_id", "metric_name"],
+          threshold: 3,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.metric.baseline",
+            "message" => "Proxmox node CPU exceeded baseline"
+          },
+          alert: %{
+            "title" => alert_title,
+            "severity" => "warning"
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    metric = fn timestamp, value ->
+      %{
+        timestamp: timestamp,
+        gateway_id: "gw-1",
+        agent_id: "agent-1",
+        device_id: device_id,
+        metric_name: "proxmox_node_cpu_ratio_max",
+        metric_type: "plugin",
+        value: value,
+        unit: "ratio",
+        tags: %{"cluster" => "lab"},
+        metadata: %{"node" => "pve-1"},
+        partition: "default"
+      }
+    end
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_metrics([
+               metric.(base_time, 0.62),
+               metric.(DateTime.add(base_time, 60, :second), 0.66),
+               metric.(DateTime.add(base_time, 120, :second), 0.70)
+             ])
+
+    threshold_events =
+      OcsfEvent
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(fn event ->
+        event.log_name == "alert.metric.baseline" and
+          metadata_value(event.metadata, ["serviceradar", "rule_id"]) == to_string(rule.id)
+      end)
+
+    assert [threshold_event] = threshold_events
+    assert threshold_event.unmapped["source_signal"] == "metric"
+    assert threshold_event.unmapped["source_metric_name"] == "proxmox_node_cpu_ratio_max"
+    assert threshold_event.unmapped["source_metric_condition"]["threshold"] == 0.60
+    assert threshold_event.unmapped["source_metric_condition"]["baseline_value"] == 0.50
+
+    active_alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(fn alert -> alert.title == alert_title end)
+
+    assert [active_alert] = active_alerts
+
+    assert active_alert.metadata["incident_group_values"] == %{
+             "device_id" => device_id,
+             "metric_name" => "proxmox_node_cpu_ratio_max"
+           }
+
+    assert active_alert.metadata["incident_window_count"] == 3
+    assert active_alert.metadata["incident_diagnostics"]["source"]["source_signal"] == "metric"
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_metrics([
+               metric.(DateTime.add(base_time, 600, :second), 0.52)
+             ])
+
+    {:ok, resolved} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert resolved.status == :resolved
+
+    history =
+      rule.id
+      |> StatefulAlertRuleHistory.list_by_rule(actor: actor)
+      |> Page.unwrap!()
+
+    assert Enum.any?(history, &(&1.event_type == :fired))
+    assert Enum.any?(history, &(&1.event_type == :recovered))
+  end
+
   test "deduplicates repeated event bursts into one active incident and rolls over after cooldown gap",
        %{actor: actor} do
     unique = System.unique_integer([:positive])

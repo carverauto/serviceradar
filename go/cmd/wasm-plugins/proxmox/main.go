@@ -32,14 +32,15 @@ type httpClient interface {
 }
 
 type Config struct {
-	BaseURL            string   `json:"base_url"`
-	APIToken           string   `json:"api_token"`
-	APITokenSecretRef  string   `json:"api_token_secret_ref"`
-	Targets            []Target `json:"targets"`
-	TimeoutMS          int      `json:"timeout_ms"`
-	IncludeGuests      *bool    `json:"include_guests"`
-	InsecureSkipVerify bool     `json:"insecure_skip_verify"`
-	AutoDiscovery      bool     `json:"auto_discovery_enabled"`
+	BaseURL            string         `json:"base_url"`
+	APIToken           string         `json:"api_token"`
+	APITokenSecretRef  string         `json:"api_token_secret_ref"`
+	CredentialBroker   map[string]any `json:"credential_broker,omitempty"`
+	Targets            []Target       `json:"targets"`
+	TimeoutMS          int            `json:"timeout_ms"`
+	IncludeGuests      *bool          `json:"include_guests"`
+	InsecureSkipVerify bool           `json:"insecure_skip_verify"`
+	AutoDiscovery      bool           `json:"auto_discovery_enabled"`
 }
 
 type Target struct {
@@ -904,12 +905,8 @@ func targetFromInputItem(item map[string]any, cfg Config) Target {
 	)
 
 	return Target{
-		BaseURL: baseURLForItem(item, cfg),
-		APIToken: firstNonEmpty(
-			stringValue(item, "api_token"),
-			stringValue(item, "proxmox_api_token"),
-			cfg.APIToken,
-		),
+		BaseURL:  baseURLForItem(item, cfg),
+		APIToken: cfg.APIToken,
 		DeviceID: firstNonEmpty(
 			stringValue(item, "uid"),
 			stringValue(item, "device_uid"),
