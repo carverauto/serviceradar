@@ -178,12 +178,12 @@ Console access is separate from inventory enrichment. A user who can view a Prox
 
 The control plane should treat console launch as a short-lived, audited session:
 
-1. The operator opens a PVE host shell, VM console, or LXC console from device details.
+1. The operator opens a PVE host shell from device details. VM and LXC console requests remain unavailable until a native Proxmox guest console connector is enabled.
 2. Web-ng authorizes the user, resolves the canonical target, checks the credential rule scope, and selects the eligible edge path.
 3. Web-ng creates a short-lived, single-use console ticket bound to the user, target device or guest, console mode, selected agent/gateway, credential reference, issue time, and expiration time.
 4. The browser attaches to the web terminal websocket with the ticket. The ticket is consumed on first successful attach and cannot be reused.
 5. Web-ng proxies terminal frames to the edge console broker over the authenticated edge channel.
-6. The edge broker resolves only the scoped credential needed for that session and opens the requested SSH, Proxmox `termproxy`, or Proxmox `vncwebsocket` path where supported.
+6. The edge broker resolves only the scoped credential needed for that session and opens the requested SSH path. Proxmox `termproxy` and `vncwebsocket` modes must return an unsupported-console response until a native guest connector is enabled.
 
 The browser, URL, websocket metadata, audit payload, and UI errors must never contain SSH private keys, SSH passphrases, Proxmox API tokens, Proxmox tickets, cookies, or CSRF tokens. The WASM Proxmox inventory plugin is not part of the interactive console path and must not receive SSH private key material for console sessions.
 

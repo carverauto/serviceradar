@@ -61,6 +61,20 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              )
   end
 
+  test "guest console modes are rejected until a native Proxmox console connector is enabled" do
+    uid = unique_uid("guest-mode")
+    insert_device!(uid, agent_id: "agent-guest", gateway_id: "gateway-guest")
+    Process.put(:proxmox_console_test_device_uid, uid)
+
+    assert {:error, :unsupported_console_mode} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{target_kind: "lxc_guest", console_mode: "proxmox_termproxy"},
+               previewer: Previewer,
+               actor: @system_actor
+             )
+  end
+
   test "console rule using gateway scope still requires an agent route for the target device" do
     uid = unique_uid("missing-agent")
     insert_device!(uid, agent_id: nil, gateway_id: "gateway-device")

@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   @default_absolute_timeout_seconds 3600
   @supported_target_kinds [:pve_host, :qemu_guest, :lxc_guest]
   @supported_console_modes [:ssh, :proxmox_termproxy, :proxmox_vncwebsocket]
+  @enabled_console_modes [:ssh]
 
   @type create_request :: %{
           optional(:target_kind) => atom() | String.t(),
@@ -313,13 +314,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp pick_target_kind(_kind, _inferred), do: {:error, :unsupported_console_target}
 
   defp pick_console_mode(nil, :pve_host), do: {:ok, :ssh}
-  defp pick_console_mode(nil, _guest_kind), do: {:ok, :proxmox_termproxy}
-  defp pick_console_mode(:ssh, :pve_host), do: {:ok, :ssh}
-
-  defp pick_console_mode(mode, target_kind)
-       when mode in [:proxmox_termproxy, :proxmox_vncwebsocket] and
-              target_kind in [:qemu_guest, :lxc_guest],
-       do: {:ok, mode}
+  defp pick_console_mode(:ssh, :pve_host) when :ssh in @enabled_console_modes, do: {:ok, :ssh}
 
   defp pick_console_mode(mode, _target_kind) when mode in @supported_console_modes,
     do: {:error, :unsupported_console_mode}
