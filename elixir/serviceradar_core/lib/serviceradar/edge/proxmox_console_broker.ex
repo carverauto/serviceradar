@@ -126,6 +126,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
       console_mode: format_atom(session.console_mode),
       credential_rule_id: to_string(session.credential_rule_id),
       plugin_assignment_id: metadata_string(session, "plugin_assignment_id"),
+      target: session |> metadata_map() |> Map.get("target", %{}) |> normalize_target(),
       cols: positive_or(uint32(cols), terminal_int(session, "cols")),
       rows: positive_or(uint32(rows), terminal_int(session, "rows"))
     }
@@ -152,6 +153,14 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
       _value -> nil
     end
   end
+
+  defp normalize_target(target) when is_map(target) do
+    target
+    |> Enum.reject(fn {_key, value} -> value in [nil, "", 0] end)
+    |> Map.new()
+  end
+
+  defp normalize_target(_target), do: %{}
 
   defp metadata_map(%{metadata: metadata}) when is_map(metadata), do: stringify_map(metadata)
   defp metadata_map(_session), do: %{}

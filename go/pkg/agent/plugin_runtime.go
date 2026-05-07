@@ -91,18 +91,20 @@ var (
 
 // PluginManagerConfig configures the Wasm plugin manager.
 type PluginManagerConfig struct {
-	CacheDir      string
-	LocalStoreDir string
-	Logger        logger.Logger
-	HTTPClient    *http.Client
+	CacheDir                      string
+	LocalStoreDir                 string
+	ProxmoxConsoleCredentialsFile string
+	Logger                        logger.Logger
+	HTTPClient                    *http.Client
 }
 
 // PluginManager manages Wasm plugin assignments and execution.
 type PluginManager struct {
-	logger        logger.Logger
-	cacheDir      string
-	localStoreDir string
-	httpClient    *http.Client
+	logger                           logger.Logger
+	cacheDir                         string
+	localStoreDir                    string
+	httpClient                       *http.Client
+	proxmoxConsoleCredentialResolver proxmoxConsoleCredentialResolver
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -286,13 +288,16 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		cacheDir:      cacheDir,
 		localStoreDir: localStoreDir,
 		httpClient:    client,
-		ctx:           rootCtx,
-		cancel:        cancel,
-		runners:       make(map[string]*pluginRunner),
-		streams:       make(map[string]*pluginAssignment),
-		results:       make(chan PluginResult, 1024),
-		states:        make(map[string]*assignmentState),
-		stateNow:      time.Now,
+		proxmoxConsoleCredentialResolver: newProxmoxConsoleLocalCredentialResolver(
+			strings.TrimSpace(cfg.ProxmoxConsoleCredentialsFile),
+		),
+		ctx:      rootCtx,
+		cancel:   cancel,
+		runners:  make(map[string]*pluginRunner),
+		streams:  make(map[string]*pluginAssignment),
+		results:  make(chan PluginResult, 1024),
+		states:   make(map[string]*assignmentState),
+		stateNow: time.Now,
 	}
 }
 
@@ -1649,6 +1654,9 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostProxmoxConsoleClose).
 		Export("proxmox_console_close")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostProxmoxConsoleSSHConnect).
+		Export("proxmox_console_ssh_connect")
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostHTTPRequest).
 		Export("http_request")

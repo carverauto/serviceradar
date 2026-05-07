@@ -23,9 +23,13 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
        session_id: Keyword.fetch!(options, :session_id),
        scope: Keyword.fetch!(options, :scope),
        broker_module: Keyword.get(options, :broker_module, ProxmoxConsoleBroker),
+       sessions_module: Keyword.get(options, :sessions_module, ProxmoxConsoleSessions),
        broker: nil,
        session: nil,
-       attached?: false
+       attached?: false,
+       idle_timer: nil,
+       absolute_timer: nil,
+       closing_action: nil
      }}
   end
 
@@ -35,16 +39,21 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
          {:ok, ticket} <- required_string(message, "ticket"),
          :ok <- ensure_session_id(message, state.session_id),
          {:ok, %ProxmoxConsoleSession{} = session} <-
-           ProxmoxConsoleSessions.attach_with_ticket(ticket,
+           state.sessions_module.attach_with_ticket(ticket,
              session_id: state.session_id,
              scope: state.scope
            ),
          {:ok, broker} <- start_broker(session, message, state) do
+      state =
+        state
+        |> cancel_timeout_timers()
+        |> schedule_timeout_timers(session)
+
       {:push, {:text, encode(%{type: "ready", session_id: session.id})},
        %{state | attached?: true, session: session, broker: broker}}
     else
       {:error, :console_broker_unavailable} ->
-        _ = ProxmoxConsoleSessions.fail_session(state.session_id, :console_broker_unavailable, scope: state.scope)
+        _ = state.sessions_module.fail_session(state.session_id, :console_broker_unavailable, scope: state.scope)
 
         {:stop, :normal, 1011,
          [{:text, encode(%{type: "error", message: "Proxmox console broker is not available on the edge agent yet."})}],
@@ -65,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
       {:ok, %{"type" => "data", "data" => encoded}} when is_binary(encoded) ->
         with {:ok, payload} <- decode_base64(encoded),
              :ok <- state.broker_module.send_input(state.broker, payload) do
-          {:ok, state}
+          {:ok, reset_idle_timer(state)}
         else
           {:error, reason} -> stop_for_broker_error(reason, state)
         end
@@ -74,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
         with {:ok, cols} <- positive_int(cols),
              {:ok, rows} <- positive_int(rows),
              :ok <- state.broker_module.resize(state.broker, cols, rows) do
-          {:ok, state}
+          {:ok, reset_idle_timer(state)}
         else
           {:error, reason} -> stop_for_broker_error(reason, state)
         end
@@ -91,11 +100,32 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
 
   @impl true
   def handle_info({:proxmox_console_data, payload}, state) when is_binary(payload) do
-    {:push, {:text, encode(%{type: "data", data: Base.encode64(payload)})}, state}
+    {:push, {:text, encode(%{type: "data", data: Base.encode64(payload)})}, reset_idle_timer(state)}
   end
 
   def handle_info({:proxmox_console_closed, reason}, state) do
-    {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: inspect(reason)})}], state}
+    _ =
+      state.sessions_module.close_session(state.session.id,
+        reason: format_close_reason(reason),
+        scope: state.scope
+      )
+
+    {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
+     %{state | closing_action: :closed}}
+  end
+
+  def handle_info(:idle_timeout, state) do
+    _ = state.sessions_module.expire_session(state.session.id, reason: "idle_timeout", scope: state.scope)
+
+    {:stop, :normal, 1000, [{:text, encode(%{type: "error", message: "Console session closed after idle timeout."})}],
+     %{state | closing_action: :expired}}
+  end
+
+  def handle_info(:absolute_timeout, state) do
+    _ = state.sessions_module.expire_session(state.session.id, reason: "absolute_timeout", scope: state.scope)
+
+    {:stop, :normal, 1000, [{:text, encode(%{type: "error", message: "Console session reached its maximum duration."})}],
+     %{state | closing_action: :expired}}
   end
 
   def handle_info(message, state) do
@@ -105,12 +135,14 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
 
   @impl true
   def terminate(reason, state) do
+    _ = cancel_timeout_timers(state)
+
     if state.broker do
       state.broker_module.close(state.broker, reason)
     end
 
-    if state.session do
-      _ = ProxmoxConsoleSessions.request_close(state.session.id, reason: "browser_disconnected", scope: state.scope)
+    if state.session && is_nil(state.closing_action) do
+      _ = state.sessions_module.request_close(state.session.id, reason: "browser_disconnected", scope: state.scope)
     end
 
     :ok
@@ -126,10 +158,41 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   end
 
   defp stop_for_broker_error(reason, state) do
-    _ = ProxmoxConsoleSessions.fail_session(state.session_id, reason, scope: state.scope)
+    _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
 
-    {:stop, :normal, 1011, [{:text, encode(%{type: "error", message: "Proxmox console stream failed."})}], state}
+    {:stop, :normal, 1011, [{:text, encode(%{type: "error", message: "Proxmox console stream failed."})}],
+     %{state | closing_action: :failed}}
   end
+
+  defp schedule_timeout_timers(state, session) do
+    %{
+      state
+      | idle_timer: schedule_timeout(:idle_timeout, session.idle_timeout_seconds),
+        absolute_timer: schedule_timeout(:absolute_timeout, session.absolute_timeout_seconds)
+    }
+  end
+
+  defp reset_idle_timer(%{session: nil} = state), do: state
+
+  defp reset_idle_timer(state) do
+    _ = cancel_timer(state.idle_timer)
+    %{state | idle_timer: schedule_timeout(:idle_timeout, state.session.idle_timeout_seconds)}
+  end
+
+  defp schedule_timeout(message, seconds) when is_integer(seconds) and seconds > 0 do
+    Process.send_after(self(), message, seconds * 1000)
+  end
+
+  defp schedule_timeout(_message, _seconds), do: nil
+
+  defp cancel_timeout_timers(state) do
+    _ = cancel_timer(state.idle_timer)
+    _ = cancel_timer(state.absolute_timer)
+    %{state | idle_timer: nil, absolute_timer: nil}
+  end
+
+  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(ref), do: Process.cancel_timer(ref)
 
   defp ensure_session_id(%{"session_id" => browser_session_id}, session_id) do
     if to_string(browser_session_id) == to_string(session_id), do: :ok, else: {:error, :session_mismatch}
@@ -158,6 +221,11 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   end
 
   defp encode(payload), do: Jason.encode!(payload)
+
+  defp format_close_reason(nil), do: "closed"
+  defp format_close_reason(reason) when is_binary(reason), do: reason
+  defp format_close_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_close_reason(reason), do: inspect(reason)
 
   defp positive_int(value) when is_integer(value) and value > 0, do: {:ok, value}
 

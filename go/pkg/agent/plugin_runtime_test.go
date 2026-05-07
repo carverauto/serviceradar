@@ -656,6 +656,10 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 		if console["device_uid"] != "device-1" || console["credential_rule_id"] != "rule-1" {
 			t.Fatalf("unexpected console config: %#v", console)
 		}
+		target, _ := config["target"].(map[string]any)
+		if target["hostname"] != "pve-1.example" || target["ip"] != "192.0.2.10" {
+			t.Fatalf("unexpected console target: %#v", target)
+		}
 
 		handle, err := bridge.Open(ctx, pluginProxmoxConsoleOpenRequest{TerminalType: "xterm-256color"})
 		if err != nil {
@@ -688,6 +692,7 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 		TargetKind:       "pve_host",
 		ConsoleMode:      "ssh",
 		CredentialRuleID: "rule-1",
+		Target:           proxmoxConsoleSSHTarget{Hostname: "pve-1.example", IP: "192.0.2.10"},
 		Cols:             120,
 		Rows:             40,
 	})
