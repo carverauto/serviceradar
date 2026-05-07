@@ -34,6 +34,7 @@ import (
 
 type proxmoxConsoleSSHConfig struct {
 	CredentialRuleID string                    `json:"credential_rule_id"`
+	CredentialBroker map[string]any            `json:"credential_broker,omitempty"`
 	Console          proxmoxConsoleSessionSpec `json:"console"`
 	Target           proxmoxConsoleSSHTarget   `json:"target,omitempty"`
 	SSH              proxmoxConsoleSSHAuth     `json:"ssh,omitempty"`
@@ -279,6 +280,10 @@ func proxmoxConsoleSSHCredential(cfg proxmoxConsoleSSHConfig) (proxmoxConsoleSSH
 			cred = mergeProxmoxConsoleSSHCredential(cred, secret)
 		}
 	}
+	return validateProxmoxConsoleSSHCredential(cred)
+}
+
+func validateProxmoxConsoleSSHCredential(cred proxmoxConsoleSSHAuth) (proxmoxConsoleSSHAuth, error) {
 	if strings.TrimSpace(cred.Username) == "" {
 		return proxmoxConsoleSSHAuth{}, errors.New("ssh username is required")
 	}

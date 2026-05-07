@@ -35,6 +35,28 @@ In this mode, the token is configured only on the edge agent host or in agent-lo
 
 Agent-local mode should still use a narrow target set. Do not pair a broad scan range with a powerful local token.
 
+For SSH-backed PVE host consoles, the agent can load a local credential file configured with `proxmox_console_credentials_file` in `agent.json`, the `SERVICERADAR_PROXMOX_CONSOLE_CREDENTIALS_FILE` environment variable, or the default `proxmox-console-credentials.json` next to the agent config when that file exists. The file must be readable only by the agent user, for example mode `0600`.
+
+Example:
+
+```json
+{
+  "version": 1,
+  "credentials": [
+    {
+      "credential_rule_id": "018f3f56-1111-7222-8333-123456789abc",
+      "credential_secret_ref": "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+      "auth_method": "ssh_private_key",
+      "username": "serviceradar-console",
+      "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "passphrase": "optional-passphrase"
+    }
+  ]
+}
+```
+
+The central console assignment still carries only the credential broker grant and target metadata. The Wasm console plugin delegates SSH to the agent host connector, and only the agent host process reads this local file.
+
 ## Proxmox API Token Format
 
 ServiceRadar expects the PVE API token identity and secret in the standard header form:
