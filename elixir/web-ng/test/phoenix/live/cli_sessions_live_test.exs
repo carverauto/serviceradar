@@ -12,14 +12,14 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLiveTest do
 
   import Phoenix.LiveViewTest
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
+  alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
-  alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :integration
 
   describe "non-admin (read_own / revoke_own)" do
     setup do
@@ -129,8 +129,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLiveTest do
     {:ok, _approved} = DeviceAuthorization.approve(device_row, user.id, actor: actor)
 
     {:ok, _jwt, claims} = Guardian.create_api_token(user, scopes: [:read], ttl: {30, :day})
-    issued_at = claims["iat"] |> DateTime.from_unix!()
-    expires_at = claims["exp"] |> DateTime.from_unix!()
+    issued_at = DateTime.from_unix!(claims["iat"])
+    expires_at = DateTime.from_unix!(claims["exp"])
 
     {:ok, session} =
       CliSession.create(

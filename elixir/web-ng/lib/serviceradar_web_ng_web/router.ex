@@ -495,6 +495,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/analytics", PageController, :redirect_to_dashboard)
+
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}

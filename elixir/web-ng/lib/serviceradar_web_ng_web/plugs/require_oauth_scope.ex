@@ -23,19 +23,19 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireOauthScope do
   multipart parser at all — the body is never read on a scope failure.
   """
 
+  @behaviour Plug
+
   import Plug.Conn
 
   alias ServiceRadarWebNG.RBAC
 
   require Logger
 
-  @behaviour Plug
-
   @impl true
   def init(opts) do
     scope = Keyword.fetch!(opts, :scope)
 
-    unless is_binary(scope) and scope != "" do
+    if !(is_binary(scope) and scope != "") do
       raise ArgumentError, "RequireOauthScope expects :scope to be a non-empty string"
     end
 
@@ -69,13 +69,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireOauthScope do
     end
   end
 
-  defp bearer_present?(%Plug.Conn{assigns: %{oauth_token_scope: value}}) when is_binary(value),
-    do: true
+  defp bearer_present?(%Plug.Conn{assigns: %{oauth_token_scope: value}}) when is_binary(value), do: true
 
   defp bearer_present?(_), do: false
 
-  defp bearer_has_scope?(%Plug.Conn{assigns: %{oauth_token_scope: value}}, required)
-       when is_binary(value) do
+  defp bearer_has_scope?(%Plug.Conn{assigns: %{oauth_token_scope: value}}, required) when is_binary(value) do
     value
     |> String.split(~r/\s+/, trim: true)
     |> Enum.member?(required)

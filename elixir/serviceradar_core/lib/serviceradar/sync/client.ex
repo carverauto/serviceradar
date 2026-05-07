@@ -121,6 +121,8 @@ defmodule ServiceRadar.Sync.Client do
       GRPC.Stub.send_request(stream, chunk)
     end)
 
+    GRPC.Stub.end_stream(stream)
+
     case GRPC.Stub.recv(stream) do
       {:ok, response} ->
         {:ok, response}
@@ -164,20 +166,27 @@ defmodule ServiceRadar.Sync.Client do
     stream = Proto.DataService.Stub.upload_object(channel, timeout: timeout)
 
     # Split data into chunks
-    chunks = chunk_binary(data, chunk_size)
+    chunks =
+      case chunk_binary(data, chunk_size) do
+        [] -> [<<>>]
+        chunks -> chunks
+      end
+
     total_chunks = length(chunks)
 
     chunks
     |> Enum.with_index()
     |> Enum.each(fn {chunk_data, index} ->
+      final_chunk? = index == total_chunks - 1
+
       chunk = %Proto.ObjectUploadChunk{
         metadata: if(index == 0, do: metadata),
         data: chunk_data,
         chunk_index: index,
-        is_final: index == total_chunks - 1
+        is_final: final_chunk?
       }
 
-      GRPC.Stub.send_request(stream, chunk)
+      GRPC.Stub.send_request(stream, chunk, end_stream: final_chunk?)
     end)
 
     case GRPC.Stub.recv(stream) do

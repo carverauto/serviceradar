@@ -15,12 +15,14 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :integration
-
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.CliAuthCleanupWorker
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :integration
 
   describe "perform/1 — pending DeviceAuthorization → :expired" do
     test "rolls a pending row past its expires_at to :expired" do
@@ -120,11 +122,11 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   defp run_cleanup!(opts \\ []) do
     retention_days = Keyword.get(opts, :retention_days, 90)
 
-    previous = Application.get_env(:serviceradar_core, ServiceRadar.Identity.CliAuthCleanupWorker)
+    previous = Application.get_env(:serviceradar_core, CliAuthCleanupWorker)
 
     Application.put_env(
       :serviceradar_core,
-      ServiceRadar.Identity.CliAuthCleanupWorker,
+      CliAuthCleanupWorker,
       retention_days: retention_days
     )
 
@@ -132,17 +134,17 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
       # perform/1 runs the four cleanup steps and a self-reschedule via
       # ObanSupport.safe_insert. In the test env Oban isn't running; the
       # safe_insert call returns {:error, _} which perform/1 ignores.
-      ServiceRadar.Identity.CliAuthCleanupWorker.perform(%Oban.Job{args: %{}})
+      CliAuthCleanupWorker.perform(%Oban.Job{args: %{}})
       :ok
     after
       if previous do
         Application.put_env(
           :serviceradar_core,
-          ServiceRadar.Identity.CliAuthCleanupWorker,
+          CliAuthCleanupWorker,
           previous
         )
       else
-        Application.delete_env(:serviceradar_core, ServiceRadar.Identity.CliAuthCleanupWorker)
+        Application.delete_env(:serviceradar_core, CliAuthCleanupWorker)
       end
     end
   end
@@ -182,8 +184,8 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
           user_id: user.id,
           client_id: "serviceradar-cli",
           scope: "dashboard.publish",
-          issued_at: claims["iat"] |> DateTime.from_unix!(),
-          expires_at: claims["exp"] |> DateTime.from_unix!()
+          issued_at: DateTime.from_unix!(claims["iat"]),
+          expires_at: DateTime.from_unix!(claims["exp"])
         },
         actor: actor
       )
@@ -194,7 +196,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   defp backdate_device_authorization!(id, expires_at_ago: seconds) do
     past = DateTime.add(DateTime.utc_now(), -seconds, :second)
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       ServiceRadar.Repo,
       "UPDATE platform.device_authorizations SET expires_at = $1 WHERE id = $2",
       [past, Ecto.UUID.dump!(id)]
@@ -206,7 +208,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   defp backdate_cli_session!(jti, expires_at_ago: seconds) do
     past = DateTime.add(DateTime.utc_now(), -seconds, :second)
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       ServiceRadar.Repo,
       "UPDATE platform.cli_sessions SET expires_at = $1 WHERE jti = $2",
       [past, jti]
@@ -216,11 +218,11 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   end
 
   defp mark_device_authorization!(id, opts) do
-    status = Keyword.fetch!(opts, :status) |> Atom.to_string()
+    status = opts |> Keyword.fetch!(:status) |> Atom.to_string()
     inserted_ago_days = Keyword.fetch!(opts, :inserted_ago_days)
     inserted_at = DateTime.add(DateTime.utc_now(), -inserted_ago_days * 86_400, :second)
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       ServiceRadar.Repo,
       "UPDATE platform.device_authorizations SET status = $1, inserted_at = $2 WHERE id = $3",
       [status, inserted_at, Ecto.UUID.dump!(id)]
@@ -230,11 +232,11 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   end
 
   defp mark_cli_session!(jti, opts) do
-    status = Keyword.fetch!(opts, :status) |> Atom.to_string()
+    status = opts |> Keyword.fetch!(:status) |> Atom.to_string()
     inserted_ago_days = Keyword.fetch!(opts, :inserted_ago_days)
     inserted_at = DateTime.add(DateTime.utc_now(), -inserted_ago_days * 86_400, :second)
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       ServiceRadar.Repo,
       "UPDATE platform.cli_sessions SET status = $1, inserted_at = $2 WHERE jti = $3",
       [status, inserted_at, jti]
@@ -245,7 +247,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
 
   defp deleted_device_authorization?(id) do
     %{rows: [[count]]} =
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         ServiceRadar.Repo,
         "SELECT count(*) FROM platform.device_authorizations WHERE id = $1",
         [Ecto.UUID.dump!(id)]
@@ -256,7 +258,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
 
   defp deleted_cli_session?(jti) do
     %{rows: [[count]]} =
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         ServiceRadar.Repo,
         "SELECT count(*) FROM platform.cli_sessions WHERE jti = $1",
         [jti]

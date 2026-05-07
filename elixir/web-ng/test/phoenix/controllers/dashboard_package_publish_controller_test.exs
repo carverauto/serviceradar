@@ -16,16 +16,18 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
+
+  @moduletag :integration
 
   @renderer "export default {mount(){},destroy(){}}"
   @route "test-dashboard-#{System.unique_integer([:positive])}"
@@ -74,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       assert body["version"] == "0.1.0"
       assert body["route_slug"] == @route
       assert body["result"] == "written"
-      refute is_nil(body["content_hash"])
+      assert body["content_hash"]
       assert binding_exists?(@route, "com.test.pub.fresh")
     end
 
@@ -189,6 +191,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
     test "409 version_already_published when content differs and the row is verified",
          %{conn: conn} do
       manifest = manifest_for("com.test.ver.overwrite", @renderer)
+
       _ =
         conn
         |> auth_cli(:admin, ["dashboard.publish"])
@@ -425,8 +428,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
     test "import_json/3 still returns {:ok, package} after publish/3 reroute" do
       manifest = Jason.encode!(manifest_for("com.test.lv.regression", @renderer))
 
-      assert {:ok, %ServiceRadar.Dashboards.DashboardPackage{} = package} =
-               ServiceRadarWebNG.Dashboards.Packages.import_json(
+      assert {:ok, %DashboardPackage{} = package} =
+               Packages.import_json(
                  manifest,
                  @renderer,
                  actor: SystemActor.system(:test)
@@ -441,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       manifest = Jason.encode!(manifest_for("com.test.lv.overwrite", @renderer))
 
       {:ok, _} =
-        ServiceRadarWebNG.Dashboards.Packages.import_json(
+        Packages.import_json(
           manifest,
           @renderer,
           actor: SystemActor.system(:test)
@@ -451,7 +454,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       conflicting = Jason.encode!(manifest_for("com.test.lv.overwrite", different))
 
       assert {:error, {:version_already_published, info}} =
-               ServiceRadarWebNG.Dashboards.Packages.import_json(
+               Packages.import_json(
                  conflicting,
                  different,
                  actor: SystemActor.system(:test)
@@ -530,10 +533,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
 
   defp published_package!(dashboard_id, version) do
     require Ash.Query
+
     actor = SystemActor.system(:test)
 
     {:ok, pkg} =
-      ServiceRadar.Dashboards.DashboardPackage
+      DashboardPackage
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(dashboard_id == ^dashboard_id and version == ^version)
       |> Ash.read_one(actor: actor)
@@ -544,6 +548,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
 
   defp binding_exists?(slug, dashboard_id) do
     require Ash.Query
+
     actor = SystemActor.system(:test)
 
     case DashboardInstance

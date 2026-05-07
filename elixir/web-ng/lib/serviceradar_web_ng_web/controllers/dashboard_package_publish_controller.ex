@@ -91,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishController do
 
       {:error, {:invalid_route, slug}} ->
         record_rejection(conn, "invalid_route", %{route: slug})
+
         bad_request(conn, "invalid_route", %{
           reason: "route_slug must match #{Regex.source(@route_slug_pattern)}"
         })
@@ -337,8 +338,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishController do
   defp build_publish_opts(conn, route_slug) do
     {:ok, base} = build_actor_opts(conn)
 
-    base
-    |> Keyword.put(:route_slug, route_slug)
+    Keyword.put(base, :route_slug, route_slug)
   end
 
   defp build_actor_opts(conn) do

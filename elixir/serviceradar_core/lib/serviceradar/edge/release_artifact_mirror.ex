@@ -305,6 +305,15 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     )
   end
 
+  defp upload_stream_closed_error?(%GRPC.RPCError{status: 13, message: message})
+       when is_binary(message) do
+    String.contains?(message, "stream_error") or
+      String.contains?(message, "badstate") or
+      String.contains?(message, "stream cannot be found")
+  end
+
+  defp upload_stream_closed_error?(_reason), do: false
+
   defp normalize_manifest(manifest), do: normalize_map(manifest)
   defp normalize_metadata(metadata), do: normalize_map(metadata)
 
@@ -312,6 +321,15 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   defp format_reason(:disallowed_scheme), do: "artifact URL must use https"
   defp format_reason(:dns_resolution_failed), do: "artifact URL host could not be resolved"
   defp format_reason(:invalid_url), do: "artifact URL is invalid"
+
+  defp format_reason(%GRPC.RPCError{} = error) do
+    if upload_stream_closed_error?(error) do
+      "datasvc object upload stream closed before the artifact stream completed"
+    else
+      "datasvc object upload failed with gRPC status #{error.status}: #{error.message}"
+    end
+  end
+
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
 

@@ -169,10 +169,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
                 conn
               end
 
-            if scope_string != "" do
-              assign(conn, :oauth_token_scope, scope_string)
-            else
+            if scope_string == "" do
               conn
+            else
+              assign(conn, :oauth_token_scope, scope_string)
             end
           else
             conn

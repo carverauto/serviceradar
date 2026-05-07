@@ -72,16 +72,14 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
            |> load_sessions()}
 
         {:error, reason} ->
-          {:noreply,
-           put_flash(socket, :error, "Failed to revoke: #{inspect(reason)}")}
+          {:noreply, put_flash(socket, :error, "Failed to revoke: #{inspect(reason)}")}
       end
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Session no longer present.")}
 
       {:error, :forbidden} ->
-        {:noreply,
-         put_flash(socket, :error, "Your role does not allow revoking this CLI session.")}
+        {:noreply, put_flash(socket, :error, "Your role does not allow revoking this CLI session.")}
     end
   end
 
@@ -98,7 +96,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
         <header>
           <h1 class="text-2xl font-semibold text-base-content">CLI Sessions</h1>
           <p class="text-sm text-base-content/70">
-            Each row is a long-lived bearer token issued to <code class="font-mono">serviceradar-cli</code>
+            Each row is a long-lived bearer token issued to
+            <code class="font-mono">serviceradar-cli</code>
             after you approved a device-code authorization. Revoking a row stops
             the holder of that token from making any further API calls.
           </p>
@@ -107,7 +106,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
         <%= if Enum.empty?(@sessions) do %>
           <div class="alert alert-info">
             <span>
-              No active CLI sessions. Run <code class="font-mono">serviceradar-cli auth login --instance &lt;url&gt;</code>
+              No active CLI sessions. Run
+              <code class="font-mono">serviceradar-cli auth login --instance &lt;url&gt;</code>
               to create one.
             </span>
           </div>
@@ -241,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
         true
 
       assigns[:can_revoke_own?] and assigns[:current_scope] != nil and
-          assigns[:current_scope].user != nil and assigns[:current_scope].user.id == user_id ->
+        assigns[:current_scope].user != nil and assigns[:current_scope].user.id == user_id ->
         true
 
       true ->

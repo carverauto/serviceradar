@@ -233,4 +233,44 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     assert [%{"file_name" => "linux-amd64-artifact"}] =
              get_in(mirrored_attrs, [:metadata, "storage", "artifacts"])
   end
+
+  test "prepare_publish_attrs formats datasvc upload stream errors for operators" do
+    attrs = %{
+      version: "1.2.3",
+      manifest: %{
+        "version" => "1.2.3",
+        "artifacts" => [
+          %{
+            "url" => "https://releases.example.com/serviceradar-agent-linux-amd64.tar.gz",
+            "sha256" => @artifact_sha256,
+            "os" => "linux",
+            "arch" => "amd64"
+          }
+        ]
+      }
+    }
+
+    http_get = fn _url, _opts ->
+      {:ok, %Req.Response{status: 200, body: @artifact_body}}
+    end
+
+    upload_object = fn _metadata, _data, _opts ->
+      {:error,
+       %GRPC.RPCError{
+         status: 13,
+         message: ":stream_error: {:badstate, ~c\"The stream cannot be found.\"}"
+       }}
+    end
+
+    assert {:error, reason} =
+             ReleaseArtifactMirror.prepare_publish_attrs(
+               attrs,
+               validate_url: fn _url -> :ok end,
+               http_get: http_get,
+               upload_object: upload_object
+             )
+
+    assert reason =~ "datasvc object upload stream closed before the artifact stream completed"
+    refute reason =~ "%GRPC.RPCError"
+  end
 end
