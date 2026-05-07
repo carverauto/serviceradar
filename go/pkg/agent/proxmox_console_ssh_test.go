@@ -67,13 +67,15 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	}
 
 	waitFor(t, time.Second, func() bool {
-		return session.stdin.String() == "whoami\r" &&
-			len(session.windowChanges) == 1 &&
-			session.windowChanges[0] == [2]int{43, 132}
+		stdin, windowChanges := session.ioState()
+		return stdin == "whoami\r" &&
+			len(windowChanges) == 1 &&
+			windowChanges[0] == [2]int{43, 132}
 	})
 
-	if session.ptyRows != 40 || session.ptyCols != 120 || !session.shellStarted {
-		t.Fatalf("unexpected session state rows=%d cols=%d shell=%t", session.ptyRows, session.ptyCols, session.shellStarted)
+	ptyRows, ptyCols, shellStarted := session.ptyState()
+	if ptyRows != 40 || ptyCols != 120 || !shellStarted {
+		t.Fatalf("unexpected session state rows=%d cols=%d shell=%t", ptyRows, ptyCols, shellStarted)
 	}
 
 	_ = bridge.Close()
@@ -85,7 +87,7 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for SSH connector shutdown")
 	}
-	if !session.closed {
+	if !session.isClosed() {
 		t.Fatal("expected SSH session to close")
 	}
 }
@@ -117,7 +119,7 @@ type fakeProxmoxConsoleSSHSession struct {
 }
 
 func (f *fakeProxmoxConsoleSSHSession) StdinPipe() (io.WriteCloser, error) {
-	return nopWriteCloser{Writer: &f.stdin}, nil
+	return fakeProxmoxConsoleSSHStdin{session: f}, nil
 }
 
 func (f *fakeProxmoxConsoleSSHSession) StdoutPipe() (io.Reader, error) { return f.stdout, nil }
@@ -158,8 +160,33 @@ func (f *fakeProxmoxConsoleSSHSession) Close() error {
 	return nil
 }
 
-type nopWriteCloser struct {
-	io.Writer
+func (f *fakeProxmoxConsoleSSHSession) ioState() (string, [][2]int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	windowChanges := append([][2]int(nil), f.windowChanges...)
+	return f.stdin.String(), windowChanges
 }
 
-func (n nopWriteCloser) Close() error { return nil }
+func (f *fakeProxmoxConsoleSSHSession) ptyState() (int, int, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ptyRows, f.ptyCols, f.shellStarted
+}
+
+func (f *fakeProxmoxConsoleSSHSession) isClosed() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.closed
+}
+
+type fakeProxmoxConsoleSSHStdin struct {
+	session *fakeProxmoxConsoleSSHSession
+}
+
+func (s fakeProxmoxConsoleSSHStdin) Write(p []byte) (int, error) {
+	s.session.mu.Lock()
+	defer s.session.mu.Unlock()
+	return s.session.stdin.Write(p)
+}
+
+func (s fakeProxmoxConsoleSSHStdin) Close() error { return nil }

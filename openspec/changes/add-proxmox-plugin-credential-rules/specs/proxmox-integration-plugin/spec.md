@@ -85,3 +85,10 @@ The system SHALL provide a first-party Proxmox console plugin package that uses 
 - **THEN** the TinyGo/Wasm plugin SHALL delegate SSH transport to an agent-hosted connector
 - **AND** the agent-hosted connector SHALL stream stdout, stderr, stdin, resize, and close frames over the existing console bridge
 - **AND** the browser-to-core-to-gateway path SHALL remain ERTS/PubSub based after the agent gateway receives control-stream frames
+
+#### Scenario: Agent-local console credential resolution
+- **GIVEN** a Proxmox console assignment carries a scoped credential broker grant without decrypted SSH material
+- **AND** the agent is configured with a local Proxmox console credential file readable only by the agent user
+- **WHEN** an authorized PVE SSH console session starts
+- **THEN** the agent-hosted connector SHALL resolve only the matching local credential for that credential rule or secret ref
+- **AND** the Wasm plugin, browser, gateway metadata, and audit payload SHALL NOT receive the SSH private key, passphrase, or password

@@ -689,6 +689,13 @@ func (e *pluginExecution) hostProxmoxConsoleSSHConnect(ctx context.Context, mod 
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return pluginErrInvalid
 	}
+	if cfg.SSH.Password == "" && cfg.SSH.PrivateKey == "" && e.manager.proxmoxConsoleCredentialResolver != nil {
+		credential, err := e.manager.proxmoxConsoleCredentialResolver.ResolveProxmoxConsoleSSHCredential(ctx, cfg)
+		if err != nil {
+			return proxmoxConsolePluginErrorCode(err)
+		}
+		cfg.SSH = credential
+	}
 
 	if err := runProxmoxConsoleSSH(ctx, cfg, e.consoleBridge, nil); err != nil {
 		return proxmoxConsolePluginErrorCode(err)
@@ -721,7 +728,12 @@ func proxmoxConsolePluginErrorCode(err error) int32 {
 	switch {
 	case err == nil:
 		return pluginErrOK
+	case errors.Is(err, errProxmoxConsoleCredentialBrokerUnavailable),
+		errors.Is(err, errProxmoxConsoleCredentialFileInsecure):
+		return pluginErrDenied
 	case errors.Is(err, errProxmoxConsoleSessionNotActive), errors.Is(err, io.EOF):
+		return pluginErrNotFound
+	case errors.Is(err, errProxmoxConsoleCredentialNotFound):
 		return pluginErrNotFound
 	case errors.Is(err, context.DeadlineExceeded):
 		return pluginErrTimeout

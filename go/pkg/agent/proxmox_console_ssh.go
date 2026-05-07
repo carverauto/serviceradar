@@ -32,8 +32,17 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+var (
+	errMissingProxmoxSSHTargetHost                   = errors.New("missing SSH target host")
+	errProxmoxSSHUsernameRequired                    = errors.New("ssh username is required")
+	errProxmoxSSHCredentialRequired                  = errors.New("ssh private key or password is required")
+	errProxmoxSSHHostKeyVerificationStoreUnavailable = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
+	errUnsupportedProxmoxSSHHostKeyPolicy            = errors.New("unsupported ssh_host_key_policy")
+)
+
 type proxmoxConsoleSSHConfig struct {
 	CredentialRuleID string                    `json:"credential_rule_id"`
+	CredentialBroker map[string]any            `json:"credential_broker,omitempty"`
 	Console          proxmoxConsoleSessionSpec `json:"console"`
 	Target           proxmoxConsoleSSHTarget   `json:"target,omitempty"`
 	SSH              proxmoxConsoleSSHAuth     `json:"ssh,omitempty"`
@@ -92,7 +101,7 @@ func runProxmoxConsoleSSH(
 		_, _ = bridge.WriteOutput(ctx, handle, []byte("Unable to open SSH console: "+err.Error()+"\r\n"))
 		return err
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
@@ -262,7 +271,7 @@ func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int
 		host = parsed.Hostname()
 	}
 	if host == "" {
-		return "", 0, errors.New("missing SSH target host")
+		return "", 0, errMissingProxmoxSSHTargetHost
 	}
 	port := target.SSHPort
 	if port <= 0 {
@@ -279,11 +288,15 @@ func proxmoxConsoleSSHCredential(cfg proxmoxConsoleSSHConfig) (proxmoxConsoleSSH
 			cred = mergeProxmoxConsoleSSHCredential(cred, secret)
 		}
 	}
+	return validateProxmoxConsoleSSHCredential(cred)
+}
+
+func validateProxmoxConsoleSSHCredential(cred proxmoxConsoleSSHAuth) (proxmoxConsoleSSHAuth, error) {
 	if strings.TrimSpace(cred.Username) == "" {
-		return proxmoxConsoleSSHAuth{}, errors.New("ssh username is required")
+		return proxmoxConsoleSSHAuth{}, errProxmoxSSHUsernameRequired
 	}
 	if strings.TrimSpace(cred.PrivateKey) == "" && strings.TrimSpace(cred.Password) == "" {
-		return proxmoxConsoleSSHAuth{}, errors.New("ssh private key or password is required")
+		return proxmoxConsoleSSHAuth{}, errProxmoxSSHCredentialRequired
 	}
 	return cred, nil
 }
@@ -332,9 +345,9 @@ func proxmoxConsoleSSHHostKeyCallback(policy string) (ssh.HostKeyCallback, error
 	case "skip_verify":
 		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for agent-local SSH console config
 	case "trust_on_first_use", "known_hosts", "":
-		return nil, errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
+		return nil, errProxmoxSSHHostKeyVerificationStoreUnavailable
 	default:
-		return nil, fmt.Errorf("unsupported ssh_host_key_policy %q", policy)
+		return nil, fmt.Errorf("%w %q", errUnsupportedProxmoxSSHHostKeyPolicy, policy)
 	}
 }
 
