@@ -59,6 +59,14 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "SIEM_CAUSAL" in stream_names
     end
 
+    test "routes raw Falco sidekick events from the shared events stream" do
+      falco = Enum.find(Config.default_streams(), &(&1.name == "FALCO"))
+
+      assert falco.stream_name == "events"
+      assert falco.subject == "falco.logs"
+      assert falco.processor == ServiceRadar.EventWriter.Processors.FalcoEvents
+    end
+
     test "each stream has required fields" do
       for stream <- Config.default_streams() do
         assert Map.has_key?(stream, :name)

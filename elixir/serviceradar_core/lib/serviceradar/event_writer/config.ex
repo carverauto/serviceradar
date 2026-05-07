@@ -142,8 +142,8 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "FALCO",
-        stream_name: "falco_events",
-        subject: "falco.>",
+        stream_name: "events",
+        subject: "falco.logs",
         processor: ServiceRadar.EventWriter.Processors.FalcoEvents,
         batch_size: 100,
         batch_timeout: 1_000
