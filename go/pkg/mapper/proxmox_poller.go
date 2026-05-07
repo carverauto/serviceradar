@@ -37,6 +37,12 @@ var (
 	errProxmoxRequestFailed          = errors.New("proxmox request failed")
 )
 
+const (
+	proxmoxCandidateProbeOption = "proxmox_candidate_probe_enabled"
+	proxmoxDefaultAPIPort       = "8006"
+	proxmoxFingerprintMaxBytes  = 64 * 1024
+)
+
 type proxmoxEnvelope[T any] struct {
 	Data T `json:"data"`
 }
@@ -154,6 +160,165 @@ func (e *DiscoveryEngine) fetchProxmoxInventory(
 	}
 
 	return buildProxmoxInventory(apiConfig, nodes, resources), buildProxmoxHostedLinks(apiConfig, nodes, resources), nil
+}
+
+func shouldProbeProxmoxCandidates(job *DiscoveryJob) bool {
+	if job == nil || job.Params == nil || job.Params.Options == nil {
+		return false
+	}
+
+	return isTruthyOption(job.Params.Options[proxmoxCandidateProbeOption])
+}
+
+func (e *DiscoveryEngine) probeProxmoxCandidates(
+	ctx context.Context,
+	job *DiscoveryJob,
+	seeds []string,
+) []*DiscoveredDevice {
+	if !shouldProbeProxmoxCandidates(job) {
+		return nil
+	}
+
+	client := &http.Client{
+		Timeout: e.config.Timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // unauthenticated fingerprinting of self-signed PVE UI
+			},
+		},
+	}
+
+	devices := make([]*DiscoveredDevice, 0)
+	for _, seed := range seeds {
+		baseURL := proxmoxCandidateBaseURL(seed)
+		if baseURL == "" {
+			continue
+		}
+
+		device, err := e.probeProxmoxCandidate(ctx, client, baseURL)
+		if err != nil {
+			e.logger.Debug().
+				Str("job_id", job.ID).
+				Str("base_url", baseURL).
+				Err(err).
+				Msg("Proxmox candidate fingerprint failed")
+			continue
+		}
+
+		devices = append(devices, device)
+	}
+
+	return devices
+}
+
+func (e *DiscoveryEngine) probeProxmoxCandidate(
+	ctx context.Context,
+	client *http.Client,
+	baseURL string,
+) (*DiscoveredDevice, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%w: status=%d", errProxmoxRequestFailed, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, proxmoxFingerprintMaxBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	host := proxmoxBaseHostname(baseURL)
+	nodeName, ok := proxmoxFingerprintFromHTML(string(body))
+	if !ok {
+		return nil, fmt.Errorf("%w: missing PVE web fingerprint", errProxmoxRequestFailed)
+	}
+
+	return buildProxmoxCandidateDevice(host, nodeName), nil
+}
+
+func proxmoxCandidateBaseURL(seed string) string {
+	seed = strings.TrimSpace(seed)
+	if seed == "" {
+		return ""
+	}
+
+	if strings.Contains(seed, "://") {
+		parsed, err := url.Parse(seed)
+		if err != nil {
+			return ""
+		}
+		seed = parsed.Host
+	}
+
+	host := seed
+	if splitHost, _, err := net.SplitHostPort(seed); err == nil {
+		host = splitHost
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return ""
+	}
+
+	return "https://" + net.JoinHostPort(host, proxmoxDefaultAPIPort)
+}
+
+func proxmoxFingerprintFromHTML(body string) (string, bool) {
+	lower := strings.ToLower(body)
+	if !strings.Contains(lower, "proxmox virtual environment") &&
+		!strings.Contains(lower, "pve.stdworkspace") {
+		return "", false
+	}
+
+	const suffix = " - Proxmox Virtual Environment"
+	if start := strings.Index(strings.ToLower(body), "<title>"); start >= 0 {
+		titleStart := start + len("<title>")
+		if end := strings.Index(strings.ToLower(body[titleStart:]), "</title>"); end >= 0 {
+			title := strings.TrimSpace(body[titleStart : titleStart+end])
+			if strings.HasSuffix(title, suffix) {
+				return strings.TrimSpace(strings.TrimSuffix(title, suffix)), true
+			}
+			if title != "" {
+				return title, true
+			}
+		}
+	}
+
+	return "", true
+}
+
+func buildProxmoxCandidateDevice(host, nodeName string) *DiscoveredDevice {
+	hostname := strings.TrimSpace(nodeName)
+	if hostname == "" {
+		hostname = host
+	}
+
+	return &DiscoveredDevice{
+		DeviceID: GenerateDeviceIDFromIP(host),
+		IP:       host,
+		Hostname: hostname,
+		Metadata: map[string]string{
+			"source":                    "proxmox-candidate",
+			"identity_source":           "proxmox_unauthenticated_https_8006",
+			"device_role":               "hypervisor",
+			"proxmox_candidate":         "true",
+			"proxmox_candidate_source":  "unauthenticated_https_8006",
+			"proxmox_candidate_port":    proxmoxDefaultAPIPort,
+			"proxmox_candidate_service": "pve-web-ui",
+			"snmp_target_eligible":      "false",
+		},
+	}
 }
 
 func (e *DiscoveryEngine) proxmoxSession(

@@ -2,6 +2,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SshPrivateKeyCredential
 
   @credential_manager %{
     id: "user-1",
@@ -25,6 +26,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
       assert :credential_kind in selected
       assert :username in selected
       assert :public_fingerprint in selected
+      assert :last_rotated_at in selected
+      assert :next_rotation_due_at in selected
 
       refute :secret_payload in selected
       refute :encrypted_secret_payload in selected
@@ -53,6 +56,54 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
     assert Map.has_key?(struct(NetworkCredentialSecret), :secret_payload)
   end
 
+  test "ssh private key helper stores key and passphrase only in encrypted payload attrs" do
+    rotated_at = ~U[2026-05-06 18:10:00Z]
+    due_at = ~U[2026-08-06 18:10:00Z]
+
+    assert {:ok, attrs} =
+             SshPrivateKeyCredential.build_attrs(%{
+               name: "pve-shell",
+               provider: "proxmox",
+               username: "root",
+               private_key: private_key_fixture(),
+               passphrase: "key-passphrase",
+               last_rotated_at: rotated_at,
+               next_rotation_due_at: due_at,
+               metadata: %{
+                 "note" => "console key",
+                 "passphrase" => "drop-me",
+                 "nested" => %{"private_key" => private_key_fixture()}
+               }
+             })
+
+    assert attrs.credential_kind == :ssh_private_key
+    assert attrs.provider == "proxmox"
+    assert attrs.username == "root"
+    assert attrs.last_rotated_at == rotated_at
+    assert attrs.next_rotation_due_at == due_at
+    assert attrs.public_fingerprint =~ "SHA256:"
+    assert attrs.metadata["fingerprint_display"] =~ "SHA256:"
+    assert attrs.metadata["secret_payload_format"] == "ssh_private_key.v1"
+    assert attrs.metadata["note"] == "console key"
+
+    refute inspect(Map.delete(attrs, :secret_payload)) =~ "key-passphrase"
+    refute inspect(Map.delete(attrs, :secret_payload)) =~ "PRIVATE KEY"
+    refute inspect(attrs.metadata) =~ "drop-me"
+
+    assert %{"private_key" => private_key, "passphrase" => "key-passphrase"} =
+             Jason.decode!(attrs.secret_payload)
+
+    assert private_key =~ "OPENSSH PRIVATE KEY"
+  end
+
+  test "ssh private key helper rejects missing or invalid private key material" do
+    assert {:error, :missing_private_key} =
+             SshPrivateKeyCredential.build_attrs(%{name: "missing", private_key: ""})
+
+    assert {:error, :invalid_private_key} =
+             SshPrivateKeyCredential.build_attrs(%{name: "invalid", private_key: "not a key"})
+  end
+
   defp public_read_query(:read) do
     Ash.Query.for_read(NetworkCredentialSecret, :read, %{}, actor: @credential_manager)
   end
@@ -70,4 +121,15 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
   end
 
   defp selected_fields(%Ash.Query{select: select}) when is_list(select), do: select
+
+  defp private_key_fixture do
+    """
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+    QyNTUxOQAAACB5Qw8C1g64mHaVnq1m6+xR54Xq7gkPsFQj7u3lK4P4JAAAAJB0ZXN0dGVz
+    dAAAAAtzc2gtZWQyNTUxOQAAACB5Qw8C1g64mHaVnq1m6+xR54Xq7gkPsFQj7u3lK4P4JAAA
+    AEB0ZXN0LWtleS1tYXRlcmlhbAAAAAAAAAAA
+    -----END OPENSSH PRIVATE KEY-----
+    """
+  end
 end

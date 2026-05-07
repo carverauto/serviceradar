@@ -9,15 +9,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   @behaviour ServiceRadar.AgentConfig.Compiler
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.Plugins.ValueUtils
   alias ServiceRadar.SNMPProfiles.CredentialResolver
 
   require Ash.Query
   require Logger
 
+  @proxmox_provider "proxmox"
+  @proxmox_candidate_probe_option "proxmox_candidate_probe_enabled"
   @default_workers 20
   @default_timeout "30s"
   @default_retries 3
@@ -41,6 +45,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     mikrotik_controllers = load_mikrotik_controllers(jobs)
     unifi_controllers = load_unifi_controllers(jobs)
     credentials = resolve_credentials(device_uid, actor)
+    proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
 
     config = %{
       "workers" => @default_workers,
@@ -48,7 +53,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       "retries" => @default_retries,
       "max_active_jobs" => @default_max_active_jobs,
       "result_retention" => @default_result_retention,
-      "scheduled_jobs" => Enum.map(jobs, &compile_job(&1, credentials)),
+      "scheduled_jobs" => Enum.map(jobs, &compile_job(&1, credentials, proxmox_candidate_probe?)),
       "mikrotik_apis" => mikrotik_controllers,
       "unifi_apis" => unifi_controllers
     }
@@ -104,7 +109,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     }
   end
 
-  defp compile_job(job, credentials) do
+  defp compile_job(job, credentials, proxmox_candidate_probe?) do
     mikrotik_controllers = job.mikrotik_controllers || []
     seeds = job.seeds || []
     unifi_controllers = job.unifi_controllers || []
@@ -128,6 +133,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       |> maybe_put_csv_option("mikrotik_api_urls", mikrotik_api_urls)
       |> maybe_put_csv_option("unifi_api_names", unifi_api_names)
       |> maybe_put_csv_option("unifi_api_urls", unifi_api_urls)
+      |> maybe_enable_proxmox_candidate_probe(job, proxmox_candidate_probe?)
 
     %{
       "name" => job.name,
@@ -153,6 +159,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     else
       Map.put_new(options, key, csv)
     end
+  end
+
+  defp maybe_enable_proxmox_candidate_probe(options, _job, false), do: options
+
+  defp maybe_enable_proxmox_candidate_probe(options, %{discovery_mode: :snmp}, true), do: options
+
+  defp maybe_enable_proxmox_candidate_probe(options, _job, true) do
+    Map.put(options, @proxmox_candidate_probe_option, "true")
   end
 
   defp nil_or_blank?(nil), do: true
@@ -185,6 +199,61 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
       {:ok, %{credential: credential}} ->
         CredentialResolver.to_mapper_credentials(credential)
+    end
+  end
+
+  defp proxmox_candidate_probe_enabled?(partition, agent_id, actor) do
+    partition
+    |> proxmox_rule_scopes(agent_id)
+    |> Enum.any?(fn {scope_type, scope_value} ->
+      case NetworkCredentialRule.list_enabled_for_scope(
+             @proxmox_provider,
+             scope_type,
+             scope_value,
+             actor: actor
+           ) do
+        {:ok, rules} ->
+          Enum.any?(rules, &proxmox_auto_discovery_rule?/1)
+
+        {:error, reason} ->
+          Logger.warning(
+            "MapperCompiler: failed to check Proxmox auto-discovery credential rules for #{scope_type}:#{scope_value} - #{inspect(reason)}"
+          )
+
+          false
+      end
+    end)
+  end
+
+  defp proxmox_rule_scopes(partition, agent_id) do
+    [
+      {:agent, agent_id},
+      {:partition, partition}
+    ]
+    |> Enum.reject(fn {_type, value} -> ValueUtils.blank_string?(value) end)
+    |> Enum.uniq()
+  end
+
+  defp proxmox_auto_discovery_rule?(rule) do
+    proxmox_inventory_rule?(rule) and metadata_bool(rule, "auto_discovery_enabled", false)
+  end
+
+  defp proxmox_inventory_rule?(rule) do
+    case ValueUtils.string_value(rule, [:purpose, "purpose"]) do
+      nil -> true
+      "" -> true
+      "inventory_enrichment" -> true
+      _ -> false
+    end
+  end
+
+  defp metadata_bool(rule, key, default) do
+    metadata = ValueUtils.map_value(rule, [:metadata, "metadata"], stringify_keys: true) || %{}
+
+    case ValueUtils.raw_value(metadata, [key]) do
+      value when is_boolean(value) -> value
+      value when is_binary(value) -> String.downcase(String.trim(value)) in ~w(true 1 yes on)
+      _ -> default
     end
   end
 end
