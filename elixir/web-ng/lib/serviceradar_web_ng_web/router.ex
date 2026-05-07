@@ -178,6 +178,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:browser_raw_auth)
 
     get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
+    get("/proxmox/console-sessions/:id/stream", ProxmoxConsoleStreamController, :connect)
   end
 
   # Other scopes may use custom stacks.
@@ -191,6 +192,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/camera-relay-sessions", CameraRelaySessionController, :create)
     get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
     post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)
+    post("/proxmox/console-sessions", ProxmoxConsoleSessionController, :create)
+    get("/proxmox/console-sessions/:id", ProxmoxConsoleSessionController, :show)
+    post("/proxmox/console-sessions/:id/close", ProxmoxConsoleSessionController, :close)
     post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
 
     post(
@@ -504,6 +508,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
+      live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
       live("/interfaces", InterfaceLive.Index, :index)
 

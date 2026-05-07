@@ -8,7 +8,7 @@ Proxmox support spans discovery, inventory enrichment, metrics, topology, consol
   - Keep SRQL evaluation and credential resolution in the control plane.
   - Emit typed device discovery/enrichment payloads and metrics through existing plugin result ingestion.
   - Preserve hosted virtualization topology as `HOSTED_ON` semantics, not physical adjacency.
-  - Provide browser terminal access to PVE host shells and guest consoles without exposing direct Proxmox management ports to the operator.
+  - Provide browser terminal access to PVE host shells first, and keep guest console requests safely unavailable until a native Proxmox guest connector is enabled.
 - Non-Goals:
   - First-iteration power, migration, clone, delete, backup, or configuration mutation operations.
   - Full digital-twin modeling of Proxmox Linux bridges, SDN zones, VLANs, and storage internals.
@@ -113,13 +113,11 @@ Environmental data is not first-class in the documented PVE node API beyond syst
 
 ## Console Access
 Proxmox console access should reuse the Scion webpty pattern, adapted to ServiceRadar's control plane and edge-agent topology:
-1. Browser opens a web-ng console route for a canonical Proxmox node, QEMU guest, or LXC guest.
+1. Browser opens a web-ng console route for a canonical Proxmox node. QEMU and LXC guest routes are modeled but remain unavailable until native guest console support is enabled.
 2. Web-ng authorizes the user, creates a short-lived single-use console session ticket, and chooses the edge agent allowed by credential rule scope and device reachability.
 3. Browser connects to a web-ng websocket using the session ticket.
 4. Web-ng proxies terminal frames to the agent/gateway console broker over the existing authenticated edge channel.
-5. The agent broker opens either:
-   - SSH to the PVE host using an encrypted, scoped SSH key credential, or
-   - Proxmox `termproxy` / `vncwebsocket` for QEMU/LXC consoles where the PVE version and permissions support it.
+5. The agent broker opens SSH to the PVE host using an encrypted, scoped SSH key credential. Proxmox `termproxy` / `vncwebsocket` for QEMU/LXC consoles are future connector modes and must return an unavailable/unsupported result instead of attempting credential resolution until enabled.
 6. Terminal data, resize events, close events, and errors use a small typed websocket protocol similar to Scion's `data`, `resize`, and `close` messages.
 
 The browser terminal should be a React/xterm.js component mounted through the existing `phx-react-ng`/client-side React hook approach in `elixir/web-ng`. Scion's terminal UX is a useful source for fit addon behavior, resize debouncing, clipboard handling, and terminal focus, but the ServiceRadar wrapper must follow web-ng styling and authorization patterns.
