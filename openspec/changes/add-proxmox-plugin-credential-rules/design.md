@@ -80,7 +80,7 @@ The first pass should use API tokens. Ticket login may be supported only when ne
 
 Optional infrastructure endpoints must be partial-success paths. A credential with `Sys.Audit`/VM audit permissions can still collect basic nodes, guests, and network data; additional `Datastore.Audit`, disk, Ceph, or syslog privileges unlock deeper storage, disk, Ceph, and log capabilities without requiring a different plugin configuration. Missing permissions are emitted as redacted warnings, not target failures.
 
-The PVE API exposes read paths for node syslog and journal data, but not an API shape for configuring remote syslog forwarding. Inventory collection must not poll syslog/journal as a substitute for log ingestion. Log forwarding should be a separate, audited configuration action that uses the assigned edge agent and scoped host credential to manage rsyslog/systemd-journald or another supported host-level forwarder toward the ServiceRadar syslog collector.
+The PVE API exposes read paths for node syslog and journal data, but not an API shape for configuring remote syslog forwarding. Inventory collection must not poll syslog/journal as a substitute for log ingestion. Proxmox log forwarding is deferred from the first ServiceRadar plugin implementation: the preferred path is to deploy Vector on PVE hosts with an operator-managed playbook, then forward logs to the ServiceRadar OTEL log collector. ServiceRadar should still correlate those logs back to canonical devices once they arrive, but it should not build a direct SSH/rsyslog mutator in this change.
 
 ## Enrichment Contract
 The plugin result includes:
