@@ -46,7 +46,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
       closed?: false
     }
 
-    case send_frame(state, "open", "", Keyword.get(opts, :cols), Keyword.get(opts, :rows), nil) do
+    cols = Keyword.get(opts, :cols)
+    rows = Keyword.get(opts, :rows)
+
+    case send_frame(state, "open", open_frame_data(session, cols, rows), cols, rows, nil) do
       :ok -> {:ok, state}
       {:error, reason} -> {:stop, reason}
     end
@@ -109,4 +112,61 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
 
   defp uint32(value) when is_integer(value) and value > 0, do: min(value, 65_535)
   defp uint32(_value), do: 0
+
+  defp positive_or(value, _fallback) when is_integer(value) and value > 0, do: value
+  defp positive_or(_value, fallback), do: fallback
+
+  defp open_frame_data(session, cols, rows) do
+    %{
+      session_id: session.id,
+      agent_id: session.agent_id,
+      gateway_id: session.gateway_id,
+      device_uid: session.device_uid,
+      target_kind: format_atom(session.target_kind),
+      console_mode: format_atom(session.console_mode),
+      credential_rule_id: to_string(session.credential_rule_id),
+      plugin_assignment_id: metadata_string(session, "plugin_assignment_id"),
+      cols: positive_or(uint32(cols), terminal_int(session, "cols")),
+      rows: positive_or(uint32(rows), terminal_int(session, "rows"))
+    }
+    |> Enum.reject(fn {_key, value} -> value in [nil, "", 0] end)
+    |> Map.new()
+    |> Jason.encode!()
+  end
+
+  defp terminal_int(session, key) do
+    session
+    |> metadata_map()
+    |> Map.get("terminal", %{})
+    |> case do
+      terminal when is_map(terminal) -> uint32(Map.get(terminal, key))
+      _terminal -> 0
+    end
+  end
+
+  defp metadata_string(session, key) do
+    case Map.get(metadata_map(session), key) do
+      value when is_binary(value) -> String.trim(value)
+      value when is_atom(value) -> Atom.to_string(value)
+      value when is_integer(value) -> Integer.to_string(value)
+      _value -> nil
+    end
+  end
+
+  defp metadata_map(%{metadata: metadata}) when is_map(metadata), do: stringify_map(metadata)
+  defp metadata_map(_session), do: %{}
+
+  defp stringify_map(map) do
+    Map.new(map, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), stringify_nested(value)}
+      {key, value} -> {to_string(key), stringify_nested(value)}
+    end)
+  end
+
+  defp stringify_nested(value) when is_map(value), do: stringify_map(value)
+  defp stringify_nested(value), do: value
+
+  defp format_atom(value) when is_atom(value), do: Atom.to_string(value)
+  defp format_atom(value) when is_binary(value), do: value
+  defp format_atom(_value), do: nil
 end

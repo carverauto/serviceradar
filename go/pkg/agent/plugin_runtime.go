@@ -62,6 +62,7 @@ const (
 
 const (
 	pluginCapabilityCameraMediaStream = "camera_media_stream"
+	pluginCapabilityProxmoxConsole    = "proxmox_console_stream"
 )
 
 const (
@@ -85,6 +86,7 @@ var (
 	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
 	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
 	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
+	errStreamingPluginConsoleNotOpened    = errors.New("streaming plugin did not open a Proxmox console session")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
@@ -122,9 +124,10 @@ type PluginManager struct {
 	statsMu sync.Mutex
 	stats   pluginEngineStats
 
-	configMu       sync.Mutex
-	lastConfigSHA  string
-	streamExecutor func(context.Context, *pluginAssignment, []byte, []byte, *pluginCameraMediaBridge) error
+	configMu        sync.Mutex
+	lastConfigSHA   string
+	streamExecutor  func(context.Context, *pluginAssignment, []byte, []byte, *pluginCameraMediaBridge) error
+	consoleExecutor func(context.Context, *pluginAssignment, []byte, []byte, *pluginProxmoxConsoleBridge) error
 }
 
 type assignmentState struct {
@@ -856,7 +859,7 @@ func (a *pluginAssignment) isStreaming() bool {
 	if a == nil || a.Capabilities == nil {
 		return false
 	}
-	return a.Capabilities[pluginCapabilityCameraMediaStream]
+	return a.Capabilities[pluginCapabilityCameraMediaStream] || a.Capabilities[pluginCapabilityProxmoxConsole]
 }
 
 func (a *pluginAssignment) streamingSnapshot() StreamingPluginAssignment {
@@ -1585,16 +1588,17 @@ func safeJoin(base, target string) (string, error) {
 }
 
 type pluginExecution struct {
-	manager     *PluginManager
-	assignment  *pluginAssignment
-	mode        pluginExecutionMode
-	configJSON  []byte
-	mediaBridge *pluginCameraMediaBridge
-	mu          sync.Mutex
-	conns       map[uint32]net.Conn
-	wsConns     map[uint32]*websocket.Conn
-	nextHandle  uint32
-	submitted   bool
+	manager       *PluginManager
+	assignment    *pluginAssignment
+	mode          pluginExecutionMode
+	configJSON    []byte
+	mediaBridge   *pluginCameraMediaBridge
+	consoleBridge *pluginProxmoxConsoleBridge
+	mu            sync.Mutex
+	conns         map[uint32]net.Conn
+	wsConns       map[uint32]*websocket.Conn
+	nextHandle    uint32
+	submitted     bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
@@ -1633,6 +1637,18 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostCameraMediaClose).
 		Export("camera_media_close")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostProxmoxConsoleOpen).
+		Export("proxmox_console_open")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostProxmoxConsoleWrite).
+		Export("proxmox_console_write")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostProxmoxConsoleRead).
+		Export("proxmox_console_read")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostProxmoxConsoleClose).
+		Export("proxmox_console_close")
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostHTTPRequest).
 		Export("http_request")

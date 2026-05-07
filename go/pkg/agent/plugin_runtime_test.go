@@ -601,6 +601,140 @@ func TestPluginManagerOpenCameraRelayStreamCloseCancelsPluginAndReleasesSlot(t *
 	}
 }
 
+func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) {
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:        logger.NewTestLogger(),
+		CacheDir:      t.TempDir(),
+		LocalStoreDir: t.TempDir(),
+	})
+	defer manager.Stop()
+
+	wasmPath := filepath.Join(manager.localStoreDir, "proxmox-console.wasm")
+	if err := os.WriteFile(wasmPath, []byte("not-real-wasm"), 0o600); err != nil {
+		t.Fatalf("write wasm fixture: %v", err)
+	}
+
+	assignment := newPluginAssignment(
+		&proto.PluginAssignmentConfig{
+			AssignmentId:  "console-1",
+			PluginId:      "proxmox-console",
+			Name:          "Proxmox Console",
+			Entrypoint:    "run_console",
+			Runtime:       "wasi-preview1",
+			Enabled:       true,
+			WasmObjectKey: "proxmox-console.wasm",
+			Capabilities:  []string{pluginCapabilityProxmoxConsole, "get_config"},
+			ParamsJson:    []byte(`{"credential_rule_id":"rule-1"}`),
+		},
+		logger.NewTestLogger(),
+	)
+
+	manager.mu.Lock()
+	manager.streams["console-1"] = assignment
+	manager.mu.Unlock()
+
+	observed := make(chan pluginProxmoxConsoleInputFrame, 2)
+	manager.consoleExecutor = func(
+		ctx context.Context,
+		assignment *pluginAssignment,
+		wasm []byte,
+		configJSON []byte,
+		bridge *pluginProxmoxConsoleBridge,
+	) error {
+		if assignment.AssignmentID != "console-1" {
+			t.Fatalf("unexpected assignment id: %s", assignment.AssignmentID)
+		}
+		if len(wasm) == 0 {
+			t.Fatal("expected wasm bytes to be loaded")
+		}
+
+		var config map[string]any
+		if err := json.Unmarshal(configJSON, &config); err != nil {
+			t.Fatalf("decode console config: %v", err)
+		}
+		console, _ := config["console"].(map[string]any)
+		if console["device_uid"] != "device-1" || console["credential_rule_id"] != "rule-1" {
+			t.Fatalf("unexpected console config: %#v", console)
+		}
+
+		handle, err := bridge.Open(ctx, pluginProxmoxConsoleOpenRequest{TerminalType: "xterm-256color"})
+		if err != nil {
+			return err
+		}
+		if _, err := bridge.WriteOutput(ctx, handle, []byte("login: ")); err != nil {
+			return err
+		}
+
+		input, err := bridge.ReadInput(ctx, handle, time.Second)
+		if err != nil {
+			return err
+		}
+		observed <- input
+
+		resize, err := bridge.ReadInput(ctx, handle, time.Second)
+		if err != nil {
+			return err
+		}
+		observed <- resize
+
+		return bridge.CloseHandle(handle, "done")
+	}
+
+	pty, err := manager.OpenProxmoxConsoleStream(t.Context(), proxmoxConsoleSessionSpec{
+		SessionID:        "session-1",
+		AgentID:          "agent-1",
+		GatewayID:        "gateway-1",
+		DeviceUID:        "device-1",
+		TargetKind:       "pve_host",
+		ConsoleMode:      "ssh",
+		CredentialRuleID: "rule-1",
+		Cols:             120,
+		Rows:             40,
+	})
+	if err != nil {
+		t.Fatalf("OpenProxmoxConsoleStream returned error: %v", err)
+	}
+
+	output, err := pty.Read(t.Context())
+	if err != nil {
+		t.Fatalf("Read returned error: %v", err)
+	}
+	if string(output) != "login: " {
+		t.Fatalf("unexpected console output: %q", string(output))
+	}
+
+	if err := pty.Write([]byte("whoami\r")); err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	input := <-observed
+	if input.FrameType != consoleFrameTypeData || string(input.Data) != "whoami\r" {
+		t.Fatalf("unexpected input frame: %#v", input)
+	}
+
+	if err := pty.Resize(132, 43); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	resize := <-observed
+	if resize.FrameType != consoleFrameTypeResize || resize.Cols != 132 || resize.Rows != 43 {
+		t.Fatalf("unexpected resize frame: %#v", resize)
+	}
+
+	if _, err := pty.Read(t.Context()); err == nil || !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF after plugin close, got %v", err)
+	}
+}
+
+func TestDecodeProxmoxConsoleOpenPayloadRequiresScopedAssignment(t *testing.T) {
+	_, err := decodeProxmoxConsoleOpenPayload(&proto.ConsoleFrame{
+		SessionId: "session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data:      []byte(`{"device_uid":"device-1"}`),
+	})
+	if !errors.Is(err, errProxmoxConsoleAssignmentIDRequired) {
+		t.Fatalf("expected scoped assignment error, got %v", err)
+	}
+}
+
 func TestNormalizePluginPayload(t *testing.T) {
 	pl := &PushLoop{}
 	observed := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)

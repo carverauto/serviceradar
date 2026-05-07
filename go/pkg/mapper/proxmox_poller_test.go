@@ -131,17 +131,17 @@ func TestProxmoxCandidateFingerprintRejectsGenericHTTPS(t *testing.T) {
 }
 
 func TestProxmoxCandidateBaseURL(t *testing.T) {
-	assert.Equal(t, "https://192.168.2.10:8006", proxmoxCandidateBaseURL("192.168.2.10"))
-	assert.Equal(t, "https://192.168.2.10:8006", proxmoxCandidateBaseURL("https://192.168.2.10:8006/"))
+	assert.Equal(t, "https://192.0.2.10:8006", proxmoxCandidateBaseURL("192.0.2.10"))
+	assert.Equal(t, "https://192.0.2.10:8006", proxmoxCandidateBaseURL("https://192.0.2.10:8006/"))
 	assert.Equal(t, "https://[2001:db8::10]:8006", proxmoxCandidateBaseURL("[2001:db8::10]:8006"))
 }
 
 func TestBuildProxmoxCandidateDevice(t *testing.T) {
-	device := buildProxmoxCandidateDevice("192.168.2.10", "pve01")
+	device := buildProxmoxCandidateDevice("192.0.2.10", "pve01")
 
 	require.NotNil(t, device)
-	assert.Equal(t, GenerateDeviceIDFromIP("192.168.2.10"), device.DeviceID)
-	assert.Equal(t, "192.168.2.10", device.IP)
+	assert.Equal(t, GenerateDeviceIDFromIP("192.0.2.10"), device.DeviceID)
+	assert.Equal(t, "192.0.2.10", device.IP)
 	assert.Equal(t, "pve01", device.Hostname)
 	assert.Equal(t, "proxmox-candidate", device.Metadata["source"])
 	assert.Equal(t, "true", device.Metadata["proxmox_candidate"])

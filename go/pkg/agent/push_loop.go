@@ -316,6 +316,23 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
+	proxmoxConsoleManager := newProxmoxConsoleManager(log)
+	proxmoxConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
+		spec, err := decodeProxmoxConsoleOpenPayload(frame)
+		if err != nil {
+			return nil, err
+		}
+
+		server.mu.RLock()
+		pluginManager := server.pluginManager
+		server.mu.RUnlock()
+
+		if pluginManager == nil {
+			return nil, errProxmoxConsoleBridgeUnavailable
+		}
+
+		return pluginManager.OpenProxmoxConsoleStream(ctx, spec)
+	}
 
 	return &PushLoop{
 		server:                server,
@@ -334,7 +351,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		mtrOnDemandSem:        make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
 		mtrBulkJobSem:         make(chan struct{}, 1),
 		cameraRelayManager:    cameraRelayManager,
-		proxmoxConsoleManager: newProxmoxConsoleManager(log),
+		proxmoxConsoleManager: proxmoxConsoleManager,
 	}
 }
 

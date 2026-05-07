@@ -147,7 +147,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
         MapperResultsIngestor.normalize_topology(%{
           "protocol" => "proxmox-api",
           "local_device_id" => "host-a",
-          "local_device_ip" => "192.168.2.10",
+          "local_device_ip" => "192.0.2.10",
           "local_if_name" => "vmbr0",
           "neighbor_device_id" => "guest-a",
           "neighbor_mgmt_addr" => "192.168.2.197",
