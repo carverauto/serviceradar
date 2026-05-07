@@ -30,41 +30,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           {:ok,
            %Req.Response{
              status: 200,
-             body: [
-               %{
-                 "tag_name" => "v7.0.0",
-                 "name" => "ServiceRadar 7.0.0",
-                 "body" => "Imported release notes",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v7.0.0",
-                 "published_at" => "2026-03-28T20:00:00Z",
-                 "assets" => [
-                   %{
-                     "name" => "serviceradar-agent-release-manifest.json",
-                     "browser_download_url" =>
-                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v7.0.0/manifest.json"
-                   },
-                   %{
-                     "name" => "serviceradar-agent-release-manifest.sig",
-                     "browser_download_url" =>
-                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v7.0.0/manifest.sig"
-                   }
-                 ]
-               },
-               %{
-                 "tag_name" => "v6.9.9",
-                 "name" => "ServiceRadar 6.9.9",
-                 "body" => "Missing manifest",
-                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v6.9.9",
-                 "published_at" => "2026-03-27T20:00:00Z",
-                 "assets" => [
-                   %{
-                     "name" => "serviceradar-agent-release-manifest.sig",
-                     "browser_download_url" =>
-                       "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v6.9.9/manifest.sig"
-                   }
-                 ]
-               }
-             ]
+             body: recent_releases()
            }}
 
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v7.0.0") ->
@@ -124,6 +90,53 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       }
     end
 
+    defp recent_releases do
+      [
+        release_summary("v7.0.0", "ServiceRadar 7.0.0", "Imported release notes"),
+        release_summary("v6.9.9", "ServiceRadar 6.9.9", "Missing manifest", manifest?: false)
+        | Enum.map(
+            ~w(v6.9.8 v6.9.7 v6.9.6 v6.9.5 v6.9.4 v6.9.3 v6.9.2 v6.9.1 v6.9.0 v6.8.9),
+            fn tag ->
+              release_summary(
+                tag,
+                "ServiceRadar #{String.trim_leading(tag, "v")}",
+                "Patch release"
+              )
+            end
+          )
+      ]
+    end
+
+    defp release_summary(tag, name, body, opts \\ []) do
+      assets =
+        Enum.reject(
+          [
+            Keyword.get(opts, :manifest?, true) &&
+              release_asset(tag, "serviceradar-agent-release-manifest.json", "manifest.json"),
+            Keyword.get(opts, :signature?, true) &&
+              release_asset(tag, "serviceradar-agent-release-manifest.sig", "manifest.sig")
+          ],
+          &(&1 in [nil, false])
+        )
+
+      %{
+        "tag_name" => tag,
+        "name" => name,
+        "body" => body,
+        "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/#{tag}",
+        "published_at" => "2026-03-28T20:00:00Z",
+        "assets" => assets
+      }
+    end
+
+    defp release_asset(tag, name, file_name) do
+      %{
+        "name" => name,
+        "browser_download_url" =>
+          "https://code.carverauto.dev/carverauto/serviceradar/releases/download/#{tag}/#{file_name}"
+      }
+    end
+
     defp sign_manifest(manifest) do
       {:ok, payload} = ReleaseManifestValidator.canonical_json(manifest)
       private_key = Base.decode64!(@release_private_key)
@@ -132,6 +145,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       |> :crypto.sign(:none, payload, [private_key, :ed25519])
       |> Base.encode64()
     end
+  end
+
+  defmodule ReleaseArtifactMirrorStub do
+    @moduledoc false
+
+    def prepare_publish_attrs(attrs), do: {:ok, attrs}
   end
 
   setup :register_and_log_in_admin_user
@@ -154,6 +173,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   setup do
     original_client = Application.get_env(:serviceradar_web_ng, :agent_release_import_http_client)
 
+    original_mirror =
+      Application.get_env(:serviceradar_core, :agent_release_artifact_mirror_module)
+
+    Application.put_env(
+      :serviceradar_core,
+      :agent_release_artifact_mirror_module,
+      ReleaseArtifactMirrorStub
+    )
+
     on_exit(fn ->
       if is_nil(original_client) do
         Application.delete_env(:serviceradar_web_ng, :agent_release_import_http_client)
@@ -162,6 +190,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           :serviceradar_web_ng,
           :agent_release_import_http_client,
           original_client
+        )
+      end
+
+      if is_nil(original_mirror) do
+        Application.delete_env(:serviceradar_core, :agent_release_artifact_mirror_module)
+      else
+        Application.put_env(
+          :serviceradar_core,
+          :agent_release_artifact_mirror_module,
+          original_mirror
         )
       end
     end)
@@ -224,7 +262,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       "release" => %{
         "version" => version,
         "signature" => signature,
-        "artifact_url" => "https://example.test/releases/#{version}/serviceradar-agent.tar.gz",
+        "artifact_url" =>
+          "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent.tar.gz",
         "artifact_sha256" => String.duplicate("a", 64),
         "artifact_format" => "tar.gz",
         "entrypoint" => "serviceradar-agent",
@@ -296,8 +335,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "Recent Repository Releases"
     assert html =~ "v7.0.0"
     assert html =~ "v6.9.9"
+    assert html =~ "Showing 1-10 of 12"
+    refute html =~ "v6.8.9"
     assert has_element?(lv, "button[phx-value-release_tag='v7.0.0']:not([disabled])")
     assert has_element?(lv, "button[phx-value-release_tag='v6.9.9'][disabled]")
+
+    html =
+      lv
+      |> element("#repo-release-next-page")
+      |> render_click()
+
+    assert html =~ "Showing 11-12 of 12"
+    assert html =~ "v6.8.9"
   end
 
   test "imports a recent repository release with one click", %{conn: conn, scope: scope} do
@@ -847,7 +896,67 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "0/1 healthy"
   end
 
-  test "shows recent target diagnostics under each rollout", %{conn: conn, scope: scope} do
+  test "paginates recent rollouts into a concise table", %{conn: conn, scope: scope} do
+    version = "3.1-page.#{System.unique_integer([:positive])}"
+    manifest = release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    gateway = gateway_fixture()
+    agent_id = "agent-release-rollout-page-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_id,
+        name: "Rollout Pagination Agent",
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    for index <- 1..12 do
+      {:ok, _rollout} =
+        AgentReleaseManager.create_rollout(
+          %{
+            version: version,
+            agent_ids: [agent_id],
+            batch_size: 1,
+            batch_delay_seconds: 0,
+            notes: "pagination #{index}"
+          },
+          scope: scope
+        )
+    end
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "Showing 1-10 of 12"
+
+    html =
+      lv
+      |> element("#rollout-next-page")
+      |> render_click()
+
+    assert html =~ "Showing 11-12 of 12"
+  end
+
+  test "shows recent target diagnostics in a rollout details modal", %{conn: conn, scope: scope} do
     version = "3.2.#{System.unique_integer([:positive])}"
     manifest = release_manifest(version)
 
@@ -912,9 +1021,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         scope: scope
       )
 
-    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases")
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
 
-    assert html =~ "Recent Target States"
+    refute html =~ "Target States"
+    refute html =~ "digest mismatch"
+
+    html =
+      lv
+      |> element("#rollout-details-#{rollout.id}")
+      |> render_click()
+
+    assert html =~ "Target States"
     assert html =~ agent_id
     assert html =~ "digest mismatch"
     assert html =~ "verification failed"
@@ -1487,7 +1604,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           "arch" => "amd64",
           "format" => "tar.gz",
           "entrypoint" => "serviceradar-agent",
-          "url" => "https://example.test/releases/#{version}/serviceradar-agent.tar.gz",
+          "url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent.tar.gz",
           "sha256" => String.duplicate("a", 64)
         }
       ]

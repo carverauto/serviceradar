@@ -82,8 +82,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
         <header>
           <h1 class="text-2xl font-semibold text-base-content">CLI authentication</h1>
           <p class="text-sm text-base-content/70">
-            Controls the RFC 8628 device-code flow that powers
-            <code class="font-mono">serviceradar-cli auth login</code>. Disabling the
+            Controls the RFC 8628 device-code flow that powers <code class="font-mono">serviceradar-cli auth login</code>. Disabling the
             flow does not revoke tokens already issued — use Settings → CLI sessions
             to revoke individual sessions.
           </p>
@@ -141,8 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
             ><%= @form_values.cli_allowed_scopes %></textarea>
             <p class="text-xs text-base-content/60 mt-1">
               One scope per line (or whitespace/comma separated). Requests for
-              scopes outside the list are rejected with 400
-              <code class="font-mono">invalid_scope</code>.
+              scopes outside the list are rejected with 400 <code class="font-mono">invalid_scope</code>.
             </p>
           </div>
 
@@ -183,9 +181,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
     %{
       cli_auth_enabled: !!settings.cli_auth_enabled,
       cli_session_ttl_days: settings.cli_session_ttl_days || 30,
-      cli_allowed_scopes:
-        (settings.cli_allowed_scopes || ["dashboard.publish"])
-        |> Enum.join("\n")
+      cli_allowed_scopes: Enum.join(settings.cli_allowed_scopes || ["dashboard.publish"], "\n")
     }
   end
 

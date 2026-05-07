@@ -2,9 +2,9 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner

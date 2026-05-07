@@ -12,11 +12,11 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLiveTest do
 
   import Phoenix.LiveViewTest
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :integration
 
   describe "unauthenticated visitor" do
     test "redirects to log-in with the user_code preserved in return_to", %{conn: conn} do
@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLiveTest do
     end
 
     test "expired code refuses Approve / Deny buttons", %{conn: conn} do
-      mint_pending("VWXZ-BCDF") |> backdate_expiry!()
+      "VWXZ-BCDF" |> mint_pending() |> backdate_expiry!()
 
       {:ok, view, _html} = live(conn, ~p"/cli/auth/device?user_code=VWXZ-BCDF")
 

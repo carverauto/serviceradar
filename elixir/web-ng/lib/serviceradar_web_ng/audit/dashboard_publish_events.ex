@@ -58,9 +58,7 @@ defmodule ServiceRadarWebNG.Audit.DashboardPublishEvents do
     :ok
   rescue
     error ->
-      Logger.warning(
-        "DashboardPublishEvents.record/3 raised: #{inspect(error)} action=#{inspect(action)}"
-      )
+      Logger.warning("DashboardPublishEvents.record/3 raised: #{inspect(error)} action=#{inspect(action)}")
 
       :ok
   end
@@ -69,12 +67,10 @@ defmodule ServiceRadarWebNG.Audit.DashboardPublishEvents do
   defp audit_action(:dashboard_enable), do: :update
   defp audit_action(:dashboard_disable), do: :update
 
-  defp build_resource_name(%{dashboard_id: id, version: version}) when is_binary(id),
-    do: "#{id}@#{version || "?"}"
+  defp build_resource_name(%{dashboard_id: id, version: version}) when is_binary(id), do: "#{id}@#{version || "?"}"
 
   defp build_resource_name(%{dashboard_id: id}) when is_binary(id), do: id
-  defp build_resource_name(%{package: %DashboardPackage{dashboard_id: id, version: v}}),
-    do: "#{id}@#{v}"
+  defp build_resource_name(%{package: %DashboardPackage{dashboard_id: id, version: v}}), do: "#{id}@#{v}"
 
   defp build_resource_name(_), do: nil
 

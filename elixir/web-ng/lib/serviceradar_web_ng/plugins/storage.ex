@@ -62,6 +62,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   def object_key_for(%DashboardPackage{} = package) do
     dashboard_id = sanitize_segment(package.dashboard_id || "unknown")
     version = sanitize_segment(package.version || "unknown")
+
     extension =
       package
       |> dashboard_renderer_artifact()
@@ -74,9 +75,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     "dashboards/#{dashboard_id}/#{version}/#{package.id}#{extension}"
   end
 
-  defp dashboard_renderer_artifact(%DashboardPackage{renderer: %{"artifact" => artifact}})
-       when is_binary(artifact),
-       do: artifact
+  defp dashboard_renderer_artifact(%DashboardPackage{renderer: %{"artifact" => artifact}}) when is_binary(artifact),
+    do: artifact
 
   defp dashboard_renderer_artifact(_package), do: ""
 

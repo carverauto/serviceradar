@@ -45,8 +45,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
     |> send_file(200, path)
   end
 
-  defp renderer_content_type(%DashboardPackage{renderer: %{"kind" => "browser_module"}}),
-    do: "text/javascript"
+  defp renderer_content_type(%DashboardPackage{renderer: %{"kind" => "browser_module"}}), do: "text/javascript"
 
   defp renderer_content_type(_package), do: "application/wasm"
 

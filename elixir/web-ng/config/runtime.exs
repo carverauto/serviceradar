@@ -302,8 +302,7 @@ nats_tls_config =
       cacertfile: Path.join(cert_dir, "root.pem"),
       certfile: Path.join(cert_dir, "core.pem"),
       keyfile: Path.join(cert_dir, "core-key.pem"),
-      server_name_indication:
-        "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
     ]
   else
     false
@@ -1012,8 +1011,7 @@ if config_env() == :prod do
         adbc_params =
           %{
             "sslmode" => adbc_ssl_mode,
-            "options" =>
-              "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
+            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
           }
           |> then(fn params ->
             if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
@@ -1299,8 +1297,7 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket:
-      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do

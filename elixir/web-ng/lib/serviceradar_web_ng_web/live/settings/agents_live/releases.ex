@@ -30,6 +30,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {"Connected Agents", "connected"},
     {"Custom Agent IDs", "custom"}
   ]
+  @repo_release_page_size 10
+  @repo_release_fetch_limit 50
+  @rollout_page_size 10
 
   @impl true
   def mount(_params, _session, socket) do
@@ -50,10 +53,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:release_import_form, release_import_form())
        |> assign(:recent_repo_releases, [])
        |> assign(:recent_repo_release_error, nil)
+       |> assign(:repo_release_page, 1)
+       |> assign(:repo_release_page_size, @repo_release_page_size)
        |> assign(:release_form, release_form())
        |> assign(:rollout_form, rollout_form())
        |> assign(:releases, [])
        |> assign(:rollouts, [])
+       |> assign(:rollout_page, 1)
+       |> assign(:rollout_page_size, @rollout_page_size)
+       |> assign(:selected_rollout_id, nil)
        |> assign(:connected_agents, [])
        |> assign(:rollout_summaries, %{})
        |> assign(:rollout_targets, %{})
@@ -157,6 +165,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       |> Map.put("release_tag", release_tag)
 
     handle_event("import_repo_release", %{"release_import" => params}, socket)
+  end
+
+  def handle_event("repo_release_page", %{"page" => page}, socket) do
+    page = clamp_page(page, length(socket.assigns.recent_repo_releases), @repo_release_page_size)
+
+    {:noreply, assign(socket, :repo_release_page, page)}
+  end
+
+  def handle_event("rollout_page", %{"page" => page}, socket) do
+    page = clamp_page(page, length(socket.assigns.rollouts), @rollout_page_size)
+
+    {:noreply, assign(socket, :rollout_page, page)}
+  end
+
+  def handle_event("show_rollout_details", %{"id" => rollout_id}, socket) do
+    {:noreply, assign(socket, :selected_rollout_id, rollout_id)}
+  end
+
+  def handle_event("hide_rollout_details", _params, socket) do
+    {:noreply, assign(socket, :selected_rollout_id, nil)}
   end
 
   def handle_event("create_rollout", %{"rollout" => params}, socket) do
@@ -301,9 +329,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {recent_repo_releases, recent_repo_release_error} =
       load_recent_repo_releases(release_import_form.params || %{})
 
+    repo_release_page =
+      socket.assigns
+      |> Map.get(:repo_release_page, 1)
+      |> clamp_page(length(recent_repo_releases), @repo_release_page_size)
+
+    rollout_page =
+      socket.assigns
+      |> Map.get(:rollout_page, 1)
+      |> clamp_page(length(rollouts), @rollout_page_size)
+
+    selected_rollout_id =
+      case Map.get(socket.assigns, :selected_rollout_id) do
+        nil -> nil
+        selected -> if Enum.any?(rollouts, &(&1.id == selected)), do: selected
+      end
+
     socket
     |> assign(:releases, releases)
     |> assign(:rollouts, rollouts)
+    |> assign(:rollout_page, rollout_page)
+    |> assign(:selected_rollout_id, selected_rollout_id)
     |> assign(:connected_agents, connected_agents)
     |> assign(:rollout_summaries, rollout_summaries)
     |> assign(:rollout_targets, rollout_targets)
@@ -312,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> assign(:release_import_form, release_import_form)
     |> assign(:recent_repo_releases, recent_repo_releases)
     |> assign(:recent_repo_release_error, recent_repo_release_error)
+    |> assign(:repo_release_page, repo_release_page)
     |> assign(:release_form, normalize_release_form(socket.assigns.release_form))
     |> assign(:rollout_form, rollout_form)
     |> assign(:rollout_preview, rollout_preview)
@@ -350,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> Ash.Query.for_read(:read, %{})
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.load(:release)
-    |> Ash.Query.limit(20)
+    |> Ash.Query.limit(50)
     |> Ash.read(scope: scope)
     |> case do
       {:ok, rollouts} -> rollouts
@@ -558,7 +605,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             Recent Repository Releases
                           </div>
                           <div class="text-xs text-base-content/60">
-                            The latest 10 releases are discovered automatically from the selected Forgejo repository.
+                            Recent releases are discovered automatically from the selected Forgejo repository.
                           </div>
                         </div>
                         <span class="text-xs text-base-content/50">
@@ -591,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             </tr>
                           </thead>
                           <tbody>
-                            <%= for release <- @recent_repo_releases do %>
+                            <%= for release <- paginated_items(@recent_repo_releases, @repo_release_page, @repo_release_page_size) do %>
                               <tr id={"repo-release-#{release.tag}"}>
                                 <td>
                                   <div class="flex flex-col gap-1">
@@ -661,6 +708,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             <% end %>
                           </tbody>
                         </table>
+                        <.pagination_controls
+                          id_prefix="repo-release"
+                          event="repo_release_page"
+                          page={@repo_release_page}
+                          total_items={length(@recent_repo_releases)}
+                          page_size={@repo_release_page_size}
+                        />
                       </div>
                     </div>
 
@@ -1037,10 +1091,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         No rollouts have been created yet.
                       </td>
                     </tr>
-                    <%= for rollout <- @rollouts do %>
+                    <%= for rollout <- paginated_items(@rollouts, @rollout_page, @rollout_page_size) do %>
                       <% summary = Map.get(@rollout_summaries, rollout.id, empty_rollout_summary()) %>
                       <% display_status = rollout_display_status(rollout, summary) %>
-                      <% rollout_target_details = Map.get(@rollout_targets, rollout.id, []) %>
                       <tr>
                         <td>
                           <div class="flex flex-col gap-1">
@@ -1073,6 +1126,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         <td>
                           <div class="flex flex-wrap gap-2">
                             <button
+                              id={"rollout-details-#{rollout.id}"}
+                              type="button"
+                              phx-click="show_rollout_details"
+                              phx-value-id={rollout.id}
+                              class="btn btn-xs btn-ghost"
+                            >
+                              Details
+                            </button>
+                            <button
                               :if={display_status == :active}
                               type="button"
                               phx-click="pause_rollout"
@@ -1103,59 +1165,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           </div>
                         </td>
                       </tr>
-                      <tr :if={rollout_target_details != []}>
-                        <td colspan="6" class="bg-base-200/20">
-                          <div class="flex flex-col gap-3 px-2 py-3">
-                            <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
-                              Recent Target States
-                            </div>
-                            <div class="grid gap-2 lg:grid-cols-2">
-                              <%= for detail <- rollout_target_details do %>
-                                <% target = detail.target %>
-                                <div class="rounded-lg border border-base-200 bg-base-100 px-3 py-2">
-                                  <div class="flex items-center justify-between gap-3">
-                                    <div class="flex flex-col gap-1">
-                                      <span class="font-mono text-xs">{target.agent_id}</span>
-                                      <span
-                                        :if={display_target_platform(detail) not in [nil, ""]}
-                                        class="text-[11px] text-base-content/50"
-                                      >
-                                        {display_target_platform(detail)}
-                                      </span>
-                                    </div>
-                                    <.target_status_badge status={target.status} />
-                                  </div>
-                                  <div class="mt-1 text-[11px] text-base-content/60">
-                                    {target_progress_summary(target)}
-                                  </div>
-                                  <div
-                                    :if={platform_mismatch_error?(target.last_error)}
-                                    class="mt-2 flex flex-wrap gap-1"
-                                  >
-                                    <.ui_badge variant="error" size="xs">
-                                      Unsupported Platform
-                                    </.ui_badge>
-                                  </div>
-                                  <div
-                                    :if={target.last_error not in [nil, ""]}
-                                    class="mt-1 text-[11px] text-error"
-                                    title={target.last_error}
-                                  >
-                                    {target.last_error}
-                                  </div>
-                                </div>
-                              <% end %>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
                     <% end %>
                   </tbody>
                 </table>
+                <.pagination_controls
+                  id_prefix="rollout"
+                  event="rollout_page"
+                  page={@rollout_page}
+                  total_items={length(@rollouts)}
+                  page_size={@rollout_page_size}
+                />
               </div>
             </.ui_panel>
           </div>
         </div>
+
+        <%= if selected_rollout = selected_rollout(@rollouts, @selected_rollout_id) do %>
+          <% selected_summary =
+            Map.get(@rollout_summaries, selected_rollout.id, empty_rollout_summary()) %>
+          <.rollout_details_modal
+            rollout={selected_rollout}
+            summary={selected_summary}
+            display_status={rollout_display_status(selected_rollout, selected_summary)}
+            targets={Map.get(@rollout_targets, selected_rollout.id, [])}
+          />
+        <% end %>
       </.settings_shell>
     </Layouts.app>
     """
@@ -1203,6 +1237,182 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  attr(:id_prefix, :string, required: true)
+  attr(:event, :string, required: true)
+  attr(:page, :integer, required: true)
+  attr(:total_items, :integer, required: true)
+  attr(:page_size, :integer, required: true)
+
+  defp pagination_controls(assigns) do
+    page_count = page_count(assigns.total_items, assigns.page_size)
+    {first_item, last_item} = page_range(assigns.total_items, assigns.page, assigns.page_size)
+
+    assigns =
+      assign(assigns,
+        page_count: page_count,
+        first_item: first_item,
+        last_item: last_item
+      )
+
+    ~H"""
+    <div
+      :if={@total_items > 0}
+      class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 px-4 py-3 text-xs text-base-content/60"
+    >
+      <span>
+        Showing {@first_item}-{@last_item} of {@total_items}
+      </span>
+      <div class="join">
+        <button
+          id={"#{@id_prefix}-prev-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page - 1}
+          class="btn btn-xs join-item"
+          disabled={@page <= 1}
+        >
+          Previous
+        </button>
+        <button type="button" class="btn btn-xs join-item btn-ghost" disabled>
+          Page {@page} of {@page_count}
+        </button>
+        <button
+          id={"#{@id_prefix}-next-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page + 1}
+          class="btn btn-xs join-item"
+          disabled={@page >= @page_count}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:rollout, :any, required: true)
+  attr(:summary, :map, required: true)
+  attr(:display_status, :atom, required: true)
+  attr(:targets, :list, required: true)
+
+  defp rollout_details_modal(assigns) do
+    ~H"""
+    <div id="rollout-details-modal" class="modal modal-open">
+      <div class="modal-box max-w-5xl p-0">
+        <div class="flex items-start justify-between gap-4 border-b border-base-300 px-6 py-4">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="truncate font-mono text-sm font-semibold">
+                {rollout_version(@rollout)}
+              </h2>
+              <.rollout_status_badge status={@display_status} />
+            </div>
+            <p class="mt-1 text-xs text-base-content/60">
+              Created by {@rollout.created_by || "system"} · {length(@rollout.cohort_agent_ids || [])} agents
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="hide_rollout_details"
+            class="btn btn-sm btn-circle btn-ghost"
+            aria-label="Close rollout details"
+          >
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+
+        <div class="space-y-5 px-6 py-5">
+          <div class="stats stats-vertical w-full border border-base-300 bg-base-100 shadow-sm md:stats-horizontal">
+            <div class="stat">
+              <div class="stat-title text-xs">Healthy</div>
+              <div class="stat-value text-2xl">{@summary.healthy}</div>
+              <div class="stat-desc">of {@summary.total} targets</div>
+            </div>
+            <div class="stat">
+              <div class="stat-title text-xs">In Flight</div>
+              <div class="stat-value text-2xl">{@summary.inflight}</div>
+              <div class="stat-desc">{rollout_progress_text(@summary)}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-title text-xs">Failed</div>
+              <div class="stat-value text-2xl text-error">
+                {@summary.failed + @summary.rolled_back}
+              </div>
+              <div class="stat-desc">failed or rolled back</div>
+            </div>
+          </div>
+
+          <div :if={rollout_progress_badges(@summary) != []} class="flex flex-wrap gap-2">
+            <%= for %{label: label, variant: variant} <- rollout_progress_badges(@summary) do %>
+              <.ui_badge variant={variant} size="xs">{label}</.ui_badge>
+            <% end %>
+          </div>
+
+          <div>
+            <div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
+              Target States
+            </div>
+            <div class="overflow-x-auto rounded-lg border border-base-300">
+              <table class="table table-sm w-full">
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Last Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :if={@targets == []}>
+                    <td colspan="4" class="py-8 text-center text-sm text-base-content/60">
+                      No target states have been reported yet.
+                    </td>
+                  </tr>
+                  <%= for detail <- @targets do %>
+                    <% target = detail.target %>
+                    <tr>
+                      <td>
+                        <div class="flex flex-col gap-1">
+                          <span class="font-mono text-xs">{target.agent_id}</span>
+                          <span
+                            :if={display_target_platform(detail) not in [nil, ""]}
+                            class="text-[11px] text-base-content/50"
+                          >
+                            {display_target_platform(detail)}
+                          </span>
+                        </div>
+                      </td>
+                      <td><.target_status_badge status={target.status} /></td>
+                      <td class="text-xs text-base-content/70">{target_progress_summary(target)}</td>
+                      <td class="max-w-sm text-xs">
+                        <div :if={platform_mismatch_error?(target.last_error)} class="mb-1">
+                          <.ui_badge variant="error" size="xs">Unsupported Platform</.ui_badge>
+                        </div>
+                        <span
+                          :if={target.last_error not in [nil, ""]}
+                          class="text-error"
+                          title={target.last_error}
+                        >
+                          {target.last_error}
+                        </span>
+                        <span :if={target.last_error in [nil, ""]} class="text-base-content/40">
+                          —
+                        </span>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop" phx-click="hide_rollout_details"></div>
+    </div>
     """
   end
 
@@ -1301,6 +1511,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       socket
       |> assign(:recent_repo_releases, recent_repo_releases)
       |> assign(:recent_repo_release_error, recent_repo_release_error)
+      |> assign(:repo_release_page, 1)
     else
       socket
     end
@@ -1319,13 +1530,58 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp normalize_repo_source_value(value), do: value
 
   defp load_recent_repo_releases(params) when is_map(params) do
-    case ReleaseSourceImporter.list_recent_releases(params) do
+    case ReleaseSourceImporter.list_recent_releases(params, @repo_release_fetch_limit) do
       {:ok, releases} -> {releases, nil}
       {:error, reason} -> {[], format_error(reason)}
     end
   end
 
   defp load_recent_repo_releases(_params), do: {[], nil}
+
+  defp paginated_items(items, page, page_size) when is_list(items) do
+    page = clamp_page(page, length(items), page_size)
+
+    items
+    |> Enum.drop((page - 1) * page_size)
+    |> Enum.take(page_size)
+  end
+
+  defp page_count(total_items, page_size) when is_integer(total_items) and total_items > 0,
+    do: max(1, ceil(total_items / page_size))
+
+  defp page_count(_total_items, _page_size), do: 1
+
+  defp page_range(total_items, page, page_size) when total_items > 0 do
+    page = clamp_page(page, total_items, page_size)
+    first_item = (page - 1) * page_size + 1
+    last_item = min(page * page_size, total_items)
+
+    {first_item, last_item}
+  end
+
+  defp page_range(_total_items, _page, _page_size), do: {0, 0}
+
+  defp clamp_page(page, total_items, page_size) do
+    page =
+      case page do
+        page when is_integer(page) -> page
+        page when is_binary(page) -> page |> Integer.parse() |> parsed_page()
+        _ -> 1
+      end
+
+    page
+    |> max(1)
+    |> min(page_count(total_items, page_size))
+  end
+
+  defp parsed_page({page, _rest}), do: page
+  defp parsed_page(:error), do: 1
+
+  defp selected_rollout(_rollouts, nil), do: nil
+
+  defp selected_rollout(rollouts, selected_rollout_id) when is_list(rollouts) do
+    Enum.find(rollouts, &(&1.id == selected_rollout_id))
+  end
 
   defp rollout_prefill_params(params) when is_map(params) do
     compact_map(%{

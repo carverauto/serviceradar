@@ -29,8 +29,8 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Identity.RBAC
 
   @valid_user_code ~r/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/
@@ -156,7 +156,6 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 Look up code
               </button>
             </form>
-
           <% :pending -> %>
             <div class="card bg-base-200 shadow">
               <div class="card-body space-y-3">
@@ -174,7 +173,9 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 </div>
                 <div>
                   <div class="label-text">Expires</div>
-                  <div class="text-sm">{Calendar.strftime(@row.expires_at, "%Y-%m-%d %H:%M:%S UTC")}</div>
+                  <div class="text-sm">
+                    {Calendar.strftime(@row.expires_at, "%Y-%m-%d %H:%M:%S UTC")}
+                  </div>
                 </div>
               </div>
             </div>
@@ -202,8 +203,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 <div>
                   <h2 class="font-semibold">Your role does not allow CLI authentication.</h2>
                   <p class="text-sm">
-                    Ask an admin to grant the
-                    <code class="font-mono">cli.session.create</code>
+                    Ask an admin to grant the <code class="font-mono">cli.session.create</code>
                     permission. The polling CLI will receive an
                     <code class="font-mono">expired_token</code>
                     error after the device code TTL elapses.
@@ -211,7 +211,6 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 </div>
               </div>
             <% end %>
-
           <% :approved -> %>
             <div class="alert alert-success">
               <div>
@@ -221,7 +220,6 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 </p>
               </div>
             </div>
-
           <% :denied -> %>
             <div class="alert alert-warning">
               <div>
@@ -231,7 +229,6 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 </p>
               </div>
             </div>
-
           <% :expired -> %>
             <div class="alert alert-error">
               <div>
@@ -242,13 +239,13 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 </p>
               </div>
             </div>
-
           <% :unknown -> %>
             <div class="alert alert-error">
               <div>
                 <h2 class="font-semibold">We couldn't find that code.</h2>
                 <p class="text-sm">
-                  Double-check the code printed by <code class="font-mono">serviceradar-cli auth login</code>
+                  Double-check the code printed by
+                  <code class="font-mono">serviceradar-cli auth login</code>
                   and try again.
                 </p>
               </div>
@@ -318,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
   defp derive_state(%DeviceAuthorization{status: :denied}), do: :denied
 
   defp derive_state(%DeviceAuthorization{status: :pending} = row) do
-    if DateTime.compare(row.expires_at, DateTime.utc_now()) == :lt do
+    if DateTime.before?(row.expires_at, DateTime.utc_now()) do
       :expired
     else
       :pending

@@ -250,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   defp dispatch_poll_state(conn, row, settings, actor) do
     cond do
-      DateTime.compare(row.expires_at, DateTime.utc_now()) == :lt ->
+      DateTime.before?(row.expires_at, DateTime.utc_now()) ->
         DeviceAuthorization.expire(row, actor: actor)
         error_response(conn, 400, "expired_token", "Device code expired")
 
@@ -402,8 +402,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   defp parse_scopes(nil), do: []
 
-  defp parse_scopes(scope) when is_binary(scope),
-    do: String.split(scope, ~r/[\s,]+/, trim: true)
+  defp parse_scopes(scope) when is_binary(scope), do: String.split(scope, ~r/[\s,]+/, trim: true)
 
   defp scope_to_atom(scope) when is_atom(scope), do: scope
   defp scope_to_atom(scope) when is_binary(scope), do: String.to_atom(scope)

@@ -119,8 +119,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   """
   @spec bind_route(DashboardPackage.t(), String.t(), keyword()) ::
           {:ok, DashboardInstance.t()} | {:error, term()}
-  def bind_route(%DashboardPackage{} = package, route_slug, opts \\ [])
-      when is_binary(route_slug) do
+  def bind_route(%DashboardPackage{} = package, route_slug, opts \\ []) when is_binary(route_slug) do
     ash_opts = ash_opts(Keyword.get(opts, :scope), Keyword.get(opts, :actor))
     enabled? = Keyword.get(opts, :enabled, true)
 
@@ -409,8 +408,15 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     end
   end
 
-  defp finalize_publish({:idempotent, %DashboardPackage{} = package}, _manifest, _attrs, _wasm,
-         route_slug, enable_route?, ash_opts) do
+  defp finalize_publish(
+         {:idempotent, %DashboardPackage{} = package},
+         _manifest,
+         _attrs,
+         _wasm,
+         route_slug,
+         enable_route?,
+         ash_opts
+       ) do
     # Nothing to write on the package side — blob is already there with matching SHA.
     # The slug binding may or may not exist; honor the route opt either way.
     with {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
@@ -422,8 +428,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
   end
 
-  defp finalize_publish({:reset, attrs}, _manifest, _orig_attrs, wasm, route_slug, enable_route?,
-         ash_opts) do
+  defp finalize_publish({:reset, attrs}, _manifest, _orig_attrs, wasm, route_slug, enable_route?, ash_opts) do
     do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
   end
 
@@ -437,8 +442,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   defp maybe_bind_route(_package, nil, _enable_route?, _ash_opts), do: {:ok, nil}
 
-  defp maybe_bind_route(%DashboardPackage{} = package, slug, enable_route?, ash_opts)
-       when is_binary(slug) do
+  defp maybe_bind_route(%DashboardPackage{} = package, slug, enable_route?, ash_opts) when is_binary(slug) do
     upsert_route_binding(package, slug, enable_route?, ash_opts)
   end
 

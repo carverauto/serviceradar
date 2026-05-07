@@ -19,7 +19,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   @spec default_signature_asset_name() :: String.t()
   def default_signature_asset_name, do: @default_signature_asset_name
 
-  @spec list_recent_releases(import_attrs(), pos_integer()) :: {:ok, [map()]} | {:error, String.t()}
+  @spec list_recent_releases(import_attrs(), pos_integer()) ::
+          {:ok, [map()]} | {:error, String.t()}
   def list_recent_releases(attrs, limit \\ @default_recent_release_limit)
 
   def list_recent_releases(attrs, limit) when is_map(attrs) do
@@ -109,6 +110,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp validate_provider("forgejo"), do: {:ok, "forgejo"}
+
   defp validate_provider(_provider), do: {:error, "Forgejo is the only supported release provider"}
 
   defp parse_repo_url("forgejo", url) do
@@ -123,7 +125,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
          repo: repo
        }}
     else
-      _ -> {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"}
+      _ ->
+        {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"}
     end
   end
 
@@ -167,7 +170,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases/tags/#{URI.encode(tag)}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers(repo.provider), decode_body: true) do
+         {:ok, response} <-
+           request(request_url, headers: api_headers(repo.provider), decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_map(body) ->
           {:ok, body}
@@ -185,10 +189,12 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp fetch_recent_releases(repo, limit) do
-    url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
+    url =
+      "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers(repo.provider), decode_body: true) do
+         {:ok, response} <-
+           request(request_url, headers: api_headers(repo.provider), decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_list(body) ->
           {:ok, body}
@@ -205,7 +211,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 20)
+  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 50)
   defp normalize_limit(_limit), do: @default_recent_release_limit
 
   defp fetch_release_asset(release, asset_name) do
@@ -322,7 +328,9 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp normalize_provider(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
   defp normalize_provider(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_provider()
+
   defp normalize_provider(_value), do: nil
 
   defp normalize_string(nil), do: nil

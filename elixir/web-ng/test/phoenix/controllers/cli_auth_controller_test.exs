@@ -14,13 +14,13 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
+
+  @moduletag :integration
 
   @device_action "cli_auth_device"
   @token_action "cli_auth_token"
@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
 
     # Force the row past its TTL via Ecto so we bypass the Ash validations
     # that lock the changeset after the action callback runs.
-    past = DateTime.utc_now() |> DateTime.add(-3600, :second)
+    past = DateTime.add(DateTime.utc_now(), -3600, :second)
 
     Ecto.Adapters.SQL.query!(
       ServiceRadar.Repo,

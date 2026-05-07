@@ -9,12 +9,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias Datasvc.KV
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
-  alias Datasvc.KV
 
   @impl true
   def mount(_params, _session, socket) do
@@ -819,19 +819,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       |> list_kv_zen_rules()
       |> Enum.reject(&(zen_rule_key(&1) in db_keys))
 
-    (db_rules ++ kv_rules)
-    |> Enum.sort_by(&{&1.subject, &1.order || 0, &1.name})
+    Enum.sort_by(db_rules ++ kv_rules, &{&1.subject, &1.order || 0, &1.name})
   end
 
   defp list_kv_zen_rules(prefix) do
-    with {:ok, keys} <- KV.list_keys(prefix, timeout: 2_000) do
-      index_orders = kv_index_orders(keys)
+    case KV.list_keys(prefix, timeout: 2_000) do
+      {:ok, keys} ->
+        index_orders = kv_index_orders(keys)
 
-      keys
-      |> Enum.reject(&String.ends_with?(&1, "/_rules.json"))
-      |> Enum.flat_map(&kv_zen_rule(&1, index_orders))
-    else
-      _ -> []
+        keys
+        |> Enum.reject(&String.ends_with?(&1, "/_rules.json"))
+        |> Enum.flat_map(&kv_zen_rule(&1, index_orders))
+
+      _ ->
+        []
     end
   end
 
@@ -866,7 +867,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
   defp kv_zen_rule(key, index_orders) do
     with [agent_id, stream_name, subject, filename] <- parse_kv_rule_key(key),
-         name <- Path.basename(filename, ".json"),
+         name = Path.basename(filename, ".json"),
          {:ok, value, revision} <- KV.get(key, timeout: 2_000),
          {:ok, compiled_jdm} <- Jason.decode(value) do
       [
