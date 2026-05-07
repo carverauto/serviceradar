@@ -272,7 +272,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       %{
         "targets" => normalized_targets,
         "protocol" => normalize_mtr_protocol(Keyword.get(opts, :protocol, "icmp")),
-        "execution_profile" => normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
+        "execution_profile" =>
+          normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
       }
       |> maybe_put("target_query", normalize_optional_string(Keyword.get(opts, :target_query)))
       |> maybe_put("selector_limit", Keyword.get(opts, :selector_limit))
@@ -335,6 +336,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
+
+  def send_console_frame(agent_id, frame, opts \\ [])
+
+  def send_console_frame(agent_id, frame, opts) when is_binary(agent_id) and is_map(frame) do
+    required_gateway_node = Keyword.get(opts, :required_gateway_node)
+
+    case lookup_control_session(agent_id, required_gateway_node) do
+      {:ok, pid, _metadata} ->
+        GenServer.call(pid, {:send_console_frame, frame}, @send_timeout)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def send_console_frame(_agent_id, _frame, _opts), do: {:error, :invalid_console_frame}
 
   @doc """
   Lists agents with an active control stream that can receive commands.
@@ -520,7 +537,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node), do: {:error, :invalid_agent_id}
+  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_agent_id}
 
   defp pick_control_session(entries, agent_id, required_gateway_node) do
     entries
