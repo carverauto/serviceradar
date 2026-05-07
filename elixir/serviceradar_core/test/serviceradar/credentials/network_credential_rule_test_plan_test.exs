@@ -66,8 +66,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
 
     assert plan.payload["schema"] == "serviceradar.proxmox_credential_test.v1"
 
-    assert plan.payload["credential_secret_ref"] ==
+    assert plan.payload["credential_broker"]["schema"] ==
+             "serviceradar.edge_credential_broker_grant.v1"
+
+    assert plan.payload["credential_broker"]["credential_secret_ref"] ==
              "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+
+    assert plan.payload["credential_broker"]["target"] == %{
+             "device_uid" => "device-1",
+             "base_url" => "https://192.0.2.10:8006"
+           }
+
+    assert plan.payload["credential_broker"]["allow"] == %{
+             "methods" => ["GET"],
+             "paths" => ["/api2/json/version", "/api2/json/nodes"]
+           }
 
     assert plan.payload["target"] == %{
              "device_uid" => "device-1",
@@ -79,8 +92,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
     assert plan.payload["tls"] == %{"insecure_skip_verify" => true}
     assert plan.payload["timeout_ms"] == 45_000
 
-    refute inspect(plan) =~ "PVEAPIToken"
     refute inspect(plan) =~ "test-token"
+    assert plan.payload["credential_broker"]["inject"]["scheme"] == "PVEAPIToken"
+    refute Map.has_key?(plan.payload, "api_token")
   end
 
   test "proxmox_api_test rejects unsupported providers and empty previews" do

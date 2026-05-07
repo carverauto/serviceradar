@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.ControlRepo
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -30,7 +31,6 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
     required_gateway_node = resolve_required_gateway_node(opts, context)
     transmit_payload = Keyword.get(opts, :transmit_payload, payload)
-    payload_json = encode_payload(transmit_payload)
     payload_map = normalize_payload(payload)
 
     command_attrs = %{
@@ -45,7 +45,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-    with :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
+    with :ok <- reject_sensitive_transmit_payload(transmit_payload),
+         payload_json = encode_payload(transmit_payload),
+         :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
          {:ok, command} <- create_command(command_attrs, ash_opts) do
       _ = AgentCommandCleanupWorker.ensure_scheduled()
 
@@ -61,6 +63,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         context: context,
         ash_opts: ash_opts
       })
+    end
+  end
+
+  defp reject_sensitive_transmit_payload(payload) do
+    if CredentialRedactor.redact(payload) == payload do
+      :ok
+    else
+      {:error, :sensitive_transmit_payload_denied}
     end
   end
 
@@ -262,8 +272,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       %{
         "targets" => normalized_targets,
         "protocol" => normalize_mtr_protocol(Keyword.get(opts, :protocol, "icmp")),
-        "execution_profile" =>
-          normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
+        "execution_profile" => normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
       }
       |> maybe_put("target_query", normalize_optional_string(Keyword.get(opts, :target_query)))
       |> maybe_put("selector_limit", Keyword.get(opts, :selector_limit))
@@ -511,8 +520,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
-    do: {:error, :invalid_agent_id}
+  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node), do: {:error, :invalid_agent_id}
 
   defp pick_control_session(entries, agent_id, required_gateway_node) do
     entries

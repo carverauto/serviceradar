@@ -73,14 +73,15 @@ type mtrRunPayload struct {
 }
 
 type proxmoxCredentialTestPayload struct {
-	Schema           string            `json:"schema,omitempty"`
-	CredentialRuleID string            `json:"credential_rule_id,omitempty"`
-	APIToken         string            `json:"api_token"`
-	Target           proxmoxTestTarget `json:"target"`
-	TLS              proxmoxTestTLS    `json:"tls,omitempty"`
-	TimeoutMS        int               `json:"timeout_ms,omitempty"`
-	Preview          map[string]any    `json:"preview,omitempty"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Schema           string                       `json:"schema,omitempty"`
+	CredentialRuleID string                       `json:"credential_rule_id,omitempty"`
+	APIToken         string                       `json:"api_token"`
+	CredentialBroker proxmoxCredentialBrokerGrant `json:"credential_broker,omitempty"`
+	Target           proxmoxTestTarget            `json:"target"`
+	TLS              proxmoxTestTLS               `json:"tls,omitempty"`
+	TimeoutMS        int                          `json:"timeout_ms,omitempty"`
+	Preview          map[string]any               `json:"preview,omitempty"`
+	Metadata         map[string]string            `json:"metadata,omitempty"`
 }
 
 type proxmoxTestTarget struct {
@@ -92,6 +93,22 @@ type proxmoxTestTarget struct {
 
 type proxmoxTestTLS struct {
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
+}
+
+type proxmoxCredentialBrokerGrant struct {
+	Schema              string                     `json:"schema,omitempty"`
+	GrantType           string                     `json:"grant_type,omitempty"`
+	CredentialRuleID    string                     `json:"credential_rule_id,omitempty"`
+	CredentialSecretRef string                     `json:"credential_secret_ref,omitempty"`
+	Target              proxmoxTestTarget          `json:"target,omitempty"`
+	Inject              map[string]string          `json:"inject,omitempty"`
+	Allow               proxmoxCredentialBrokerACL `json:"allow,omitempty"`
+	TTLSeconds          int                        `json:"ttl_seconds,omitempty"`
+}
+
+type proxmoxCredentialBrokerACL struct {
+	Methods []string `json:"methods,omitempty"`
+	Paths   []string `json:"paths,omitempty"`
 }
 
 type controlStreamSender struct {
@@ -836,43 +853,23 @@ func runProxmoxCredentialTest(
 	payload proxmoxCredentialTestPayload,
 	client *http.Client,
 ) (map[string]any, error) {
+	_ = ctx
+	_ = client
+
 	baseURL, err := proxmoxCredentialTestBaseURL(payload.Target.BaseURL)
 	if err != nil {
 		return nil, err
 	}
+
 	if strings.TrimSpace(payload.APIToken) == "" {
-		return nil, errors.New("missing proxmox api token")
+		if strings.TrimSpace(payload.CredentialBroker.CredentialSecretRef) == "" {
+			return nil, errors.New("missing proxmox credential broker grant")
+		}
+
+		return proxmoxCredentialTestResult(payload, baseURL, 0, 0), errors.New("credential broker unavailable")
 	}
 
-	if client == nil {
-		client = proxmoxCredentialTestHTTPClient(payload.TLS.InsecureSkipVerify, payload.TimeoutMS)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api2/json/nodes", nil)
-	if err != nil {
-		return nil, errors.New("invalid proxmox test request")
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", proxmoxCredentialTestAuthHeader(payload.APIToken))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return proxmoxCredentialTestResult(payload, baseURL, 0, 0), err
-	}
-	defer resp.Body.Close()
-
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if readErr != nil {
-		return proxmoxCredentialTestResult(payload, baseURL, resp.StatusCode, 0), readErr
-	}
-
-	nodeCount := proxmoxCredentialTestNodeCount(body)
-	result := proxmoxCredentialTestResult(payload, baseURL, resp.StatusCode, nodeCount)
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return result, errors.New("proxmox API credential test failed")
-	}
-
-	return result, nil
+	return nil, errors.New("direct proxmox api token payloads are not allowed")
 }
 
 func proxmoxCredentialTestHTTPClient(insecureSkipVerify bool, timeoutMS int) *http.Client {

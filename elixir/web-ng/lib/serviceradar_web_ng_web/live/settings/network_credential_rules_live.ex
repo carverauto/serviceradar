@@ -129,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                     <th>Provider</th>
                     <th>Purpose</th>
                     <th>Scope</th>
+                    <th>Discovery</th>
                     <th>Secret</th>
                     <th>Priority</th>
                     <th>Status</th>
@@ -138,12 +139,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="9" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
                       Loading credential rules.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @rules == []}>
-                    <td colspan="9" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
                       No credential rules found.
                     </td>
                   </tr>
@@ -152,6 +153,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                     <td>{rule.provider}</td>
                     <td>{format_atom(rule.purpose)}</td>
                     <td>{format_scope(rule)}</td>
+                    <td>
+                      <span class={[
+                        "badge badge-sm",
+                        if(auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost")
+                      ]}>
+                        {if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"}
+                      </span>
+                    </td>
                     <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
                     <td>{rule.priority}</td>
                     <td>
@@ -296,6 +305,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <.input field={@form[:target_query]} type="textarea" label="Target Query" required />
+          <.input
+            field={@form[:auto_discovery_enabled]}
+            type="checkbox"
+            label="Allow auto-discovery credential trials"
+          />
           <.input field={@form[:allowed_ports]} label="Allowed Ports" />
           <.input field={@form[:description]} type="textarea" label="Description" />
 
@@ -371,6 +385,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp save_rule(%{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket, attrs) do
+    attrs = merge_rule_metadata(rule, attrs)
+
     case rule
          |> Ash.Changeset.for_update(:update, attrs, scope: socket.assigns.current_scope)
          |> Ash.update(scope: socket.assigns.current_scope) do
@@ -456,7 +472,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          allowed_ports: allowed_ports,
          tls_policy: tls_policy,
          ssh_host_key_policy: ssh_policy,
-         metadata: %{}
+         metadata: %{
+           "auto_discovery_enabled" => boolean_param(params, "auto_discovery_enabled")
+         }
        }}
     end
   rescue
@@ -470,14 +488,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "provider" => "proxmox",
       "auth_method" => "proxmox_api_token",
       "purpose" => "inventory_enrichment",
-      "target_query" => "in:devices",
+      "target_query" => "in:devices protocol:proxmox-api",
       "scope_type" => "agent",
       "scope_value" => "",
       "secret_id" => "",
       "priority" => "100",
       "allowed_ports" => "8006",
       "tls_policy" => "verify",
-      "ssh_host_key_policy" => "known_hosts"
+      "ssh_host_key_policy" => "known_hosts",
+      "auto_discovery_enabled" => "false"
     }
   end
 
@@ -495,7 +514,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "priority" => to_string(rule.priority),
       "allowed_ports" => Enum.join(rule.allowed_ports || [], ", "),
       "tls_policy" => to_string(rule.tls_policy),
-      "ssh_host_key_policy" => to_string(rule.ssh_host_key_policy)
+      "ssh_host_key_policy" => to_string(rule.ssh_host_key_policy),
+      "auto_discovery_enabled" => auto_discovery_enabled?(rule)
     }
   end
 
@@ -548,6 +568,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       value -> value
     end
   end
+
+  defp boolean_param(params, key) do
+    params
+    |> Map.get(key, "false")
+    |> case do
+      value when value in [true, "true", "on", "1", 1] -> true
+      _ -> false
+    end
+  end
+
+  defp merge_rule_metadata(rule, attrs) do
+    metadata =
+      rule.metadata
+      |> normalize_metadata()
+      |> Map.merge(Map.get(attrs, :metadata, %{}))
+
+    Map.put(attrs, :metadata, metadata)
+  end
+
+  defp normalize_metadata(metadata) when is_map(metadata), do: metadata
+  defp normalize_metadata(_metadata), do: %{}
+
+  defp auto_discovery_enabled?(rule) do
+    rule
+    |> Map.get(:metadata, %{})
+    |> normalize_metadata()
+    |> Map.get("auto_discovery_enabled", false)
+    |> truthy?()
+  end
+
+  defp truthy?(value) when value in [true, "true", "on", "1", 1], do: true
+  defp truthy?(_value), do: false
 
   defp enum_options(values), do: Enum.map(values, &{format_atom(&1), to_string(&1)})
 

@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  require Ash.Query
+
   setup :register_and_log_in_admin_user
 
   test "renders the credential rules settings route", %{conn: conn} do
@@ -37,13 +39,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         "priority" => "25",
         "allowed_ports" => "8006",
         "tls_policy" => "verify",
-        "ssh_host_key_policy" => "known_hosts"
+        "ssh_host_key_policy" => "known_hosts",
+        "auto_discovery_enabled" => "true"
       }
     )
     |> render_submit()
 
     assert_patch(lv, ~p"/settings/networks/credentials")
-    assert render(lv) =~ "PVE inventory"
+    html = render(lv)
+    assert html =~ "PVE inventory"
+    assert html =~ "Auto"
+
+    rule = get_rule_by_name!(scope, "PVE inventory")
+    assert rule.target_query == "in:devices"
+    assert rule.metadata["auto_discovery_enabled"] == true
   end
 
   test "edits and disables a credential rule", %{conn: conn, scope: scope} do
@@ -67,7 +76,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         "priority" => "30",
         "allowed_ports" => "8006",
         "tls_policy" => "verify",
-        "ssh_host_key_policy" => "known_hosts"
+        "ssh_host_key_policy" => "known_hosts",
+        "auto_discovery_enabled" => "false"
       }
     )
     |> render_submit()
@@ -152,5 +162,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       |> Ash.create(scope: scope)
 
     rule
+  end
+
+  defp get_rule_by_name!(scope, name) do
+    NetworkCredentialRule
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(name == ^name)
+    |> Ash.read!(scope: scope)
+    |> List.first()
   end
 end

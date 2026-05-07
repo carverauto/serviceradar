@@ -13,15 +13,17 @@
 ## 3. Settings UI
 - [x] 3.1 Add Settings -> Networks -> Credential Rules navigation.
 - [x] 3.2 Build list/create/edit/disable/test flows using existing settings UI patterns.
-- [ ] 3.3 Add Proxmox PVE API provider preset fields for token ID, token secret, realm, and TLS policy.
-- [ ] 3.4 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
-- [ ] 3.5 Add LiveView/controller tests for authorization, validation, redaction, and preview behavior.
+- [x] 3.3 Add explicit Proxmox auto-discovery opt-in for credential trials; keep SRQL-scoped targeting as the default.
+- [ ] 3.4 Add Proxmox PVE API provider preset fields for token ID, token secret, realm, and TLS policy.
+- [ ] 3.5 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
+- [ ] 3.6 Add LiveView/controller tests for authorization, validation, redaction, and preview behavior.
 
 ## 4. Policy Reconciliation and Agent Config
 - [x] 4.1 Extend plugin target policy reconciliation to bind credential rules to resolved device batches.
-- [x] 4.2 Deliver only scoped credential material to the assigned edge agent over existing authenticated config channels.
+- [x] 4.2 Deliver only scoped credential references and broker grants to assigned edge agents; do not send decrypted credential material to plugins or generic command payloads.
 - [x] 4.3 Redact sensitive fields from logs, API responses, plugin status, and cached config debug output.
 - [x] 4.4 Add tests for priority resolution, equal-priority conflicts, disabled rules, and agent-scope denial.
+- [x] 4.5 Deny hidden command `transmit_payload` values that contain raw credential material.
 
 ## 5. Proxmox Plugin
 - [x] 5.1 Add first-party Go WASM plugin package under `go/cmd/wasm-plugins/proxmox/`.
@@ -35,6 +37,7 @@
 - [x] 5.9 Add best-effort Proxmox infrastructure enrichment for node storage, network interfaces, disks, and Ceph health.
 - [x] 5.10 Emit infrastructure metrics/events for storage pressure, disk health, and Ceph health while preserving partial success for least-privilege tokens.
 - [x] 5.11 Confirm Proxmox syslog/journal API endpoints are read-only log access paths and keep log-forwarding configuration out of inventory collection.
+- [x] 5.12 Remove fake hard-coded PVE host, token, node, and guest sample payloads from the TinyGo JSON priming workaround.
 
 ## 6. Enrichment Ingestion
 - [x] 6.1 Add provider-neutral virtualization schema/resources for clusters, hypervisor hosts, guests, host relationships, datastores/storage pools, disks, NICs, and provider extension fields.

@@ -110,6 +110,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       "include_guests" => metadata_bool(rule, "include_guests", true),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
+      "auto_discovery_enabled" => metadata_bool(rule, "auto_discovery_enabled", false),
       "credential_rule_id" => value_string(rule, [:id, "id"])
     }
   end
@@ -143,9 +144,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp selected_rules_for_agent(rules, agent_id) do
     rules
-    |> Enum.filter(
-      &(inventory_rule?(&1) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
-    )
+    |> Enum.filter(&(inventory_rule?(&1) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id)))
     |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
     |> collapse_by_target_query()
   end
@@ -250,8 +249,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp scope_allows_agent?(rule, agent_id) do
-    case {raw_rule_value(rule, [:scope_type, "scope_type"]),
-          value_string(rule, [:scope_value, "scope_value"])} do
+    case {raw_rule_value(rule, [:scope_type, "scope_type"]), value_string(rule, [:scope_value, "scope_value"])} do
       {scope, value} when scope in [:agent, "agent"] -> value in [nil, "", agent_id]
       _ -> true
     end
@@ -317,6 +315,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp metadata_atom_key("chunk_size"), do: :chunk_size
+  defp metadata_atom_key("auto_discovery_enabled"), do: :auto_discovery_enabled
   defp metadata_atom_key("gateway_id"), do: :gateway_id
   defp metadata_atom_key("include_guests"), do: :include_guests
   defp metadata_atom_key("interval_seconds"), do: :interval_seconds

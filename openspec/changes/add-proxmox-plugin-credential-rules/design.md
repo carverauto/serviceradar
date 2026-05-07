@@ -45,11 +45,16 @@ Credential kinds must include both API credentials and console credentials:
 Resolution order:
 1. Per-device credential override, when explicitly configured for the same provider.
 2. Enabled credential rules whose SRQL query matches the device and whose agent/site scope includes the assigned edge agent.
-3. Highest priority rule wins when multiple rules match.
-4. Equal-priority conflicts must be surfaced for operator resolution instead of trying every secret.
+3. Auto-discovered Proxmox candidates only when the matched rule explicitly enables auto-discovery credential trials in settings.
+4. Highest priority rule wins when multiple rules match.
+5. Equal-priority conflicts must be surfaced for operator resolution instead of trying every secret.
+
+Auto-discovery has two separate phases:
+- Fingerprinting may probe candidate devices without credentials using safe unauthenticated checks such as TCP/HTTPS evidence, TLS/service metadata, and version endpoint behavior.
+- Credential trials are disabled by default for discovered candidates that do not match a rule SRQL query. Enabling auto-discovery on a rule is an explicit admin opt-in and still remains limited by the configured agent, gateway, or partition scope.
 
 ## Proxmox Plugin Execution
-The Proxmox plugin receives a resolved `serviceradar.plugin_inputs.v1` payload containing concrete target devices and redacted policy metadata. The control plane also includes only the credential material that the assigned agent needs for that specific batch.
+The Proxmox plugin receives a resolved `serviceradar.plugin_inputs.v1` payload containing concrete target devices and redacted policy metadata. The control plane includes credential broker grants and secret references, not decrypted credential material. The edge-side credential broker is the only component allowed to resolve a secret reference and inject a credential into an outbound Proxmox request.
 
 The plugin calls PVE API endpoints through SDK host HTTP:
 - `/version`
@@ -143,7 +148,7 @@ Keep PRs reviewable and stackable:
 7. Docs and operational examples.
 
 ## Risks / Trade-offs
-- Credential leakage is the highest risk. Mitigation: central redaction, no URL secrets, no plugin-side SRQL/API tokens, and per-agent materialization only.
+- Credential leakage is the highest risk. Mitigation: central redaction, no URL secrets, no plugin-side SRQL/API tokens, no generic hidden command payloads carrying decrypted credentials, and per-agent broker grants only.
 - WASM plugin HTTP calls have less generated type safety than a full Proxmox client. Mitigation: keep endpoint coverage narrow, build local typed response structs, and use fixture-heavy tests.
 - Existing mapper Proxmox behavior may drift from plugin behavior. Mitigation: extract or duplicate only stable normalization helpers with tests covering identical identities and hosted links.
 - Proxmox APIs vary across versions and standalone/cluster installs. Mitigation: start with conservative endpoints and emit partial enrichment with clear capability flags when optional endpoints are unavailable.

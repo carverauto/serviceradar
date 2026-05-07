@@ -37,7 +37,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
           "timeout_ms" => 45_000,
           "interval_seconds" => 600,
           "timeout_seconds" => 45,
-          "chunk_size" => 25
+          "chunk_size" => 25,
+          "auto_discovery_enabled" => true
         }
       }
     ]
@@ -78,11 +79,33 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
              "credential_rule_id" => "rule-1",
              "include_guests" => false,
              "insecure_skip_verify" => true,
-             "timeout_ms" => 45_000
+             "timeout_ms" => 45_000,
+             "auto_discovery_enabled" => true
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
     refute Map.has_key?(policy.params_template, "credential_secret_id")
+  end
+
+  test "reconcile_rules leaves auto-discovery disabled unless explicitly enabled" do
+    rules = [
+      credential_rule(%{
+        id: "srql-only",
+        target_query: "in:devices protocol:proxmox-api",
+        secret_id: "018f3f56-1111-7222-8333-123456789abc"
+      })
+    ]
+
+    assert {:ok, _summary} =
+             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
+               reconciler: FakeReconciler,
+               actor: %{id: "system"},
+               test_pid: self()
+             )
+
+    assert_receive {:reconcile, policy, input_defs, _opts}
+    assert hd(input_defs).query == "in:devices protocol:proxmox-api"
+    assert policy.params_template["auto_discovery_enabled"] == false
   end
 
   test "materialized policy output is compatible with plugin inputs planner payloads" do
@@ -199,8 +222,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
       })
     ]
 
-    assert {:error,
-            {:equal_priority_credential_rule_conflict, "in:devices protocol:proxmox-api", 10}} =
+    assert {:error, {:equal_priority_credential_rule_conflict, "in:devices protocol:proxmox-api", 10}} =
              PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
                reconciler: FakeReconciler,
                actor: %{id: "system"},

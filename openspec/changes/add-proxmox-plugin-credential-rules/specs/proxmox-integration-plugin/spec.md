@@ -12,11 +12,18 @@ The system SHALL provide a first-party Proxmox integration plugin built with a S
 The Proxmox plugin SHALL query Proxmox VE APIs through the ServiceRadar host-proxied HTTP capability and SHALL NOT open raw network sockets.
 
 #### Scenario: Query Proxmox API with token auth
-- **GIVEN** a plugin assignment contains a Proxmox target URL and scoped API token credentials
+- **GIVEN** a plugin assignment contains a Proxmox target URL and a scoped credential broker grant
 - **WHEN** the plugin runs
 - **THEN** it SHALL call Proxmox API endpoints using host HTTP
-- **AND** it SHALL include token authentication in headers
+- **AND** the edge credential broker SHALL inject token authentication into approved requests
 - **AND** it SHALL emit status, latency, and endpoint result metadata without exposing the token
+
+#### Scenario: Probe candidate without token auth
+- **GIVEN** a plugin assignment or discovery task contains a candidate Proxmox target without a credential broker grant
+- **WHEN** candidate probing is enabled
+- **THEN** the plugin SHALL limit itself to unauthenticated fingerprint checks
+- **AND** it SHALL report candidate evidence separately from authenticated enrichment
+- **AND** it SHALL NOT downgrade to direct token fields or static fallback targets
 
 #### Scenario: Host allowlist blocks unapproved endpoint
 - **GIVEN** a plugin assignment target resolves outside the approved host/port allowlist

@@ -12,7 +12,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
     end
   end
 
-  test "dispatch_plan persists redacted payload and transmits runtime token only" do
+  test "dispatch_plan sends only broker grants and never transmits runtime token" do
+    ref = "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+
     plan = %{
       command_type: "proxmox.credential_test",
       agent_id: "agent-a",
@@ -22,8 +24,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
       payload: %{
         "schema" => "serviceradar.proxmox_credential_test.v1",
         "credential_rule_id" => "rule-1",
-        "credential_secret_ref" =>
-          "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+        "credential_broker" => %{
+          "schema" => "serviceradar.edge_credential_broker_grant.v1",
+          "credential_rule_id" => "rule-1",
+          "credential_secret_ref" => ref,
+          "target" => %{"device_uid" => "device-1", "base_url" => "https://pve.example:8006"},
+          "allow" => %{"methods" => ["GET"], "paths" => ["/api2/json/nodes"]}
+        },
         "debug" => %{"api_token" => "PVEAPIToken=must-not-persist"},
         "target" => %{"base_url" => "https://pve.example:8006"},
         "tls" => %{"insecure_skip_verify" => true},
@@ -34,17 +41,16 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
     assert {:ok, result} =
              NetworkCredentialRuleTestDispatcher.dispatch_plan(plan,
                command_bus: FakeCommandBus,
-               secret_resolver: fn _ref, _opts -> {:ok, "root@pam!sr=test-secret"} end,
                test_pid: self()
              )
 
     assert result.command_id == "command-1"
-    assert result.payload["credential_secret_ref"] == plan.payload["credential_secret_ref"]
+    assert result.payload["credential_broker"]["credential_secret_ref"] == ref
     assert result.payload["debug"]["api_token"] == "REDACTED"
 
     assert_receive {:dispatch, "agent-a", "proxmox.credential_test", persisted, opts}
 
-    assert persisted["credential_secret_ref"] == plan.payload["credential_secret_ref"]
+    assert persisted["credential_broker"]["credential_secret_ref"] == ref
     assert persisted["debug"]["api_token"] == "REDACTED"
     refute inspect(persisted) =~ "test-secret"
     refute inspect(persisted) =~ "must-not-persist"
@@ -52,9 +58,28 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
     assert opts[:ttl_seconds] == 180
     assert opts[:required_capability] == "http"
     assert opts[:context] == %{credential_rule_id: "rule-1"}
+    refute Keyword.has_key?(opts, :transmit_payload)
+  end
 
-    runtime = opts[:transmit_payload]
-    assert runtime["api_token"] == "PVEAPIToken=root@pam!sr=test-secret"
-    refute Map.has_key?(runtime, "credential_secret_ref")
+  test "dispatch_plan rejects legacy payloads without a broker grant" do
+    plan = %{
+      command_type: "proxmox.credential_test",
+      agent_id: "agent-a",
+      required_capability: "http",
+      ttl_seconds: 180,
+      context: %{credential_rule_id: "rule-1"},
+      payload: %{
+        "schema" => "serviceradar.proxmox_credential_test.v1",
+        "credential_secret_ref" => "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+      }
+    }
+
+    assert {:error, :missing_credential_broker_grant} =
+             NetworkCredentialRuleTestDispatcher.dispatch_plan(plan,
+               command_bus: FakeCommandBus,
+               test_pid: self()
+             )
+
+    refute_receive {:dispatch, _, _, _, _}
   end
 end
