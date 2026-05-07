@@ -144,7 +144,7 @@ func TestRunProxmoxCredentialTest_RejectsDirectAPITokenPayload(t *testing.T) {
 			Hostname:  "pve-a",
 		},
 		TimeoutMS: 1000,
-	}, nil)
+	})
 	if err == nil || err.Error() != "direct proxmox api token payloads are not allowed" {
 		t.Fatalf("expected direct token rejection, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRunProxmoxCredentialTest_RequiresCredentialBrokerGrant(t *testing.T) {
 
 	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
 		Target: proxmoxTestTarget{BaseURL: "https://pve.example:8006"},
-	}, nil)
+	})
 	if err == nil || err.Error() != "missing proxmox credential broker grant" {
 		t.Fatalf("expected missing broker grant error, got %v", err)
 	}
@@ -175,7 +175,7 @@ func TestRunProxmoxCredentialTest_BrokerGrantDoesNotExposeSecret(t *testing.T) {
 			BaseURL:   "https://pve.example:8006",
 			Hostname:  "pve-a",
 		},
-	}, nil)
+	})
 	if err == nil || err.Error() != "credential broker unavailable" {
 		t.Fatalf("expected broker unavailable error, got %v", err)
 	}

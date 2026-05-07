@@ -18,11 +18,9 @@ package agent
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -55,6 +53,15 @@ const defaultOnDemandMtrDeadline = 45 * time.Second
 const defaultMaxConcurrentOnDemandMtr = 2
 
 var errControlStreamClosed = errors.New("control stream closed")
+
+var (
+	errMissingProxmoxCredentialBrokerGrant = errors.New("missing proxmox credential broker grant")
+	errProxmoxCredentialBrokerUnavailable  = errors.New("credential broker unavailable")
+	errDirectProxmoxAPITokenPayload        = errors.New("direct proxmox api token payloads are not allowed")
+	errMissingProxmoxBaseURL               = errors.New("missing proxmox base_url")
+	errInvalidProxmoxBaseURL               = errors.New("invalid proxmox base_url")
+	errInvalidProxmoxBaseURLScheme         = errors.New("invalid proxmox base_url scheme")
+)
 
 type mapperRunPayload struct {
 	JobID   string   `json:"job_id"`
@@ -608,7 +615,7 @@ func (p *PushLoop) handleProxmoxCredentialTest(
 	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
 
-	result, err := runProxmoxCredentialTest(runCtx, payload, nil)
+	result, err := runProxmoxCredentialTest(runCtx, payload)
 	if err != nil {
 		_ = sender.Send(commandResult(cmd, false, err.Error(), result))
 		return
@@ -867,10 +874,8 @@ func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
 func runProxmoxCredentialTest(
 	ctx context.Context,
 	payload proxmoxCredentialTestPayload,
-	client *http.Client,
 ) (map[string]any, error) {
 	_ = ctx
-	_ = client
 
 	baseURL, err := proxmoxCredentialTestBaseURL(payload.Target.BaseURL)
 	if err != nil {
@@ -879,62 +884,30 @@ func runProxmoxCredentialTest(
 
 	if strings.TrimSpace(payload.APIToken) == "" {
 		if strings.TrimSpace(payload.CredentialBroker.CredentialSecretRef) == "" {
-			return nil, errors.New("missing proxmox credential broker grant")
+			return nil, errMissingProxmoxCredentialBrokerGrant
 		}
 
-		return proxmoxCredentialTestResult(payload, baseURL, 0, 0), errors.New("credential broker unavailable")
+		return proxmoxCredentialTestResult(payload, baseURL, 0, 0), errProxmoxCredentialBrokerUnavailable
 	}
 
-	return nil, errors.New("direct proxmox api token payloads are not allowed")
-}
-
-func proxmoxCredentialTestHTTPClient(insecureSkipVerify bool, timeoutMS int) *http.Client {
-	timeout := 30 * time.Second
-	if timeoutMS > 0 {
-		timeout = time.Duration(clampInt(timeoutMS, 300000)) * time.Millisecond
-	}
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if insecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator-controlled Proxmox TLS policy
-	}
-
-	return &http.Client{Timeout: timeout, Transport: transport}
+	return nil, errDirectProxmoxAPITokenPayload
 }
 
 func proxmoxCredentialTestBaseURL(raw string) (string, error) {
 	value := strings.TrimRight(strings.TrimSpace(raw), "/")
 	if value == "" {
-		return "", errors.New("missing proxmox base_url")
+		return "", errMissingProxmoxBaseURL
 	}
 
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Host == "" {
-		return "", errors.New("invalid proxmox base_url")
+		return "", errInvalidProxmoxBaseURL
 	}
 	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return "", errors.New("invalid proxmox base_url scheme")
+		return "", errInvalidProxmoxBaseURLScheme
 	}
 
 	return value, nil
-}
-
-func proxmoxCredentialTestAuthHeader(token string) string {
-	token = strings.TrimSpace(token)
-	if strings.HasPrefix(token, "PVEAPIToken=") {
-		return token
-	}
-	return "PVEAPIToken=" + token
-}
-
-func proxmoxCredentialTestNodeCount(body []byte) int {
-	var envelope struct {
-		Data []json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return 0
-	}
-	return len(envelope.Data)
 }
 
 func proxmoxCredentialTestResult(
