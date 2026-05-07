@@ -495,6 +495,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/analytics", PageController, :redirect_to_dashboard)
+
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
@@ -562,6 +563,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
       live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)

@@ -11,7 +11,7 @@
 - [x] 2.6 Add SSH private key credential type with AshCloak encryption, passphrase support, redacted fingerprint display, and rotation metadata.
 
 ## 3. Settings UI
-- [ ] 3.1 Add Settings -> Networks -> Credential Rules navigation.
+- [x] 3.1 Add Settings -> Networks -> Credential Rules navigation.
 - [ ] 3.2 Build list/create/edit/disable/test flows using existing settings UI patterns.
 - [ ] 3.3 Add Proxmox PVE API provider preset fields for token ID, token secret, realm, and TLS policy.
 - [ ] 3.4 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
