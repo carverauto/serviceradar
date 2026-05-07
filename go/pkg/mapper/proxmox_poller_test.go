@@ -113,3 +113,37 @@ func TestQueryProxmoxDevices(t *testing.T) {
 	assert.Equal(t, devices[1].DeviceID, links[0].NeighborIdentity.DeviceID)
 	assert.Equal(t, "proxmox-api", links[0].Metadata["source"])
 }
+
+func TestProxmoxCandidateFingerprintFromHTML(t *testing.T) {
+	html := `<!DOCTYPE html><html><head><title>pve01 - Proxmox Virtual Environment</title></head><body></body></html>`
+
+	node, ok := proxmoxFingerprintFromHTML(html)
+
+	require.True(t, ok)
+	assert.Equal(t, "pve01", node)
+}
+
+func TestProxmoxCandidateFingerprintRejectsGenericHTTPS(t *testing.T) {
+	node, ok := proxmoxFingerprintFromHTML(`<!DOCTYPE html><title>router</title>`)
+
+	require.False(t, ok)
+	assert.Empty(t, node)
+}
+
+func TestProxmoxCandidateBaseURL(t *testing.T) {
+	assert.Equal(t, "https://192.168.2.10:8006", proxmoxCandidateBaseURL("192.168.2.10"))
+	assert.Equal(t, "https://192.168.2.10:8006", proxmoxCandidateBaseURL("https://192.168.2.10:8006/"))
+	assert.Equal(t, "https://[2001:db8::10]:8006", proxmoxCandidateBaseURL("[2001:db8::10]:8006"))
+}
+
+func TestBuildProxmoxCandidateDevice(t *testing.T) {
+	device := buildProxmoxCandidateDevice("192.168.2.10", "pve01")
+
+	require.NotNil(t, device)
+	assert.Equal(t, GenerateDeviceIDFromIP("192.168.2.10"), device.DeviceID)
+	assert.Equal(t, "192.168.2.10", device.IP)
+	assert.Equal(t, "pve01", device.Hostname)
+	assert.Equal(t, "proxmox-candidate", device.Metadata["source"])
+	assert.Equal(t, "true", device.Metadata["proxmox_candidate"])
+	assert.Equal(t, "false", device.Metadata["snmp_target_eligible"])
+}

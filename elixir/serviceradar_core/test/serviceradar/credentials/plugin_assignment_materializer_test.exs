@@ -29,7 +29,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
         id: "rule-1",
         secret_id: "018f3f56-1111-7222-8333-123456789abc",
         purpose: :inventory_enrichment,
-        target_query: "in:devices protocol:proxmox-api",
+        target_query: "in:devices metadata.proxmox_candidate:true",
         tls_policy: :skip_verify,
         updated_at: updated_at,
         metadata: %{
@@ -71,7 +71,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert opts[:chunk_size] == 25
 
     assert input_defs == [
-             %{name: "targets", entity: "devices", query: "in:devices protocol:proxmox-api"}
+             %{
+               name: "targets",
+               entity: "devices",
+               query: "in:devices metadata.proxmox_candidate:true"
+             }
            ]
 
     assert %{
@@ -97,7 +101,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     rules = [
       credential_rule(%{
         id: "srql-only",
-        target_query: "in:devices protocol:proxmox-api",
+        target_query: "in:devices metadata.proxmox_candidate:true",
         secret_id: "018f3f56-1111-7222-8333-123456789abc"
       })
     ]
@@ -110,7 +114,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
              )
 
     assert_receive {:reconcile, policy, input_defs, _opts}
-    assert hd(input_defs).query == "in:devices protocol:proxmox-api"
+    assert hd(input_defs).query == "in:devices metadata.proxmox_candidate:true"
     assert policy.params_template["auto_discovery_enabled"] == false
   end
 
@@ -165,7 +169,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
         priority: 10,
         scope_type: :agent,
         scope_value: "agent-a",
-        target_query: "in:devices protocol:proxmox-api",
+        target_query: "in:devices metadata.proxmox_candidate:true",
         secret_id: "018f3f56-1111-7222-8333-123456789abc"
       }),
       credential_rule(%{
@@ -173,7 +177,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
         priority: 50,
         scope_type: :agent,
         scope_value: "agent-a",
-        target_query: "in:devices protocol:proxmox-api",
+        target_query: "in:devices metadata.proxmox_candidate:true",
         secret_id: "018f3f56-2222-7333-8444-123456789abc"
       }),
       credential_rule(%{
@@ -205,7 +209,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert summary.rules == 1
     assert_receive {:reconcile, policy, input_defs, _opts}
     assert policy.policy_id == "network-credential-rule:winner"
-    assert hd(input_defs).query == "in:devices protocol:proxmox-api"
+    assert hd(input_defs).query == "in:devices metadata.proxmox_candidate:true"
 
     refute_receive {:reconcile, %{policy_id: "network-credential-rule:lower-priority"}, _, _}
     refute_receive {:reconcile, %{policy_id: "network-credential-rule:disabled"}, _, _}
@@ -217,19 +221,20 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
       credential_rule(%{
         id: "one",
         priority: 10,
-        target_query: "in:devices protocol:proxmox-api",
+        target_query: "in:devices metadata.proxmox_candidate:true",
         secret_id: "018f3f56-1111-7222-8333-123456789abc"
       }),
       credential_rule(%{
         id: "two",
         priority: 10,
-        target_query: "in:devices protocol:proxmox-api",
+        target_query: "in:devices metadata.proxmox_candidate:true",
         secret_id: "018f3f56-2222-7333-8444-123456789abc"
       })
     ]
 
     assert {:error,
-            {:equal_priority_credential_rule_conflict, "in:devices protocol:proxmox-api", 10}} =
+            {:equal_priority_credential_rule_conflict,
+             "in:devices metadata.proxmox_candidate:true", 10}} =
              PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
                reconciler: FakeReconciler,
                actor: %{id: "system"},

@@ -7,6 +7,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.VirtualizationDatastore
+  alias ServiceRadar.Inventory.VirtualizationGuest
+  alias ServiceRadar.Inventory.VirtualizationHost
+  alias ServiceRadar.Inventory.VirtualizationHostDisk
+  alias ServiceRadar.Inventory.VirtualizationNetworkInterface
+  alias ServiceRadar.Inventory.VirtualizationStorageSystem
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadarWebNG.AshTestHelpers
@@ -459,6 +465,147 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Disk"
     assert html =~ "Processes"
     assert html =~ "nginx"
+  end
+
+  test "renders Proxmox virtualization inventory on device details", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-proxmox-#{unique}"
+    observed_at = DateTime.utc_now()
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "pve-live-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:pve-live-#{unique}",
+          device_uid: uid,
+          name: "pve-live-#{unique}",
+          status: "online",
+          cpu_ratio: 0.42,
+          memory_used_bytes: 1_073_741_824,
+          memory_total_bytes: 4_294_967_296,
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _datastore} =
+      VirtualizationDatastore
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:datastore:pve-live-#{unique}:local-zfs",
+          host_id: host.id,
+          name: "local-zfs",
+          storage_type: "zfspool",
+          active: true,
+          enabled: true,
+          used_bytes: 2_147_483_648,
+          total_bytes: 8_589_934_592,
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _disk} =
+      VirtualizationHostDisk
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:disk:pve-live-#{unique}:sda",
+          host_id: host.id,
+          device_uid: uid,
+          path: "/dev/sda",
+          disk_type: "ssd",
+          model: "Samsung PM893",
+          health: "PASSED",
+          size_bytes: 1_000_204_886_016,
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _interface} =
+      VirtualizationNetworkInterface
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:iface:pve-live-#{unique}:vmbr0",
+          host_id: host.id,
+          device_uid: uid,
+          name: "vmbr0",
+          interface_type: "bridge",
+          active: true,
+          address: "192.168.2.10",
+          bridge_ports: "eno1",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _ceph} =
+      VirtualizationStorageSystem
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:ceph:pve-live-#{unique}",
+          host_id: host.id,
+          name: "Ceph",
+          storage_system_type: "ceph",
+          health: "HEALTH_OK",
+          status: "online",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _guest} =
+      VirtualizationGuest
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:vm:#{unique}",
+          host_id: host.id,
+          name: "guest-#{unique}",
+          guest_type: "vm",
+          vmid: unique,
+          status: "running",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    html = render_until(view, "Virtualization", 30_000)
+
+    assert html =~ "Virtualization"
+    assert html =~ "Proxmox"
+    assert html =~ "local-zfs"
+    assert html =~ "zfspool"
+    assert html =~ "Samsung PM893"
+    assert html =~ "vmbr0"
+    assert html =~ "eno1"
+    assert html =~ "Ceph"
+    assert html =~ "HEALTH_OK"
+    assert html =~ "1 running"
   end
 
   describe "device show page interfaces tab" do
@@ -922,7 +1069,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> render_click()
 
-      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      source_id = source.id
+      profile_id = profile.id
+
+      assert_receive {:open_session, ^source_id, ^profile_id, opts}
       assert opts[:scope].user.role == :viewer
       assert render(view) =~ "Opening"
       assert render(view) =~ "Stop Relay"
@@ -969,7 +1119,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> render_click()
 
-      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      source_id = source.id
+      profile_id = profile.id
+
+      assert_receive {:open_session, ^source_id, ^profile_id, opts}
       assert opts[:insecure_skip_verify] == true
     end
 
@@ -1161,6 +1314,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp render_until(view, expected, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    render_until(view, expected, deadline, nil)
+  end
+
+  defp render_until(view, expected, deadline, last_html) do
+    html = render(view)
+
+    cond do
+      html =~ expected ->
+        html
+
+      System.monotonic_time(:millisecond) < deadline ->
+        Process.sleep(100)
+        render_until(view, expected, deadline, html)
+
+      true ->
+        last_html || html
+    end
+  end
 
   defp insert_test_interfaces!(device_uid) do
     ts = DateTime.truncate(DateTime.utc_now(), :second)

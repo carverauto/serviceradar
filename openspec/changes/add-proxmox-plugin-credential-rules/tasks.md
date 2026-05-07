@@ -57,7 +57,7 @@
 - [ ] 7.6 Add tests for console RBAC, ticket single-use semantics, credential redaction, and agent-scope denial.
 
 ## 8. UI and Documentation
-- [ ] 8.1 Surface Proxmox enrichment on device details and topology views.
+- [x] 8.1 Surface Proxmox enrichment on device details and topology views.
 - [ ] 8.2 Add dashboard-ready resource efficiency panels backed by SRQL/metrics data.
 - [x] 8.3 Document required Proxmox API token permissions, SSH key permissions, and least-privilege examples.
 - [x] 8.4 Document example credential rules for single site and multi-datacenter deployments.

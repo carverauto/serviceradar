@@ -26,6 +26,7 @@ const (
 	modeSNMP       = "snmp"
 	modeAPI        = "api"
 	modeController = "controller"
+	modeProxmox    = "proxmox"
 	modeSNMPAPI    = "snmp_api"
 )
 
@@ -36,6 +37,7 @@ var (
 	errControllerNeedsController = errors.New("controller baseline requires at least one controller")
 	errUniFiNeedsController      = errors.New("unifi baseline requires at least one controller")
 	errMikroTikNeedsController   = errors.New("mikrotik baseline requires at least one controller")
+	errProxmoxNeedsSeed          = errors.New("proxmox baseline requires at least one seed")
 	errUnsupportedBaselineMode   = errors.New("unsupported baseline mode")
 	errBaselineNeedsSeed         = errors.New("baseline requires at least one seed or derivable controller host")
 	errUnsupportedDiscoveryType  = errors.New("unsupported discovery type")
@@ -72,6 +74,7 @@ type runConfig struct {
 	SNMP          snmpRunConfig              `json:"snmp,omitempty"`
 	UniFi         []mapper.UniFiAPIConfig    `json:"unifi,omitempty"`
 	MikroTik      []mapper.MikroTikAPIConfig `json:"mikrotik,omitempty"`
+	Proxmox       proxmoxRunConfig           `json:"proxmox,omitempty"`
 }
 
 type snmpRunConfig struct {
@@ -82,6 +85,10 @@ type snmpRunConfig struct {
 	AuthPassword    string `json:"auth_password,omitempty"`
 	PrivacyProtocol string `json:"privacy_protocol,omitempty"`
 	PrivacyPassword string `json:"privacy_password,omitempty"`
+}
+
+type proxmoxRunConfig struct {
+	CandidateProbe bool `json:"candidate_probe,omitempty"`
 }
 
 type baselineReport struct {
@@ -193,7 +200,7 @@ func parseRunConfig(args []string) (*runConfig, error) {
 	var mikrotikInsecure bool
 
 	fs.StringVar(&configPath, "config", "", "Path to a JSON baseline config file")
-	fs.StringVar(&cfg.Mode, "mode", "", "Baseline mode: snmp, unifi, mikrotik, controller, api, or snmp_api")
+	fs.StringVar(&cfg.Mode, "mode", "", "Baseline mode: snmp, unifi, mikrotik, proxmox, controller, api, or snmp_api")
 	fs.Var(&seeds, "seed", "Seed target or controller-correlated host; repeat or provide comma-separated values")
 	fs.StringVar(&cfg.Type, "type", string(mapper.DiscoveryTypeTopology), "Discovery type: full, basic, interfaces, or topology")
 	fs.StringVar(&cfg.DiscoveryMode, "discovery-mode", "", "Optional mapper discovery mode override")
@@ -220,6 +227,7 @@ func parseRunConfig(args []string) (*runConfig, error) {
 	fs.StringVar(&mikrotikPassword, "mikrotik-password", "", "MikroTik password")
 	fs.StringVar(&mikrotikName, "mikrotik-name", "", "Optional MikroTik endpoint name")
 	fs.BoolVar(&mikrotikInsecure, "mikrotik-insecure-skip-verify", false, "Skip TLS verification for MikroTik")
+	fs.BoolVar(&cfg.Proxmox.CandidateProbe, "proxmox-candidate-probe", false, "Probe seeds for unauthenticated Proxmox PVE web fingerprints")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -284,6 +292,9 @@ func parseRunConfig(args []string) (*runConfig, error) {
 	}
 	if flagSet["snmp-privacy-password"] {
 		cfg.SNMP.PrivacyPassword = flagCfg.SNMP.PrivacyPassword
+	}
+	if flagSet["proxmox-candidate-probe"] {
+		cfg.Proxmox.CandidateProbe = flagCfg.Proxmox.CandidateProbe
 	}
 
 	if flagSet["unifi-base-url"] || flagSet["unifi-api-key"] || flagSet["unifi-name"] || flagSet["unifi-insecure-skip-verify"] {
@@ -404,6 +415,14 @@ func (c *runConfig) normalize() error {
 		if c.DiscoveryMode == "" {
 			c.DiscoveryMode = modeAPI
 		}
+	case modeProxmox:
+		if len(c.Seeds) == 0 {
+			return errProxmoxNeedsSeed
+		}
+		c.Proxmox.CandidateProbe = true
+		if c.DiscoveryMode == "" {
+			c.DiscoveryMode = modeAPI
+		}
 	default:
 		return fmt.Errorf("%w: %q", errUnsupportedBaselineMode, c.Mode)
 	}
@@ -479,6 +498,9 @@ func (c *runConfig) toMapperInputs() (*mapper.Config, *mapper.DiscoveryParams, e
 		Retries:     c.Retries,
 		AgentID:     "mapper-baseline",
 		GatewayID:   "mapper-baseline",
+	}
+	if c.Proxmox.CandidateProbe {
+		params.Options["proxmox_candidate_probe_enabled"] = "true"
 	}
 
 	return cfg, params, nil

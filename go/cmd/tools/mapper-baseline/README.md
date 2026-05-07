@@ -6,6 +6,7 @@ Phase 1 supports:
 - explicit SNMP targets plus credentials
 - explicit UniFi controller URL plus API key
 - explicit MikroTik controller URL plus username/password
+- unauthenticated Proxmox PVE candidate fingerprinting for seed hosts
 - controller-only (`api`) and hybrid controller+SNMP (`snmp_api`) discovery modes
 - stable JSON output for devices, interfaces, topology links, and summary counts
 
@@ -43,6 +44,13 @@ bazel run //go/cmd/tools/mapper-baseline:mapper-baseline -- \
   --snmp-version v2c \
   --snmp-community "$SNMP_COMMUNITY" \
   --type topology
+```
+
+```bash
+bazel run //go/cmd/tools/mapper-baseline:mapper-baseline -- \
+  --mode proxmox \
+  --seed 192.168.2.10 \
+  --type basic
 ```
 
 ```bash

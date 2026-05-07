@@ -100,7 +100,7 @@ in:devices tags.provider:proxmox
 Protocol fingerprint from discovery:
 
 ```text
-in:devices protocol:proxmox-api
+in:devices metadata.proxmox_candidate:true
 ```
 
 ### Multi-Datacenter Deployment
