@@ -66,6 +66,25 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "evidence_class: coalesce(r.evidence_class, 'endpoint-attachment')"
   end
 
+  test "virtualization_inventory_links_query/0 projects host-to-guest inventory as hosted topology" do
+    query = RuntimeGraph.virtualization_inventory_links_query()
+
+    assert query =~ "FROM platform.virtualization_guests g"
+    assert query =~ "JOIN platform.virtualization_hosts h ON h.id = g.host_id"
+    assert query =~ "LEFT JOIN platform.ocsf_devices hd ON hd.uid = h.device_uid"
+    assert query =~ "LEFT JOIN platform.ocsf_devices gd ON gd.uid = g.device_uid"
+    assert query =~ "'local_device_id', h.device_uid"
+    assert query =~ "'neighbor_device_id', g.device_uid"
+    assert query =~ "'local_if_name', 'hosted-guests'"
+    assert query =~ "'evidence_class', 'hosted-virtual'"
+    assert query =~ "'relation_type', 'HOSTED_ON'"
+    assert query =~ "'topology_plane', 'hosted'"
+    assert query =~ "'confidence_reason', 'authoritative_virtualization_inventory'"
+    assert query =~ "'virtualization_provider', h.provider"
+    assert query =~ "'virtualization_guest_vmid', g.vmid"
+    assert query =~ "LIMIT $1"
+  end
+
   test "runtime graph ingest/get preserves neighbor interface attribution" do
     graph = Native.runtime_graph_new()
 

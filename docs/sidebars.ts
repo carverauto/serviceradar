@@ -39,6 +39,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'falco-integration', label: 'Falco Integration'},
         {type: 'doc', id: 'trivy-integration', label: 'Trivy Integration'},
         {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugins'},
+        {type: 'doc', id: 'proxmox', label: 'Proxmox VE'},
       ],
     },
     {

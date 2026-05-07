@@ -7,6 +7,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.MapperCompiler
+  alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
@@ -250,5 +252,181 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     assert Enum.any?(config["unifi_apis"], fn controller ->
              controller["name"] == "unifi-demo-#{unique_id}" and controller["api_key"] == ""
            end)
+  end
+
+  @tag :integration
+  test "enables Proxmox candidate probing on API mapper jobs when scoped credential rule opts in" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    partition = "pve-partition-#{unique_id}"
+    agent_id = "agent-pve-#{unique_id}"
+    job_name = "Mapper Job Proxmox API #{unique_id}"
+
+    {:ok, _job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: job_name,
+          partition: partition,
+          discovery_mode: :api,
+          discovery_type: :basic
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} = create_proxmox_secret(unique_id, actor)
+
+    {:ok, _rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "PVE Auto Discovery #{unique_id}",
+          provider: "proxmox",
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
+          target_query: "in:devices metadata.proxmox_candidate:true",
+          scope_type: :agent,
+          scope_value: agent_id,
+          secret_id: secret.id,
+          metadata: %{"auto_discovery_enabled" => true}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+
+    compiled_job = compiled_job(config, job_name)
+
+    assert compiled_job
+    assert compiled_job["options"]["proxmox_candidate_probe_enabled"] == "true"
+  end
+
+  @tag :integration
+  test "does not enable Proxmox candidate probing for scoped rules without explicit opt in" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    partition = "pve-partition-manual-#{unique_id}"
+    agent_id = "agent-pve-manual-#{unique_id}"
+    job_name = "Mapper Job Proxmox Manual #{unique_id}"
+
+    {:ok, _job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: job_name,
+          partition: partition,
+          discovery_mode: :api,
+          discovery_type: :basic
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} = create_proxmox_secret(unique_id, actor)
+
+    {:ok, _rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "PVE SRQL Scoped #{unique_id}",
+          provider: "proxmox",
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
+          target_query: "in:devices metadata.proxmox_candidate:true",
+          scope_type: :agent,
+          scope_value: agent_id,
+          secret_id: secret.id,
+          metadata: %{"auto_discovery_enabled" => false}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+
+    compiled_job = compiled_job(config, job_name)
+
+    assert compiled_job
+    refute Map.has_key?(compiled_job["options"], "proxmox_candidate_probe_enabled")
+  end
+
+  @tag :integration
+  test "does not enable Proxmox candidate probing on SNMP-only mapper jobs" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    partition = "pve-partition-snmp-#{unique_id}"
+    agent_id = "agent-pve-snmp-#{unique_id}"
+    job_name = "Mapper Job Proxmox SNMP #{unique_id}"
+
+    {:ok, _job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: job_name,
+          partition: partition,
+          discovery_mode: :snmp,
+          discovery_type: :basic
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, secret} = create_proxmox_secret(unique_id, actor)
+
+    {:ok, _rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "PVE SNMP Scoped #{unique_id}",
+          provider: "proxmox",
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
+          target_query: "in:devices metadata.proxmox_candidate:true",
+          scope_type: :agent,
+          scope_value: agent_id,
+          secret_id: secret.id,
+          metadata: %{"auto_discovery_enabled" => true}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+
+    compiled_job = compiled_job(config, job_name)
+
+    assert compiled_job
+    refute Map.has_key?(compiled_job["options"], "proxmox_candidate_probe_enabled")
+  end
+
+  defp create_proxmox_secret(unique_id, actor) do
+    NetworkCredentialSecret
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "PVE Token #{unique_id}",
+        provider: "proxmox",
+        credential_kind: :api_token,
+        username: "root@pam!serviceradar",
+        secret_payload: "token-secret",
+        metadata: %{"secret_payload_format" => "proxmox_api_token.v1"}
+      },
+      actor: actor
+    )
+    |> Ash.create(actor: actor)
+  end
+
+  defp compiled_job(config, job_name) do
+    Enum.find(config["scheduled_jobs"], fn scheduled_job ->
+      scheduled_job["name"] == job_name
+    end)
   end
 end

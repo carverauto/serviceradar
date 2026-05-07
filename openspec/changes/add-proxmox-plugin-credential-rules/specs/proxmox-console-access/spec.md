@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Proxmox web console sessions
-The system SHALL allow authorized operators to open browser-based console sessions to Proxmox PVE hosts, QEMU guests, and LXC guests through a scoped edge agent.
+The system SHALL allow authorized operators to open browser-based console sessions to Proxmox PVE hosts through a scoped edge agent, and SHALL report QEMU/LXC guest console paths as unavailable until a native Proxmox guest console connector is enabled.
 
 #### Scenario: Open PVE host shell
 - **GIVEN** a Proxmox PVE host has a matching SSH credential rule and reachable assigned agent
