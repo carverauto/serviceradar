@@ -249,3 +249,34 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 		t.Fatalf("hello.ConfigSource = %q, want %q", hello.GetConfigSource(), "remote")
 	}
 }
+
+func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
+	t.Parallel()
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	loop.handleConsoleFrame(&proto.ConsoleFrame{
+		SessionId: "console-session-1",
+		FrameType: consoleFrameTypeOpen,
+	}, sender)
+
+	if len(stream.sent) != 1 {
+		t.Fatalf("expected one console response frame, got %d", len(stream.sent))
+	}
+
+	frame := stream.sent[0].GetConsoleFrame()
+	if frame == nil {
+		t.Fatal("expected console frame response")
+	}
+	if frame.GetSessionId() != "console-session-1" {
+		t.Fatalf("SessionId = %q, want console-session-1", frame.GetSessionId())
+	}
+	if frame.GetFrameType() != consoleFrameTypeError {
+		t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), consoleFrameTypeError)
+	}
+	if frame.GetReason() != "proxmox console PTY bridge unavailable" {
+		t.Fatalf("Reason = %q", frame.GetReason())
+	}
+}

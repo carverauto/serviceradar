@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   use GenServer
 
   alias ServiceRadar.AgentCommands.PubSub
+  alias ServiceRadar.Edge.ProxmoxConsolePubSub
   alias ServiceRadar.ProcessRegistry
 
   require Logger
@@ -38,6 +39,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   def push_config(pid, %Monitoring.AgentConfigResponse{} = config) do
     GenServer.call(pid, {:push_config, config})
+  end
+
+  def send_console_frame(pid, %Monitoring.ConsoleFrame{} = frame) do
+    GenServer.call(pid, {:send_console_frame, frame})
   end
 
   @impl true
@@ -87,13 +92,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:ok, stream} ->
         log_command_dispatch(state, command)
 
-        {:reply, {:ok, command.command_id},
-         track_command(%{state | stream: stream}, command, context)}
+        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}")
 
         {:reply, {:error, reason}, state}
     end
@@ -107,6 +109,20 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         {:reply, :ok, %{state | stream: stream}}
 
       {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:send_console_frame, frame}, _from, state) do
+    response = %Monitoring.ControlStreamResponse{payload: {:console_frame, frame}}
+
+    case send_stream_reply(state.stream, response) do
+      {:ok, stream} ->
+        {:reply, :ok, %{state | stream: stream}}
+
+      {:error, reason} ->
+        Logger.warning("Failed to send Proxmox console frame to agent #{state.agent_id}: #{inspect(reason)}")
+
         {:reply, {:error, reason}, state}
     end
   end
@@ -131,6 +147,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       {:config_ack, ack} ->
         Logger.debug("Agent config ack: agent_id=#{state.agent_id} version=#{ack.config_version}")
+        {:noreply, state}
+
+      {:console_frame, frame} ->
+        broadcast_console_frame(frame, state)
         {:noreply, state}
 
       {:hello, _hello} ->
@@ -244,6 +264,25 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     PubSub.broadcast_result(data)
   end
 
+  defp broadcast_console_frame(%Monitoring.ConsoleFrame{} = frame, state) do
+    session_id = to_string(frame.session_id || "")
+
+    if session_id != "" do
+      ProxmoxConsolePubSub.broadcast_frame(session_id, %{
+        session_id: session_id,
+        frame_type: frame.frame_type,
+        data: frame.data,
+        cols: frame.cols,
+        rows: frame.rows,
+        reason: frame.reason,
+        timestamp: frame.timestamp,
+        agent_id: state.agent_id,
+        partition_id: state.partition_id,
+        gateway_node: state.gateway_node
+      })
+    end
+  end
+
   defp base_command_metadata(state) do
     %{
       agent_id: state.agent_id,
@@ -263,15 +302,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp log_command_dispatch(state, command) do
-    Logger.info(
-      "Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})"
-    )
+    Logger.info("Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})")
   end
 
   defp log_command_ack(state, ack) do
-    Logger.info(
-      "Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}"
-    )
+    Logger.info("Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}")
   end
 
   defp log_command_progress(state, progress) do

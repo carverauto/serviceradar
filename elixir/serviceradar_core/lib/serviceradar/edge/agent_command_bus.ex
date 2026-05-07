@@ -336,6 +336,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
 
+  def send_console_frame(agent_id, frame, opts \\ [])
+
+  def send_console_frame(agent_id, %Monitoring.ConsoleFrame{} = frame, opts) when is_binary(agent_id) do
+    required_gateway_node = Keyword.get(opts, :required_gateway_node)
+
+    case lookup_control_session(agent_id, required_gateway_node) do
+      {:ok, pid, _metadata} ->
+        GenServer.call(pid, {:send_console_frame, frame}, @send_timeout)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def send_console_frame(_agent_id, _frame, _opts), do: {:error, :invalid_console_frame}
+
   @doc """
   Lists agents with an active control stream that can receive commands.
 
