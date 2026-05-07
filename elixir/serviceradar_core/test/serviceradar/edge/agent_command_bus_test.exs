@@ -76,6 +76,25 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   describe "offline dispatch" do
+    test "rejects hidden transmit payloads containing credential material", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      command_type = "test.secret_transmit"
+
+      assert {:error, :sensitive_transmit_payload_denied} =
+               AgentCommandBus.dispatch(agent_id, command_type, %{"credential_ref" => "safe"},
+                 transmit_payload: %{"api_token" => "PVEAPIToken=root@pam!sr=secret"}
+               )
+
+      commands =
+        AgentCommand
+        |> Ash.Query.filter(agent_id == ^agent_id and command_type == ^command_type)
+        |> Ash.read!(actor: actor)
+
+      assert commands == []
+    end
+
     test "fails fast and marks command offline", %{agent_id: agent_id, actor: actor} do
       command_type = "test.offline"
 
@@ -142,8 +161,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       send(
         StatusHandler,
-        {:command_result,
-         %{command_id: command_id, success: true, message: "done", payload: %{"ok" => true}}}
+        {:command_result, %{command_id: command_id, success: true, message: "done", payload: %{"ok" => true}}}
       )
 
       command = wait_for_status(command_id, :completed, actor)
@@ -166,9 +184,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         )
 
       assert {:ok, command_id} =
-               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["1.1.1.1"],
-                 context: %{"mtr_policy_id" => "policy-ack-race"}
-               )
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["1.1.1.1"], context: %{"mtr_policy_id" => "policy-ack-race"})
 
       command = wait_for_status(command_id, :acknowledged, actor)
       assert command.message == "ack"
@@ -526,8 +542,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  required_gateway_node: "gateway-b"
                )
 
-      assert_receive {:send_command, :gateway_b, %Monitoring.CommandRequest{} = command,
-                      _context},
+      assert_receive {:send_command, :gateway_b, %Monitoring.CommandRequest{} = command, _context},
                      1_000
 
       assert command.command_type == "camera.open_relay"
@@ -645,9 +660,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     name = ProcessRegistry.via(registry_key, metadata)
 
     {:ok, pid} =
-      TestControlSession.start_link(
-        [name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?, :marker])
-      )
+      TestControlSession.start_link([name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?, :marker]))
 
     on_exit(fn ->
       if Process.alive?(pid) do

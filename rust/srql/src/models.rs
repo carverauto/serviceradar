@@ -8,7 +8,19 @@ use diesel::sql_types::{
     Array, Bool, Float8, Int4, Int8, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid,
 };
 use serde::Serialize;
+use serde_json::Value;
 use uuid::Uuid;
+
+const DEVICE_IDENTITY_KEYS: &[&str] = &[
+    "serviceradar.device_id",
+    "serviceradar.device.uid",
+    "device_id",
+    "device_uid",
+    "source_device_uid",
+    "target_device_uid",
+    "uid",
+    "id",
+];
 
 /// OCSF-aligned agent row (OCSF v1.7.0 Agent object)
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
@@ -268,6 +280,12 @@ impl EventRow {
     pub fn into_json(self) -> serde_json::Value {
         let id = self.id.to_string();
         let host = extract_device_host(&self.device);
+        let source_device_uid = source_device_uid_from_json_values(&[
+            &self.device,
+            &self.metadata,
+            &self.unmapped,
+            &self.observables,
+        ]);
 
         serde_json::json!({
             "time": self.time,
@@ -300,6 +318,7 @@ impl EventRow {
             "unmapped": self.unmapped,
             "raw_data": self.raw_data,
             "host": host,
+            "source_device_uid": source_device_uid,
             "source": self.log_provider,
             "short_message": self.message,
             "created_at": self.created_at,
@@ -384,6 +403,11 @@ pub struct LogRow {
 
 impl LogRow {
     pub fn into_json(self) -> serde_json::Value {
+        let source_device_uid = source_device_uid_from_attributes(
+            self.resource_attributes.as_deref(),
+            self.attributes.as_deref(),
+        );
+
         serde_json::json!({
             "id": self.id.to_string(),
             "timestamp": self.timestamp,
@@ -404,8 +428,58 @@ impl LogRow {
             "scope_attributes": self.scope_attributes,
             "attributes": self.attributes.clone(),
             "resource_attributes": self.resource_attributes,
+            "source_device_uid": source_device_uid,
             "raw_data": self.attributes.unwrap_or_default(),
         })
+    }
+}
+
+fn source_device_uid_from_attributes(
+    resource_attributes: Option<&str>,
+    attributes: Option<&str>,
+) -> Option<String> {
+    resource_attributes
+        .and_then(|raw| string_field_from_json(raw, DEVICE_IDENTITY_KEYS))
+        .or_else(|| attributes.and_then(|raw| string_field_from_json(raw, DEVICE_IDENTITY_KEYS)))
+}
+
+fn source_device_uid_from_json_values(values: &[&Value]) -> Option<String> {
+    values
+        .iter()
+        .find_map(|value| {
+            DEVICE_IDENTITY_KEYS
+                .iter()
+                .find_map(|key| extract_json_string(value, key))
+        })
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn string_field_from_json(raw: &str, keys: &[&str]) -> Option<String> {
+    let value: Value = serde_json::from_str(raw).ok()?;
+
+    keys.iter()
+        .find_map(|key| extract_json_string(&value, key))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn extract_json_string(value: &Value, key: &str) -> Option<String> {
+    if let Value::Object(map) = value {
+        if let Some(Value::String(raw)) = map.get(key) {
+            return Some(raw.clone());
+        }
+
+        let mut current = value;
+        for part in key.split('.') {
+            current = current.get(part)?;
+        }
+
+        match current {
+            Value::String(raw) => Some(raw.clone()),
+            Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        }
+    } else {
+        None
     }
 }
 

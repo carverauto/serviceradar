@@ -504,7 +504,80 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
           </.panel>
 
-          <.panel title="Threat Intel" class="lg:col-span-3">
+          <.panel title="Virtualization Efficiency" class="lg:col-span-4">
+            <:actions>
+              <span class={[
+                "sr-ops-virt-status",
+                virtualization_status_class(@virtualization_summary.status_tone)
+              ]}>
+                {@virtualization_summary.status_label}
+              </span>
+            </:actions>
+            <div class="sr-ops-virtualization" data-testid="virtualization-efficiency">
+              <div :if={!@virtualization_summary.available} class="sr-ops-virt-empty">
+                <.icon name="hero-cube-transparent" class="size-8 text-slate-500" />
+                <p>No hypervisor inventory</p>
+                <span>Proxmox and future virtualization enrichment will populate this panel.</span>
+              </div>
+
+              <div :if={@virtualization_summary.available} class="sr-ops-virt-body">
+                <div class="sr-ops-virt-summary">
+                  <div>
+                    <span>{@virtualization_summary.provider_label}</span>
+                    <strong>
+                      {format_compact_count(@virtualization_summary.host_count)} hosts
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Guests</span>
+                    <strong>
+                      {format_compact_count(@virtualization_summary.guest_count)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Running</span>
+                    <strong>
+                      {format_compact_count(@virtualization_summary.running_guests)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Pressure</span>
+                    <strong>
+                      {format_compact_count(@virtualization_summary.bottleneck_count)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div class="sr-ops-virt-pressure-list">
+                  <.virtualization_pressure_row
+                    label="Host CPU"
+                    value={@virtualization_summary.max_host_cpu_pct}
+                  />
+                  <.virtualization_pressure_row
+                    label="Host Memory"
+                    value={@virtualization_summary.max_host_memory_pct}
+                  />
+                  <.virtualization_pressure_row
+                    label="Guest CPU"
+                    value={@virtualization_summary.max_guest_cpu_pct}
+                  />
+                  <.virtualization_pressure_row
+                    label="Datastore"
+                    value={@virtualization_summary.max_datastore_pct}
+                  />
+                </div>
+
+                <div class="sr-ops-virt-footer">
+                  <span>
+                    {format_compact_count(@virtualization_summary.datastore_count)} datastores
+                  </span>
+                  <strong>{@virtualization_summary.ceph_health_label}</strong>
+                </div>
+              </div>
+            </div>
+          </.panel>
+
+          <.panel title="Threat Intel" class="lg:col-span-4">
             <:actions>
               <.link href={~p"/settings/networks/threat-intel"} class="sr-ops-button">
                 Manage
@@ -553,7 +626,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
           </.panel>
 
-          <.panel title="Alerts Feed" class="lg:col-span-5">
+          <.panel title="Alerts Feed" class="lg:col-span-12">
             <:actions>
               <.link href={~p"/alerts"} class="sr-ops-button">
                 View All Alerts
@@ -719,6 +792,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         {@label}
       </span>
       <strong>{@value}</strong>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+
+  defp virtualization_pressure_row(assigns) do
+    value = clamp_percent(assigns.value)
+
+    assigns =
+      assigns
+      |> assign(:value, value)
+      |> assign(:value_label, format_dashboard_percent(value))
+      |> assign(:bar_style, "width: #{Float.round(value, 1)}%;")
+      |> assign(:tone_class, virtualization_pressure_class(value))
+
+    ~H"""
+    <div class={["sr-ops-virt-pressure-row", @tone_class]}>
+      <div>
+        <span>{@label}</span>
+        <strong>{@value_label}</strong>
+      </div>
+      <i><b style={@bar_style}></b></i>
     </div>
     """
   end
@@ -1176,6 +1273,36 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: round(value)
   defp to_int(_value), do: 0
+
+  defp to_float(value) when is_float(value), do: value
+  defp to_float(value) when is_integer(value), do: value * 1.0
+  defp to_float(_value), do: 0.0
+
+  defp clamp_percent(value) do
+    value
+    |> to_float()
+    |> max(0.0)
+    |> min(100.0)
+  end
+
+  defp format_dashboard_percent(value) do
+    formatted =
+      value
+      |> clamp_percent()
+      |> Float.round(1)
+      |> :erlang.float_to_binary(decimals: 1)
+
+    formatted <> "%"
+  end
+
+  defp virtualization_pressure_class(value) when value >= 90.0, do: "is-critical"
+  defp virtualization_pressure_class(value) when value >= 75.0, do: "is-warning"
+  defp virtualization_pressure_class(_value), do: "is-ok"
+
+  defp virtualization_status_class("error"), do: "is-error"
+  defp virtualization_status_class("warning"), do: "is-warning"
+  defp virtualization_status_class("ok"), do: "is-ok"
+  defp virtualization_status_class(_), do: "is-idle"
 
   defp threat_status_label(nil), do: "idle"
   defp threat_status_label(""), do: "idle"

@@ -123,7 +123,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
         NetworkCredentialRulePreview.preview_by_id(
           input.arguments.id,
           sample_limit: input.arguments.sample_limit,
-          actor: context[:actor]
+          actor: context.actor
         )
       end
     end
@@ -134,7 +134,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       run fn input, context ->
         NetworkCredentialRuleTestPlan.proxmox_api_test_by_id(
           input.arguments.id,
-          actor: context[:actor]
+          actor: context.actor
         )
       end
     end
@@ -145,7 +145,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       run fn input, context ->
         NetworkCredentialRuleTestDispatcher.dispatch_proxmox_api_test_by_id(
           input.arguments.id,
-          actor: context[:actor]
+          actor: context.actor
         )
       end
     end
