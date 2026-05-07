@@ -82,7 +82,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
         "credential_rule_id" => credential_rule_id,
         "provider" => @proxmox_provider,
         "auth_method" => "proxmox_api_token",
-        "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+        "credential_broker" => credential_broker_grant(rule, target, secret_id),
         "target" => target_payload(target),
         "tls" => %{
           "insecure_skip_verify" => tls_policy(rule) == :skip_verify
@@ -94,6 +94,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
         }
       }
     }
+  end
+
+  defp credential_broker_grant(rule, target, secret_id) do
+    target = target_payload(target)
+
+    compact_map(%{
+      "schema" => "serviceradar.edge_credential_broker_grant.v1",
+      "grant_type" => "proxmox_api_token",
+      "credential_rule_id" => value_string(rule, [:id, "id"]),
+      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "target" => %{"device_uid" => Map.get(target, "device_uid"), "base_url" => Map.get(target, "base_url")},
+      "inject" => %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
+      "allow" => %{"methods" => ["GET"], "paths" => ["/api2/json/version", "/api2/json/nodes"]},
+      "ttl_seconds" => metadata_int(rule, "test_ttl_seconds", 120)
+    })
   end
 
   defp select_target(preview) do

@@ -37,18 +37,31 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   def ingest(payload, status, opts) when is_list(payload) do
     payload
-    |> Enum.find(&supports?(&1, status))
+    |> Enum.filter(&supports?(&1, status))
     |> case do
-      nil -> :ok
-      entry -> ingest(entry, status, opts)
+      [] ->
+        :ok
+
+      entries ->
+        records =
+          entries
+          |> Enum.map(&records_for_payload(&1, status, opts))
+          |> merge_records()
+          |> dedupe_records()
+
+        persist = Keyword.get(opts, :persist, &persist_records(&1, opts))
+        persist.(records)
     end
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
     case details(payload) do
-      %{"schema" => @schema} = details ->
-        observed_at = Keyword.get(opts, :observed_at) || observed_at(payload, status)
-        records = build_records(details, observed_at)
+      %{"schema" => @schema} ->
+        records =
+          payload
+          |> records_for_payload(status, opts)
+          |> dedupe_records()
+
         persist = Keyword.get(opts, :persist, &persist_records(&1, opts))
         persist.(records)
 
@@ -72,6 +85,12 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   defp details(%{"details" => raw}) when is_map(raw), do: raw
   defp details(_payload), do: nil
+
+  defp records_for_payload(payload, status, opts) do
+    payload
+    |> details()
+    |> build_records(Keyword.get(opts, :observed_at) || observed_at(payload, status))
+  end
 
   defp observed_at(payload, status) do
     parse_time(
@@ -127,6 +146,39 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   end
 
   defp put_record(records, key, record), do: Map.update!(records, key, &[record | &1])
+
+  defp merge_records(record_sets) do
+    Enum.reduce(record_sets, empty_records(), fn records, acc ->
+      Map.new(acc, fn {key, values} -> {key, values ++ Map.fetch!(records, key)} end)
+    end)
+  end
+
+  defp dedupe_records(records) do
+    Map.new(records, fn {key, values} ->
+      {key, dedupe_provider_refs(values)}
+    end)
+  end
+
+  defp dedupe_provider_refs(records) do
+    records
+    |> Enum.reduce(%{}, fn record, acc ->
+      key = {record.provider, record.provider_ref}
+
+      Map.update(acc, key, record, fn current ->
+        if newer_record?(record, current), do: record, else: current
+      end)
+    end)
+    |> Map.values()
+  end
+
+  defp newer_record?(candidate, current) do
+    case {candidate[:observed_at], current[:observed_at]} do
+      {%DateTime{} = left, %DateTime{} = right} -> DateTime.compare(left, right) != :lt
+      {%DateTime{}, _} -> true
+      {_, nil} -> true
+      _ -> true
+    end
+  end
 
   defp cluster_record(target, version, observed_at) do
     cluster =

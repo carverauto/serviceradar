@@ -8,7 +8,7 @@ Proxmox support spans discovery, inventory enrichment, metrics, topology, consol
   - Keep SRQL evaluation and credential resolution in the control plane.
   - Emit typed device discovery/enrichment payloads and metrics through existing plugin result ingestion.
   - Preserve hosted virtualization topology as `HOSTED_ON` semantics, not physical adjacency.
-  - Provide browser terminal access to PVE host shells and guest consoles without exposing direct Proxmox management ports to the operator.
+  - Provide browser terminal access to PVE host shells first, and keep guest console requests safely unavailable until a native Proxmox guest connector is enabled.
 - Non-Goals:
   - First-iteration power, migration, clone, delete, backup, or configuration mutation operations.
   - Full digital-twin modeling of Proxmox Linux bridges, SDN zones, VLANs, and storage internals.
@@ -45,11 +45,18 @@ Credential kinds must include both API credentials and console credentials:
 Resolution order:
 1. Per-device credential override, when explicitly configured for the same provider.
 2. Enabled credential rules whose SRQL query matches the device and whose agent/site scope includes the assigned edge agent.
-3. Highest priority rule wins when multiple rules match.
-4. Equal-priority conflicts must be surfaced for operator resolution instead of trying every secret.
+3. Auto-discovered Proxmox candidates only when the matched rule explicitly enables auto-discovery credential trials in settings.
+4. Highest priority rule wins when multiple rules match.
+5. Equal-priority conflicts must be surfaced for operator resolution instead of trying every secret.
+
+Auto-discovery has two separate phases:
+- Fingerprinting may probe candidate devices without credentials using safe unauthenticated checks such as TCP/HTTPS evidence, TLS/service metadata, and version endpoint behavior.
+- Credential trials are disabled by default for discovered candidates that do not match a rule SRQL query. Enabling auto-discovery on a rule is an explicit admin opt-in and still remains limited by the configured agent, gateway, or partition scope.
 
 ## Proxmox Plugin Execution
-The Proxmox plugin receives a resolved `serviceradar.plugin_inputs.v1` payload containing concrete target devices and redacted policy metadata. The control plane also includes only the credential material that the assigned agent needs for that specific batch.
+The Proxmox plugin receives a resolved `serviceradar.plugin_inputs.v1` payload containing concrete target devices and redacted policy metadata. The control plane includes credential broker grants and secret references, not decrypted credential material. The edge-side credential broker is the only component allowed to resolve a secret reference and inject a credential into an outbound Proxmox request.
+
+For self-hosted or high-sensitivity deployments, the plugin MAY continue to accept an agent-local direct `api_token` in local checker/plugin configuration or environment-driven smoke tests. This mode is intentionally kept out of the central plugin assignment form and is not represented as a normal SaaS-managed plugin parameter.
 
 The plugin calls PVE API endpoints through SDK host HTTP:
 - `/version`
@@ -73,7 +80,7 @@ The first pass should use API tokens. Ticket login may be supported only when ne
 
 Optional infrastructure endpoints must be partial-success paths. A credential with `Sys.Audit`/VM audit permissions can still collect basic nodes, guests, and network data; additional `Datastore.Audit`, disk, Ceph, or syslog privileges unlock deeper storage, disk, Ceph, and log capabilities without requiring a different plugin configuration. Missing permissions are emitted as redacted warnings, not target failures.
 
-The PVE API exposes read paths for node syslog and journal data, but not an API shape for configuring remote syslog forwarding. Inventory collection must not poll syslog/journal as a substitute for log ingestion. Log forwarding should be a separate, audited configuration action that uses the assigned edge agent and scoped host credential to manage rsyslog/systemd-journald or another supported host-level forwarder toward the ServiceRadar syslog collector.
+The PVE API exposes read paths for node syslog and journal data, but not an API shape for configuring remote syslog forwarding. Inventory collection must not poll syslog/journal as a substitute for log ingestion. Proxmox log forwarding is deferred from the first ServiceRadar plugin implementation: the preferred path is to deploy Vector on PVE hosts with an operator-managed playbook, then forward logs to the ServiceRadar OTEL log collector. ServiceRadar should still correlate those logs back to canonical devices once they arrive, but it should not build a direct SSH/rsyslog mutator in this change.
 
 ## Enrichment Contract
 The plugin result includes:
@@ -106,13 +113,11 @@ Environmental data is not first-class in the documented PVE node API beyond syst
 
 ## Console Access
 Proxmox console access should reuse the Scion webpty pattern, adapted to ServiceRadar's control plane and edge-agent topology:
-1. Browser opens a web-ng console route for a canonical Proxmox node, QEMU guest, or LXC guest.
+1. Browser opens a web-ng console route for a canonical Proxmox node. QEMU and LXC guest routes are modeled but remain unavailable until native guest console support is enabled.
 2. Web-ng authorizes the user, creates a short-lived single-use console session ticket, and chooses the edge agent allowed by credential rule scope and device reachability.
 3. Browser connects to a web-ng websocket using the session ticket.
 4. Web-ng proxies terminal frames to the agent/gateway console broker over the existing authenticated edge channel.
-5. The agent broker opens either:
-   - SSH to the PVE host using an encrypted, scoped SSH key credential, or
-   - Proxmox `termproxy` / `vncwebsocket` for QEMU/LXC consoles where the PVE version and permissions support it.
+5. The agent broker opens SSH to the PVE host using an encrypted, scoped SSH key credential. Proxmox `termproxy` / `vncwebsocket` for QEMU/LXC consoles are future connector modes and must return an unavailable/unsupported result instead of attempting credential resolution until enabled.
 6. Terminal data, resize events, close events, and errors use a small typed websocket protocol similar to Scion's `data`, `resize`, and `close` messages.
 
 The browser terminal should be a React/xterm.js component mounted through the existing `phx-react-ng`/client-side React hook approach in `elixir/web-ng`. Scion's terminal UX is a useful source for fit addon behavior, resize debouncing, clipboard handling, and terminal focus, but the ServiceRadar wrapper must follow web-ng styling and authorization patterns.
@@ -143,7 +148,7 @@ Keep PRs reviewable and stackable:
 7. Docs and operational examples.
 
 ## Risks / Trade-offs
-- Credential leakage is the highest risk. Mitigation: central redaction, no URL secrets, no plugin-side SRQL/API tokens, and per-agent materialization only.
+- Credential leakage is the highest risk. Mitigation: central redaction, no URL secrets, no plugin-side SRQL/API tokens, no generic hidden command payloads carrying decrypted credentials, and per-agent broker grants only.
 - WASM plugin HTTP calls have less generated type safety than a full Proxmox client. Mitigation: keep endpoint coverage narrow, build local typed response structs, and use fixture-heavy tests.
 - Existing mapper Proxmox behavior may drift from plugin behavior. Mitigation: extract or duplicate only stable normalization helpers with tests covering identical identities and hosted links.
 - Proxmox APIs vary across versions and standalone/cluster installs. Mitigation: start with conservative endpoints and emit partial enrichment with clear capability flags when optional endpoints are unavailable.

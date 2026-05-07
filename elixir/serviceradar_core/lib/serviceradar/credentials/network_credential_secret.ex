@@ -24,6 +24,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :credential_kind,
     :username,
     :public_fingerprint,
+    :last_rotated_at,
+    :next_rotation_due_at,
     :metadata
   ]
 
@@ -145,6 +147,18 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? true
       public? true
       description "Optional public key, certificate, or token fingerprint"
+    end
+
+    attribute :last_rotated_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "When this credential material was last rotated"
+    end
+
+    attribute :next_rotation_due_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "Operator-facing rotation due date for this credential"
     end
 
     attribute :secret_payload, :string do

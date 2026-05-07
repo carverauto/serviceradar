@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   use GenServer
 
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.Native
 
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @default_refresh_ms 30_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
+  @max_virtualization_link_rows 5_000
 
   @type state :: %{
           graph_ref: term(),
@@ -135,6 +137,16 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     cypher = topology_links_query()
 
     case AgeGraph.query(cypher) do
+      {:ok, graph_rows} when is_list(graph_rows) ->
+        case fetch_virtualization_links_from_inventory() do
+          {:ok, virtualization_rows} when is_list(virtualization_rows) ->
+            {:ok, graph_rows ++ virtualization_rows}
+
+          {:error, reason} ->
+            Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
+            {:ok, graph_rows}
+        end
+
       {:ok, rows} when is_list(rows) ->
         {:ok, rows}
 
@@ -150,6 +162,83 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def topology_links_query do
     authoritative_topology_links_query()
   end
+
+  @doc false
+  @spec virtualization_inventory_links_query() :: String.t()
+  def virtualization_inventory_links_query do
+    """
+    SELECT jsonb_build_object(
+      'local_device_id', h.device_uid,
+      'local_device_ip', hd.ip,
+      'local_if_name', 'hosted-guests',
+      'local_if_index', NULL,
+      'local_if_name_ab', 'hosted-guests',
+      'local_if_index_ab', NULL,
+      'local_if_name_ba', '',
+      'local_if_index_ba', NULL,
+      'neighbor_if_name', '',
+      'neighbor_if_index', NULL,
+      'neighbor_device_id', g.device_uid,
+      'neighbor_mgmt_addr', gd.ip,
+      'neighbor_system_name', COALESCE(g.name, gd.name, gd.hostname, g.device_uid),
+      'flow_pps', 0,
+      'flow_bps', 0,
+      'capacity_bps', 0,
+      'flow_pps_ab', 0,
+      'flow_pps_ba', 0,
+      'flow_bps_ab', 0,
+      'flow_bps_ba', 0,
+      'telemetry_eligible', false,
+      'telemetry_source', 'none',
+      'telemetry_observed_at', COALESCE(g.observed_at, h.observed_at, g.updated_at, h.updated_at),
+      'protocol', CONCAT(h.provider, '-inventory'),
+      'confidence_tier', 'high',
+      'confidence_reason', 'authoritative_virtualization_inventory',
+      'evidence_class', 'hosted-virtual',
+      'metadata', jsonb_build_object(
+        'relation_type', 'HOSTED_ON',
+        'source', CONCAT(h.provider, '-inventory'),
+        'inference', 'authoritative_virtualization_inventory',
+        'evidence_class', 'hosted-virtual',
+        'topology_plane', 'hosted',
+        'confidence_tier', 'high',
+        'confidence_score', 95,
+        'virtualization_provider', h.provider,
+        'virtualization_host_provider_ref', h.provider_ref,
+        'virtualization_guest_provider_ref', g.provider_ref,
+        'virtualization_guest_type', g.guest_type,
+        'virtualization_guest_vmid', g.vmid,
+        'virtualization_status', g.status
+      )
+    ) AS row
+    FROM platform.virtualization_guests g
+    JOIN platform.virtualization_hosts h ON h.id = g.host_id
+    LEFT JOIN platform.ocsf_devices hd ON hd.uid = h.device_uid
+    LEFT JOIN platform.ocsf_devices gd ON gd.uid = g.device_uid
+    WHERE h.device_uid IS NOT NULL
+      AND g.device_uid IS NOT NULL
+      AND btrim(h.device_uid) <> ''
+      AND btrim(g.device_uid) <> ''
+      AND h.device_uid <> g.device_uid
+    ORDER BY COALESCE(g.observed_at, h.observed_at, g.updated_at, h.updated_at) DESC
+    LIMIT $1
+    """
+  end
+
+  defp fetch_virtualization_links_from_inventory do
+    case Repo.query(virtualization_inventory_links_query(), [@max_virtualization_link_rows]) do
+      {:ok, %{rows: rows}} when is_list(rows) ->
+        {:ok, Enum.map(rows, &first_column/1)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  defp first_column([value | _]), do: value
+  defp first_column(value), do: value
 
   defp authoritative_topology_links_query do
     """
