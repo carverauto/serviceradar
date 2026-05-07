@@ -32,13 +32,15 @@ type httpClient interface {
 }
 
 type Config struct {
-	BaseURL            string   `json:"base_url"`
-	APIToken           string   `json:"api_token"`
-	APITokenSecretRef  string   `json:"api_token_secret_ref"`
-	Targets            []Target `json:"targets"`
-	TimeoutMS          int      `json:"timeout_ms"`
-	IncludeGuests      *bool    `json:"include_guests"`
-	InsecureSkipVerify bool     `json:"insecure_skip_verify"`
+	BaseURL            string         `json:"base_url"`
+	APIToken           string         `json:"api_token"`
+	APITokenSecretRef  string         `json:"api_token_secret_ref"`
+	CredentialBroker   map[string]any `json:"credential_broker,omitempty"`
+	Targets            []Target       `json:"targets"`
+	TimeoutMS          int            `json:"timeout_ms"`
+	IncludeGuests      *bool          `json:"include_guests"`
+	InsecureSkipVerify bool           `json:"insecure_skip_verify"`
+	AutoDiscovery      bool           `json:"auto_discovery_enabled"`
 }
 
 type Target struct {
@@ -903,12 +905,8 @@ func targetFromInputItem(item map[string]any, cfg Config) Target {
 	)
 
 	return Target{
-		BaseURL: baseURLForItem(item, cfg),
-		APIToken: firstNonEmpty(
-			stringValue(item, "api_token"),
-			stringValue(item, "proxmox_api_token"),
-			cfg.APIToken,
-		),
+		BaseURL:  baseURLForItem(item, cfg),
+		APIToken: cfg.APIToken,
 		DeviceID: firstNonEmpty(
 			stringValue(item, "uid"),
 			stringValue(item, "device_uid"),
@@ -1471,13 +1469,13 @@ func primeTinyGoJSON() {
 	var resources proxmoxResourcesResponse
 	var cluster proxmoxClusterStatusResponse
 	var data proxmoxMapResponse
-	_ = json.Unmarshal([]byte(`{"base_url":"https://pve.example:8006","api_token":"x","targets":[]}`), &cfg)
-	_ = json.Unmarshal([]byte(`{"schema":"serviceradar.plugin_inputs.v1","policy_id":"p","policy_version":1,"agent_id":"a","generated_at":"2026-05-06T00:00:00Z","inputs":[{"name":"targets","entity":"devices","query":"in:devices","chunk_index":0,"chunk_total":1,"chunk_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","items":[{"uid":"d","ip":"192.0.2.10"}]}]}`), &inputs)
-	_ = json.Unmarshal([]byte(`{"data":{"version":"8.2.0","release":"8.2","repoid":"x"}}`), &version)
-	_ = json.Unmarshal([]byte(`{"data":[{"id":"node/pve","type":"node","name":"pve","online":1}]}`), &cluster)
-	_ = json.Unmarshal([]byte(`{"data":[{"node":"pve","status":"online"}]}`), &nodes)
-	_ = json.Unmarshal([]byte(`{"data":[{"id":"qemu/100","node":"pve","type":"qemu","vmid":100}]}`), &resources)
-	_ = json.Unmarshal([]byte(`{"data":{"status":"running","memory":512}}`), &data)
+	_ = json.Unmarshal([]byte(`{"targets":[]}`), &cfg)
+	_ = json.Unmarshal([]byte(`{"schema":"serviceradar.plugin_inputs.v1","inputs":[]}`), &inputs)
+	_ = json.Unmarshal([]byte(`{"data":{}}`), &version)
+	_ = json.Unmarshal([]byte(`{"data":[]}`), &cluster)
+	_ = json.Unmarshal([]byte(`{"data":[]}`), &nodes)
+	_ = json.Unmarshal([]byte(`{"data":[]}`), &resources)
+	_ = json.Unmarshal([]byte(`{"data":{}}`), &data)
 }
 
 func main() {}

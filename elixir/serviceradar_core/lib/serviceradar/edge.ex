@@ -23,6 +23,7 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.AgentRelease` - Published agent release catalog
   - `ServiceRadar.Edge.AgentReleaseRollout` - Desired-version rollout plans
   - `ServiceRadar.Edge.AgentReleaseTarget` - Per-agent rollout state
+  - `ServiceRadar.Edge.ProxmoxConsoleSession` - Proxmox console session tickets and lifecycle
 
   ## Package State Machine
 
@@ -37,6 +38,7 @@ defmodule ServiceRadar.Edge do
   use Ash.Domain,
     extensions: [
       # AshJsonApi.Domain,
+      AshPaperTrail.Domain,
       AshAdmin.Domain
     ]
 
@@ -44,21 +46,26 @@ defmodule ServiceRadar.Edge do
     show?(true)
   end
 
+  paper_trail do
+    include_versions?(true)
+  end
+
   resources do
-    resource ServiceRadar.Edge.OnboardingPackage
-    resource ServiceRadar.Edge.OnboardingEvent
-    resource ServiceRadar.Edge.NatsCredential
-    resource ServiceRadar.Edge.CollectorPackage
-    resource ServiceRadar.Edge.EdgeSite
-    resource ServiceRadar.Edge.NatsLeafServer
-    resource ServiceRadar.Edge.AgentCommand
-    resource ServiceRadar.Edge.AgentRelease
-    resource ServiceRadar.Edge.AgentReleaseRollout
-    resource ServiceRadar.Edge.AgentReleaseTarget
+    resource(ServiceRadar.Edge.OnboardingPackage)
+    resource(ServiceRadar.Edge.OnboardingEvent)
+    resource(ServiceRadar.Edge.NatsCredential)
+    resource(ServiceRadar.Edge.CollectorPackage)
+    resource(ServiceRadar.Edge.EdgeSite)
+    resource(ServiceRadar.Edge.NatsLeafServer)
+    resource(ServiceRadar.Edge.AgentCommand)
+    resource(ServiceRadar.Edge.AgentRelease)
+    resource(ServiceRadar.Edge.AgentReleaseRollout)
+    resource(ServiceRadar.Edge.AgentReleaseTarget)
+    resource(ServiceRadar.Edge.ProxmoxConsoleSession)
   end
 
   authorization do
-    require_actor? false
-    authorize :by_default
+    require_actor?(false)
+    authorize(:by_default)
   end
 end

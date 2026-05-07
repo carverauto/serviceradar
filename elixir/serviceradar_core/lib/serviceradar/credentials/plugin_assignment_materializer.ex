@@ -20,8 +20,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   require Ash.Query
 
   @proxmox_provider "proxmox"
-  @proxmox_plugin_id "proxmox-inventory"
+  @proxmox_inventory_plugin_id "proxmox-inventory"
+  @proxmox_console_plugin_id "proxmox-console"
   @inventory_purpose :inventory_enrichment
+  @console_purpose :console_access
 
   @doc """
   Reconciles enabled Proxmox inventory credential rules that are in scope for an agent.
@@ -29,16 +31,34 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   @spec reconcile_proxmox_inventory_for_agent(String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def reconcile_proxmox_inventory_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
+    reconcile_proxmox_for_agent(agent_id, @inventory_purpose, @proxmox_inventory_plugin_id, opts)
+  end
+
+  @doc """
+  Reconciles enabled Proxmox console credential rules that are in scope for an agent.
+  """
+  @spec reconcile_proxmox_console_for_agent(String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reconcile_proxmox_console_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
+    reconcile_proxmox_for_agent(agent_id, @console_purpose, @proxmox_console_plugin_id, opts)
+  end
+
+  defp reconcile_proxmox_for_agent(agent_id, purpose, plugin_id, opts) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:proxmox_credential_materializer))
 
-    with {:ok, rules} <- rules_for_agent_scope(agent_id, actor, opts) do
+    with {:ok, rules} <- rules_for_agent_scope(agent_id, purpose, actor, opts) do
       case rules do
         [] ->
           {:ok, empty_summary()}
 
         _ ->
-          with {:ok, package} <- approved_plugin_package(@proxmox_plugin_id, actor, opts) do
-            reconcile_rules(rules, agent_id, package, Keyword.put(opts, :actor, actor))
+          with {:ok, package} <- approved_plugin_package(plugin_id, actor, opts) do
+            opts =
+              opts
+              |> Keyword.put(:actor, actor)
+              |> Keyword.put(:purpose, purpose)
+
+            reconcile_rules(rules, agent_id, package, opts)
           end
       end
     end
@@ -55,10 +75,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       when is_list(rules) and is_binary(agent_id) and is_map(package) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_reconcile))
     reconciler = Keyword.get(opts, :reconciler, PolicyAssignmentReconciler)
+    purpose = Keyword.get(opts, :purpose, @inventory_purpose)
 
-    with {:ok, selected_rules} <- selected_rules_for_agent(rules, agent_id) do
+    with {:ok, selected_rules} <- selected_rules_for_agent(rules, agent_id, purpose) do
       Enum.reduce_while(selected_rules, {:ok, empty_summary()}, fn rule, {:ok, acc} ->
-        case reconcile_rule(rule, agent_id, package, actor, reconciler, opts) do
+        case reconcile_rule(rule, agent_id, package, purpose, actor, reconciler, opts) do
           {:ok, result} ->
             {:cont, {:ok, merge_summary(acc, result)}}
 
@@ -69,9 +90,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp reconcile_rule(rule, _agent_id, package, actor, reconciler, opts) do
-    with {:ok, policy} <- policy_for_rule(rule, package),
-         {:ok, input_defs} <- input_defs_for_rule(rule) do
+  defp reconcile_rule(rule, _agent_id, package, purpose, actor, reconciler, opts) do
+    with {:ok, policy} <- policy_for_rule(rule, package, purpose),
+         {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
       reconcile_opts =
         opts
         |> Keyword.put(:actor, actor)
@@ -81,7 +102,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp policy_for_rule(rule, package) do
+  defp policy_for_rule(rule, package, purpose) do
     with {:ok, rule_id} <- required_string(rule, [:id, "id"], "id"),
          {:ok, secret_id} <- required_string(rule, [:secret_id, "secret_id"], "secret_id"),
          {:ok, package_id} <- required_string(package, [:id, "id"], "plugin package id") do
@@ -90,7 +111,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          policy_id: "network-credential-rule:#{rule_id}",
          policy_version: rule_version(rule),
          plugin_package_id: package_id,
-         params_template: proxmox_params_template(rule, secret_id),
+         params_template: proxmox_params_template(rule, secret_id, purpose),
          enabled: rule_enabled?(rule),
          interval_seconds: metadata_int(rule, "interval_seconds", 300),
          timeout_seconds: metadata_int(rule, "timeout_seconds", 30)
@@ -98,26 +119,75 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp input_defs_for_rule(rule) do
+  defp input_defs_for_rule(rule, _purpose) do
     with {:ok, query} <- required_string(rule, [:target_query, "target_query"], "target_query") do
       {:ok, [%{name: "targets", entity: "devices", query: query}]}
     end
   end
 
-  defp proxmox_params_template(rule, secret_id) do
+  defp proxmox_params_template(rule, secret_id, @inventory_purpose) do
     %{
-      "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "credential_broker" => proxmox_inventory_credential_broker_grant(rule, secret_id),
       "include_guests" => metadata_bool(rule, "include_guests", true),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
+      "auto_discovery_enabled" => metadata_bool(rule, "auto_discovery_enabled", false),
       "credential_rule_id" => value_string(rule, [:id, "id"])
     }
   end
 
-  defp rules_for_agent_scope(agent_id, actor, opts) do
+  defp proxmox_params_template(rule, secret_id, @console_purpose) do
+    %{
+      "credential_broker" => proxmox_console_credential_broker_grant(rule, secret_id),
+      "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
+      "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
+      "ssh_host_key_policy" => ssh_host_key_policy(rule),
+      "credential_rule_id" => value_string(rule, [:id, "id"])
+    }
+  end
+
+  defp proxmox_params_template(rule, secret_id, _purpose),
+    do: proxmox_params_template(rule, secret_id, @inventory_purpose)
+
+  defp proxmox_inventory_credential_broker_grant(rule, secret_id) do
+    %{
+      "schema" => "serviceradar.edge_credential_broker_grant.v1",
+      "grant_type" => "proxmox_api_token",
+      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "credential_rule_id" => value_string(rule, [:id, "id"]),
+      "inject" => %{
+        "header" => "Authorization",
+        "scheme" => "PVEAPIToken"
+      },
+      "allow" => %{
+        "methods" => ["GET"],
+        "paths" => [
+          "/api2/json/version",
+          "/api2/json/cluster/status",
+          "/api2/json/nodes",
+          "/api2/json/nodes/*",
+          "/api2/json/cluster/resources"
+        ]
+      },
+      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
+    }
+  end
+
+  defp proxmox_console_credential_broker_grant(rule, secret_id) do
+    %{
+      "schema" => "serviceradar.edge_credential_broker_grant.v1",
+      "grant_type" => "proxmox_console",
+      "auth_method" => auth_method(rule),
+      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "credential_rule_id" => value_string(rule, [:id, "id"]),
+      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
+    }
+  end
+
+  defp rules_for_agent_scope(agent_id, purpose, actor, opts) do
     case Keyword.fetch(opts, :rules) do
       {:ok, rules} ->
-        {:ok, rules}
+        {:ok, Enum.filter(rules, &(rule_purpose(&1) == purpose))}
 
       :error ->
         scopes = agent_scopes(agent_id, actor)
@@ -130,8 +200,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
                  scope_value,
                  actor: actor
                ) do
-            {:ok, rules} -> {:cont, {:ok, acc ++ Enum.filter(rules, &inventory_rule?/1)}}
-            {:error, reason} -> {:halt, {:error, reason}}
+            {:ok, rules} ->
+              {:cont, {:ok, acc ++ Enum.filter(rules, &(rule_purpose(&1) == purpose))}}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
           end
         end)
         |> case do
@@ -141,10 +214,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp selected_rules_for_agent(rules, agent_id) do
+  defp selected_rules_for_agent(rules, agent_id, purpose) do
     rules
     |> Enum.filter(
-      &(inventory_rule?(&1) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
+      &(rule_purpose(&1) == purpose and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
     )
     |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
     |> collapse_by_target_query()
@@ -230,8 +303,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     |> Enum.find_value(fn {_pid, metadata} -> metadata_value(metadata, "partition_id") end)
   end
 
-  defp inventory_rule?(rule), do: rule_purpose(rule) == @inventory_purpose
-
   defp rule_purpose(rule) do
     case value_string(rule, [:purpose, "purpose"]) do
       "inventory_enrichment" -> :inventory_enrichment
@@ -239,6 +310,24 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       "console_access" -> :console_access
       "generic" -> :generic
       _ -> @inventory_purpose
+    end
+  end
+
+  defp auth_method(rule) do
+    case value_string(rule, [:auth_method, "auth_method"]) do
+      "ssh_private_key" -> "ssh_private_key"
+      "username_password" -> "username_password"
+      "certificate" -> "certificate"
+      "opaque" -> "opaque"
+      _ -> "proxmox_api_token"
+    end
+  end
+
+  defp ssh_host_key_policy(rule) do
+    case value_string(rule, [:ssh_host_key_policy, "ssh_host_key_policy"]) do
+      "trust_on_first_use" -> "trust_on_first_use"
+      "skip_verify" -> "skip_verify"
+      _ -> "known_hosts"
     end
   end
 
@@ -317,10 +406,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp metadata_atom_key("chunk_size"), do: :chunk_size
+  defp metadata_atom_key("auto_discovery_enabled"), do: :auto_discovery_enabled
   defp metadata_atom_key("gateway_id"), do: :gateway_id
   defp metadata_atom_key("include_guests"), do: :include_guests
   defp metadata_atom_key("interval_seconds"), do: :interval_seconds
   defp metadata_atom_key("partition_id"), do: :partition_id
+  defp metadata_atom_key("credential_broker_ttl_seconds"), do: :credential_broker_ttl_seconds
   defp metadata_atom_key("timeout_ms"), do: :timeout_ms
   defp metadata_atom_key("timeout_seconds"), do: :timeout_seconds
 
