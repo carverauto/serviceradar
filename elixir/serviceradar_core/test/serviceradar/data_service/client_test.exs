@@ -1,5 +1,5 @@
 defmodule ServiceRadar.DataService.ClientTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.DataService.Client
 
@@ -7,5 +7,23 @@ defmodule ServiceRadar.DataService.ClientTest do
     refute Process.whereis(Client)
 
     assert {:error, :not_started} = Client.get_channel(timeout: 10)
+  end
+
+  test "connected? keeps an established virtual channel without probing the adapter process" do
+    start_supervised!(
+      {Client,
+       host: "127.0.0.1",
+       port: 1,
+       sec_mode: "plaintext",
+       reconnect_base_ms: 60_000,
+       reconnect_max_ms: 60_000}
+    )
+
+    :sys.replace_state(Client, fn state ->
+      %{state | channel: %GRPC.Channel{}, connect_task: nil}
+    end)
+
+    assert Client.connected?()
+    assert {:ok, %GRPC.Channel{}} = Client.get_channel(timeout: 10)
   end
 end

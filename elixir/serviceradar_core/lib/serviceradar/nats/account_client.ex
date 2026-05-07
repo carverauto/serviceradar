@@ -480,15 +480,7 @@ defmodule ServiceRadar.NATS.AccountClient do
       try do
         case GenServer.call(ServiceRadar.DataService.Client, :get_channel, 5_000) do
           {:ok, channel} ->
-            # Verify the connection is still alive
-            conn_pid = channel.adapter_payload.conn_pid
-
-            if Process.alive?(conn_pid) do
-              {:ok, channel}
-            else
-              Logger.warning("DataService.Client connection is dead, creating fresh connection")
-              create_fresh_channel()
-            end
+            {:ok, channel}
 
           {:error, reason} ->
             Logger.warning(

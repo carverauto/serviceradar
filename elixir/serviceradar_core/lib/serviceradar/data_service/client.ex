@@ -203,7 +203,6 @@ defmodule ServiceRadar.DataService.Client do
 
     state = %{
       channel: nil,
-      channel_ref: nil,
       config: config,
       reconnecting: false,
       backoff:
@@ -255,24 +254,6 @@ defmodule ServiceRadar.DataService.Client do
     {:noreply, schedule_reconnect(state, reason)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{channel_ref: ref} = state) do
-    state = clear_channel(state)
-
-    case reason do
-      :normal ->
-        Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, reconnect_after_clean_close(state)}
-
-      :shutdown ->
-        Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, reconnect_after_clean_close(state)}
-
-      _ ->
-        Logger.warning("Datasvc gRPC connection down: #{inspect(reason)}")
-        {:noreply, schedule_reconnect(state, reason)}
-    end
-  end
-
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
     {:noreply, state}
   end
@@ -284,19 +265,17 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:gun_down, _pid, _protocol, reason, _streams}, state) do
-    state = clear_channel(state)
-
     case reason do
       :normal ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, reconnect_after_clean_close(state)}
+        {:noreply, state}
 
       :shutdown ->
         Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
-        {:noreply, reconnect_after_clean_close(state)}
+        {:noreply, state}
 
       _ ->
-        {:noreply, schedule_reconnect(state, reason)}
+        {:noreply, state |> clear_channel() |> schedule_reconnect(reason)}
     end
   end
 
@@ -312,7 +291,7 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:gun_error, _pid, reason}, state) do
-    state = %{state | channel: nil}
+    state = clear_channel(state)
     {:noreply, schedule_reconnect(state, reason)}
   end
 
@@ -363,10 +342,10 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_call(:connected?, _from, state) do
-    if channel_alive?(state) do
+    if connected_state?(state) do
       {:reply, true, state}
     else
-      {:reply, false, state |> clear_channel() |> maybe_start_connect()}
+      {:reply, false, maybe_start_connect(state)}
     end
   end
 
@@ -609,12 +588,6 @@ defmodule ServiceRadar.DataService.Client do
     %{state | reconnecting: true, backoff: backoff}
   end
 
-  defp reconnect_after_clean_close(state) do
-    state
-    |> Map.put(:reconnecting, false)
-    |> maybe_start_connect()
-  end
-
   defp ensure_connected(%{channel: nil} = state) do
     {:error, :not_connected, maybe_start_connect(state)}
   end
@@ -665,12 +638,8 @@ defmodule ServiceRadar.DataService.Client do
 
   defp channel_down_message?(_message), do: false
 
-  defp channel_alive?(%{channel: nil}), do: false
-
-  defp channel_alive?(%{channel: channel}) do
-    conn_pid = channel.adapter_payload.conn_pid
-    Process.alive?(conn_pid)
-  end
+  defp connected_state?(%{channel: nil}), do: false
+  defp connected_state?(%{channel: %GRPC.Channel{}}), do: true
 
   defp maybe_start_connect(%{connect_task: nil} = state), do: start_connect_task(state)
   defp maybe_start_connect(state), do: state
@@ -679,20 +648,17 @@ defmodule ServiceRadar.DataService.Client do
     state
     |> clear_channel()
     |> Map.put(:channel, channel)
-    |> Map.put(:channel_ref, monitor_channel(channel))
   end
 
-  defp clear_channel(%{channel_ref: nil} = state), do: %{state | channel: nil}
+  defp clear_channel(%{channel: nil} = state), do: state
 
-  defp clear_channel(%{channel_ref: ref} = state) do
-    Process.demonitor(ref, [:flush])
-    %{state | channel: nil, channel_ref: nil}
+  defp clear_channel(%{channel: channel} = state) do
+    _ = disconnect_managed_channel(channel)
+    %{state | channel: nil}
   end
 
-  defp monitor_channel(channel) do
-    conn_pid = channel.adapter_payload.conn_pid
-    Process.monitor(conn_pid)
-  end
+  defp disconnect_managed_channel(%GRPC.Channel{} = channel), do: GRPC.Stub.disconnect(channel)
+  defp disconnect_managed_channel(_channel), do: :ok
 
   defp do_put(channel, key, value, opts) do
     timeout = opts[:timeout] || @default_timeout
