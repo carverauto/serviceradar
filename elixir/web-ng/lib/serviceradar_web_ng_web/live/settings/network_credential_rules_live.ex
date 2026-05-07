@@ -8,7 +8,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -36,6 +38,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:loading?, true)
        |> assign(:form_mode, nil)
        |> assign(:editing_rule, nil)
+       |> assign(:rule_preview, nil)
+       |> assign(:secret_form, nil)
        |> assign(:rule_form, rule_form(default_rule_params()))}
     else
       {:ok,
@@ -94,6 +98,52 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  def handle_event("preview_rule", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+         {:ok, preview} <-
+           NetworkCredentialRulePreview.preview_rule(rule,
+             resolver: credential_preview_resolver(),
+             query_opts: [scope: scope],
+             other_rules: socket.assigns.rules,
+             sample_limit: 5
+           ) do
+      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview})}
+    else
+      nil ->
+        {:noreply, put_flash(socket, :error, "Credential rule not found")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Preview failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("close_preview", _params, socket) do
+    {:noreply, assign(socket, :rule_preview, nil)}
+  end
+
+  def handle_event("new_proxmox_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_secret_params()))}
+  end
+
+  def handle_event("close_secret_form", _params, socket) do
+    {:noreply, assign(socket, :secret_form, nil)}
+  end
+
+  def handle_event("save_secret", %{"credential_secret" => params}, socket) do
+    case normalize_secret_params(params) do
+      {:ok, attrs} ->
+        save_secret(socket, attrs)
+
+      {:error, message} ->
+        {:noreply,
+         socket
+         |> assign(:secret_form, secret_form(params))
+         |> put_flash(:error, message)}
+    end
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -115,9 +165,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h1 class="text-xl font-semibold">Credential Rules</h1>
-            <.link navigate={~p"/settings/networks/credentials/new"} class="btn btn-primary btn-sm">
-              New Rule
-            </.link>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="new_proxmox_secret">
+                New Proxmox Token
+              </button>
+              <.link navigate={~p"/settings/networks/credentials/new"} class="btn btn-primary btn-sm">
+                New Rule
+              </.link>
+            </div>
           </div>
 
           <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
@@ -182,6 +237,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                         >
                           Test
                         </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs"
+                          phx-click="preview_rule"
+                          phx-value-id={rule.id}
+                        >
+                          Preview
+                        </button>
                         <.link
                           navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
                           class="btn btn-ghost btn-xs"
@@ -226,8 +289,173 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           tls_policies={@tls_policies}
           ssh_host_key_policies={@ssh_host_key_policies}
         />
+
+        <.rule_preview_modal :if={@rule_preview} rule_preview={@rule_preview} />
+        <.secret_form_modal :if={@secret_form} form={@secret_form} tls_policies={@tls_policies} />
       </.settings_shell>
     </Layouts.app>
+    """
+  end
+
+  attr :form, :map, required: true
+  attr :tls_policies, :list, required: true
+
+  defp secret_form_modal(assigns) do
+    ~H"""
+    <div class="modal modal-open">
+      <div class="modal-box max-w-3xl rounded-lg">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-semibold">New Proxmox Token</h2>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
+            Close
+          </button>
+        </div>
+
+        <.form for={@form} phx-submit="save_secret" class="space-y-4">
+          <div class="grid gap-4 md:grid-cols-2">
+            <.input field={@form[:name]} label="Name" required />
+            <.input field={@form[:user]} label="User" required />
+            <.input field={@form[:realm]} label="Realm" required />
+            <.input field={@form[:token_id]} label="Token ID" required />
+            <.input
+              field={@form[:tls_policy]}
+              type="select"
+              label="TLS Policy"
+              options={enum_options(@tls_policies)}
+              required
+            />
+          </div>
+
+          <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
+          <.input field={@form[:description]} type="textarea" label="Description" />
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Save Token
+            </button>
+          </div>
+        </.form>
+      </div>
+      <button type="button" class="modal-backdrop" phx-click="close_secret_form">Close</button>
+    </div>
+    """
+  end
+
+  attr :rule_preview, :map, required: true
+
+  defp rule_preview_modal(assigns) do
+    ~H"""
+    <div class="modal modal-open">
+      <div class="modal-box max-w-5xl rounded-lg">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-semibold">Target Preview</h2>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_preview">
+            Close
+          </button>
+        </div>
+
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-4">
+            <div class="rounded-lg border border-base-200 p-3">
+              <div class="text-xs text-base-content/60">Matched</div>
+              <div class="text-xl font-semibold">{@rule_preview.preview.matched_devices}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 p-3">
+              <div class="text-xs text-base-content/60">In Scope</div>
+              <div class="text-xl font-semibold">{@rule_preview.preview.scoped_devices}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 p-3">
+              <div class="text-xs text-base-content/60">Agents</div>
+              <div class="text-xl font-semibold">{length(@rule_preview.preview.agents)}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 p-3">
+              <div class="text-xs text-base-content/60">Conflicts</div>
+              <div class="text-xl font-semibold">{length(@rule_preview.preview.conflicts)}</div>
+            </div>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-2">
+            <section class="space-y-2">
+              <h3 class="text-sm font-semibold">Agent Distribution</h3>
+              <div class="overflow-hidden rounded-lg border border-base-200">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Agent</th>
+                      <th class="text-right">Devices</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr :if={@rule_preview.preview.agents == []}>
+                      <td colspan="2" class="py-4 text-center text-sm text-base-content/60">
+                        No in-scope agents.
+                      </td>
+                    </tr>
+                    <tr :for={agent <- @rule_preview.preview.agents}>
+                      <td>{agent.agent_id}</td>
+                      <td class="text-right">{agent.device_count}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="space-y-2">
+              <h3 class="text-sm font-semibold">Sample Devices</h3>
+              <div class="overflow-hidden rounded-lg border border-base-200">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Device</th>
+                      <th>Address</th>
+                      <th>Agent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr :if={@rule_preview.preview.sample_devices == []}>
+                      <td colspan="3" class="py-4 text-center text-sm text-base-content/60">
+                        No in-scope devices.
+                      </td>
+                    </tr>
+                    <tr :for={device <- @rule_preview.preview.sample_devices}>
+                      <td>{device_label(device)}</td>
+                      <td>{device_address(device)}</td>
+                      <td>{device_agent(device)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <section :if={@rule_preview.preview.conflicts != []} class="space-y-2">
+            <h3 class="text-sm font-semibold text-error">Credential Conflicts</h3>
+            <div class="overflow-hidden rounded-lg border border-error/30">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Rule</th>
+                    <th>Priority</th>
+                    <th class="text-right">Overlapping Devices</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={conflict <- @rule_preview.preview.conflicts}>
+                    <td>{conflict.rule_id}</td>
+                    <td>{conflict.priority}</td>
+                    <td class="text-right">{conflict.overlapping_devices}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+      <button type="button" class="modal-backdrop" phx-click="close_preview">Close</button>
+    </div>
     """
   end
 
@@ -405,6 +633,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, put_flash(socket, :error, "Credential rule form is not ready")}
   end
 
+  defp save_secret(socket, attrs) do
+    case NetworkCredentialSecret
+         |> Ash.Changeset.for_create(:create, attrs, scope: socket.assigns.current_scope)
+         |> Ash.create(scope: socket.assigns.current_scope) do
+      {:ok, _secret} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Proxmox token saved")
+         |> assign(:secret_form, nil)
+         |> load_page(%{})}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save token: #{format_error(reason)}")}
+    end
+  end
+
   defp update_enabled(socket, id, action, message) do
     scope = socket.assigns.current_scope
 
@@ -481,6 +725,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required fields are missing"}
   end
 
+  defp normalize_secret_params(params) do
+    with {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy") do
+      name = required_string(params, "name")
+      user = required_string(params, "user")
+      realm = required_string(params, "realm")
+      token_id = required_string(params, "token_id")
+      token_secret = required_string(params, "token_secret")
+      token_identity = proxmox_token_identity(user, realm, token_id)
+      token_payload = token_identity <> "=" <> token_secret
+
+      {:ok,
+       %{
+         name: name,
+         description: blank_to_nil(params["description"]),
+         provider: "proxmox",
+         credential_kind: :api_token,
+         username: token_identity,
+         public_fingerprint: secret_fingerprint(token_payload),
+         secret_payload: token_payload,
+         metadata: %{
+           "realm" => realm,
+           "token_id" => token_id,
+           "tls_policy" => Atom.to_string(tls_policy),
+           "auth_method" => "proxmox_api_token"
+         }
+       }}
+    end
+  rescue
+    ArgumentError -> {:error, "Required token fields are missing"}
+  end
+
   defp default_rule_params do
     %{
       "name" => "",
@@ -488,7 +763,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "provider" => "proxmox",
       "auth_method" => "proxmox_api_token",
       "purpose" => "inventory_enrichment",
-      "target_query" => "in:devices protocol:proxmox-api",
+      "target_query" => "in:devices metadata.proxmox_candidate:true",
       "scope_type" => "agent",
       "scope_value" => "",
       "secret_id" => "",
@@ -497,6 +772,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
       "auto_discovery_enabled" => "false"
+    }
+  end
+
+  defp default_secret_params do
+    %{
+      "name" => "",
+      "description" => "",
+      "user" => "root",
+      "realm" => "pam",
+      "token_id" => "",
+      "tls_policy" => "verify",
+      "token_secret" => ""
     }
   end
 
@@ -520,6 +807,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp rule_form(params), do: to_form(params, as: :credential_rule)
+
+  defp secret_form(params), do: to_form(params, as: :credential_secret)
 
   defp enum_param(params, key, allowed, label) do
     value = params |> Map.get(key, "") |> to_string()
@@ -569,6 +858,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  defp proxmox_token_identity(user, realm, token_id) do
+    user = user |> to_string() |> String.trim() |> String.replace(~r/@.*/, "")
+    realm = realm |> to_string() |> String.trim()
+    token_id = token_id |> to_string() |> String.trim()
+
+    "#{user}@#{realm}!#{token_id}"
+  end
+
+  defp secret_fingerprint(payload) do
+    digest =
+      :sha256
+      |> :crypto.hash(payload)
+      |> Base.encode16(case: :lower)
+
+    "sha256:" <> digest
+  end
+
   defp boolean_param(params, key) do
     params
     |> Map.get(key, "false")
@@ -601,6 +907,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp truthy?(value) when value in [true, "true", "on", "1", 1], do: true
   defp truthy?(_value), do: false
 
+  defp credential_preview_resolver do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :network_credential_rule_preview_resolver,
+      SRQLInputResolver
+    )
+  end
+
   defp enum_options(values), do: Enum.map(values, &{format_atom(&1), to_string(&1)})
 
   defp secret_label(secret) do
@@ -612,6 +926,43 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")
 
   defp format_scope(rule), do: "#{format_atom(rule.scope_type)}: #{rule.scope_value}"
+
+  defp device_label(device) when is_map(device) do
+    first_non_empty([
+      Map.get(device, "hostname"),
+      Map.get(device, "name"),
+      Map.get(device, "uid"),
+      Map.get(device, "device_uid"),
+      Map.get(device, "id")
+    ])
+  end
+
+  defp device_address(device) when is_map(device) do
+    first_non_empty([
+      Map.get(device, "ip"),
+      Map.get(device, "device_ip"),
+      Map.get(device, "management_ip"),
+      "-"
+    ])
+  end
+
+  defp device_agent(device) when is_map(device) do
+    first_non_empty([Map.get(device, "agent_id"), Map.get(device, "agent_uid"), "-"])
+  end
+
+  defp first_non_empty(values) when is_list(values) do
+    Enum.find_value(values, "-", fn
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      value when not is_nil(value) ->
+        to_string(value)
+
+      _ ->
+        nil
+    end)
+  end
 
   defp format_last_test(%{last_test_status: nil}), do: "Not tested"
 

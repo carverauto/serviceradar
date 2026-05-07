@@ -1,0 +1,73 @@
+defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
+  use ServiceRadarWebNGWeb.ConnCase, async: false
+
+  import Phoenix.LiveViewTest
+
+  alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadarWebNG.TestSupport.ProxmoxConsoleSessionManagerStub
+
+  setup %{conn: conn} do
+    previous_manager = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager)
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager_test_pid)
+    previous_open_result = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager_open_result)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :proxmox_console_session_manager,
+      ProxmoxConsoleSessionManagerStub
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :proxmox_console_session_manager_test_pid,
+      self()
+    )
+
+    on_exit(fn ->
+      restore_env(:proxmox_console_session_manager, previous_manager)
+      restore_env(:proxmox_console_session_manager_test_pid, previous_test_pid)
+      restore_env(:proxmox_console_session_manager_open_result, previous_open_result)
+    end)
+
+    user = AshTestHelpers.admin_user_fixture()
+
+    %{conn: log_in_user(conn, user), user: user}
+  end
+
+  test "passes selected Proxmox target and console mode into session request", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :proxmox_console_session_manager_open_result,
+      {:error, :no_console_credential_rule}
+    )
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/devices/pve-guest-1/proxmox-console?target_kind=lxc_guest&console_mode=proxmox_termproxy"
+      )
+
+    assert html =~ "No scoped Proxmox console credential rule matched this device."
+    assert_receive {:open_proxmox_console_session, "pve-guest-1", request, opts}
+    assert request.cols == 120
+    assert request.rows == 34
+    assert request.target_kind == "lxc_guest"
+    assert request.console_mode == "proxmox_termproxy"
+    assert opts[:scope]
+  end
+
+  test "does not request a console session for users without console permission", %{conn: conn} do
+    viewer = AshTestHelpers.viewer_user_fixture()
+
+    {:ok, _view, html} =
+      conn
+      |> log_in_user(viewer)
+      |> live(~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")
+
+    assert html =~ "You do not have permission to open Proxmox consoles."
+    refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+end
