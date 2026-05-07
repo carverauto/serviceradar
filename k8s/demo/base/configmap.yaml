@@ -451,7 +451,6 @@ data:
           "*.logs.syslog",
           "*.logs.snmp",
           "*.logs.otel",
-          "falco.logs",
           "*.logs.internal.>",
           "*.otel.metrics.raw"
         ],
@@ -474,12 +473,6 @@ data:
             "subjects": ["*.logs.otel"],
             "rules": [],
             "format": "protobuf"
-          },
-          {
-            "name": "falco",
-            "subjects": ["falco.logs"],
-            "rules": [],
-            "format": "json"
           },
           {
             "name": "otel_metrics_raw",

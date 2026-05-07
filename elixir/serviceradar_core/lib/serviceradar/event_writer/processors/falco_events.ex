@@ -327,9 +327,23 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       rows
       |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
       |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+      |> Enum.map(&decode_inserted_event_row/1)
 
     {count, inserted_rows}
   end
+
+  defp decode_inserted_event_row(row) when is_map(row) do
+    Map.update(row, :id, nil, &load_uuid/1)
+  end
+
+  defp load_uuid(value) when is_binary(value) and byte_size(value) == 16 do
+    case Ecto.UUID.load(value) do
+      {:ok, uuid} -> uuid
+      :error -> value
+    end
+  end
+
+  defp load_uuid(value), do: value
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)
        when is_list(rows) and is_function(key_fun, 1) do
@@ -385,6 +399,8 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp event_message(payload, subject) do
     normalize_string(payload["output"]) ||
+      normalize_string(payload["body"]) ||
+      normalize_string(payload["message"]) ||
       normalize_string(payload["rule"]) ||
       subject || "falco event"
   end

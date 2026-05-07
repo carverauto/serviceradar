@@ -92,6 +92,22 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
       assert row.status == "Success"
     end
 
+    test "uses normalized body when Zen-compacted payload omits output" do
+      payload = %{
+        "body" => "Compacted Falco event",
+        "priority" => "Critical",
+        "rule" => "Compacted Falco Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z"
+      }
+
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "falco.logs"}}
+
+      row = FalcoEvents.parse_message(message)
+
+      assert row.message == "Compacted Falco event"
+      assert row.unmapped["body"] == "Compacted Falco event"
+    end
+
     test "maps unknown priority to unknown severity and other status" do
       payload = %{
         "output" => "Unknown priority event",
