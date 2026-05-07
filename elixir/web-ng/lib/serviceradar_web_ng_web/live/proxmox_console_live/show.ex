@@ -11,11 +11,12 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   @default_rows 34
 
   @impl true
-  def mount(%{"uid" => device_uid}, _session, socket) do
+  def mount(%{"uid" => device_uid} = params, _session, socket) do
     socket =
       socket
       |> assign(:page_title, "Proxmox Console")
       |> assign(:device_uid, device_uid)
+      |> assign(:console_request, console_request_from_params(params))
       |> assign(:session, nil)
       |> assign(:ticket, nil)
       |> assign(:websocket_path, nil)
@@ -33,7 +34,11 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   def handle_event("close_console", _params, socket) do
     case socket.assigns.session do
       %ProxmoxConsoleSession{id: id} ->
-        _ = ProxmoxConsoleSessions.request_close(id, reason: "operator_closed", scope: socket.assigns.current_scope)
+        _ =
+          console_session_manager().request_close(id,
+            reason: "operator_closed",
+            scope: socket.assigns.current_scope
+          )
 
       _session ->
         :ok
@@ -78,19 +83,16 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
           </div>
         </div>
 
-        <div
+        <.proxmox_console_terminal
           :if={@session && @ticket && @websocket_path}
           id={"proxmox-console-terminal-#{@session.id}"}
           class="min-h-0 flex-1"
-          phx-hook="ProxmoxConsoleTerminal"
-          phx-update="ignore"
-          data-session-id={@session.id}
-          data-ticket={@ticket}
-          data-websocket-path={@websocket_path}
-          data-title={"#{format_target_kind(@session.target_kind)} console"}
-          data-subtitle={"#{format_console_mode(@session.console_mode)} via #{@session.agent_id}"}
-        >
-        </div>
+          session_id={@session.id}
+          ticket={@ticket}
+          websocket_path={@websocket_path}
+          title={"#{format_target_kind(@session.target_kind)} console"}
+          subtitle={"#{format_console_mode(@session.console_mode)} via #{@session.agent_id}"}
+        />
       </div>
     </Layouts.app>
     """
@@ -98,9 +100,9 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
 
   defp open_console(socket) do
     if RBAC.can?(socket.assigns.current_scope, @console_permission) do
-      request = %{cols: @default_cols, rows: @default_rows}
+      request = Map.merge(%{cols: @default_cols, rows: @default_rows}, socket.assigns.console_request)
 
-      case ProxmoxConsoleSessions.request_open(socket.assigns.device_uid, request, scope: socket.assigns.current_scope) do
+      case console_session_manager().request_open(socket.assigns.device_uid, request, scope: socket.assigns.current_scope) do
         {:ok, %{session: %ProxmoxConsoleSession{} = session, ticket: ticket}} ->
           socket
           |> assign(:session, session)
@@ -122,6 +124,27 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   end
 
   defp websocket_path(%ProxmoxConsoleSession{id: id}), do: "/v1/proxmox/console-sessions/#{id}/stream"
+
+  defp console_request_from_params(params) do
+    %{}
+    |> put_request_string(:target_kind, Map.get(params, "target_kind"))
+    |> put_request_string(:console_mode, Map.get(params, "console_mode"))
+  end
+
+  defp put_request_string(request, key, value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: request, else: Map.put(request, key, value)
+  end
+
+  defp put_request_string(request, _key, _value), do: request
+
+  defp console_session_manager do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :proxmox_console_session_manager,
+      ProxmoxConsoleSessions
+    )
+  end
 
   defp format_target_kind(value) when is_atom(value), do: value |> Atom.to_string() |> format_target_kind()
 
