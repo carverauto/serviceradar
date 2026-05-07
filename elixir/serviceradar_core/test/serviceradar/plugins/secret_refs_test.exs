@@ -88,4 +88,63 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
 
     assert message =~ "missing linked secret material"
   end
+
+  test "stores and resolves secret refs in plugin input templates" do
+    stored =
+      SecretRefs.prepare_params_for_storage(
+        @schema,
+        plugin_inputs_payload(%{
+          "host" => "pve.local",
+          "password_secret_ref" => "proxmox-token"
+        })
+      )
+
+    template = stored["template"]
+    assert template["host"] == "pve.local"
+    assert String.starts_with?(template["password_secret_ref"], "secretref:")
+    assert is_map(template["_secret_material"])
+    refute template["_secret_material"][template["password_secret_ref"]] == "proxmox-token"
+
+    public = SecretRefs.public_params(stored)
+    refute Map.has_key?(public, "_secret_material")
+    refute Map.has_key?(public["template"], "_secret_material")
+
+    assert {:ok, runtime} = SecretRefs.resolve_runtime_params(@schema, stored)
+    assert runtime["template"]["host"] == "pve.local"
+    assert runtime["template"]["password"] == "proxmox-token"
+    assert runtime["template"]["password_secret_ref"] == template["password_secret_ref"]
+    refute Map.has_key?(runtime["template"], "_secret_material")
+  end
+
+  test "validates missing secret material in plugin input templates" do
+    params =
+      plugin_inputs_payload(%{
+        "password_secret_ref" => "secretref:password:missing"
+      })
+
+    assert {:error, [message]} = SecretRefs.validate_secret_linkage(@schema, params)
+    assert message =~ "template.password_secret_ref is missing linked secret material"
+  end
+
+  defp plugin_inputs_payload(template) do
+    %{
+      "schema" => "serviceradar.plugin_inputs.v1",
+      "policy_id" => "policy-1",
+      "policy_version" => 1,
+      "agent_id" => "agent-1",
+      "generated_at" => "2026-05-06T19:00:00Z",
+      "template" => template,
+      "inputs" => [
+        %{
+          "name" => "targets",
+          "entity" => "devices",
+          "query" => "in:devices",
+          "chunk_index" => 0,
+          "chunk_total" => 1,
+          "chunk_hash" => String.duplicate("a", 64),
+          "items" => [%{"uid" => "sr:device:1"}]
+        }
+      ]
+    }
+  end
 end

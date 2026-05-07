@@ -17,6 +17,17 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     params = stringify_keys(params)
     existing_params = stringify_keys(existing_params)
 
+    params
+    |> prepare_direct_params_for_storage(schema, existing_params)
+    |> maybe_prepare_template_for_storage(schema, params, existing_params)
+  end
+
+  def prepare_params_for_storage(_schema, params, _existing_params) when is_map(params),
+    do: public_params(params)
+
+  def prepare_params_for_storage(_schema, _params, _existing_params), do: %{}
+
+  defp prepare_direct_params_for_storage(params, schema, existing_params) do
     existing_material = secret_material(existing_params)
 
     {result, kept_material} =
@@ -32,16 +43,11 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end
   end
 
-  def prepare_params_for_storage(_schema, params, _existing_params) when is_map(params),
-    do: public_params(params)
-
-  def prepare_params_for_storage(_schema, _params, _existing_params), do: %{}
-
   @spec public_params(map()) :: map()
   def public_params(params) when is_map(params) do
     params
     |> stringify_keys()
-    |> Map.delete(@secret_material_key)
+    |> remove_secret_material()
   end
 
   def public_params(_params), do: %{}
@@ -49,18 +55,10 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   @spec resolve_runtime_params(map(), map()) :: {:ok, map()} | {:error, [String.t()]}
   def resolve_runtime_params(schema, params) when is_map(schema) and is_map(params) do
     params = stringify_keys(params)
-    material = secret_material(params)
 
-    Enum.reduce_while(secret_ref_fields(schema), {:ok, public_params(params)}, fn field,
-                                                                                  {:ok, acc} ->
-      case resolve_secret_field(acc, field, material) do
-        {:ok, resolved} ->
-          {:cont, {:ok, resolved}}
-
-        {:error, reason} ->
-          {:halt, {:error, [reason]}}
-      end
-    end)
+    with {:ok, resolved} <- resolve_direct_runtime_params(schema, params) do
+      maybe_resolve_template_runtime(schema, resolved, params)
+    end
   end
 
   def resolve_runtime_params(_schema, params) when is_map(params),
@@ -71,26 +69,10 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   @spec validate_secret_linkage(map(), map()) :: :ok | {:error, [String.t()]}
   def validate_secret_linkage(schema, params) when is_map(schema) and is_map(params) do
     params = stringify_keys(params)
-    material = secret_material(params)
 
     errors =
-      Enum.flat_map(secret_ref_fields(schema), fn field ->
-        ref = secret_ref_value(params, field)
-
-        cond do
-          is_nil(ref) ->
-            []
-
-          not secret_ref?(ref) ->
-            ["#{field} must be a secret reference"]
-
-          is_nil(Map.get(material, ref)) ->
-            ["#{field} is missing linked secret material"]
-
-          true ->
-            []
-        end
-      end)
+      direct_secret_linkage_errors(schema, params) ++
+        template_secret_linkage_errors(schema, params)
 
     case errors do
       [] -> :ok
@@ -245,6 +227,105 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   end
 
   defp normalize_string(_value), do: nil
+
+  defp maybe_prepare_template_for_storage(result, schema, params, existing_params) do
+    template = Map.get(params, "template")
+
+    if plugin_inputs_payload?(params) and is_map(template) do
+      existing_template =
+        existing_params
+        |> Map.get("template", %{})
+        |> stringify_keys()
+
+      prepared_template =
+        template
+        |> stringify_keys()
+        |> prepare_direct_params_for_storage(schema, existing_template)
+
+      Map.put(result, "template", prepared_template)
+    else
+      result
+    end
+  end
+
+  defp resolve_direct_runtime_params(schema, params) do
+    material = secret_material(params)
+
+    Enum.reduce_while(secret_ref_fields(schema), {:ok, public_params(params)}, fn field,
+                                                                                  {:ok, acc} ->
+      case resolve_secret_field(acc, field, material) do
+        {:ok, resolved} ->
+          {:cont, {:ok, resolved}}
+
+        {:error, reason} ->
+          {:halt, {:error, [reason]}}
+      end
+    end)
+  end
+
+  defp maybe_resolve_template_runtime(schema, resolved, params) do
+    template = Map.get(params, "template")
+
+    if plugin_inputs_payload?(params) and is_map(template) do
+      case resolve_direct_runtime_params(schema, stringify_keys(template)) do
+        {:ok, runtime_template} -> {:ok, Map.put(resolved, "template", runtime_template)}
+        {:error, _} = error -> error
+      end
+    else
+      {:ok, resolved}
+    end
+  end
+
+  defp direct_secret_linkage_errors(schema, params) do
+    material = secret_material(params)
+
+    Enum.flat_map(secret_ref_fields(schema), fn field ->
+      ref = secret_ref_value(params, field)
+
+      cond do
+        is_nil(ref) ->
+          []
+
+        not secret_ref?(ref) ->
+          ["#{field} must be a secret reference"]
+
+        is_nil(Map.get(material, ref)) ->
+          ["#{field} is missing linked secret material"]
+
+        true ->
+          []
+      end
+    end)
+  end
+
+  defp template_secret_linkage_errors(schema, params) do
+    template = Map.get(params, "template")
+
+    if plugin_inputs_payload?(params) and is_map(template) do
+      schema
+      |> direct_secret_linkage_errors(stringify_keys(template))
+      |> Enum.map(&("template." <> &1))
+    else
+      []
+    end
+  end
+
+  defp plugin_inputs_payload?(params) when is_map(params) do
+    Map.get(params, "schema") == "serviceradar.plugin_inputs.v1" or Map.has_key?(params, "inputs")
+  end
+
+  defp plugin_inputs_payload?(_params), do: false
+
+  defp remove_secret_material(%{} = map) do
+    map
+    |> Map.delete(@secret_material_key)
+    |> Map.new(fn {key, value} -> {key, remove_secret_material(value)} end)
+  end
+
+  defp remove_secret_material(list) when is_list(list),
+    do: Enum.map(list, &remove_secret_material/1)
+
+  defp remove_secret_material(value), do: value
 
   defp stringify_keys(value), do: MapUtils.stringify_keys_or_empty(value)
 end
