@@ -241,6 +241,33 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   def build_trends(_), do: %{hops: [], latency: []}
 
+  def compare_windows(opts \\ []) do
+    with {:ok, window_a} <- normalize_window(Keyword.get(opts, :window_a)),
+         {:ok, window_b} <- normalize_window(Keyword.get(opts, :window_b)) do
+      filters = normalize_compare_filters(opts)
+      bucket_count = opts |> Keyword.get(:bucket_count, 24) |> normalize_bucket_count()
+      signature_limit = opts |> Keyword.get(:signature_limit, 6) |> normalize_signature_limit()
+
+      with {:ok, summary_a} <- window_summary(window_a, filters),
+           {:ok, summary_b} <- window_summary(window_b, filters),
+           {:ok, timeline_a} <- window_timeline(window_a, filters, bucket_count),
+           {:ok, timeline_b} <- window_timeline(window_b, filters, bucket_count),
+           {:ok, signatures_a} <- window_route_signatures(window_a, filters, signature_limit),
+           {:ok, signatures_b} <- window_route_signatures(window_b, filters, signature_limit),
+           {:ok, agent_rows} <- window_agent_comparison(window_a, window_b, filters) do
+        {:ok,
+         %{
+           a: Map.merge(summary_a, %{timeline: timeline_a, route_signatures: signatures_a}),
+           b: Map.merge(summary_b, %{timeline: timeline_b, route_signatures: signatures_b}),
+           agents: agent_rows,
+           deltas: window_deltas(summary_a, summary_b),
+           filters: filters,
+           elapsed_aligned?: same_duration?(window_a, window_b)
+         }}
+      end
+    end
+  end
+
   @sobelow_skip ["SQL.Query"]
   def get_trace_detail(scope, trace_id) when is_binary(trace_id) and trace_id != "" do
     if is_nil(scope) do
@@ -326,6 +353,416 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     {where_clause, params}
   end
+
+  defp normalize_window(%{start: start_time, end: end_time} = window) do
+    with {:ok, start_dt} <- normalize_compare_datetime(start_time),
+         {:ok, end_dt} <- normalize_compare_datetime(end_time),
+         :lt <- DateTime.compare(start_dt, end_dt) do
+      {:ok,
+       %{
+         start: start_dt,
+         end: end_dt,
+         label: Map.get(window, :label) || Map.get(window, "label") || "Window"
+       }}
+    else
+      :eq -> {:error, :empty_window}
+      :gt -> {:error, :invalid_window}
+      error -> error
+    end
+  end
+
+  defp normalize_window(%{"start" => start_time, "end" => end_time} = window) do
+    normalize_window(%{start: start_time, end: end_time, label: Map.get(window, "label")})
+  end
+
+  defp normalize_window(_window), do: {:error, :invalid_window}
+
+  defp normalize_compare_datetime(%DateTime{} = value), do: {:ok, DateTime.truncate(value, :second)}
+
+  defp normalize_compare_datetime(%NaiveDateTime{} = value) do
+    value
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.truncate(:second)
+    |> then(&{:ok, &1})
+  end
+
+  defp normalize_compare_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        {:error, :invalid_datetime}
+
+      String.ends_with?(value, "Z") or String.contains?(value, "+") ->
+        case DateTime.from_iso8601(value) do
+          {:ok, dt, _offset} -> normalize_compare_datetime(dt)
+          {:error, _} -> parse_naive_compare_datetime(value)
+        end
+
+      true ->
+        parse_naive_compare_datetime(value)
+    end
+  end
+
+  defp normalize_compare_datetime(_value), do: {:error, :invalid_datetime}
+
+  defp parse_naive_compare_datetime(value) do
+    value
+    |> String.replace(" ", "T")
+    |> then(fn normalized ->
+      case NaiveDateTime.from_iso8601(normalized) do
+        {:ok, ndt} -> normalize_compare_datetime(ndt)
+        {:error, _} -> {:error, :invalid_datetime}
+      end
+    end)
+  end
+
+  defp normalize_compare_filters(opts) do
+    %{
+      target_filter: normalize_string(Keyword.get(opts, :target_filter, "")),
+      agent_filter: normalize_string(Keyword.get(opts, :agent_filter, "")),
+      protocol: normalize_protocol_filter(Keyword.get(opts, :protocol, "")),
+      reached: normalize_reached_filter(Keyword.get(opts, :reached, ""))
+    }
+  end
+
+  defp normalize_protocol_filter(nil), do: ""
+  defp normalize_protocol_filter(""), do: ""
+
+  defp normalize_protocol_filter(value) do
+    value
+    |> to_string_safe()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_reached_filter(value) when value in [true, "true", "reached", "yes", "1"], do: true
+  defp normalize_reached_filter(value) when value in [false, "false", "unreachable", "no", "0"], do: false
+  defp normalize_reached_filter(_value), do: :any
+
+  defp normalize_bucket_count(value) when is_integer(value), do: value |> max(6) |> min(96)
+
+  defp normalize_bucket_count(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> normalize_bucket_count(parsed)
+      _ -> 24
+    end
+  end
+
+  defp normalize_bucket_count(_value), do: 24
+
+  defp normalize_signature_limit(value) when is_integer(value), do: value |> max(1) |> min(20)
+  defp normalize_signature_limit(_value), do: 6
+
+  @sobelow_skip ["SQL.Query"]
+  defp window_summary(window, filters) do
+    {filter_clause, params} = build_compare_where(filters, 3, "t")
+
+    query = """
+    WITH selected_traces AS (
+      SELECT id, time, agent_id, target, target_ip, target_reached, total_hops, protocol
+      FROM mtr_traces t
+      WHERE t.time >= $1 AND t.time < $2
+      #{filter_clause}
+    ),
+    last_hops AS (
+      SELECT DISTINCT ON (h.trace_id) h.trace_id, h.avg_us
+      FROM mtr_hops h
+      INNER JOIN selected_traces st ON st.id = h.trace_id
+      WHERE h.addr IS NOT NULL
+      ORDER BY h.trace_id, h.hop_number DESC
+    ),
+    hop_loss AS (
+      SELECT h.trace_id, AVG(h.loss_pct)::float AS avg_loss_pct
+      FROM mtr_hops h
+      INNER JOIN selected_traces st ON st.id = h.trace_id
+      GROUP BY h.trace_id
+    )
+    SELECT
+      COUNT(st.id)::bigint AS trace_count,
+      COUNT(st.id) FILTER (WHERE st.target_reached)::bigint AS reached_count,
+      COUNT(st.id) FILTER (WHERE NOT st.target_reached)::bigint AS failed_count,
+      COALESCE(AVG(NULLIF(st.total_hops, 0)), 0)::float AS avg_hops,
+      COALESCE(AVG(NULLIF(lh.avg_us, 0)), 0)::float AS avg_last_hop_us,
+      COALESCE(AVG(hl.avg_loss_pct), 0)::float AS avg_loss_pct,
+      COUNT(DISTINCT st.agent_id)::bigint AS agent_count,
+      COUNT(DISTINCT COALESCE(NULLIF(st.target_ip, ''), st.target))::bigint AS target_count
+    FROM selected_traces st
+    LEFT JOIN last_hops lh ON lh.trace_id = st.id
+    LEFT JOIN hop_loss hl ON hl.trace_id = st.id
+    """
+
+    case Repo.query(query, [window.start, window.end] ++ params) do
+      {:ok,
+       %{
+         rows: [
+           [trace_count, reached_count, failed_count, avg_hops, avg_last_hop_us, avg_loss_pct, agent_count, target_count]
+         ]
+       }} ->
+        {:ok,
+         %{
+           label: window.label,
+           start: window.start,
+           end: window.end,
+           duration_seconds: DateTime.diff(window.end, window.start, :second),
+           trace_count: trace_count || 0,
+           reached_count: reached_count || 0,
+           failed_count: failed_count || 0,
+           success_rate: percent_float(reached_count || 0, trace_count || 0),
+           avg_hops: round_float(avg_hops),
+           avg_last_hop_us: round_float(avg_last_hop_us),
+           avg_loss_pct: round_float(avg_loss_pct),
+           agent_count: agent_count || 0,
+           target_count: target_count || 0
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp window_timeline(window, filters, bucket_count) do
+    {filter_clause, params} = build_compare_where(filters, 4, "t")
+
+    query = """
+    WITH bounds AS (
+      SELECT
+        $1::timestamptz AS start_time,
+        $2::timestamptz AS end_time,
+        GREATEST(($2::timestamptz - $1::timestamptz) / $3::double precision, interval '1 second') AS step
+    ),
+    buckets AS (
+      SELECT
+        start_time + (idx * step) AS bucket_start,
+        step
+      FROM bounds
+      CROSS JOIN generate_series(0, $3::integer - 1) AS idx
+    )
+    SELECT
+      b.bucket_start,
+      b.bucket_start + b.step AS bucket_end,
+      COUNT(t.id)::bigint AS trace_count,
+      COUNT(t.id) FILTER (WHERE t.target_reached)::bigint AS reached_count,
+      COUNT(t.id) FILTER (WHERE NOT t.target_reached)::bigint AS failed_count
+    FROM buckets b
+    LEFT JOIN mtr_traces t
+      ON t.time >= b.bucket_start
+     AND t.time < b.bucket_start + b.step
+     #{filter_clause}
+    GROUP BY b.bucket_start, b.step
+    ORDER BY b.bucket_start ASC
+    """
+
+    case Repo.query(query, [window.start, window.end, bucket_count] ++ params) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp window_route_signatures(window, filters, limit) do
+    {filter_clause, params} = build_compare_where(filters, 4, "t")
+
+    query = """
+    WITH selected_traces AS (
+      SELECT id, time, agent_id, target, target_ip, target_reached, total_hops, protocol
+      FROM mtr_traces t
+      WHERE t.time >= $1 AND t.time < $2
+      #{filter_clause}
+    ),
+    paths AS (
+      SELECT
+        st.id::text AS trace_id,
+        st.time,
+        st.agent_id,
+        st.target,
+        st.target_ip,
+        st.target_reached,
+        array_agg(COALESCE(NULLIF(h.addr, ''), '*') ORDER BY h.hop_number) AS hop_addrs
+      FROM selected_traces st
+      LEFT JOIN mtr_hops h ON h.trace_id = st.id
+      GROUP BY st.id, st.time, st.agent_id, st.target, st.target_ip, st.target_reached
+    ),
+    signed_paths AS (
+      SELECT
+        trace_id,
+        time,
+        agent_id,
+        target,
+        target_ip,
+        target_reached,
+        CASE
+          WHEN hop_addrs IS NULL THEN '*'
+          ELSE array_to_string(hop_addrs, '>')
+        END AS path_signature,
+        CASE
+          WHEN hop_addrs IS NULL THEN '*'
+          ELSE array_to_string(hop_addrs, ' -> ')
+        END AS path_preview
+      FROM paths
+    )
+    SELECT
+      md5(path_signature) AS signature_id,
+      path_preview,
+      COUNT(*)::bigint AS trace_count,
+      COUNT(*) FILTER (WHERE target_reached)::bigint AS reached_count,
+      COUNT(DISTINCT agent_id)::bigint AS agent_count,
+      (array_agg(trace_id ORDER BY time DESC))[1] AS representative_trace_id,
+      MAX(time) AS latest_time,
+      array_agg(DISTINCT agent_id ORDER BY agent_id) AS agent_ids
+    FROM signed_paths
+    GROUP BY path_signature, path_preview
+    ORDER BY COUNT(*) DESC, MAX(time) DESC
+    LIMIT $3
+    """
+
+    case Repo.query(query, [window.start, window.end, limit] ++ params) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp window_agent_comparison(window_a, window_b, filters) do
+    {filter_clause, params} = build_compare_where(filters, 5, "t")
+
+    query = """
+    WITH selected_traces AS (
+      SELECT
+        CASE
+          WHEN t.time >= $1 AND t.time < $2 THEN 'a'
+          WHEN t.time >= $3 AND t.time < $4 THEN 'b'
+        END AS side,
+        t.agent_id,
+        t.target_reached
+      FROM mtr_traces t
+      WHERE ((t.time >= $1 AND t.time < $2) OR (t.time >= $3 AND t.time < $4))
+      #{filter_clause}
+    )
+    SELECT
+      agent_id,
+      COUNT(*) FILTER (WHERE side = 'a')::bigint AS a_trace_count,
+      COUNT(*) FILTER (WHERE side = 'a' AND target_reached)::bigint AS a_reached_count,
+      COUNT(*) FILTER (WHERE side = 'b')::bigint AS b_trace_count,
+      COUNT(*) FILTER (WHERE side = 'b' AND target_reached)::bigint AS b_reached_count
+    FROM selected_traces
+    WHERE side IS NOT NULL
+    GROUP BY agent_id
+    ORDER BY agent_id ASC
+    LIMIT 50
+    """
+
+    case Repo.query(query, [window_a.start, window_a.end, window_b.start, window_b.end] ++ params) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        rows =
+          Enum.map(rows, fn row ->
+            row
+            |> then(&(columns |> Enum.zip(&1) |> Map.new()))
+            |> Map.update!("a_reached_count", &(&1 || 0))
+            |> Map.update!("a_trace_count", &(&1 || 0))
+            |> Map.update!("b_reached_count", &(&1 || 0))
+            |> Map.update!("b_trace_count", &(&1 || 0))
+            |> then(fn agent ->
+              agent
+              |> Map.put("a_success_rate", percent_float(agent["a_reached_count"], agent["a_trace_count"]))
+              |> Map.put("b_success_rate", percent_float(agent["b_reached_count"], agent["b_trace_count"]))
+            end)
+          end)
+
+        {:ok, rows}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp build_compare_where(filters, start_idx, table_alias) do
+    conditions = []
+    params = []
+    idx = start_idx
+    prefix = if table_alias in [nil, ""], do: "", else: "#{table_alias}."
+
+    {conditions, params, idx} =
+      case Map.get(filters, :target_filter, "") do
+        "" ->
+          {conditions, params, idx}
+
+        target_filter ->
+          condition = "(#{prefix}target ILIKE $#{idx} OR #{prefix}target_ip ILIKE $#{idx})"
+          {conditions ++ [condition], params ++ ["%#{target_filter}%"], idx + 1}
+      end
+
+    {conditions, params, idx} =
+      case Map.get(filters, :agent_filter, "") do
+        "" ->
+          {conditions, params, idx}
+
+        agent_filter ->
+          {conditions ++ ["#{prefix}agent_id ILIKE $#{idx}"], params ++ ["%#{agent_filter}%"], idx + 1}
+      end
+
+    {conditions, params, idx} =
+      case Map.get(filters, :protocol, "") do
+        "" ->
+          {conditions, params, idx}
+
+        protocol ->
+          {conditions ++ ["#{prefix}protocol = $#{idx}"], params ++ [protocol], idx + 1}
+      end
+
+    {conditions, params, _idx} =
+      case Map.get(filters, :reached, :any) do
+        :any ->
+          {conditions, params, idx}
+
+        reached? when is_boolean(reached?) ->
+          {conditions ++ ["#{prefix}target_reached = $#{idx}"], params ++ [reached?], idx + 1}
+      end
+
+    clause =
+      case conditions do
+        [] -> ""
+        _ -> "AND " <> Enum.join(conditions, " AND ")
+      end
+
+    {clause, params}
+  end
+
+  defp window_deltas(a, b) do
+    %{
+      trace_count: (a.trace_count || 0) - (b.trace_count || 0),
+      success_rate: round_float((a.success_rate || 0.0) - (b.success_rate || 0.0)),
+      avg_hops: round_float((a.avg_hops || 0.0) - (b.avg_hops || 0.0)),
+      avg_last_hop_us: round_float((a.avg_last_hop_us || 0.0) - (b.avg_last_hop_us || 0.0)),
+      avg_loss_pct: round_float((a.avg_loss_pct || 0.0) - (b.avg_loss_pct || 0.0))
+    }
+  end
+
+  defp same_duration?(window_a, window_b) do
+    DateTime.diff(window_a.end, window_a.start, :second) ==
+      DateTime.diff(window_b.end, window_b.start, :second)
+  end
+
+  defp percent_float(_value, total) when total in [0, 0.0, nil], do: 0.0
+
+  defp percent_float(value, total) do
+    value
+    |> Kernel./(total)
+    |> Kernel.*(100)
+    |> Float.round(1)
+  end
+
+  defp round_float(nil), do: 0.0
+  defp round_float(value) when is_integer(value), do: value * 1.0
+  defp round_float(value) when is_float(value), do: Float.round(value, 1)
+  defp round_float(_value), do: 0.0
 
   defp build_trace_conditions(target_filter, agent_filter, device_uid, device_ip) do
     conditions = []
