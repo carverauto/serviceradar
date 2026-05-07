@@ -12,7 +12,7 @@
 
 ## 3. Settings UI
 - [x] 3.1 Add Settings -> Networks -> Credential Rules navigation.
-- [ ] 3.2 Build list/create/edit/disable/test flows using existing settings UI patterns.
+- [x] 3.2 Build list/create/edit/disable/test flows using existing settings UI patterns.
 - [ ] 3.3 Add Proxmox PVE API provider preset fields for token ID, token secret, realm, and TLS policy.
 - [ ] 3.4 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
 - [ ] 3.5 Add LiveView/controller tests for authorization, validation, redaction, and preview behavior.

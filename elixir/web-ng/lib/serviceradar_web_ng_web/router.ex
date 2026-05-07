@@ -564,6 +564,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
       live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
+      live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
+      live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
       live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
