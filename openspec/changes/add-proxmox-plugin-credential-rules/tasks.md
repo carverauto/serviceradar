@@ -49,7 +49,7 @@
 - [x] 6.7 Leave vSphere/vCenter provider IDs and schema affordances in place without implementing vCenter ingestion yet.
 
 ## 7. UI and Documentation
-- [ ] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
+- [x] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
 - [ ] 7.2 Add edge agent/gateway console broker for SSH host sessions and optional Proxmox termproxy/vncwebsocket sessions.
 - [ ] 7.3 Build React/xterm.js terminal component mounted from Phoenix/LiveView using existing web-ng React integration.
 - [ ] 7.4 Add device details actions for "Open PVE shell", "Open VM console", and "Open LXC console" only when policy and reachability allow them.
