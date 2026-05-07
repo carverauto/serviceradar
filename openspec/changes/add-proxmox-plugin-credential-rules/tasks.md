@@ -55,6 +55,7 @@
 - [ ] 7.4 Add device details actions for "Open PVE shell", "Open VM console", and "Open LXC console" only when policy and reachability allow them.
 - [ ] 7.5 Add idle timeout, absolute session timeout, resize handling, close handling, and error rendering.
 - [ ] 7.6 Add tests for console RBAC, ticket single-use semantics, credential redaction, and agent-scope denial.
+- [x] 7.7 Add first-party Proxmox console plugin package metadata and materialize `console_access` credential rules to scoped console streaming assignments.
 
 ## 8. UI and Documentation
 - [x] 8.1 Surface Proxmox enrichment on device details and topology views.

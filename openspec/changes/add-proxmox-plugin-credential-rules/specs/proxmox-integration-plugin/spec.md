@@ -63,3 +63,18 @@ The Proxmox plugin SHALL never include raw Proxmox API tokens, passwords, ticket
 - **WHEN** the plugin emits result details
 - **THEN** any credential-bearing values SHALL be redacted
 - **AND** error bodies SHALL be length-bounded
+
+### Requirement: First-party Proxmox console plugin package
+The system SHALL provide a first-party Proxmox console plugin package that uses the ServiceRadar console stream bridge and is assigned only through scoped `console_access` credential rules.
+
+#### Scenario: Console plugin assignment is credential-rule scoped
+- **GIVEN** an enabled Proxmox network credential rule with purpose `console_access`
+- **WHEN** credential rule reconciliation runs for an in-scope agent
+- **THEN** the system SHALL materialize a policy-derived assignment for the Proxmox console plugin package
+- **AND** the assignment SHALL include a credential broker grant and credential rule identifier
+- **AND** it SHALL NOT include decrypted SSH keys, passwords, API tokens, Proxmox tickets, CSRF tokens, or cookies
+
+#### Scenario: Console package is importable
+- **GIVEN** the first-party Wasm plugin bundles are built
+- **WHEN** an operator imports first-party plugin packages
+- **THEN** the Proxmox console plugin SHALL appear in the plugin catalog with manifest metadata, config schema, resource requests, and `proxmox_console_stream` capability requirements

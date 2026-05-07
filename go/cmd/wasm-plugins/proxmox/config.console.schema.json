@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "credential_broker": {
+      "type": "object",
+      "description": "Injected credential broker grant for the scoped console credential rule."
+    },
+    "credential_rule_id": {
+      "type": "string",
+      "description": "Network credential rule that authorized this console plugin assignment."
+    },
+    "console": {
+      "type": "object",
+      "description": "Injected non-secret console session context from the agent streaming runtime."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Console connector timeout in milliseconds.",
+      "default": 30000
+    },
+    "ssh_host_key_policy": {
+      "type": "string",
+      "description": "SSH host key verification policy.",
+      "enum": ["known_hosts", "trust_on_first_use", "skip_verify"],
+      "default": "known_hosts"
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "description": "Allow TLS verification bypass for Proxmox API console transports.",
+      "default": false
+    }
+  },
+  "required": ["credential_broker", "credential_rule_id"]
+}

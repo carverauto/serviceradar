@@ -310,3 +310,21 @@ func TestConfigSchemaDoesNotExposeRawAPIToken(t *testing.T) {
 		t.Fatal("published target schema must not expose raw api_token")
 	}
 }
+
+func TestValidateConsoleConfigRequiresScopedBroker(t *testing.T) {
+	cfg := consoleConfig{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+		Console:          consoleContext{SessionID: "session-1"},
+		TimeoutMS:        defaultTimeoutMS,
+	}
+
+	if err := validateConsoleConfig(cfg); err != nil {
+		t.Fatalf("validateConsoleConfig returned error: %v", err)
+	}
+
+	cfg.CredentialBroker = nil
+	if err := validateConsoleConfig(cfg); err == nil || !strings.Contains(err.Error(), "credential_broker") {
+		t.Fatalf("expected credential_broker validation error, got %v", err)
+	}
+}
