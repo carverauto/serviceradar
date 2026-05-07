@@ -561,6 +561,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           delta={@comparison.deltas.success_rate}
           unit="points"
           higher_is_better={true}
+          a_path={diagnostics_window_path(@state, :a)}
+          b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
           label="Trace Volume"
@@ -569,6 +571,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           delta={@comparison.deltas.trace_count}
           unit="traces"
           higher_is_better={true}
+          a_path={diagnostics_window_path(@state, :a)}
+          b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
           label="Last-Hop Latency"
@@ -577,6 +581,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           delta={@comparison.deltas.avg_last_hop_us}
           unit="latency_us"
           higher_is_better={false}
+          a_path={diagnostics_window_path(@state, :a)}
+          b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
           label="Avg Hop Loss"
@@ -585,6 +591,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           delta={@comparison.deltas.avg_loss_pct}
           unit="points"
           higher_is_better={false}
+          a_path={diagnostics_window_path(@state, :a)}
+          b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
           label="Hop Depth"
@@ -593,12 +601,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           delta={@comparison.deltas.avg_hops}
           unit="hops"
           higher_is_better={false}
+          a_path={diagnostics_window_path(@state, :a)}
+          b_path={diagnostics_window_path(@state, :b)}
         />
       </div>
 
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <.window_timeline title={@comparison.a.label} rows={@comparison.a.timeline} />
-        <.window_timeline title={@comparison.b.label} rows={@comparison.b.timeline} />
+        <.window_timeline title={@comparison.a.label} rows={@comparison.a.timeline} state={@state} />
+        <.window_timeline title={@comparison.b.label} rows={@comparison.b.timeline} state={@state} />
       </div>
 
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -612,7 +622,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         />
       </div>
 
-      <.agent_matrix rows={@comparison.agents} />
+      <.agent_matrix rows={@comparison.agents} state={@state} />
     </div>
     """
   end
@@ -623,7 +633,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp window_summary_header(assigns) do
     ~H"""
-    <div class="sr-mtr-card p-4">
+    <.link
+      navigate={diagnostics_window_path(@state, @side)}
+      class="sr-mtr-card sr-mtr-clickable-card block p-4"
+      title={"View #{@summary.label} traces"}
+    >
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="sr-mtr-label">{@summary.label}</div>
@@ -646,12 +660,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           >
             {radial_value(@summary.success_rate)}%
           </div>
-          <.link navigate={diagnostics_window_path(@state, @side)} class="btn btn-sm btn-outline">
+          <div class="btn btn-sm btn-outline pointer-events-none">
             View Traces
-          </.link>
+          </div>
         </div>
       </div>
-    </div>
+    </.link>
     """
   end
 
@@ -661,20 +675,30 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   attr(:delta, :any, required: true)
   attr(:unit, :string, default: "")
   attr(:higher_is_better, :boolean, default: true)
+  attr(:a_path, :string, required: true)
+  attr(:b_path, :string, required: true)
 
   defp compare_metric_card(assigns) do
     ~H"""
     <div class="sr-mtr-card p-4">
       <div class="sr-mtr-label">{@label}</div>
       <div class="mt-3 grid grid-cols-2 gap-3">
-        <div>
+        <.link
+          navigate={@a_path}
+          class="sr-mtr-metric-link block rounded-md p-2"
+          title={"View Window A traces for #{@label}"}
+        >
           <div class="sr-mtr-muted text-xs">Window A</div>
           <div class="sr-mtr-value text-2xl">{@a_value}</div>
-        </div>
-        <div>
+        </.link>
+        <.link
+          navigate={@b_path}
+          class="sr-mtr-metric-link block rounded-md p-2"
+          title={"View Window B traces for #{@label}"}
+        >
           <div class="sr-mtr-muted text-xs">Window B</div>
           <div class="sr-mtr-value text-2xl">{@b_value}</div>
-        </div>
+        </.link>
       </div>
       <div class={["badge badge-sm mt-3", delta_badge_class(@delta, @higher_is_better)]}>
         {format_delta(@delta, @unit)}
@@ -685,6 +709,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   attr(:title, :string, required: true)
   attr(:rows, :list, required: true)
+  attr(:state, :map, required: true)
 
   defp window_timeline(assigns) do
     ~H"""
@@ -694,12 +719,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         <div class="sr-mtr-muted text-xs">left to right</div>
       </div>
       <div class="sr-mtr-outcome-strip mt-4" role="list">
-        <span
+        <.link
           :for={row <- @rows}
+          navigate={diagnostics_bucket_path(row, @state)}
           role="listitem"
           class={["sr-mtr-outcome-dot", timeline_bucket_class(row)]}
           title={timeline_bucket_title(row)}
-        />
+          aria-label={timeline_bucket_title(row)}
+        >
+          <span class="sr-only">{timeline_bucket_title(row)}</span>
+        </.link>
       </div>
       <div class="mt-3 flex flex-wrap gap-3 text-xs">
         <span class="sr-mtr-muted">Buckets {length(@rows)}</span>
@@ -722,7 +751,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         <div class="sr-mtr-muted text-xs">most common first</div>
       </div>
       <div class="mt-4 space-y-3">
-        <div :for={signature <- @signatures} class="sr-mtr-subpanel p-3">
+        <.link
+          :for={signature <- Enum.filter(@signatures, & &1["representative_trace_id"])}
+          navigate={~p"/diagnostics/mtr/#{signature["representative_trace_id"]}"}
+          class="sr-mtr-subpanel sr-mtr-clickable-card block p-3"
+          title="Inspect representative trace"
+        >
           <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div class="min-w-0">
               <div class="font-mono text-xs sr-mtr-title break-words">
@@ -732,13 +766,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
                 {signature["trace_count"]} traces, {signature["agent_count"]} agents
               </div>
             </div>
-            <.link
-              :if={signature["representative_trace_id"]}
-              navigate={~p"/diagnostics/mtr/#{signature["representative_trace_id"]}"}
-              class="btn btn-xs btn-outline shrink-0"
-            >
+            <div class="btn btn-xs btn-outline shrink-0 pointer-events-none">
               Inspect
-            </.link>
+            </div>
+          </div>
+        </.link>
+        <div
+          :for={signature <- Enum.reject(@signatures, & &1["representative_trace_id"])}
+          class="sr-mtr-subpanel p-3"
+        >
+          <div class="font-mono text-xs sr-mtr-title break-words">
+            {signature["path_preview"]}
+          </div>
+          <div class="sr-mtr-muted mt-1 text-xs">
+            {signature["trace_count"]} traces, {signature["agent_count"]} agents
           </div>
         </div>
         <div :if={@signatures == []} class="sr-mtr-muted text-sm">
@@ -750,6 +791,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   attr(:rows, :list, required: true)
+  attr(:state, :map, required: true)
 
   defp agent_matrix(assigns) do
     ~H"""
@@ -770,12 +812,32 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           </thead>
           <tbody>
             <tr :for={row <- @rows}>
-              <td class="font-mono text-xs">{row["agent_id"]}</td>
-              <td class="text-right">
-                {format_percent(row["a_success_rate"])} ({row["a_trace_count"]})
+              <td class="font-mono text-xs">
+                <.link
+                  navigate={compare_agent_path(@state, row["agent_id"])}
+                  class="link link-hover sr-mtr-title"
+                  title={"Compare only #{row["agent_id"]}"}
+                >
+                  {row["agent_id"]}
+                </.link>
               </td>
               <td class="text-right">
-                {format_percent(row["b_success_rate"])} ({row["b_trace_count"]})
+                <.link
+                  navigate={diagnostics_agent_window_path(@state, :a, row["agent_id"])}
+                  class="link link-hover sr-mtr-title"
+                  title={"View Window A traces for #{row["agent_id"]}"}
+                >
+                  {format_percent(row["a_success_rate"])} ({row["a_trace_count"]})
+                </.link>
+              </td>
+              <td class="text-right">
+                <.link
+                  navigate={diagnostics_agent_window_path(@state, :b, row["agent_id"])}
+                  class="link link-hover sr-mtr-title"
+                  title={"View Window B traces for #{row["agent_id"]}"}
+                >
+                  {format_percent(row["b_success_rate"])} ({row["b_trace_count"]})
+                </.link>
               </td>
               <td class="text-right">
                 <span class={[
@@ -820,12 +882,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp preset_windows(@preset_today_vs_yesterday, _params, now) do
     today_start = start_of_utc_day(now)
-    elapsed = max(DateTime.diff(now, today_start, :second), 60)
     yesterday_start = DateTime.add(today_start, -1, :day)
 
     {
       %{label: "Today so far", start: today_start, end: now},
-      %{label: "Yesterday same hours", start: yesterday_start, end: DateTime.add(yesterday_start, elapsed, :second)}
+      %{label: "Yesterday full day", start: yesterday_start, end: today_start}
     }
   end
 
@@ -957,6 +1018,29 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     "/diagnostics/mtr?#{URI.encode_query(%{"q" => query, "limit" => 50})}"
   end
 
+  defp diagnostics_agent_window_path(state, side, agent_id) do
+    state
+    |> Map.put(:agent_filter, normalize_text(agent_id))
+    |> diagnostics_window_path(side)
+  end
+
+  defp compare_agent_path(state, agent_id) do
+    state
+    |> window_state_to_params()
+    |> Map.put("agent", normalize_text(agent_id))
+    |> compare_path()
+  end
+
+  defp diagnostics_bucket_path(row, state) do
+    window = %{
+      start: Map.get(row, "bucket_start"),
+      end: Map.get(row, "bucket_end")
+    }
+
+    query = diagnostics_query(window, state)
+    "/diagnostics/mtr?#{URI.encode_query(%{"q" => query, "limit" => 50})}"
+  end
+
   defp diagnostics_query(window, state) do
     [
       "in:mtr_traces",
@@ -971,6 +1055,33 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" ")
   end
+
+  defp window_state_to_params(state) do
+    maybe_put_custom_state_window_params(
+      %{
+        "mode" => @mode_window,
+        "preset" => state.preset,
+        "target" => state.target_filter,
+        "agent" => state.agent_filter,
+        "protocol" => state.protocol,
+        "reached" => state.reached
+      },
+      state
+    )
+  end
+
+  defp maybe_put_custom_state_window_params(%{"preset" => @preset_custom} = params, state) do
+    params
+    |> Map.put("a_start", window_param_value(state.window_a.start))
+    |> Map.put("a_end", window_param_value(state.window_a.end))
+    |> Map.put("b_start", window_param_value(state.window_b.start))
+    |> Map.put("b_end", window_param_value(state.window_b.end))
+  end
+
+  defp maybe_put_custom_state_window_params(params, _state), do: params
+
+  defp window_param_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp window_param_value(_), do: ""
 
   defp preset_options do
     [
@@ -1098,8 +1209,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp timeline_bucket_title(row) do
-    "#{format_time(Map.get(row, "bucket_start"))}: #{Map.get(row, "trace_count") || 0} traces, #{Map.get(row, "reached_count") || 0} reached"
+    trace_count = Map.get(row, "trace_count") || 0
+    reached_count = Map.get(row, "reached_count") || 0
+    failed_count = Map.get(row, "failed_count") || 0
+
+    "#{format_bucket_time(Map.get(row, "bucket_start"))} to #{format_bucket_time(Map.get(row, "bucket_end"))}: #{trace_count} traces, #{reached_count} reached, #{failed_count} failed"
   end
+
+  defp format_bucket_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%a %Y-%m-%d %H:%M UTC")
+  defp format_bucket_time(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%a %Y-%m-%d %H:%M UTC")
+  defp format_bucket_time(_), do: "-"
 
   defp radial_value(value) when is_integer(value) or is_float(value) do
     value

@@ -4,7 +4,7 @@ The MTR comparison page exists, but it only compares two selected trace IDs. A p
 ## Goals
 - Compare two individual traces with the existing hop diff behavior.
 - Compare aggregate windows with uneven sample counts.
-- Make partial-day comparisons fair by comparing equal elapsed durations by default.
+- Make the daily baseline complete by comparing today so far against yesterday's full 24-hour day by default.
 - Provide visuals that guide operators to changed paths, degraded reachability, increased latency/loss, or source-agent-specific behavior.
 - Preserve evidence: every aggregate and visual segment must expose the backing traces or an SRQL/deep link that can show them.
 
@@ -17,8 +17,8 @@ The MTR comparison page exists, but it only compares two selected trace IDs. A p
 - Add a comparison mode model in `MtrCompare`:
   - `trace` compares two selected trace IDs.
   - `window` compares two time windows over matching filters.
-- Use elapsed-aligned default windows:
-  - `today_vs_yesterday` compares midnight-to-now today against midnight-to-now yesterday.
+- Use purpose-specific default windows:
+  - `today_vs_yesterday` compares midnight-to-now today against yesterday's complete midnight-to-midnight day.
   - `last_N_hours_vs_previous` compares two equal N-hour windows.
   - `custom` allows explicit `a_start`, `a_end`, `b_start`, and `b_end`.
 - Aggregate window summaries in `MtrData` with SQL over `mtr_traces` and `mtr_hops`, using bounded query limits and bucket counts suitable for retained-history UI.
@@ -38,18 +38,19 @@ The MTR comparison page exists, but it only compares two selected trace IDs. A p
   - dominant path signature comparison with route-change counts
   - source-agent comparison matrix when multiple agents are present
 - Drill-down:
-  - visual segments link or patch to the filtered MTR diagnostics query for the selected window
+  - window summary cards and paired metric values link to the filtered MTR diagnostics query for the selected window
+  - availability timeline buckets link to filtered MTR trace lists for the bucket start/end and active filters
   - dominant route rows list representative trace IDs for direct trace inspection
+  - source-agent rows link back into an agent-filtered comparison, while per-window source values link to that agent's matching traces
 
 ## Partial Timeline Handling
-For incomplete current periods, the default comparator SHALL align the baseline window to the same elapsed duration. For example, at 09:30 today:
+For daily comparisons, the default comparator SHALL preserve yesterday as the complete baseline day. For example, at 09:30 today:
 - Window A: today 00:00 through today 09:30
-- Window B: yesterday 00:00 through yesterday 09:30
+- Window B: yesterday 00:00 through today 00:00
 
-The UI will state that comparison is elapsed-aligned and show sample counts for each side so sparse data is visible instead of hidden.
+The UI will show sample counts for each side so sparse or partial current-day data is visible instead of hidden. Rolling-hour presets remain elapsed-aligned because their purpose is direct period-over-period comparison.
 
 ## Risks / Trade-offs
 - Aggregating hop data can be expensive over large retention windows. Mitigation: bound defaults, query only selected windows, aggregate in SQL, and cap representative traces.
 - Path signatures can differ because of non-responding hops. Mitigation: normalize blank/nonresponding hops as placeholders and show confidence/sample counts.
 - A highly interactive draggable timeline can become costly. Mitigation: first implementation uses a compact weekly timeline plus form-backed range selection; richer drag behavior can build on the same state model.
-
