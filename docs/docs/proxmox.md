@@ -35,6 +35,28 @@ In this mode, the token is configured only on the edge agent host or in agent-lo
 
 Agent-local mode should still use a narrow target set. Do not pair a broad scan range with a powerful local token.
 
+For SSH-backed PVE host consoles, the agent can load a local credential file configured with `proxmox_console_credentials_file` in `agent.json`, the `SERVICERADAR_PROXMOX_CONSOLE_CREDENTIALS_FILE` environment variable, or the default `proxmox-console-credentials.json` next to the agent config when that file exists. The file must be readable only by the agent user, for example mode `0600`.
+
+Example:
+
+```json
+{
+  "version": 1,
+  "credentials": [
+    {
+      "credential_rule_id": "018f3f56-1111-7222-8333-123456789abc",
+      "credential_secret_ref": "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+      "auth_method": "ssh_private_key",
+      "username": "serviceradar-console",
+      "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "passphrase": "optional-passphrase"
+    }
+  ]
+}
+```
+
+The central console assignment still carries only the credential broker grant and target metadata. The Wasm console plugin delegates SSH to the agent host connector, and only the agent host process reads this local file.
+
 ## Proxmox API Token Format
 
 ServiceRadar expects the PVE API token identity and secret in the standard header form:
@@ -149,6 +171,54 @@ When SSH-backed console access is enabled, use a dedicated key and a dedicated o
 Store SSH private keys through encrypted credential rules when central management is acceptable. For high-sensitivity deployments, store the key only in agent-local configuration and restrict the rule to the local agent or gateway that brokers the console session. In both modes, display only the public fingerprint, track rotation metadata, and never render the private key or passphrase back in the UI.
 
 Console credentials should be separate from Proxmox API tokens. API tokens remain read-only for inventory; SSH keys are only released to the console broker after RBAC approval, short-lived session ticket issuance, and agent-scope checks.
+
+## Console Session Security Model
+
+Console access is separate from inventory enrichment. A user who can view a Proxmox device, or who can manage read-only Proxmox API tokens, does not automatically receive shell access. Console launch must require a dedicated RBAC permission for Proxmox console use, a matching console credential rule, and an eligible edge agent or gateway that is inside the rule scope for the target device.
+
+The control plane should treat console launch as a short-lived, audited session:
+
+1. The operator opens a PVE host shell from device details. VM and LXC console requests remain unavailable until a native Proxmox guest console connector is enabled.
+2. Web-ng authorizes the user, resolves the canonical target, checks the credential rule scope, and selects the eligible edge path.
+3. Web-ng creates a short-lived, single-use console ticket bound to the user, target device or guest, console mode, selected agent/gateway, credential reference, issue time, and expiration time.
+4. The browser attaches to the web terminal websocket with the ticket. The ticket is consumed on first successful attach and cannot be reused.
+5. Web-ng proxies terminal frames to the edge console broker over the authenticated edge channel.
+6. The edge broker resolves only the scoped credential needed for that session and opens the requested SSH path. Proxmox `termproxy` and `vncwebsocket` modes must return an unsupported-console response until a native guest connector is enabled.
+
+The browser, URL, websocket metadata, audit payload, and UI errors must never contain SSH private keys, SSH passphrases, Proxmox API tokens, Proxmox tickets, cookies, or CSRF tokens. The WASM Proxmox inventory plugin is not part of the interactive console path and must not receive SSH private key material for console sessions.
+
+### Console Audit Events
+
+Emit audit events for every material console lifecycle transition:
+
+- ticket requested, granted, denied, expired, and reused
+- session opened, broker connected, broker denied, disconnected, closed, idle timeout, absolute timeout, and agent disconnect
+- credential rule mismatch, missing credential, credential resolution failure, target reachability failure, and unsupported console mode
+
+Audit payloads should identify the actor, target device or guest, target kind, session ID, credential rule ID, credential public fingerprint or token identity, selected agent/gateway, source IP or user session ID, start time, end time, duration, close reason, and sanitized failure phase. Do not record terminal input, terminal output, full command transcripts, private keys, passphrases, tickets, cookies, or token secrets by default. If transcript recording is ever added, it should be a separate policy-controlled feature with explicit retention and access rules.
+
+Ash PaperTrail should be used for credential rule and console-policy changes where practical, so operators can answer who changed a credential, scope, RBAC rule, timeout, or console setting. Runtime console lifecycle events can use the operational audit stream, but they should still share stable IDs with the PaperTrail records for related policy and credential changes.
+
+### Console Timeouts And Limits
+
+Use bounded defaults for console sessions:
+
+- Ticket TTL: short, preferably about 60 seconds.
+- Ticket use: single-use; a second attach attempt is rejected without resolving credentials.
+- Idle timeout: close after a configured quiet period, for example 10 minutes without terminal input or output.
+- Absolute timeout: close after a configured maximum duration, for example 1 hour.
+- Disconnect handling: close the session when the browser disconnects, the selected edge agent disconnects, RBAC is revoked, or the credential grant expires.
+- Concurrency: cap concurrent sessions per user, per device, and per edge agent to protect the broker and PVE hosts.
+
+Close events must include a sanitized reason in the terminal UI and an audit event. Timeout and disconnect paths should revoke any outstanding broker grant and release the PTY or Proxmox console process on the edge agent.
+
+### Console Credential Guidance
+
+Use separate credential rules for console access and inventory enrichment. Inventory API tokens should remain read-only. Console credentials should use dedicated operating-system users, dedicated SSH keys, and the narrowest SRQL target query and agent/gateway scope that matches the environment.
+
+For centrally managed deployments, store console private keys through encrypted credential rules and display only the public fingerprint and rotation metadata. For deployments that do not want console keys in the control plane, keep console keys in agent-local configuration and scope the rule to that local edge path. In either mode, a hacked or rogue agent should only be able to request credentials for targets explicitly assigned to that agent, and broker grants should expire with the session.
+
+TPM-backed or enclave-backed credential brokers would provide stronger protection for high-assurance deployments, but they are not required for the first implementation.
 
 ## Collected Data
 

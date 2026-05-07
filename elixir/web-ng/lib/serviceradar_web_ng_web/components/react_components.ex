@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   """
   use Phoenix.Component
 
+  import Phoenix.ReactServer.Helper
+
   @doc """
   Renders the GoRules JDM editor for Zen rule definitions.
 
@@ -63,6 +65,49 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         <span class="loading loading-spinner loading-lg"></span>
         <span class="ml-3">Loading decision editor...</span>
       </div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :session_id, :string, required: true
+  attr :ticket, :string, required: true
+  attr :websocket_path, :string, required: true
+  attr :title, :string, default: "Proxmox console"
+  attr :subtitle, :string, default: ""
+  attr :class, :string, default: ""
+
+  def proxmox_console_terminal(assigns) do
+    assigns =
+      assigns
+      |> assign(:props, %{
+        sessionId: assigns.session_id,
+        ticket: assigns.ticket,
+        websocketPath: assigns.websocket_path,
+        title: assigns.title,
+        subtitle: assigns.subtitle
+      })
+      |> assign(:render_props, %{
+        sessionId: assigns.session_id,
+        ticket: "",
+        websocketPath: assigns.websocket_path,
+        title: assigns.title,
+        subtitle: assigns.subtitle
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["h-full min-h-0 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="ProxmoxConsoleTerminal"
+      data-props={Jason.encode!(@props)}
+    >
+      {react_component(%{
+        component: "ProxmoxConsoleTerminal",
+        props: @render_props,
+        static: false
+      })}
     </div>
     """
   end

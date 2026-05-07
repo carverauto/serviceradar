@@ -551,7 +551,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           name: "vmbr0",
           interface_type: "bridge",
           active: true,
-          address: "192.168.2.10",
+          address: "192.0.2.10",
           bridge_ports: "eno1",
           observed_at: observed_at
         }
@@ -606,6 +606,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Ceph"
     assert html =~ "HEALTH_OK"
     assert html =~ "1 running"
+    assert html =~ "Open PVE shell"
+    assert html =~ "target_kind=pve_host"
+    assert html =~ "console_mode=ssh"
   end
 
   describe "device show page interfaces tab" do

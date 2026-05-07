@@ -144,7 +144,7 @@ func TestRunProxmoxCredentialTest_RejectsDirectAPITokenPayload(t *testing.T) {
 			Hostname:  "pve-a",
 		},
 		TimeoutMS: 1000,
-	}, nil)
+	})
 	if err == nil || err.Error() != "direct proxmox api token payloads are not allowed" {
 		t.Fatalf("expected direct token rejection, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRunProxmoxCredentialTest_RequiresCredentialBrokerGrant(t *testing.T) {
 
 	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
 		Target: proxmoxTestTarget{BaseURL: "https://pve.example:8006"},
-	}, nil)
+	})
 	if err == nil || err.Error() != "missing proxmox credential broker grant" {
 		t.Fatalf("expected missing broker grant error, got %v", err)
 	}
@@ -175,7 +175,7 @@ func TestRunProxmoxCredentialTest_BrokerGrantDoesNotExposeSecret(t *testing.T) {
 			BaseURL:   "https://pve.example:8006",
 			Hostname:  "pve-a",
 		},
-	}, nil)
+	})
 	if err == nil || err.Error() != "credential broker unavailable" {
 		t.Fatalf("expected broker unavailable error, got %v", err)
 	}
@@ -247,5 +247,36 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 	}
 	if hello.GetConfigSource() != "remote" {
 		t.Fatalf("hello.ConfigSource = %q, want %q", hello.GetConfigSource(), "remote")
+	}
+}
+
+func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
+	t.Parallel()
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	loop.handleConsoleFrame(&proto.ConsoleFrame{
+		SessionId: "console-session-1",
+		FrameType: consoleFrameTypeOpen,
+	}, sender)
+
+	if len(stream.sent) != 1 {
+		t.Fatalf("expected one console response frame, got %d", len(stream.sent))
+	}
+
+	frame := stream.sent[0].GetConsoleFrame()
+	if frame == nil {
+		t.Fatal("expected console frame response")
+	}
+	if frame.GetSessionId() != "console-session-1" {
+		t.Fatalf("SessionId = %q, want console-session-1", frame.GetSessionId())
+	}
+	if frame.GetFrameType() != consoleFrameTypeError {
+		t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), consoleFrameTypeError)
+	}
+	if frame.GetReason() != "proxmox console PTY bridge unavailable" {
+		t.Fatalf("Reason = %q", frame.GetReason())
 	}
 }

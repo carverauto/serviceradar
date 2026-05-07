@@ -333,7 +333,7 @@ func loadRunConfig(path string) (*runConfig, error) {
 	return &cfg, nil
 }
 
-func (c *runConfig) normalize() error {
+func (c *runConfig) normalize() error { //nolint:gocyclo // CLI mode normalization intentionally centralizes validation.
 	if c == nil {
 		return errBaselineConfigRequired
 	}
