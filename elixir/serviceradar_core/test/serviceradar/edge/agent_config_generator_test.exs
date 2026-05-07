@@ -548,6 +548,37 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     alias ServiceRadar.ProcessRegistry
     alias ServiceRadar.SweepJobs.SweepGroup
 
+    test "sweep metadata recompilation does not change agent config version", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "stable-sweep-agent-#{unique_id}"
+
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Stable Version Sweep #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            static_targets: ["192.168.44.10"],
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+
+      Process.sleep(5)
+      ConfigServer.invalidate(:sweep)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config1.config_version == config2.config_version
+    end
+
     test "unregistered agent receives sweep config from default partition", %{
       actor: actor,
       unique_id: unique_id

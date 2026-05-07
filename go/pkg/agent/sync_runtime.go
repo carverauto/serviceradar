@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -470,31 +471,22 @@ func newArmisClient(source models.SourceConfig) *armisClient {
 }
 
 func (c *armisClient) accessToken(ctx context.Context, creds map[string]string) (string, error) {
-	url, err := c.resolveURL(armisAccessTokenPath)
+	endpoint, err := c.resolveURL(armisAccessTokenPath)
 	if err != nil {
 		return "", err
 	}
 
-	payload := map[string]string{}
-	if creds != nil {
-		if value := creds["api_key"]; value != "" {
-			payload["api_key"] = value
-		}
-		if value := creds["api_secret"]; value != "" {
-			payload["api_secret"] = value
-		}
+	form := url.Values{}
+	if secretKey := armisSecretKey(creds); secretKey != "" {
+		form.Set("secret_key", secretKey)
 	}
 
-	body, err := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.client().Do(req)
 	if err != nil {
@@ -505,6 +497,11 @@ func (c *armisClient) accessToken(ctx context.Context, creds map[string]string) 
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if len(body) > 0 {
+			return "", fmt.Errorf("%w: %s: %s", errArmisTokenRequestFailed, resp.Status, strings.TrimSpace(string(body)))
+		}
+
 		return "", fmt.Errorf("%w: %s", errArmisTokenRequestFailed, resp.Status)
 	}
 
@@ -516,6 +513,16 @@ func (c *armisClient) accessToken(ctx context.Context, creds map[string]string) 
 		return "", errArmisTokenMissingAccessToken
 	}
 	return token.Data.AccessToken, nil
+}
+
+func armisSecretKey(creds map[string]string) string {
+	for _, key := range []string{"secret_key", "api_secret", "api_key"} {
+		if value := strings.TrimSpace(creds[key]); value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func (c *armisClient) search(ctx context.Context, token string, query string, from int, length int) (*armisSearchResponse, error) {

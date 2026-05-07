@@ -29,6 +29,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
@@ -768,23 +769,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Enum.sort_by(& &1.assignment_id)
       |> Enum.map(&stable_plugin_assignment/1)
 
-    # Serialize deterministically for hashing (works for any Erlang term).
-    bin =
-      :erlang.term_to_binary(%{
-        checks: sorted_checks,
-        sync: sync_payload,
-        sysmon: sysmon_config,
-        snmp: snmp_config,
-        plugins: sorted_plugins,
-        plugin_engine_limits: plugin_engine_limits
-      })
+    version_payload = %{
+      checks: sorted_checks,
+      sync: stable_config_fragment(sync_payload),
+      sysmon: stable_config_fragment(sysmon_config),
+      snmp: stable_config_fragment(snmp_config),
+      plugins: sorted_plugins,
+      plugin_engine_limits: plugin_engine_limits
+    }
 
-    # Compute SHA256 hash
-    hash = :crypto.hash(:sha256, bin)
-
-    # Return as hex string with "v" prefix
-    "v" <> Base.encode16(hash, case: :lower)
+    "v" <> Compiler.content_hash(version_payload)
   end
+
+  defp stable_config_fragment(%{} = map) do
+    map
+    |> Map.drop([:compiled_at, "compiled_at", :generated_at, "generated_at"])
+    |> Map.new(fn {key, value} -> {key, stable_config_fragment(value)} end)
+  end
+
+  defp stable_config_fragment(list) when is_list(list),
+    do: Enum.map(list, &stable_config_fragment/1)
+
+  defp stable_config_fragment(value), do: value
 
   defp stable_plugin_assignment(assignment) when is_map(assignment) do
     assignment

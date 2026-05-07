@@ -676,17 +676,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp default_token_fetcher(source) do
     credentials = credentials(source)
-    api_key = Map.get(credentials, "api_key") || Map.get(credentials, :api_key)
-    api_secret = Map.get(credentials, "api_secret") || Map.get(credentials, :api_secret)
+    body = %{"secret_key" => armis_secret_key(credentials)}
 
-    body = %{}
-    body = if blank?(api_key), do: body, else: Map.put(body, "api_key", api_key)
-    body = if blank?(api_secret), do: body, else: Map.put(body, "api_secret", api_secret)
-
-    case default_request(
+    case default_form_request(
            "/api/v1/access_token/",
            :post,
-           %{"content-type" => "application/json"},
+           %{
+             "content-type" => "application/x-www-form-urlencoded",
+             "accept" => "application/json"
+           },
            body,
            request_options(source)
          ) do
@@ -706,6 +704,23 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
+  defp armis_secret_key(credentials) do
+    Enum.find_value(
+      ["secret_key", :secret_key, "api_secret", :api_secret, "api_key", :api_key],
+      "",
+      fn key ->
+        case Map.get(credentials, key) do
+          value when is_binary(value) ->
+            value = String.trim(value)
+            if value == "", do: nil, else: value
+
+          _ ->
+            nil
+        end
+      end
+    )
+  end
+
   defp request_headers(token) do
     %{
       "authorization" => "Bearer #{token}",
@@ -721,6 +736,21 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   defp default_request(path, method, headers, body, opts) do
     request =
       [method: method, url: path, json: body, headers: Enum.to_list(headers)]
+      |> Req.new()
+      |> Req.merge(opts)
+
+    case Req.request(request) do
+      {:ok, %Req.Response{status: status, body: response_body}} ->
+        {:ok, %{status: status, body: response_body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp default_form_request(path, method, headers, body, opts) do
+    request =
+      [method: method, url: path, form: body, headers: Enum.to_list(headers)]
       |> Req.new()
       |> Req.merge(opts)
 
