@@ -6,7 +6,7 @@ The web UI SHALL allow operators to compare aggregate MTR diagnostics across two
 #### Scenario: Operator compares today so far to yesterday
 - **GIVEN** retained MTR traces exist for today and yesterday
 - **WHEN** the operator selects the `Today vs Yesterday` comparison preset
-- **THEN** the UI compares today's elapsed window from local midnight through now against yesterday's matching elapsed window
+- **THEN** the UI compares today's elapsed window from local midnight through now against yesterday's full 24-hour day
 - **AND** it shows sample counts for both windows
 - **AND** it shows deltas for reachability, average last-hop latency, average hop loss, average hop depth, and trace volume
 
@@ -24,6 +24,12 @@ The web UI SHALL provide a retained-history timeline on the MTR comparison page 
 - **WHEN** the operator opens time-window comparison
 - **THEN** the UI shows a timeline of trace activity and reachability over the retained recent range
 - **AND** the operator can select or adjust a window to drill into more detailed comparison results
+
+#### Scenario: Operator drills into a timeline bucket
+- **GIVEN** an availability timeline is shown for a compared MTR window
+- **WHEN** the operator hovers over a timeline bucket
+- **THEN** the UI shows the bucket day, start time, end time, trace count, reached count, and failed count
+- **AND** when the operator selects the bucket, the UI navigates to the MTR diagnostics trace list filtered to that bucket and the active comparison filters
 
 #### Scenario: Timeline handles sparse periods
 - **GIVEN** one compared window has fewer samples than the other
@@ -72,9 +78,9 @@ The web UI SHALL provide a dedicated MTR diagnostics page listing retained trace
 - **WHEN** the operator compares two MTR time windows
 - **THEN** aggregate reachability, latency, loss, hop-depth, route-signature, and source-agent differences are shown
 - **AND** comparison visuals can drill down to the trace and hop evidence behind them
+- **AND** window summary cards, metric values, route signatures, and source-agent rows are selectable wherever the backing traces can be filtered or inspected
 
 #### Scenario: Native visual summaries remain evidence-backed
 - **GIVEN** the MTR diagnostics page renders trend, heatmap, reachability, or path-change visuals
 - **WHEN** the operator selects a visual segment, point, bucket, or row
 - **THEN** the UI exposes the trace and hop evidence behind that visual
-
