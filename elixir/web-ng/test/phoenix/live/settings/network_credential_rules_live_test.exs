@@ -80,6 +80,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["auto_discovery_enabled"] == true
   end
 
+  test "creates a Proxmox token secret from the provider preset", %{conn: conn, scope: scope} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert lv
+           |> element("button[phx-click='new_proxmox_secret']")
+           |> render_click() =~ "New Proxmox Token"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "name" => "Lab PVE token",
+          "description" => "Lab cluster",
+          "user" => "root",
+          "realm" => "pam",
+          "token_id" => "serviceradar",
+          "tls_policy" => "verify",
+          "token_secret" => "super-secret-token"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Proxmox token saved"
+    refute html =~ "super-secret-token"
+
+    secret = get_secret_by_name!(scope, "Lab PVE token")
+    assert secret.provider == "proxmox"
+    assert secret.credential_kind == :api_token
+    assert secret.username == "root@pam!serviceradar"
+    assert secret.public_fingerprint =~ "sha256:"
+    assert secret.metadata["realm"] == "pam"
+    assert secret.metadata["token_id"] == "serviceradar"
+    assert secret.metadata["tls_policy"] == "verify"
+  end
+
   test "edits and disables a credential rule", %{conn: conn, scope: scope} do
     secret = credential_secret_fixture(scope)
     rule = credential_rule_fixture(scope, secret, %{name: "Original rule"})
@@ -235,6 +270,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
   defp get_rule_by_name!(scope, name) do
     NetworkCredentialRule
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(name == ^name)
+    |> Ash.read!(scope: scope)
+    |> List.first()
+  end
+
+  defp get_secret_by_name!(scope, name) do
+    NetworkCredentialSecret
     |> Ash.Query.for_read(:read, %{}, scope: scope)
     |> Ash.Query.filter(name == ^name)
     |> Ash.read!(scope: scope)

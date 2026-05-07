@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:form_mode, nil)
        |> assign(:editing_rule, nil)
        |> assign(:rule_preview, nil)
+       |> assign(:secret_form, nil)
        |> assign(:rule_form, rule_form(default_rule_params()))}
     else
       {:ok,
@@ -122,6 +123,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, assign(socket, :rule_preview, nil)}
   end
 
+  def handle_event("new_proxmox_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_secret_params()))}
+  end
+
+  def handle_event("close_secret_form", _params, socket) do
+    {:noreply, assign(socket, :secret_form, nil)}
+  end
+
+  def handle_event("save_secret", %{"credential_secret" => params}, socket) do
+    case normalize_secret_params(params) do
+      {:ok, attrs} ->
+        save_secret(socket, attrs)
+
+      {:error, message} ->
+        {:noreply,
+         socket
+         |> assign(:secret_form, secret_form(params))
+         |> put_flash(:error, message)}
+    end
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -143,9 +165,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h1 class="text-xl font-semibold">Credential Rules</h1>
-            <.link navigate={~p"/settings/networks/credentials/new"} class="btn btn-primary btn-sm">
-              New Rule
-            </.link>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="new_proxmox_secret">
+                New Proxmox Token
+              </button>
+              <.link navigate={~p"/settings/networks/credentials/new"} class="btn btn-primary btn-sm">
+                New Rule
+              </.link>
+            </div>
           </div>
 
           <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
@@ -264,8 +291,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         />
 
         <.rule_preview_modal :if={@rule_preview} rule_preview={@rule_preview} />
+        <.secret_form_modal :if={@secret_form} form={@secret_form} tls_policies={@tls_policies} />
       </.settings_shell>
     </Layouts.app>
+    """
+  end
+
+  attr :form, :map, required: true
+  attr :tls_policies, :list, required: true
+
+  defp secret_form_modal(assigns) do
+    ~H"""
+    <div class="modal modal-open">
+      <div class="modal-box max-w-3xl rounded-lg">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-semibold">New Proxmox Token</h2>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
+            Close
+          </button>
+        </div>
+
+        <.form for={@form} phx-submit="save_secret" class="space-y-4">
+          <div class="grid gap-4 md:grid-cols-2">
+            <.input field={@form[:name]} label="Name" required />
+            <.input field={@form[:user]} label="User" required />
+            <.input field={@form[:realm]} label="Realm" required />
+            <.input field={@form[:token_id]} label="Token ID" required />
+            <.input
+              field={@form[:tls_policy]}
+              type="select"
+              label="TLS Policy"
+              options={enum_options(@tls_policies)}
+              required
+            />
+          </div>
+
+          <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
+          <.input field={@form[:description]} type="textarea" label="Description" />
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Save Token
+            </button>
+          </div>
+        </.form>
+      </div>
+      <button type="button" class="modal-backdrop" phx-click="close_secret_form">Close</button>
+    </div>
     """
   end
 
@@ -558,6 +633,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, put_flash(socket, :error, "Credential rule form is not ready")}
   end
 
+  defp save_secret(socket, attrs) do
+    case NetworkCredentialSecret
+         |> Ash.Changeset.for_create(:create, attrs, scope: socket.assigns.current_scope)
+         |> Ash.create(scope: socket.assigns.current_scope) do
+      {:ok, _secret} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Proxmox token saved")
+         |> assign(:secret_form, nil)
+         |> load_page(%{})}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save token: #{format_error(reason)}")}
+    end
+  end
+
   defp update_enabled(socket, id, action, message) do
     scope = socket.assigns.current_scope
 
@@ -634,6 +725,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required fields are missing"}
   end
 
+  defp normalize_secret_params(params) do
+    with {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy") do
+      name = required_string(params, "name")
+      user = required_string(params, "user")
+      realm = required_string(params, "realm")
+      token_id = required_string(params, "token_id")
+      token_secret = required_string(params, "token_secret")
+      token_identity = proxmox_token_identity(user, realm, token_id)
+      token_payload = token_identity <> "=" <> token_secret
+
+      {:ok,
+       %{
+         name: name,
+         description: blank_to_nil(params["description"]),
+         provider: "proxmox",
+         credential_kind: :api_token,
+         username: token_identity,
+         public_fingerprint: secret_fingerprint(token_payload),
+         secret_payload: token_payload,
+         metadata: %{
+           "realm" => realm,
+           "token_id" => token_id,
+           "tls_policy" => Atom.to_string(tls_policy),
+           "auth_method" => "proxmox_api_token"
+         }
+       }}
+    end
+  rescue
+    ArgumentError -> {:error, "Required token fields are missing"}
+  end
+
   defp default_rule_params do
     %{
       "name" => "",
@@ -650,6 +772,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
       "auto_discovery_enabled" => "false"
+    }
+  end
+
+  defp default_secret_params do
+    %{
+      "name" => "",
+      "description" => "",
+      "user" => "root",
+      "realm" => "pam",
+      "token_id" => "",
+      "tls_policy" => "verify",
+      "token_secret" => ""
     }
   end
 
@@ -673,6 +807,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp rule_form(params), do: to_form(params, as: :credential_rule)
+
+  defp secret_form(params), do: to_form(params, as: :credential_secret)
 
   defp enum_param(params, key, allowed, label) do
     value = params |> Map.get(key, "") |> to_string()
@@ -720,6 +856,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "" -> nil
       value -> value
     end
+  end
+
+  defp proxmox_token_identity(user, realm, token_id) do
+    user = user |> to_string() |> String.trim() |> String.replace(~r/@.*/, "")
+    realm = realm |> to_string() |> String.trim()
+    token_id = token_id |> to_string() |> String.trim()
+
+    "#{user}@#{realm}!#{token_id}"
+  end
+
+  defp secret_fingerprint(payload) do
+    digest =
+      :sha256
+      |> :crypto.hash(payload)
+      |> Base.encode16(case: :lower)
+
+    "sha256:" <> digest
   end
 
   defp boolean_param(params, key) do
