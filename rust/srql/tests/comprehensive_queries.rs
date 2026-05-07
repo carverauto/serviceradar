@@ -50,6 +50,22 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:logs device_id:\"device-alpha\" time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["body"], "Application started");
+                assert_eq!(body["results"][0]["source_device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:events device_id:\"device-alpha\" time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["message"], "Device scoped event");
+                assert_eq!(body["results"][0]["source_device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
             query: "in:otel_traces service.name:api-service",
             expected_count: 1,
             validator: Some(Box::new(|body| {

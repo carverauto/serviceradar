@@ -15,9 +15,11 @@ use crate::{
     },
     time::TimeRange,
 };
+use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::sql_types::Bool;
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
@@ -196,6 +198,22 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         "span_id" => {
             query = apply_text_filter!(query, filter, col_span_id)?;
         }
+        "device_id" | "uid" | "source_device_uid" => {
+            query = apply_metadata_identity_filter(
+                query,
+                filter,
+                &[
+                    "serviceradar.device_id",
+                    "serviceradar.device.uid",
+                    "device_id",
+                    "device_uid",
+                    "source_device_uid",
+                    "target_device_uid",
+                    "uid",
+                    "id",
+                ],
+            )?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for events: '{other}'"
@@ -204,6 +222,77 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
     }
 
     Ok(query)
+}
+
+fn apply_metadata_identity_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+    keys: &[&str],
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{} filter only supports equality and IN/NOT IN comparisons",
+                filter.field
+            )))
+        }
+    };
+
+    let mut clauses = Vec::new();
+
+    for value in values {
+        for key in keys {
+            let key_pattern = escape_like_fragment(key);
+            let value_pattern = escape_like_fragment(&value);
+            let pattern = sql_string_literal(&format!("%\"{key_pattern}\"%\"{value_pattern}\"%"));
+
+            clauses.push(format!(
+                "(device::text ILIKE {pattern} ESCAPE '\\' OR \
+                  metadata::text ILIKE {pattern} ESCAPE '\\' OR \
+                  unmapped::text ILIKE {pattern} ESCAPE '\\' OR \
+                  observables::text ILIKE {pattern} ESCAPE '\\')"
+            ));
+        }
+    }
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn escape_like_fragment(value: &str) -> String {
+    value
+        .replace('\\', r"\\")
+        .replace('%', r"\%")
+        .replace('_', r"\_")
+}
+
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
@@ -235,6 +324,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "activity_name" | "severity" | "message" | "short_message" | "log_name"
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
+        "device_id" | "uid" | "source_device_uid" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(
                 filter.value.as_scalar()?,
