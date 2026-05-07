@@ -135,6 +135,103 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     assert MapSet.subset?(MapSet.union(page_1_ids, page_2_ids), MapSet.new(ids))
   end
 
+  test "compare_windows handles partial elapsed windows and uneven samples" do
+    window_a = %{label: "Today so far", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 09:30:00Z]}
+    window_b = %{label: "Yesterday same hours", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 09:30:00Z]}
+
+    insert_mtr_trace!("agent-window", "192.0.2.10", ~U[2026-05-07 01:00:00Z],
+      target_reached: true,
+      total_hops: 3,
+      hops: [
+        {"10.0.0.1", 10_000, 0.0},
+        {"10.0.0.2", 20_000, 0.0},
+        {"192.0.2.10", 30_000, 0.0}
+      ]
+    )
+
+    insert_mtr_trace!("agent-window", "192.0.2.10", ~U[2026-05-07 02:00:00Z],
+      target_reached: false,
+      total_hops: 4,
+      hops: [
+        {"10.0.0.1", 12_000, 0.0},
+        {"10.0.0.3", 28_000, 10.0},
+        {"*", 0, 100.0},
+        {nil, 0, 100.0}
+      ]
+    )
+
+    insert_mtr_trace!("agent-window", "192.0.2.10", ~U[2026-05-06 01:00:00Z],
+      target_reached: true,
+      total_hops: 3,
+      hops: [
+        {"10.0.0.1", 8_000, 0.0},
+        {"10.0.0.2", 16_000, 0.0},
+        {"192.0.2.10", 24_000, 0.0}
+      ]
+    )
+
+    assert {:ok, comparison} =
+             MtrData.compare_windows(
+               window_a: window_a,
+               window_b: window_b,
+               target_filter: "192.0.2.10",
+               bucket_count: 24
+             )
+
+    assert comparison.elapsed_aligned?
+    assert comparison.a.trace_count == 2
+    assert comparison.b.trace_count == 1
+    assert comparison.a.success_rate == 50.0
+    assert comparison.b.success_rate == 100.0
+    assert comparison.deltas.success_rate == -50.0
+    assert length(comparison.a.timeline) == 24
+    assert length(comparison.b.timeline) == 24
+    assert Enum.any?(comparison.a.timeline, &(&1["trace_count"] == 0))
+  end
+
+  test "compare_windows reports dominant route signatures and per-agent deltas" do
+    window_a = %{label: "Current", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 06:00:00Z]}
+    window_b = %{label: "Baseline", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 06:00:00Z]}
+
+    insert_mtr_trace!("agent-a", "203.0.113.10", ~U[2026-05-07 01:00:00Z],
+      hops: [{"10.1.0.1", 10_000, 0.0}, {"10.1.0.2", 20_000, 0.0}, {"203.0.113.10", 30_000, 0.0}]
+    )
+
+    insert_mtr_trace!("agent-a", "203.0.113.10", ~U[2026-05-07 02:00:00Z],
+      hops: [{"10.1.0.1", 11_000, 0.0}, {"10.1.0.2", 21_000, 0.0}, {"203.0.113.10", 31_000, 0.0}]
+    )
+
+    insert_mtr_trace!("agent-a", "203.0.113.10", ~U[2026-05-06 01:00:00Z],
+      hops: [{"10.1.0.1", 9_000, 0.0}, {"10.1.0.9", 18_000, 0.0}, {"203.0.113.10", 27_000, 0.0}]
+    )
+
+    assert {:ok, comparison} =
+             MtrData.compare_windows(
+               window_a: window_a,
+               window_b: window_b,
+               target_filter: "203.0.113.10",
+               signature_limit: 3
+             )
+
+    [dominant_a | _] = comparison.a.route_signatures
+    [dominant_b | _] = comparison.b.route_signatures
+
+    assert dominant_a["trace_count"] == 2
+    assert dominant_a["path_preview"] == "10.1.0.1 -> 10.1.0.2 -> 203.0.113.10"
+    assert dominant_b["path_preview"] == "10.1.0.1 -> 10.1.0.9 -> 203.0.113.10"
+    assert is_binary(dominant_a["representative_trace_id"])
+
+    assert [
+             %{
+               "agent_id" => "agent-a",
+               "a_trace_count" => 2,
+               "b_trace_count" => 1,
+               "a_success_rate" => 100.0,
+               "b_success_rate" => 100.0
+             }
+           ] = comparison.agents
+  end
+
   defp create_mtr_command(actor, agent_id, target, opts) do
     expires_at = Keyword.fetch!(opts, :expires_at)
     status = Keyword.get(opts, :status, :queued)
@@ -238,9 +335,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     %{command | inserted_at: inserted_at, completed_at: completed_at, expires_at: expires_at}
   end
 
-  defp insert_mtr_trace!(agent_id, target_ip, timestamp) do
+  defp insert_mtr_trace!(agent_id, target_ip, timestamp, opts \\ []) do
     id = Ecto.UUID.generate()
     db_id = dump_uuid!(id)
+    target_reached = Keyword.get(opts, :target_reached, true)
+    total_hops = Keyword.get(opts, :total_hops, opts |> Keyword.get(:hops, []) |> length())
+    protocol = Keyword.get(opts, :protocol, "icmp")
 
     ServiceRadar.Repo.insert_all("mtr_traces", [
       %{
@@ -253,9 +353,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
         device_id: nil,
         target: target_ip,
         target_ip: target_ip,
-        target_reached: true,
-        total_hops: 8,
-        protocol: "icmp",
+        target_reached: target_reached,
+        total_hops: total_hops,
+        protocol: protocol,
         ip_version: 4,
         packet_size: 64,
         partition: "default",
@@ -264,8 +364,52 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
       }
     ])
 
+    insert_mtr_hops!(id, timestamp, Keyword.get(opts, :hops, []))
+
     id
   end
+
+  defp insert_mtr_hops!(_trace_id, _timestamp, []), do: :ok
+
+  defp insert_mtr_hops!(trace_id, timestamp, hops) do
+    trace_db_id = dump_uuid!(trace_id)
+
+    rows =
+      hops
+      |> Enum.with_index(1)
+      |> Enum.map(fn {{addr, avg_us, loss_pct}, hop_number} ->
+        %{
+          id: dump_uuid!(Ecto.UUID.generate()),
+          time: timestamp,
+          trace_id: trace_db_id,
+          hop_number: hop_number,
+          addr: normalize_hop_addr(addr),
+          hostname: nil,
+          ecmp_addrs: [],
+          asn: nil,
+          asn_org: nil,
+          mpls_labels: %{},
+          sent: 10,
+          received: if(loss_pct >= 100.0, do: 0, else: 10),
+          loss_pct: loss_pct,
+          last_us: avg_us,
+          avg_us: avg_us,
+          min_us: avg_us,
+          max_us: avg_us,
+          stddev_us: 0,
+          jitter_us: 0,
+          jitter_worst_us: 0,
+          jitter_interarrival_us: 0,
+          created_at: timestamp
+        }
+      end)
+
+    ServiceRadar.Repo.insert_all("mtr_hops", rows)
+    :ok
+  end
+
+  defp normalize_hop_addr("*"), do: nil
+  defp normalize_hop_addr(addr), do: addr
 
   defp dump_uuid!(uuid) do
     case Ecto.UUID.dump(uuid) do
