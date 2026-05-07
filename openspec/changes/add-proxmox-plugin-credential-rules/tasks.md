@@ -58,7 +58,7 @@
 
 ## 8. UI and Documentation
 - [x] 8.1 Surface Proxmox enrichment on device details and topology views.
-- [ ] 8.2 Add dashboard-ready resource efficiency panels backed by SRQL/metrics data.
+- [x] 8.2 Add dashboard-ready resource efficiency panels backed by SRQL/metrics data.
 - [x] 8.3 Document required Proxmox API token permissions, SSH key permissions, and least-privilege examples.
 - [x] 8.4 Document example credential rules for single site and multi-datacenter deployments.
 - [ ] 8.5 Document console session security model, audit events, and timeout behavior.
