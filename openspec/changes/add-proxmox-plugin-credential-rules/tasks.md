@@ -61,7 +61,7 @@
 - [x] 8.2 Add dashboard-ready resource efficiency panels backed by SRQL/metrics data.
 - [x] 8.3 Document required Proxmox API token permissions, SSH key permissions, and least-privilege examples.
 - [x] 8.4 Document example credential rules for single site and multi-datacenter deployments.
-- [ ] 8.5 Document console session security model, audit events, and timeout behavior.
+- [x] 8.5 Document console session security model, audit events, and timeout behavior.
 - [ ] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
 
 ## 9. Logs, Metrics, and Alerts
