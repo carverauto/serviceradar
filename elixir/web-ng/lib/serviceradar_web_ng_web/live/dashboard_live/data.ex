@@ -191,7 +191,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       detail: survey_detail(survey),
       icon: "hero-wifi",
       tone: "violet",
-      sparkline: sparkline
+      sparkline: sparkline,
+      href: "/spatial/field-surveys",
+      aria_label: "Open FieldSurvey Wi-Fi coverage"
     }
   end
 
@@ -2088,7 +2090,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         detail: "#{format_count(device.available)} available",
         icon: "hero-server-stack",
         tone: "success",
-        sparkline: Map.get(sparklines, :assets, [])
+        sparkline: Map.get(sparklines, :assets, []),
+        href: "/devices",
+        aria_label: "Open total assets"
       },
       %{
         title: "Threat Level",
@@ -2096,7 +2100,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         detail: threat_detail(alerts, events),
         icon: "hero-shield-exclamation",
         tone: threat_tone(alerts, events),
-        sparkline: Map.get(sparklines, :threats, [])
+        sparkline: Map.get(sparklines, :threats, []),
+        href: "/events",
+        aria_label: "Open security events"
       },
       %{
         title: "Network Health",
@@ -2104,7 +2110,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         detail: network_health_detail(services, flows),
         icon: "hero-heart",
         tone: network_health_tone(services),
-        sparkline: Map.get(sparklines, :network_health, [])
+        sparkline: Map.get(sparklines, :network_health, []),
+        href: "/services",
+        aria_label: "Open service health"
       },
       %{
         title: "Camera Fleet",
@@ -2112,7 +2120,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         detail: "#{format_count(camera.online)} available",
         icon: "hero-video-camera",
         tone: "info",
-        sparkline: Map.get(sparklines, :camera, [])
+        sparkline: Map.get(sparklines, :camera, []),
+        href: "/cameras",
+        aria_label: "Open camera fleet"
       },
       survey_kpi_card(survey, Map.get(sparklines, :survey, [])),
       %{
@@ -2121,7 +2131,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         detail: "#{format_count(alerts.total)} total alerts",
         icon: "hero-bell-alert",
         tone: if(active_alert_count(alerts) > 0, do: "error", else: "success"),
-        sparkline: Map.get(sparklines, :threats, [])
+        sparkline: Map.get(sparklines, :threats, []),
+        href: "/alerts",
+        aria_label: "Open active alerts"
       },
       %{
         title: "Recent Events",
@@ -2129,7 +2141,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         detail: "#{format_count(priority_event_count(events))} high priority",
         icon: "hero-document-text",
         tone: if(priority_event_count(events) > 0, do: "error", else: "info"),
-        sparkline: Map.get(sparklines, :threats, [])
+        sparkline: Map.get(sparklines, :threats, []),
+        href: "/events",
+        aria_label: "Open recent events"
       }
     ]
   end
@@ -2151,12 +2165,47 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     geo_pct = if link_count > 0, do: geo_mapped * 100 / link_count, else: 0
 
     [
-      %{label: "Window", value: netflow_map_window_label()},
-      %{label: "Conversations", value: format_count(link_count)},
-      %{label: "Flow Records", value: format_count(window_flows)},
-      %{label: "Traffic", value: format_bytes(window_bytes)},
-      %{label: "Geo Mapped", value: "#{format_percent(geo_pct)}%"}
+      %{
+        label: "Window",
+        value: netflow_map_window_label(),
+        href: netflow_observability_path("traffic"),
+        aria_label: "Open NetFlow traffic window"
+      },
+      %{
+        label: "Conversations",
+        value: format_count(link_count),
+        href: netflow_observability_path("topology", %{"graph" => "sankey"}),
+        aria_label: "Open NetFlow conversations"
+      },
+      %{
+        label: "Flow Records",
+        value: format_count(window_flows),
+        href: netflow_observability_path("explorer"),
+        aria_label: "Open NetFlow flow records"
+      },
+      %{
+        label: "Traffic",
+        value: format_bytes(window_bytes),
+        href: netflow_observability_path("traffic"),
+        aria_label: "Open NetFlow traffic analytics"
+      },
+      %{
+        label: "Geo Mapped",
+        value: "#{format_percent(geo_pct)}%",
+        href: netflow_observability_path("topology", %{"geo" => "dst"}),
+        aria_label: "Open geo-mapped NetFlow analytics"
+      }
     ]
+  end
+
+  defp netflow_observability_path(view, extra_params \\ %{}) do
+    params =
+      Map.merge(
+        %{"tab" => "netflows", "view" => view, "q" => "in:flows time:last_15m sort:timestamp:desc limit:100"},
+        extra_params
+      )
+
+    "/observability?#{URI.encode_query(params)}"
   end
 
   defp observability_metrics(flows, mtr, traces, services, sparklines) do
@@ -2174,7 +2223,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         sparkline: Map.get(sparklines, :latency, []),
         axis_min: "0",
         axis_mid: "75",
-        axis_max: "150"
+        axis_max: "150",
+        href: "/diagnostics/mtr",
+        aria_label: "Open MTR latency diagnostics"
       },
       %{
         label: "Packet Loss",
@@ -2185,7 +2236,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         sparkline: Map.get(sparklines, :packet_loss, []),
         axis_min: "0%",
         axis_mid: packet_loss_axis_mid(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
-        axis_max: packet_loss_axis_max(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct)
+        axis_max: packet_loss_axis_max(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
+        href: "/diagnostics/mtr",
+        aria_label: "Open packet loss diagnostics"
       },
       %{
         label: "Throughput",
@@ -2196,7 +2249,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         sparkline: Map.get(sparklines, :throughput, []),
         axis_min: "0",
         axis_mid: "5G",
-        axis_max: "10G"
+        axis_max: "10G",
+        href: netflow_observability_path("traffic"),
+        aria_label: "Open throughput flow analytics"
       },
       %{
         label: "Service Health",
@@ -2207,7 +2262,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         sparkline: Map.get(sparklines, :service_health, []),
         axis_min: "90%",
         axis_mid: "95%",
-        axis_max: "100%"
+        axis_max: "100%",
+        href: "/services",
+        aria_label: "Open service health metrics"
       }
     ]
   end

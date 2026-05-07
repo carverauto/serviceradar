@@ -173,7 +173,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
             </div>
 
             <div :if={@map_view == "netflow"} class="sr-ops-map-stats">
-              <.small_stat :for={stat <- @map_stats} label={stat.label} value={stat.value} />
+              <.small_stat
+                :for={stat <- @map_stats}
+                label={stat.label}
+                value={stat.value}
+                href={Map.get(stat, :href)}
+                aria_label={Map.get(stat, :aria_label)}
+              />
             </div>
           </.panel>
 
@@ -284,6 +290,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               style={fieldsurvey_heatmap_style(@survey_summary)}
               data-testid="fieldsurvey-heatmap"
             >
+              <.link
+                href={~p"/spatial/field-surveys"}
+                class="sr-ops-field-survey-open-overlay"
+                aria-label="Open FieldSurvey heatmap details"
+              >
+                <span class="sr-only">Open FieldSurvey heatmap details</span>
+              </.link>
               <svg
                 :if={@survey_summary.floorplan_segment_count > 0}
                 class="sr-ops-field-survey-floorplan"
@@ -477,13 +490,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <section class="sr-ops-grid-bottom">
           <.panel title="Observability Metrics" class="lg:col-span-4">
             <div class="sr-ops-metric-grid">
-              <div
+              <.link
                 :for={metric <- @observability_metrics}
+                href={metric.href}
                 class={[
                   "sr-ops-metric-card",
+                  "sr-ops-metric-card-link",
                   "tone-#{metric.tone}",
                   if(metric.available, do: nil, else: "is-empty")
                 ]}
+                aria-label={metric.aria_label}
               >
                 <span>{metric.label}</span>
                 <div class="sr-ops-metric-value-row">
@@ -500,7 +516,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                     class="sr-ops-metric-sparkline"
                   />
                 </div>
-              </div>
+              </.link>
             </div>
           </.panel>
 
@@ -510,7 +526,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 Manage
               </.link>
             </:actions>
-            <div class="sr-ops-threat-intel" data-testid="threat-intel-summary">
+            <.link
+              href={~p"/settings/networks/threat-intel"}
+              class="sr-ops-threat-intel sr-ops-threat-intel-link"
+              data-testid="threat-intel-summary"
+              aria-label="Open Threat Intel settings and match details"
+            >
               <div class="sr-ops-threat-sync">
                 <span class={[
                   "sr-ops-threat-status",
@@ -550,7 +571,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               <div class="sr-ops-threat-message">
                 {threat_message(@threat_intel_summary)}
               </div>
-            </div>
+            </.link>
           </.panel>
 
           <.panel title="Alerts Feed" class="lg:col-span-5">
@@ -559,10 +580,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 View All Alerts
               </.link>
             </:actions>
-            <div
+            <.link
               :if={@alert_feed == []}
+              href={~p"/alerts"}
               class="sr-ops-feed-empty is-alert-feed"
               data-testid="alerts-feed-empty"
+              aria-label="Open alerts"
             >
               <div class="sr-ops-empty-feed-shell" aria-hidden="true">
                 <div class="sr-ops-empty-feed-header">
@@ -577,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                 <p>No recent alerts</p>
                 <span>Live alerts from the existing alert stream will appear here.</span>
               </div>
-            </div>
+            </.link>
             <div :if={@alert_feed != []} class="sr-ops-alert-feed" data-testid="alerts-feed">
               <.link
                 :for={alert <- @alert_feed}
@@ -676,7 +699,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp kpi_card(assigns) do
     ~H"""
-    <article class={["sr-ops-kpi-card", "tone-#{@card.tone}"]}>
+    <.link
+      href={@card.href}
+      class={["sr-ops-kpi-card", "sr-ops-kpi-card-link", "tone-#{@card.tone}"]}
+      aria-label={@card.aria_label}
+    >
       <div class="sr-ops-kpi-icon">
         <.icon name={@card.icon} class="size-9" />
       </div>
@@ -686,7 +713,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         <span>{@card.detail}</span>
       </div>
       <.sparkline values={@card.sparkline} tone={@card.tone} class="sr-ops-kpi-sparkline" />
-    </article>
+    </.link>
     """
   end
 
@@ -710,10 +737,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   attr(:label, :string, required: true)
   attr(:value, :string, required: true)
   attr(:icon, :string, default: nil)
+  attr(:href, :string, default: nil)
+  attr(:aria_label, :string, default: nil)
 
   defp small_stat(assigns) do
     ~H"""
-    <div class="sr-ops-small-stat">
+    <.link
+      :if={is_binary(@href) and @href != ""}
+      href={@href}
+      class="sr-ops-small-stat sr-ops-small-stat-link"
+      aria-label={@aria_label || "Open #{@label}"}
+    >
+      <span class="flex items-center gap-2">
+        <.icon :if={@icon} name={@icon} class="size-4" />
+        {@label}
+      </span>
+      <strong>{@value}</strong>
+    </.link>
+    <div :if={!is_binary(@href) or @href == ""} class="sr-ops-small-stat">
       <span class="flex items-center gap-2">
         <.icon :if={@icon} name={@icon} class="size-4" />
         {@label}

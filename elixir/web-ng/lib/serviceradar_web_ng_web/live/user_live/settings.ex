@@ -57,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
             <%= if has_password?(@current_scope.user) do %>
               <.input
                 field={@email_form[:current_password]}
+                id="email_current_password"
                 type="password"
                 label="Current password"
                 autocomplete="current-password"
@@ -96,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               />
               <.input
                 field={@password_form[:current_password]}
+                id="password_current_password"
                 type="password"
                 label="Current password"
                 autocomplete="current-password"

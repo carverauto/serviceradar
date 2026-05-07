@@ -365,23 +365,20 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           <div class="sr-ops-topbar-actions">
             <.theme_toggle />
             <.link
-              href={~p"/events"}
-              class="sr-ops-topbar-icon relative"
-              aria-label="Events"
-              title="Events"
+              navigate={~p"/alerts"}
+              class="sr-ops-topbar-icon"
+              aria-label="Alerts"
+              title="Alerts"
             >
-              <.icon name="hero-bell" class="size-5" />
-              <span class="sr-ops-notification-dot">0</span>
+              <.icon name="hero-bell-alert" class="size-5" />
             </.link>
             <.link
-              href={~p"/settings/profile"}
+              navigate={~p"/settings/profile"}
               class="sr-ops-avatar"
-              aria-label="Account"
-              title={@current_scope && @current_scope.user && @current_scope.user.email}
+              aria-label="Open profile"
+              title={profile_title(@current_scope)}
             >
-              <span>
-                {user_initials(@current_scope && @current_scope.user && @current_scope.user.email)}
-              </span>
+              <.icon name="hero-user-circle" class="size-6" />
             </.link>
           </div>
         </header>
@@ -437,6 +434,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp user_initials(_), do: "?"
+
+  defp profile_title(%{user: %{email: email}}) when is_binary(email) and email != "", do: "Profile: #{email}"
+  defp profile_title(_), do: "Profile"
 
   defp format_role(role) when is_atom(role) do
     role
