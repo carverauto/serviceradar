@@ -127,4 +127,15 @@ WASM_PLUGIN_BUNDLES = [
             ("config.schema.json", "//go/cmd/wasm-plugins/proxmox:config.schema.json"),
         ],
     },
+    {
+        "name": "proxmox_console_bundle",
+        "plugin_id": "proxmox-console",
+        "repository_name": "wasm-plugin-proxmox-console",
+        "wasm_target": ":proxmox_inventory_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/proxmox:plugin.console.yaml"),
+            ("plugin.wasm", ":proxmox_inventory_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/proxmox:config.console.schema.json"),
+        ],
+    },
 ]

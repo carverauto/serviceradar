@@ -44,6 +44,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "No credential rules found"
   end
 
+  test "viewer is blocked from credential rules settings", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :viewer})
+    conn = log_in_user(conn, user)
+
+    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/networks/credentials")
+    assert to == ~p"/settings/profile"
+  end
+
   test "creates a credential rule from the settings form", %{conn: conn, scope: scope} do
     secret = credential_secret_fixture(scope)
 
@@ -80,6 +88,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["auto_discovery_enabled"] == true
   end
 
+  test "validates required credential rule fields", %{conn: conn, scope: scope} do
+    secret = credential_secret_fixture(scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    html =
+      lv
+      |> form("form",
+        credential_rule: %{
+          "name" => "",
+          "description" => "",
+          "provider" => "proxmox",
+          "auth_method" => "proxmox_api_token",
+          "purpose" => "inventory_enrichment",
+          "target_query" => "in:devices metadata.proxmox_candidate:true",
+          "scope_type" => "agent",
+          "scope_value" => "agent-a",
+          "secret_id" => secret.id,
+          "priority" => "25",
+          "allowed_ports" => "8006",
+          "tls_policy" => "verify",
+          "ssh_host_key_policy" => "known_hosts",
+          "auto_discovery_enabled" => "false"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Required fields are missing"
+    refute get_rule_by_name!(scope, "")
+  end
+
   test "creates a Proxmox token secret from the provider preset", %{conn: conn, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
@@ -113,6 +152,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["realm"] == "pam"
     assert secret.metadata["token_id"] == "serviceradar"
     assert secret.metadata["tls_policy"] == "verify"
+  end
+
+  test "validates Proxmox token preset fields without storing partial secrets", %{conn: conn, scope: scope} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='new_proxmox_secret']")
+    |> render_click()
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "name" => "Incomplete PVE token",
+          "description" => "",
+          "user" => "root",
+          "realm" => "pam",
+          "token_id" => "serviceradar",
+          "tls_policy" => "verify",
+          "token_secret" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Required token fields are missing"
+    refute html =~ "root@pam!serviceradar="
+    refute get_secret_by_name!(scope, "Incomplete PVE token")
   end
 
   test "edits and disables a credential rule", %{conn: conn, scope: scope} do
@@ -184,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     )
 
     Application.put_env(:serviceradar_web_ng, :network_credential_rule_preview_rows, %{
-      "in:devices protocol:proxmox-api" => [
+      "in:devices metadata.proxmox_candidate:true" => [
         %{"uid" => "device-1", "hostname" => "pve-a", "ip" => "192.0.2.10", "agent_id" => "agent-a"},
         %{"uid" => "device-2", "hostname" => "pve-b", "ip" => "192.0.2.11", "agent_id" => "agent-a"},
         %{"uid" => "device-3", "hostname" => "pve-c", "ip" => "192.0.2.12", "agent_id" => "agent-b"}
@@ -197,7 +263,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     end)
 
     secret = credential_secret_fixture(scope)
-    rule = credential_rule_fixture(scope, secret, %{target_query: "in:devices protocol:proxmox-api"})
+    rule =
+      credential_rule_fixture(scope, secret, %{
+        target_query: "in:devices metadata.proxmox_candidate:true"
+      })
 
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 

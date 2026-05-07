@@ -70,10 +70,13 @@ defmodule ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker do
   end
 
   defp reconcile_agent(uid, materializer, opts, acc) do
-    case materializer.reconcile_proxmox_inventory_for_agent(uid, opts) do
-      {:ok, summary} ->
-        merge_summary(%{acc | agents: acc.agents + 1}, summary)
-
+    with {:ok, inventory_summary} <- materializer.reconcile_proxmox_inventory_for_agent(uid, opts),
+         {:ok, console_summary} <- materializer.reconcile_proxmox_console_for_agent(uid, opts) do
+      acc
+      |> Map.update!(:agents, &(&1 + 1))
+      |> merge_summary(inventory_summary)
+      |> merge_summary(console_summary)
+    else
       {:error, reason} ->
         Logger.warning("Failed to reconcile Proxmox credential rules for agent",
           agent_uid: uid,

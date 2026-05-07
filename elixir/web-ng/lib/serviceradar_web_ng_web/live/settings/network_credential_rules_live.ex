@@ -763,7 +763,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "provider" => "proxmox",
       "auth_method" => "proxmox_api_token",
       "purpose" => "inventory_enrichment",
-      "target_query" => "in:devices protocol:proxmox-api",
+      "target_query" => "in:devices metadata.proxmox_candidate:true",
       "scope_type" => "agent",
       "scope_value" => "",
       "secret_id" => "",

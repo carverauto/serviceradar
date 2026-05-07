@@ -46,7 +46,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
       provider: "proxmox",
       auth_method: :proxmox_api_token,
       secret_id: "018f3f56-1111-7222-8333-123456789abc",
-      target_query: "in:devices protocol:proxmox-api",
+      target_query: "in:devices metadata.proxmox_candidate:true",
       tls_policy: :skip_verify,
       metadata: %{"timeout_ms" => 45_000, "test_ttl_seconds" => 180}
     }

@@ -1,8 +1,10 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "config.console.schema.json",
     "config.schema.json",
     "main.go",
+    "plugin.console.yaml",
     "plugin.yaml",
 ])
 
