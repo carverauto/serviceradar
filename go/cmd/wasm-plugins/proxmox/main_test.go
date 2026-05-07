@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -316,6 +320,7 @@ func TestValidateConsoleConfigRequiresScopedBroker(t *testing.T) {
 		CredentialRuleID: "rule-1",
 		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
 		Console:          consoleContext{SessionID: "session-1"},
+		Target:           consoleTarget{Hostname: "pve.example"},
 		TimeoutMS:        defaultTimeoutMS,
 	}
 
@@ -328,3 +333,244 @@ func TestValidateConsoleConfigRequiresScopedBroker(t *testing.T) {
 		t.Fatalf("expected credential_broker validation error, got %v", err)
 	}
 }
+
+func TestConsoleConfigSchemaHidesAgentLocalSecrets(t *testing.T) {
+	raw, err := os.ReadFile("config.console.schema.json")
+	if err != nil {
+		t.Fatalf("read console schema: %v", err)
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode console schema: %v", err)
+	}
+
+	properties := schema["properties"].(map[string]any)
+	for _, key := range []string{"target", "ssh"} {
+		if properties[key].(map[string]any)["x-serviceradar-ui-hidden"] != true {
+			t.Fatalf("%s must stay hidden from central assignment UI", key)
+		}
+	}
+	sshProperties := properties["ssh"].(map[string]any)["properties"].(map[string]any)
+	for _, key := range []string{"password", "private_key", "passphrase"} {
+		if sshProperties[key].(map[string]any)["x-serviceradar-sensitive"] != true {
+			t.Fatalf("ssh.%s must be marked sensitive", key)
+		}
+	}
+}
+
+func TestConsoleConfigFromPluginInputsSelectsScopedTarget(t *testing.T) {
+	cfg, err := consoleConfigFromMap(map[string]any{
+		"schema":         sdk.PluginInputsSchemaV1,
+		"policy_id":      "policy-1",
+		"policy_version": float64(1),
+		"agent_id":       "agent-1",
+		"generated_at":   "2026-05-07T00:00:00Z",
+		"template": map[string]any{
+			"credential_broker":  map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+			"credential_rule_id": "rule-1",
+		},
+		"console": map[string]any{
+			"session_id":         "session-1",
+			"device_uid":         "device-b",
+			"credential_rule_id": "rule-1",
+			"console_mode":       "ssh",
+		},
+		"inputs": []any{
+			map[string]any{
+				"name":        "targets",
+				"entity":      "devices",
+				"query":       "in:devices tag:proxmox",
+				"chunk_index": float64(0),
+				"chunk_total": float64(1),
+				"chunk_hash":  strings.Repeat("a", 64),
+				"items": []any{
+					map[string]any{"uid": "device-a", "hostname": "pve-a.example", "ip": "192.0.2.10"},
+					map[string]any{"uid": "device-b", "hostname": "pve-b.example", "ip": "192.0.2.11", "ssh_port": float64(2222)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("consoleConfigFromMap returned error: %v", err)
+	}
+
+	if cfg.Console.SessionID != "session-1" {
+		t.Fatalf("expected console context to be applied, got %#v", cfg.Console)
+	}
+	if cfg.Target.DeviceUID != "device-b" || cfg.Target.Hostname != "pve-b.example" || cfg.Target.IP != "192.0.2.11" {
+		t.Fatalf("expected selected device-b target, got %#v", cfg.Target)
+	}
+	if cfg.Target.SSHPort != 2222 {
+		t.Fatalf("expected ssh_port 2222, got %d", cfg.Target.SSHPort)
+	}
+}
+
+func TestRunConsoleWithDepsStreamsSSHSession(t *testing.T) {
+	bridge := newFakeConsoleBridge(
+		consoleInputFrame{FrameType: "data", Data: []byte("uptime\n")},
+		consoleInputFrame{FrameType: "resize", Cols: 100, Rows: 30},
+		consoleInputFrame{FrameType: "close"},
+	)
+	session := &fakeSSHSession{
+		waitCh: make(chan struct{}),
+		stdout: strings.NewReader("login banner\r\n"),
+		stderr: strings.NewReader(""),
+	}
+	cfg := consoleConfig{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+		Console:          consoleContext{SessionID: "session-1", ConsoleMode: "ssh", Cols: 80, Rows: 24},
+		Target:           consoleTarget{Hostname: "pve.example"},
+		TimeoutMS:        defaultTimeoutMS,
+	}
+
+	err := runConsoleWithDeps(cfg, consoleDeps{
+		openBridge: func(req consoleOpenRequest) (proxmoxConsoleBridge, error) {
+			if req.TerminalType != "xterm-256color" {
+				t.Fatalf("unexpected terminal type %q", req.TerminalType)
+			}
+			return bridge, nil
+		},
+		dialSSH: func(got consoleConfig) (sshConsoleSession, error) {
+			if got.Target.Hostname != "pve.example" {
+				t.Fatalf("unexpected SSH target %#v", got.Target)
+			}
+			return session, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runConsoleWithDeps returned error: %v", err)
+	}
+
+	if !session.shellStarted || !session.closed {
+		t.Fatalf("expected shell to start and close, got shell=%t closed=%t", session.shellStarted, session.closed)
+	}
+	if session.ptyRows != 24 || session.ptyCols != 80 {
+		t.Fatalf("expected initial PTY 24x80, got %dx%d", session.ptyRows, session.ptyCols)
+	}
+	if got := session.stdin.String(); got != "uptime\n" {
+		t.Fatalf("expected stdin data, got %q", got)
+	}
+	if len(session.windowChanges) != 1 || session.windowChanges[0] != [2]int{30, 100} {
+		t.Fatalf("expected resize to 30x100, got %#v", session.windowChanges)
+	}
+	select {
+	case <-bridge.writeCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SSH stdout to be written to bridge")
+	}
+	if !strings.Contains(bridge.Output(), "login banner") {
+		t.Fatalf("expected bridge output to contain SSH stdout, got %q", bridge.Output())
+	}
+}
+
+type fakeConsoleBridge struct {
+	mu          sync.Mutex
+	writes      bytes.Buffer
+	readFrames  [][]byte
+	closeReason string
+	writeCh     chan struct{}
+}
+
+func newFakeConsoleBridge(frames ...consoleInputFrame) *fakeConsoleBridge {
+	bridge := &fakeConsoleBridge{writeCh: make(chan struct{}, 8)}
+	for _, frame := range frames {
+		encoded, _ := json.Marshal(frame)
+		bridge.readFrames = append(bridge.readFrames, encoded)
+	}
+	return bridge
+}
+
+func (f *fakeConsoleBridge) Write(payload []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, err := f.writes.Write(payload)
+	select {
+	case f.writeCh <- struct{}{}:
+	default:
+	}
+	return err
+}
+
+func (f *fakeConsoleBridge) Read(buf []byte, _ time.Duration) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.readFrames) == 0 {
+		return 0, nil
+	}
+	frame := f.readFrames[0]
+	f.readFrames = f.readFrames[1:]
+	return copy(buf, frame), nil
+}
+
+func (f *fakeConsoleBridge) Close(reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closeReason = reason
+	return nil
+}
+
+func (f *fakeConsoleBridge) Output() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.writes.String()
+}
+
+type fakeSSHSession struct {
+	stdin         bytes.Buffer
+	stdout        io.Reader
+	stderr        io.Reader
+	ptyRows       int
+	ptyCols       int
+	windowChanges [][2]int
+	shellStarted  bool
+	closed        bool
+	waitCh        chan struct{}
+	waitOnce      sync.Once
+}
+
+func (f *fakeSSHSession) StdinPipe() (io.WriteCloser, error) {
+	return nopWriteCloser{Writer: &f.stdin}, nil
+}
+
+func (f *fakeSSHSession) StdoutPipe() (io.Reader, error) { return f.stdout, nil }
+func (f *fakeSSHSession) StderrPipe() (io.Reader, error) { return f.stderr, nil }
+
+func (f *fakeSSHSession) RequestPty(_ string, h, w int) error {
+	f.ptyRows = h
+	f.ptyCols = w
+	return nil
+}
+
+func (f *fakeSSHSession) WindowChange(h, w int) error {
+	f.windowChanges = append(f.windowChanges, [2]int{h, w})
+	return nil
+}
+
+func (f *fakeSSHSession) Shell() error {
+	f.shellStarted = true
+	return nil
+}
+
+func (f *fakeSSHSession) Wait() error {
+	if f.waitCh == nil {
+		f.waitCh = make(chan struct{})
+	}
+	<-f.waitCh
+	return nil
+}
+
+func (f *fakeSSHSession) Close() error {
+	f.closed = true
+	if f.waitCh != nil {
+		f.waitOnce.Do(func() { close(f.waitCh) })
+	}
+	return nil
+}
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (n nopWriteCloser) Close() error { return nil }

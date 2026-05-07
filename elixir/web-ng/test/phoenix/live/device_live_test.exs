@@ -606,6 +606,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Ceph"
     assert html =~ "HEALTH_OK"
     assert html =~ "1 running"
+    assert html =~ "Open PVE shell"
+    assert html =~ "target_kind=pve_host"
+    assert html =~ "console_mode=ssh"
   end
 
   describe "device show page interfaces tab" do

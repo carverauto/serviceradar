@@ -44,29 +44,31 @@ var (
 )
 
 type proxmoxConsoleOpenPayload struct {
-	SessionID          string `json:"session_id"`
-	AgentID            string `json:"agent_id,omitempty"`
-	GatewayID          string `json:"gateway_id,omitempty"`
-	DeviceUID          string `json:"device_uid,omitempty"`
-	TargetKind         string `json:"target_kind,omitempty"`
-	ConsoleMode        string `json:"console_mode,omitempty"`
-	CredentialRuleID   string `json:"credential_rule_id,omitempty"`
-	PluginAssignmentID string `json:"plugin_assignment_id,omitempty"`
-	Cols               uint32 `json:"cols,omitempty"`
-	Rows               uint32 `json:"rows,omitempty"`
+	SessionID          string                  `json:"session_id"`
+	AgentID            string                  `json:"agent_id,omitempty"`
+	GatewayID          string                  `json:"gateway_id,omitempty"`
+	DeviceUID          string                  `json:"device_uid,omitempty"`
+	TargetKind         string                  `json:"target_kind,omitempty"`
+	ConsoleMode        string                  `json:"console_mode,omitempty"`
+	CredentialRuleID   string                  `json:"credential_rule_id,omitempty"`
+	PluginAssignmentID string                  `json:"plugin_assignment_id,omitempty"`
+	Target             proxmoxConsoleSSHTarget `json:"target,omitempty"`
+	Cols               uint32                  `json:"cols,omitempty"`
+	Rows               uint32                  `json:"rows,omitempty"`
 }
 
 type proxmoxConsoleSessionSpec struct {
-	SessionID          string `json:"session_id"`
-	AgentID            string `json:"agent_id,omitempty"`
-	GatewayID          string `json:"gateway_id,omitempty"`
-	DeviceUID          string `json:"device_uid,omitempty"`
-	TargetKind         string `json:"target_kind,omitempty"`
-	ConsoleMode        string `json:"console_mode,omitempty"`
-	CredentialRuleID   string `json:"credential_rule_id,omitempty"`
-	PluginAssignmentID string `json:"plugin_assignment_id,omitempty"`
-	Cols               uint32 `json:"cols,omitempty"`
-	Rows               uint32 `json:"rows,omitempty"`
+	SessionID          string                  `json:"session_id"`
+	AgentID            string                  `json:"agent_id,omitempty"`
+	GatewayID          string                  `json:"gateway_id,omitempty"`
+	DeviceUID          string                  `json:"device_uid,omitempty"`
+	TargetKind         string                  `json:"target_kind,omitempty"`
+	ConsoleMode        string                  `json:"console_mode,omitempty"`
+	CredentialRuleID   string                  `json:"credential_rule_id,omitempty"`
+	PluginAssignmentID string                  `json:"plugin_assignment_id,omitempty"`
+	Target             proxmoxConsoleSSHTarget `json:"target,omitempty"`
+	Cols               uint32                  `json:"cols,omitempty"`
+	Rows               uint32                  `json:"rows,omitempty"`
 }
 
 type pluginProxmoxConsoleOpenRequest struct {
@@ -291,19 +293,27 @@ func buildProxmoxConsolePluginConfig(baseParams []byte, spec proxmoxConsoleSessi
 	}
 
 	if len(bytes.TrimSpace(baseParams)) == 0 {
-		return json.Marshal(map[string]interface{}{"console": console})
+		return json.Marshal(proxmoxConsolePluginConfigWithTarget(map[string]interface{}{"console": console}, spec))
 	}
 
 	var parsed map[string]interface{}
 	if err := json.Unmarshal(baseParams, &parsed); err == nil {
 		parsed["console"] = console
-		return json.Marshal(parsed)
+		return json.Marshal(proxmoxConsolePluginConfigWithTarget(parsed, spec))
 	}
 
 	return json.Marshal(map[string]interface{}{
 		"console":                  console,
+		"target":                   spec.Target,
 		"plugin_config_raw_base64": base64.StdEncoding.EncodeToString(baseParams),
 	})
+}
+
+func proxmoxConsolePluginConfigWithTarget(config map[string]interface{}, spec proxmoxConsoleSessionSpec) map[string]interface{} {
+	if spec.Target.Hostname != "" || spec.Target.IP != "" || spec.Target.BaseURL != "" || spec.Target.SSHPort > 0 {
+		config["target"] = spec.Target
+	}
+	return config
 }
 
 func decodeProxmoxConsoleOpenPayload(frame *proto.ConsoleFrame) (proxmoxConsoleSessionSpec, error) {
@@ -327,6 +337,7 @@ func decodeProxmoxConsoleOpenPayload(frame *proto.ConsoleFrame) (proxmoxConsoleS
 		ConsoleMode:        strings.TrimSpace(payload.ConsoleMode),
 		CredentialRuleID:   strings.TrimSpace(payload.CredentialRuleID),
 		PluginAssignmentID: strings.TrimSpace(payload.PluginAssignmentID),
+		Target:             payload.Target,
 		Cols:               firstNonZero(payload.Cols, frame.GetCols()),
 		Rows:               firstNonZero(payload.Rows, frame.GetRows()),
 	}
@@ -526,6 +537,15 @@ func (b *pluginProxmoxConsoleBridge) validHandle(handle uint32) bool {
 	return b.opened && !b.closed && handle == b.handle
 }
 
+func (b *pluginProxmoxConsoleBridge) activeHandle() (uint32, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.opened || b.closed {
+		return 0, errProxmoxConsoleSessionNotActive
+	}
+	return b.handle, nil
+}
+
 func (b *pluginProxmoxConsoleBridge) finish(err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -649,6 +669,41 @@ func (e *pluginExecution) hostProxmoxConsoleClose(
 	return pluginErrOK
 }
 
+func (e *pluginExecution) hostProxmoxConsoleSSHConnect(ctx context.Context, mod api.Module, configPtr, configLen uint32) int32 {
+	if !e.hasCapability(pluginCapabilityProxmoxConsole) || e.consoleBridge == nil {
+		return pluginErrDenied
+	}
+
+	raw, ok := readMemory(mod, configPtr, configLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+	if len(raw) == 0 {
+		return pluginErrInvalid
+	}
+	if len(raw) > pluginMaxPayloadBytes {
+		return pluginErrTooLarge
+	}
+
+	var cfg proxmoxConsoleSSHConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return pluginErrInvalid
+	}
+	if cfg.SSH.Password == "" && cfg.SSH.PrivateKey == "" && e.manager.proxmoxConsoleCredentialResolver != nil {
+		credential, err := e.manager.proxmoxConsoleCredentialResolver.ResolveProxmoxConsoleSSHCredential(ctx, cfg)
+		if err != nil {
+			return proxmoxConsolePluginErrorCode(err)
+		}
+		cfg.SSH = credential
+	}
+
+	if err := runProxmoxConsoleSSH(ctx, cfg, e.consoleBridge, nil); err != nil {
+		return proxmoxConsolePluginErrorCode(err)
+	}
+
+	return pluginErrOK
+}
+
 func decodeProxmoxConsoleOpenRequest(mod api.Module, ptr, size uint32) (pluginProxmoxConsoleOpenRequest, int32) {
 	if size == 0 {
 		return pluginProxmoxConsoleOpenRequest{}, pluginErrOK
@@ -673,7 +728,12 @@ func proxmoxConsolePluginErrorCode(err error) int32 {
 	switch {
 	case err == nil:
 		return pluginErrOK
+	case errors.Is(err, errProxmoxConsoleCredentialBrokerUnavailable),
+		errors.Is(err, errProxmoxConsoleCredentialFileInsecure):
+		return pluginErrDenied
 	case errors.Is(err, errProxmoxConsoleSessionNotActive), errors.Is(err, io.EOF):
+		return pluginErrNotFound
+	case errors.Is(err, errProxmoxConsoleCredentialNotFound):
 		return pluginErrNotFound
 	case errors.Is(err, context.DeadlineExceeded):
 		return pluginErrTimeout

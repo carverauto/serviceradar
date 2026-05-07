@@ -12,7 +12,7 @@ Credential handling is the blocker: Proxmox API tokens should be defined once, s
 - Use direct Proxmox VE REST calls through the existing host-proxied HTTP capability rather than embedding a normal Go/Rust Proxmox API client in the sandbox.
 - Reuse and converge with the existing `go/pkg/mapper/proxmox_poller.go` semantics for node/guest identity, hosted topology, and metadata.
 - Persist Proxmox host, VM, and LXC enrichment against canonical devices, including resource-efficiency metrics requested by Forgejo #223.
-- Add a Proxmox console access strategy so authorized operators can open web terminal sessions to PVE hosts, QEMU guests, and LXC guests through the reachable edge path.
+- Add a Proxmox console access strategy so authorized operators can open web terminal sessions to PVE hosts through the reachable edge path, with QEMU/LXC guest console modes modeled but unavailable until a native connector is enabled.
 - Store SSH keys and console credentials as encrypted credential-rule secrets, with per-agent/per-target scope and audited session launch.
 - Expose settings UI for credential rules, Proxmox rule preview/test, agent distribution, and redacted credential lifecycle.
 
@@ -41,7 +41,7 @@ Credential handling is the blocker: Proxmox API tokens should be defined once, s
   - First-party Go WASM plugin under `go/cmd/wasm-plugins/`
   - Proxmox enrichment ingestion in core-elx/web-ng
   - Web-ng console LiveView/React integration and websocket routes
-  - Edge agent/gateway console session broker for SSH and Proxmox termproxy/vncwebsocket paths
+  - Edge agent/gateway console session broker for SSH host sessions, with Proxmox termproxy/vncwebsocket represented as future unavailable connector modes
   - SRQL/device filters for Proxmox candidates and enriched assets
   - Agent plugin config delivery and redaction/caching behavior
 
