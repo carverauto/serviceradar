@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   @mode_trace "trace"
   @mode_window "window"
   @preset_today_vs_yesterday "today_vs_yesterday"
+  @preset_today_vs_yesterday_elapsed "today_vs_yesterday_elapsed"
   @preset_last_6h "last_6h"
   @preset_last_24h "last_24h"
   @preset_custom "custom"
@@ -553,6 +554,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         <.window_summary_header side={:b} state={@state} summary={@comparison.b} />
       </div>
 
+      <.comparison_baseline_notice comparison={@comparison} state={@state} />
+
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <.compare_metric_card
           label="Reachability"
@@ -623,6 +626,31 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       </div>
 
       <.agent_matrix rows={@comparison.agents} state={@state} />
+    </div>
+    """
+  end
+
+  attr(:comparison, :map, required: true)
+  attr(:state, :map, required: true)
+
+  defp comparison_baseline_notice(assigns) do
+    ~H"""
+    <div class={["sr-mtr-baseline-note p-3", baseline_note_class(@comparison)]}>
+      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div class="min-w-0">
+          <div class="sr-mtr-label">{baseline_note_label(@comparison)}</div>
+          <div class="sr-mtr-title mt-1 text-sm font-medium">
+            {baseline_note_text(@comparison)}
+          </div>
+        </div>
+        <.link
+          :if={@state.preset == preset_today_vs_yesterday()}
+          navigate={compare_elapsed_path(@state)}
+          class="btn btn-xs btn-outline shrink-0"
+        >
+          Compare same hours
+        </.link>
+      </div>
     </div>
     """
   end
@@ -890,6 +918,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     }
   end
 
+  defp preset_windows(@preset_today_vs_yesterday_elapsed, _params, now) do
+    today_start = start_of_utc_day(now)
+    elapsed = max(DateTime.diff(now, today_start, :second), 60)
+    yesterday_start = DateTime.add(today_start, -1, :day)
+
+    {
+      %{label: "Today so far", start: today_start, end: now},
+      %{label: "Yesterday same hours", start: yesterday_start, end: DateTime.add(yesterday_start, elapsed, :second)}
+    }
+  end
+
   defp preset_windows(@preset_last_6h, _params, now), do: rolling_windows(now, 6, "Last 6 hours", "Previous 6 hours")
 
   defp preset_windows(@preset_last_24h, _params, now), do: rolling_windows(now, 24, "Last 24 hours", "Previous 24 hours")
@@ -976,7 +1015,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp normalize_mode(_mode, _params), do: @mode_window
 
   defp normalize_preset(value)
-       when value in [@preset_today_vs_yesterday, @preset_last_6h, @preset_last_24h, @preset_custom], do: value
+       when value in [
+              @preset_today_vs_yesterday,
+              @preset_today_vs_yesterday_elapsed,
+              @preset_last_6h,
+              @preset_last_24h,
+              @preset_custom
+            ], do: value
 
   defp normalize_preset(_), do: @preset_today_vs_yesterday
 
@@ -1028,6 +1073,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     state
     |> window_state_to_params()
     |> Map.put("agent", normalize_text(agent_id))
+    |> compare_path()
+  end
+
+  defp compare_elapsed_path(state) do
+    state
+    |> Map.put(:preset, @preset_today_vs_yesterday_elapsed)
+    |> window_state_to_params()
     |> compare_path()
   end
 
@@ -1085,9 +1137,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp preset_options do
     [
-      {"Today vs Yesterday", @preset_today_vs_yesterday},
-      {"Last 6h vs Previous 6h", @preset_last_6h},
-      {"Last 24h vs Previous 24h", @preset_last_24h},
+      {"Today vs Yesterday Full Day", @preset_today_vs_yesterday},
+      {"Today vs Yesterday Same Hours", @preset_today_vs_yesterday_elapsed},
+      {"Rolling 6h vs Previous 6h", @preset_last_6h},
+      {"Rolling 24h vs Previous 24h", @preset_last_24h},
       {"Custom Windows", @preset_custom}
     ]
   end
@@ -1097,6 +1150,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp mode_trace, do: @mode_trace
   defp mode_window, do: @mode_window
   defp preset_custom, do: @preset_custom
+  defp preset_today_vs_yesterday, do: @preset_today_vs_yesterday
 
   defp reached_label("reached"), do: "Reached"
   defp reached_label("unreachable"), do: "Unreachable"
@@ -1121,6 +1175,48 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp format_window_range(start_time, end_time) do
     "#{format_time(start_time)} to #{format_time(end_time)}"
   end
+
+  defp baseline_note_class(%{elapsed_aligned?: true}), do: "is-aligned"
+  defp baseline_note_class(_comparison), do: "is-skewed"
+
+  defp baseline_note_label(%{elapsed_aligned?: true}), do: "Elapsed-aligned comparison"
+  defp baseline_note_label(_comparison), do: "Full-day baseline"
+
+  defp baseline_note_text(%{elapsed_aligned?: true} = comparison) do
+    "Both windows cover #{format_duration(window_duration_seconds(comparison.a))}, so deltas are normalized by elapsed time."
+  end
+
+  defp baseline_note_text(comparison) do
+    "Window A covers #{format_duration(window_duration_seconds(comparison.a))}; Window B covers #{format_duration(window_duration_seconds(comparison.b))}. Deltas include different amounts of time, so use sample counts and trace drilldowns when judging severity."
+  end
+
+  defp window_duration_seconds(%{start: %DateTime{} = start_time, end: %DateTime{} = end_time}) do
+    max(DateTime.diff(end_time, start_time, :second), 0)
+  end
+
+  defp window_duration_seconds(_window), do: 0
+
+  defp format_duration(seconds) when is_integer(seconds) and seconds >= 86_400 do
+    days = div(seconds, 86_400)
+    hours = seconds |> rem(86_400) |> div(3600)
+
+    case hours do
+      0 -> "#{days}d"
+      _ -> "#{days}d #{hours}h"
+    end
+  end
+
+  defp format_duration(seconds) when is_integer(seconds) and seconds >= 3600 do
+    hours = div(seconds, 3600)
+    minutes = seconds |> rem(3600) |> div(60)
+
+    case minutes do
+      0 -> "#{hours}h"
+      _ -> "#{hours}h #{minutes}m"
+    end
+  end
+
+  defp format_duration(seconds) when is_integer(seconds), do: "#{max(div(seconds, 60), 1)}m"
 
   defp window_input_value(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%dT%H:%M")
   defp window_input_value(_), do: ""

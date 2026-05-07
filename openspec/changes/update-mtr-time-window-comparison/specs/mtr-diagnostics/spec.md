@@ -5,9 +5,25 @@ The web UI SHALL allow operators to compare aggregate MTR diagnostics across two
 
 #### Scenario: Operator compares today so far to yesterday
 - **GIVEN** retained MTR traces exist for today and yesterday
-- **WHEN** the operator selects the `Today vs Yesterday` comparison preset
+- **WHEN** the operator selects the `Today vs Yesterday Full Day` comparison preset
 - **THEN** the UI compares today's elapsed window from local midnight through now against yesterday's full 24-hour day
 - **AND** it shows sample counts for both windows
+- **AND** it states that the baseline window covers a different amount of elapsed time
+- **AND** it provides a direct option to compare against yesterday's matching elapsed window
+- **AND** it shows deltas for reachability, average last-hop latency, average hop loss, average hop depth, and trace volume
+
+#### Scenario: Operator normalizes today against yesterday same hours
+- **GIVEN** retained MTR traces exist for today and yesterday
+- **WHEN** the operator selects the `Today vs Yesterday Same Hours` comparison preset
+- **THEN** the UI compares today's elapsed window from local midnight through now against yesterday's matching elapsed window
+- **AND** it labels the comparison as elapsed-aligned
+- **AND** it shows deltas for reachability, average last-hop latency, average hop loss, average hop depth, and trace volume
+
+#### Scenario: Operator compares rolling 24-hour windows
+- **GIVEN** retained MTR traces exist for the last 48 hours
+- **WHEN** the operator selects the `Rolling 24h vs Previous 24h` comparison preset
+- **THEN** the UI compares the 24 hours ending now against the immediately preceding 24 hours
+- **AND** it labels the comparison as elapsed-aligned
 - **AND** it shows deltas for reachability, average last-hop latency, average hop loss, average hop depth, and trace volume
 
 #### Scenario: Operator compares a selected incident window

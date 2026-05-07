@@ -25,6 +25,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
     assert html =~ "Today so far"
     assert html =~ "Yesterday full day"
     assert html =~ "#{format_time(yesterday_start)} to #{format_time(today_start)}"
+    assert html =~ "Full-day baseline"
+    assert html =~ "Compare same hours"
+    assert html =~ "Deltas include different amounts of time"
 
     assert html =~ ~s(role="listitem")
     assert html =~ ~s(href="/diagnostics/mtr?)
@@ -32,6 +35,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
     assert html =~ "sr-mtr-metric-link"
     assert html =~ "q=in%3Amtr_traces"
     assert html =~ "traces, 0 reached, 0 failed"
+  end
+
+  test "same-hours preset labels elapsed-aligned daily comparison", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/diagnostics/mtr/compare?preset=today_vs_yesterday_elapsed")
+
+    assert html =~ "Today so far"
+    assert html =~ "Yesterday same hours"
+    assert html =~ "Elapsed-aligned comparison"
+    assert html =~ "deltas are normalized by elapsed time"
+    refute html =~ "Compare same hours"
   end
 
   test "aggregate cards and rows link to backing MTR evidence", %{conn: conn} do
