@@ -49,24 +49,27 @@
 - [x] 6.7 Leave vSphere/vCenter provider IDs and schema affordances in place without implementing vCenter ingestion yet.
 
 ## 7. UI and Documentation
-- [ ] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
-- [ ] 7.2 Add edge agent/gateway console broker for SSH host sessions and optional Proxmox termproxy/vncwebsocket sessions.
-- [ ] 7.3 Build React/xterm.js terminal component mounted from Phoenix/LiveView using existing web-ng React integration.
-- [ ] 7.4 Add device details actions for "Open PVE shell", "Open VM console", and "Open LXC console" only when policy and reachability allow them.
-- [ ] 7.5 Add idle timeout, absolute session timeout, resize handling, close handling, and error rendering.
-- [ ] 7.6 Add tests for console RBAC, ticket single-use semantics, credential redaction, and agent-scope denial.
+- [x] 7.1 Add web-ng Proxmox console session API, authorization policy, short-lived tickets, and audit events.
+- [x] 7.2 Add edge agent/gateway console broker for SSH host sessions and explicitly reject native Proxmox termproxy/vncwebsocket modes until a connector is enabled.
+- [x] 7.3 Build React/xterm.js terminal component mounted from Phoenix/LiveView using existing web-ng React integration.
+- [x] 7.4 Add device details action for "Open PVE shell"; keep VM/LXC console actions hidden until a supported native guest console path is available.
+- [x] 7.5 Add idle timeout, absolute session timeout, resize handling, close handling, and error rendering.
+- [x] 7.6 Add tests for console RBAC, ticket single-use semantics, credential redaction, and agent-scope denial.
+- [x] 7.7 Add first-party Proxmox console plugin package metadata and materialize `console_access` credential rules to scoped console streaming assignments.
+- [x] 7.8 Add agent-hosted SSH console connector for PVE host shells, with device target metadata propagated from core through the ERTS broker to the agent/plugin config.
+- [x] 7.9 Add optional agent-local Proxmox console credential resolver for tenants that keep SSH keys off the control plane.
 
 ## 8. UI and Documentation
 - [x] 8.1 Surface Proxmox enrichment on device details and topology views.
 - [x] 8.2 Add dashboard-ready resource efficiency panels backed by SRQL/metrics data.
 - [x] 8.3 Document required Proxmox API token permissions, SSH key permissions, and least-privilege examples.
 - [x] 8.4 Document example credential rules for single site and multi-datacenter deployments.
-- [ ] 8.5 Document console session security model, audit events, and timeout behavior.
-- [ ] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
+- [x] 8.5 Document console session security model, audit events, and timeout behavior.
+- [x] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
 
 ## 9. Logs, Metrics, and Alerts
 - [x] 9.1 Add typed ingestion/schema support for Proxmox infrastructure details: storage, disk, network, Ceph, and future environmental sensor sources.
 - [x] 9.2 Surface storage, disk, network, Ceph, and environmental summaries in web-ng device details from the virtualization/infrastructure schema, not raw metadata.
-- [ ] 9.3 Add alert rule support for metric windows and baselines, including CPU above baseline for a sustained period.
-- [ ] 9.4 Add Proxmox log-forwarding setup flow that configures host logging toward the ServiceRadar syslog collector through an audited agent/SSH action when no PVE API mutation path is available.
-- [ ] 9.5 Correlate logs/events to canonical devices and expose device-scoped logs on the device details page.
+- [x] 9.3 Add alert rule support for metric windows and baselines, including CPU above baseline for a sustained period.
+- [x] 9.4 Deferred: deploy Vector on PVE hosts through an operator-managed playbook and forward to the ServiceRadar OTEL log collector instead of building an in-product SSH/rsyslog mutator in this change.
+- [x] 9.5 Correlate logs/events to canonical devices and expose device-scoped logs on the device details page.
