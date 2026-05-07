@@ -478,9 +478,13 @@ func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigReq
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	if resp.NotModified {
+	switch {
+	case resp.NotModified:
 		g.logger.Debug().Str("version", resp.ConfigVersion).Msg("Agent config not modified")
-	} else {
+	case req != nil && req.ConfigVersion != "" && resp.ConfigVersion == req.ConfigVersion:
+		resp.NotModified = true
+		g.logger.Debug().Str("version", resp.ConfigVersion).Msg("Agent config not modified")
+	default:
 		g.logger.Info().
 			Str("version", resp.ConfigVersion).
 			Int32("heartbeat_interval_sec", resp.HeartbeatIntervalSec).
