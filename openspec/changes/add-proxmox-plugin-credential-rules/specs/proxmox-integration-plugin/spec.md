@@ -78,3 +78,10 @@ The system SHALL provide a first-party Proxmox console plugin package that uses 
 - **GIVEN** the first-party Wasm plugin bundles are built
 - **WHEN** an operator imports first-party plugin packages
 - **THEN** the Proxmox console plugin SHALL appear in the plugin catalog with manifest metadata, config schema, resource requests, and `proxmox_console_stream` capability requirements
+
+#### Scenario: PVE SSH console is agent-hosted
+- **GIVEN** an authorized Proxmox console session targets a PVE host and resolves to SSH mode
+- **WHEN** the console plugin opens the ServiceRadar console bridge
+- **THEN** the TinyGo/Wasm plugin SHALL delegate SSH transport to an agent-hosted connector
+- **AND** the agent-hosted connector SHALL stream stdout, stderr, stdin, resize, and close frames over the existing console bridge
+- **AND** the browser-to-core-to-gateway path SHALL remain ERTS/PubSub based after the agent gateway receives control-stream frames

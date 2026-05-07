@@ -13,6 +13,41 @@
       "type": "object",
       "description": "Injected non-secret console session context from the agent streaming runtime."
     },
+    "target": {
+      "type": "object",
+      "description": "Injected target selected from ServiceRadar plugin inputs. Agent-local override for command-line testing only.",
+      "x-serviceradar-ui-hidden": true,
+      "properties": {
+        "device_uid": { "type": "string" },
+        "base_url": { "type": "string" },
+        "hostname": { "type": "string" },
+        "ip": { "type": "string" },
+        "ssh_port": { "type": "integer", "default": 22 }
+      }
+    },
+    "ssh": {
+      "type": "object",
+      "description": "Agent-local SSH credential fallback for customers that keep console credentials off the control plane. Central settings should use credential broker grants instead.",
+      "x-serviceradar-ui-hidden": true,
+      "properties": {
+        "username": { "type": "string" },
+        "password": {
+          "type": "string",
+          "format": "password",
+          "x-serviceradar-sensitive": true
+        },
+        "private_key": {
+          "type": "string",
+          "format": "password",
+          "x-serviceradar-sensitive": true
+        },
+        "passphrase": {
+          "type": "string",
+          "format": "password",
+          "x-serviceradar-sensitive": true
+        }
+      }
+    },
     "timeout_ms": {
       "type": "integer",
       "description": "Console connector timeout in milliseconds.",

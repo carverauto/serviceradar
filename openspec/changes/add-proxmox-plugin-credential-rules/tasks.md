@@ -56,6 +56,7 @@
 - [ ] 7.5 Add idle timeout, absolute session timeout, resize handling, close handling, and error rendering.
 - [ ] 7.6 Add tests for console RBAC, ticket single-use semantics, credential redaction, and agent-scope denial.
 - [x] 7.7 Add first-party Proxmox console plugin package metadata and materialize `console_access` credential rules to scoped console streaming assignments.
+- [x] 7.8 Add agent-hosted SSH console connector for PVE host shells, with device target metadata propagated from core through the ERTS broker to the agent/plugin config.
 
 ## 8. UI and Documentation
 - [x] 8.1 Surface Proxmox enrichment on device details and topology views.

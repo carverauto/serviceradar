@@ -94,13 +94,16 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp ensure_session_match(_session, nil), do: :ok
 
   defp ensure_session_match(%{id: id}, expected_id) do
-    if to_string(id) == to_string(expected_id), do: :ok, else: {:error, :invalid_or_expired_ticket}
+    if to_string(id) == to_string(expected_id),
+      do: :ok,
+      else: {:error, :invalid_or_expired_ticket}
   end
 
   @doc """
   Requests a console close. The broker will complete the close asynchronously.
   """
-  @spec request_close(String.t(), keyword()) :: {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
+  @spec request_close(String.t(), keyword()) ::
+          {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
   def request_close(session_id, opts \\ []) when is_binary(session_id) do
     ash_opts = ash_opts(opts)
 
@@ -128,15 +131,20 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   @doc """
   Marks a console session failed from broker-side stream setup or runtime errors.
   """
-  @spec fail_session(String.t(), term(), keyword()) :: {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
+  @spec fail_session(String.t(), term(), keyword()) ::
+          {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
   def fail_session(session_id, reason, opts \\ []) when is_binary(session_id) do
     ash_opts = [actor: SystemActor.system(:proxmox_console_fail)]
 
-    with {:ok, %ProxmoxConsoleSession{} = session} <- ProxmoxConsoleSession.get_by_id(session_id, ash_opts),
+    with {:ok, %ProxmoxConsoleSession{} = session} <-
+           ProxmoxConsoleSession.get_by_id(session_id, ash_opts),
          {:ok, failed} <-
            ProxmoxConsoleSession.fail_session(
              session,
-             %{failure_reason: format_failure_reason(reason), close_reason: "console_session_failed"},
+             %{
+               failure_reason: format_failure_reason(reason),
+               close_reason: "console_session_failed"
+             },
              ash_opts
            ) do
       write_audit(:proxmox_console_session_failed, failed, opts,
@@ -153,8 +161,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp resolve_target(device, request, system_opts) do
-    requested_kind = normalize_target_kind(Map.get(request, :target_kind) || Map.get(request, "target_kind"))
-    requested_mode = normalize_console_mode(Map.get(request, :console_mode) || Map.get(request, "console_mode"))
+    requested_kind =
+      normalize_target_kind(Map.get(request, :target_kind) || Map.get(request, "target_kind"))
+
+    requested_mode =
+      normalize_console_mode(Map.get(request, :console_mode) || Map.get(request, "console_mode"))
 
     with {:ok, inferred_kind} <- infer_target_kind(device, system_opts),
          {:ok, target_kind} <- pick_target_kind(requested_kind, inferred_kind),
@@ -185,11 +196,18 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp infer_target_kind_from_device(%{vendor_name: vendor}) when is_binary(vendor) do
-    if String.downcase(vendor) =~ "proxmox", do: {:ok, :pve_host}, else: {:error, :unsupported_console_target}
+    if String.downcase(vendor) =~ "proxmox",
+      do: {:ok, :pve_host},
+      else: {:error, :unsupported_console_target}
   end
 
   defp infer_target_kind_from_device(%{metadata: metadata}) when is_map(metadata) do
-    case ValueUtils.string_value(metadata, ["proxmox_guest_type", :proxmox_guest_type, "guest_type", :guest_type]) do
+    case ValueUtils.string_value(metadata, [
+           "proxmox_guest_type",
+           :proxmox_guest_type,
+           "guest_type",
+           :guest_type
+         ]) do
       "lxc" -> {:ok, :lxc_guest}
       "qemu" -> {:ok, :qemu_guest}
       _ -> {:error, :unsupported_console_target}
@@ -207,7 +225,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp pick_console_mode(:ssh, :pve_host), do: {:ok, :ssh}
 
   defp pick_console_mode(mode, target_kind)
-       when mode in [:proxmox_termproxy, :proxmox_vncwebsocket] and target_kind in [:qemu_guest, :lxc_guest],
+       when mode in [:proxmox_termproxy, :proxmox_vncwebsocket] and
+              target_kind in [:qemu_guest, :lxc_guest],
        do: {:ok, mode}
 
   defp pick_console_mode(mode, _target_kind) when mode in @supported_console_modes,
@@ -236,8 +255,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp resolve_first_matching_rule(device, system_actor, opts) do
     device
     |> rule_scopes()
-    |> Enum.reduce_while({:error, :no_console_credential_rule}, fn {scope_type, scope_value}, _acc ->
-      case NetworkCredentialRule.list_enabled_for_scope(@provider, scope_type, scope_value, actor: system_actor) do
+    |> Enum.reduce_while({:error, :no_console_credential_rule}, fn {scope_type, scope_value},
+                                                                   _acc ->
+      case NetworkCredentialRule.list_enabled_for_scope(@provider, scope_type, scope_value,
+             actor: system_actor
+           ) do
         {:ok, rules} ->
           case Enum.find(rules, &matching_console_rule?(&1, device, opts)) do
             nil -> {:cont, {:error, :no_console_credential_rule}}
@@ -261,7 +283,9 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp ensure_console_rule(_rule), do: {:error, :not_console_credential_rule}
 
   defp ensure_rule_scope_allows_device(rule, device) do
-    if {rule_scope_type(rule), value_string(rule, [:scope_value, "scope_value"])} in rule_scopes(device) do
+    if {rule_scope_type(rule), value_string(rule, [:scope_value, "scope_value"])} in rule_scopes(
+         device
+       ) do
       :ok
     else
       {:error, :credential_rule_scope_denied}
@@ -276,7 +300,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
            detect_conflicts?: false
          ) do
       {:ok, %{sample_devices: sample_devices}} ->
-        if Enum.any?(sample_devices, &(value_string(&1, [:uid, "uid", :device_uid, "device_uid"]) == device.uid)) do
+        if Enum.any?(
+             sample_devices,
+             &(value_string(&1, [:uid, "uid", :device_uid, "device_uid"]) == device.uid)
+           ) do
           :ok
         else
           {:error, :credential_rule_target_denied}
@@ -298,7 +325,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     %{
       ticket_hash: ticket_hash,
       ticket_expires_at:
-        DateTime.add(DateTime.utc_now(), Keyword.get(opts, :ticket_ttl_seconds, @default_ticket_ttl_seconds), :second),
+        DateTime.add(
+          DateTime.utc_now(),
+          Keyword.get(opts, :ticket_ttl_seconds, @default_ticket_ttl_seconds),
+          :second
+        ),
       device_uid: device.uid,
       target_kind: target.target_kind,
       console_mode: target.console_mode,
@@ -306,23 +337,38 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       gateway_id: value_string(device, [:gateway_id, "gateway_id"]),
       credential_rule_id: value_string(rule, [:id, "id"]),
       requested_by: requested_by(opts),
-      idle_timeout_seconds: int_request(request, :idle_timeout_seconds, @default_idle_timeout_seconds),
-      absolute_timeout_seconds: int_request(request, :absolute_timeout_seconds, @default_absolute_timeout_seconds),
-      metadata: session_metadata(request)
+      idle_timeout_seconds:
+        int_request(request, :idle_timeout_seconds, @default_idle_timeout_seconds),
+      absolute_timeout_seconds:
+        int_request(request, :absolute_timeout_seconds, @default_absolute_timeout_seconds),
+      metadata: session_metadata(device, request)
     }
   end
 
-  defp session_metadata(request) do
+  defp session_metadata(device, request) do
     terminal =
       %{}
       |> put_positive_int("cols", Map.get(request, :cols) || Map.get(request, "cols"))
       |> put_positive_int("rows", Map.get(request, :rows) || Map.get(request, "rows"))
 
     request_metadata = Map.get(request, :metadata) || Map.get(request, "metadata") || %{}
+    target_metadata = target_metadata(device)
 
     %{}
     |> maybe_put("terminal", terminal)
+    |> maybe_put("target", target_metadata)
     |> Map.merge(if(is_map(request_metadata), do: request_metadata, else: %{}))
+  end
+
+  defp target_metadata(device) do
+    %{}
+    |> maybe_put("device_uid", value_string(device, [:uid, "uid"]))
+    |> maybe_put("hostname", value_string(device, [:hostname, "hostname", :name, "name"]))
+    |> maybe_put("ip", value_string(device, [:ip, "ip"]))
+    |> put_positive_int(
+      "ssh_port",
+      ValueUtils.int_value(device.metadata, ["ssh_port", :ssh_port], 22)
+    )
   end
 
   defp new_ticket do
@@ -431,13 +477,17 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     end
   end
 
-  defp normalize_target_kind(value) when is_atom(value) and value in @supported_target_kinds, do: value
+  defp normalize_target_kind(value) when is_atom(value) and value in @supported_target_kinds,
+    do: value
+
   defp normalize_target_kind("pve_host"), do: :pve_host
   defp normalize_target_kind("qemu_guest"), do: :qemu_guest
   defp normalize_target_kind("lxc_guest"), do: :lxc_guest
   defp normalize_target_kind(_value), do: nil
 
-  defp normalize_console_mode(value) when is_atom(value) and value in @supported_console_modes, do: value
+  defp normalize_console_mode(value) when is_atom(value) and value in @supported_console_modes,
+    do: value
+
   defp normalize_console_mode("ssh"), do: :ssh
   defp normalize_console_mode("proxmox_termproxy"), do: :proxmox_termproxy
   defp normalize_console_mode("proxmox_vncwebsocket"), do: :proxmox_vncwebsocket
@@ -464,7 +514,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     end
   end
 
-  defp put_positive_int(map, key, value) when is_integer(value) and value > 0, do: Map.put(map, key, value)
+  defp put_positive_int(map, key, value) when is_integer(value) and value > 0,
+    do: Map.put(map, key, value)
 
   defp put_positive_int(map, key, value) when is_binary(value) do
     case Integer.parse(value) do
@@ -486,7 +537,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp normalize_close_reason(_reason), do: "operator_requested"
 
   defp format_failure_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 500)
-  defp format_failure_reason(reason) when is_atom(reason), do: reason |> Atom.to_string() |> format_failure_reason()
+
+  defp format_failure_reason(reason) when is_atom(reason),
+    do: reason |> Atom.to_string() |> format_failure_reason()
+
   defp format_failure_reason(reason), do: reason |> inspect() |> format_failure_reason()
 
   defp required_string(map, keys, error_reason) do

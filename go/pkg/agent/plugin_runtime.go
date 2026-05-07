@@ -1650,6 +1650,9 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 		WithFunc(e.hostProxmoxConsoleClose).
 		Export("proxmox_console_close")
 	builder.NewFunctionBuilder().
+		WithFunc(e.hostProxmoxConsoleSSHConnect).
+		Export("proxmox_console_ssh_connect")
+	builder.NewFunctionBuilder().
 		WithFunc(e.hostHTTPRequest).
 		Export("http_request")
 	builder.NewFunctionBuilder().
