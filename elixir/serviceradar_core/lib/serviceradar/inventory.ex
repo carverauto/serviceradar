@@ -41,6 +41,13 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.DeviceIdentifier
     resource ServiceRadar.Inventory.MergeAudit
     resource ServiceRadar.Inventory.DeviceCleanupSettings
+    resource ServiceRadar.Inventory.VirtualizationCluster
+    resource ServiceRadar.Inventory.VirtualizationHost
+    resource ServiceRadar.Inventory.VirtualizationGuest
+    resource ServiceRadar.Inventory.VirtualizationDatastore
+    resource ServiceRadar.Inventory.VirtualizationHostDisk
+    resource ServiceRadar.Inventory.VirtualizationNetworkInterface
+    resource ServiceRadar.Inventory.VirtualizationStorageSystem
   end
 
   authorization do

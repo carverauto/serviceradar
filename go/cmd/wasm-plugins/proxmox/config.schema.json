@@ -3,33 +3,31 @@
   "properties": {
     "base_url": {
       "type": "string",
-      "description": "Proxmox VE API base URL for a single target, for example https://pve.example.com:8006"
+      "x-serviceradar-ui-hidden": true,
+      "description": "Agent-local direct target override, for example https://pve.example.com:8006. Central assignments should use credential rules and SRQL-scoped targets."
     },
-    "api_token": {
-      "type": "string",
-      "description": "Proxmox API token header value. Prefer credential rules for production use."
-    },
-    "api_token_secret_ref": {
-      "type": "string",
-      "secretRef": true,
-      "description": "Secret reference for the Proxmox API token"
+    "credential_broker": {
+      "type": "object",
+      "x-serviceradar-internal": true,
+      "description": "Internal credential broker grant generated from network credential rules. Do not configure manually."
     },
     "targets": {
       "type": "array",
-      "description": "Credential-rule compiled Proxmox targets",
+      "x-serviceradar-ui-hidden": true,
+      "description": "Credential-rule compiled Proxmox targets. Credentials are resolved by the edge credential broker or by agent-local direct configuration.",
       "items": {
         "type": "object",
         "properties": {
           "base_url": {
             "type": "string"
           },
-          "api_token": {
-            "type": "string"
-          },
           "device_id": {
             "type": "string"
           },
           "hostname": {
+            "type": "string"
+          },
+          "partition": {
             "type": "string"
           }
         },

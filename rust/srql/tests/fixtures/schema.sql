@@ -353,3 +353,146 @@ CREATE TABLE alerts (
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+DROP TABLE IF EXISTS virtualization_storage_systems;
+DROP TABLE IF EXISTS virtualization_network_interfaces;
+DROP TABLE IF EXISTS virtualization_host_disks;
+DROP TABLE IF EXISTS virtualization_datastores;
+DROP TABLE IF EXISTS virtualization_guests;
+DROP TABLE IF EXISTS virtualization_hosts;
+DROP TABLE IF EXISTS virtualization_clusters;
+
+CREATE TABLE virtualization_clusters (
+    id           UUID        PRIMARY KEY,
+    provider     TEXT        NOT NULL,
+    provider_ref TEXT        NOT NULL,
+    name         TEXT        NOT NULL,
+    status       TEXT,
+    version      TEXT,
+    metadata     JSONB       NOT NULL DEFAULT '{}',
+    observed_at  TIMESTAMPTZ,
+    inserted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE virtualization_hosts (
+    id                 UUID        PRIMARY KEY,
+    provider           TEXT        NOT NULL,
+    provider_ref       TEXT        NOT NULL,
+    cluster_id         UUID        REFERENCES virtualization_clusters(id),
+    device_uid         TEXT        REFERENCES ocsf_devices(uid),
+    name               TEXT        NOT NULL,
+    status             TEXT,
+    version            TEXT,
+    cpu_ratio          FLOAT8,
+    memory_used_bytes  BIGINT,
+    memory_total_bytes BIGINT,
+    uptime_seconds     BIGINT,
+    metadata           JSONB       NOT NULL DEFAULT '{}',
+    observed_at        TIMESTAMPTZ,
+    inserted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE virtualization_guests (
+    id                 UUID        PRIMARY KEY,
+    provider           TEXT        NOT NULL,
+    provider_ref       TEXT        NOT NULL,
+    host_id            UUID        REFERENCES virtualization_hosts(id),
+    device_uid         TEXT        REFERENCES ocsf_devices(uid),
+    name               TEXT,
+    guest_type         TEXT        NOT NULL,
+    vmid               BIGINT,
+    status             TEXT,
+    cpu_ratio          FLOAT8,
+    memory_used_bytes  BIGINT,
+    memory_total_bytes BIGINT,
+    disk_used_bytes    BIGINT,
+    disk_total_bytes   BIGINT,
+    uptime_seconds     BIGINT,
+    metadata           JSONB       NOT NULL DEFAULT '{}',
+    observed_at        TIMESTAMPTZ,
+    inserted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE virtualization_datastores (
+    id              UUID        PRIMARY KEY,
+    provider        TEXT        NOT NULL,
+    provider_ref    TEXT        NOT NULL,
+    cluster_id      UUID        REFERENCES virtualization_clusters(id),
+    host_id         UUID        REFERENCES virtualization_hosts(id),
+    name            TEXT        NOT NULL,
+    storage_type    TEXT,
+    content         TEXT,
+    active          BOOLEAN,
+    enabled         BOOLEAN,
+    shared          BOOLEAN,
+    used_bytes      BIGINT,
+    available_bytes BIGINT,
+    total_bytes     BIGINT,
+    metadata        JSONB       NOT NULL DEFAULT '{}',
+    observed_at     TIMESTAMPTZ,
+    inserted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE virtualization_host_disks (
+    id           UUID        PRIMARY KEY,
+    provider     TEXT        NOT NULL,
+    provider_ref TEXT        NOT NULL,
+    host_id      UUID        NOT NULL REFERENCES virtualization_hosts(id),
+    device_uid   TEXT        REFERENCES ocsf_devices(uid),
+    path         TEXT,
+    by_id        TEXT,
+    disk_type    TEXT,
+    vendor       TEXT,
+    model        TEXT,
+    health       TEXT,
+    size_bytes   BIGINT,
+    wearout      INT,
+    usage        TEXT,
+    metadata     JSONB       NOT NULL DEFAULT '{}',
+    observed_at  TIMESTAMPTZ,
+    inserted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE virtualization_network_interfaces (
+    id             UUID        PRIMARY KEY,
+    provider       TEXT        NOT NULL,
+    provider_ref   TEXT        NOT NULL,
+    host_id        UUID        NOT NULL REFERENCES virtualization_hosts(id),
+    device_uid     TEXT        REFERENCES ocsf_devices(uid),
+    name           TEXT        NOT NULL,
+    interface_type TEXT,
+    active         BOOLEAN,
+    exists         BOOLEAN,
+    method         TEXT,
+    method6        TEXT,
+    address        TEXT,
+    cidr           TEXT,
+    gateway        TEXT,
+    bridge_ports   TEXT,
+    vlan_id        INT,
+    metadata       JSONB       NOT NULL DEFAULT '{}',
+    observed_at    TIMESTAMPTZ,
+    inserted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE virtualization_storage_systems (
+    id                  UUID        PRIMARY KEY,
+    provider            TEXT        NOT NULL,
+    provider_ref        TEXT        NOT NULL,
+    cluster_id          UUID        REFERENCES virtualization_clusters(id),
+    host_id             UUID        REFERENCES virtualization_hosts(id),
+    name                TEXT        NOT NULL,
+    storage_system_type TEXT        NOT NULL,
+    health              TEXT,
+    status              TEXT,
+    metadata            JSONB       NOT NULL DEFAULT '{}',
+    observed_at         TIMESTAMPTZ,
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @topology_link_limit 160
   @topology_sparkline_interface_limit 80
   @dashboard_sparkline_limit 48
+  @virtualization_dashboard_limit 500
   @netflow_map_window_minutes 15
   @snmp_traffic_metrics ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
 
@@ -73,7 +74,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       threat_intel_summary: empty_threat_intel_summary(),
       alert_feed: [],
       camera_summary: empty_camera_summary(),
-      survey_summary: empty_survey_summary()
+      survey_summary: empty_survey_summary(),
+      virtualization_summary: empty_virtualization_summary()
     }
   end
 
@@ -97,6 +99,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     event_summary = Stats.events_summary(time: time_window)
     threat_intel_summary = threat_intel_summary()
     trace_summary = trace_summary(srql_module, scope, time_window)
+    virtualization_summary = virtualization_summary(srql_module, scope)
     security_trend = security_trend(time_window)
     sparklines = dashboard_sparklines(time_window, security_trend, mtr_overlays)
 
@@ -147,7 +150,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       threat_intel_summary: threat_intel_summary,
       alert_feed: alert_feed,
       camera_summary: camera_summary,
-      survey_summary: survey_summary
+      survey_summary: survey_summary,
+      virtualization_summary: virtualization_summary
     }
   end
 
@@ -238,6 +242,172 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   rescue
     _ -> empty_trace_summary()
   end
+
+  defp virtualization_summary(srql_module, scope) do
+    hosts = virtualization_rows(srql_module, scope, "virtualization_hosts")
+    guests = virtualization_rows(srql_module, scope, "virtualization_guests")
+    datastores = virtualization_rows(srql_module, scope, "virtualization_datastores")
+    storage_systems = virtualization_rows(srql_module, scope, "virtualization_storage_systems")
+
+    host_memory_ratios = Enum.map(hosts, &memory_ratio/1)
+    guest_memory_ratios = Enum.map(guests, &memory_ratio/1)
+    guest_disk_ratios = Enum.map(guests, &disk_ratio/1)
+    datastore_ratios = Enum.map(datastores, &datastore_ratio/1)
+    ceph_health = storage_health_summary(storage_systems)
+
+    bottlenecks =
+      count_ratio_bottlenecks(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))) +
+        count_ratio_bottlenecks(host_memory_ratios) +
+        count_ratio_bottlenecks(Enum.map(guests, &ratio_percent(map_value(&1, "cpu_ratio")))) +
+        count_ratio_bottlenecks(guest_memory_ratios) +
+        count_ratio_bottlenecks(guest_disk_ratios) +
+        count_ratio_bottlenecks(datastore_ratios) +
+        ceph_health.warning_count +
+        ceph_health.error_count
+
+    %{
+      available: hosts != [] or guests != [] or datastores != [] or storage_systems != [],
+      host_count: length(hosts),
+      guest_count: length(guests),
+      running_guests: Enum.count(guests, &(normalized_status(map_value(&1, "status")) == "running")),
+      stopped_guests: Enum.count(guests, &(normalized_status(map_value(&1, "status")) == "stopped")),
+      datastore_count: length(datastores),
+      storage_system_count: length(storage_systems),
+      provider_label: provider_label(hosts ++ guests ++ datastores ++ storage_systems),
+      avg_host_cpu_pct: avg_percent(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))),
+      max_host_cpu_pct: max_percent(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))),
+      max_host_memory_pct: max_percent(host_memory_ratios),
+      max_guest_cpu_pct: max_percent(Enum.map(guests, &ratio_percent(map_value(&1, "cpu_ratio")))),
+      max_guest_memory_pct: max_percent(guest_memory_ratios),
+      max_guest_disk_pct: max_percent(guest_disk_ratios),
+      max_datastore_pct: max_percent(datastore_ratios),
+      bottleneck_count: bottlenecks,
+      ceph_warning_count: ceph_health.warning_count,
+      ceph_error_count: ceph_health.error_count,
+      ceph_health_label: ceph_health.label,
+      status_label: virtualization_status_label(bottlenecks, ceph_health),
+      status_tone: virtualization_status_tone(bottlenecks, ceph_health)
+    }
+  rescue
+    _ -> empty_virtualization_summary()
+  end
+
+  defp virtualization_rows(srql_module, scope, entity) do
+    case srql_module.query("in:#{entity}", %{scope: scope, limit: @virtualization_dashboard_limit}) do
+      {:ok, %{"results" => results}} when is_list(results) -> results
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp memory_ratio(row) when is_map(row) do
+    bytes_ratio(map_value(row, "memory_used_bytes"), map_value(row, "memory_total_bytes"))
+  end
+
+  defp disk_ratio(row) when is_map(row) do
+    bytes_ratio(map_value(row, "disk_used_bytes"), map_value(row, "disk_total_bytes"))
+  end
+
+  defp datastore_ratio(row) when is_map(row) do
+    bytes_ratio(map_value(row, "used_bytes"), map_value(row, "total_bytes"))
+  end
+
+  defp bytes_ratio(used, total) do
+    used = to_float(used)
+    total = to_float(total)
+    if total > 0, do: used / total * 100.0, else: 0.0
+  end
+
+  defp ratio_percent(value) do
+    value = to_float(value)
+    if value <= 1.0, do: value * 100.0, else: value
+  end
+
+  defp avg_percent(values) when is_list(values) do
+    normalized = Enum.map(values, &clamp_percent/1)
+    if normalized == [], do: 0.0, else: Float.round(Enum.sum(normalized) / length(normalized), 1)
+  end
+
+  defp max_percent(values) when is_list(values) do
+    values
+    |> Enum.map(&clamp_percent/1)
+    |> Enum.max(fn -> 0.0 end)
+    |> Float.round(1)
+  end
+
+  defp clamp_percent(value) do
+    value
+    |> to_float()
+    |> max(0.0)
+    |> min(100.0)
+  end
+
+  defp count_ratio_bottlenecks(values) when is_list(values) do
+    Enum.count(values, &(clamp_percent(&1) >= 85.0))
+  end
+
+  defp storage_health_summary(storage_systems) when is_list(storage_systems) do
+    statuses =
+      Enum.map(storage_systems, fn system ->
+        map_value(system, "health") || map_value(system, "status")
+      end)
+
+    error_count = Enum.count(statuses, &storage_health_error?/1)
+    warning_count = Enum.count(statuses, &storage_health_warning?/1)
+
+    label =
+      cond do
+        error_count > 0 -> "#{format_count(error_count)} storage errors"
+        warning_count > 0 -> "#{format_count(warning_count)} storage warnings"
+        statuses == [] -> "No clustered storage"
+        true -> "Storage healthy"
+      end
+
+    %{label: label, warning_count: warning_count, error_count: error_count}
+  end
+
+  defp storage_health_error?(value) do
+    value
+    |> normalized_status()
+    |> Kernel.in(["err", "error", "critical", "failed", "health_err"])
+  end
+
+  defp storage_health_warning?(value) do
+    status = normalized_status(value)
+    status in ["warn", "warning", "degraded", "health_warn"] and not storage_health_error?(status)
+  end
+
+  defp normalized_status(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalized_status(value), do: value |> to_string() |> String.downcase()
+
+  defp provider_label(rows) when is_list(rows) do
+    providers =
+      rows
+      |> Enum.map(&map_value(&1, "provider"))
+      |> Enum.filter(&present?/1)
+      |> Enum.map(&String.capitalize/1)
+      |> Enum.uniq()
+
+    case providers do
+      [] -> "No hypervisor inventory"
+      [provider] -> provider
+      [first | rest] -> "#{first} +#{length(rest)}"
+    end
+  end
+
+  defp virtualization_status_label(0, %{error_count: 0, warning_count: 0}), do: "Efficient"
+  defp virtualization_status_label(_bottlenecks, %{error_count: errors}) when errors > 0, do: "Critical"
+  defp virtualization_status_label(_bottlenecks, _health), do: "Pressure"
+
+  defp virtualization_status_tone(0, %{error_count: 0, warning_count: 0}), do: "ok"
+  defp virtualization_status_tone(_bottlenecks, %{error_count: errors}) when errors > 0, do: "error"
+  defp virtualization_status_tone(_bottlenecks, _health), do: "warning"
 
   defp flow_summary(time_window) do
     cutoff = cutoff_for_time_window(time_window)
@@ -2329,6 +2499,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp empty_alert_summary, do: Stats.empty_alerts_summary()
   defp empty_event_summary, do: Stats.empty_events_summary()
+
+  defp empty_virtualization_summary,
+    do: %{
+      available: false,
+      host_count: 0,
+      guest_count: 0,
+      running_guests: 0,
+      stopped_guests: 0,
+      datastore_count: 0,
+      storage_system_count: 0,
+      provider_label: "No hypervisor inventory",
+      avg_host_cpu_pct: 0.0,
+      max_host_cpu_pct: 0.0,
+      max_host_memory_pct: 0.0,
+      max_guest_cpu_pct: 0.0,
+      max_guest_memory_pct: 0.0,
+      max_guest_disk_pct: 0.0,
+      max_datastore_pct: 0.0,
+      bottleneck_count: 0,
+      ceph_warning_count: 0,
+      ceph_error_count: 0,
+      ceph_health_label: "No clustered storage",
+      status_label: "No inventory",
+      status_tone: "idle"
+    }
 
   defp empty_threat_intel_summary,
     do: %{

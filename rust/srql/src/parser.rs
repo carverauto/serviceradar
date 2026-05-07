@@ -31,6 +31,13 @@ pub enum Entity {
     WifiRadiusGroups,
     WifiFleetHistory,
     WifiSiteReferences,
+    VirtualizationClusters,
+    VirtualizationHosts,
+    VirtualizationGuests,
+    VirtualizationDatastores,
+    VirtualizationHostDisks,
+    VirtualizationNetworkInterfaces,
+    VirtualizationStorageSystems,
     Logs,
     Services,
     Gateways,
@@ -426,6 +433,27 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "wifi_fleet_history" | "wifi_history" => Ok(Entity::WifiFleetHistory),
         "wifi_site_references" | "wifi_airport_references" | "wifi_references" => {
             Ok(Entity::WifiSiteReferences)
+        }
+        "virtualization_clusters" | "virtualization_cluster" | "hypervisor_clusters" => {
+            Ok(Entity::VirtualizationClusters)
+        }
+        "virtualization_hosts" | "virtualization_host" | "hypervisors" | "hypervisor_hosts" => {
+            Ok(Entity::VirtualizationHosts)
+        }
+        "virtualization_guests" | "virtualization_guest" | "vms" | "vm" | "containers" => {
+            Ok(Entity::VirtualizationGuests)
+        }
+        "virtualization_datastores" | "virtualization_datastore" | "datastores" => {
+            Ok(Entity::VirtualizationDatastores)
+        }
+        "virtualization_host_disks" | "virtualization_disks" | "host_disks" => {
+            Ok(Entity::VirtualizationHostDisks)
+        }
+        "virtualization_network_interfaces" | "virtualization_nics" | "hypervisor_nics" => {
+            Ok(Entity::VirtualizationNetworkInterfaces)
+        }
+        "virtualization_storage_systems" | "storage_systems" | "ceph" => {
+            Ok(Entity::VirtualizationStorageSystems)
         }
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
@@ -940,6 +968,35 @@ mod tests {
 
         for (raw, expected) in cases {
             let ast = parse(&format!("in:{raw} limit:1")).unwrap();
+            assert_eq!(ast.entity, expected, "entity alias {raw}");
+        }
+    }
+
+    #[test]
+    fn parses_virtualization_entities() {
+        let cases = [
+            ("virtualization_clusters", Entity::VirtualizationClusters),
+            ("hypervisors", Entity::VirtualizationHosts),
+            ("virtualization_guests", Entity::VirtualizationGuests),
+            ("vms", Entity::VirtualizationGuests),
+            (
+                "virtualization_datastores",
+                Entity::VirtualizationDatastores,
+            ),
+            ("virtualization_disks", Entity::VirtualizationHostDisks),
+            (
+                "virtualization_nics",
+                Entity::VirtualizationNetworkInterfaces,
+            ),
+            (
+                "virtualization_storage_systems",
+                Entity::VirtualizationStorageSystems,
+            ),
+            ("ceph", Entity::VirtualizationStorageSystems),
+        ];
+
+        for (raw, expected) in cases {
+            let ast = parse(&format!("in:{raw} provider:proxmox limit:1")).unwrap();
             assert_eq!(ast.entity, expected, "entity alias {raw}");
         }
     }

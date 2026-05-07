@@ -24,8 +24,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :credential_kind,
     :username,
     :public_fingerprint,
+    :last_rotated_at,
+    :next_rotation_due_at,
     :metadata
   ]
+
+  @public_read_fields [:id, :inserted_at, :updated_at | @fields]
+  @secret_read_fields [:id, :encrypted_secret_payload]
 
   postgres do
     table "network_credential_secrets"
@@ -51,23 +56,35 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_secret_by_id, action: :by_id_with_secret, args: [:id]
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
     define :update_secret, action: :update
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      prepare build(select: @public_read_fields)
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+      prepare build(select: @public_read_fields)
+    end
+
+    read :by_id_with_secret do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare build(select: @secret_read_fields)
     end
 
     read :by_provider do
       argument :provider, :string, allow_nil?: false
       filter expr(provider == ^arg(:provider))
+      prepare build(select: @public_read_fields)
     end
 
     create :create do
@@ -83,7 +100,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@credential_manage_check)
+    action_with_permission([:read, :by_id, :by_provider], @credential_manage_check)
     action_type_with_permission([:create, :update], @credential_manage_check)
   end
 
@@ -130,6 +147,18 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? true
       public? true
       description "Optional public key, certificate, or token fingerprint"
+    end
+
+    attribute :last_rotated_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "When this credential material was last rotated"
+    end
+
+    attribute :next_rotation_due_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "Operator-facing rotation due date for this credential"
     end
 
     attribute :secret_payload, :string do

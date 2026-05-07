@@ -132,6 +132,64 @@ func TestOnDemandMtrOptions_ClampsMaxHops(t *testing.T) {
 	}
 }
 
+func TestRunProxmoxCredentialTest_RejectsDirectAPITokenPayload(t *testing.T) {
+	t.Parallel()
+
+	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		CredentialRuleID: "rule-1",
+		APIToken:         "root@pam!sr=test-secret",
+		Target: proxmoxTestTarget{
+			DeviceUID: "device-1",
+			BaseURL:   "https://pve.example:8006",
+			Hostname:  "pve-a",
+		},
+		TimeoutMS: 1000,
+	})
+	if err == nil || err.Error() != "direct proxmox api token payloads are not allowed" {
+		t.Fatalf("expected direct token rejection, got %v", err)
+	}
+}
+
+func TestRunProxmoxCredentialTest_RequiresCredentialBrokerGrant(t *testing.T) {
+	t.Parallel()
+
+	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		Target: proxmoxTestTarget{BaseURL: "https://pve.example:8006"},
+	})
+	if err == nil || err.Error() != "missing proxmox credential broker grant" {
+		t.Fatalf("expected missing broker grant error, got %v", err)
+	}
+}
+
+func TestRunProxmoxCredentialTest_BrokerGrantDoesNotExposeSecret(t *testing.T) {
+	t.Parallel()
+
+	result, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: proxmoxCredentialBrokerGrant{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+		},
+		Target: proxmoxTestTarget{
+			DeviceUID: "device-1",
+			BaseURL:   "https://pve.example:8006",
+			Hostname:  "pve-a",
+		},
+	})
+	if err == nil || err.Error() != "credential broker unavailable" {
+		t.Fatalf("expected broker unavailable error, got %v", err)
+	}
+	if result["device_uid"] != "device-1" {
+		t.Fatalf("expected device_uid device-1, got %#v", result["device_uid"])
+	}
+	if body := result["api_token"]; body != nil {
+		t.Fatalf("result leaked api_token: %#v", body)
+	}
+	if body := result["credential_secret_ref"]; body != nil {
+		t.Fatalf("result leaked credential ref: %#v", body)
+	}
+}
+
 func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -189,5 +247,36 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 	}
 	if hello.GetConfigSource() != "remote" {
 		t.Fatalf("hello.ConfigSource = %q, want %q", hello.GetConfigSource(), "remote")
+	}
+}
+
+func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
+	t.Parallel()
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	loop.handleConsoleFrame(&proto.ConsoleFrame{
+		SessionId: "console-session-1",
+		FrameType: consoleFrameTypeOpen,
+	}, sender)
+
+	if len(stream.sent) != 1 {
+		t.Fatalf("expected one console response frame, got %d", len(stream.sent))
+	}
+
+	frame := stream.sent[0].GetConsoleFrame()
+	if frame == nil {
+		t.Fatal("expected console frame response")
+	}
+	if frame.GetSessionId() != "console-session-1" {
+		t.Fatalf("SessionId = %q, want console-session-1", frame.GetSessionId())
+	}
+	if frame.GetFrameType() != consoleFrameTypeError {
+		t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), consoleFrameTypeError)
+	}
+	if frame.GetReason() != "proxmox console PTY bridge unavailable" {
+		t.Fatalf("Reason = %q", frame.GetReason())
 	}
 }

@@ -10,7 +10,12 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   def plugin_config_fields(assigns) do
     schema = normalize_schema(assigns.schema)
     params = normalize_params(assigns.params)
-    properties = Map.get(schema, "properties", %{})
+
+    properties =
+      schema
+      |> Map.get("properties", %{})
+      |> Enum.reject(fn {_name, prop} -> internal_property?(prop) end)
+
     required = Map.get(schema, "required", [])
 
     assigns =
@@ -142,6 +147,12 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp input_type_from_type(%{"type" => "number"}), do: :number
   defp input_type_from_type(%{"type" => "array"}), do: :textarea
   defp input_type_from_type(_), do: :text
+
+  defp internal_property?(%{} = prop) do
+    Map.get(prop, "x-serviceradar-internal") == true or Map.get(prop, "x-serviceradar-ui-hidden") == true
+  end
+
+  defp internal_property?(_), do: false
 
   defp text_input_type(%{"format" => "uri"}), do: "url"
   defp text_input_type(%{"format" => "email"}), do: "email"

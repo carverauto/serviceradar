@@ -126,6 +126,23 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
     assert message =~ "template.password_secret_ref is missing linked secret material"
   end
 
+  test "network credential refs are accepted without embedded secret material" do
+    ref = SecretRefs.network_credential_ref("018f3f56-1111-7222-8333-123456789abc")
+
+    assert SecretRefs.secret_ref?(ref)
+
+    assert :ok =
+             SecretRefs.validate_secret_linkage(@schema, %{
+               "password_secret_ref" => ref
+             })
+
+    assert :ok =
+             SecretRefs.validate_secret_linkage(
+               @schema,
+               plugin_inputs_payload(%{"password_secret_ref" => ref})
+             )
+  end
+
   defp plugin_inputs_payload(template) do
     %{
       "schema" => "serviceradar.plugin_inputs.v1",

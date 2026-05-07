@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -17,15 +22,75 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	f.requests = append(f.requests, req)
 
 	switch {
+	case strings.HasSuffix(req.URL, "/api2/json/version"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"version":"8.2.4","release":"8.2","repoid":"test-repo"}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/cluster/status"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"id":"cluster/lab","name":"lab","type":"cluster","nodes":1,"quorate":1},{"id":"node/pve-a","name":"pve-a","type":"node","online":1}]}`),
+		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"node":"pve-a","status":"online","cpu":0.25,"maxcpu":16,"mem":1024,"maxmem":4096,"uptime":3600}]}`),
 		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/status"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"cpu":0.25,"wait":0.01,"memory":{"used":1024,"total":4096},"rootfs":{"used":2048,"total":8192}}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/storage"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"storage":"local-zfs","type":"zfspool","content":"images,rootdir","active":1,"enabled":1,"used":8192,"total":16384}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/network"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"iface":"vmbr0","type":"bridge","active":1,"exists":1,"method":"static","families":["inet"],"bridge-ports":"eno1"}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/disks/list"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"devpath":"/dev/sda","model":"Test SSD","type":"ssd","size":1024,"health":"PASSED"}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/ceph/status"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"health":{"status":"HEALTH_WARN"},"fsid":"ceph-test"}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/ceph/osd"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"id":0,"name":"osd.0","up":1,"in":1}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/ceph/pool"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"pool_name":"rbd","size":3}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/ceph/fs"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"name":"cephfs"}]}`),
+		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/cluster/resources?type=vm"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":[{"id":"qemu/100","node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048}]}`),
+			Body:   []byte(`{"data":[{"id":"qemu/100","node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048,"disk":1024,"maxdisk":4096}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/status/current"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"status":"running","cpu":0.1,"mem":512,"maxmem":2048}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/config"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55"}}`),
 		}, nil
 	default:
 		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{}`)}, nil
@@ -47,7 +112,7 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 		t.Fatalf("runProxmoxCheck() error = %v", err)
 	}
 
-	if result.Status != sdk.StatusOK {
+	if result.Status != sdk.StatusWarning {
 		t.Fatalf("unexpected status: %s", result.Status)
 	}
 	if len(result.DeviceDiscovery) != 1 {
@@ -62,8 +127,8 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if result.DeviceDiscovery[0].Devices[1].DeviceID != "proxmox:qemu:100" {
 		t.Fatalf("unexpected guest device id: %s", result.DeviceDiscovery[0].Devices[1].DeviceID)
 	}
-	if len(client.requests) != 2 {
-		t.Fatalf("expected two Proxmox API requests, got %d", len(client.requests))
+	if len(client.requests) != 14 {
+		t.Fatalf("expected fourteen Proxmox API requests, got %d", len(client.requests))
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -75,6 +140,42 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if details.Summary.Nodes != 1 || details.Summary.Guests != 1 {
 		t.Fatalf("unexpected details summary: %#v", details.Summary)
+	}
+	if details.Targets[0].Version == nil || details.Targets[0].Version.Version != "8.2.4" {
+		t.Fatalf("expected version details, got %#v", details.Targets[0].Version)
+	}
+	if len(details.Targets[0].Cluster) != 2 {
+		t.Fatalf("expected cluster status details, got %#v", details.Targets[0].Cluster)
+	}
+	if details.Targets[0].Nodes[0].RuntimeState["wait"] != 0.01 {
+		t.Fatalf("expected node runtime status, got %#v", details.Targets[0].Nodes[0].RuntimeState)
+	}
+	if details.Summary.Storage != 1 || details.Summary.NetworkInterfaces != 1 || details.Summary.Disks != 1 || details.Summary.CephEnabledNodes != 1 {
+		t.Fatalf("expected infrastructure summary counts, got %#v", details.Summary)
+	}
+	if details.ResourceSummary.MaxNodeStorageRatio != 0.5 || details.ResourceSummary.CephWarnNodes != 1 {
+		t.Fatalf("expected infrastructure resource summary, got %#v", details.ResourceSummary)
+	}
+	if len(details.Targets[0].Nodes[0].Storage) != 1 || details.Targets[0].Nodes[0].Storage[0].Storage != "local-zfs" {
+		t.Fatalf("expected node storage details, got %#v", details.Targets[0].Nodes[0].Storage)
+	}
+	if len(details.Targets[0].Nodes[0].Network) != 1 || details.Targets[0].Nodes[0].Network[0].Iface != "vmbr0" {
+		t.Fatalf("expected node network details, got %#v", details.Targets[0].Nodes[0].Network)
+	}
+	if len(details.Targets[0].Nodes[0].Disks) != 1 || details.Targets[0].Nodes[0].Disks[0].DevPath != "/dev/sda" {
+		t.Fatalf("expected node disk details, got %#v", details.Targets[0].Nodes[0].Disks)
+	}
+	if details.Targets[0].Nodes[0].Ceph == nil || details.Targets[0].Nodes[0].Ceph.Health != "HEALTH_WARN" {
+		t.Fatalf("expected node ceph details, got %#v", details.Targets[0].Nodes[0].Ceph)
+	}
+	if details.Targets[0].Guests[0].Config["api_token"] != "REDACTED" {
+		t.Fatalf("expected guest config token redaction, got %#v", details.Targets[0].Guests[0].Config)
+	}
+	if len(result.Metrics) < 14 {
+		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
+	}
+	if len(result.Events) < 1 {
+		t.Fatalf("expected Ceph warning event, got %#v", result.Events)
 	}
 }
 
@@ -90,7 +191,10 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 		"agent_id":       "agent-1",
 		"generated_at":   "2026-05-06T19:00:00Z",
 		"template": map[string]any{
-			"api_token":      "PVEAPIToken=root@pam!sr=test-token",
+			"credential_broker": map[string]any{
+				"schema":                "serviceradar.edge_credential_broker_grant.v1",
+				"credential_secret_ref": "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+			},
 			"include_guests": false,
 			"timeout_ms":     45000,
 		},
@@ -134,14 +238,37 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 	if cfg.Targets[0].BaseURL != "https://10.10.0.11:8006" {
 		t.Fatalf("unexpected first target URL: %s", cfg.Targets[0].BaseURL)
 	}
-	if cfg.Targets[0].APIToken != "PVEAPIToken=root@pam!sr=test-token" {
-		t.Fatalf("expected template token on generated target")
+	if cfg.Targets[0].APIToken != "" {
+		t.Fatalf("plugin input targets must not inherit raw API tokens")
+	}
+	if cfg.CredentialBroker["schema"] != "serviceradar.edge_credential_broker_grant.v1" {
+		t.Fatalf("expected broker grant to stay in the template")
 	}
 	if cfg.Targets[0].DeviceID != "sr:device:1" || cfg.Targets[0].Partition != "dc-a" {
 		t.Fatalf("unexpected first target metadata: %#v", cfg.Targets[0])
 	}
 	if cfg.Targets[1].BaseURL != "https://pve-b.example:8006" {
 		t.Fatalf("unexpected second target URL: %s", cfg.Targets[1].BaseURL)
+	}
+}
+
+func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
+	discovery := sdk.NewDeviceDiscovery(discoverySource)
+
+	addNodeDiscoveries(discovery, Target{
+		BaseURL:  "https://pve-a.example:8006",
+		DeviceID: "sr:device:pve-a",
+		Hostname: "pve-a.example",
+	}, []proxmoxNode{
+		{Node: "pve-a", Status: "online"},
+		{Node: "pve-b", Status: "online"},
+	})
+
+	if got := discovery.Devices[0].DeviceID; got != "sr:device:pve-a" {
+		t.Fatalf("expected matching node to keep target device ID, got %s", got)
+	}
+	if got := discovery.Devices[1].DeviceID; got != "proxmox:pve:pve-b" {
+		t.Fatalf("expected non-target cluster node to get stable Proxmox ID, got %s", got)
 	}
 }
 
@@ -154,3 +281,296 @@ func TestRunProxmoxCheckRequiresTargetAndToken(t *testing.T) {
 		t.Fatalf("expected missing token, got %v", err)
 	}
 }
+
+func TestConfigSchemaDoesNotExposeRawAPIToken(t *testing.T) {
+	raw, err := os.ReadFile("config.schema.json")
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+
+	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["api_token"]; ok {
+		t.Fatal("published schema must not expose raw api_token")
+	}
+	if _, ok := properties["api_token_secret_ref"]; ok {
+		t.Fatal("published schema must not expose one-off api_token_secret_ref")
+	}
+	if properties["base_url"].(map[string]any)["x-serviceradar-ui-hidden"] != true {
+		t.Fatal("base_url must stay hidden from central assignment UI")
+	}
+
+	targets := properties["targets"].(map[string]any)
+	if targets["x-serviceradar-ui-hidden"] != true {
+		t.Fatal("targets must stay hidden from central assignment UI")
+	}
+	items := targets["items"].(map[string]any)
+	targetProperties := items["properties"].(map[string]any)
+	if _, ok := targetProperties["api_token"]; ok {
+		t.Fatal("published target schema must not expose raw api_token")
+	}
+}
+
+func TestValidateConsoleConfigRequiresScopedBroker(t *testing.T) {
+	cfg := consoleConfig{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+		Console:          consoleContext{SessionID: "session-1"},
+		Target:           consoleTarget{Hostname: "pve.example"},
+		TimeoutMS:        defaultTimeoutMS,
+	}
+
+	if err := validateConsoleConfig(cfg); err != nil {
+		t.Fatalf("validateConsoleConfig returned error: %v", err)
+	}
+
+	cfg.CredentialBroker = nil
+	if err := validateConsoleConfig(cfg); err == nil || !strings.Contains(err.Error(), "credential_broker") {
+		t.Fatalf("expected credential_broker validation error, got %v", err)
+	}
+}
+
+func TestConsoleConfigSchemaHidesAgentLocalSecrets(t *testing.T) {
+	raw, err := os.ReadFile("config.console.schema.json")
+	if err != nil {
+		t.Fatalf("read console schema: %v", err)
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode console schema: %v", err)
+	}
+
+	properties := schema["properties"].(map[string]any)
+	for _, key := range []string{"target", "ssh"} {
+		if properties[key].(map[string]any)["x-serviceradar-ui-hidden"] != true {
+			t.Fatalf("%s must stay hidden from central assignment UI", key)
+		}
+	}
+	sshProperties := properties["ssh"].(map[string]any)["properties"].(map[string]any)
+	for _, key := range []string{"password", "private_key", "passphrase"} {
+		if sshProperties[key].(map[string]any)["x-serviceradar-sensitive"] != true {
+			t.Fatalf("ssh.%s must be marked sensitive", key)
+		}
+	}
+}
+
+func TestConsoleConfigFromPluginInputsSelectsScopedTarget(t *testing.T) {
+	cfg, err := consoleConfigFromMap(map[string]any{
+		"schema":         sdk.PluginInputsSchemaV1,
+		"policy_id":      "policy-1",
+		"policy_version": float64(1),
+		"agent_id":       "agent-1",
+		"generated_at":   "2026-05-07T00:00:00Z",
+		"template": map[string]any{
+			"credential_broker":  map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+			"credential_rule_id": "rule-1",
+		},
+		"console": map[string]any{
+			"session_id":         "session-1",
+			"device_uid":         "device-b",
+			"credential_rule_id": "rule-1",
+			"console_mode":       "ssh",
+		},
+		"inputs": []any{
+			map[string]any{
+				"name":        "targets",
+				"entity":      "devices",
+				"query":       "in:devices tag:proxmox",
+				"chunk_index": float64(0),
+				"chunk_total": float64(1),
+				"chunk_hash":  strings.Repeat("a", 64),
+				"items": []any{
+					map[string]any{"uid": "device-a", "hostname": "pve-a.example", "ip": "192.0.2.10"},
+					map[string]any{"uid": "device-b", "hostname": "pve-b.example", "ip": "192.0.2.11", "ssh_port": float64(2222)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("consoleConfigFromMap returned error: %v", err)
+	}
+
+	if cfg.Console.SessionID != "session-1" {
+		t.Fatalf("expected console context to be applied, got %#v", cfg.Console)
+	}
+	if cfg.Target.DeviceUID != "device-b" || cfg.Target.Hostname != "pve-b.example" || cfg.Target.IP != "192.0.2.11" {
+		t.Fatalf("expected selected device-b target, got %#v", cfg.Target)
+	}
+	if cfg.Target.SSHPort != 2222 {
+		t.Fatalf("expected ssh_port 2222, got %d", cfg.Target.SSHPort)
+	}
+}
+
+func TestRunConsoleWithDepsStreamsSSHSession(t *testing.T) {
+	bridge := newFakeConsoleBridge(
+		consoleInputFrame{FrameType: "data", Data: []byte("uptime\n")},
+		consoleInputFrame{FrameType: "resize", Cols: 100, Rows: 30},
+		consoleInputFrame{FrameType: "close"},
+	)
+	session := &fakeSSHSession{
+		waitCh: make(chan struct{}),
+		stdout: strings.NewReader("login banner\r\n"),
+		stderr: strings.NewReader(""),
+	}
+	cfg := consoleConfig{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+		Console:          consoleContext{SessionID: "session-1", ConsoleMode: "ssh", Cols: 80, Rows: 24},
+		Target:           consoleTarget{Hostname: "pve.example"},
+		TimeoutMS:        defaultTimeoutMS,
+	}
+
+	err := runConsoleWithDeps(cfg, consoleDeps{
+		openBridge: func(req consoleOpenRequest) (proxmoxConsoleBridge, error) {
+			if req.TerminalType != "xterm-256color" {
+				t.Fatalf("unexpected terminal type %q", req.TerminalType)
+			}
+			return bridge, nil
+		},
+		dialSSH: func(got consoleConfig) (sshConsoleSession, error) {
+			if got.Target.Hostname != "pve.example" {
+				t.Fatalf("unexpected SSH target %#v", got.Target)
+			}
+			return session, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runConsoleWithDeps returned error: %v", err)
+	}
+
+	if !session.shellStarted || !session.closed {
+		t.Fatalf("expected shell to start and close, got shell=%t closed=%t", session.shellStarted, session.closed)
+	}
+	if session.ptyRows != 24 || session.ptyCols != 80 {
+		t.Fatalf("expected initial PTY 24x80, got %dx%d", session.ptyRows, session.ptyCols)
+	}
+	if got := session.stdin.String(); got != "uptime\n" {
+		t.Fatalf("expected stdin data, got %q", got)
+	}
+	if len(session.windowChanges) != 1 || session.windowChanges[0] != [2]int{30, 100} {
+		t.Fatalf("expected resize to 30x100, got %#v", session.windowChanges)
+	}
+	select {
+	case <-bridge.writeCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SSH stdout to be written to bridge")
+	}
+	if !strings.Contains(bridge.Output(), "login banner") {
+		t.Fatalf("expected bridge output to contain SSH stdout, got %q", bridge.Output())
+	}
+}
+
+type fakeConsoleBridge struct {
+	mu          sync.Mutex
+	writes      bytes.Buffer
+	readFrames  [][]byte
+	closeReason string
+	writeCh     chan struct{}
+}
+
+func newFakeConsoleBridge(frames ...consoleInputFrame) *fakeConsoleBridge {
+	bridge := &fakeConsoleBridge{writeCh: make(chan struct{}, 8)}
+	for _, frame := range frames {
+		encoded, _ := json.Marshal(frame)
+		bridge.readFrames = append(bridge.readFrames, encoded)
+	}
+	return bridge
+}
+
+func (f *fakeConsoleBridge) Write(payload []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, err := f.writes.Write(payload)
+	select {
+	case f.writeCh <- struct{}{}:
+	default:
+	}
+	return err
+}
+
+func (f *fakeConsoleBridge) Read(buf []byte, _ time.Duration) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.readFrames) == 0 {
+		return 0, nil
+	}
+	frame := f.readFrames[0]
+	f.readFrames = f.readFrames[1:]
+	return copy(buf, frame), nil
+}
+
+func (f *fakeConsoleBridge) Close(reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closeReason = reason
+	return nil
+}
+
+func (f *fakeConsoleBridge) Output() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.writes.String()
+}
+
+type fakeSSHSession struct {
+	stdin         bytes.Buffer
+	stdout        io.Reader
+	stderr        io.Reader
+	ptyRows       int
+	ptyCols       int
+	windowChanges [][2]int
+	shellStarted  bool
+	closed        bool
+	waitCh        chan struct{}
+	waitOnce      sync.Once
+}
+
+func (f *fakeSSHSession) StdinPipe() (io.WriteCloser, error) {
+	return nopWriteCloser{Writer: &f.stdin}, nil
+}
+
+func (f *fakeSSHSession) StdoutPipe() (io.Reader, error) { return f.stdout, nil }
+func (f *fakeSSHSession) StderrPipe() (io.Reader, error) { return f.stderr, nil }
+
+func (f *fakeSSHSession) RequestPty(_ string, h, w int) error {
+	f.ptyRows = h
+	f.ptyCols = w
+	return nil
+}
+
+func (f *fakeSSHSession) WindowChange(h, w int) error {
+	f.windowChanges = append(f.windowChanges, [2]int{h, w})
+	return nil
+}
+
+func (f *fakeSSHSession) Shell() error {
+	f.shellStarted = true
+	return nil
+}
+
+func (f *fakeSSHSession) Wait() error {
+	if f.waitCh == nil {
+		f.waitCh = make(chan struct{})
+	}
+	<-f.waitCh
+	return nil
+}
+
+func (f *fakeSSHSession) Close() error {
+	f.closed = true
+	if f.waitCh != nil {
+		f.waitOnce.Do(func() { close(f.waitCh) })
+	}
+	return nil
+}
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (n nopWriteCloser) Close() error { return nil }
