@@ -62,7 +62,7 @@
 - [x] 8.3 Document required Proxmox API token permissions, SSH key permissions, and least-privilege examples.
 - [x] 8.4 Document example credential rules for single site and multi-datacenter deployments.
 - [x] 8.5 Document console session security model, audit events, and timeout behavior.
-- [ ] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
+- [x] 8.6 Run focused quality commands for Go plugin, Elixir migrations/UI, and OpenSpec validation.
 
 ## 9. Logs, Metrics, and Alerts
 - [x] 9.1 Add typed ingestion/schema support for Proxmox infrastructure details: storage, disk, network, Ceph, and future environmental sensor sources.
