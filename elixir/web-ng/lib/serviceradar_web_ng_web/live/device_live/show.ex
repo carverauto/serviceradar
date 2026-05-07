@@ -2933,11 +2933,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <:actions>
             <.ui_button
               :if={@can_console and not @device_deleted and proxmox_console_target?(@virtualization_summary)}
-              href={~p"/devices/#{@device_uid}/proxmox-console"}
+              href={proxmox_console_path(@device_uid, @virtualization_summary)}
               variant="outline"
               size="sm"
             >
-              <.icon name="hero-command-line" class="size-4" /> Console
+              <.icon name="hero-command-line" class="size-4" />
+              {proxmox_console_action_label(@virtualization_summary)}
             </.ui_button>
             <.ui_button
               :if={@can_edit and not @editing}
@@ -9323,6 +9324,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp proxmox_console_target?(%{kind: kind}) when kind in [:host, :guest], do: true
 
   defp proxmox_console_target?(_summary), do: false
+
+  defp proxmox_console_action_label(%{kind: :host}), do: "Open PVE shell"
+
+  defp proxmox_console_action_label(%{kind: :guest, guest: %{guest_type: guest_type}}) do
+    if lxc_guest_type?(guest_type), do: "Open LXC console", else: "Open VM console"
+  end
+
+  defp proxmox_console_action_label(_summary), do: "Open console"
+
+  defp proxmox_console_path(device_uid, %{kind: :host}) do
+    ~p"/devices/#{device_uid}/proxmox-console?#{[target_kind: "pve_host", console_mode: "ssh"]}"
+  end
+
+  defp proxmox_console_path(device_uid, %{kind: :guest, guest: %{guest_type: guest_type}}) do
+    target_kind = if lxc_guest_type?(guest_type), do: "lxc_guest", else: "qemu_guest"
+
+    ~p"/devices/#{device_uid}/proxmox-console?#{[
+      target_kind: target_kind,
+      console_mode: "proxmox_termproxy"
+    ]}"
+  end
+
+  defp proxmox_console_path(device_uid, _summary), do: ~p"/devices/#{device_uid}/proxmox-console"
+
+  defp lxc_guest_type?(value) when is_atom(value), do: value == :lxc
+  defp lxc_guest_type?(value) when is_binary(value), do: String.downcase(value) == "lxc"
+  defp lxc_guest_type?(_value), do: false
 
   defp deleted_device?(row) when is_map(row) do
     value = Map.get(row, "deleted_at")
