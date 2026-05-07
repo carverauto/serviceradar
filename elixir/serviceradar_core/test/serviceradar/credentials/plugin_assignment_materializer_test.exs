@@ -118,6 +118,62 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.params_template["auto_discovery_enabled"] == false
   end
 
+  test "reconcile_rules builds Proxmox console plugin policies from console credential rules" do
+    rules = [
+      credential_rule(%{
+        id: "console-rule",
+        purpose: :console_access,
+        auth_method: :ssh_private_key,
+        target_query: "in:devices metadata.proxmox_candidate:true",
+        secret_id: "018f3f56-5555-7666-8777-123456789abc",
+        ssh_host_key_policy: :trust_on_first_use,
+        metadata: %{
+          "timeout_ms" => 20_000,
+          "interval_seconds" => 900,
+          "timeout_seconds" => 20,
+          "chunk_size" => 10
+        }
+      })
+    ]
+
+    assert {:ok, summary} =
+             PluginAssignmentMaterializer.reconcile_rules(
+               rules,
+               "agent-a",
+               %{id: "pkg-proxmox-console"},
+               purpose: :console_access,
+               reconciler: FakeReconciler,
+               actor: %{id: "system"},
+               test_pid: self()
+             )
+
+    assert summary.rules == 1
+    assert_receive {:reconcile, policy, input_defs, opts}
+
+    assert policy.policy_id == "network-credential-rule:console-rule"
+    assert policy.plugin_package_id == "pkg-proxmox-console"
+    assert policy.interval_seconds == 900
+    assert policy.timeout_seconds == 20
+    assert opts[:chunk_size] == 10
+    assert hd(input_defs).query == "in:devices metadata.proxmox_candidate:true"
+
+    assert %{
+             "credential_broker" => %{
+               "credential_secret_ref" => ref,
+               "credential_rule_id" => "console-rule",
+               "grant_type" => "proxmox_console",
+               "auth_method" => "ssh_private_key"
+             },
+             "credential_rule_id" => "console-rule",
+             "ssh_host_key_policy" => "trust_on_first_use",
+             "timeout_ms" => 20_000
+           } = policy.params_template
+
+    assert ref == "credentialref:network-credential-secret:018f3f56-5555-7666-8777-123456789abc"
+    refute Map.has_key?(policy.params_template, "include_guests")
+    refute Map.has_key?(policy.params_template, "auto_discovery_enabled")
+  end
+
   test "materialized policy output is compatible with plugin inputs planner payloads" do
     rules = [
       %{

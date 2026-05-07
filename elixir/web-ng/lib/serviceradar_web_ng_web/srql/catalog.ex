@@ -169,6 +169,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "status_detail",
         "trace_id",
         "span_id",
+        "uid",
+        "device_id",
+        "source_device_uid",
         "message",
         "short_message"
       ],
@@ -565,7 +568,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "message",
-      filter_fields: ["uid", "gateway_id", "agent_id", "severity", "source", "message"],
+      filter_fields: [
+        "uid",
+        "device_id",
+        "source_device_uid",
+        "gateway_id",
+        "agent_id",
+        "severity",
+        "source",
+        "message"
+      ],
       downsample: false
     },
     %{
