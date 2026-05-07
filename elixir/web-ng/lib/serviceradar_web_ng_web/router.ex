@@ -507,6 +507,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
+      live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
       live("/interfaces", InterfaceLive.Index, :index)
 

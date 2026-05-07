@@ -2874,6 +2874,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:device_row, device_row)
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
+      |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
@@ -2930,6 +2931,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </span>
           </:subtitle>
           <:actions>
+            <.ui_button
+              :if={@can_console and not @device_deleted and proxmox_console_target?(@virtualization_summary)}
+              href={~p"/devices/#{@device_uid}/proxmox-console"}
+              variant="outline"
+              size="sm"
+            >
+              <.icon name="hero-command-line" class="size-4" /> Console
+            </.ui_button>
             <.ui_button
               :if={@can_edit and not @editing}
               phx-click="toggle_edit"
@@ -9308,6 +9317,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp can_edit_device?(scope), do: RBAC.can?(scope, "devices.update")
 
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
+
+  defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
+
+  defp proxmox_console_target?(%{kind: kind}) when kind in [:host, :guest], do: true
+
+  defp proxmox_console_target?(_summary), do: false
 
   defp deleted_device?(row) when is_map(row) do
     value = Map.get(row, "deleted_at")
