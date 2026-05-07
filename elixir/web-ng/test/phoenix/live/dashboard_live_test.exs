@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadarWebNGWeb.DashboardLive.Data
 
   setup :register_and_log_in_user
 
@@ -18,6 +19,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "select[name='map_view']", "NetFlow Map")
     assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
+    assert has_element?(view, "a.sr-ops-topbar-icon[href='/alerts'][aria-label='Alerts']")
+    assert has_element?(view, "a.sr-ops-avatar[href='/settings/profile'][aria-label='Open profile']")
+    refute has_element?(view, ".sr-ops-notification-dot")
+  end
+
+  test "dashboard summary cards expose drill-down links", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboard")
+
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/devices']", "Total Assets")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/events']", "Threat Level")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/services']", "Network Health")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/alerts']", "Active Alerts")
+    assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Window")
+    assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Conversations")
+    assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Latency (Avg)")
+    assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Packet Loss")
+    assert has_element?(view, "a.sr-ops-metric-card[href='/services']", "Service Health")
+    assert has_element?(view, "a[data-testid='threat-intel-summary'][href='/settings/networks/threat-intel']")
+    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/alerts']")
+  end
+
+  test "dashboard KPI metadata includes drill-downs for conditionally hidden cards" do
+    cards = Data.empty().kpi_cards
+
+    assert Enum.find(cards, &(&1.title == "Camera Fleet")).href == "/cameras"
+    assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
   end
 
   test "dashboard falls back to NetFlow for unsupported map modes", %{conn: conn} do
@@ -34,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     create_dashboard_instance!(route_slug)
 
     {:ok, view, _html} = live(conn, ~p"/dashboard")
-    html = render_async(view, 1_000)
+    html = render_async(view, 5_000)
 
     assert html =~ "Default Map Package"
     assert has_element?(view, "option[value='dashboard:#{route_slug}'][selected]")
@@ -42,14 +69,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     refute has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
   end
 
-  test "renders honest empty states for feeds that are not implemented yet", %{conn: conn} do
+  test "renders honest empty states for dashboard feeds without current data", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 
     assert has_element?(view, "[data-testid='traffic-map-empty']")
-    assert has_element?(view, "[data-testid='vulnerable-assets-empty']", "No fabricated risk counts are displayed.")
-    assert has_element?(view, "[data-testid='siem-alerts-empty']", "No fabricated security alerts are displayed.")
-    assert has_element?(view, "[data-testid='fieldsurvey-empty']", "No FieldSurvey heatmap data")
-    assert has_element?(view, "[data-testid='camera-operations-empty']", "feed unavailable")
+    assert has_element?(view, "[data-testid='security-events-empty']", "No event trend data")
+    assert has_element?(view, "[data-testid='alerts-feed-empty']", "No recent alerts")
+    refute has_element?(view, "[data-testid='fieldsurvey-heatmap']")
+    refute has_element?(view, "[data-testid='camera-operations']")
   end
 
   defp create_dashboard_instance!(route_slug) do

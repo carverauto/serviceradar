@@ -235,6 +235,8 @@
 /* This file is for your main application CSS */
 
 .sr-ops-shell {
+  --sr-primary: var(--color-primary);
+  --sr-primary-glow: color-mix(in srgb, var(--color-primary) 42%, transparent);
   --sr-ops-shell-bg: radial-gradient(circle at 28% 10%, rgba(14, 165, 233, 0.12), transparent 26rem),
     radial-gradient(circle at 80% 0%, rgba(34, 197, 94, 0.08), transparent 24rem), #020617;
   --sr-ops-shell-text: #e2e8f0;
@@ -347,9 +349,26 @@
 }
 
 .sr-ops-nav-button.is-active {
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.95), rgba(37, 99, 235, 0.85));
-  color: white;
-  box-shadow: inset 3px 0 0 rgba(186, 230, 253, 0.95), 0 0 18px rgba(14, 165, 233, 0.32);
+  border: 1px solid color-mix(in srgb, var(--sr-primary) 64%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--sr-primary) 92%, #020617), var(--sr-primary)),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.28), transparent 58%);
+  color: var(--color-primary-content);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--color-accent) 86%, white),
+    0 0 0 1px color-mix(in srgb, var(--sr-primary) 18%, transparent),
+    0 0 22px var(--sr-primary-glow);
+}
+
+.drawer-side .menu :where(li > a.active, li > details > summary.active) {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 88%, #020617), var(--color-primary)),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.24), transparent 58%);
+  color: var(--color-primary-content);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--color-accent) 80%, white),
+    0 0 18px color-mix(in srgb, var(--color-primary) 34%, transparent);
 }
 
 .sr-ops-main {
@@ -462,21 +481,6 @@
   pointer-events: none !important;
 }
 
-.sr-ops-notification-dot {
-  position: absolute;
-  top: 0.25rem;
-  right: 0.25rem;
-  min-width: 1rem;
-  height: 1rem;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: #ef4444;
-  color: white;
-  font-size: 0.625rem;
-  line-height: 1;
-}
-
 .sr-ops-avatar {
   border: 1px solid var(--sr-ops-avatar-border);
   background: var(--sr-ops-avatar-bg);
@@ -581,6 +585,48 @@
   gap: 0.75rem;
   overflow: hidden;
   padding: 0.58rem 0.72rem 1.28rem;
+}
+
+.sr-ops-kpi-card-link,
+.sr-ops-small-stat-link,
+.sr-ops-metric-card-link,
+.sr-ops-threat-intel-link,
+.sr-ops-feed-empty {
+  color: inherit;
+  text-decoration: none;
+}
+
+.sr-ops-kpi-card-link,
+.sr-ops-small-stat-link,
+.sr-ops-metric-card-link,
+.sr-ops-threat-intel-link {
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.sr-ops-kpi-card-link:hover,
+.sr-ops-kpi-card-link:focus-visible {
+  border-color: rgba(56, 189, 248, 0.74);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(3, 10, 24, 0.98)),
+    radial-gradient(circle at 76% 20%, rgba(14, 165, 233, 0.14), transparent 48%);
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.12),
+    0 0 0 1px rgba(56, 189, 248, 0.12),
+    0 0.65rem 1.45rem rgba(2, 8, 23, 0.18);
+  transform: translateY(-1px);
+}
+
+.sr-ops-kpi-card-link:focus-visible,
+.sr-ops-small-stat-link:focus-visible,
+.sr-ops-metric-card-link:focus-visible,
+.sr-ops-threat-intel-link:focus-visible,
+.sr-ops-feed-empty:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.88);
+  outline-offset: 2px;
 }
 
 .sr-ops-kpi-card p,
@@ -1731,6 +1777,11 @@
   border-right: 1px solid rgba(30, 64, 111, 0.78);
 }
 
+.sr-ops-small-stat-link:hover,
+.sr-ops-small-stat-link:focus-visible {
+  background: rgba(15, 23, 42, 0.78);
+}
+
 .sr-ops-small-stat:last-child {
   border-right: 0;
 }
@@ -1985,6 +2036,23 @@
   background-size: 2rem 2rem;
 }
 
+.sr-ops-field-survey-open-overlay {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sr-ops-field-survey-open-overlay:hover,
+.sr-ops-field-survey-open-overlay:focus-visible {
+  border-color: rgba(56, 189, 248, 0.58);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.18);
+  outline: none;
+}
+
 .sr-ops-field-survey-card-map {
   width: 100%;
   height: 9.35rem;
@@ -2107,6 +2175,7 @@
   box-shadow:
     0 0 0 2px rgba(14, 165, 233, 0.42),
     0 0.35rem 1.1rem rgba(2, 8, 23, 0.38);
+  pointer-events: auto;
 }
 
 .sr-ops-field-survey-ap-marker.is-linked {
@@ -2811,6 +2880,11 @@
   border-right: 1px solid rgba(30, 64, 111, 0.72);
 }
 
+.sr-ops-metric-card-link:hover,
+.sr-ops-metric-card-link:focus-visible {
+  background: rgba(15, 23, 42, 0.72);
+}
+
 .sr-ops-metric-card:last-child {
   border-right: 0;
 }
@@ -2930,6 +3004,12 @@
   border: 1px solid rgba(30, 64, 111, 0.72);
   border-radius: 0.5rem;
   background: rgba(2, 8, 23, 0.58);
+}
+
+.sr-ops-threat-intel-link:hover,
+.sr-ops-threat-intel-link:focus-visible {
+  border-color: rgba(56, 189, 248, 0.58);
+  background: rgba(15, 23, 42, 0.76);
 }
 
 .sr-ops-threat-sync {
@@ -3127,6 +3207,18 @@
   border-color: rgba(148, 163, 184, 0.46);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0.6rem 1.6rem rgba(15, 23, 42, 0.04);
+}
+
+[data-theme="light"] .sr-ops-kpi-card-link:hover,
+[data-theme="light"] .sr-ops-kpi-card-link:focus-visible {
+  border-color: rgba(14, 116, 144, 0.56);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(240, 249, 255, 0.96)),
+    radial-gradient(circle at 76% 20%, rgba(14, 116, 144, 0.08), transparent 48%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 0 1px rgba(14, 116, 144, 0.08),
+    0 0.65rem 1.45rem rgba(15, 23, 42, 0.08);
 }
 
 [data-theme="light"] .sr-ops-panel-header h2,
@@ -3435,6 +3527,13 @@
   border-color: rgba(148, 163, 184, 0.42);
 }
 
+[data-theme="light"] .sr-ops-small-stat-link:hover,
+[data-theme="light"] .sr-ops-small-stat-link:focus-visible,
+[data-theme="light"] .sr-ops-metric-card-link:hover,
+[data-theme="light"] .sr-ops-metric-card-link:focus-visible {
+  background: rgba(240, 249, 255, 0.72);
+}
+
 [data-theme="light"] .sr-ops-empty-feed-shell {
   border-color: rgba(148, 163, 184, 0.42);
   background: rgba(248, 250, 252, 0.58);
@@ -3510,6 +3609,12 @@
   background-size: 2rem 2rem;
 }
 
+[data-theme="light"] .sr-ops-field-survey-open-overlay:hover,
+[data-theme="light"] .sr-ops-field-survey-open-overlay:focus-visible {
+  border-color: rgba(14, 116, 144, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(14, 116, 144, 0.12);
+}
+
 [data-theme="light"] .sr-ops-floor-grid span {
   border-color: rgba(14, 116, 144, 0.22);
   background:
@@ -3565,6 +3670,12 @@
   background: rgba(255, 255, 255, 0.76);
 }
 
+[data-theme="light"] .sr-ops-threat-intel-link:hover,
+[data-theme="light"] .sr-ops-threat-intel-link:focus-visible {
+  border-color: rgba(14, 116, 144, 0.42);
+  background: rgba(240, 249, 255, 0.72);
+}
+
 [data-theme="light"] .sr-ops-camera-status-row span,
 [data-theme="light"] .sr-ops-camera-tile,
 [data-theme="light"] .sr-ops-alert-row {
@@ -3606,9 +3717,64 @@
   color: #64748b;
 }
 
+[data-theme="light"] .sr-ops-camera-tile .sr-camera-relay-player,
+[data-theme="light"] .sr-ops-camera-tile .sr-camera-relay-frame {
+  background: #f8fafc;
+}
+
 [data-theme="light"] .sr-ops-threat-status {
   border-color: rgba(148, 163, 184, 0.58);
   color: #475569;
+}
+
+[data-theme="light"] .sr-camera-toolbar,
+[data-theme="light"] .sr-camera-cell,
+[data-theme="light"] .sr-camera-detail {
+  border-color: rgba(148, 163, 184, 0.46);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 0.65rem 1.4rem rgba(15, 23, 42, 0.05);
+}
+
+[data-theme="light"] .sr-camera-toolbar h2,
+[data-theme="light"] .sr-camera-cell header span {
+  color: #0f172a;
+}
+
+[data-theme="light"] .sr-camera-toolbar p,
+[data-theme="light"] .sr-camera-cell header small,
+[data-theme="light"] .sr-camera-relay-meta {
+  color: #64748b;
+}
+
+[data-theme="light"] .sr-camera-layout-button {
+  border-color: rgba(148, 163, 184, 0.56);
+  background: rgba(255, 255, 255, 0.84);
+  color: #334155;
+}
+
+[data-theme="light"] .sr-camera-layout-button.is-active,
+[data-theme="light"] .sr-camera-layout-button:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 48%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, white);
+  color: var(--color-primary);
+}
+
+[data-theme="light"] .sr-camera-notice {
+  border-color: rgba(217, 119, 6, 0.36);
+  background: rgba(255, 251, 235, 0.84);
+  color: #92400e;
+}
+
+[data-theme="light"] .sr-camera-cell-empty {
+  color: #64748b;
+}
+
+[data-theme="light"] .sr-camera-relay-player,
+[data-theme="light"] .sr-camera-relay-frame,
+[data-theme="light"] .sr-camera-relay-canvas,
+[data-theme="light"] .sr-camera-relay-video {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: #f8fafc;
 }
 
 [data-theme="light"] .sr-ops-threat-detail {
@@ -3738,6 +3904,46 @@
   color: #94a3b8;
   font-size: 0.78rem;
   line-height: 1.4;
+}
+
+[data-theme="light"] .sr-spatial-title,
+[data-theme="light"] .sr-spatial-empty-state strong {
+  color: #0f172a;
+}
+
+[data-theme="light"] .sr-spatial-subtitle,
+[data-theme="light"] .sr-spatial-empty-state span {
+  color: #64748b;
+}
+
+[data-theme="light"] .sr-spatial-panel {
+  border-color: rgba(148, 163, 184, 0.46);
+  background: rgba(255, 255, 255, 0.78);
+  color: #0f172a;
+}
+
+[data-theme="light"] .sr-spatial-panel-header {
+  border-bottom-color: rgba(148, 163, 184, 0.42);
+  background: rgba(248, 250, 252, 0.86);
+  color: #0f172a;
+}
+
+[data-theme="light"] .sr-spatial-stage {
+  border-color: rgba(148, 163, 184, 0.5);
+  background:
+    linear-gradient(rgba(14, 116, 144, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 116, 144, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at 50% 42%, rgba(14, 116, 144, 0.1), transparent 38%),
+    linear-gradient(180deg, #ffffff, #f8fafc 58%, #f1f5f9);
+  background-size: 28px 28px, 28px 28px, auto, auto;
+}
+
+[data-theme="light"] .sr-spatial-legend,
+[data-theme="light"] .sr-spatial-empty-state {
+  border-color: rgba(148, 163, 184, 0.46);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+  color: #334155;
 }
 
 .sr-fieldsurvey-review-page {
