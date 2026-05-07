@@ -464,7 +464,14 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp open_channel(config) do
-    open_direct_channel(config)
+    endpoint = "#{config.host}:#{config.port}"
+
+    with {:ok, cred_opts} <- build_cred_opts(config) do
+      connect_opts =
+        Keyword.put(cred_opts, :adapter_opts, connect_timeout: config.connect_timeout_ms)
+
+      GRPC.Stub.connect(endpoint, connect_opts)
+    end
   end
 
   defp open_direct_channel(config) do
