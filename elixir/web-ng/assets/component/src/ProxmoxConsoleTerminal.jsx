@@ -185,6 +185,7 @@ export function Component({
             setError(message.message || "Console stream failed.")
           } else if (message.type === "close") {
             setStatus("closed")
+            setError(message.reason ? `Console closed: ${message.reason}` : "Console session closed.")
           }
         } catch (_error) {
           term.write(String(event.data))
