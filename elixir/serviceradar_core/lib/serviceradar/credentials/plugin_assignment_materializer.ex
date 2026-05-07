@@ -56,15 +56,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_reconcile))
     reconciler = Keyword.get(opts, :reconciler, PolicyAssignmentReconciler)
 
-    Enum.reduce_while(rules, {:ok, empty_summary()}, fn rule, {:ok, acc} ->
-      case reconcile_rule(rule, agent_id, package, actor, reconciler, opts) do
-        {:ok, result} ->
-          {:cont, {:ok, merge_summary(acc, result)}}
+    with {:ok, selected_rules} <- selected_rules_for_agent(rules, agent_id) do
+      Enum.reduce_while(selected_rules, {:ok, empty_summary()}, fn rule, {:ok, acc} ->
+        case reconcile_rule(rule, agent_id, package, actor, reconciler, opts) do
+          {:ok, result} ->
+            {:cont, {:ok, merge_summary(acc, result)}}
 
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      end)
+    end
   end
 
   defp reconcile_rule(rule, _agent_id, package, actor, reconciler, opts) do
@@ -108,8 +110,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       "include_guests" => metadata_bool(rule, "include_guests", true),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
-      "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "credential_secret_id" => secret_id
+      "credential_rule_id" => value_string(rule, [:id, "id"])
     }
   end
 
@@ -137,6 +138,41 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, rules} -> {:ok, Enum.uniq_by(rules, &value_string(&1, [:id, "id"]))}
           error -> error
         end
+    end
+  end
+
+  defp selected_rules_for_agent(rules, agent_id) do
+    rules
+    |> Enum.filter(
+      &(inventory_rule?(&1) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
+    )
+    |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
+    |> collapse_by_target_query()
+  end
+
+  defp collapse_by_target_query(rules) do
+    rules
+    |> Enum.group_by(&value_string(&1, [:target_query, "target_query"]))
+    |> Enum.reduce_while({:ok, []}, fn
+      {nil, grouped}, {:ok, acc} ->
+        {:cont, {:ok, acc ++ grouped}}
+
+      {query, grouped}, {:ok, acc} ->
+        case selected_rule_for_query(query, grouped) do
+          {:ok, rule} -> {:cont, {:ok, acc ++ [rule]}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+    end)
+  end
+
+  defp selected_rule_for_query(query, [winner | _] = rules) do
+    priority = rule_priority(winner)
+    equal_priority = Enum.filter(rules, &(rule_priority(&1) == priority))
+
+    if length(equal_priority) > 1 do
+      {:error, {:equal_priority_credential_rule_conflict, query, priority}}
+    else
+      {:ok, winner}
     end
   end
 
@@ -207,10 +243,22 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp rule_enabled?(rule) do
-    case ValueUtils.raw_value(rule, [:enabled, "enabled"]) do
+    case raw_rule_value(rule, [:enabled, "enabled"]) do
       value when is_boolean(value) -> value
       _ -> true
     end
+  end
+
+  defp scope_allows_agent?(rule, agent_id) do
+    case {raw_rule_value(rule, [:scope_type, "scope_type"]),
+          value_string(rule, [:scope_value, "scope_value"])} do
+      {scope, value} when scope in [:agent, "agent"] -> value in [nil, "", agent_id]
+      _ -> true
+    end
+  end
+
+  defp rule_priority(rule) do
+    ValueUtils.int_value(rule, [:priority, "priority"], 100)
   end
 
   defp rule_version(rule) do
@@ -277,6 +325,16 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp metadata_atom_key("timeout_seconds"), do: :timeout_seconds
 
   defp value_string(map, keys), do: ValueUtils.string_value(map, keys)
+
+  defp raw_rule_value(map, keys) when is_map(map) do
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      if Map.has_key?(map, key) do
+        {:halt, Map.get(map, key)}
+      else
+        {:cont, nil}
+      end
+    end)
+  end
 
   defp required_string(map, keys, label) do
     case value_string(map, keys) do

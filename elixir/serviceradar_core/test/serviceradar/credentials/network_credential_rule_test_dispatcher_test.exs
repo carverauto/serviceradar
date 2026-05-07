@@ -24,6 +24,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
         "credential_rule_id" => "rule-1",
         "credential_secret_ref" =>
           "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+        "debug" => %{"api_token" => "PVEAPIToken=must-not-persist"},
         "target" => %{"base_url" => "https://pve.example:8006"},
         "tls" => %{"insecure_skip_verify" => true},
         "timeout_ms" => 30_000
@@ -38,12 +39,15 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
              )
 
     assert result.command_id == "command-1"
-    assert result.payload == plan.payload
+    assert result.payload["credential_secret_ref"] == plan.payload["credential_secret_ref"]
+    assert result.payload["debug"]["api_token"] == "REDACTED"
 
     assert_receive {:dispatch, "agent-a", "proxmox.credential_test", persisted, opts}
 
-    assert persisted == plan.payload
+    assert persisted["credential_secret_ref"] == plan.payload["credential_secret_ref"]
+    assert persisted["debug"]["api_token"] == "REDACTED"
     refute inspect(persisted) =~ "test-secret"
+    refute inspect(persisted) =~ "must-not-persist"
 
     assert opts[:ttl_seconds] == 180
     assert opts[:required_capability] == "http"

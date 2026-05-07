@@ -8,6 +8,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.AgentCommandBus
@@ -30,7 +31,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher do
          command_type: plan.command_type,
          agent_id: plan.agent_id,
          context: plan.context,
-         payload: payload
+         payload: CredentialRedactor.redact(payload)
        }}
     end
   end
@@ -40,7 +41,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher do
   defp dispatch_command(plan, runtime_payload, opts) do
     command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
 
-    command_bus.dispatch(plan.agent_id, plan.command_type, plan.payload,
+    command_bus.dispatch(
+      plan.agent_id,
+      plan.command_type,
+      CredentialRedactor.redact(plan.payload),
       ttl_seconds: plan.ttl_seconds,
       required_capability: plan.required_capability,
       context: plan.context,

@@ -20,8 +20,8 @@
 ## 4. Policy Reconciliation and Agent Config
 - [x] 4.1 Extend plugin target policy reconciliation to bind credential rules to resolved device batches.
 - [x] 4.2 Deliver only scoped credential material to the assigned edge agent over existing authenticated config channels.
-- [ ] 4.3 Redact sensitive fields from logs, API responses, plugin status, and cached config debug output.
-- [ ] 4.4 Add tests for priority resolution, equal-priority conflicts, disabled rules, and agent-scope denial.
+- [x] 4.3 Redact sensitive fields from logs, API responses, plugin status, and cached config debug output.
+- [x] 4.4 Add tests for priority resolution, equal-priority conflicts, disabled rules, and agent-scope denial.
 
 ## 5. Proxmox Plugin
 - [x] 5.1 Add first-party Go WASM plugin package under `go/cmd/wasm-plugins/proxmox/`.
