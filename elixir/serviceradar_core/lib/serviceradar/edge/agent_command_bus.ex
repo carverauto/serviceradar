@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.ControlRepo
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -30,7 +31,6 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
     required_gateway_node = resolve_required_gateway_node(opts, context)
     transmit_payload = Keyword.get(opts, :transmit_payload, payload)
-    payload_json = encode_payload(transmit_payload)
     payload_map = normalize_payload(payload)
 
     command_attrs = %{
@@ -45,7 +45,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-    with :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
+    with :ok <- reject_sensitive_transmit_payload(transmit_payload),
+         payload_json = encode_payload(transmit_payload),
+         :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
          {:ok, command} <- create_command(command_attrs, ash_opts) do
       _ = AgentCommandCleanupWorker.ensure_scheduled()
 
@@ -61,6 +63,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         context: context,
         ash_opts: ash_opts
       })
+    end
+  end
+
+  defp reject_sensitive_transmit_payload(payload) do
+    if CredentialRedactor.redact(payload) == payload do
+      :ok
+    else
+      {:error, :sensitive_transmit_payload_denied}
     end
   end
 
@@ -326,6 +336,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
+
+  def send_console_frame(agent_id, frame, opts \\ [])
+
+  def send_console_frame(agent_id, frame, opts) when is_binary(agent_id) and is_map(frame) do
+    required_gateway_node = Keyword.get(opts, :required_gateway_node)
+
+    case lookup_control_session(agent_id, required_gateway_node) do
+      {:ok, pid, _metadata} ->
+        GenServer.call(pid, {:send_console_frame, frame}, @send_timeout)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def send_console_frame(_agent_id, _frame, _opts), do: {:error, :invalid_console_frame}
 
   @doc """
   Lists agents with an active control stream that can receive commands.

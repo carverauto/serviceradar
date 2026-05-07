@@ -28,13 +28,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
       provider: "proxmox",
       purpose: :inventory_enrichment,
       priority: 100,
-      target_query: "in:devices protocol:proxmox-api",
+      target_query: "in:devices metadata.proxmox_candidate:true",
       scope_type: :agent,
       scope_value: "agent-a"
     }
 
     rows_by_query = %{
-      "in:devices protocol:proxmox-api" => [
+      "in:devices metadata.proxmox_candidate:true" => [
         %{"uid" => "device-1", "agent_id" => "agent-a", "ip" => "192.0.2.10"},
         %{"uid" => "device-2", "agent_id" => "agent-a", "ip" => "192.0.2.11"},
         %{"uid" => "device-3", "agent_id" => "agent-b", "ip" => "192.0.2.12"}
@@ -73,7 +73,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
       "provider" => "proxmox",
       "purpose" => "inventory_enrichment",
       "priority" => 50,
-      "target_query" => "in:devices protocol:proxmox-api",
+      "target_query" => "in:devices metadata.proxmox_candidate:true",
       "scope_type" => "agent",
       "scope_value" => "agent-a"
     }
@@ -83,7 +83,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
         %{"uid" => "device-1", "agent_id" => "agent-a"},
         %{"uid" => "device-2", "agent_id" => "agent-a"}
       ],
-      "in:devices protocol:proxmox-api" => [
+      "in:devices metadata.proxmox_candidate:true" => [
         %{"uid" => "device-2", "agent_id" => "agent-a"},
         %{"uid" => "device-3", "agent_id" => "agent-a"}
       ]

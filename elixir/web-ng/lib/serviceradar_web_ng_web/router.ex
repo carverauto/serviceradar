@@ -178,6 +178,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:browser_raw_auth)
 
     get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
+    get("/proxmox/console-sessions/:id/stream", ProxmoxConsoleStreamController, :connect)
   end
 
   # Other scopes may use custom stacks.
@@ -191,6 +192,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/camera-relay-sessions", CameraRelaySessionController, :create)
     get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
     post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)
+    post("/proxmox/console-sessions", ProxmoxConsoleSessionController, :create)
+    get("/proxmox/console-sessions/:id", ProxmoxConsoleSessionController, :show)
+    post("/proxmox/console-sessions/:id/close", ProxmoxConsoleSessionController, :close)
     post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
 
     post(
@@ -495,6 +499,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/analytics", PageController, :redirect_to_dashboard)
+
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
@@ -503,6 +508,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
+      live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
       live("/interfaces", InterfaceLive.Index, :index)
 
@@ -562,6 +568,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
+      live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
+      live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
       live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)

@@ -90,7 +90,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp can_discovery_tab?(current_scope) do
     RBAC.can?(current_scope, "settings.networks.manage") or
-      RBAC.can?(current_scope, "settings.snmp_profiles.manage")
+      RBAC.can?(current_scope, "settings.snmp_profiles.manage") or
+      RBAC.can?(current_scope, "settings.credentials.manage")
   end
 
   defp can_networks_tab?(current_scope) do
@@ -332,6 +333,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             active: String.starts_with?(path, "/settings/networks/device-enrichment")
           },
           %{
+            label: "Credential Rules",
+            navigate: ~p"/settings/networks/credentials",
+            active: String.starts_with?(path, "/settings/networks/credentials")
+          },
+          %{
             label: "SNMP",
             navigate: ~p"/settings/snmp",
             active: String.starts_with?(path, "/settings/snmp")
@@ -369,6 +375,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       String.starts_with?(path, "/settings/networks") and
       not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
+      not String.starts_with?(path, "/settings/networks/credentials") and
       not String.starts_with?(path, "/settings/snmp")
   end
 
@@ -392,6 +399,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     permission =
       case label do
         "SNMP" -> "settings.snmp_profiles.manage"
+        "Credential Rules" -> "settings.credentials.manage"
         _ -> "settings.networks.manage"
       end
 
