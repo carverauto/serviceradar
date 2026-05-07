@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
           "provider" => "proxmox",
           "auth_method" => "proxmox_api_token",
           "purpose" => "inventory_enrichment",
-          "target_query" => "in:devices protocol:proxmox-api",
+          "target_query" => "in:devices metadata.proxmox_candidate:true",
           "scope_type" => "agent",
           "scope_value" => "agent-a",
           "secret_id" => secret.id,
@@ -250,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     )
 
     Application.put_env(:serviceradar_web_ng, :network_credential_rule_preview_rows, %{
-      "in:devices protocol:proxmox-api" => [
+      "in:devices metadata.proxmox_candidate:true" => [
         %{"uid" => "device-1", "hostname" => "pve-a", "ip" => "192.0.2.10", "agent_id" => "agent-a"},
         %{"uid" => "device-2", "hostname" => "pve-b", "ip" => "192.0.2.11", "agent_id" => "agent-a"},
         %{"uid" => "device-3", "hostname" => "pve-c", "ip" => "192.0.2.12", "agent_id" => "agent-b"}
@@ -263,7 +263,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     end)
 
     secret = credential_secret_fixture(scope)
-    rule = credential_rule_fixture(scope, secret, %{target_query: "in:devices protocol:proxmox-api"})
+    rule =
+      credential_rule_fixture(scope, secret, %{
+        target_query: "in:devices metadata.proxmox_candidate:true"
+      })
 
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 

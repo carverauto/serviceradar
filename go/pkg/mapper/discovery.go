@@ -45,16 +45,16 @@ const (
 	mapperDebugBundlePathOption = "mapper_debug_bundle_path"
 	defaultMapperDebugBundleDir = "/tmp/serviceradar/mapper-debug"
 
-	discoveryModeSNMP = "snmp"
-	protocolLLDP      = "lldp"
-	protocolCDP       = "cdp"
-	protocolSNMPL2    = "snmp-l2"
-	sourceSNMPARPFDB  = "snmp-arp-fdb"
-	relationObservedTo = "OBSERVED_TO"
+	discoveryModeSNMP               = "snmp"
+	protocolLLDP                    = "lldp"
+	protocolCDP                     = "cdp"
+	protocolSNMPL2                  = "snmp-l2"
+	sourceSNMPARPFDB                = "snmp-arp-fdb"
+	relationObservedTo              = "OBSERVED_TO"
 	evidenceClassEndpointAttachment = "endpoint-attachment"
-	stringTrueValue   = "true"
-	stringYesValue    = "yes"
-	fallbackUnknown   = string(DiscoveryStatusUnknown)
+	stringTrueValue                 = "true"
+	stringYesValue                  = "yes"
+	fallbackUnknown                 = string(DiscoveryStatusUnknown)
 
 	sourceAdapterUniFiV1    = "unifi.v1"
 	sourceAdapterMikroTikV1 = "mikrotik.v1"
@@ -2215,6 +2215,20 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 
 	devicesFound := 0
 	interfacesFound := 0
+
+	if shouldProbeProxmoxCandidates(job) {
+		apiCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
+		devices := e.probeProxmoxCandidates(apiCtx, job, initialSeeds)
+		cancel()
+
+		if len(devices) > 0 {
+			devicesFound += len(devices)
+
+			job.mu.Lock()
+			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
+			job.mu.Unlock()
+		}
+	}
 
 	for _, seedIP := range initialSeeds {
 		if seedIP == "" {

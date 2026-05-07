@@ -82,6 +82,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Export devices",
           description: "Export device inventory",
           default_roles: @all_roles
+        },
+        %{
+          key: "devices.console.open",
+          label: "Open device consoles",
+          description: "Open browser terminal sessions to supported managed devices",
+          default_roles: @admin_roles
         }
       ]
     },
@@ -340,8 +346,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "cli.session.read_own",
           label: "View own CLI sessions",
-          description:
-            "List your own active and historical CLI sessions in Settings → CLI sessions.",
+          description: "List your own active and historical CLI sessions in Settings → CLI sessions.",
           default_roles: @all_roles
         },
         %{

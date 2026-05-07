@@ -346,6 +346,18 @@ message ConfigAck {
   int64 timestamp = 2;         // Ack time (unix seconds)
 }
 
+// ConsoleFrame carries interactive console bytes and control events over the
+// existing bidirectional agent control stream.
+message ConsoleFrame {
+  string session_id = 1;        // Proxmox console session UUID
+  string frame_type = 2;        // open, ready, data, resize, close, error
+  bytes data = 3;               // Raw PTY bytes for data frames
+  uint32 cols = 4;              // Terminal columns for open/resize frames
+  uint32 rows = 5;              // Terminal rows for open/resize frames
+  string reason = 6;            // Close/error reason
+  int64 timestamp = 7;          // Frame creation time (unix seconds)
+}
+
 // ControlStreamRequest carries agent → gateway control messages.
 message ControlStreamRequest {
   oneof payload {
@@ -354,6 +366,7 @@ message ControlStreamRequest {
     CommandProgress command_progress = 3;
     CommandResult command_result = 4;
     ConfigAck config_ack = 5;
+    ConsoleFrame console_frame = 6;
   }
 }
 
@@ -362,6 +375,7 @@ message ControlStreamResponse {
   oneof payload {
     CommandRequest command = 1;
     AgentConfigResponse config = 2;
+    ConsoleFrame console_frame = 3;
   }
 }
 

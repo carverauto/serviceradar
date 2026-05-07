@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.StatefulAlertEngine do
   @moduledoc """
-  Bucketed stateful alert evaluation for log/event rules.
+  Bucketed stateful alert evaluation for log, event, and metric rules.
   """
 
   use GenServer
@@ -50,6 +50,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
+  @spec evaluate_metrics([map()]) :: :ok | {:error, term()}
+  def evaluate_metrics(rows) when is_list(rows) do
+    with {:ok, _} <- ensure_started() do
+      call({:evaluate_metrics, rows})
+    end
+  end
+
   def start_link(_opts \\ []) do
     GenServer.start_link(__MODULE__, %{}, name: via_tuple())
   end
@@ -84,6 +91,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     {state, rules} = load_rules_if_needed(state)
 
     Enum.each(events, &process_event_rules(&1, rules, state))
+
+    {:reply, :ok, state}
+  rescue
+    error ->
+      Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
+      {:reply, {:error, error}, state}
+  end
+
+  @impl true
+  def handle_call({:evaluate_metrics, rows}, _from, state) do
+    {state, rules} = load_rules_if_needed(state)
+
+    Enum.each(rows, &process_metric_rules(&1, rules, state))
 
     {:reply, :ok, state}
   rescue
@@ -220,6 +240,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp process_log(rule, log, state), do: process_record(rule, log, state)
   defp process_event(rule, event, state), do: process_record(rule, event, state)
+  defp process_metric(rule, metric, state), do: process_record(rule, metric, state)
 
   defp process_log_rules(log, rules, state) do
     Enum.each(rules, &maybe_process_log_rule(log, &1, state))
@@ -244,6 +265,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp maybe_process_event_rule(_event, _rule, _state), do: :ok
+
+  defp process_metric_rules(metric, rules, state) do
+    Enum.each(rules, &maybe_process_metric_rule(metric, &1, state))
+  end
+
+  defp maybe_process_metric_rule(metric, %{signal: :metric} = rule, state) do
+    if rule_matches_metric?(metric, rule),
+      do: process_metric(rule, tag_metric_violation(metric, rule), state)
+  end
+
+  defp maybe_process_metric_rule(_metric, _rule, _state), do: :ok
 
   defp process_record(rule, record, state) do
     case build_group(rule.group_by, record) do
@@ -292,7 +324,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     {bucket_counts, current_bucket_start, bucket_changed} =
       advance_bucket(snapshot.bucket_counts, snapshot.current_bucket_start, bucket_start, rule)
 
-    bucket_counts = Map.update(bucket_counts, bucket_start, 1, &(&1 + 1))
+    bucket_increment = record_bucket_increment(record)
+
+    bucket_counts =
+      if bucket_increment > 0 do
+        Map.update(bucket_counts, bucket_start, bucket_increment, &(&1 + bucket_increment))
+      else
+        Map.put_new(bucket_counts, bucket_start, 0)
+      end
 
     bucket_counts =
       prune_buckets(bucket_counts, current_bucket_start, rule.window_seconds, rule.bucket_seconds)
@@ -716,10 +755,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp update_diagnostics(diagnostics, record, now) when is_map(diagnostics) do
     context = record_diagnostic_context(record)
     source_event_id = source_event_id(record)
+    source = source_record_details(record)
 
     diagnostics
     |> Map.put_new("source_event_ids", [])
     |> Map.put_new("samples", empty_diagnostics()["samples"])
+    |> Map.put("latest_source", source)
     |> update_in(
       ["source_event_ids"],
       &add_bounded_value(&1, source_event_id, @diagnostic_source_limit)
@@ -816,10 +857,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     })
   end
 
-  defp diagnostic_summary(rule, snapshot, now, source \\ %{}) do
+  defp diagnostic_summary(rule, snapshot, now, source \\ nil) do
     diagnostics = snapshot.diagnostics || empty_diagnostics()
     first_seen_at = snapshot.first_seen_at || now
     last_seen_at = snapshot.last_seen_at || now
+    source = source || Map.get(diagnostics, "latest_source", %{})
 
     compact_map(%{
       "rule_id" => to_string(rule.id),
@@ -1025,6 +1067,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
+  defp rule_matches_metric?(metric, rule) do
+    match = rule.match || %{}
+
+    if match["always"] == true do
+      true
+    else
+      metric_matches?(metric, match)
+    end
+  end
+
   defp log_matches?(log, match) do
     subject = ingest_subject(log)
     attributes = Map.get(log, :attributes) || %{}
@@ -1056,6 +1108,162 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       match_map(resource_attributes, match["resource_attribute_equals"])
     ])
   end
+
+  defp metric_matches?(metric, match) do
+    {attributes, resource_attributes} = metric_match_sources(metric)
+
+    Enum.all?([
+      match_metric_field(metric, :metric_name, match["metric_name"]),
+      match_metric_field(metric, :metric_type, match["metric_type"]),
+      match_metric_field(metric, :unit, match["unit"]),
+      match_metric_field(metric, :device_id, match["device_id"]),
+      match_metric_field(metric, :agent_id, match["agent_id"]),
+      match_metric_field(metric, :gateway_id, match["gateway_id"]),
+      match_metric_field(metric, :partition, match["partition"]),
+      match_metric_field(metric, :series_key, match["series_key"]),
+      match_map(fetch_attr(metric, :tags) || %{}, match["tag_equals"]),
+      match_map(fetch_attr(metric, :metadata) || %{}, match["metadata_equals"]),
+      match_map(attributes, match["attribute_equals"]),
+      match_map(resource_attributes, match["resource_attribute_equals"])
+    ])
+  end
+
+  defp match_metric_field(_metric, _field, nil), do: true
+
+  defp match_metric_field(metric, field, expected),
+    do: match_value(fetch_attr(metric, field), expected)
+
+  defp tag_metric_violation(metric, rule) do
+    {violated?, details} = metric_condition_result(metric, rule.match || %{})
+
+    metric
+    |> Map.put(:__stateful_alert_violation__, violated?)
+    |> Map.put(:__stateful_alert_condition__, details)
+  end
+
+  defp metric_condition_result(metric, match) do
+    condition = metric_condition(match)
+
+    if map_size(condition) == 0 do
+      {true, %{}}
+    else
+      value = metric_number(fetch_attr(metric, :value))
+      threshold = metric_threshold(metric, condition)
+      comparison = metric_comparison(condition)
+      violated? = compare_metric_value(value, threshold, comparison)
+
+      details =
+        compact_map(%{
+          "value" => value,
+          "comparison" => comparison,
+          "threshold" => threshold,
+          "baseline_value" => metric_baseline(metric, condition),
+          "baseline_multiplier" => condition_number(condition, "baseline_multiplier", 1.0),
+          "baseline_offset" => condition_number(condition, "baseline_offset", 0.0)
+        })
+
+      {violated?, details}
+    end
+  end
+
+  defp metric_condition(match) do
+    cond do
+      is_map(match["condition"]) -> match["condition"]
+      is_map(match["metric_condition"]) -> match["metric_condition"]
+      is_map(match["threshold_condition"]) -> match["threshold_condition"]
+      true -> %{}
+    end
+  end
+
+  defp metric_threshold(metric, condition) do
+    explicit =
+      condition_number(condition, "threshold") ||
+        condition_number(condition, "value")
+
+    case explicit do
+      nil ->
+        case metric_baseline(metric, condition) do
+          nil ->
+            nil
+
+          baseline ->
+            multiplier = condition_number(condition, "baseline_multiplier", 1.0)
+            offset = condition_number(condition, "baseline_offset", 0.0)
+            baseline * multiplier + offset
+        end
+
+      threshold ->
+        threshold
+    end
+  end
+
+  defp metric_baseline(metric, condition) do
+    condition_number(condition, "baseline_value") ||
+      condition_number(condition, "baseline") ||
+      metric_baseline_from_path(metric, condition)
+  end
+
+  defp metric_baseline_from_path(metric, condition) do
+    case condition["baseline_path"] || condition[:baseline_path] do
+      path when is_binary(path) -> metric_number(get_nested_value(metric_match_map(metric), path))
+      _ -> nil
+    end
+  end
+
+  defp condition_number(condition, key), do: condition_number(condition, key, nil)
+
+  defp condition_number(condition, key, default) when is_map(condition) do
+    case Map.get(condition, key) || Map.get(condition, String.to_existing_atom(key)) do
+      nil -> default
+      value -> metric_number(value) || default
+    end
+  rescue
+    ArgumentError -> default
+  end
+
+  defp metric_number(value) when is_integer(value), do: value / 1
+  defp metric_number(value) when is_float(value), do: value
+
+  defp metric_number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, ""} -> parsed
+      {parsed, _rest} -> parsed
+      :error -> nil
+    end
+  end
+
+  defp metric_number(_value), do: nil
+
+  defp metric_comparison(condition) do
+    comparison = condition["comparison"] || condition[:comparison] || "gt"
+
+    comparison
+    |> to_string()
+    |> String.downcase()
+  end
+
+  defp compare_metric_value(nil, _threshold, _comparison), do: false
+  defp compare_metric_value(_value, nil, _comparison), do: false
+
+  defp compare_metric_value(value, threshold, comparison) when comparison in ["gt", ">"],
+    do: value > threshold
+
+  defp compare_metric_value(value, threshold, comparison) when comparison in ["gte", "ge", ">="],
+    do: value >= threshold
+
+  defp compare_metric_value(value, threshold, comparison) when comparison in ["lt", "<"],
+    do: value < threshold
+
+  defp compare_metric_value(value, threshold, comparison) when comparison in ["lte", "le", "<="],
+    do: value <= threshold
+
+  defp compare_metric_value(value, threshold, comparison) when comparison in ["eq", "=="],
+    do: value == threshold
+
+  defp compare_metric_value(value, threshold, comparison) when comparison in ["neq", "!="],
+    do: value != threshold
+
+  defp compare_metric_value(_value, _threshold, _comparison), do: false
 
   defp match_subject_prefix(_subject, match) when map_size(match) == 0, do: false
 
@@ -1194,6 +1402,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       log_attributes: event_log_attributes(record),
       log_resource_attributes: event_log_resource_attributes(record),
       unmapped: Map.get(record, :unmapped) || %{},
+      tags: Map.get(record, :tags) || %{},
       metadata: Map.get(record, :metadata) || %{}
     }
   end
@@ -1215,6 +1424,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       sources.log_attributes,
       sources.log_resource_attributes,
       sources.unmapped,
+      sources.tags,
       sources.metadata
     ]
   end
@@ -1244,6 +1454,30 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp record_field_value(record, "log_name"), do: fetch_attr(record, :log_name)
   defp record_field_value(record, "log_provider"), do: fetch_attr(record, :log_provider)
+
+  defp record_field_value(record, "metric_name"), do: fetch_attr(record, :metric_name)
+  defp record_field_value(record, "metric_type"), do: fetch_attr(record, :metric_type)
+  defp record_field_value(record, "unit"), do: fetch_attr(record, :unit)
+  defp record_field_value(record, "device_id"), do: fetch_attr(record, :device_id)
+  defp record_field_value(record, "agent_id"), do: fetch_attr(record, :agent_id)
+  defp record_field_value(record, "gateway_id"), do: fetch_attr(record, :gateway_id)
+  defp record_field_value(record, "partition"), do: fetch_attr(record, :partition)
+  defp record_field_value(record, "series_key"), do: fetch_attr(record, :series_key)
+
+  defp record_field_value(record, "serviceradar.metric"), do: fetch_attr(record, :metric_name)
+
+  defp record_field_value(record, "serviceradar.metric_name"),
+    do: fetch_attr(record, :metric_name)
+
+  defp record_field_value(record, "serviceradar.metric_type"),
+    do: fetch_attr(record, :metric_type)
+
+  defp record_field_value(record, "serviceradar.device_id"), do: fetch_attr(record, :device_id)
+
+  defp record_field_value(record, "serviceradar.agent_id"), do: fetch_attr(record, :agent_id)
+
+  defp record_field_value(record, "serviceradar.gateway_id"), do: fetch_attr(record, :gateway_id)
+
   defp record_field_value(_record, _key), do: nil
 
   defp fetch_attr(map, key) when is_map(map) and is_atom(key) do
@@ -1298,6 +1532,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Enum.sum()
   end
 
+  defp record_bucket_increment(record) do
+    if metric_record?(record) do
+      if fetch_attr(record, :__stateful_alert_violation__) do
+        1
+      else
+        0
+      end
+    else
+      1
+    end
+  end
+
   defp normalize_bucket_counts(bucket_counts) when is_map(bucket_counts) do
     Enum.reduce(bucket_counts, %{}, fn {key, value}, acc ->
       case Integer.parse(to_string(key)) do
@@ -1322,10 +1568,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp source_record_details(record) do
-    if record_has_time?(record) do
-      event_source_details(record)
-    else
-      log_source_details(record)
+    cond do
+      metric_record?(record) -> metric_source_details(record)
+      record_has_time?(record) -> event_source_details(record)
+      true -> log_source_details(record)
     end
   end
 
@@ -1344,6 +1590,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     Map.has_key?(record, :time) || Map.has_key?(record, "time")
   end
 
+  defp metric_record?(record) do
+    not is_nil(fetch_attr(record, :metric_name)) or
+      not is_nil(fetch_attr(record, :metric_type)) or
+      Map.has_key?(record, :__stateful_alert_violation__)
+  end
+
   defp event_source_details(record) do
     %{
       "source_signal" => "event",
@@ -1360,6 +1612,24 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       "source_log_id" => to_string(fetch_attr(record, :id)),
       "source_log_time" => fetch_attr(record, :timestamp),
       "source_service" => fetch_attr(record, :service_name)
+    }
+  end
+
+  defp metric_source_details(record) do
+    condition = fetch_attr(record, :__stateful_alert_condition__) || %{}
+
+    %{
+      "source_signal" => "metric",
+      "source_metric_time" => fetch_attr(record, :timestamp),
+      "source_metric_name" => fetch_attr(record, :metric_name),
+      "source_metric_type" => fetch_attr(record, :metric_type),
+      "source_metric_value" => fetch_attr(record, :value),
+      "source_metric_unit" => fetch_attr(record, :unit),
+      "source_metric_device_id" => fetch_attr(record, :device_id),
+      "source_metric_agent_id" => fetch_attr(record, :agent_id),
+      "source_metric_gateway_id" => fetch_attr(record, :gateway_id),
+      "source_metric_partition" => fetch_attr(record, :partition),
+      "source_metric_condition" => condition
     }
   end
 
@@ -1398,5 +1668,40 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp event_unmapped(event) do
     Map.get(event, :unmapped) || Map.get(event, "unmapped") || %{}
+  end
+
+  defp metric_match_sources(metric) do
+    {metric_match_map(metric), metric_resource_attributes(metric)}
+  end
+
+  defp metric_match_map(metric) do
+    tags = fetch_attr(metric, :tags) || %{}
+    metadata = fetch_attr(metric, :metadata) || %{}
+
+    %{
+      "metric_name" => fetch_attr(metric, :metric_name),
+      "metric_type" => fetch_attr(metric, :metric_type),
+      "unit" => fetch_attr(metric, :unit),
+      "value" => fetch_attr(metric, :value),
+      "device_id" => fetch_attr(metric, :device_id),
+      "agent_id" => fetch_attr(metric, :agent_id),
+      "gateway_id" => fetch_attr(metric, :gateway_id),
+      "partition" => fetch_attr(metric, :partition),
+      "series_key" => fetch_attr(metric, :series_key),
+      "tags" => tags,
+      "metadata" => metadata
+    }
+  end
+
+  defp metric_resource_attributes(metric) do
+    %{
+      "serviceradar.metric" => fetch_attr(metric, :metric_name),
+      "serviceradar.metric_name" => fetch_attr(metric, :metric_name),
+      "serviceradar.metric_type" => fetch_attr(metric, :metric_type),
+      "serviceradar.device_id" => fetch_attr(metric, :device_id),
+      "serviceradar.agent_id" => fetch_attr(metric, :agent_id),
+      "serviceradar.gateway_id" => fetch_attr(metric, :gateway_id),
+      "serviceradar.partition" => fetch_attr(metric, :partition)
+    }
   end
 end
