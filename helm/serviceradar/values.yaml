@@ -175,6 +175,7 @@ core:
     consensusEnabled: false
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
+  mtrRetentionDays: 30
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
   database:

@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   import Ash.Expr
 
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Observability.MtrSettings
+  alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -80,12 +82,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     device_ip = normalize_string(Keyword.get(opts, :device_ip))
     srql_query = normalize_string(Keyword.get(opts, :srql_query, ""))
     page = normalize_page(Keyword.get(opts, :page, 1))
-    per_page = normalize_limit(Keyword.get(opts, :limit, 50))
+    per_page = normalize_limit(Keyword.get(opts, :limit, default_history_page_size()))
 
     {where_clause, params, srql_sort} =
       build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
 
     {sort_field, sort_dir} = srql_sort || @default_sort
+    order_clause = order_clause(sort_field, sort_dir)
     offset = (page - 1) * per_page
 
     query = """
@@ -93,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
            target_reached, total_hops, protocol, ip_version, error
     FROM mtr_traces
     #{where_clause}
-    ORDER BY #{sort_field} #{sort_dir}
+    ORDER BY #{order_clause}
     LIMIT $#{length(params) + 1}
     OFFSET $#{length(params) + 2}
     """
@@ -114,6 +117,50 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
          per_page: per_page
        }}
     end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  def trace_coverage(opts \\ []) do
+    target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
+    agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
+    device_uid = normalize_string(Keyword.get(opts, :device_uid))
+    device_ip = normalize_string(Keyword.get(opts, :device_ip))
+    srql_query = normalize_string(Keyword.get(opts, :srql_query, ""))
+
+    {where_clause, params, _srql_sort} =
+      build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
+
+    query = """
+    SELECT COUNT(*)::bigint AS trace_count, MIN(time) AS earliest_time, MAX(time) AS latest_time
+    FROM mtr_traces
+    #{where_clause}
+    """
+
+    case Repo.query(query, params) do
+      {:ok, %{rows: [[count, earliest, latest]]}} ->
+        {:ok, %{trace_count: count || 0, earliest_time: earliest, latest_time: latest}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def retention_status(scope \\ nil) do
+    settings =
+      case MtrSettings.get_settings(scope: scope) do
+        {:ok, %MtrSettings{} = settings} -> settings
+        _ -> nil
+      end
+
+    MtrSettings.retention_status(settings)
+  rescue
+    reason ->
+      %{
+        configured_days: MtrSettings.default_retention_days(),
+        status: :degraded,
+        reason: inspect(reason),
+        tables: %{}
+      }
   end
 
   def list_pending_jobs(scope, opts \\ []) do
@@ -495,6 +542,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   defp normalize_limit(_), do: 50
 
+  defp default_history_page_size do
+    MtrSettingsRuntime.settings()
+    |> Map.get(:mtr_history_page_size_default, 50)
+    |> normalize_limit()
+  rescue
+    _ -> 50
+  end
+
   defp to_string_safe(nil), do: ""
   defp to_string_safe(value) when is_binary(value), do: value
   defp to_string_safe(value), do: to_string(value)
@@ -545,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
         {conditions, params, idx, parse_sort_token(token) || sort}
 
       String.starts_with?(token, "time:") ->
-        {conditions, params, idx, sort}
+        apply_time_filter(token, conditions, params, idx, sort)
 
       String.contains?(token, ":") ->
         apply_field_filter(token, conditions, params, idx, sort)
@@ -623,6 +678,116 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
       :error ->
         nil
+    end
+  end
+
+  defp order_clause(sort_field, sort_dir) do
+    safe_field = Map.get(@allowed_sort_fields, sort_field, "time")
+    safe_dir = if String.upcase(to_string(sort_dir)) == "ASC", do: "ASC", else: "DESC"
+    tie_dir = if safe_dir == "ASC", do: "ASC", else: "DESC"
+
+    if safe_field == "time" do
+      "#{safe_field} #{safe_dir}, id #{tie_dir}"
+    else
+      "#{safe_field} #{safe_dir}, time #{tie_dir}, id #{tie_dir}"
+    end
+  end
+
+  defp apply_time_filter("time:" <> raw_value, conditions, params, idx, sort) do
+    raw_value
+    |> normalize_srql_value()
+    |> parse_time_range()
+    |> case do
+      {:ok, nil, nil} ->
+        {conditions, params, idx, sort}
+
+      {:ok, start_dt, nil} ->
+        {conditions ++ ["time >= $#{idx}"], params ++ [start_dt], idx + 1, sort}
+
+      {:ok, nil, end_dt} ->
+        {conditions ++ ["time < $#{idx}"], params ++ [end_dt], idx + 1, sort}
+
+      {:ok, start_dt, end_dt} ->
+        {conditions ++ ["time >= $#{idx} AND time < $#{idx + 1}"], params ++ [start_dt, end_dt], idx + 2, sort}
+
+      :error ->
+        {conditions, params, idx, sort}
+    end
+  end
+
+  defp apply_time_filter(_token, conditions, params, idx, sort), do: {conditions, params, idx, sort}
+
+  defp parse_time_range(""), do: {:ok, nil, nil}
+
+  defp parse_time_range("last_" <> rest) do
+    with {:ok, seconds} <- relative_seconds(rest) do
+      {:ok, DateTime.add(DateTime.utc_now(), -seconds, :second), nil}
+    end
+  end
+
+  defp parse_time_range("[" <> rest) do
+    value = String.trim_trailing(rest, "]")
+
+    case String.split(value, ",", parts: 2) do
+      [start_raw, end_raw] ->
+        with {:ok, start_dt} <- parse_optional_datetime(start_raw),
+             {:ok, end_dt} <- parse_optional_datetime(end_raw) do
+          {:ok, start_dt, end_dt}
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_time_range(_), do: :error
+
+  defp relative_seconds(rest) do
+    case Regex.run(~r/^(\d+)([mhdw])$/, rest) do
+      [_, amount, unit] ->
+        {amount, ""} = Integer.parse(amount)
+
+        multiplier =
+          case unit do
+            "m" -> 60
+            "h" -> 60 * 60
+            "d" -> 24 * 60 * 60
+            "w" -> 7 * 24 * 60 * 60
+          end
+
+        {:ok, amount * multiplier}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_optional_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      {:ok, nil}
+    else
+      parse_datetime(value)
+    end
+  end
+
+  defp parse_datetime(value) do
+    cond do
+      match?({:ok, _, _}, DateTime.from_iso8601(value)) ->
+        {:ok, dt, _offset} = DateTime.from_iso8601(value)
+        {:ok, dt}
+
+      match?({:ok, _}, NaiveDateTime.from_iso8601(value)) ->
+        {:ok, ndt} = NaiveDateTime.from_iso8601(value)
+        {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+
+      match?({:ok, _}, Date.from_iso8601(value)) ->
+        {:ok, date} = Date.from_iso8601(value)
+        {:ok, DateTime.new!(date, ~T[00:00:00], "Etc/UTC")}
+
+      true ->
+        :error
     end
   end
 

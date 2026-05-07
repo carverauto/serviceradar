@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Observability.MtrAutomationDispatcher
   alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadar.Observability.MtrPubSub
+  alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNG.RBAC
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @process_query_limit 200
   @interfaces_limit 200
   @flows_limit 50
+  @mtr_device_limit 50
   @availability_window "last_24h"
   @availability_bucket "30m"
   @camera_relay_poll_interval_ms 1_000
@@ -143,6 +145,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:mtr_traces, [])
      |> assign(:mtr_pending_jobs, [])
      |> assign(:mtr_trends, %{hops: [], latency: []})
+     |> assign(:mtr_page, 1)
+     |> assign(:mtr_page_size, @mtr_device_limit)
+     |> assign(:mtr_total_count, 0)
+     |> assign(:mtr_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
+     |> assign(:mtr_retention_status, %{configured_days: 30, status: :degraded, tables: %{}})
      |> assign(:has_mtr, false)
      |> assign(:show_mtr_trace_modal, false)
      |> assign(:selected_mtr_trace, nil)
@@ -166,8 +173,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Read tab from URL params, fall back to current or default
     url_tab = Map.get(params, "tab")
     cursor = normalize_cursor(Map.get(params, "cursor"))
+    mtr_page = parse_positive_page(Map.get(params, "mtr_page"))
+    mtr_page_size = mtr_default_page_size()
 
     requested_tab = normalize_requested_tab(url_tab, socket.assigns.active_tab)
+    socket = socket |> assign(:mtr_page, mtr_page) |> assign(:mtr_page_size, mtr_page_size)
 
     cond do
       same_device_and_limit?(socket, uid, limit) ->
@@ -182,6 +192,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          socket
          |> assign(:device_uid, uid)
          |> assign(:limit, limit)
+         |> assign(:mtr_page, mtr_page)
+         |> assign(:mtr_page_size, mtr_page_size)
          |> assign(:active_tab, requested_tab)}
     end
   end
@@ -703,13 +715,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         Map.get(parallel_results, :has_ifaces, false)
       )
 
-      has_flows =
-        determine_has_flows(
-          load_flows_data?,
-          flows_error,
-          device_flows,
-          Map.get(parallel_results, :has_flows, false)
-        )
+    has_flows =
+      determine_has_flows(
+        load_flows_data?,
+        flows_error,
+        device_flows,
+        Map.get(parallel_results, :has_flows, false)
+      )
 
     has_mtr = detect_has_mtr(scope, uid, device_ip)
 
@@ -3506,12 +3518,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={@active_tab == "mtr"}>
             <% mtr_dashboard = mtr_trace_dashboard(@mtr_traces, @mtr_pending_jobs, @mtr_trends) %>
             <% recent_trace_bars = recent_mtr_trace_bars(@mtr_traces) %>
-            <% max_trace_hops =
-              recent_trace_bars |> Enum.map(&mtr_trace_total_hops/1) |> Enum.max(fn -> 0 end) %>
             <div class="space-y-4">
-              <div class="flex items-center justify-between">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 class="text-lg font-semibold">MTR Traces</h3>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2 sm:justify-end">
                   <button
                     type="button"
                     phx-click="run_mtr"
@@ -3542,96 +3552,108 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">Pending Jobs</div>
-                  <div class="mt-2 text-3xl font-semibold">{mtr_dashboard.pending_count}</div>
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-6">
+                <div class="sr-mtr-card p-4">
+                  <div class="sr-mtr-label">Pending Jobs</div>
+                  <div class="sr-mtr-value mt-2 text-3xl">{mtr_dashboard.pending_count}</div>
                 </div>
-                <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">Reachability</div>
-                  <div class="mt-2 text-3xl font-semibold">{mtr_dashboard.success_rate}%</div>
-                  <div class="text-sm text-base-content/60">recent traces reached target</div>
+                <div class="sr-mtr-card p-4">
+                  <div class="flex items-center justify-between gap-4">
+                    <div class="min-w-0">
+                      <div class="sr-mtr-label">Reachability</div>
+                      <div class="sr-mtr-value mt-2 text-3xl">{mtr_dashboard.success_rate}%</div>
+                      <div class="sr-mtr-muted text-sm">recent traces reached target</div>
+                    </div>
+                    <div
+                      class={[
+                        "radial-progress sr-mtr-radial shrink-0 text-sm font-semibold",
+                        mtr_reachability_tone(mtr_dashboard.success_rate)
+                      ]}
+                      style={"--value: #{mtr_radial_value(mtr_dashboard.success_rate)};"}
+                      role="progressbar"
+                      aria-label="MTR reachability"
+                    >
+                      {mtr_radial_value(mtr_dashboard.success_rate)}%
+                    </div>
+                  </div>
                 </div>
-                <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">
+                <div class="sr-mtr-card p-4">
+                  <div class="sr-mtr-label">
                     Avg Hop Depth
                   </div>
-                  <div class="mt-2 text-3xl font-semibold">{mtr_dashboard.avg_hops}</div>
+                  <div class="sr-mtr-value mt-2 text-3xl">{mtr_dashboard.avg_hops}</div>
                 </div>
-                <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">
+                <div class="sr-mtr-card p-4">
+                  <div class="sr-mtr-label">
                     Avg Last-Hop Latency
                   </div>
-                  <div class="mt-2 text-3xl font-semibold">{mtr_dashboard.avg_latency_label}</div>
+                  <div class="sr-mtr-value mt-2 text-3xl">{mtr_dashboard.avg_latency_label}</div>
+                </div>
+                <div class="sr-mtr-card p-4">
+                  <div class="sr-mtr-label">
+                    Retained Matches
+                  </div>
+                  <div class="sr-mtr-value mt-2 text-3xl">{@mtr_total_count}</div>
+                  <div class="sr-mtr-muted text-sm">{mtr_coverage_label(@mtr_coverage)}</div>
+                </div>
+                <div class="sr-mtr-card p-4">
+                  <div class="sr-mtr-label">Retention</div>
+                  <div class="sr-mtr-value mt-2 text-3xl">
+                    {Map.get(@mtr_retention_status, :configured_days, 30)}d
+                  </div>
+                  <div class={["text-sm", mtr_retention_status_class(@mtr_retention_status)]}>
+                    {mtr_retention_status_label(@mtr_retention_status)}
+                  </div>
                 </div>
               </div>
 
               <div
-                :if={@mtr_trends.hops != [] or @mtr_trends.latency != []}
-                class="grid grid-cols-2 gap-4"
+                :if={recent_trace_bars != [] or @mtr_trends.latency != []}
+                class="grid grid-cols-1 gap-4 xl:grid-cols-3"
               >
-                <div class="card bg-base-200 p-3">
-                  <div class="text-xs text-base-content/60 mb-1">Hop Count Trend</div>
-                  <.srql_sparkline points={@mtr_trends.hops} />
+                <div :if={recent_trace_bars != []} class="sr-mtr-panel p-4 xl:col-span-2">
+                  <div class="flex items-center justify-between gap-3">
+                    <h4 class="sr-mtr-title font-semibold">Recent Availability Timeline</h4>
+                    <div class="sr-mtr-muted text-xs">newest left</div>
+                  </div>
+                  <div
+                    class="sr-mtr-outcome-strip mt-4"
+                    role="list"
+                    aria-label="Recent MTR trace outcomes"
+                  >
+                    <span
+                      :for={trace <- recent_trace_bars}
+                      role="listitem"
+                      class={[
+                        "sr-mtr-outcome-dot",
+                        if(mtr_trace_reached?(trace), do: "is-reached", else: "is-failed")
+                      ]}
+                      title={"#{format_mtr_time(trace["time"])} #{trace["target"]} #{if mtr_trace_reached?(trace), do: "reached", else: "unreachable"}"}
+                    />
+                  </div>
+                  <div class="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+                    <div class="sr-mtr-subpanel p-3">
+                      <div class="sr-mtr-label">Reached</div>
+                      <div class="sr-mtr-value mt-1 text-lg">{mtr_dashboard.reached_count}</div>
+                    </div>
+                    <div class="sr-mtr-subpanel p-3">
+                      <div class="sr-mtr-label">Unreachable</div>
+                      <div class="sr-mtr-value mt-1 text-lg">{mtr_dashboard.failed_count}</div>
+                    </div>
+                    <div class="sr-mtr-subpanel p-3">
+                      <div class="sr-mtr-label">Recent Samples</div>
+                      <div class="sr-mtr-value mt-1 text-lg">{mtr_dashboard.trace_count}</div>
+                    </div>
+                  </div>
                 </div>
-                <div class="card bg-base-200 p-3">
-                  <div class="text-xs text-base-content/60 mb-1">Last Hop Latency Trend</div>
+                <div class="sr-mtr-subpanel p-3">
+                  <div class="sr-mtr-muted text-xs mb-1">Last Hop Latency Trend</div>
                   <.srql_sparkline points={@mtr_trends.latency} />
                 </div>
               </div>
 
-              <div
-                :if={recent_trace_bars != []}
-                class="rounded-xl border border-base-300 bg-base-100/80 p-4"
-              >
-                <div class="flex items-center justify-between">
-                  <h4 class="font-semibold">Recent Trace Outcomes</h4>
-                  <div class="text-xs text-base-content/60">
-                    last {length(recent_trace_bars)} runs
-                  </div>
-                </div>
-                <div class="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
-                  <div class="space-y-3">
-                    <div :for={trace <- recent_trace_bars} class="space-y-1">
-                      <div class="flex items-center justify-between text-xs">
-                        <span class="truncate max-w-[220px] font-mono">{trace["target"]}</span>
-                        <span class={
-                          if(mtr_trace_reached?(trace), do: "text-success", else: "text-error")
-                        }>
-                          {if mtr_trace_reached?(trace), do: "reached", else: "unreachable"}
-                        </span>
-                      </div>
-                      <div class="h-2 rounded-full bg-base-200 overflow-hidden">
-                        <div
-                          class={[
-                            "h-full rounded-full transition-all",
-                            if(mtr_trace_reached?(trace), do: "bg-success", else: "bg-error")
-                          ]}
-                          style={"width: #{mtr_trace_hop_bar_width(trace, max_trace_hops)}"}
-                        >
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                    <div class="rounded-lg bg-base-200/70 p-3">
-                      <div class="text-base-content/60 uppercase tracking-wide">Reached</div>
-                      <div class="mt-1 text-lg font-semibold">{mtr_dashboard.reached_count}</div>
-                    </div>
-                    <div class="rounded-lg bg-base-200/70 p-3">
-                      <div class="text-base-content/60 uppercase tracking-wide">Unreachable</div>
-                      <div class="mt-1 text-lg font-semibold">{mtr_dashboard.failed_count}</div>
-                    </div>
-                    <div class="rounded-lg bg-base-200/70 p-3">
-                      <div class="text-base-content/60 uppercase tracking-wide">Recent Samples</div>
-                      <div class="mt-1 text-lg font-semibold">{mtr_dashboard.trace_count}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               <div class="overflow-x-auto">
-                <table class="table table-sm table-zebra">
+                <table class="table table-sm sr-mtr-table">
                   <thead>
                     <tr>
                       <th>Time</th>
@@ -3663,7 +3685,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                         </span>
                       </td>
                       <td class="text-xs">pending</td>
-                      <td class="text-xs text-base-content/50">{job.id}</td>
+                      <td class="sr-mtr-muted text-xs">{job.id}</td>
                     </tr>
                     <tr :for={trace <- @mtr_traces} class="hover">
                       <td class="whitespace-nowrap text-xs">
@@ -3703,12 +3725,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       </td>
                     </tr>
                     <tr :if={@mtr_pending_jobs == [] and @mtr_traces == []}>
-                      <td colspan="7" class="text-center py-8 text-base-content/50">
+                      <td colspan="7" class="sr-mtr-muted text-center py-8">
                         No MTR traces found for this device.
                       </td>
                     </tr>
                   </tbody>
                 </table>
+              </div>
+              <div class="flex items-center justify-between gap-3 border-t border-base-200 pt-4">
+                <div class="sr-mtr-muted text-sm">
+                  {mtr_device_page_label(@mtr_page, @mtr_total_count)}
+                </div>
+                <div class="join">
+                  <.link
+                    :if={@mtr_page > 1}
+                    patch={mtr_device_page_path(@device_uid, @mtr_page - 1)}
+                    class="join-item btn btn-sm btn-outline"
+                  >
+                    <.icon name="hero-chevron-left" class="size-4" /> Prev
+                  </.link>
+                  <button :if={@mtr_page <= 1} class="join-item btn btn-sm btn-outline" disabled>
+                    <.icon name="hero-chevron-left" class="size-4" /> Prev
+                  </button>
+                  <span class="join-item btn btn-sm btn-ghost pointer-events-none">
+                    {@mtr_page} / {mtr_device_total_pages(@mtr_total_count, @mtr_page_size)}
+                  </span>
+                  <.link
+                    :if={@mtr_page < mtr_device_total_pages(@mtr_total_count, @mtr_page_size)}
+                    patch={mtr_device_page_path(@device_uid, @mtr_page + 1)}
+                    class="join-item btn btn-sm btn-outline"
+                  >
+                    Next <.icon name="hero-chevron-right" class="size-4" />
+                  </.link>
+                  <button
+                    :if={@mtr_page >= mtr_device_total_pages(@mtr_total_count, @mtr_page_size)}
+                    class="join-item btn btn-sm btn-outline"
+                    disabled
+                  >
+                    Next <.icon name="hero-chevron-right" class="size-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -3728,22 +3784,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
               <div>
-                <span class="text-base-content/60">Target:</span>
+                <span class="sr-mtr-muted">Target:</span>
                 <span class="font-mono">{@selected_mtr_trace["target"]}</span>
               </div>
               <div>
-                <span class="text-base-content/60">Agent:</span>
+                <span class="sr-mtr-muted">Agent:</span>
                 <span class="font-mono">{@selected_mtr_trace["agent_id"]}</span>
               </div>
               <div>
-                <span class="text-base-content/60">Protocol:</span> {String.upcase(
+                <span class="sr-mtr-muted">Protocol:</span> {String.upcase(
                   @selected_mtr_trace["protocol"] || "icmp"
                 )}
               </div>
               <div>
-                <span class="text-base-content/60">Time:</span> {format_mtr_time(
-                  @selected_mtr_trace["time"]
-                )}
+                <span class="sr-mtr-muted">Time:</span> {format_mtr_time(@selected_mtr_trace["time"])}
               </div>
             </div>
 
@@ -3751,12 +3805,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               :if={@selected_mtr_hops != []}
               class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4"
             >
-              <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Hop Count</div>
-                <div class="mt-2 text-2xl font-semibold">{hop_dashboard.hop_count}</div>
+              <div class="sr-mtr-card p-4">
+                <div class="sr-mtr-label">Hop Count</div>
+                <div class="sr-mtr-value mt-2 text-2xl">{hop_dashboard.hop_count}</div>
               </div>
-              <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Avg Loss</div>
+              <div class="sr-mtr-card p-4">
+                <div class="sr-mtr-label">Avg Loss</div>
                 <div class={[
                   "mt-2 text-2xl font-semibold",
                   loss_class_for_modal(hop_dashboard.avg_loss_pct)
@@ -3764,15 +3818,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   {format_pct_mtr(hop_dashboard.avg_loss_pct)}
                 </div>
               </div>
-              <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Peak Avg RTT</div>
-                <div class="mt-2 text-2xl font-semibold">
+              <div class="sr-mtr-card p-4">
+                <div class="sr-mtr-label">Peak Avg RTT</div>
+                <div class="sr-mtr-value mt-2 text-2xl">
                   {format_us_mtr(hop_dashboard.max_avg_us)}
                 </div>
               </div>
-              <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Most Lossy Hop</div>
-                <div class="mt-2 text-2xl font-semibold">
+              <div class="sr-mtr-card p-4">
+                <div class="sr-mtr-label">Most Lossy Hop</div>
+                <div class="sr-mtr-value mt-2 text-2xl">
                   {format_pct_mtr(hop_dashboard.max_loss_pct)}
                 </div>
               </div>
@@ -3780,11 +3834,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
             <div
               :if={@selected_mtr_hops != []}
-              class="rounded-xl border border-base-300 bg-base-100/80 p-4 mb-4"
+              class="sr-mtr-panel p-4 mb-4"
             >
               <div class="flex items-center justify-between">
-                <h4 class="font-semibold">Hop Health</h4>
-                <div class="text-xs text-base-content/60">latency width, loss tint</div>
+                <h4 class="sr-mtr-title font-semibold">Hop Health</h4>
+                <div class="sr-mtr-muted text-xs">latency width, loss tint</div>
               </div>
               <div class="mt-4 space-y-3">
                 <div :for={hop <- @selected_mtr_hops} class="space-y-1">
@@ -3792,7 +3846,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <span class="font-mono">hop {hop["hop_number"]} · {hop["addr"] || "???"}</span>
                     <span>{format_us_mtr(hop["avg_us"])} · {format_pct_mtr(hop["loss_pct"])}</span>
                   </div>
-                  <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                  <div class="sr-mtr-track h-2">
                     <div
                       class={[
                         "h-full rounded-full transition-all",
@@ -3807,7 +3861,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </div>
 
             <div class="overflow-x-auto max-h-[60vh]">
-              <table class="table table-sm table-zebra">
+              <table class="table table-sm sr-mtr-table">
                 <thead>
                   <tr>
                     <th>Hop</th>
@@ -3836,7 +3890,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <td class="text-right font-mono text-sm">{format_us_mtr(hop["max_us"])}</td>
                   </tr>
                   <tr :if={@selected_mtr_hops == []}>
-                    <td colspan="8" class="text-center py-4 text-base-content/50">
+                    <td colspan="8" class="sr-mtr-muted text-center py-4">
                       No hop data available
                     </td>
                   </tr>
@@ -6209,6 +6263,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp parse_limit(_limit, default, _max), do: default
 
+  defp parse_positive_page(nil), do: 1
+
+  defp parse_positive_page(page) when is_binary(page) do
+    case Integer.parse(page) do
+      {value, ""} when value > 0 -> value
+      _ -> 1
+    end
+  end
+
+  defp parse_positive_page(page) when is_integer(page) and page > 0, do: page
+  defp parse_positive_page(_), do: 1
+
   # Gracefully await a list of keyed async tasks. Each task must return {:key, value}.
   # Returns a map of results; timed-out or crashed tasks are silently omitted.
   defp safe_yield_many(tasks, timeout) do
@@ -7856,8 +7922,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:mtr_traces, [])
       |> assign(:mtr_pending_jobs, [])
       |> assign(:mtr_trends, %{hops: [], latency: []})
+      |> assign(:mtr_total_count, 0)
+      |> assign(:mtr_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
+      |> assign(:mtr_retention_status, MtrData.retention_status(socket.assigns.current_scope))
     else
-      traces_result = MtrData.list_traces(device_uid: device_uid, device_ip: device_ip, limit: 20)
+      page = Map.get(socket.assigns, :mtr_page, 1)
+      page_size = Map.get(socket.assigns, :mtr_page_size, mtr_default_page_size())
+
+      traces_result =
+        MtrData.list_traces_paginated(
+          device_uid: device_uid,
+          device_ip: device_ip,
+          limit: page_size,
+          page: page
+        )
+
+      coverage_result = MtrData.trace_coverage(device_uid: device_uid, device_ip: device_ip)
 
       pending_result =
         MtrData.list_pending_jobs(socket.assigns.current_scope,
@@ -7867,8 +7947,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       traces =
         case traces_result do
-          {:ok, rows} -> rows
+          {:ok, %{rows: rows}} -> rows
           _ -> []
+        end
+
+      total_count =
+        case traces_result do
+          {:ok, %{total_count: total}} -> total || 0
+          _ -> 0
+        end
+
+      coverage =
+        case coverage_result do
+          {:ok, value} -> value
+          _ -> %{trace_count: total_count, earliest_time: nil, latest_time: nil}
         end
 
       pending_jobs =
@@ -7881,6 +7973,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       socket
       |> assign(:mtr_traces, traces)
+      |> assign(:mtr_total_count, total_count)
+      |> assign(:mtr_coverage, coverage)
+      |> assign(:mtr_retention_status, MtrData.retention_status(socket.assigns.current_scope))
       |> assign(:mtr_pending_jobs, pending_jobs)
       |> assign(:mtr_trends, MtrData.build_trends(traces))
     end
@@ -7915,6 +8010,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_mtr_time(_), do: "-"
+
+  defp mtr_coverage_label(%{earliest_time: nil}), do: "no retained history"
+
+  defp mtr_coverage_label(%{earliest_time: earliest, latest_time: latest}) do
+    "#{format_mtr_date(earliest)} to #{format_mtr_date(latest)}"
+  end
+
+  defp mtr_coverage_label(_), do: "unknown coverage"
+
+  defp format_mtr_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_mtr_date(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d")
+  defp format_mtr_date(_), do: "-"
+
+  defp mtr_retention_status_label(%{status: :ok}), do: "policy synced"
+  defp mtr_retention_status_label(%{status: :mismatch}), do: "policy mismatch"
+  defp mtr_retention_status_label(%{status: :missing}), do: "policy missing"
+  defp mtr_retention_status_label(%{status: :degraded}), do: "status unavailable"
+  defp mtr_retention_status_label(_), do: "status unavailable"
+
+  defp mtr_retention_status_class(%{status: :ok}), do: "text-success"
+
+  defp mtr_retention_status_class(%{status: status}) when status in [:mismatch, :missing], do: "text-warning"
+
+  defp mtr_retention_status_class(%{status: :degraded}), do: "text-error"
+  defp mtr_retention_status_class(_), do: "sr-mtr-muted"
+
+  defp mtr_device_total_pages(total_count, page_size) do
+    max(1, ceil((total_count || 0) / max(page_size || @mtr_device_limit, 1)))
+  end
+
+  defp mtr_device_page_label(page, total_count) when total_count > 0 do
+    "Showing page #{page} (#{total_count} retained matches)"
+  end
+
+  defp mtr_device_page_label(_page, _total_count), do: "No retained matches"
+
+  defp mtr_device_page_path(device_uid, page) do
+    ~p"/devices/#{device_uid}?tab=mtr&mtr_page=#{page}"
+  end
+
+  defp mtr_default_page_size do
+    MtrSettingsRuntime.settings()
+    |> Map.get(:mtr_history_page_size_default, @mtr_device_limit)
+    |> parse_limit(@mtr_device_limit, 200)
+  rescue
+    _ -> @mtr_device_limit
+  end
 
   defp pending_status_class(:queued), do: "badge-ghost"
   defp pending_status_class(:sent), do: "badge-info"
@@ -7987,14 +8129,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp mtr_trace_total_hops(_trace), do: 0
 
-  defp mtr_trace_hop_bar_width(trace, max_hops) do
-    trace
-    |> mtr_trace_total_hops()
-    |> positive_ratio(max_hops)
-    |> Kernel.*(100)
-    |> Float.round(1)
-    |> then(&"#{&1}%")
+  defp mtr_radial_value(value) when is_number(value) do
+    value
+    |> round()
+    |> min(100)
+    |> max(0)
   end
+
+  defp mtr_radial_value(_), do: 0
+
+  defp mtr_reachability_tone(value) when is_number(value) and value < 80, do: "is-error"
+  defp mtr_reachability_tone(value) when is_number(value) and value < 95, do: "is-warning"
+  defp mtr_reachability_tone(_), do: "is-success"
 
   defp average_mtr_number([]), do: 0.0
   defp average_mtr_number(values), do: Enum.sum(values) / length(values)

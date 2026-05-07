@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Observability.MtrPolicy
+  alias ServiceRadar.Observability.MtrSettings
+  alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -51,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
        |> assign(:page_title, "MTR Automation")
        |> assign(:current_path, "/settings/networks/mtr")
        |> assign(:profiles, load_profiles(scope))
+       |> assign_mtr_settings(scope)
        |> assign(:show_form, nil)
        |> assign(:selected_profile, nil)
        |> assign(:form, nil)
@@ -226,6 +229,65 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     end
   end
 
+  def handle_event("settings_validate", %{"settings" => params}, socket) do
+    merged_params = merge_settings_form(socket.assigns.mtr_settings_params, params)
+
+    {:noreply,
+     socket
+     |> assign(:mtr_settings_params, merged_params)
+     |> assign(:mtr_settings_form, to_form(merged_params, as: :settings))
+     |> assign(
+       :retention_lowering?,
+       retention_lowering?(socket.assigns.mtr_settings, merged_params)
+     )}
+  end
+
+  def handle_event("settings_save", %{"settings" => params}, socket) do
+    scope = socket.assigns.current_scope
+    settings = socket.assigns.mtr_settings || load_mtr_settings(scope)
+    update_params = build_mtr_settings_update_params(params)
+
+    result =
+      case settings do
+        %MtrSettings{} = record ->
+          MtrSettings.update_settings(record, update_params, scope: scope)
+
+        _ ->
+          MtrSettings.create_settings(update_params, scope: scope)
+      end
+
+    case result do
+      {:ok, %MtrSettings{} = updated} ->
+        retention_result = MtrSettings.apply_retention_policy(updated)
+        _ = MtrSettingsRuntime.force_refresh()
+        updated_params = mtr_settings_to_params(updated)
+
+        socket =
+          socket
+          |> assign(:mtr_settings, updated)
+          |> assign(:mtr_settings_params, updated_params)
+          |> assign(:mtr_settings_form, to_form(updated_params, as: :settings))
+          |> assign(:retention_lowering?, false)
+          |> assign(:mtr_retention_status, MtrSettings.retention_status(updated))
+
+        case retention_result do
+          :ok ->
+            {:noreply, put_flash(socket, :info, "Saved MTR settings")}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "Saved MTR settings, but retention policy reconciliation failed: #{inspect(reason)}"
+             )}
+        end
+
+      {:error, err} ->
+        {:noreply, put_flash(socket, :error, "Failed to save MTR settings: #{inspect(err)}")}
+    end
+  end
+
   def handle_event("toggle_profile", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -360,6 +422,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             bulk_interval_guidance={@bulk_interval_guidance}
           />
         <% else %>
+          <.mtr_settings_panel
+            form={@mtr_settings_form}
+            settings={@mtr_settings}
+            retention_status={@mtr_retention_status}
+            retention_lowering?={@retention_lowering?}
+          />
           <.profiles_table profiles={@profiles} />
         <% end %>
       </.settings_shell>
@@ -367,14 +435,108 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     """
   end
 
+  attr(:form, :map, required: true)
+  attr(:settings, :any, default: nil)
+  attr(:retention_status, :map, default: %{})
+  attr(:retention_lowering?, :boolean, default: false)
+
+  defp mtr_settings_panel(assigns) do
+    assigns =
+      assigns
+      |> assign(:status_label, retention_status_label(assigns.retention_status))
+      |> assign(:status_class, retention_status_class(assigns.retention_status))
+      |> assign(:retained_poll_estimate, retained_poll_estimate(assigns.settings))
+
+    ~H"""
+    <.ui_panel class="sr-mtr-panel mb-4" header_class="sr-mtr-panel-header">
+      <:header>
+        <div class="flex w-full items-center justify-between">
+          <div>
+            <div class="sr-mtr-title text-sm font-semibold">MTR History Retention</div>
+            <div class="sr-mtr-muted text-xs">
+              Controls how long ServiceRadar keeps MTR trace and hop history in TimescaleDB.
+            </div>
+          </div>
+          <.ui_badge size="sm" variant={@status_class}>{@status_label}</.ui_badge>
+        </div>
+      </:header>
+
+      <.form
+        :if={@form}
+        for={@form}
+        id="mtr-settings-form"
+        phx-change="settings_validate"
+        phx-submit="settings_save"
+        class="space-y-4"
+      >
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <.input
+            field={@form[:mtr_retention_days]}
+            type="number"
+            min="1"
+            max="395"
+            label="Retention (days)"
+          />
+          <.input
+            field={@form[:mtr_default_history_window]}
+            type="text"
+            label="Default history window"
+          />
+          <.input
+            field={@form[:mtr_history_page_size_default]}
+            type="number"
+            min="10"
+            max="200"
+            label="Default page size"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+          <div class="sr-mtr-subpanel p-3">
+            <div class="sr-mtr-label">Retained polls</div>
+            <div class="sr-mtr-value mt-1 text-lg">{@retained_poll_estimate}</div>
+            <div class="sr-mtr-muted text-xs">per target at 5-minute cadence</div>
+          </div>
+          <div class="sr-mtr-subpanel p-3">
+            <div class="sr-mtr-label">Trace policy</div>
+            <div class="mt-1 font-mono text-xs">{table_policy(@retention_status, "mtr_traces")}</div>
+          </div>
+          <div class="sr-mtr-subpanel p-3">
+            <div class="sr-mtr-label">Hop policy</div>
+            <div class="mt-1 font-mono text-xs">{table_policy(@retention_status, "mtr_hops")}</div>
+          </div>
+        </div>
+
+        <div :if={@retention_lowering?} class="alert alert-warning text-sm">
+          <.icon name="hero-exclamation-triangle" class="size-5" />
+          <span>Lowering retention may cause older MTR traces and hops to expire sooner.</span>
+        </div>
+
+        <div class="flex justify-end">
+          <button
+            type="submit"
+            class="btn btn-sm btn-primary"
+            data-confirm={
+              @retention_lowering? &&
+                "Lowering MTR retention may expire older trace and hop history sooner. Continue?"
+            }
+          >
+            Save Retention
+          </button>
+        </div>
+      </.form>
+    </.ui_panel>
+    """
+  end
+
   attr(:profiles, :list, required: true)
 
   defp profiles_table(assigns) do
     ~H"""
-    <.ui_panel>
+    <.ui_panel class="sr-mtr-panel" header_class="sr-mtr-panel-header">
       <:header>
         <div class="flex w-full items-center justify-between">
-          <div class="text-sm font-semibold">MTR Automation Profiles</div>
+          <div class="sr-mtr-title text-sm font-semibold">MTR Automation Profiles</div>
           <.link navigate={~p"/settings/networks/mtr/new"}>
             <.ui_button variant="primary" size="sm">
               <.icon name="hero-plus" class="size-4" /> New Profile
@@ -384,7 +546,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       </:header>
 
       <div class="overflow-x-auto">
-        <table class="table table-sm table-zebra">
+        <table class="table table-sm sr-mtr-table">
           <thead>
             <tr>
               <th>Name</th>
@@ -470,9 +632,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     assigns = assign(assigns, :config, config)
 
     ~H"""
-    <.ui_panel>
+    <.ui_panel class="sr-mtr-panel" header_class="sr-mtr-panel-header">
       <:header>
-        <div class="text-sm font-semibold">
+        <div class="sr-mtr-title text-sm font-semibold">
           {if @show_form == :new_profile,
             do: "New MTR Automation Profile",
             else: "Edit #{@selected_profile.name}"}
@@ -498,7 +660,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         </div>
 
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="sr-mtr-label text-sm">
             Device Scope
           </h3>
           <div>
@@ -511,7 +673,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                   class="input input-bordered w-full font-mono text-sm"
                   placeholder="in:devices tags.role:edge"
                 />
-                <p class="mt-2 text-xs text-base-content/60">
+                <p class="sr-mtr-muted mt-2 text-xs">
                   Baseline MTR automation always targets managed devices only. This SRQL query
                   selects candidates, and unmanaged matches are excluded before scheduling.
                 </p>
@@ -526,7 +688,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             </div>
           </div>
 
-          <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+          <div :if={@builder_open} class="sr-mtr-subpanel p-4">
             <div class="flex items-center justify-between mb-4">
               <div class="text-sm font-semibold">Query Builder</div>
               <div class="flex items-center gap-2">
@@ -599,7 +761,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
           <div
             :if={@target_scope_summary}
-            class="rounded-lg border border-base-200 bg-base-100/50 p-3 text-sm"
+            class="sr-mtr-subpanel p-3 text-sm"
           >
             <div>
               <span class="font-semibold">{@target_scope_summary.effective_target_count}</span>
@@ -607,11 +769,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 managed target(s) are currently eligible per baseline run
               </span>
             </div>
-            <div class="mt-1 text-base-content/60">
+            <div class="sr-mtr-muted mt-1">
               Managed-device eligibility is enforced in addition to the SRQL query, and devices
               without an IP are skipped at execution time.
             </div>
-            <div :if={@target_scope_summary.limited?} class="mt-1 text-base-content/60">
+            <div :if={@target_scope_summary.limited?} class="sr-mtr-muted mt-1">
               {@target_scope_summary.eligible_managed_count} eligible managed device(s) match the
               SRQL query, and the selector limit caps each run at {@target_scope_summary.selector_limit} target(s).
             </div>
@@ -723,7 +885,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Canary Vantages</span></label>
+            <label class="label"><span class="label-text">Extra Canary Agents</span></label>
             <.input
               type="number"
               field={@form[:baseline_canary_vantages]}
@@ -813,6 +975,97 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       _ -> []
     end
   end
+
+  defp assign_mtr_settings(socket, scope) do
+    settings = load_mtr_settings(scope)
+    params = mtr_settings_to_params(settings)
+
+    socket
+    |> assign(:mtr_settings, settings)
+    |> assign(:mtr_settings_params, params)
+    |> assign(:mtr_settings_form, to_form(params, as: :settings))
+    |> assign(:mtr_retention_status, MtrSettings.retention_status(settings))
+    |> assign(:retention_lowering?, false)
+  end
+
+  defp load_mtr_settings(scope) do
+    case MtrSettings.get_settings(scope: scope) do
+      {:ok, %MtrSettings{} = settings} -> settings
+      _ -> nil
+    end
+  end
+
+  defp mtr_settings_to_params(%MtrSettings{} = settings) do
+    %{
+      "mtr_retention_days" => to_string(settings.mtr_retention_days),
+      "mtr_default_history_window" => settings.mtr_default_history_window || "last_30d",
+      "mtr_history_page_size_default" => to_string(settings.mtr_history_page_size_default || 50)
+    }
+  end
+
+  defp mtr_settings_to_params(_settings) do
+    %{
+      "mtr_retention_days" => "30",
+      "mtr_default_history_window" => "last_30d",
+      "mtr_history_page_size_default" => "50"
+    }
+  end
+
+  defp merge_settings_form(form, params) when is_map(form) and is_map(params), do: Map.merge(form, params)
+
+  defp merge_settings_form(_form, params) when is_map(params), do: Map.merge(mtr_settings_to_params(nil), params)
+
+  defp build_mtr_settings_update_params(params) when is_map(params) do
+    %{
+      mtr_retention_days: params |> Map.get("mtr_retention_days") |> parse_int(30, 1) |> min(395),
+      mtr_default_history_window: normalize_history_window(Map.get(params, "mtr_default_history_window")),
+      mtr_history_page_size_default: params |> Map.get("mtr_history_page_size_default") |> parse_int(50, 10) |> min(200)
+    }
+  end
+
+  defp retention_lowering?(%MtrSettings{mtr_retention_days: current_days}, params) when is_map(params) do
+    next_days = parse_int(Map.get(params, "mtr_retention_days"), current_days, 1)
+    next_days < current_days
+  end
+
+  defp retention_lowering?(_settings, _params), do: false
+
+  defp normalize_history_window(nil), do: "last_30d"
+
+  defp normalize_history_window(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: "last_30d", else: value
+  end
+
+  defp normalize_history_window(_value), do: "last_30d"
+
+  defp retention_status_label(%{status: :ok}), do: "Policy synced"
+  defp retention_status_label(%{status: :mismatch}), do: "Policy mismatch"
+  defp retention_status_label(%{status: :missing}), do: "Policy missing"
+  defp retention_status_label(%{status: :degraded}), do: "Status unavailable"
+  defp retention_status_label(_), do: "Status unavailable"
+
+  defp retention_status_class(%{status: :ok}), do: "success"
+  defp retention_status_class(%{status: :mismatch}), do: "warning"
+  defp retention_status_class(%{status: :missing}), do: "warning"
+  defp retention_status_class(%{status: :degraded}), do: "error"
+  defp retention_status_class(_), do: "ghost"
+
+  defp retained_poll_estimate(%MtrSettings{mtr_retention_days: days}) when is_integer(days) do
+    "#{days * 288}"
+  end
+
+  defp retained_poll_estimate(_), do: "#{30 * 288}"
+
+  defp table_policy(%{tables: tables}, table) when is_map(tables) do
+    case Map.get(tables, table) do
+      %{configured?: true, drop_after: drop_after} when is_binary(drop_after) -> drop_after
+      %{configured?: true} -> "configured"
+      _ -> "not found"
+    end
+  end
+
+  defp table_policy(_status, _table), do: "unknown"
 
   defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
 

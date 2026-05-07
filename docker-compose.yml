@@ -257,6 +257,7 @@ services:
       - SERVICERADAR_CORE_RUN_MIGRATIONS=true
       - SERVICERADAR_MIGRATION_ONLY=true
       - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
+      - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
@@ -358,6 +359,7 @@ services:
       - MTR_AUTOMATION_BASELINE_ENABLED=${MTR_AUTOMATION_BASELINE_ENABLED:-true}
       - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-false}
       - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-false}
+      - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
       # NetFlow/IP enrichment maintenance jobs are intentionally opt-in for the
       # default Docker stack. They are useful in full telemetry deployments but
       # expensive on a single embedded Postgres instance, especially with no flow
