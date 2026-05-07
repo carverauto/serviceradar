@@ -37,6 +37,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         device_cleanup_settings_seeder_child(),
         snmp_profile_seeder_child(),
         role_profile_seeder_child(),
+        mtr_settings_seeder_child(),
         sweep_schedule_reconciler_child(),
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
@@ -136,6 +137,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp role_profile_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Identity.RoleProfileSeeder
+    end
+  end
+
+  defp mtr_settings_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Observability.MtrSettingsSeeder
     end
   end
 

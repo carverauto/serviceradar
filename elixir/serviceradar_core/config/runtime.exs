@@ -159,6 +159,7 @@ if config_env() == :prod do
   end
 
   mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
+  mtr_retention_days = parse_int_env.("MTR_RETENTION_DAYS", 30) |> max(1) |> min(395)
 
   netflow_security_refresh_reschedule_seconds =
     "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
@@ -700,6 +701,7 @@ if config_env() == :prod do
 
   config :serviceradar_core,
     mtr_automation_enabled: mtr_automation_enabled,
+    mtr_retention_days: mtr_retention_days,
     mtr_automation_baseline_enabled: parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
     mtr_automation_trigger_enabled: parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
     mtr_automation_consensus_enabled: parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)

@@ -75,6 +75,8 @@ spec:
           value: "true"
         - name: SERVICERADAR_MIGRATION_ONLY
           value: "true"
+        - name: MTR_RETENTION_DAYS
+          value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
         - name: CNPG_HOST
           value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: CNPG_PORT

@@ -316,6 +316,8 @@ spec:
           value: {{ default 60000 $mtrAutomation.baselineTickMs | quote }}
         - name: MTR_CONSENSUS_COHORT_RETENTION_MS
           value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
+        - name: MTR_RETENTION_DAYS
+          value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
         - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:

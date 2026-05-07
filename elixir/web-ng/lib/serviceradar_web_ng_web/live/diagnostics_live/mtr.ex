@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Observability.MtrAutomationDispatcher
   alias ServiceRadar.Observability.MtrPubSub
+  alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -49,6 +50,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   @impl true
   def mount(_params, _session, socket) do
+    default_limit = mtr_default_page_size()
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
@@ -63,9 +66,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      |> assign(:traces, [])
      |> assign(:pending_jobs, [])
      |> assign(:bulk_jobs, [])
-     |> assign(:limit, @default_limit)
+     |> assign(:limit, default_limit)
+     |> assign(:default_limit, default_limit)
      |> assign(:current_page, 1)
      |> assign(:total_count, 0)
+     |> assign(:trace_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
+     |> assign(:mtr_retention_status, %{configured_days: 30, status: :degraded, tables: %{}})
      |> assign(:filter_target, "")
      |> assign(:filter_agent, "")
      # On-demand MTR modal state
@@ -103,11 +109,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      )
      |> assign(:bulk_mtr_error, nil)
      |> assign(:refresh_timer, nil)
-     |> SRQLPage.init("mtr_traces", default_limit: @default_limit)}
+     |> SRQLPage.init("mtr_traces", default_limit: default_limit)}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
+    default_limit = Map.get(socket.assigns, :default_limit, @default_limit)
+
     socket =
       socket
       |> assign(:last_params, params)
@@ -115,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       |> assign(:filter_target, normalize_text(Map.get(params, "target")))
       |> assign(:filter_agent, normalize_text(Map.get(params, "agent")))
       |> assign(:current_page, parse_page(Map.get(params, "page")))
-      |> assign(:limit, parse_limit(Map.get(params, "limit"), @default_limit))
+      |> assign(:limit, parse_limit(Map.get(params, "limit"), default_limit))
       |> sync_srql_state(params, uri)
 
     {:noreply, refresh_diagnostics(socket)}
@@ -814,6 +822,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp refresh_diagnostics(socket) do
     socket
     |> load_traces()
+    |> load_trace_coverage()
+    |> load_retention_status()
     |> load_pending_jobs()
     |> load_bulk_jobs()
   end
@@ -851,6 +861,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         |> assign(:traces, [])
         |> assign(:total_count, 0)
     end
+  end
+
+  defp load_trace_coverage(socket) do
+    srql_query = Map.get(socket.assigns.srql || %{}, :query, "")
+
+    case MtrData.trace_coverage(
+           target_filter: socket.assigns.filter_target,
+           agent_filter: socket.assigns.filter_agent,
+           srql_query: srql_query
+         ) do
+      {:ok, coverage} ->
+        assign(socket, :trace_coverage, coverage)
+
+      {:error, _} ->
+        assign(socket, :trace_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
+    end
+  end
+
+  defp load_retention_status(socket) do
+    assign(socket, :mtr_retention_status, MtrData.retention_status(socket.assigns.current_scope))
   end
 
   defp load_pending_jobs(socket) do
@@ -891,13 +921,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       <% max_rate = recent_bars |> Enum.map(&bulk_rate_value/1) |> Enum.max(fn -> 0.0 end) %>
       <% latest_history = latest_bulk_history(@bulk_jobs) %>
       <% latest_mix = latest_bulk_mix(@bulk_jobs) %>
-      <div class="p-6 space-y-6">
-        <div class="flex items-center justify-between">
+      <% trace_dashboard = trace_history_dashboard(@traces, @trace_coverage) %>
+      <div class="p-4 md:p-6 space-y-6">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 class="text-2xl font-bold">MTR Diagnostics</h1>
-            <p class="text-sm text-base-content/60 mt-1">Network path analysis traces from agents</p>
+            <p class="sr-mtr-muted text-sm mt-1">Network path analysis traces from agents</p>
           </div>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2 sm:justify-end">
             <.link navigate={~p"/diagnostics/mtr/compare"} class="btn btn-sm btn-outline">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -938,40 +969,157 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
           </div>
         </div>
 
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-4">
+          <div class="sr-mtr-card p-4">
+            <div class="sr-mtr-label">Retained Traces</div>
+            <div class="sr-mtr-value mt-2 text-3xl">{@trace_coverage.trace_count}</div>
+            <div class="sr-mtr-muted text-sm">
+              {coverage_range_label(@trace_coverage)}
+            </div>
+          </div>
+          <div class="sr-mtr-card p-4">
+            <div class="sr-mtr-label">Retention</div>
+            <div class="sr-mtr-value mt-2 text-3xl">
+              {Map.get(@mtr_retention_status, :configured_days, 30)}d
+            </div>
+            <div class={["text-sm", retention_status_text_class(@mtr_retention_status)]}>
+              {retention_status_label(@mtr_retention_status)}
+            </div>
+          </div>
+          <div class="sr-mtr-card p-4">
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="sr-mtr-label">Page Reachability</div>
+                <div class="sr-mtr-value mt-2 text-3xl">{trace_dashboard.success_rate}%</div>
+                <div class="sr-mtr-muted text-sm">for visible traces</div>
+              </div>
+              <div
+                class={[
+                  "radial-progress sr-mtr-radial shrink-0 text-sm font-semibold",
+                  mtr_reachability_tone(trace_dashboard.success_rate)
+                ]}
+                style={"--value: #{mtr_radial_value(trace_dashboard.success_rate)};"}
+                role="progressbar"
+                aria-label="MTR reachability"
+              >
+                {mtr_radial_value(trace_dashboard.success_rate)}%
+              </div>
+            </div>
+          </div>
+          <div class="sr-mtr-card p-4">
+            <div class="sr-mtr-label">Source Agents</div>
+            <div class="sr-mtr-value mt-2 text-3xl">{trace_dashboard.agent_count}</div>
+            <div class="sr-mtr-muted text-sm">agents on this page</div>
+          </div>
+        </div>
+
+        <div :if={@traces != []} class="sr-mtr-panel p-4">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="sr-mtr-title font-semibold">Recent Availability Timeline</h3>
+            <div class="sr-mtr-muted text-xs">newest left</div>
+          </div>
+          <div
+            class="sr-mtr-outcome-strip mt-4"
+            role="list"
+            aria-label="Recent MTR trace outcomes"
+          >
+            <span
+              :for={trace <- Enum.take(@traces, 24)}
+              role="listitem"
+              class={[
+                "sr-mtr-outcome-dot",
+                if(trace["target_reached"], do: "is-reached", else: "is-failed")
+              ]}
+              title={"#{format_time(trace["time"])} #{trace[payload_target_key()]} #{trace_status_label(trace)}"}
+            />
+          </div>
+          <div class="mt-3 flex flex-wrap gap-3 text-xs">
+            <span class="sr-mtr-muted">Reached {trace_dashboard.reached_count}</span>
+            <span class="sr-mtr-muted">Failed {trace_dashboard.failed_count}</span>
+            <span class="sr-mtr-muted">Visible {trace_dashboard.trace_count}</span>
+          </div>
+        </div>
+
+        <div :if={@traces != []} class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div class="sr-mtr-panel p-4 xl:col-span-2">
+            <div class="flex items-center justify-between">
+              <h3 class="sr-mtr-title font-semibold">Path Depth And Reachability</h3>
+              <div class="sr-mtr-muted text-xs">visible page, newest first</div>
+            </div>
+            <div class="mt-4 space-y-3">
+              <div :for={trace <- Enum.take(@traces, 12)} class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="truncate max-w-[260px] font-mono">{trace[payload_target_key()]}</span>
+                  <span class={if trace["target_reached"], do: "text-success", else: "text-error"}>
+                    {trace["total_hops"] || 0} hops
+                  </span>
+                </div>
+                <div class="sr-mtr-track h-2">
+                  <div
+                    class={[
+                      "h-full rounded-full transition-all",
+                      if(trace["target_reached"], do: "bg-success", else: "bg-error")
+                    ]}
+                    style={"width: #{trace_hop_width(trace, trace_dashboard.max_hops)}"}
+                  >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="sr-mtr-card p-4">
+            <div class="flex items-center justify-between">
+              <h3 class="sr-mtr-title font-semibold">Source Agent Mix</h3>
+              <div class="sr-mtr-muted text-xs">agents running traces</div>
+            </div>
+            <div class="mt-4 space-y-3">
+              <div :for={agent <- trace_dashboard.agent_mix} class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="truncate max-w-[190px] font-mono">{agent.agent_id}</span>
+                  <span>{agent.count}</span>
+                </div>
+                <div class="sr-mtr-track h-2">
+                  <div class="h-full rounded-full bg-info" style={"width: #{agent.width}"}></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div :if={@bulk_jobs != []} class="overflow-x-auto">
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-4">
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Active Bulk Jobs</div>
-              <div class="mt-2 text-3xl font-semibold">{dashboard.active_count}</div>
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Active Bulk Jobs</div>
+              <div class="sr-mtr-value mt-2 text-3xl">{dashboard.active_count}</div>
             </div>
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Avg Throughput</div>
-              <div class="mt-2 text-3xl font-semibold">{dashboard.avg_rate}</div>
-              <div class="text-sm text-base-content/60">targets/min</div>
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Avg Throughput</div>
+              <div class="sr-mtr-value mt-2 text-3xl">{dashboard.avg_rate}</div>
+              <div class="sr-mtr-muted text-sm">targets/min</div>
             </div>
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Avg Success Rate</div>
-              <div class="mt-2 text-3xl font-semibold">{dashboard.avg_success_rate}%</div>
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Avg Success Rate</div>
+              <div class="sr-mtr-value mt-2 text-3xl">{dashboard.avg_success_rate}%</div>
             </div>
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">
                 Recent Timed Out Targets
               </div>
-              <div class="mt-2 text-3xl font-semibold">{dashboard.timed_out_targets}</div>
+              <div class="sr-mtr-value mt-2 text-3xl">{dashboard.timed_out_targets}</div>
             </div>
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60">
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">
                 Adaptive Backoff Runs
               </div>
-              <div class="mt-2 text-3xl font-semibold">{dashboard.throttled_count}</div>
+              <div class="sr-mtr-value mt-2 text-3xl">{dashboard.throttled_count}</div>
             </div>
           </div>
 
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+            <div class="sr-mtr-card p-4">
               <div class="flex items-center justify-between">
-                <h3 class="font-semibold">Recent Throughput</h3>
-                <div class="text-xs text-base-content/60">last {length(recent_bars)} jobs</div>
+                <h3 class="sr-mtr-title font-semibold">Recent Throughput</h3>
+                <div class="sr-mtr-muted text-xs">last {length(recent_bars)} jobs</div>
               </div>
               <div class="mt-4 space-y-3">
                 <div :for={job <- recent_bars} class="space-y-1">
@@ -979,7 +1127,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <span class="truncate max-w-[220px]">{job.agent_id}</span>
                     <span>{bulk_rate(job)}</span>
                   </div>
-                  <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                  <div class="sr-mtr-track h-2">
                     <div
                       class={[
                         "h-full rounded-full transition-all",
@@ -993,10 +1141,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               </div>
             </div>
 
-            <div class="rounded-xl border border-base-300 bg-base-100/80 p-4">
+            <div class="sr-mtr-card p-4">
               <div class="flex items-center justify-between">
-                <h3 class="font-semibold">Adaptive Concurrency</h3>
-                <div class="text-xs text-base-content/60">
+                <h3 class="sr-mtr-title font-semibold">Adaptive Concurrency</h3>
+                <div class="sr-mtr-muted text-xs">
                   <%= if latest_history do %>
                     {latest_history.job.agent_id}
                   <% else %>
@@ -1010,7 +1158,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     <span>{sample.elapsed_ms}ms</span>
                     <span>{sample.concurrency}/{sample.max_concurrency}</span>
                   </div>
-                  <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                  <div class="sr-mtr-track h-2">
                     <div
                       class={[
                         "h-full rounded-full transition-all",
@@ -1025,7 +1173,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   </div>
                 </div>
               </div>
-              <div :if={!latest_history} class="mt-4 text-sm text-base-content/60">
+              <div :if={!latest_history} class="mt-4 sr-mtr-muted text-sm">
                 Run a bulk job long enough to trigger calibration windows and adaptive snapshots.
               </div>
             </div>
@@ -1033,15 +1181,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
           <div
             :if={latest_mix}
-            class="rounded-xl border border-base-300 bg-base-100/80 p-4 mb-4"
+            class="sr-mtr-panel p-4 mb-4"
           >
             <div class="flex items-center justify-between">
-              <h3 class="font-semibold">Latest Run Mix</h3>
-              <div class="text-xs text-base-content/60">
+              <h3 class="sr-mtr-title font-semibold">Latest Run Mix</h3>
+              <div class="sr-mtr-muted text-xs">
                 {latest_mix.job.agent_id} • {bulk_success_rate(latest_mix.job)}% success
               </div>
             </div>
-            <div class="mt-4 h-3 rounded-full bg-base-200 overflow-hidden flex">
+            <div class="mt-4 sr-mtr-track h-3 flex">
               <div
                 class="h-full bg-success"
                 style={"width: #{mix_segment_width(latest_mix.mix.completed_targets, latest_mix.mix.total_targets)}"}
@@ -1059,22 +1207,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
               </div>
             </div>
             <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div class="rounded-lg bg-base-200/70 p-3">
-                <div class="text-base-content/60 uppercase tracking-wide">Completed</div>
-                <div class="mt-1 text-lg font-semibold">{latest_mix.mix.completed_targets}</div>
+              <div class="sr-mtr-subpanel p-3">
+                <div class="sr-mtr-label">Completed</div>
+                <div class="sr-mtr-value mt-1 text-lg">{latest_mix.mix.completed_targets}</div>
               </div>
-              <div class="rounded-lg bg-base-200/70 p-3">
-                <div class="text-base-content/60 uppercase tracking-wide">Timed Out</div>
-                <div class="mt-1 text-lg font-semibold">{latest_mix.mix.timed_out_targets}</div>
+              <div class="sr-mtr-subpanel p-3">
+                <div class="sr-mtr-label">Timed Out</div>
+                <div class="sr-mtr-value mt-1 text-lg">{latest_mix.mix.timed_out_targets}</div>
               </div>
-              <div class="rounded-lg bg-base-200/70 p-3">
-                <div class="text-base-content/60 uppercase tracking-wide">Other Failures</div>
-                <div class="mt-1 text-lg font-semibold">{latest_mix.mix.error_targets}</div>
+              <div class="sr-mtr-subpanel p-3">
+                <div class="sr-mtr-label">Other Failures</div>
+                <div class="sr-mtr-value mt-1 text-lg">{latest_mix.mix.error_targets}</div>
               </div>
             </div>
           </div>
 
-          <table class="table table-sm table-zebra">
+          <table class="table table-sm sr-mtr-table">
             <thead>
               <tr>
                 <th>Submitted</th>
@@ -1118,7 +1266,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </td>
                 <td class="text-xs">
                   <div>{bulk_rate(job)}</div>
-                  <div class="text-base-content/60">{bulk_duration(job)}</div>
+                  <div class="sr-mtr-muted">{bulk_duration(job)}</div>
                 </td>
                 <td class="text-xs">
                   <div>{bulk_concurrency(job)}</div>
@@ -1138,12 +1286,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <%= if bulk_job_query(job) != "" do %>
                     <div class="badge badge-info badge-sm">SRQL</div>
                     <div
-                      class="text-base-content/60 mt-1 truncate max-w-[220px]"
+                      class="sr-mtr-muted mt-1 truncate max-w-[220px]"
                       title={bulk_job_query(job)}
                     >
                       {bulk_job_query(job)}
                     </div>
-                    <div class="text-base-content/50">
+                    <div class="sr-mtr-muted">
                       limit {bulk_job_selector_limit(job)}
                     </div>
                   <% else %>
@@ -1155,7 +1303,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                     {String.upcase((job.payload || %{})[payload_protocol_key()] || protocol_icmp())}
                   </span>
                 </td>
-                <td class="text-xs text-base-content/50">
+                <td class="text-xs sr-mtr-muted">
                   <%= if bulk_job_profile_id(job) != "" do %>
                     <.link
                       navigate={~p"/settings/networks/mtr/#{bulk_job_profile_id(job)}/edit"}
@@ -1172,13 +1320,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
           </table>
         </div>
 
-        <form phx-change="filter" class="flex gap-3">
+        <form phx-change="filter" class="flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
             name="target"
             value={@filter_target}
             placeholder="Filter by target..."
-            class="input input-sm input-bordered w-48"
+            class="input input-sm input-bordered w-full sm:w-48"
             phx-debounce="300"
           />
           <input
@@ -1186,13 +1334,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             name="agent"
             value={@filter_agent}
             placeholder="Filter by agent..."
-            class="input input-sm input-bordered w-48"
+            class="input input-sm input-bordered w-full sm:w-48"
             phx-debounce="300"
           />
         </form>
 
         <div class="overflow-x-auto">
-          <table class="table table-sm table-zebra">
+          <table class="table table-sm sr-mtr-table">
             <thead>
               <tr>
                 <th>Time</th>
@@ -1233,7 +1381,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 <td class="text-xs max-w-[120px] truncate" title={job.command_type}>
                   pending
                 </td>
-                <td class="text-xs text-base-content/50">
+                <td class="text-xs sr-mtr-muted">
                   {job.id}
                 </td>
               </tr>
@@ -1245,7 +1393,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                   <div class="font-mono text-sm">{trace[payload_target_key()]}</div>
                   <div
                     :if={trace[payload_target_ip_key()] != trace[payload_target_key()]}
-                    class="text-xs text-base-content/50"
+                    class="text-xs sr-mtr-muted"
                   >
                     {trace[payload_target_ip_key()]}
                   </div>
@@ -1311,7 +1459,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
                 </td>
               </tr>
               <tr :if={@pending_jobs == [] and @traces == []}>
-                <td colspan="8" class="text-center py-8 text-base-content/50">
+                <td colspan="8" class="text-center py-8 sr-mtr-muted">
                   No MTR traces found. Traces will appear once agents run MTR checks.
                 </td>
               </tr>
@@ -1592,7 +1740,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
     ~H"""
     <div class="flex items-center justify-between gap-3 border-t border-base-200 pt-4">
-      <div class="text-sm text-base-content/60">
+      <div class="sr-mtr-muted text-sm">
         {if @total_count > 0,
           do: "Showing page #{@page} of #{@total_pages} (#{@total_count} total)",
           else: "No results"}
@@ -1680,6 +1828,90 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp trace_status_class(_), do: "badge-error"
 
+  defp trace_history_dashboard(traces, _coverage) do
+    traces = List.wrap(traces)
+    trace_count = length(traces)
+    reached_count = Enum.count(traces, &(&1["target_reached"] == true))
+    max_hops = traces |> Enum.map(&(&1["total_hops"] || 0)) |> Enum.max(fn -> 0 end)
+
+    agent_counts =
+      traces
+      |> Enum.map(&normalize_text(Map.get(&1, @payload_agent_id_key)))
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.frequencies()
+
+    max_agent_count = agent_counts |> Map.values() |> Enum.max(fn -> 0 end)
+
+    agent_mix =
+      agent_counts
+      |> Enum.sort_by(fn {_agent_id, count} -> -count end)
+      |> Enum.take(6)
+      |> Enum.map(fn {agent_id, count} ->
+        %{agent_id: agent_id, count: count, width: pct_width(count, max_agent_count)}
+      end)
+
+    %{
+      trace_count: trace_count,
+      reached_count: reached_count,
+      failed_count: max(trace_count - reached_count, 0),
+      success_rate: percent(reached_count, trace_count),
+      agent_count: map_size(agent_counts),
+      agent_mix: agent_mix,
+      max_hops: max_hops
+    }
+  end
+
+  defp trace_hop_width(trace, max_hops) do
+    pct_width(trace["total_hops"] || 0, max_hops)
+  end
+
+  defp pct_width(_value, max_value) when max_value in [0, 0.0], do: "0%"
+
+  defp pct_width(value, max_value) do
+    "#{Float.round(min(1.0, max(value / max_value, 0.0)) * 100, 1)}%"
+  end
+
+  defp percent(_value, total) when total in [0, 0.0], do: 0.0
+  defp percent(value, total), do: Float.round(value / total * 100, 1)
+
+  defp mtr_radial_value(value) when is_number(value) do
+    value
+    |> round()
+    |> min(100)
+    |> max(0)
+  end
+
+  defp mtr_radial_value(_), do: 0
+
+  defp mtr_reachability_tone(value) when is_number(value) and value < 80, do: "is-error"
+  defp mtr_reachability_tone(value) when is_number(value) and value < 95, do: "is-warning"
+  defp mtr_reachability_tone(_), do: "is-success"
+
+  defp coverage_range_label(%{earliest_time: nil}), do: "no retained matches"
+
+  defp coverage_range_label(%{earliest_time: earliest, latest_time: latest}) do
+    "#{format_date(earliest)} to #{format_date(latest)}"
+  end
+
+  defp coverage_range_label(_), do: "unknown coverage"
+
+  defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d")
+  defp format_date(_), do: "-"
+
+  defp retention_status_label(%{status: :ok}), do: "policy synced"
+  defp retention_status_label(%{status: :mismatch}), do: "policy mismatch"
+  defp retention_status_label(%{status: :missing}), do: "policy missing"
+  defp retention_status_label(%{status: :degraded}), do: "status unavailable"
+  defp retention_status_label(_), do: "status unavailable"
+
+  defp retention_status_text_class(%{status: :ok}), do: "text-success"
+
+  defp retention_status_text_class(%{status: status}) when status in [:mismatch, :missing], do: "text-warning"
+
+  defp retention_status_text_class(%{status: :degraded}), do: "text-error"
+  defp retention_status_text_class(_), do: "sr-mtr-muted"
+
   defp parse_page(nil), do: 1
 
   defp parse_page(page) when is_binary(page) do
@@ -1707,6 +1939,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp parse_limit(_limit, default), do: default
 
+  defp mtr_default_page_size do
+    MtrSettingsRuntime.settings()
+    |> Map.get(:mtr_history_page_size_default, @default_limit)
+    |> parse_limit(@default_limit)
+  rescue
+    _ -> @default_limit
+  end
+
   defp sync_srql_state(socket, params, uri) do
     query = normalize_text(Map.get(params, "q"))
 
@@ -1730,8 +1970,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp uri_path(_uri, fallback), do: fallback
 
-  defp default_query("", limit), do: "in:mtr_traces sort:time:desc limit:#{limit}"
+  defp default_query("", limit) do
+    "in:mtr_traces time:#{mtr_default_history_window()} sort:time:desc limit:#{limit}"
+  end
+
   defp default_query(query, _limit), do: query
+
+  defp mtr_default_history_window do
+    MtrSettingsRuntime.settings()
+    |> Map.get(:mtr_default_history_window, "last_30d")
+    |> normalize_text()
+    |> case do
+      "" -> "last_30d"
+      window -> window
+    end
+  rescue
+    _ -> "last_30d"
+  end
 
   defp patch_path(params) do
     cleaned =
