@@ -19,6 +19,7 @@ The MTR comparison page exists, but it only compares two selected trace IDs. A p
   - `window` compares two time windows over matching filters.
 - Use purpose-specific default windows:
   - `today_vs_yesterday` compares midnight-to-now today against yesterday's complete midnight-to-midnight day.
+  - `today_vs_yesterday_elapsed` compares midnight-to-now today against the same elapsed period yesterday.
   - `last_N_hours_vs_previous` compares two equal N-hour windows.
   - `custom` allows explicit `a_start`, `a_end`, `b_start`, and `b_end`.
 - Aggregate window summaries in `MtrData` with SQL over `mtr_traces` and `mtr_hops`, using bounded query limits and bucket counts suitable for retained-history UI.
@@ -28,7 +29,7 @@ The MTR comparison page exists, but it only compares two selected trace IDs. A p
 ## UI Shape
 - Top controls:
   - segmented mode control: `Trace Pair` / `Time Windows`
-  - preset selector: `Today vs Yesterday`, `Last 6h vs Previous 6h`, `Last 24h vs Previous 24h`, `Custom`
+  - preset selector: `Today vs Yesterday Full Day`, `Today vs Yesterday Same Hours`, `Rolling 6h vs Previous 6h`, `Rolling 24h vs Previous 24h`, `Custom`
   - target, source agent, and protocol filters
   - custom datetime controls when `Custom` is selected
 - Summary visuals:
@@ -42,13 +43,16 @@ The MTR comparison page exists, but it only compares two selected trace IDs. A p
   - availability timeline buckets link to filtered MTR trace lists for the bucket start/end and active filters
   - dominant route rows list representative trace IDs for direct trace inspection
   - source-agent rows link back into an agent-filtered comparison, while per-window source values link to that agent's matching traces
+- Interpretation cues:
+  - full-day daily comparisons display a baseline note that the windows cover different elapsed durations and offer a same-hours comparison action
+  - elapsed-aligned comparisons display a normalization note so operators know deltas are duration-normalized
 
 ## Partial Timeline Handling
 For daily comparisons, the default comparator SHALL preserve yesterday as the complete baseline day. For example, at 09:30 today:
 - Window A: today 00:00 through today 09:30
 - Window B: yesterday 00:00 through today 00:00
 
-The UI will show sample counts for each side so sparse or partial current-day data is visible instead of hidden. Rolling-hour presets remain elapsed-aligned because their purpose is direct period-over-period comparison.
+The UI will show sample counts and a baseline-duration note for each side so sparse or partial current-day data is visible instead of hidden. Operators can switch to `today_vs_yesterday_elapsed` when they need a same-hours, time-normalized comparison. Rolling-hour presets remain elapsed-aligned because their purpose is direct period-over-period comparison.
 
 ## Risks / Trade-offs
 - Aggregating hop data can be expensive over large retention windows. Mitigation: bound defaults, query only selected windows, aggregate in SQL, and cap representative traces.
