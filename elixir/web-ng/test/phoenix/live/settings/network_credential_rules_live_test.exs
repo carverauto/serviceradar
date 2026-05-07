@@ -10,6 +10,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
   require Ash.Query
 
+  defmodule FakeCredentialRulePreviewResolver do
+    @moduledoc false
+
+    def resolve(input_defs, _opts) do
+      rows_by_query =
+        Application.get_env(
+          :serviceradar_web_ng,
+          :network_credential_rule_preview_rows,
+          %{}
+        )
+
+      {:ok,
+       Enum.map(input_defs, fn input_def ->
+         query = input_def.query
+
+         %{
+           name: input_def.name,
+           entity: input_def.entity,
+           query: query,
+           rows: Map.get(rows_by_query, query, [])
+         }
+       end)}
+    end
+  end
+
   setup :register_and_log_in_admin_user
 
   test "renders the credential rules settings route", %{conn: conn} do
@@ -111,6 +136,50 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "root@pam!token=secret"
   end
 
+  test "previews SRQL target scope and agent distribution", %{conn: conn, scope: scope} do
+    previous_resolver =
+      Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_resolver)
+
+    previous_rows = Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_rows)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :network_credential_rule_preview_resolver,
+      FakeCredentialRulePreviewResolver
+    )
+
+    Application.put_env(:serviceradar_web_ng, :network_credential_rule_preview_rows, %{
+      "in:devices protocol:proxmox-api" => [
+        %{"uid" => "device-1", "hostname" => "pve-a", "ip" => "192.0.2.10", "agent_id" => "agent-a"},
+        %{"uid" => "device-2", "hostname" => "pve-b", "ip" => "192.0.2.11", "agent_id" => "agent-a"},
+        %{"uid" => "device-3", "hostname" => "pve-c", "ip" => "192.0.2.12", "agent_id" => "agent-b"}
+      ]
+    })
+
+    on_exit(fn ->
+      restore_env(:network_credential_rule_preview_resolver, previous_resolver)
+      restore_env(:network_credential_rule_preview_rows, previous_rows)
+    end)
+
+    secret = credential_secret_fixture(scope)
+    rule = credential_rule_fixture(scope, secret, %{target_query: "in:devices protocol:proxmox-api"})
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    html =
+      lv
+      |> element("button[phx-click='preview_rule'][phx-value-id='#{rule.id}']")
+      |> render_click()
+
+    assert html =~ "Target Preview"
+    assert html =~ "3"
+    assert html =~ "2"
+    assert html =~ "agent-a"
+    assert html =~ "pve-a"
+    assert html =~ "192.0.2.10"
+    refute html =~ "pve-c"
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
@@ -171,4 +240,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     |> Ash.read!(scope: scope)
     |> List.first()
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

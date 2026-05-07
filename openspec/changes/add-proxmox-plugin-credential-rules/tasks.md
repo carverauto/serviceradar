@@ -15,7 +15,7 @@
 - [x] 3.2 Build list/create/edit/disable/test flows using existing settings UI patterns.
 - [x] 3.3 Add explicit Proxmox auto-discovery opt-in for credential trials; keep SRQL-scoped targeting as the default.
 - [ ] 3.4 Add Proxmox PVE API provider preset fields for token ID, token secret, realm, and TLS policy.
-- [ ] 3.5 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
+- [x] 3.5 Add SRQL target preview, matched-device sample, and per-agent distribution preview.
 - [ ] 3.6 Add LiveView/controller tests for authorization, validation, redaction, and preview behavior.
 
 ## 4. Policy Reconciliation and Agent Config
