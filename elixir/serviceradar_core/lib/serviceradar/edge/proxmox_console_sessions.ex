@@ -7,8 +7,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   stored credential rule ID to request scoped credential material later.
   """
 
+  alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Edge.ProxmoxConsoleSession
@@ -26,6 +28,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   @default_absolute_timeout_seconds 3600
   @supported_target_kinds [:pve_host, :qemu_guest, :lxc_guest]
   @supported_console_modes [:ssh, :proxmox_termproxy, :proxmox_vncwebsocket]
+  @enabled_console_modes [:ssh]
 
   @type create_request :: %{
           optional(:target_kind) => atom() | String.t(),
@@ -59,9 +62,14 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
       {:ok, %{session: session, ticket: ticket}}
     else
-      {:ok, nil} -> {:error, :device_not_found}
-      {:error, %NotFound{}} -> {:error, :device_not_found}
-      error -> error
+      {:ok, nil} ->
+        {:error, :device_not_found}
+
+      {:error, error} ->
+        if not_found_error?(error), do: {:error, :device_not_found}, else: {:error, error}
+
+      error ->
+        error
     end
   end
 
@@ -85,9 +93,16 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
       {:ok, attached}
     else
-      {:ok, nil} -> {:error, :invalid_or_expired_ticket}
-      {:error, %NotFound{}} -> {:error, :invalid_or_expired_ticket}
-      error -> error
+      {:ok, nil} ->
+        {:error, :invalid_or_expired_ticket}
+
+      {:error, error} ->
+        if not_found_error?(error),
+          do: {:error, :invalid_or_expired_ticket},
+          else: {:error, error}
+
+      error ->
+        error
     end
   end
 
@@ -122,9 +137,82 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
       {:ok, closing}
     else
-      {:ok, nil} -> {:error, :not_found}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      error -> error
+      {:ok, nil} ->
+        {:error, :not_found}
+
+      {:error, error} ->
+        if not_found_error?(error), do: {:error, :not_found}, else: {:error, error}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Marks a console session closed after the edge stream reports a clean close.
+  """
+  @spec close_session(String.t(), keyword()) ::
+          {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
+  def close_session(session_id, opts \\ []) when is_binary(session_id) do
+    ash_opts = [actor: SystemActor.system(:proxmox_console_close)]
+
+    with {:ok, %ProxmoxConsoleSession{} = session} <-
+           ProxmoxConsoleSession.get_by_id(session_id, ash_opts),
+         {:ok, closed} <-
+           ProxmoxConsoleSession.close(
+             session,
+             %{close_reason: normalize_close_reason(Keyword.get(opts, :reason))},
+             ash_opts
+           ) do
+      write_audit(:proxmox_console_session_closed, closed, opts,
+        close_reason: closed.close_reason,
+        failure_reason: nil
+      )
+
+      {:ok, closed}
+    else
+      {:ok, nil} ->
+        {:error, :not_found}
+
+      {:error, error} ->
+        if not_found_error?(error), do: {:error, :not_found}, else: {:error, error}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Marks a console session expired due to idle or absolute timeout enforcement.
+  """
+  @spec expire_session(String.t(), keyword()) ::
+          {:ok, ProxmoxConsoleSession.t()} | {:error, term()}
+  def expire_session(session_id, opts \\ []) when is_binary(session_id) do
+    ash_opts = [actor: SystemActor.system(:proxmox_console_expire)]
+
+    with {:ok, %ProxmoxConsoleSession{} = session} <-
+           ProxmoxConsoleSession.get_by_id(session_id, ash_opts),
+         {:ok, expired} <-
+           ProxmoxConsoleSession.expire(
+             session,
+             %{close_reason: normalize_close_reason(Keyword.get(opts, :reason))},
+             ash_opts
+           ) do
+      write_audit(:proxmox_console_session_expired, expired, opts,
+        close_reason: expired.close_reason,
+        failure_reason: nil
+      )
+
+      {:ok, expired}
+    else
+      {:ok, nil} ->
+        {:error, :not_found}
+
+      {:error, error} ->
+        if not_found_error?(error), do: {:error, :not_found}, else: {:error, error}
+
+      error ->
+        error
     end
   end
 
@@ -154,9 +242,14 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
       {:ok, failed}
     else
-      {:ok, nil} -> {:error, :not_found}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      error -> error
+      {:ok, nil} ->
+        {:error, :not_found}
+
+      {:error, error} ->
+        if not_found_error?(error), do: {:error, :not_found}, else: {:error, error}
+
+      error ->
+        error
     end
   end
 
@@ -221,13 +314,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp pick_target_kind(_kind, _inferred), do: {:error, :unsupported_console_target}
 
   defp pick_console_mode(nil, :pve_host), do: {:ok, :ssh}
-  defp pick_console_mode(nil, _guest_kind), do: {:ok, :proxmox_termproxy}
-  defp pick_console_mode(:ssh, :pve_host), do: {:ok, :ssh}
-
-  defp pick_console_mode(mode, target_kind)
-       when mode in [:proxmox_termproxy, :proxmox_vncwebsocket] and
-              target_kind in [:qemu_guest, :lxc_guest],
-       do: {:ok, mode}
+  defp pick_console_mode(:ssh, :pve_host) when :ssh in @enabled_console_modes, do: {:ok, :ssh}
 
   defp pick_console_mode(mode, _target_kind) when mode in @supported_console_modes,
     do: {:error, :unsupported_console_mode}
@@ -322,11 +409,13 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp session_attrs(device, target, rule, agent_id, ticket_hash, request, opts) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
     %{
       ticket_hash: ticket_hash,
       ticket_expires_at:
         DateTime.add(
-          DateTime.utc_now(),
+          now,
           Keyword.get(opts, :ticket_ttl_seconds, @default_ticket_ttl_seconds),
           :second
         ),
@@ -351,7 +440,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       |> put_positive_int("cols", Map.get(request, :cols) || Map.get(request, "cols"))
       |> put_positive_int("rows", Map.get(request, :rows) || Map.get(request, "rows"))
 
-    request_metadata = Map.get(request, :metadata) || Map.get(request, "metadata") || %{}
+    request_metadata =
+      request
+      |> Map.get(:metadata, Map.get(request, "metadata", %{}))
+      |> CredentialRedactor.redact()
+
     target_metadata = target_metadata(device)
 
     %{}
@@ -419,6 +512,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp action_suffix(:proxmox_console_session_create), do: "created"
   defp action_suffix(:proxmox_console_session_attach), do: "attached"
   defp action_suffix(:proxmox_console_session_close_requested), do: "close requested"
+  defp action_suffix(:proxmox_console_session_closed), do: "closed"
+  defp action_suffix(:proxmox_console_session_expired), do: "expired"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp ash_opts(opts) do
@@ -437,8 +532,14 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
   defp requested_by(opts) do
     case audit_actor(opts) do
-      %{id: id} when is_binary(id) -> id
-      _ -> nil
+      %{id: id} when is_binary(id) ->
+        case Ecto.UUID.cast(id) do
+          {:ok, uuid} -> uuid
+          :error -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 
@@ -551,6 +652,13 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp value_string(map, keys), do: ValueUtils.string_value(map, keys)
+
+  defp not_found_error?(%NotFound{}), do: true
+
+  defp not_found_error?(%Invalid{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &not_found_error?/1)
+
+  defp not_found_error?(_error), do: false
 
   defp blank_to_nil(value) when value in ["", nil], do: nil
   defp blank_to_nil(value), do: value
