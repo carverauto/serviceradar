@@ -122,6 +122,43 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert manifest.outputs == "serviceradar.camera_stream.v1"
   end
 
+  test "proxmox console stream manifest parses" do
+    yaml = """
+    id: proxmox-console
+    name: Proxmox Console
+    version: 0.1.0
+    entrypoint: run_console
+    runtime: wasi-preview1
+    capabilities:
+      - get_config
+      - log
+      - proxmox_console_stream
+      - tcp_connect
+      - tcp_read
+      - tcp_write
+      - tcp_close
+      - websocket_connect
+      - websocket_send
+      - websocket_recv
+      - websocket_close
+    permissions:
+      allowed_domains:
+        - "*"
+      allowed_ports:
+        - 22
+        - 8006
+    resources:
+      requested_memory_mb: 64
+      requested_cpu_ms: 2000
+      max_open_connections: 2
+    outputs: serviceradar.proxmox_console.v1
+    """
+
+    assert {:ok, manifest} = Manifest.from_yaml(yaml)
+    assert manifest.outputs == "serviceradar.proxmox_console.v1"
+    assert "proxmox_console_stream" in manifest.capabilities
+  end
+
   test "rejects yaml aliases and anchors" do
     yaml = """
     defaults: &defaults
