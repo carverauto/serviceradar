@@ -5,6 +5,7 @@
     :ash_oban,
     :ash_state_machine,
     :ash_json_api,
+    :ash_paper_trail,
     :ecto,
     :ecto_sql
   ],

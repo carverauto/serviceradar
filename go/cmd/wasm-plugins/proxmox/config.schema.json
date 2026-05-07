@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "properties": {
+    "base_url": {
+      "type": "string",
+      "description": "Proxmox VE API base URL for a single target, for example https://pve.example.com:8006"
+    },
+    "api_token": {
+      "type": "string",
+      "description": "Proxmox API token header value. Prefer credential rules for production use."
+    },
+    "api_token_secret_ref": {
+      "type": "string",
+      "secretRef": true,
+      "description": "Secret reference for the Proxmox API token"
+    },
+    "targets": {
+      "type": "array",
+      "description": "Credential-rule compiled Proxmox targets",
+      "items": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "api_token": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url"
+        ]
+      }
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "default": 30000,
+      "minimum": 1000,
+      "maximum": 300000
+    },
+    "include_guests": {
+      "type": "boolean",
+      "default": true
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
