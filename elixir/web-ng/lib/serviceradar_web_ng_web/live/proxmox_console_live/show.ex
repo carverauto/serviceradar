@@ -78,19 +78,16 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
           </div>
         </div>
 
-        <div
+        <.proxmox_console_terminal
           :if={@session && @ticket && @websocket_path}
           id={"proxmox-console-terminal-#{@session.id}"}
           class="min-h-0 flex-1"
-          phx-hook="ProxmoxConsoleTerminal"
-          phx-update="ignore"
-          data-session-id={@session.id}
-          data-ticket={@ticket}
-          data-websocket-path={@websocket_path}
-          data-title={"#{format_target_kind(@session.target_kind)} console"}
-          data-subtitle={"#{format_console_mode(@session.console_mode)} via #{@session.agent_id}"}
-        >
-        </div>
+          session_id={@session.id}
+          ticket={@ticket}
+          websocket_path={@websocket_path}
+          title={"#{format_target_kind(@session.target_kind)} console"}
+          subtitle={"#{format_console_mode(@session.console_mode)} via #{@session.agent_id}"}
+        />
       </div>
     </Layouts.app>
     """

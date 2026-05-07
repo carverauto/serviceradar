@@ -130,6 +130,7 @@ type PushLoop struct {
 	mtrOnDemandSem            chan struct{}
 	mtrBulkJobSem             chan struct{}
 	cameraRelayManager        *cameraRelayManager
+	proxmoxConsoleManager     *proxmoxConsoleManager
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -317,22 +318,23 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 
 	return &PushLoop{
-		server:             server,
-		gateway:            gateway,
-		interval:           interval,
-		logger:             log,
-		done:               make(chan struct{}),
-		stopCh:             make(chan struct{}),
-		configPollInterval: defaultConfigPollInterval,
-		icmpChecks:         make(map[string]*icmpCheckConfig),
-		icmpLastRun:        make(map[string]time.Time),
-		statusDebounce:     debounce,
-		statusHeartbeat:    heartbeat,
-		syncRuntime:        NewSyncRuntime(server, gateway, log),
-		mtrState:           newMtrCheckerState(),
-		mtrOnDemandSem:     make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
-		mtrBulkJobSem:      make(chan struct{}, 1),
-		cameraRelayManager: cameraRelayManager,
+		server:                server,
+		gateway:               gateway,
+		interval:              interval,
+		logger:                log,
+		done:                  make(chan struct{}),
+		stopCh:                make(chan struct{}),
+		configPollInterval:    defaultConfigPollInterval,
+		icmpChecks:            make(map[string]*icmpCheckConfig),
+		icmpLastRun:           make(map[string]time.Time),
+		statusDebounce:        debounce,
+		statusHeartbeat:       heartbeat,
+		syncRuntime:           NewSyncRuntime(server, gateway, log),
+		mtrState:              newMtrCheckerState(),
+		mtrOnDemandSem:        make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
+		mtrBulkJobSem:         make(chan struct{}, 1),
+		cameraRelayManager:    cameraRelayManager,
+		proxmoxConsoleManager: newProxmoxConsoleManager(log),
 	}
 }
 

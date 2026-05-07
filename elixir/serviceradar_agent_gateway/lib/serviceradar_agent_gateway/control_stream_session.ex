@@ -41,7 +41,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     GenServer.call(pid, {:push_config, config})
   end
 
-  def send_console_frame(pid, %Monitoring.ConsoleFrame{} = frame) do
+  def send_console_frame(pid, frame) when is_map(frame) do
     GenServer.call(pid, {:send_console_frame, frame})
   end
 
@@ -114,15 +114,21 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   def handle_call({:send_console_frame, frame}, _from, state) do
-    response = %Monitoring.ControlStreamResponse{payload: {:console_frame, frame}}
+    case normalize_console_frame(frame) do
+      {:ok, frame} ->
+        response = %Monitoring.ControlStreamResponse{payload: {:console_frame, frame}}
 
-    case send_stream_reply(state.stream, response) do
-      {:ok, stream} ->
-        {:reply, :ok, %{state | stream: stream}}
+        case send_stream_reply(state.stream, response) do
+          {:ok, stream} ->
+            {:reply, :ok, %{state | stream: stream}}
+
+          {:error, reason} ->
+            Logger.warning("Failed to send Proxmox console frame to agent #{state.agent_id}: #{inspect(reason)}")
+
+            {:reply, {:error, reason}, state}
+        end
 
       {:error, reason} ->
-        Logger.warning("Failed to send Proxmox console frame to agent #{state.agent_id}: #{inspect(reason)}")
-
         {:reply, {:error, reason}, state}
     end
   end
@@ -282,6 +288,40 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       })
     end
   end
+
+  defp normalize_console_frame(%Monitoring.ConsoleFrame{} = frame), do: {:ok, frame}
+
+  defp normalize_console_frame(frame) when is_map(frame) do
+    session_id = frame |> map_value(:session_id) |> to_string()
+    frame_type = frame |> map_value(:frame_type) |> to_string()
+
+    if session_id == "" or frame_type == "" do
+      {:error, :invalid_console_frame}
+    else
+      {:ok,
+       %Monitoring.ConsoleFrame{
+         session_id: session_id,
+         frame_type: frame_type,
+         data: map_value(frame, :data) || "",
+         cols: uint32(map_value(frame, :cols)),
+         rows: uint32(map_value(frame, :rows)),
+         reason: map_value(frame, :reason) || "",
+         timestamp: timestamp(map_value(frame, :timestamp))
+       }}
+    end
+  end
+
+  defp normalize_console_frame(_frame), do: {:error, :invalid_console_frame}
+
+  defp map_value(map, key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp uint32(value) when is_integer(value) and value > 0, do: min(value, 65_535)
+  defp uint32(_value), do: 0
+
+  defp timestamp(value) when is_integer(value) and value > 0, do: value
+  defp timestamp(_value), do: System.system_time(:second)
 
   defp base_command_metadata(state) do
     %{

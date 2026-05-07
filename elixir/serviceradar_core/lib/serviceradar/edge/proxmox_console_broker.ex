@@ -2,8 +2,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   @moduledoc """
   Broker boundary for Proxmox browser console byte streams.
 
-  The broker forwards browser PTY input over the existing agent control stream
-  and forwards agent console frames back to the owning WebSock process.
+  The browser-facing broker runs in web-ng/core-elx and sends plain frame maps to
+  the agent gateway over the ERTS process registry. The agent gateway is the only
+  Elixir process that turns those maps into protobuf frames for the agent gRPC
+  control stream.
   """
 
   use GenServer
@@ -66,7 +68,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   end
 
   @impl true
-  def handle_info({:proxmox_console_frame, %{frame_type: "data", data: data}}, state) when is_binary(data) do
+  def handle_info({:proxmox_console_frame, %{frame_type: "data", data: data}}, state)
+      when is_binary(data) do
     send(state.owner, {:proxmox_console_data, data})
     {:noreply, state}
   end
@@ -89,7 +92,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   def terminate(_reason, _state), do: :ok
 
   defp send_frame(state, frame_type, data, cols, rows, reason) do
-    frame = %Monitoring.ConsoleFrame{
+    frame = %{
       session_id: state.session.id,
       frame_type: frame_type,
       data: data || "",
@@ -99,7 +102,9 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
       timestamp: System.system_time(:second)
     }
 
-    AgentCommandBus.send_console_frame(state.session.agent_id, frame, required_gateway_node: state.required_gateway_node)
+    AgentCommandBus.send_console_frame(state.session.agent_id, frame,
+      required_gateway_node: state.required_gateway_node
+    )
   end
 
   defp uint32(value) when is_integer(value) and value > 0, do: min(value, 65_535)

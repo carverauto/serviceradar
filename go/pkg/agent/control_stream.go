@@ -51,11 +51,6 @@ const (
 	commandTypeProxmoxTest     = "proxmox.credential_test"
 )
 
-const (
-	consoleFrameTypeOpen  = "open"
-	consoleFrameTypeError = "error"
-)
-
 const defaultOnDemandMtrDeadline = 45 * time.Second
 const defaultMaxConcurrentOnDemandMtr = 2
 
@@ -346,25 +341,11 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 		return
 	}
 
-	if frame.GetFrameType() != consoleFrameTypeOpen {
-		_ = sender.Send(consoleControlFrame(frame.GetSessionId(), consoleFrameTypeError, "console session is not active"))
-		return
+	if p.proxmoxConsoleManager == nil {
+		p.proxmoxConsoleManager = newProxmoxConsoleManager(p.logger)
 	}
 
-	_ = sender.Send(consoleControlFrame(frame.GetSessionId(), consoleFrameTypeError, "proxmox console PTY bridge unavailable"))
-}
-
-func consoleControlFrame(sessionID, frameType, reason string) *proto.ControlStreamRequest {
-	return &proto.ControlStreamRequest{
-		Payload: &proto.ControlStreamRequest_ConsoleFrame{
-			ConsoleFrame: &proto.ConsoleFrame{
-				SessionId: sessionID,
-				FrameType: frameType,
-				Reason:    reason,
-				Timestamp: time.Now().Unix(),
-			},
-		},
-	}
+	p.proxmoxConsoleManager.HandleFrame(context.Background(), frame, sender)
 }
 
 func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
