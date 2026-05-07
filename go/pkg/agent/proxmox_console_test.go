@@ -27,6 +27,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const fakeProxmoxConsoleCommand = "whoami\r"
+
+var errFakeProxmoxConsolePTYReadFailed = errors.New("pty read failed")
+
 type fakeProxmoxConsoleSender struct {
 	mu     sync.Mutex
 	frames []*proto.ConsoleFrame
@@ -152,12 +156,12 @@ func TestProxmoxConsoleManagerRoutesSessionFrames(t *testing.T) {
 	manager.HandleFrame(ctx, &proto.ConsoleFrame{
 		SessionId: "console-session-1",
 		FrameType: consoleFrameTypeData,
-		Data:      []byte("whoami\r"),
+		Data:      []byte(fakeProxmoxConsoleCommand),
 	}, sender)
 
 	select {
 	case got := <-pty.writes:
-		if string(got) != "whoami\r" {
+		if string(got) != fakeProxmoxConsoleCommand {
 			t.Fatalf("PTY write = %q", string(got))
 		}
 	case <-time.After(time.Second):
@@ -241,10 +245,10 @@ func TestProxmoxConsoleManagerReportsReadFailure(t *testing.T) {
 	}, sender)
 	_ = sender.nextFrame(t, consoleFrameTypeReady)
 
-	pty.reads <- fakeProxmoxConsoleRead{err: errors.New("pty read failed")}
+	pty.reads <- fakeProxmoxConsoleRead{err: errFakeProxmoxConsolePTYReadFailed}
 
 	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
-	if errorFrame.GetReason() != "pty read failed" {
+	if errorFrame.GetReason() != errFakeProxmoxConsolePTYReadFailed.Error() {
 		t.Fatalf("read failure reason = %q", errorFrame.GetReason())
 	}
 
