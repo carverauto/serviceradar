@@ -5,6 +5,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
 
   use GenServer
 
+  alias ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -30,16 +31,26 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
 
   defp ensure_jobs do
     if oban_jobs_ready?() do
-      case PluginTargetPolicyReconcileWorker.ensure_scheduled() do
-        {:ok, _} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.debug("Plugin policy scheduler deferred", reason: inspect(reason))
-      end
+      Enum.each(
+        [PluginTargetPolicyReconcileWorker, ProxmoxCredentialRuleReconcileWorker],
+        &ensure_worker_scheduled/1
+      )
     else
       Logger.debug("Plugin policy scheduler skipped; Oban tables not ready")
       :ok
+    end
+  end
+
+  defp ensure_worker_scheduled(worker) do
+    case worker.ensure_scheduled() do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Plugin policy scheduler deferred",
+          worker: inspect(worker),
+          reason: inspect(reason)
+        )
     end
   end
 

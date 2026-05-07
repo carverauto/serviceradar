@@ -117,6 +117,291 @@ SELECT 'device-delta',
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
 FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT
+        'aaaaaaaa-0000-0000-0000-000000000001'::uuid AS cluster_id,
+        'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id,
+        'aaaaaaaa-0000-0000-0000-000000000201'::uuid AS guest_id
+)
+INSERT INTO virtualization_clusters (
+    id,
+    provider,
+    provider_ref,
+    name,
+    status,
+    version,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    ids.cluster_id,
+    'proxmox',
+    'proxmox:cluster:lab',
+    'lab',
+    'quorate',
+    '8.3.2',
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT
+        'aaaaaaaa-0000-0000-0000-000000000001'::uuid AS cluster_id,
+        'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id
+)
+INSERT INTO virtualization_hosts (
+    id,
+    provider,
+    provider_ref,
+    cluster_id,
+    device_uid,
+    name,
+    status,
+    version,
+    cpu_ratio,
+    memory_used_bytes,
+    memory_total_bytes,
+    uptime_seconds,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    ids.host_id,
+    'proxmox',
+    'proxmox:node:pve-a',
+    ids.cluster_id,
+    'device-alpha',
+    'pve-a',
+    'online',
+    '8.3.2',
+    0.23,
+    8589934592,
+    34359738368,
+    86400,
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT
+        'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id,
+        'aaaaaaaa-0000-0000-0000-000000000201'::uuid AS guest_id
+)
+INSERT INTO virtualization_guests (
+    id,
+    provider,
+    provider_ref,
+    host_id,
+    device_uid,
+    name,
+    guest_type,
+    vmid,
+    status,
+    cpu_ratio,
+    memory_used_bytes,
+    memory_total_bytes,
+    disk_used_bytes,
+    disk_total_bytes,
+    uptime_seconds,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    ids.guest_id,
+    'proxmox',
+    'proxmox:guest:pve-a:qemu:100',
+    ids.host_id,
+    'device-beta',
+    'vm-100',
+    'vm',
+    100,
+    'running',
+    0.12,
+    1073741824,
+    4294967296,
+    2147483648,
+    8589934592,
+    3600,
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT
+        'aaaaaaaa-0000-0000-0000-000000000001'::uuid AS cluster_id,
+        'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id
+)
+INSERT INTO virtualization_datastores (
+    id,
+    provider,
+    provider_ref,
+    cluster_id,
+    host_id,
+    name,
+    storage_type,
+    active,
+    enabled,
+    shared,
+    used_bytes,
+    available_bytes,
+    total_bytes,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    'aaaaaaaa-0000-0000-0000-000000000301'::uuid,
+    'proxmox',
+    'proxmox:datastore:pve-a:local-zfs',
+    ids.cluster_id,
+    ids.host_id,
+    'local-zfs',
+    'zfspool',
+    true,
+    true,
+    false,
+    53687091200,
+    53687091200,
+    107374182400,
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT 'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id
+)
+INSERT INTO virtualization_host_disks (
+    id,
+    provider,
+    provider_ref,
+    host_id,
+    device_uid,
+    path,
+    disk_type,
+    model,
+    health,
+    size_bytes,
+    wearout,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    'aaaaaaaa-0000-0000-0000-000000000401'::uuid,
+    'proxmox',
+    'proxmox:disk:pve-a:/dev/sda',
+    ids.host_id,
+    'device-alpha',
+    '/dev/sda',
+    'ssd',
+    'SSD',
+    'PASSED',
+    107374182400,
+    4,
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT 'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id
+)
+INSERT INTO virtualization_network_interfaces (
+    id,
+    provider,
+    provider_ref,
+    host_id,
+    device_uid,
+    name,
+    interface_type,
+    active,
+    exists,
+    address,
+    bridge_ports,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    'aaaaaaaa-0000-0000-0000-000000000501'::uuid,
+    'proxmox',
+    'proxmox:nic:pve-a:vmbr0',
+    ids.host_id,
+    'device-alpha',
+    'vmbr0',
+    'bridge',
+    true,
+    true,
+    '10.10.10.5',
+    'eno1',
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT
+        'aaaaaaaa-0000-0000-0000-000000000001'::uuid AS cluster_id,
+        'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id
+)
+INSERT INTO virtualization_storage_systems (
+    id,
+    provider,
+    provider_ref,
+    cluster_id,
+    host_id,
+    name,
+    storage_system_type,
+    health,
+    status,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    'aaaaaaaa-0000-0000-0000-000000000601'::uuid,
+    'proxmox',
+    'proxmox:ceph:pve-a',
+    ids.cluster_id,
+    ids.host_id,
+    'Ceph',
+    'ceph',
+    'HEALTH_WARN',
+    'HEALTH_WARN',
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )
@@ -369,7 +654,7 @@ SELECT base.now_ts - INTERVAL '1 minute',
     '1.0',
     'app',
     '{"key":"value"}'::text,
-    '{"res":"val"}'::text,
+    '{"res":"val","serviceradar.device_id":"device-alpha","serviceradar.gateway_id":"gw-1","serviceradar.agent_id":"agent-1"}'::text,
     base.now_ts
 FROM base
 UNION ALL
@@ -388,6 +673,70 @@ SELECT base.now_ts - INTERVAL '2 hours',
     'app',
     '{"error":"timeout"}'::text,
     '{"res":"val"}'::text,
+    base.now_ts
+FROM base;
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO ocsf_events (
+        time,
+        id,
+        class_uid,
+        category_uid,
+        type_uid,
+        activity_id,
+        activity_name,
+        severity_id,
+        severity,
+        message,
+        status_id,
+        status,
+        status_code,
+        status_detail,
+        metadata,
+        observables,
+        trace_id,
+        span_id,
+        actor,
+        device,
+        src_endpoint,
+        dst_endpoint,
+        log_name,
+        log_provider,
+        log_level,
+        log_version,
+        unmapped,
+        raw_data,
+        created_at
+    )
+SELECT base.now_ts - INTERVAL '3 minutes',
+    '11111111-1111-4111-8111-111111111111'::uuid,
+    4001,
+    4,
+    400101,
+    1,
+    'Log Activity',
+    3,
+    'Informational',
+    'Device scoped event',
+    1,
+    'Success',
+    'ok',
+    NULL,
+    '{"serviceradar.device_id":"device-alpha"}'::jsonb,
+    '[]'::jsonb,
+    'trace-event-1',
+    'span-event-1',
+    '{}'::jsonb,
+    '{"uid":"device-alpha","hostname":"alpha.example"}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    'syslog',
+    'proxmox',
+    'info',
+    NULL,
+    '{}'::jsonb,
+    NULL,
     base.now_ts
 FROM base;
 WITH base AS (

@@ -18,6 +18,7 @@ async fn srql_api_queries() {
         check_timeseries_metrics_query_returns_rows(&harness).await;
         check_snmp_metrics_alias_filters_metric_type(&harness).await;
         check_rperf_metrics_queries_still_work(&harness).await;
+        check_virtualization_inventory_queries(&harness).await;
     })
     .await;
 }
@@ -308,6 +309,85 @@ async fn check_snmp_metrics_alias_filters_metric_type(harness: &SrqlTestHarness)
             .all(|row| row.get("metric_type").and_then(|v| v.as_str()) == Some("snmp")),
         "snmp_metrics entity should enforce metric_type=snmp: {body}"
     );
+}
+
+async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
+    let hosts = QueryRequest {
+        query: r#"in:virtualization_hosts provider:proxmox cluster:lab node:pve-a time:last_1h sort:freshness:desc"#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(hosts).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected hosts body: {body}"
+    );
+    let rows = body["results"].as_array().expect("results array");
+    assert_eq!(rows.len(), 1, "expected one Proxmox host: {body}");
+    assert_eq!(rows[0]["provider"], serde_json::json!("proxmox"));
+    assert_eq!(rows[0]["node"], serde_json::json!("pve-a"));
+    assert_eq!(rows[0]["cluster_name"], serde_json::json!("lab"));
+
+    let guests = QueryRequest {
+        query: "in:virtualization_guests provider:proxmox guest_type:vm vmid:100".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(guests).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected guests body: {body}"
+    );
+    let rows = body["results"].as_array().expect("results array");
+    assert_eq!(rows.len(), 1, "expected one Proxmox guest: {body}");
+    assert_eq!(rows[0]["vmid"], serde_json::json!(100));
+    assert_eq!(rows[0]["host_name"], serde_json::json!("pve-a"));
+
+    let datastores = QueryRequest {
+        query: "in:virtualization_datastores provider:proxmox storage:local-zfs active:true"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(datastores).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected datastores body: {body}"
+    );
+    let rows = body["results"].as_array().expect("results array");
+    assert_eq!(rows.len(), 1, "expected one Proxmox datastore: {body}");
+    assert_eq!(rows[0]["storage"], serde_json::json!("local-zfs"));
+    assert_eq!(rows[0]["total_bytes"], serde_json::json!(107374182400i64));
+
+    let ceph = QueryRequest {
+        query: "in:virtualization_storage_systems provider:proxmox storage_system_type:ceph ceph_health:HEALTH_WARN".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(ceph).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(status, http::StatusCode::OK, "unexpected ceph body: {body}");
+    let rows = body["results"].as_array().expect("results array");
+    assert_eq!(rows.len(), 1, "expected one Ceph row: {body}");
+    assert_eq!(rows[0]["ceph_health"], serde_json::json!("HEALTH_WARN"));
 }
 
 async fn check_rperf_metrics_queries_still_work(harness: &SrqlTestHarness) {

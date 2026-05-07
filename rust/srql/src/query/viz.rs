@@ -278,6 +278,36 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
             col("reference_hash", ColumnType::Text, None),
             col("reference_metadata", ColumnType::Jsonb, None),
         ]),
+        Entity::VirtualizationClusters
+        | Entity::VirtualizationHosts
+        | Entity::VirtualizationGuests
+        | Entity::VirtualizationDatastores
+        | Entity::VirtualizationHostDisks
+        | Entity::VirtualizationNetworkInterfaces
+        | Entity::VirtualizationStorageSystems => virtualization_table_meta(vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("provider", ColumnType::Text, None),
+            col("provider_ref", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("node", ColumnType::Text, None),
+            col("cluster_name", ColumnType::Text, None),
+            col("host_name", ColumnType::Text, None),
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("guest_type", ColumnType::Text, None),
+            col("vmid", ColumnType::Int, None),
+            col("storage", ColumnType::Text, None),
+            col("storage_type", ColumnType::Text, None),
+            col("storage_system_type", ColumnType::Text, None),
+            col("health", ColumnType::Text, None),
+            col("ceph_health", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col(
+                "observed_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("metadata", ColumnType::Jsonb, None),
+        ]),
         Entity::Gateways => VizMeta {
             columns: vec![
                 col("gateway_id", ColumnType::Text, Some(ColumnSemantic::Id)),
@@ -1001,6 +1031,18 @@ fn fieldsurvey_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
 }
 
 fn wifi_map_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
+    VizMeta {
+        columns,
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,
         suggestions: vec![VizSuggestion {

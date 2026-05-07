@@ -138,6 +138,7 @@ mod services;
 mod timeseries_metrics;
 mod trace_summaries;
 mod traces;
+mod virtualization;
 mod viz;
 mod wifi_map;
 
@@ -245,6 +246,15 @@ impl QueryEngine {
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
                 Entity::Traces => traces::execute(&mut conn, &plan).await?,
                 Entity::Alerts => alerts::execute(&mut conn, &plan).await?,
+                Entity::VirtualizationClusters
+                | Entity::VirtualizationHosts
+                | Entity::VirtualizationGuests
+                | Entity::VirtualizationDatastores
+                | Entity::VirtualizationHostDisks
+                | Entity::VirtualizationNetworkInterfaces
+                | Entity::VirtualizationStorageSystems => {
+                    virtualization::execute(&mut conn, &plan).await?
+                }
             }
         };
 
@@ -780,6 +790,13 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
             Entity::Alerts => alerts::to_sql_and_params(&plan)?,
+            Entity::VirtualizationClusters
+            | Entity::VirtualizationHosts
+            | Entity::VirtualizationGuests
+            | Entity::VirtualizationDatastores
+            | Entity::VirtualizationHostDisks
+            | Entity::VirtualizationNetworkInterfaces
+            | Entity::VirtualizationStorageSystems => virtualization::to_sql_and_params(&plan)?,
         }
     };
 

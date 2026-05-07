@@ -9,8 +9,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
+  alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStatus
+  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesSeriesKey
@@ -164,11 +166,23 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              upsert_fields: []
            ) do
         %Ash.BulkResult{status: :success} ->
+          evaluate_metric_alerts(rows)
           :ok
 
         %Ash.BulkResult{errors: errors} = result ->
           {:error, errors || result}
       end
+    end
+  end
+
+  defp evaluate_metric_alerts(rows) do
+    case StatefulAlertEngine.evaluate_metrics(rows) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Metric alert evaluation failed: #{inspect(reason)}")
+        :ok
     end
   end
 
@@ -356,6 +370,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp platform_contract_handlers do
     [
       DeviceDiscoveryIngestor,
+      ProxmoxEnrichmentIngestor,
       BatchIngestor,
       ThreatIntelPluginIngestor,
       EventIngestor,

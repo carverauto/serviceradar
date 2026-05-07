@@ -44,7 +44,11 @@ defmodule ServiceRadar.Plugins.Manifest do
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
-  @allowed_outputs ["serviceradar.plugin_result.v1", "serviceradar.camera_stream.v1"]
+  @allowed_outputs [
+    "serviceradar.plugin_result.v1",
+    "serviceradar.camera_stream.v1",
+    "serviceradar.proxmox_console.v1"
+  ]
   @allowed_capabilities [
     "get_config",
     "log",
@@ -55,6 +59,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     "websocket_recv",
     "websocket_close",
     "camera_media_stream",
+    "proxmox_console_stream",
     "tcp_connect",
     "tcp_read",
     "tcp_write",

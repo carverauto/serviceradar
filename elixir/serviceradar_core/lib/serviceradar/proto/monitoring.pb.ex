@@ -541,6 +541,23 @@ defmodule Monitoring.ConfigAck do
   field(:timestamp, 2, type: :int64)
 end
 
+defmodule Monitoring.ConsoleFrame do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.ConsoleFrame",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:session_id, 1, type: :string, json_name: "sessionId")
+  field(:frame_type, 2, type: :string, json_name: "frameType")
+  field(:data, 3, type: :bytes)
+  field(:cols, 4, type: :uint32)
+  field(:rows, 5, type: :uint32)
+  field(:reason, 6, type: :string)
+  field(:timestamp, 7, type: :int64)
+end
+
 defmodule Monitoring.ControlStreamRequest do
   @moduledoc false
 
@@ -562,6 +579,7 @@ defmodule Monitoring.ControlStreamRequest do
 
   field(:command_result, 4, type: Monitoring.CommandResult, json_name: "commandResult", oneof: 0)
   field(:config_ack, 5, type: Monitoring.ConfigAck, json_name: "configAck", oneof: 0)
+  field(:console_frame, 6, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0)
 end
 
 defmodule Monitoring.ControlStreamResponse do
@@ -576,6 +594,7 @@ defmodule Monitoring.ControlStreamResponse do
 
   field(:command, 1, type: Monitoring.CommandRequest, oneof: 0)
   field(:config, 2, type: Monitoring.AgentConfigResponse, oneof: 0)
+  field(:console_frame, 3, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0)
 end
 
 defmodule Monitoring.PluginConfig do

@@ -1,13 +1,13 @@
 ## ADDED Requirements
 
-### Requirement: Plugin secret inputs are scoped and typed
-The plugin runtime SHALL support scoped, typed secret inputs for credential-rule-driven assignments while preserving redaction and allowlist enforcement.
+### Requirement: Plugin credential inputs are brokered and typed
+The plugin runtime SHALL support scoped, typed credential broker grants for credential-rule-driven assignments while preserving redaction and allowlist enforcement.
 
-#### Scenario: Runtime supplies scoped Proxmox secret
+#### Scenario: Runtime supplies scoped Proxmox broker grant
 - **GIVEN** a Proxmox plugin assignment was compiled from a credential rule
 - **WHEN** the plugin starts
-- **THEN** the runtime SHALL provide only the secret fields required for that assignment
-- **AND** those fields SHALL be marked sensitive for logging and diagnostics
+- **THEN** the runtime SHALL provide only a broker grant, target metadata, and credential reference required for that assignment
+- **AND** decrypted token, password, private key, ticket, cookie, and CSRF values SHALL NOT be supplied directly to the plugin
 - **AND** the plugin SHALL still access the target only through approved host functions
 
 ### Requirement: Plugin results cannot persist secrets
