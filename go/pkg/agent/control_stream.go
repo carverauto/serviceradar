@@ -36,7 +36,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-const controlStreamReconnectDelay = 5 * time.Second
+const (
+	controlStreamReconnectDelay    = 5 * time.Second
+	controlStreamConnectTimeout    = 30 * time.Second
+	controlStreamHeartbeatInterval = 60 * time.Second
+)
 
 const (
 	commandTypeMapperRun       = "mapper.run_job"
@@ -172,7 +176,9 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 			}
 		}
 
-		stream, err := p.gateway.ControlStream(ctx)
+		connectCtx, cancel := context.WithTimeout(ctx, controlStreamConnectTimeout)
+		stream, err := p.gateway.ControlStream(connectCtx)
+		cancel()
 		if err != nil {
 			p.logger.Warn().Err(err).Msg("Control stream connection failed")
 			select {
@@ -249,6 +255,20 @@ func (p *PushLoop) superviseControlStreamLoop(ctx context.Context) {
 }
 
 func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
+	req := p.buildControlHelloRequest()
+
+	if err := sender.Send(req); err != nil {
+		return err
+	}
+
+	if err := p.sendPendingReleaseActivationReport(sender); err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to send pending release activation report")
+	}
+
+	return nil
+}
+
+func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
@@ -262,7 +282,7 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 		hostname = ""
 	}
 
-	req := &proto.ControlStreamRequest{
+	return &proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_Hello{
 			Hello: &proto.ControlStreamHello{
 				AgentId:       agentID,
@@ -278,16 +298,6 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 			},
 		},
 	}
-
-	if err := sender.Send(req); err != nil {
-		return err
-	}
-
-	if err := p.sendPendingReleaseActivationReport(sender); err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to send pending release activation report")
-	}
-
-	return nil
 }
 
 func normalizeConfigSourceLabel(cfg *ServerConfig) string {
@@ -306,6 +316,10 @@ func (p *PushLoop) handleControlStream(
 	stream grpc.BidiStreamingClient[proto.ControlStreamRequest, proto.ControlStreamResponse],
 	sender *controlStreamSender,
 ) error {
+	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go p.controlStreamHeartbeatLoop(heartbeatCtx, sender)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -339,6 +353,26 @@ func (p *PushLoop) handleControlStream(
 
 		if frame := resp.GetConsoleFrame(); frame != nil {
 			p.handleConsoleFrame(frame, sender)
+		}
+	}
+}
+
+func (p *PushLoop) controlStreamHeartbeatLoop(ctx context.Context, sender *controlStreamSender) {
+	ticker := time.NewTicker(controlStreamHeartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			if err := sender.Send(p.buildControlHelloRequest()); err != nil {
+				p.logger.Warn().Err(err).Msg("Control stream heartbeat failed")
+				sender.Close()
+				return
+			}
 		}
 	}
 }

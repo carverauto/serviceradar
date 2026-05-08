@@ -488,8 +488,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           |> merge_camera_device_attrs(attrs)
           |> then(&enrich_camera_device_attrs(device_uid, &1, actor))
 
-        with :ok <- claim_camera_ip_conflict(device_uid, merged_attrs, actor) do
-          update_camera_device(device, merged_attrs, actor)
+        with {:ok, update_attrs} <- resolve_camera_ip_claim(device_uid, merged_attrs, actor) do
+          update_camera_device(device, update_attrs, actor)
         end
 
       {:error, reason} ->
@@ -500,34 +500,17 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp update_camera_device(device, attrs, actor) do
     case {device, attrs} do
       {%Device{} = device, attrs} when is_map(attrs) ->
+        update_attrs = camera_device_update_attrs(device, attrs)
+
         device
-        |> Ash.Changeset.for_update(
-          :update,
-          %{
-            type: "camera",
-            type_id: 7,
-            name: attrs.name,
-            hostname: attrs.hostname,
-            ip: attrs.ip,
-            mac: attrs.mac,
-            gateway_id: nil,
-            agent_id: nil,
-            management_device_id: nil,
-            vendor_name: attrs.vendor_name,
-            model: attrs.model,
-            is_managed: attrs.is_managed,
-            is_available: attrs.is_available,
-            discovery_sources:
-              merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
-            metadata: merge_device_metadata(device.metadata, attrs.metadata),
-            last_seen_time: attrs.last_seen_time
-          },
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
         |> Ash.update()
         |> case do
           {:ok, _device} ->
-            register_camera_identifiers(device.uid, attrs, actor)
+            if camera_classified_device?(device) do
+              register_camera_identifiers(device.uid, attrs, actor)
+            end
+
             :ok
 
           {:error, reason} ->
@@ -551,6 +534,39 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
+  defp camera_device_update_attrs(%Device{} = device, attrs) when is_map(attrs) do
+    common_attrs = %{
+      is_available: attrs.is_available,
+      discovery_sources:
+        merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
+      metadata: merge_device_metadata(device.metadata, attrs.metadata),
+      last_seen_time: attrs.last_seen_time
+    }
+
+    if camera_classified_device?(device) do
+      Map.merge(common_attrs, %{
+        type: "camera",
+        type_id: 7,
+        name: attrs.name,
+        hostname: attrs.hostname,
+        ip: attrs.ip,
+        mac: attrs.mac,
+        gateway_id: nil,
+        agent_id: nil,
+        management_device_id: nil,
+        vendor_name: attrs.vendor_name,
+        model: attrs.model,
+        is_managed: attrs.is_managed
+      })
+    else
+      common_attrs
+    end
+  end
+
+  defp camera_classified_device?(%Device{} = device) do
+    device.type == "camera" or device.type_id == 7
+  end
+
   defp prepare_camera_ip_claim(device_uid, attrs, actor)
        when is_binary(device_uid) and is_map(attrs) do
     case camera_ip_conflict(device_uid, attrs, actor) do
@@ -559,6 +575,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
       {:ok, %Device{} = device} ->
         {%{attrs | ip: nil}, device}
+
+      {:error, {:ip_conflict, _device_uid, _ip}} ->
+        {%{attrs | ip: nil}, nil}
 
       {:error, _reason} ->
         {attrs, nil}
@@ -577,21 +596,26 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp claim_camera_ip_conflict(device_uid, attrs, actor)
+  defp resolve_camera_ip_claim(device_uid, attrs, actor)
        when is_binary(device_uid) and is_map(attrs) do
     case camera_ip_conflict(device_uid, attrs, actor) do
       {:ok, nil} ->
-        :ok
+        {:ok, attrs}
 
       {:ok, %Device{} = device} ->
-        claim_conflicting_device_ip(device, device_uid, attrs, actor)
+        with :ok <- claim_conflicting_device_ip(device, device_uid, attrs, actor) do
+          {:ok, attrs}
+        end
+
+      {:error, {:ip_conflict, _device_uid, _ip}} ->
+        {:ok, %{attrs | ip: nil}}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp claim_camera_ip_conflict(_device_uid, _attrs, _actor), do: :ok
+  defp resolve_camera_ip_claim(_device_uid, attrs, _actor), do: {:ok, attrs}
 
   defp claim_conflicting_device_ip(%Device{} = conflict, device_uid, attrs, actor)
        when is_binary(device_uid) and is_map(attrs) do
@@ -666,7 +690,13 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp claimable_camera_ip_conflict?(%Device{} = device, _attrs, actor) do
     not IdentityReconciler.service_device_id?(device.uid) and
+      not agent_managed_device?(device) and
       not device_has_strong_identifiers?(device.uid, actor)
+  end
+
+  defp agent_managed_device?(%Device{} = device) do
+    not blank?(device.agent_id) or
+      Enum.any?(device.discovery_sources || [], &(&1 in ["agent", "sysmon", "system_monitor"]))
   end
 
   defp same_camera_identity?(%Device{} = device, attrs) when is_map(attrs) do

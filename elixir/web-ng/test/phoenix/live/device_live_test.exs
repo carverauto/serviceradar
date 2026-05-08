@@ -49,6 +49,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "device details SRQL bar submits explicit and shortcut device searches", %{conn: conn} do
+    uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "pve04.local",
+        ip: "192.168.2.10",
+        is_available: true,
+        metadata: %{"proxmox_candidate" => true},
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    view
+    |> form("#srql-query-bar", %{q: "in:devices metadata.proxmox_candidate:true"})
+    |> render_submit()
+
+    assert_patch(view, ~p"/devices?#{%{q: "in:devices metadata.proxmox_candidate:true", limit: 100}}")
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    view
+    |> form("#srql-query-bar", %{q: "192.168.2.10"})
+    |> render_submit()
+
+    assert_patch(view, ~p"/devices?#{%{q: ~s(in:devices ip:"192.168.2.10"), limit: 100}}")
+  end
+
   test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
     previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
     Application.put_env(:serviceradar_web_ng, :managed_device_limit, 1)

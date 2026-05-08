@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
+  use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
 
@@ -119,6 +120,75 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_rule_by_name!(scope, "")
   end
 
+  test "agent scope value uses active agent dropdown and gateway scope uses freeform input", %{
+    conn: conn
+  } do
+    gateway = gateway_fixture(%{id: "credential-gw", component_id: "credential-component"})
+    agent_fixture(gateway, %{uid: "agent-a", name: "Agent A"})
+
+    stale_agent = agent_fixture(gateway, %{uid: "agent-stale", name: "Agent Stale"})
+
+    stale_agent
+    |> Ash.Changeset.for_update(
+      :update,
+      %{},
+      actor: system_actor()
+    )
+    |> Ash.Changeset.force_change_attribute(:status, :unavailable)
+    |> Ash.Changeset.force_change_attribute(
+      :last_seen_time,
+      DateTime.add(DateTime.utc_now(), -3_600, :second)
+    )
+    |> Ash.update!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    assert scope_value_control(html) == :select
+    assert html =~ "agent-a"
+    refute html =~ "agent-stale"
+
+    html =
+      lv
+      |> form("form",
+        credential_rule:
+          Map.merge(default_rule_form_params(), %{
+            "scope_type" => "gateway",
+            "scope_value" => ""
+          })
+      )
+      |> render_change()
+
+    assert scope_value_control(html) == :input
+
+    html =
+      lv
+      |> form("form",
+        credential_rule:
+          Map.merge(default_rule_form_params(), %{
+            "scope_type" => "gateway",
+            "scope_value" => "credential-gw"
+          })
+      )
+      |> render_change()
+
+    assert scope_value_control(html) == :input
+    assert html =~ ~s(value="credential-gw")
+
+    html =
+      lv
+      |> form("form",
+        credential_rule:
+          Map.merge(default_rule_form_params(), %{
+            "scope_type" => "agent",
+            "scope_value" => "agent-a"
+          })
+      )
+      |> render_change()
+
+    assert scope_value_control(html) == :select
+    assert html =~ "agent-a"
+  end
+
   test "creates a Proxmox token secret from the provider preset", %{conn: conn, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
@@ -154,7 +224,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["tls_policy"] == "verify"
   end
 
-  test "validates Proxmox token preset fields without storing partial secrets", %{conn: conn, scope: scope} do
+  test "validates Proxmox token preset fields without storing partial secrets", %{
+    conn: conn,
+    scope: scope
+  } do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
     lv
@@ -241,7 +314,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     previous_resolver =
       Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_resolver)
 
-    previous_rows = Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_rows)
+    previous_rows =
+      Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_rows)
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -251,9 +325,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     Application.put_env(:serviceradar_web_ng, :network_credential_rule_preview_rows, %{
       "in:devices metadata.proxmox_candidate:true" => [
-        %{"uid" => "device-1", "hostname" => "pve-a", "ip" => "192.0.2.10", "agent_id" => "agent-a"},
-        %{"uid" => "device-2", "hostname" => "pve-b", "ip" => "192.0.2.11", "agent_id" => "agent-a"},
-        %{"uid" => "device-3", "hostname" => "pve-c", "ip" => "192.0.2.12", "agent_id" => "agent-b"}
+        %{
+          "uid" => "device-1",
+          "hostname" => "pve-a",
+          "ip" => "192.0.2.10",
+          "agent_id" => "agent-a"
+        },
+        %{
+          "uid" => "device-2",
+          "hostname" => "pve-b",
+          "ip" => "192.0.2.11",
+          "agent_id" => "agent-a"
+        },
+        %{
+          "uid" => "device-3",
+          "hostname" => "pve-c",
+          "ip" => "192.0.2.12",
+          "agent_id" => "agent-b"
+        }
       ]
     })
 
@@ -263,6 +352,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     end)
 
     secret = credential_secret_fixture(scope)
+
     rule =
       credential_rule_fixture(scope, secret, %{
         target_query: "in:devices metadata.proxmox_candidate:true"
@@ -355,4 +445,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp default_rule_form_params do
+    %{
+      "name" => "",
+      "description" => "",
+      "provider" => "proxmox",
+      "auth_method" => "proxmox_api_token",
+      "purpose" => "inventory_enrichment",
+      "target_query" => "in:devices metadata.proxmox_candidate:true",
+      "scope_type" => "agent",
+      "scope_value" => "",
+      "secret_id" => "",
+      "priority" => "100",
+      "allowed_ports" => "8006",
+      "tls_policy" => "verify",
+      "ssh_host_key_policy" => "known_hosts",
+      "auto_discovery_enabled" => "false"
+    }
+  end
+
+  defp scope_value_control(html) do
+    cond do
+      html =~ ~r/<select[^>]+name="credential_rule\[scope_value\]"/ -> :select
+      html =~ ~r/<input[^>]+name="credential_rule\[scope_value\]"/ -> :input
+      true -> :missing
+    end
+  end
 end

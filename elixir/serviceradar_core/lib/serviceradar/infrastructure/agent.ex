@@ -125,6 +125,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :device_uid,
     :capabilities,
     :host,
+    :ip,
     :port,
     :spiffe_identity,
     :metadata
@@ -141,6 +142,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :device_uid,
     :capabilities,
     :host,
+    :ip,
     :port,
     :spiffe_identity,
     :metadata,
@@ -153,6 +155,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :name,
     :capabilities,
     :host,
+    :ip,
     :port,
     :policies,
     :metadata,
@@ -168,7 +171,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :port,
     :spiffe_identity,
     :metadata,
+    :gateway_id,
     :version,
+    :ip,
     :type_id,
     :device_uid,
     :config_source,
@@ -177,7 +182,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :last_update_at,
     :last_update_error
   ]
-  @agent_heartbeat_fields [:is_healthy, :capabilities, :config_source]
+  @agent_heartbeat_fields [:is_healthy, :capabilities, :config_source, :gateway_id, :host, :ip]
   @agent_gateway_fields [:gateway_id]
   @agent_device_fields [:device_uid]
   @agent_release_status_fields [
@@ -427,6 +432,17 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change {PublishStateChange, entity_type: :agent, new_state: :unavailable}
     end
 
+    update :retire_stale do
+      description "Retire a stale historical agent row from active operational views"
+
+      change transition_state(:unavailable)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:gateway_id, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      change {PublishStateChange, entity_type: :agent, new_state: :unavailable}
+    end
+
     update :recover do
       description "Start recovery process (from unavailable to connecting)"
 
@@ -566,7 +582,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     attribute :host, :string do
       public? true
-      description "Host IP or hostname the agent listens on"
+      description "Hostname or host the agent reports"
+    end
+
+    attribute :ip, :string do
+      public? true
+      description "Source IP address for the agent connection when known"
     end
 
     attribute :port, :integer do

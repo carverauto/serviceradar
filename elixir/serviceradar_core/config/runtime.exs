@@ -782,6 +782,7 @@ if config_env() == :prod do
          {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker,
           queue: :maintenance},
          {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
+         {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
          {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
        ]}
     ],

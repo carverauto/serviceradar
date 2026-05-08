@@ -13,6 +13,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
 
@@ -95,6 +97,45 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device.hostname == "test-host-updated"
       assert device.ip == "192.168.1.102"
       assert "sysmon" in device.discovery_sources
+    end
+
+    test "does not downgrade a discovered hypervisor host to server during agent sync", %{
+      agent_id: agent_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      ip = "10.77.#{rem(unique_id, 200)}.10"
+
+      create_attrs = %{
+        uid: "pve-agent-sync-#{unique_id}",
+        hostname: "pve-agent-sync-#{unique_id}",
+        name: "pve-agent-sync-#{unique_id}",
+        ip: ip,
+        type: "Hypervisor",
+        type_id: 99,
+        metadata: %{"device_role" => "hypervisor"},
+        discovery_sources: ["proxmox-api"],
+        is_available: true
+      }
+
+      assert {:ok, _device} =
+               Device
+               |> Ash.Changeset.for_create(:create, create_attrs)
+               |> Ash.create(actor: actor)
+
+      assert {:ok, device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "pve-agent-sync-#{unique_id}",
+                 source_ip: ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert device.type == "Hypervisor"
+      assert device.type_id == 99
+      assert "agent" in device.discovery_sources
+      assert "proxmox-api" in device.discovery_sources
     end
 
     test "sets discovery_sources based on capabilities", %{
@@ -316,6 +357,72 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert old_agent.status == :unavailable
       assert replacement_agent.status == :connected
       assert replacement_agent.device_uid == device_uid
+    end
+
+    test "retires unlinked same-host stale agent and transfers active assignments",
+         %{
+           unique_id: unique_id,
+           actor: actor
+         } do
+      old_agent_id = "agent-stale-#{unique_id}"
+      replacement_agent_id = "agent-current-#{unique_id}"
+      source_ip = "192.168.70.#{rem(unique_id, 200) + 10}"
+      partition = "default"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(old_agent_id, %{
+          host: source_ip,
+          capabilities: ["mapper", "sweep"],
+          metadata: %{"partition_id" => partition}
+        })
+
+      {:ok, mapper_job} =
+        MapperJob
+        |> Ash.Changeset.for_create(:create, %{
+          name: "stale-agent-mapper-#{unique_id}",
+          partition: partition,
+          agent_id: old_agent_id,
+          discovery_mode: :snmp_api,
+          discovery_type: :full,
+          options: %{}
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, sweep_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "stale-agent-sweep-#{unique_id}",
+          partition: partition,
+          agent_id: old_agent_id,
+          target_query: "in:devices",
+          static_targets: [source_ip],
+          ports: [],
+          sweep_modes: ["icmp"]
+        })
+        |> Ash.create(actor: actor)
+
+      :ok =
+        AgentGatewaySync.upsert_agent(replacement_agent_id, %{
+          host: source_ip,
+          capabilities: ["mapper", "sweep"],
+          metadata: %{"partition_id" => partition}
+        })
+
+      assert {:ok, _device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(replacement_agent_id, %{
+                 hostname: "current-#{unique_id}",
+                 source_ip: source_ip,
+                 partition: partition,
+                 capabilities: ["mapper", "sweep"]
+               })
+
+      {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
+      {:ok, updated_mapper_job} = Ash.get(MapperJob, mapper_job.id, actor: actor)
+      {:ok, updated_sweep_group} = Ash.get(SweepGroup, sweep_group.id, actor: actor)
+
+      assert old_agent.status == :unavailable
+      assert updated_mapper_job.agent_id == replacement_agent_id
+      assert updated_sweep_group.agent_id == replacement_agent_id
     end
   end
 

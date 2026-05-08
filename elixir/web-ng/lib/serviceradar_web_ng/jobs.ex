@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Jobs do
   alias Oban.Cron.Expression
   alias Oban.Job
   alias ServiceRadar.Jobs.AlertsRetentionWorker
+  alias ServiceRadar.Jobs.PruneStaleAgentsWorker
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
@@ -38,17 +39,30 @@ defmodule ServiceRadarWebNG.Jobs do
     "reap_stale_periodic_jobs" => %{
       key: "reap_stale_periodic_jobs",
       label: "Periodic job reaper",
-      description: "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
+      description:
+        "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
       worker: ReapStalePeriodicJobsWorker,
       queue: :maintenance,
       args: %{},
       default_cron: "*/2 * * * *",
       unique_period_seconds: 300
     },
+    "prune_stale_agents" => %{
+      key: "prune_stale_agents",
+      label: "Stale agent retirement",
+      description:
+        "Retire stale disconnected agent rows from active operator selection surfaces.",
+      worker: PruneStaleAgentsWorker,
+      queue: :maintenance,
+      args: %{},
+      default_cron: "17 * * * *",
+      unique_period_seconds: 3600
+    },
     "refresh_logs_severity_stats" => %{
       key: "refresh_logs_severity_stats",
       label: "Logs severity stats refresh",
-      description: "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
+      description:
+        "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
       worker: RefreshLogsSeverityStatsWorker,
       queue: :maintenance,
       args: %{},
@@ -68,7 +82,8 @@ defmodule ServiceRadarWebNG.Jobs do
     "expire_packages" => %{
       key: "expire_packages",
       label: "Expire onboarding packages",
-      description: "Marks edge onboarding packages as expired when their tokens have passed expiration.",
+      description:
+        "Marks edge onboarding packages as expired when their tokens have passed expiration.",
       worker: ExpirePackagesWorker,
       queue: :maintenance,
       args: %{},
@@ -135,7 +150,13 @@ defmodule ServiceRadarWebNG.Jobs do
 
     case job_definition(job_key) do
       %{worker: worker} ->
-        Repo.all(from(j in Job, where: j.worker == ^inspect(worker), order_by: [desc: j.inserted_at], limit: ^limit))
+        Repo.all(
+          from(j in Job,
+            where: j.worker == ^inspect(worker),
+            order_by: [desc: j.inserted_at],
+            limit: ^limit
+          )
+        )
 
       _ ->
         []

@@ -120,6 +120,8 @@ defmodule ServiceRadar.Inventory.Device do
     :last_seen_time
   ]
   @gateway_sync_fields [
+    :type_id,
+    :type,
     :agent_id,
     :management_device_id,
     :hostname,

@@ -19,6 +19,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
   require Logger
@@ -169,7 +171,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp build_device_update_from_agent(agent_id, attrs) do
     %{
       device_id: nil,
-      ip: Map.get(attrs, :source_ip) || Map.get(attrs, :host),
+      ip: agent_source_ip(attrs),
       mac: nil,
       partition: Map.get(attrs, :partition, "default"),
       metadata: %{
@@ -185,7 +187,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     hostname = Map.get(attrs, :hostname)
-    source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
+    source_ip = agent_source_ip(attrs)
     partition = Map.get(attrs, :partition, "default")
     os_name = Map.get(attrs, :os)
     arch = Map.get(attrs, :arch)
@@ -334,15 +336,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now) do
     hostname = Map.get(attrs, :hostname)
-    source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
+    source_ip = agent_source_ip(attrs)
 
     # Merge discovery_sources with capability-based sources
     existing_sources = device.discovery_sources || []
     capability_sources = build_discovery_sources(capabilities)
     new_sources = Enum.uniq(capability_sources ++ existing_sources)
+    {device_type, device_type_id} = agent_host_device_type(device)
 
     update_attrs =
       %{
+        type_id: device_type_id,
+        type: device_type,
         agent_id: agent_id,
         is_available: true,
         is_managed: true,
@@ -402,6 +407,23 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp agent_host_device_type(%Device{} = device) do
+    if hypervisor_device?(device) do
+      {"Hypervisor", 99}
+    else
+      {"Server", 1}
+    end
+  end
+
+  defp hypervisor_device?(%Device{} = device) do
+    metadata = device.metadata || %{}
+    role = metadata |> Map.get("device_role") |> to_string() |> String.downcase()
+
+    role == "hypervisor" or
+      device.type == "Hypervisor" or
+      Enum.any?(device.discovery_sources || [], &(&1 in ["proxmox-api", "proxmox-candidate"]))
+  end
+
   # Build discovery_sources list based on agent capabilities
   defp build_discovery_sources(capabilities) when is_list(capabilities) do
     base_sources = ["agent"]
@@ -450,10 +472,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp retire_superseded_agents(agent_id, device_uid, attrs, actor) do
-    source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
+    source_ip = agent_source_ip(attrs)
     canonical_agent_id = canonicalize_agent_uid(agent_id)
 
-    query = Ash.Query.for_read(Agent, :by_device, %{device_uid: device_uid}, actor: actor)
+    query = superseded_agent_query(device_uid, source_ip, actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, agents} ->
@@ -472,8 +494,23 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp superseded_agent_query(device_uid, source_ip, actor) do
+    query = Ash.Query.for_read(Agent, :read, %{}, actor: actor)
+
+    if present_string?(source_ip) do
+      Ash.Query.filter(
+        query,
+        expr(device_uid == ^device_uid or ip == ^source_ip or host == ^source_ip)
+      )
+    else
+      Ash.Query.filter(query, expr(device_uid == ^device_uid))
+    end
+  end
+
   defp matching_source?(_agent, nil), do: true
-  defp matching_source?(%Agent{host: host}, source_ip), do: host == source_ip
+
+  defp matching_source?(%Agent{ip: ip, host: host}, source_ip),
+    do: ip == source_ip or host == source_ip
 
   defp mark_agent_superseded(%Agent{status: :unavailable}, _replacement_agent_id, _actor), do: :ok
 
@@ -486,6 +523,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:ok, updated} ->
         cancel_superseded_release_targets(agent.uid, replacement_agent_id, actor)
         mark_superseded_release_state(updated, actor)
+        transfer_superseded_assignments(agent.uid, replacement_agent_id, actor)
 
         Logger.info(
           "Marked superseded agent #{agent.uid} unavailable in favor of #{replacement_agent_id}"
@@ -545,6 +583,67 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp transfer_superseded_assignments(agent_id, replacement_agent_id, actor) do
+    Enum.each(
+      [
+        {MapperJob, :mapper_jobs},
+        {SweepGroup, :sweep_groups}
+      ],
+      fn {resource, label} ->
+        case transfer_agent_assignment(resource, agent_id, replacement_agent_id, actor) do
+          {:ok, 0} ->
+            :ok
+
+          {:ok, count} ->
+            Logger.info(
+              "Reassigned #{count} #{label} from superseded agent #{agent_id} to #{replacement_agent_id}"
+            )
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to reassign #{label} from superseded agent #{agent_id} to #{replacement_agent_id}: #{inspect(reason)}"
+            )
+        end
+      end
+    )
+  end
+
+  defp transfer_agent_assignment(resource, agent_id, replacement_agent_id, actor) do
+    query =
+      resource
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(agent_id == ^agent_id)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        {:ok, 0}
+
+      {:ok, records} ->
+        records
+        |> Ash.bulk_update(:update, %{agent_id: replacement_agent_id},
+          actor: actor,
+          return_errors?: true,
+          return_records?: false
+        )
+        |> case do
+          %Ash.BulkResult{status: :success} ->
+            {:ok, length(records)}
+
+          %Ash.BulkResult{status: :partial_success, errors: []} ->
+            {:ok, length(records)}
+
+          %Ash.BulkResult{status: :partial_success, errors: errors} ->
+            {:error, List.first(errors) || :partial_success}
+
+          %Ash.BulkResult{status: :error, errors: errors} ->
+            {:error, List.first(errors) || :bulk_update_failed}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp canonicalize_agent_uid(uid) when is_binary(uid) do
     uid
     |> String.split("-", trim: true)
@@ -571,9 +670,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :name,
         :capabilities,
         :host,
+        :ip,
         :port,
         :spiffe_identity,
         :metadata,
+        :gateway_id,
         :version,
         :type_id
       ])
@@ -613,6 +714,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :device_uid,
         :capabilities,
         :host,
+        :ip,
         :port,
         :spiffe_identity,
         :metadata
@@ -636,7 +738,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     heartbeat_attrs =
       attrs
-      |> Map.take([:capabilities, :is_healthy, :config_source])
+      |> Map.take([:capabilities, :is_healthy, :config_source, :gateway_id, :ip])
       |> compact_attrs()
 
     # DB connection's search_path determines the schema
@@ -665,6 +767,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :device_uid,
         :capabilities,
         :host,
+        :ip,
         :port,
         :spiffe_identity,
         :metadata
@@ -706,6 +809,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_string?(_value), do: false
+
+  defp agent_source_ip(attrs) do
+    Enum.find_value([:source_ip, :ip, :host], fn key ->
+      case Map.get(attrs, key) do
+        value when is_binary(value) ->
+          value = String.trim(value)
+          if value == "", do: nil, else: value
+
+        _ ->
+          nil
+      end
+    end)
+  end
 
   defp force_gateway_sync_update(device_uid, update_attrs, actor) do
     query =

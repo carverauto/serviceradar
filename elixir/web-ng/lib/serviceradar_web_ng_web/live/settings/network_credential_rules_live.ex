@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
 
@@ -35,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:secrets, [])
        |> assign(:secret_options, [])
        |> assign(:secret_names, %{})
+       |> assign(:agent_options, [])
        |> assign(:loading?, true)
        |> assign(:form_mode, nil)
        |> assign(:editing_rule, nil)
@@ -75,6 +77,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          |> assign(:rule_form, rule_form(params))
          |> put_flash(:error, message)}
     end
+  end
+
+  def handle_event("change_rule", %{"credential_rule" => params}, socket) do
+    {:noreply, assign(socket, :rule_form, rule_form(normalize_rule_form_params(params)))}
   end
 
   def handle_event("disable_rule", %{"id" => id}, socket) do
@@ -286,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           auth_methods={@auth_methods}
           purposes={@purposes}
           scope_types={@scope_types}
+          agent_options={@agent_options}
           tls_policies={@tls_policies}
           ssh_host_key_policies={@ssh_host_key_policies}
         />
@@ -465,10 +472,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :auth_methods, :list, required: true
   attr :purposes, :list, required: true
   attr :scope_types, :list, required: true
+  attr :agent_options, :list, required: true
   attr :tls_policies, :list, required: true
   attr :ssh_host_key_policies, :list, required: true
 
   defp rule_form_modal(assigns) do
+    assigns = assign(assigns, :scope_type_value, form_string(assigns.form, :scope_type))
+
     ~H"""
     <div class="modal modal-open">
       <div class="modal-box max-w-4xl rounded-lg">
@@ -481,7 +491,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </.link>
         </div>
 
-        <.form for={@form} phx-submit="save_rule" class="space-y-4">
+        <.form for={@form} phx-change="change_rule" phx-submit="save_rule" class="space-y-4">
           <div class="grid gap-4 md:grid-cols-2">
             <.input field={@form[:name]} label="Name" required />
             <.input field={@form[:provider]} label="Provider" required />
@@ -515,7 +525,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               options={enum_options(@scope_types)}
               required
             />
-            <.input field={@form[:scope_value]} label="Scope Value" required />
+            <.input
+              :if={@scope_type_value == "agent" and @agent_options != []}
+              field={@form[:scope_value]}
+              type="select"
+              label="Scope Value"
+              options={@agent_options}
+              prompt="Select an agent"
+              required
+            />
+            <.input
+              :if={@scope_type_value != "agent" or @agent_options == []}
+              field={@form[:scope_value]}
+              label="Scope Value"
+              required
+            />
             <.input
               field={@form[:tls_policy]}
               type="select"
@@ -558,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp load_page(socket, params) do
     scope = socket.assigns.current_scope
-    {rules, secrets} = {load_rules(scope), load_secrets(scope)}
+    {rules, secrets, agents} = {load_rules(scope), load_secrets(scope), load_agents(scope)}
     secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
 
     socket =
@@ -567,6 +591,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:secrets, secrets)
       |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
       |> assign(:secret_names, secret_names)
+      |> assign(:agent_options, agent_options(agents))
       |> assign(:loading?, false)
 
     case socket.assigns.form_mode do
@@ -692,6 +717,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  defp load_agents(scope) do
+    Agent
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(uid: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> Enum.filter(agents, &active_agent?/1)
+      _ -> []
+    end
+  end
+
+  defp active_agent?(%Agent{status: status}) when status in [:connected, :degraded, :connecting], do: true
+
+  defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(_agent), do: false
+
   defp normalize_rule_params(params) do
     with {:ok, auth_method} <- enum_param(params, "auth_method", @auth_methods, "auth method"),
          {:ok, purpose} <- enum_param(params, "purpose", @purposes, "purpose"),
@@ -805,6 +849,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "auto_discovery_enabled" => auto_discovery_enabled?(rule)
     }
   end
+
+  defp normalize_rule_form_params(params) when is_map(params) do
+    params
+    |> Map.put_new("scope_type", "agent")
+    |> Map.put_new("scope_value", "")
+  end
+
+  defp normalize_rule_form_params(_), do: default_rule_params()
 
   defp rule_form(params), do: to_form(params, as: :credential_rule)
 
@@ -926,6 +978,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")
 
   defp format_scope(rule), do: "#{format_atom(rule.scope_type)}: #{rule.scope_value}"
+
+  defp agent_options(agents) when is_list(agents) do
+    Enum.map(agents, fn agent ->
+      {agent_option_label(agent), agent.uid}
+    end)
+  end
+
+  defp agent_options(_agents), do: []
+
+  defp agent_option_label(%Agent{} = agent) do
+    status =
+      agent.status
+      |> format_atom()
+      |> case do
+        "" -> "Unknown"
+        value -> value
+      end
+
+    host = first_non_empty([agent.host, agent.name, agent.ip])
+
+    [agent.uid, host, status]
+    |> Enum.reject(&empty_label_part?/1)
+    |> Enum.join(" - ")
+  end
+
+  defp empty_label_part?(nil), do: true
+  defp empty_label_part?(value) when is_binary(value), do: String.trim(value) == ""
+  defp empty_label_part?(_value), do: false
+
+  defp form_string(form, field) do
+    form
+    |> Phoenix.HTML.Form.input_value(field)
+    |> to_string()
+  end
 
   defp device_label(device) when is_map(device) do
     first_non_empty([

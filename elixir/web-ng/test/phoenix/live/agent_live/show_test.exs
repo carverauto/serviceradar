@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
+  use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
 
@@ -20,8 +21,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     %{conn: conn}
   end
 
-  test "operator sees release-management handoff actions on the agent detail page", %{conn: conn} do
-    user = AccountsFixtures.user_fixture(%{role: :operator})
+  test "admin sees release-management handoff actions on the agent detail page", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :admin})
     conn = log_in_user(conn, user)
 
     {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
@@ -45,12 +46,38 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     refute html =~ "Manage Releases"
   end
 
+  test "operator sees service checks assigned to the agent", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :operator})
+    gateway = gateway_fixture(%{id: "gw-1", component_id: "component-agent-show-service-checks"})
+    agent_fixture(gateway, %{uid: "agent-1", name: "Alpha"})
+
+    service_check_fixture(%{
+      name: "PVE API 8006",
+      check_type: :tcp,
+      target: "192.168.2.10",
+      port: 8006,
+      interval_seconds: 30,
+      agent_uid: "agent-1"
+    })
+
+    conn = log_in_user(conn, user)
+
+    {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
+
+    assert html =~ "Service Checks"
+    assert html =~ "PVE API 8006"
+    assert html =~ "192.168.2.10"
+    assert html =~ "30s"
+    refute html =~ "No service checks configured for this agent."
+  end
+
   defmodule RecordingSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
 
     def query(query) when is_binary(query), do: query(query, %{})
 
+    @impl true
     def query(query, _opts) when is_binary(query) do
       {:ok,
        %{

@@ -2,7 +2,9 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   @moduledoc """
   Storage backend for plugin package blobs.
 
-  Currently supports filesystem storage with signed upload/download tokens.
+  Plugin blobs are persisted in NATS JetStream Object Store. Signed upload and
+  download endpoints remain stable, but application writes no longer use local
+  filesystem storage.
   """
 
   alias Jetstream.API.Object
@@ -15,25 +17,24 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  @default_base_path "/var/lib/serviceradar/plugin-packages/data"
   @default_upload_ttl_seconds 900
   @default_download_ttl_seconds 900
   @default_max_upload_bytes 52_428_800
 
-  @spec backend() :: :filesystem | :jetstream
+  @spec backend() :: :jetstream
   def backend do
     case Keyword.get(config(), :backend, :filesystem) do
       :jetstream -> :jetstream
       "jetstream" -> :jetstream
-      :filesystem -> :filesystem
-      "filesystem" -> :filesystem
-      _ -> :filesystem
+      :filesystem -> :jetstream
+      "filesystem" -> :jetstream
+      _ -> :jetstream
     end
   end
 
   @spec base_path() :: String.t()
   def base_path do
-    Keyword.get(config(), :base_path, @default_base_path)
+    Keyword.get(config(), :base_path, "")
   end
 
   @spec max_upload_bytes() :: pos_integer()
@@ -132,18 +133,20 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   @spec put_blob(String.t(), binary()) :: :ok | {:error, term()}
   def put_blob(object_key, payload) when is_binary(payload) do
-    case backend() do
-      :filesystem -> put_blob_filesystem(object_key, payload)
-      :jetstream -> put_blob_jetstream(object_key, payload)
-    end
+    :jetstream = backend()
+
+    with_jetstream_client(:put_blob, [object_key, payload], fn ->
+      put_blob_jetstream(object_key, payload)
+    end)
   end
 
   @spec put_blob_file(String.t(), String.t()) :: :ok | {:error, term()}
   def put_blob_file(object_key, source_path) when is_binary(source_path) do
-    case backend() do
-      :filesystem -> put_blob_file_filesystem(object_key, source_path)
-      :jetstream -> put_blob_file_jetstream(object_key, source_path)
-    end
+    :jetstream = backend()
+
+    with_jetstream_client(:put_blob_file, [object_key, source_path], fn ->
+      put_blob_file_jetstream(object_key, source_path)
+    end)
   end
 
   def put_blob_file(_object_key, _source_path), do: {:error, :invalid_path}
@@ -151,35 +154,38 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   @spec fetch_blob(String.t()) ::
           {:ok, {:file, String.t()} | {:binary, binary()}} | {:error, term()}
   def fetch_blob(object_key) do
-    case backend() do
-      :filesystem -> fetch_blob_filesystem(object_key)
-      :jetstream -> fetch_blob_jetstream(object_key)
-    end
+    :jetstream = backend()
+
+    with_jetstream_client(:fetch_blob, [object_key], fn ->
+      fetch_blob_jetstream(object_key)
+    end)
   end
 
   @spec delete_blob(String.t()) :: :ok | {:error, term()}
   def delete_blob(object_key) do
-    case backend() do
-      :filesystem -> delete_blob_filesystem(object_key)
-      :jetstream -> delete_blob_jetstream(object_key)
-    end
+    :jetstream = backend()
+
+    with_jetstream_client(:delete_blob, [object_key], fn ->
+      delete_blob_jetstream(object_key)
+    end)
   end
 
   @spec blob_path(String.t()) :: {:ok, String.t()} | {:error, atom()}
-  def blob_path(object_key) do
-    case backend() do
-      :filesystem -> safe_path(object_key)
-      :jetstream -> {:error, :unsupported_backend}
-    end
+  def blob_path(_object_key) do
+    :jetstream = backend()
+    {:error, :unsupported_backend}
   end
 
   @spec blob_exists?(String.t()) :: boolean()
-  def blob_exists?(object_key) do
-    case backend() do
-      :filesystem -> blob_exists_filesystem(object_key)
-      :jetstream -> blob_exists_jetstream(object_key)
-    end
+  def blob_exists?(object_key) when is_binary(object_key) do
+    :jetstream = backend()
+
+    with_jetstream_client(:blob_exists?, [object_key], fn ->
+      blob_exists_jetstream(object_key)
+    end)
   end
+
+  def blob_exists?(_object_key), do: false
 
   @spec sha256(binary()) :: String.t()
   def sha256(payload) do
@@ -208,6 +214,13 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   defp config do
     Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
+  end
+
+  defp with_jetstream_client(function, args, fallback) do
+    case Keyword.get(config(), :jetstream_client) do
+      nil -> fallback.()
+      module when is_atom(module) -> apply(module, function, args)
+    end
   end
 
   defp bucket_name do
@@ -248,20 +261,6 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   defp secure_compare(_, _), do: false
 
-  defp safe_path(object_key) when is_binary(object_key) do
-    base = Path.expand(base_path())
-    path = Path.expand(Path.join(base, object_key))
-    base_prefix = base <> "/"
-
-    if path == base or String.starts_with?(path, base_prefix) do
-      {:ok, path}
-    else
-      {:error, :invalid_path}
-    end
-  end
-
-  defp safe_path(_), do: {:error, :invalid_path}
-
   defp sanitize_segment(segment) when is_binary(segment) do
     segment
     |> String.trim()
@@ -270,93 +269,6 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   end
 
   defp sanitize_segment(_), do: "unknown"
-
-  @sobelow_skip ["Traversal.FileModule"]
-  defp put_blob_filesystem(object_key, payload) do
-    case safe_path(object_key) do
-      {:ok, path} ->
-        dir = Path.dirname(path)
-
-        case File.mkdir_p(dir) do
-          :ok ->
-            write_blob_file(path, payload, object_key, dir)
-
-          {:error, reason} = error ->
-            Logger.error(
-              "plugin blob directory create failed backend=filesystem object_key=#{inspect(object_key)} dir=#{dir} base_path=#{base_path()} reason=#{inspect(reason)}"
-            )
-
-            error
-        end
-
-      {:error, reason} = error ->
-        Logger.error(
-          "plugin blob path resolution failed backend=filesystem object_key=#{inspect(object_key)} base_path=#{base_path()} reason=#{inspect(reason)}"
-        )
-
-        error
-    end
-  end
-
-  @sobelow_skip ["Traversal.FileModule"]
-  defp put_blob_file_filesystem(object_key, source_path) do
-    case safe_path(object_key) do
-      {:ok, path} ->
-        dir = Path.dirname(path)
-
-        with :ok <- File.mkdir_p(dir) do
-          File.cp(source_path, path)
-        end
-
-      {:error, reason} = error ->
-        Logger.error(
-          "plugin blob path resolution failed backend=filesystem object_key=#{inspect(object_key)} base_path=#{base_path()} reason=#{inspect(reason)}"
-        )
-
-        error
-    end
-  end
-
-  @sobelow_skip ["Traversal.FileModule"]
-  defp write_blob_file(path, payload, object_key, dir) do
-    case File.write(path, payload) do
-      :ok ->
-        :ok
-
-      {:error, reason} = error ->
-        Logger.error(
-          "plugin blob write failed backend=filesystem object_key=#{inspect(object_key)} path=#{path} dir=#{dir} base_path=#{base_path()} reason=#{inspect(reason)}"
-        )
-
-        error
-    end
-  end
-
-  @sobelow_skip ["Traversal.FileModule"]
-  defp delete_blob_filesystem(object_key) do
-    case safe_path(object_key) do
-      {:ok, path} ->
-        case File.rm(path) do
-          :ok -> :ok
-          {:error, :enoent} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  @sobelow_skip ["Traversal.FileModule"]
-  defp fetch_blob_filesystem(object_key) do
-    with {:ok, path} <- safe_path(object_key) do
-      if File.exists?(path) do
-        {:ok, {:file, path}}
-      else
-        {:error, :not_found}
-      end
-    end
-  end
 
   defp put_blob_jetstream(object_key, payload) do
     with_jetstream(fn conn ->
@@ -401,13 +313,6 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
-  defp blob_exists_filesystem(object_key) do
-    case safe_path(object_key) do
-      {:ok, path} -> File.exists?(path)
-      {:error, _} -> false
-    end
-  end
-
   defp blob_exists_jetstream(object_key) do
     fn conn ->
       Object.info(conn, bucket_name(), object_key)
@@ -446,7 +351,11 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     stream_name = "OBJ_#{bucket_name()}"
 
     with {:ok, %{body: body}} <-
-           Gnat.request(conn, "$JS.API.STREAM.CREATE.#{stream_name}", Jason.encode!(bucket_stream_config())),
+           Gnat.request(
+             conn,
+             "$JS.API.STREAM.CREATE.#{stream_name}",
+             Jason.encode!(bucket_stream_config())
+           ),
          {:ok, decoded} <- Jason.decode(body) do
       case decoded do
         %{"error" => reason} -> {:error, reason}

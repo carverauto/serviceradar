@@ -64,7 +64,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.delete("wasm_object_key")
       |> drop_nil_values()
 
-    source_type = normalize_source_type(Map.get(attrs, :source_type) || Map.get(attrs, "source_type"))
+    source_type =
+      normalize_source_type(Map.get(attrs, :source_type) || Map.get(attrs, "source_type"))
 
     case source_type do
       :github ->
@@ -210,12 +211,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def sync_first_party_plugins(opts \\ []) do
     repo_url = Keyword.get(opts, :repo_url)
     limit = Keyword.get(opts, :limit, 10)
+    release_tag = Keyword.get(opts, :release_tag)
 
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     with {:ok, plugins} <- FirstPartyImporter.list_recent_plugins(discovery_attrs, limit) do
       results =
         plugins
+        |> maybe_filter_release_tag(release_tag)
         |> Enum.filter(&Map.get(&1, :import_ready?))
         |> Enum.map(fn plugin ->
           import_attrs = %{
@@ -236,12 +239,30 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         results
         |> Enum.filter(fn {_plugin, result} -> match?({:error, _reason}, result) end)
         |> Enum.map(fn {plugin, {:error, reason}} ->
-          %{plugin_id: plugin.plugin_id, version: plugin.version, release_tag: plugin.release_tag, error: reason}
+          %{
+            plugin_id: plugin.plugin_id,
+            version: plugin.version,
+            release_tag: plugin.release_tag,
+            error: reason
+          }
         end)
 
-      {:ok, %{discovered: length(plugins), import_ready: length(results), imported: imported, failed: failed}}
+      {:ok,
+       %{
+         discovered: length(plugins),
+         import_ready: length(results),
+         imported: imported,
+         failed: failed
+       }}
     end
   end
+
+  defp maybe_filter_release_tag(plugins, release_tag)
+       when is_binary(release_tag) and release_tag != "" do
+    Enum.filter(plugins, &(&1.release_tag == release_tag))
+  end
+
+  defp maybe_filter_release_tag(plugins, _release_tag), do: plugins
 
   @spec upload_blob_file(PluginPackage.t(), String.t(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, term()}

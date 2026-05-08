@@ -160,8 +160,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         {:noreply, state}
 
       {:hello, _hello} ->
-        Logger.debug("Ignoring duplicate control stream hello")
-        {:noreply, state}
+        refresh_control_registration(state)
 
       nil ->
         {:noreply, state}
@@ -195,6 +194,24 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
           {:error, {:already_registered, _pid}} -> :ok
         end
     end
+  end
+
+  defp refresh_control_registration(%{agent_id: nil} = state), do: {:noreply, state}
+
+  defp refresh_control_registration(state) do
+    key = state.registry_key || {:agent_control, state.agent_id, node()}
+
+    metadata = %{
+      agent_id: state.agent_id,
+      partition_id: state.partition_id,
+      capabilities: state.capabilities,
+      connected_at: DateTime.utc_now(),
+      gateway_node: state.gateway_node
+    }
+
+    :ok = register_session(key, metadata)
+    Logger.debug("Refreshed control stream registration for agent #{state.agent_id}")
+    {:noreply, %{state | registry_key: key}}
   end
 
   defp unregister_legacy_session_key({:agent_control, agent_id, _node}) do

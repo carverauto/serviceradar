@@ -112,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     raw_query = normalize_param_to_string(extract_param(params, "q")) || ""
     query = String.trim(raw_query)
     query = if query == "", do: to_string(srql[:query] || ""), else: query
+    query = shortcut_query(query)
 
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
     limit = Map.get(socket.assigns, limit_assign_key)
@@ -296,6 +297,49 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   end
 
   def handle_event(socket, _event, _params, _opts), do: socket
+
+  def shortcut_query(query) do
+    cond do
+      not bare_device_search?(query) ->
+        query
+
+      ipv4_address?(query) ->
+        ~s(in:devices ip:"#{escape_shortcut_value(query)}")
+
+      hostname?(query) ->
+        ~s(in:devices hostname:"#{escape_shortcut_value(query)}")
+
+      true ->
+        query
+    end
+  end
+
+  defp bare_device_search?(query) when is_binary(query) do
+    query != "" and not String.contains?(query, [":", " ", "\t", "\n", "\r"])
+  end
+
+  defp bare_device_search?(_query), do: false
+
+  defp ipv4_address?(query) do
+    case :inet.parse_address(to_charlist(query)) do
+      {:ok, {a, b, c, d}} when a in 0..255 and b in 0..255 and c in 0..255 and d in 0..255 ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp hostname?(query) do
+    String.match?(query, ~r/^[A-Za-z0-9][A-Za-z0-9_.-]{0,252}$/)
+  end
+
+  defp escape_shortcut_value(value) do
+    value
+    |> to_string()
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
+  end
 
   # Extracts entity from SRQL query and returns the appropriate route
   defp entity_route_from_query(query, fallback_path) when is_binary(query) do

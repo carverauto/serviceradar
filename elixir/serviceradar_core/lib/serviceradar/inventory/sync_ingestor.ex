@@ -1278,6 +1278,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       role in ["ap_bridge"] ->
         {"Access Point", 99}
 
+      role in ["hypervisor"] ->
+        {"Hypervisor", 99}
+
+      role in ["virtual-guest", "virtual_guest"] ->
+        {"Virtual", 6}
+
       true ->
         infer_device_type_from_snmp(metadata)
     end
@@ -1311,6 +1317,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       normalized in ["access_point", "access point", "ap", "wireless_ap"] ->
         {"Access Point", 99}
+
+      normalized in ["hypervisor", "virtualization_host", "virtualization host"] ->
+        {"Hypervisor", 99}
+
+      normalized in ["virtual", "vm", "virtual_machine", "virtual machine", "lxc", "container"] ->
+        {"Virtual", 6}
 
       true ->
         {explicit, 99}

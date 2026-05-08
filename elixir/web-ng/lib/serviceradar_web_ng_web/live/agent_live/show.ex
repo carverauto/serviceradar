@@ -109,9 +109,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           {Map.merge(db, horde), nil}
       end
 
-    # Load service checks for this agent
     checks = load_checks_for_agent(uid, scope)
     release_targets = load_release_targets_for_agent(uid, scope)
+    agent = hydrate_agent_release_fields(agent, release_targets)
 
     {:noreply,
      socket
@@ -210,6 +210,31 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     |> case do
       {:ok, targets} -> targets
       {:error, _} -> []
+    end
+  end
+
+  defp hydrate_agent_release_fields(nil, _targets), do: nil
+  defp hydrate_agent_release_fields(agent, []), do: agent
+
+  defp hydrate_agent_release_fields(agent, [latest | _]) when is_map(agent) do
+    agent
+    |> put_if_blank("release_rollout_state", latest.status)
+    |> put_if_blank("desired_version", latest.desired_version)
+    |> put_if_blank("version", latest.current_version)
+    |> put_if_blank(
+      "last_update_at",
+      latest.updated_at || latest.completed_at || latest.dispatched_at || latest.inserted_at
+    )
+    |> put_if_blank("last_update_error", latest.last_error)
+  end
+
+  defp put_if_blank(map, _key, value) when value in [nil, ""], do: map
+
+  defp put_if_blank(map, key, value) do
+    case Map.get(map, key) do
+      nil -> Map.put(map, key, value)
+      "" -> Map.put(map, key, value)
+      _ -> map
     end
   end
 
@@ -319,6 +344,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         <div :if={has_value?(@agent, "name")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Name</span>
           <span class="text-sm">{Map.get(@agent, "name")}</span>
+        </div>
+
+        <div :if={has_value?(@agent, "host")} class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Host</span>
+          <span class="text-sm font-mono">{Map.get(@agent, "host")}</span>
         </div>
 
         <div :if={has_value?(@agent, "version")} class="flex flex-col gap-1">

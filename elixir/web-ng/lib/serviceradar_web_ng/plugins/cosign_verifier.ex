@@ -81,24 +81,42 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
   end
 
   defp cosign_cmd_opts(config) do
-    opts = [stderr_to_stdout: true]
+    runtime_path = Path.join(System.tmp_dir!(), "serviceradar-cosign-runtime-#{System.unique_integer([:positive])}")
+    home_path = Path.join(runtime_path, "home")
+    cache_path = Path.join(runtime_path, "cache")
+    config_path = Path.join(runtime_path, "config")
+    sigstore_cache_path = Path.join(runtime_path, "sigstore")
+
+    Enum.each([home_path, cache_path, config_path, sigstore_cache_path], &File.mkdir_p!/1)
+
+    env = [
+      {"HOME", home_path},
+      {"XDG_CACHE_HOME", cache_path},
+      {"XDG_CONFIG_HOME", config_path},
+      {"SIGSTORE_CACHE_DIR", sigstore_cache_path}
+    ]
+
+    opts = [stderr_to_stdout: true, env: env]
 
     case registry_docker_config_payload(config) do
       nil ->
-        {opts, fn -> :ok end}
+        {opts, fn -> File.rm_rf(runtime_path) end}
 
       payload ->
-        path = Path.join(System.tmp_dir!(), "serviceradar-cosign-docker-config-#{System.unique_integer([:positive])}")
+        path = Path.join(runtime_path, "docker")
         File.mkdir_p!(path)
         File.write!(Path.join(path, "config.json"), payload)
 
         opts =
-          Keyword.put(opts, :env, [
-            {"DOCKER_CONFIG", path},
-            {"REGISTRY_AUTH_FILE", Path.join(path, "config.json")}
-          ])
+          Keyword.update!(opts, :env, fn existing ->
+            existing ++
+              [
+                {"DOCKER_CONFIG", path},
+                {"REGISTRY_AUTH_FILE", Path.join(path, "config.json")}
+              ]
+          end)
 
-        {opts, fn -> File.rm_rf(path) end}
+        {opts, fn -> File.rm_rf(runtime_path) end}
     end
   end
 

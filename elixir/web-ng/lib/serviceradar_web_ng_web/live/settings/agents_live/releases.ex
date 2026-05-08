@@ -538,7 +538,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       <.settings_shell current_path={@current_path}>
         <.settings_nav current_path={@current_path} current_scope={@current_scope} />
         <.agents_nav current_path={@current_path} current_scope={@current_scope} />
-        <.edge_nav current_path={@current_path} current_scope={@current_scope} />
 
         <div class="space-y-6">
           <div class="flex flex-wrap items-center justify-between gap-4">

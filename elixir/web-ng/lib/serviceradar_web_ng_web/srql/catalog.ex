@@ -85,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "release_rollout_state",
         "last_update_error",
         "vendor_name",
+        "host",
         "ip",
         "type_id",
         "capabilities",

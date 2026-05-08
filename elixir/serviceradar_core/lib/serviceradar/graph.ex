@@ -159,7 +159,7 @@ defmodule ServiceRadar.Graph do
     # AGE requires a dollar-quoted Cypher literal in normal deployments. Retry
     # that form before falling back to single-quoted compatibility mode so
     # transient DB errors don't get masked by a deterministic syntax error.
-    Enum.map([:dollar, :dollar, :single], &cypher_sql(graph, cypher, mode, &1))
+    Enum.map([:dollar, :single], &cypher_sql(graph, cypher, mode, &1))
   end
 
   # Parse agtype text results into Elixir values

@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNG.Plugins.StorageTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Storage
@@ -53,18 +53,35 @@ defmodule ServiceRadarWebNG.Plugins.StorageTest do
     refute Storage.download_url("pkg-1") =~ "?token="
   end
 
-  test "filesystem backend stores and fetches blobs" do
+  test "filesystem backend configuration is normalized to JetStream" do
     package = %PluginPackage{id: "pkg-1", plugin_id: "http-check", version: "1.0.0"}
     key = Storage.object_key_for(package)
-    payload = "wasm-binary"
 
-    assert :ok = Storage.put_blob(key, payload)
-    assert Storage.blob_exists?(key)
-    assert {:ok, {:file, path}} = Storage.fetch_blob(key)
-    assert File.read!(path) == payload
+    assert Storage.backend() == :jetstream
+    assert {:error, :unsupported_backend} = Storage.blob_path(key)
   end
 
-  test "blob_path rejects traversal attempts" do
-    assert {:error, :invalid_path} = Storage.blob_path("../escape")
+  test "JetStream client stores and fetches plugin blobs without filesystem paths" do
+    store_name = :"sr_plugin_storage_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = ServiceRadarWebNG.PluginStorageTestClient.start_link(store_name)
+
+    Application.put_env(:serviceradar_web_ng, :plugin_storage,
+      backend: :jetstream,
+      jetstream_client: ServiceRadarWebNG.PluginStorageTestClient,
+      test_store: store_name,
+      signing_secret: "test-secret"
+    )
+
+    package = %PluginPackage{id: "pkg-1", plugin_id: "http-check", version: "1.0.0"}
+    key = Storage.object_key_for(package)
+
+    assert :ok = Storage.put_blob(key, "wasm payload")
+    assert Storage.blob_exists?(key)
+    assert {:ok, {:binary, "wasm payload"}} = Storage.fetch_blob(key)
+    assert {:error, :unsupported_backend} = Storage.blob_path(key)
+  end
+
+  test "blob_path does not expose filesystem paths" do
+    assert {:error, :unsupported_backend} = Storage.blob_path("../escape")
   end
 end

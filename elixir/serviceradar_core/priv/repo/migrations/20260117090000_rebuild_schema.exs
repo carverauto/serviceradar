@@ -1,4 +1,5 @@
 defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
+  @moduledoc false
   use Ecto.Migration
 
   def up do
@@ -136,6 +137,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
     SET search_path = ''
     IMMUTABLE PARALLEL SAFE STRICT;
     """)
+
     create table(:edge_sites, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :name, :text, null: false
@@ -492,7 +494,8 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             name: "snmp_oid_configs_snmp_target_id_fkey",
             type: :uuid,
             on_delete: :delete_all
-          ), null: false
+          ),
+          null: false
     end
 
     create unique_index(:snmp_oid_configs, [:snmp_target_id, :oid],
@@ -608,7 +611,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
       add :window_seconds, :bigint, null: false, default: 600
       add :bucket_seconds, :bigint, null: false, default: 60
       add :cooldown_seconds, :bigint, null: false, default: 300
-      add :renotify_seconds, :bigint, null: false, default: 21600
+      add :renotify_seconds, :bigint, null: false, default: 21_600
       add :event, :map, default: %{}
       add :alert, :map, default: %{}
 
@@ -746,7 +749,8 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "nats_leaf_servers_edge_site_id_fkey",
             type: :uuid
-          ), null: false
+          ),
+          null: false
 
       add :status, :text, null: false, default: "pending"
       add :upstream_url, :text, null: false
@@ -1065,7 +1069,8 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "api_tokens_user_id_fkey",
             type: :uuid
-          ), null: false
+          ),
+          null: false
     end
 
     create table(:snmp_profiles, primary_key: false) do
@@ -1078,7 +1083,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "snmp_targets_snmp_profile_id_fkey",
                type: :uuid,
-                  on_delete: :delete_all
+               on_delete: :delete_all
              )
     end
 
@@ -1246,6 +1251,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
 
       add :capabilities, {:array, :text}, default: []
       add :host, :text
+      add :ip, :text
       add :port, :bigint
       add :spiffe_identity, :text
       add :status, :text, null: false, default: "connecting"
@@ -1321,7 +1327,8 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :uid,
             name: "device_alias_states_device_id_fkey",
             type: :text
-          ), null: false
+          ),
+          null: false
 
       add :partition, :text
       add :alias_type, :text, null: false
@@ -1554,7 +1561,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
       add :window_seconds, :bigint, null: false, default: 600
       add :bucket_seconds, :bigint, null: false, default: 60
       add :cooldown_seconds, :bigint, null: false, default: 300
-      add :renotify_seconds, :bigint, null: false, default: 21600
+      add :renotify_seconds, :bigint, null: false, default: 21_600
       add :event, :map, default: %{}
       add :alert, :map, default: %{}
 

@@ -486,13 +486,14 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
         update_attrs =
-          compact_map(%{
+          %{
             desired_version: desired_version,
             release_rollout_state: status,
             last_update_at: DateTime.utc_now(),
-            last_update_error: last_error,
             version: Keyword.get(opts, :current_version)
-          })
+          }
+          |> compact_map()
+          |> Map.put(:last_update_error, last_error)
 
         _ =
           agent

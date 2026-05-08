@@ -2,7 +2,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
-  import ServiceRadarWebNG.AshTestHelpers, only: [actor_for_user: 1, admin_user_fixture: 0]
+
+  import ServiceRadarWebNG.AshTestHelpers,
+    only: [
+      actor_for_user: 1,
+      admin_user_fixture: 0,
+      gateway_fixture: 1,
+      agent_fixture: 2,
+      system_actor: 0
+    ]
 
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
@@ -42,19 +50,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
-          {:ok, %Req.Response{status: 200, body: [PluginPackageLiveTest.release()]}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: [PluginPackageLiveTest.release(), PluginPackageLiveTest.old_release()]
+           }}
 
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v2.0.0") ->
           {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.release()}}
 
+        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.0.0") ->
+          {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.old_release()}}
+
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
-          {:ok, %Req.Response{status: 200, body: Jason.encode!(PluginPackageLiveTest.index())}}
+          body =
+            if String.contains?(url, "/v1.0.0/") do
+              PluginPackageLiveTest.old_index()
+            else
+              PluginPackageLiveTest.index()
+            end
+
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(body)}}
 
         String.ends_with?(url, "/live-first-party-plugin.zip") ->
           {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.bundle()}}
 
         String.ends_with?(url, "/live-first-party-plugin.upload-signature.json") ->
-          {:ok, %Req.Response{status: 200, body: Jason.encode!(PluginPackageLiveTest.upload_signature())}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: Jason.encode!(PluginPackageLiveTest.upload_signature())
+           }}
 
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
@@ -64,12 +90,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   setup %{conn: conn} do
     original_policy = Application.get_env(:serviceradar_web_ng, :plugin_verification)
-    original_client = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
+    original_client =
+      Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
     original_import_config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import)
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
     original_bundle = Application.get_env(:serviceradar_web_ng, :plugin_live_test_bundle)
     original_signature = Application.get_env(:serviceradar_web_ng, :plugin_live_test_signature)
-    tmp = Path.join(System.tmp_dir!(), "sr-plugin-live-test-#{System.unique_integer([:positive])}")
+
+    store_name = :"sr_plugin_live_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = ServiceRadarWebNG.PluginStorageTestClient.start_link(store_name)
+
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
 
     Application.put_env(:serviceradar_web_ng, :plugin_verification,
@@ -78,7 +110,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       trusted_upload_signing_keys: %{"live-test" => Base.encode64(public_key)}
     )
 
-    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, ForgejoClient)
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_import_http_client,
+      ForgejoClient
+    )
 
     Application.put_env(:serviceradar_web_ng, :first_party_plugin_import,
       repo_url: @repo_url,
@@ -88,8 +124,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     )
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: ServiceRadarWebNG.PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
@@ -102,7 +139,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     user = admin_user_fixture()
 
     on_exit(fn ->
-      File.rm_rf(tmp)
       restore_env(:plugin_verification, original_policy)
       restore_env(:first_party_plugin_import_http_client, original_client)
       restore_env(:first_party_plugin_import, original_import_config)
@@ -130,6 +166,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "import-ready"
   end
 
+  test "first-party catalog defaults to latest release and can select older releases", %{
+    conn: conn
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    html =
+      lv
+      |> element("button[phx-click='sync_first_party_catalog']")
+      |> render_click()
+
+    assert html =~ "Showing 1 first-party plugin entry(s) from release v2.0.0"
+    assert html =~ "Live First-party Plugin"
+    assert html =~ "v2.0.0"
+    refute html =~ "Old First-party Plugin"
+
+    html =
+      lv
+      |> form("form[phx-change='select_first_party_release']", %{release_tag: "v1.0.0"})
+      |> render_change()
+
+    assert html =~ "Old First-party Plugin"
+    assert html =~ "v1.0.0"
+    refute html =~ "Live First-party Plugin"
+  end
+
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
@@ -148,15 +209,57 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert Storage.blob_exists?(package.wasm_object_key)
   end
 
+  test "plugin assignment agent selector excludes stale agents", %{conn: conn, actor: actor} do
+    gateway = gateway_fixture(%{id: "plugin-agent-gw", component_id: "plugin-agent-component"})
+    agent_fixture(gateway, %{uid: "agent-active-plugin", name: "Agent Active Plugin"})
+
+    stale_agent = agent_fixture(gateway, %{uid: "agent-stale-plugin", name: "Agent Stale Plugin"})
+
+    stale_agent
+    |> Ash.Changeset.for_update(:update, %{}, actor: system_actor())
+    |> Ash.Changeset.force_change_attribute(:status, :unavailable)
+    |> Ash.Changeset.force_change_attribute(
+      :last_seen_time,
+      DateTime.add(DateTime.utc_now(), -3_600, :second)
+    )
+    |> Ash.update!()
+
+    assert {:ok, %{failed: []}} =
+             Packages.sync_first_party_plugins(
+               actor: actor,
+               repo_url: @repo_url,
+               release_tag: "v2.0.0",
+               limit: 10
+             )
+
+    assert [package] = Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: actor)
+
+    {:ok, _lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Agent Active Plugin"
+    assert html =~ "agent-active-plugin"
+    refute html =~ "Agent Stale Plugin"
+    refute html =~ "agent-stale-plugin"
+  end
+
   test "shows first-party package provenance", %{conn: conn, actor: actor} do
-    assert {:ok, %{failed: []}} = Packages.sync_first_party_plugins(actor: actor, repo_url: @repo_url, limit: 10)
+    assert {:ok, %{failed: []}} =
+             Packages.sync_first_party_plugins(
+               actor: actor,
+               repo_url: @repo_url,
+               release_tag: "v2.0.0",
+               limit: 10
+             )
+
     assert [package] = Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: actor)
 
     {:ok, _lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
 
     assert html =~ "First-party Provenance"
     assert html =~ "v2.0.0"
-    assert html =~ "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
+
+    assert html =~
+             "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
   end
 
   def release do
@@ -169,6 +272,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           "name" => "serviceradar-wasm-plugin-index.json",
           "browser_download_url" =>
             "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v2.0.0/serviceradar-wasm-plugin-index.json"
+        }
+      ]
+    }
+  end
+
+  def old_release do
+    %{
+      "tag_name" => "v1.0.0",
+      "name" => "ServiceRadar v1.0.0",
+      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.0.0",
+      "assets" => [
+        %{
+          "name" => "serviceradar-wasm-plugin-index.json",
+          "browser_download_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.0.0/serviceradar-wasm-plugin-index.json"
         }
       ]
     }
@@ -193,11 +311,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     }
   end
 
+  def old_index do
+    %{
+      "schema_version" => 1,
+      "plugins" => [
+        %{
+          "plugin_id" => "old-first-party-plugin",
+          "name" => "Old First-party Plugin",
+          "version" => "1.0.0",
+          "bundle_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.0.0/old-first-party-plugin.zip",
+          "upload_signature_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.0.0/old-first-party-plugin.upload-signature.json",
+          "bundle_digest" => Storage.sha256(bundle()),
+          "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-old-first-party-plugin:v1.0.0"
+        }
+      ]
+    }
+  end
+
   def bundle do
     case Application.get_env(:serviceradar_web_ng, :plugin_live_test_bundle) ||
            Process.get(:live_first_party_bundle) do
       nil ->
-        path = Path.join(System.tmp_dir!(), "live-first-party-plugin-#{System.unique_integer([:positive])}.zip")
+        path =
+          Path.join(
+            System.tmp_dir!(),
+            "live-first-party-plugin-#{System.unique_integer([:positive])}.zip"
+          )
 
         try do
           {:ok, _zip} =
@@ -225,7 +366,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
         signature =
           @manifest
           |> UploadSignature.verification_payload(Storage.sha256(@wasm))
-          |> then(&:crypto.sign(:eddsa, :none, &1, [Process.get(:live_first_party_private_key), :ed25519]))
+          |> then(
+            &:crypto.sign(:eddsa, :none, &1, [
+              Process.get(:live_first_party_private_key),
+              :ed25519
+            ])
+          )
           |> Base.encode64()
 
         payload = %{

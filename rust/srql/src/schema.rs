@@ -17,6 +17,7 @@ diesel::table! {
         policies -> Nullable<Jsonb>,
         gateway_id -> Nullable<Text>,
         capabilities -> Nullable<Array<Text>>,
+        host -> Nullable<Text>,
         ip -> Nullable<Text>,
         first_seen_time -> Nullable<Timestamptz>,
         last_seen_time -> Nullable<Timestamptz>,

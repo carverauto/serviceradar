@@ -187,8 +187,7 @@ config :serviceradar_web_ng, :first_party_plugin_import,
 config :serviceradar_web_ng, :god_view_enabled, false
 
 config :serviceradar_web_ng, :plugin_storage,
-  backend: :filesystem,
-  base_path: "/var/lib/serviceradar/plugin-packages/data",
+  backend: :jetstream,
   upload_ttl_seconds: 900,
   download_ttl_seconds: 900,
   max_upload_bytes: 52_428_800,

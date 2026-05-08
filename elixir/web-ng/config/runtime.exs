@@ -354,12 +354,12 @@ normalize_plugin_backend = fn value ->
     is_binary(value) ->
       case String.downcase(String.trim(value)) do
         "jetstream" -> :jetstream
-        "filesystem" -> :filesystem
-        _ -> :filesystem
+        "filesystem" -> :jetstream
+        _ -> :jetstream
       end
 
     true ->
-      :filesystem
+      :jetstream
   end
 end
 

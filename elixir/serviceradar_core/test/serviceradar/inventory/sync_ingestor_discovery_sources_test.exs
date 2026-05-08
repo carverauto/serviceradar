@@ -448,6 +448,135 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
       assert Enum.map(active_ip_devices, & &1.uid) == [camera_uid]
     end
+
+    test "camera inventory does not reclassify an agent host running a camera plugin", %{
+      actor: actor
+    } do
+      ip = "10.0.12.#{unique_octet()}"
+      agent_id = "agent-camera-host-#{System.unique_integer([:positive])}"
+      device_uid = "agent-camera-host-device-#{System.unique_integer([:positive])}"
+
+      {:ok, _agent_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            type: "Server",
+            type_id: 1,
+            name: "camera-worker-host",
+            hostname: "camera-worker-host",
+            ip: ip,
+            agent_id: agent_id,
+            discovery_sources: ["agent", "camera_plugin"],
+            is_managed: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      payload = %{
+        "camera_descriptors" => [
+          %{
+            "device_uid" => device_uid,
+            "vendor" => "axis",
+            "camera_id" => "agent-host-plugin-descriptor",
+            "display_name" => "Agent Host Plugin Descriptor",
+            "ip" => ip,
+            "stream_profiles" => [%{"profile_name" => "main", "codec_hint" => "h264"}]
+          }
+        ]
+      }
+
+      assert :ok =
+               InventoryIngestor.ingest(payload, %{agent_id: agent_id},
+                 actor: actor,
+                 resolve_device_uid: fn _descriptor, _status, _actor -> device_uid end,
+                 source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+                 profile_upsert: fn attrs, _actor -> {:ok, attrs} end
+               )
+
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+
+      assert device.type == "Server"
+      assert device.type_id == 1
+      assert device.agent_id == agent_id
+      assert device.ip == ip
+      assert "camera_plugin" in device.discovery_sources
+    end
+
+    test "camera inventory does not claim ip from an agent-managed host", %{
+      actor: actor
+    } do
+      ip = "10.0.13.#{unique_octet()}"
+      agent_id = "agent-camera-ip-owner-#{System.unique_integer([:positive])}"
+      host_uid = "agent-camera-ip-owner-device-#{System.unique_integer([:positive])}"
+      camera_uid = "sr:camera-no-agent-ip-claim-#{System.unique_integer([:positive])}"
+
+      {:ok, _agent_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: host_uid,
+            type: "Server",
+            type_id: 1,
+            name: "camera-worker-host",
+            hostname: "camera-worker-host",
+            ip: ip,
+            agent_id: agent_id,
+            discovery_sources: ["agent"],
+            is_managed: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _camera_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: camera_uid,
+            type: "camera",
+            type_id: 7,
+            name: "Separate Camera",
+            discovery_sources: ["camera_plugin"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      payload = %{
+        "camera_descriptors" => [
+          %{
+            "device_uid" => camera_uid,
+            "vendor" => "axis",
+            "camera_id" => "separate-camera-behind-agent",
+            "display_name" => "Separate Camera",
+            "ip" => ip,
+            "stream_profiles" => [%{"profile_name" => "main", "codec_hint" => "h264"}]
+          }
+        ]
+      }
+
+      assert :ok =
+               InventoryIngestor.ingest(payload, %{agent_id: agent_id},
+                 actor: actor,
+                 resolve_device_uid: fn _descriptor, _status, _actor -> camera_uid end,
+                 source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+                 profile_upsert: fn attrs, _actor -> {:ok, attrs} end
+               )
+
+      {:ok, host_device} = Device.get_by_uid(host_uid, false, actor: actor)
+      {:ok, camera_device} = Device.get_by_uid(camera_uid, false, actor: actor)
+
+      assert host_device.type == "Server"
+      assert host_device.ip == ip
+      assert host_device.agent_id == agent_id
+      assert camera_device.type == "camera"
+      assert is_nil(camera_device.ip)
+    end
   end
 
   defp unique_octet do

@@ -38,8 +38,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:filter_status, nil)
         |> assign(:filter_source_type, nil)
         |> assign(:first_party_catalog, [])
+        |> assign(:first_party_catalog_all, [])
         |> assign(:first_party_catalog_error, nil)
         |> assign(:first_party_catalog_status, nil)
+        |> assign(:first_party_release_options, [])
+        |> assign(:first_party_release_tag, nil)
         |> assign(:first_party_repo_url, first_party_repo_url())
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
@@ -204,7 +207,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, load_first_party_catalog(socket)}
   end
 
-  def handle_event("import_first_party_catalog", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
+  def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
+    {:noreply,
+     assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
+  end
+
+  def handle_event(
+        "import_first_party_catalog",
+        _params,
+        %{assigns: %{can_stage_plugins: false}} = socket
+      ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
@@ -214,11 +226,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     case Packages.sync_first_party_plugins(
            scope: scope,
            repo_url: socket.assigns.first_party_repo_url,
+           release_tag: socket.assigns.first_party_release_tag,
            limit: first_party_sync_limit()
          ) do
       {:ok, summary} ->
         message =
-          "Imported #{summary.imported} first-party plugin package(s)" <>
+          "Imported #{summary.imported} first-party plugin package(s) from #{socket.assigns.first_party_release_tag || "the selected release"}" <>
             if(summary.failed == [], do: ".", else: "; #{length(summary.failed)} failed.")
 
         {:noreply,
@@ -275,7 +288,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event("create_package", %{"create" => _params}, %{assigns: %{can_stage_plugins: false}} = socket) do
+  def handle_event(
+        "create_package",
+        %{"create" => _params},
+        %{assigns: %{can_stage_plugins: false}} = socket
+      ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
@@ -324,7 +341,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           {:error, :untrusted_repo} ->
             {:noreply,
              socket
-             |> assign(:create_errors, ["github import is outside the trusted repository boundary"])
+             |> assign(:create_errors, [
+               "github import is outside the trusted repository boundary"
+             ])
              |> put_flash(:error, "GitHub repo is not trusted for authenticated import")}
 
           {:error, :invalid_ref} ->
@@ -376,7 +395,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Config schema JSON is invalid")}
 
           {:error, error} ->
-            {:noreply, put_flash(socket, :error, "Failed to import GitHub package: #{format_error(error)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to import GitHub package: #{format_error(error)}")}
         end
 
       _ ->
@@ -426,7 +446,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Config schema JSON is invalid")}
 
           {:error, error} ->
-            {:noreply, put_flash(socket, :error, "Failed to create package: #{format_error(error)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to create package: #{format_error(error)}")}
         end
     end
   end
@@ -460,10 +481,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
-    {:noreply, assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
+    {:noreply,
+     assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
   end
 
-  def handle_event("approve_package", %{"review" => _params}, %{assigns: %{can_approve_plugins: false}} = socket) do
+  def handle_event(
+        "approve_package",
+        %{"review" => _params},
+        %{assigns: %{can_approve_plugins: false}} = socket
+      ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
@@ -490,13 +516,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply, put_flash(socket, :error, message)}
 
       {:error, :verification_required} ->
-        {:noreply, put_flash(socket, :error, "GitHub package must be GPG verified before approval")}
+        {:noreply,
+         put_flash(socket, :error, "GitHub package must be GPG verified before approval")}
 
       {:error, :signature_required} ->
-        {:noreply, put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
+        {:noreply,
+         put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
 
       {:error, :trusted_upload_signers_not_configured} ->
-        {:noreply, put_flash(socket, :error, "Upload signing keys are not configured for strict verification")}
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Upload signing keys are not configured for strict verification"
+         )}
 
       {:error, :invalid_signature} ->
         {:noreply, put_flash(socket, :error, "Upload signature verification failed")}
@@ -539,7 +572,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     scope = socket.assigns.current_scope
     reason = socket.assigns.review_form["denied_reason"]
 
-    case Packages.revoke(socket.assigns.selected_package.id, %{denied_reason: reason}, scope: scope) do
+    case Packages.revoke(socket.assigns.selected_package.id, %{denied_reason: reason},
+           scope: scope
+         ) do
       {:ok, package} ->
         {:noreply,
          socket
@@ -557,7 +592,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, socket}
   end
 
-  def handle_event("create_assignment", %{"assignment" => _params}, %{assigns: %{can_assign_plugins: false}} = socket) do
+  def handle_event(
+        "create_assignment",
+        %{"assignment" => _params},
+        %{assigns: %{can_assign_plugins: false}} = socket
+      ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
@@ -579,7 +618,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event("delete_assignment", %{"id" => _id}, %{assigns: %{can_assign_plugins: false}} = socket) do
+  def handle_event(
+        "delete_assignment",
+        %{"id" => _id},
+        %{assigns: %{can_assign_plugins: false}} = socket
+      ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
@@ -620,7 +663,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event("delete_package", %{"id" => _id}, %{assigns: %{can_approve_plugins: false}} = socket) do
+  def handle_event(
+        "delete_package",
+        %{"id" => _id},
+        %{assigns: %{can_approve_plugins: false}} = socket
+      ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
@@ -646,7 +693,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Package deleted")}
 
       {:error, {:assignment_errors, errors}} ->
-        {:noreply, put_flash(socket, :error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Failed to delete package: #{format_error(error)}")}
@@ -723,7 +771,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
 
-        {:noreply, put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
     end
   end
 
@@ -736,7 +785,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             {:ok, payload}
 
           {:error, reason} ->
-            Logger.error("plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}")
+            Logger.error(
+              "plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}"
+            )
 
             {:error, :read_failed}
         end
@@ -1005,6 +1056,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </p>
             </div>
             <div class="flex items-center gap-2">
+              <form
+                :if={@first_party_release_options != []}
+                phx-change="select_first_party_release"
+                class="flex items-center gap-2"
+              >
+                <select name="release_tag" class="select select-sm select-bordered">
+                  <option
+                    :for={release_tag <- @first_party_release_options}
+                    value={release_tag}
+                    selected={release_tag == @first_party_release_tag}
+                  >
+                    {release_tag}
+                  </option>
+                </select>
+              </form>
               <.ui_button variant="ghost" size="sm" phx-click="sync_first_party_catalog">
                 <.icon name="hero-arrow-path" class="size-4" /> Sync
               </.ui_button>
@@ -1773,9 +1839,19 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> Ash.Query.limit(200)
     |> Ash.Query.sort(name: :asc)
     |> Ash.read!(scope: scope)
+    |> Enum.filter(&active_agent?/1)
   rescue
     _ -> []
   end
+
+  defp active_agent?(%Agent{status: status}) when status in [:connected, :degraded, :connecting],
+    do: true
+
+  defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(_agent), do: false
 
   defp load_first_party_catalog(socket) do
     case FirstPartyImporter.list_recent_plugins_with_summary(
@@ -1783,29 +1859,87 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            first_party_sync_limit()
          ) do
       {:ok, summary} ->
+        socket =
+          assign_first_party_catalog_view(
+            socket,
+            summary.plugins,
+            socket.assigns[:first_party_release_tag]
+          )
+
         socket
-        |> assign(:first_party_catalog, summary.plugins)
         |> assign(:first_party_catalog_error, nil)
-        |> assign(:first_party_catalog_status, first_party_catalog_status(summary))
+        |> assign(
+          :first_party_catalog_status,
+          first_party_catalog_status(summary, socket.assigns.first_party_catalog, summary.plugins)
+        )
 
       {:error, reason} ->
         socket
         |> assign(:first_party_catalog, [])
+        |> assign(:first_party_catalog_all, [])
+        |> assign(:first_party_release_options, [])
+        |> assign(:first_party_release_tag, nil)
         |> assign(:first_party_catalog_error, format_error(reason))
         |> assign(:first_party_catalog_status, nil)
     end
   end
 
-  defp first_party_catalog_status(%{plugins: plugins} = summary) do
+  defp assign_first_party_catalog_view(socket, plugins, requested_release_tag) do
+    release_options = first_party_release_options(plugins)
+    selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
+    visible_plugins = filter_first_party_plugins(plugins, selected_release_tag)
+
+    socket
+    |> assign(:first_party_catalog_all, plugins)
+    |> assign(:first_party_release_options, release_options)
+    |> assign(:first_party_release_tag, selected_release_tag)
+    |> assign(:first_party_catalog, visible_plugins)
+  end
+
+  defp first_party_release_options(plugins) do
+    plugins
+    |> Enum.map(& &1.release_tag)
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
+  end
+
+  defp selected_first_party_release([], _requested), do: nil
+
+  defp selected_first_party_release(release_options, requested) do
+    if requested in release_options do
+      requested
+    else
+      List.first(release_options)
+    end
+  end
+
+  defp filter_first_party_plugins(plugins, nil), do: plugins
+
+  defp filter_first_party_plugins(plugins, release_tag) do
+    Enum.filter(plugins, &(&1.release_tag == release_tag))
+  end
+
+  defp first_party_catalog_status(summary, visible_plugins, all_plugins) do
     cond do
-      plugins != [] ->
-        "Loaded #{length(plugins)} first-party plugin entry(s) from #{summary.indexed_releases} indexed release(s)."
+      visible_plugins != [] ->
+        "Showing #{length(visible_plugins)} first-party plugin entry(s) from #{selected_release_status_label(visible_plugins)}. Loaded #{length(all_plugins)} entry(s) from #{summary.indexed_releases} indexed release(s)."
 
       summary.indexed_releases == 0 ->
         "Scanned #{summary.scanned_releases} recent Forgejo release(s), but none had #{summary.index_asset_name}. Publish the Wasm plugin import index to a release before importing."
 
       true ->
         "Scanned #{summary.indexed_releases} indexed release(s), but no import-ready plugin entries were found."
+    end
+  end
+
+  defp selected_release_status_label([]), do: "the selected release"
+
+  defp selected_release_status_label(plugins) do
+    plugins
+    |> first_party_release_options()
+    |> case do
+      [release_tag | _] -> "release #{release_tag}"
+      [] -> "the selected release"
     end
   end
 
@@ -1937,8 +2071,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           %{
             requested_cpu_ms: acc.requested_cpu_ms + resource_value(resources, :requested_cpu_ms),
-            requested_memory_mb: acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
-            max_open_connections: acc.max_open_connections + resource_value(resources, :max_open_connections)
+            requested_memory_mb:
+              acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
+            max_open_connections:
+              acc.max_open_connections + resource_value(resources, :max_open_connections)
           }
         end
       end
@@ -2096,7 +2232,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp parse_optional_json_map_impl(_value, label), do: {:error, {:invalid_json, "#{label} must be JSON"}}
+  defp parse_optional_json_map_impl(_value, label),
+    do: {:error, {:invalid_json, "#{label} must be JSON"}}
 
   defp config_schema_present?(schema) when is_map(schema) do
     schema = stringify_keys(schema)
@@ -2206,7 +2343,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp normalize_assignment_params(params, config_schema) when is_map(params) and is_map(config_schema) do
+  defp normalize_assignment_params(params, config_schema)
+       when is_map(params) and is_map(config_schema) do
     alias ServiceRadar.Plugins.ConfigSchema
 
     schema = stringify_keys(config_schema)
@@ -2335,7 +2473,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     "#{name} (#{agent.uid})"
   end
 
-  defp existing_assignment(assignments, agent_uid) when is_list(assignments) and is_binary(agent_uid) do
+  defp existing_assignment(assignments, agent_uid)
+       when is_list(assignments) and is_binary(agent_uid) do
     Enum.find(assignments, fn assignment ->
       assignment.agent_uid == agent_uid
     end)

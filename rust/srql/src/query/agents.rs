@@ -8,8 +8,8 @@ use crate::{
     schema::ocsf_agents::dsl::{
         capabilities as col_capabilities, config_source as col_config_source,
         created_time as col_created_time, desired_version as col_desired_version,
-        first_seen_time as col_first_seen_time, gateway_id as col_gateway_id, ip as col_ip,
-        last_seen_time as col_last_seen_time, last_update_at as col_last_update_at,
+        first_seen_time as col_first_seen_time, gateway_id as col_gateway_id, host as col_host,
+        ip as col_ip, last_seen_time as col_last_seen_time, last_update_at as col_last_update_at,
         last_update_error as col_last_update_error, modified_time as col_modified_time,
         name as col_name, ocsf_agents, release_rollout_state as col_release_rollout_state,
         type_id as col_type_id, uid as col_uid, vendor_name as col_vendor_name,
@@ -114,6 +114,9 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
         "gateway_id" => {
             query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
+        "host" => {
+            query = apply_text_filter!(query, filter, col_host)?;
+        }
         "version" => {
             query = apply_text_filter!(query, filter, col_version)?;
         }
@@ -207,6 +210,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "uid"
         | "name"
         | "gateway_id"
+        | "host"
         | "version"
         | "vendor_name"
         | "ip"
@@ -294,6 +298,14 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(col_gateway_id.asc()),
             OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
+        "host" => match direction {
+            OrderDirection::Asc => query.order(col_host.asc()),
+            OrderDirection::Desc => query.order(col_host.desc()),
+        },
+        "ip" => match direction {
+            OrderDirection::Asc => query.order(col_ip.asc()),
+            OrderDirection::Desc => query.order(col_ip.desc()),
+        },
         "desired_version" => match direction {
             OrderDirection::Asc => query.order(col_desired_version.asc()),
             OrderDirection::Desc => query.order(col_desired_version.desc()),
@@ -347,6 +359,14 @@ fn apply_secondary_order<'a>(
         "gateway_id" => match direction {
             OrderDirection::Asc => query.then_order_by(col_gateway_id.asc()),
             OrderDirection::Desc => query.then_order_by(col_gateway_id.desc()),
+        },
+        "host" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_host.asc()),
+            OrderDirection::Desc => query.then_order_by(col_host.desc()),
+        },
+        "ip" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_ip.asc()),
+            OrderDirection::Desc => query.then_order_by(col_ip.desc()),
         },
         "desired_version" => match direction {
             OrderDirection::Asc => query.then_order_by(col_desired_version.asc()),
@@ -425,6 +445,31 @@ mod tests {
 
         let result = build_query(&plan);
         assert!(result.is_ok(), "should build query with gateway filter");
+    }
+
+    #[test]
+    fn builds_query_with_host_and_ip_filters() {
+        for field in ["host", "ip"] {
+            let plan = QueryPlan {
+                entity: Entity::Agents,
+                filters: vec![Filter {
+                    field: field.into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("agent-sr-test-pve04".to_string()),
+                }],
+                order: Vec::new(),
+                limit: 50,
+                offset: 0,
+                time_range: None,
+                stats: None,
+                downsample: None,
+                rollup_stats: None,
+                include_deleted: false,
+            };
+
+            let result = build_query(&plan);
+            assert!(result.is_ok(), "should build query with {field} filter");
+        }
     }
 
     #[test]

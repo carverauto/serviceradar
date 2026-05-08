@@ -84,6 +84,47 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.type_id == 12
   end
 
+  test "classifies Proxmox nodes as hypervisors from device_role metadata", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "pve-#{System.unique_integer([:positive])}",
+      "source" => "proxmox-api",
+      "metadata" => %{
+        "device_role" => "hypervisor",
+        "virtualization_node" => "pve01"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.type == "Hypervisor"
+    assert device.type_id == 99
+    assert device.metadata["device_role"] == "hypervisor"
+  end
+
+  test "classifies Proxmox VM and LXC guests as virtual devices", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "guest-#{System.unique_integer([:positive])}",
+      "source" => "proxmox-api",
+      "metadata" => %{
+        "device_role" => "virtual-guest",
+        "virtualization_guest_type" => "qemu"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.type == "Virtual"
+    assert device.type_id == 6
+  end
+
   test "infers switch type from USW sysDescr", %{actor: actor} do
     ip = unique_ip()
 
