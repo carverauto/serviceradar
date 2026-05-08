@@ -78,7 +78,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
-      prepare build(select: @secret_read_fields, load: [:secret_payload])
+      prepare build(select: @secret_read_fields)
     end
 
     read :by_provider do

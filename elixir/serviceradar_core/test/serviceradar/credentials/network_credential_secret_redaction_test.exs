@@ -45,6 +45,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
 
     refute :name in selected
     refute :username in selected
+    refute :secret_payload in selected
     refute :public_fingerprint in selected
   end
 

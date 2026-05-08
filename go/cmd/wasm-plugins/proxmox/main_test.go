@@ -179,6 +179,29 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 }
 
+func TestRunProxmoxCheckAcceptsBareAPITokenMaterial(t *testing.T) {
+	client := &fakeHTTPClient{}
+	oldHTTP := proxmoxHTTP
+	proxmoxHTTP = client
+	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+
+	includeGuests := false
+	result, err := runProxmoxCheck(Config{
+		BaseURL:       "https://pve-a.example:8006/",
+		APIToken:      "root@pam!sr=test-token",
+		IncludeGuests: &includeGuests,
+	})
+	if err != nil {
+		t.Fatalf("runProxmoxCheck() error = %v", err)
+	}
+	if result.Status != sdk.StatusWarning {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if got := client.requests[0].Headers["Authorization"]; got != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("expected normalized Proxmox API token header, got %q", got)
+	}
+}
+
 func boolPtr(value bool) *bool {
 	return &value
 }

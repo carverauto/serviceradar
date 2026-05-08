@@ -448,7 +448,7 @@ func applyConfigMap(raw map[string]any, cfg *Config) error {
 }
 
 func fetchTargetInventory(cfg Config, target Target) (proxmoxInventory, error) {
-	token := strings.TrimSpace(firstNonEmpty(target.APIToken, cfg.APIToken))
+	token := normalizeProxmoxAPIToken(firstNonEmpty(target.APIToken, cfg.APIToken))
 	if token == "" {
 		return proxmoxInventory{}, errMissingToken
 	}
@@ -954,6 +954,18 @@ func normalizeBaseURL(value string) string {
 	}
 
 	return "https://" + strings.TrimRight(value, "/") + ":8006"
+}
+
+func normalizeProxmoxAPIToken(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "PVEAPIToken=") {
+		return value
+	}
+
+	return "PVEAPIToken=" + value
 }
 
 func dedupeTargets(targets []Target) []Target {
