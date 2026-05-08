@@ -500,6 +500,36 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp update_camera_device(device, attrs, actor) do
     case {device, attrs} do
       {%Device{} = device, attrs} when is_map(attrs) ->
+        if camera_classified_device?(device) do
+          update_camera_device_attrs(device, attrs, actor)
+        else
+          Logger.warning(
+            "Skipping camera inventory update for non-camera device #{device.uid}; descriptor identity resolved to an existing #{device.type || "device"}"
+          )
+
+          :ok
+        end
+
+      {%Device{} = device, target_uid} when is_binary(target_uid) ->
+        # Tolerate older ingest paths that passed the target uid instead of attrs after
+        # an IP-claim merge. Re-read the canonical camera row and continue with its
+        # merged state rather than failing the whole ingest.
+        with {:ok, %Device{} = target_device} <-
+               Device.get_by_uid(target_uid, false, actor: actor) do
+          target_device
+          |> camera_device_update_attrs()
+          |> then(&merge_camera_device_attrs(device, &1))
+          |> then(&update_camera_device(target_device, &1, actor))
+        end
+
+      _ ->
+        {:error, {:invalid_camera_update_target, device, attrs}}
+    end
+  end
+
+  defp update_camera_device_attrs(device, attrs, actor) do
+    case {device, attrs} do
+      {%Device{} = device, attrs} when is_map(attrs) ->
         update_attrs = camera_device_update_attrs(device, attrs)
 
         device
@@ -515,18 +545,6 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
           {:error, reason} ->
             {:error, reason}
-        end
-
-      {%Device{} = device, target_uid} when is_binary(target_uid) ->
-        # Tolerate older ingest paths that passed the target uid instead of attrs after
-        # an IP-claim merge. Re-read the canonical camera row and continue with its
-        # merged state rather than failing the whole ingest.
-        with {:ok, %Device{} = target_device} <-
-               Device.get_by_uid(target_uid, false, actor: actor) do
-          target_device
-          |> camera_device_update_attrs()
-          |> then(&merge_camera_device_attrs(device, &1))
-          |> then(&update_camera_device(target_device, &1, actor))
         end
 
       _ ->
@@ -1373,17 +1391,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     host = string_value(details, ["camera_host"])
     device_info = map_value(details, ["device_info"]) || %{}
     streams = list_value(details, ["streams"])
+    serial = string_value(device_info, ["S.Nbr", "SerialNumber", "Serial"])
 
     device_uid =
       first_present([
-        string_value(device_info, ["S.Nbr", "SerialNumber", "Serial"]),
+        serial,
         string_value(device_info, ["MACAddress", "Network.HWaddress", "root.Network.HWaddress"]),
         host
       ])
 
     vendor_camera_id =
       first_present([
-        string_value(device_info, ["S.Nbr", "SerialNumber", "Serial"]),
+        serial,
         host
       ])
 
@@ -1400,7 +1419,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             host
           ]),
         "source_url" => first_stream_url(streams),
-        "stream_profiles" => Enum.map(streams, &axis_profile_descriptor/1)
+        "stream_profiles" => Enum.map(streams, &axis_profile_descriptor/1),
+        "identity" =>
+          %{"serial" => serial} |> Enum.reject(fn {_key, value} -> blank?(value) end) |> Map.new()
       }
     end
   end
@@ -1575,7 +1596,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           value == explicit_uid ->
             descriptor
 
-          IdentityReconciler.serviceradar_uuid?(value) ->
+          IdentityReconciler.serviceradar_uuid?(value) and
+              replace_explicit_camera_uid?(explicit_uid, descriptor) ->
             Map.put(descriptor, "device_uid", value)
 
           true ->
@@ -1597,6 +1619,16 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       "canonicalDeviceId",
       "uid"
     ])
+  end
+
+  defp replace_explicit_camera_uid?(explicit_uid, descriptor) do
+    not blank?(explicit_uid) and
+      (mac_like?(explicit_uid) or
+         (blank?(descriptor_serial(descriptor)) and
+            same_present_value?(
+              normalize_identifier_component(explicit_uid),
+              normalize_identifier_component(descriptor_vendor_camera_id(descriptor))
+            )))
   end
 
   defp default_resolve_device_uid(descriptor, status, actor) do
@@ -1762,18 +1794,41 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp descriptor_integration_id(descriptor) when is_map(descriptor) do
-    identity = map_value(descriptor, ["identity"]) || %{}
     vendor = string_value(descriptor, ["vendor"])
-    serial = string_value(identity, ["serial"])
+    serial = descriptor_serial(descriptor)
 
     cond do
-      not blank?(string_value(identity, ["integration_id", "integrationId"])) ->
-        string_value(identity, ["integration_id", "integrationId"])
+      not blank?(descriptor_identity_integration_id(descriptor)) ->
+        descriptor_identity_integration_id(descriptor)
 
       not blank?(serial) and not blank?(vendor) ->
         "#{vendor}:serial:#{serial}"
 
+      not blank?(descriptor_vendor_camera_id(descriptor)) and not blank?(vendor) ->
+        "#{vendor}:camera:#{descriptor_vendor_camera_id(descriptor)}"
+
       true ->
+        nil
+    end
+  end
+
+  defp descriptor_serial(descriptor) when is_map(descriptor) do
+    descriptor
+    |> map_value(["identity"])
+    |> case do
+      identity when is_map(identity) -> string_value(identity, ["serial"])
+      _ -> nil
+    end
+  end
+
+  defp descriptor_identity_integration_id(descriptor) when is_map(descriptor) do
+    descriptor
+    |> map_value(["identity"])
+    |> case do
+      identity when is_map(identity) ->
+        string_value(identity, ["integration_id", "integrationId"])
+
+      _ ->
         nil
     end
   end

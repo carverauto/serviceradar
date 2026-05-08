@@ -1943,8 +1943,10 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
+			e.logPluginHostHTTPFailure(err, reqURL, method, "timeout")
 			return pluginErrTimeout
 		}
+		e.logPluginHostHTTPFailure(err, reqURL, method, "request_failed")
 		return pluginErrInternal
 	}
 	defer func() {
@@ -1954,6 +1956,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	limited := io.LimitReader(resp.Body, pluginMaxHTTPBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
 	if err != nil {
+		e.logPluginHostHTTPFailure(err, reqURL, method, "read_failed")
 		return pluginErrInternal
 	}
 	if int64(len(bodyBytes)) > pluginMaxHTTPBodyBytes {
@@ -1992,6 +1995,22 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 
 	return int32(len(responseBytes))
+}
+
+func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, method string, reason string) {
+	if e == nil || e.manager == nil || err == nil || reqURL == nil {
+		return
+	}
+
+	e.manager.logger.Warn().
+		Err(err).
+		Str("assignment_id", e.assignment.AssignmentID).
+		Str("plugin_id", e.assignment.PluginID).
+		Str("method", method).
+		Str("scheme", reqURL.Scheme).
+		Str("host", reqURL.Hostname()).
+		Str("reason", reason).
+		Msg("Plugin host HTTP request failed")
 }
 
 func decodeBody(payload httpRequestPayload) ([]byte, error) {
@@ -2409,8 +2428,10 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
+			e.logPluginHostWebSocketFailure(err, parsed, "timeout")
 			return pluginErrTimeout
 		}
+		e.logPluginHostWebSocketFailure(err, parsed, "connect_failed")
 		return pluginErrInternal
 	}
 
@@ -2421,6 +2442,21 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 
 	return int32(handle)
+}
+
+func (e *pluginExecution) logPluginHostWebSocketFailure(err error, wsURL *url.URL, reason string) {
+	if e == nil || e.manager == nil || err == nil || wsURL == nil {
+		return
+	}
+
+	e.manager.logger.Warn().
+		Err(err).
+		Str("assignment_id", e.assignment.AssignmentID).
+		Str("plugin_id", e.assignment.PluginID).
+		Str("scheme", wsURL.Scheme).
+		Str("host", wsURL.Hostname()).
+		Str("reason", reason).
+		Msg("Plugin host WebSocket connection failed")
 }
 
 type websocketConnectPayload struct {

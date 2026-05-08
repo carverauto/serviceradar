@@ -361,6 +361,59 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert profile_attrs.profile_name == "High"
   end
 
+  test "replaces explicit camera id placeholders when identity resolution returns a canonical uid" do
+    parent = self()
+
+    source_upsert = fn attrs, _actor ->
+      send(parent, {:source_upsert, attrs})
+      {:ok, %{id: Ecto.UUID.generate()}}
+    end
+
+    profile_upsert = fn attrs, _actor ->
+      send(parent, {:profile_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    resolve_device_uid = fn descriptor, _status, _actor ->
+      send(parent, {:resolve_device_uid, descriptor})
+      "sr:camera-canonical-2"
+    end
+
+    device_sync = fn descriptor, _status, _observed_at, _actor ->
+      send(parent, {:device_sync, descriptor})
+      :ok
+    end
+
+    payload = %{
+      "camera_descriptors" => [
+        %{
+          "device_uid" => "protect-camera-2",
+          "vendor" => "ubiquiti",
+          "camera_id" => "protect-camera-2",
+          "display_name" => "Garage Door",
+          "stream_profiles" => [%{"profile_name" => "High"}]
+        }
+      ]
+    }
+
+    assert :ok =
+             InventoryIngestor.ingest(payload, %{},
+               source_upsert: source_upsert,
+               profile_upsert: profile_upsert,
+               resolve_device_uid: resolve_device_uid,
+               device_sync: device_sync
+             )
+
+    assert_receive {:resolve_device_uid, descriptor}
+    assert descriptor["device_uid"] == "protect-camera-2"
+
+    assert_receive {:device_sync, synced_descriptor}
+    assert synced_descriptor["device_uid"] == "sr:camera-canonical-2"
+
+    assert_receive {:source_upsert, source_attrs}
+    assert source_attrs.device_uid == "sr:camera-canonical-2"
+  end
+
   test "extracts generic device enrichment descriptors from top-level payloads" do
     payload = %{
       "device_enrichment" => %{
