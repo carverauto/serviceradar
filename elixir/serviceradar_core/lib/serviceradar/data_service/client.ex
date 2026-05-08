@@ -222,15 +222,25 @@ defmodule ServiceRadar.DataService.Client do
   @impl true
   def handle_info(:connect, %{channel: channel} = state) when channel != nil do
     # Already connected, ignore stale :connect message
-    {:noreply, %{state | reconnecting: false}}
-  end
-
-  def handle_info(:connect, %{connect_task: {_pid, _ref}} = state) do
-    {:noreply, state}
+    {:noreply, %{state | reconnecting: false, connect_task: nil}}
   end
 
   def handle_info(:connect, state) do
-    {:noreply, start_connect_task(state)}
+    state = clear_connect_task(state)
+
+    case open_channel(state.config) do
+      {:ok, channel} ->
+        Logger.info("Connected to datasvc at #{state.config.host}:#{state.config.port}")
+
+        {:noreply,
+         state
+         |> set_channel(channel)
+         |> Map.put(:reconnecting, false)
+         |> Map.put(:backoff, ServiceRadar.Backoff.reset(state.backoff))}
+
+      {:error, reason} ->
+        {:noreply, schedule_reconnect(state, reason)}
+    end
   end
 
   def handle_info({:connect_result, {:ok, channel}}, state) do
@@ -245,11 +255,6 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:connect_result, {:error, reason}}, state) do
-    state = clear_connect_task(state)
-    {:noreply, schedule_reconnect(state, reason)}
-  end
-
-  def handle_info({:DOWN, ref, :process, pid, reason}, %{connect_task: {pid, ref}} = state) do
     state = clear_connect_task(state)
     {:noreply, schedule_reconnect(state, reason)}
   end
@@ -443,14 +448,7 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp open_channel(config) do
-    endpoint = "#{config.host}:#{config.port}"
-
-    with {:ok, cred_opts} <- build_cred_opts(config) do
-      connect_opts =
-        Keyword.put(cred_opts, :adapter_opts, connect_timeout: config.connect_timeout_ms)
-
-      GRPC.Stub.connect(endpoint, connect_opts)
-    end
+    open_direct_channel(config)
   end
 
   defp open_direct_channel(config) do
@@ -559,23 +557,11 @@ defmodule ServiceRadar.DataService.Client do
   defp disconnect_direct_channel(_channel), do: :ok
 
   defp start_connect_task(state) do
-    parent = self()
-
-    {:ok, pid} =
-      Task.start(fn ->
-        send(parent, {:connect_result, open_channel(state.config)})
-      end)
-
-    ref = Process.monitor(pid)
-    %{state | connect_task: {pid, ref}}
+    Process.send_after(self(), :connect, 0)
+    %{state | connect_task: :scheduled}
   end
 
-  defp clear_connect_task(%{connect_task: nil} = state), do: state
-
-  defp clear_connect_task(%{connect_task: {_pid, ref}} = state) do
-    Process.demonitor(ref, [:flush])
-    %{state | connect_task: nil}
-  end
+  defp clear_connect_task(state), do: %{state | connect_task: nil}
 
   defp schedule_reconnect(state, reason) do
     {delay_ms, backoff} = ServiceRadar.Backoff.next(state.backoff)
@@ -657,7 +643,13 @@ defmodule ServiceRadar.DataService.Client do
     %{state | channel: nil}
   end
 
-  defp disconnect_managed_channel(%GRPC.Channel{} = channel), do: GRPC.Stub.disconnect(channel)
+  defp disconnect_managed_channel(%GRPC.Channel{} = channel) do
+    _ = disconnect_direct_channel(channel)
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
   defp disconnect_managed_channel(_channel), do: :ok
 
   defp do_put(channel, key, value, opts) do
