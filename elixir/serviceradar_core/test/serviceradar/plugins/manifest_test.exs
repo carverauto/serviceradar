@@ -175,6 +175,27 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert :ok == Manifest.validate_config_schema(schema)
   end
 
+  test "config schema validation accepts vendor extensions and password format annotations" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "ssh" => %{
+          "type" => "object",
+          "x-serviceradar-ui-hidden" => true,
+          "properties" => %{
+            "password" => %{
+              "type" => "string",
+              "format" => "password",
+              "x-serviceradar-sensitive" => true
+            }
+          }
+        }
+      }
+    }
+
+    assert :ok == Manifest.validate_config_schema(schema)
+  end
+
   test "config schema validation rejects non-object JSON" do
     schema = ~S(["bad"])
     assert {:error, errors} = Manifest.validate_config_schema(schema)

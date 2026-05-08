@@ -5,7 +5,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   alias ServiceRadar.Plugins.MapUtils
 
-  @allowed_formats ~w(uri email)
+  @allowed_formats ~w(uri email password)
   @allowed_root_keys ~w(type title description properties required additionalProperties)
   @allowed_property_keys ~w(
     type title description default enum minimum maximum minLength maxLength pattern format items
@@ -79,13 +79,15 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
       schema
       |> Map.keys()
       |> Enum.map(&to_string/1)
-      |> Enum.reject(&(&1 in allowed))
+      |> Enum.reject(&allowed_key?(&1, allowed))
 
     case unknown do
       [] -> errors
       _ -> ["#{path} contains unsupported keys: #{Enum.join(unknown, ", ")}" | errors]
     end
   end
+
+  defp allowed_key?(key, allowed), do: key in allowed or String.starts_with?(key, "x-")
 
   defp validate_required(schema, errors) do
     required = Map.get(schema, "required")
