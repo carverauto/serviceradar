@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.36
+
+Agent rollout reconciliation hotfix for agents that restart onto the desired version before sending another status batch.
+
+## Whats New
+
+**1.2.36**
+- Fixed managed agent rollouts getting stuck at `Restarting` after an agent reconnects on the desired version by reconciling active release targets whenever the gateway syncs a version-bearing agent record.
+- Added integration coverage for the gateway-sync path so a release target at `restarting` is marked healthy when the authoritative agent version matches the rollout version.
+
 # ServiceRadar v1.2.35
 
 Agent control-plane stabilization and demo cleanup release for managed agent rollouts and Proxmox validation.
