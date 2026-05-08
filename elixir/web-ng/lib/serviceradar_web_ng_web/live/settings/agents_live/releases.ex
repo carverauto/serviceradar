@@ -1098,7 +1098,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           <div class="flex flex-col gap-1">
                             <span class="font-mono text-xs">{rollout_version(rollout)}</span>
                             <span class="text-[11px] text-base-content/50">
-                              {rollout.created_by || "system"}
+                              Started by {rollout.created_by || "system"}
                             </span>
                           </div>
                         </td>
@@ -1311,7 +1311,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
               <.rollout_status_badge status={@display_status} />
             </div>
             <p class="mt-1 text-xs text-base-content/60">
-              Created by {@rollout.created_by || "system"} · {length(@rollout.cohort_agent_ids || [])} agents
+              Started by {@rollout.created_by || "system"} · {length(@rollout.cohort_agent_ids || [])} agents
             </p>
           </div>
           <button

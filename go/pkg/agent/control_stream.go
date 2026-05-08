@@ -38,7 +38,6 @@ import (
 
 const (
 	controlStreamReconnectDelay    = 5 * time.Second
-	controlStreamConnectTimeout    = 30 * time.Second
 	controlStreamHeartbeatInterval = 60 * time.Second
 )
 
@@ -176,9 +175,7 @@ func (p *PushLoop) controlStreamLoop(ctx context.Context) {
 			}
 		}
 
-		connectCtx, cancel := context.WithTimeout(ctx, controlStreamConnectTimeout)
-		stream, err := p.gateway.ControlStream(connectCtx)
-		cancel()
+		stream, err := p.gateway.ControlStream(ctx)
 		if err != nil {
 			p.logger.Warn().Err(err).Msg("Control stream connection failed")
 			select {
