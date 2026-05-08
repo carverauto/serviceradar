@@ -30,7 +30,14 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   ]
 
   @public_read_fields [:id, :inserted_at, :updated_at | @fields]
-  @secret_read_fields [:id, :encrypted_secret_payload]
+  @secret_read_fields [
+    :id,
+    :provider,
+    :credential_kind,
+    :username,
+    :metadata,
+    :encrypted_secret_payload
+  ]
 
   postgres do
     table "network_credential_secrets"

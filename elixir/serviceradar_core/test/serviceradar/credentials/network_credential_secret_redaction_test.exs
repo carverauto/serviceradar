@@ -41,10 +41,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
       |> selected_fields()
 
     assert :id in selected
+    assert :provider in selected
+    assert :credential_kind in selected
+    assert :username in selected
+    assert :metadata in selected
     assert :encrypted_secret_payload in selected
 
     refute :name in selected
-    refute :username in selected
     refute :secret_payload in selected
     refute :public_fingerprint in selected
   end

@@ -204,7 +204,7 @@ defmodule ServiceRadar.Plugins.SecretRefs do
          {:ok, secret} <- load_network_credential_secret(secret_id),
          {:ok, payload} <- decrypt_network_credential_secret(secret),
          true <- payload != "" do
-      {:ok, payload}
+      {:ok, format_network_credential_payload(secret, payload)}
     else
       {:error, reason} -> {:error, "#{field} #{reason}"}
       _ -> {:error, "#{field} referenced network credential has no secret payload"}
@@ -236,6 +236,53 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   defp decrypt_ash_cloak_secret_payload(_),
     do: {:error, "referenced network credential has no secret payload"}
+
+  defp format_network_credential_payload(secret, payload) do
+    if proxmox_api_token_secret?(secret) do
+      format_proxmox_api_token(secret, payload)
+    else
+      payload
+    end
+  end
+
+  defp proxmox_api_token_secret?(secret) do
+    Map.get(secret, :provider) == "proxmox" and Map.get(secret, :credential_kind) == :api_token
+  end
+
+  defp format_proxmox_api_token(secret, payload) do
+    payload = String.trim(payload)
+    token_id = proxmox_token_id(secret)
+
+    cond do
+      String.starts_with?(payload, "PVEAPIToken=") ->
+        String.replace_prefix(payload, "PVEAPIToken=", "")
+
+      token_id in [nil, ""] ->
+        payload
+
+      String.starts_with?(payload, token_id <> "=") ->
+        payload
+
+      true ->
+        token_id <> "=" <> payload
+    end
+  end
+
+  defp proxmox_token_id(secret) do
+    metadata = Map.get(secret, :metadata) || %{}
+
+    [Map.get(metadata, "token_id"), Map.get(metadata, :token_id), Map.get(secret, :username)]
+    |> Enum.find_value(fn
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end)
+  end
 
   defp load_network_credential_secret(secret_id) do
     actor = ServiceRadar.Actors.SystemActor.system(:plugin_secret_ref_resolution)
