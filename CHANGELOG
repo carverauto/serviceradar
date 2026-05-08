@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.35
+
+Agent control-plane stabilization and demo cleanup release for managed agent rollouts and Proxmox validation.
+
+## Whats New
+
+**1.2.35**
+- Fixed agent enrollment through the agent-gateway by auto-registering the gateway record before linking incoming agent hellos, avoiding `gateway_id` foreign-key failures that surfaced as `core unavailable`.
+- Tightened active-agent selection so settings, credential-rule scope selectors, plugin assignment views, and connected-agent reads only show recently healthy connected agents instead of stale historical rows.
+- Added automatic stale-agent pruning coverage so old connected, degraded, disconnected, connecting, and unavailable agents are retired from active operations while preserving historical audit and rollout references.
+- Hardened agent reassignment during gateway sync so mapper jobs and sweep groups are moved with normal Ash updates instead of brittle bulk updates.
+- Verified the demo namespace on the new agent cleanup path and reduced active connected agents from stale test inventory back to the three live agents.
+
 # ServiceRadar v1.2.34
 
 Proxmox virtualization, network-wide credential rules, console access, MTR diagnostics, and stability fixes for datasource-backed event ingestion and edge configuration sync.
