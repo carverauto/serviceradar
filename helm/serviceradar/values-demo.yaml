@@ -193,8 +193,12 @@ networkPolicy:
       - "104.18.23.0/24"
       # Allow AlienVault OTX API access for threat-intel sync/plugin checks.
       # otx.alienvault.com is served through CloudFront; Kubernetes NetworkPolicy
-      # cannot allow by DNS name, so this tracks the observed CIDR from 2026-04-28.
+      # cannot allow by DNS name, so this tracks observed CIDRs. CloudFront can
+      # move between ranges, so re-resolve and update these if OTX times out again.
       - "18.160.181.0/24"
+      # Observed on 2026-05-08.
+      - "54.192.55.0/24"
+      - "99.84.203.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"
