@@ -728,7 +728,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp active_agent?(%Agent{status: status}) when status in [:connected, :degraded, :connecting], do: true
+  defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
+       when status in [:connected, :degraded, :connecting] do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
 
   defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
     DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30

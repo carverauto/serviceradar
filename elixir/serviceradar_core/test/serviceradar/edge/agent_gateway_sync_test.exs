@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.NetworkDiscovery.MapperJob
@@ -449,6 +450,30 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert agent.version == "1.0.0"
       assert "icmp" in agent.capabilities
       assert "tcp" in agent.capabilities
+    end
+
+    test "creates missing gateway before linking agent", %{
+      agent_id: agent_id,
+      unique_id: unique_id,
+      actor: actor
+    } do
+      gateway_id = "gateway-sync-test-#{unique_id}"
+
+      assert {:error, _} = Gateway.get_by_id(gateway_id, actor: actor)
+
+      assert :ok =
+               AgentGatewaySync.upsert_agent(agent_id, %{
+                 name: "Gateway Linked Agent",
+                 gateway_id: gateway_id,
+                 metadata: %{domain: "test", partition_id: "test-partition"}
+               })
+
+      assert {:ok, gateway} = Gateway.get_by_id(gateway_id, actor: actor)
+      assert gateway.status == :healthy
+      assert gateway.registration_source == "agent-gateway-auto"
+
+      assert {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
+      assert agent.gateway_id == gateway_id
     end
 
     test "updates existing agent record", %{

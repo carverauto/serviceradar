@@ -272,7 +272,10 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     read :connected do
       description "All connected agents"
-      filter expr(status == :connected and is_healthy == true)
+
+      filter expr(
+               status == :connected and is_healthy == true and last_seen_time > ago(30, :minute)
+             )
     end
 
     read :by_status do

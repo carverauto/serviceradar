@@ -20,7 +20,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
   require Ash.Query
   require Logger
 
-  @default_retention_days 7
+  @default_retention_hours 24
   @default_batch_size 500
 
   @type result :: %{retired: non_neg_integer(), cutoff: DateTime.t()}
@@ -64,7 +64,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(
         expr(
-          status in [:connecting, :disconnected] and
+          status in [:connecting, :connected, :degraded, :disconnected] and
             (is_nil(last_seen_time) or last_seen_time < ^cutoff)
         )
       )
@@ -107,18 +107,40 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
   end
 
   defp cutoff(opts) do
-    retention_days =
-      opts
-      |> Keyword.get(:retention_days, configured_retention_days())
-      |> positive_integer(configured_retention_days())
+    retention_hours =
+      case Keyword.get(opts, :retention_hours) do
+        nil ->
+          opts
+          |> Keyword.get(:retention_days, configured_retention_hours())
+          |> retention_hours_from_days_or_hours(opts)
 
-    DateTime.add(DateTime.utc_now(), -retention_days * 86_400, :second)
+        hours ->
+          positive_integer(hours, configured_retention_hours())
+      end
+
+    DateTime.add(DateTime.utc_now(), -retention_hours * 3_600, :second)
+  end
+
+  defp retention_hours_from_days_or_hours(value, opts) do
+    if Keyword.has_key?(opts, :retention_days) do
+      value
+      |> positive_integer(configured_retention_days())
+      |> Kernel.*(24)
+    else
+      positive_integer(value, configured_retention_hours())
+    end
+  end
+
+  defp configured_retention_hours do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:retention_hours, configured_retention_days() * 24)
   end
 
   defp configured_retention_days do
     :serviceradar_core
     |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:retention_days, @default_retention_days)
+    |> Keyword.get(:retention_days, div(@default_retention_hours, 24))
   end
 
   defp count_bulk_records(records, _fallback) when is_list(records), do: length(records)
@@ -131,6 +153,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
   defp atomize_args(args) when is_map(args) do
     []
     |> maybe_put_arg(:retention_days, Map.get(args, "retention_days"))
+    |> maybe_put_arg(:retention_hours, Map.get(args, "retention_hours"))
     |> maybe_put_arg(:batch_size, Map.get(args, "batch_size"))
   end
 

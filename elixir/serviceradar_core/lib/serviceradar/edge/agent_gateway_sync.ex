@@ -17,6 +17,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperJob
@@ -65,17 +66,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
-    case Agent.get_by_uid(agent_id, actor: actor) do
-      {:ok, %Agent{} = agent} ->
-        update_agent(agent, attrs, actor)
+    with :ok <- ensure_gateway_for_agent(attrs, actor) do
+      case Agent.get_by_uid(agent_id, actor: actor) do
+        {:ok, %Agent{} = agent} ->
+          update_agent(agent, attrs, actor)
 
-      {:error, reason} ->
-        if not_found_error?(reason) do
-          create_agent(agent_id, attrs, actor)
-        else
-          Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
-          {:error, reason}
-        end
+        {:error, reason} ->
+          if not_found_error?(reason) do
+            create_agent(agent_id, attrs, actor)
+          else
+            Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
+            {:error, reason}
+          end
+      end
     end
   end
 
@@ -84,17 +87,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
-    case Agent.get_by_uid(agent_id, actor: actor) do
-      {:ok, %Agent{} = agent} ->
-        heartbeat_agent_record(agent, attrs, actor)
+    with :ok <- ensure_gateway_for_agent(attrs, actor) do
+      case Agent.get_by_uid(agent_id, actor: actor) do
+        {:ok, %Agent{} = agent} ->
+          heartbeat_agent_record(agent, attrs, actor)
 
-      {:error, reason} ->
-        if not_found_error?(reason) do
-          create_agent(agent_id, attrs, actor)
-        else
-          Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
-          {:error, reason}
-        end
+        {:error, reason} ->
+          if not_found_error?(reason) do
+            create_agent(agent_id, attrs, actor)
+          else
+            Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
+            {:error, reason}
+          end
+      end
     end
   end
 
@@ -619,28 +624,27 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         {:ok, 0}
 
       {:ok, records} ->
-        records
-        |> Ash.bulk_update(:update, %{agent_id: replacement_agent_id},
-          actor: actor,
-          return_errors?: true,
-          return_records?: false
-        )
-        |> case do
-          %Ash.BulkResult{status: :success} ->
-            {:ok, length(records)}
-
-          %Ash.BulkResult{status: :partial_success, errors: []} ->
-            {:ok, length(records)}
-
-          %Ash.BulkResult{status: :partial_success, errors: errors} ->
-            {:error, List.first(errors) || :partial_success}
-
-          %Ash.BulkResult{status: :error, errors: errors} ->
-            {:error, List.first(errors) || :bulk_update_failed}
-        end
+        update_agent_assignments(records, replacement_agent_id, actor)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp update_agent_assignments(records, replacement_agent_id, actor) do
+    records
+    |> Enum.reduce_while(0, fn record, count ->
+      record
+      |> Ash.Changeset.for_update(:update, %{agent_id: replacement_agent_id}, actor: actor)
+      |> Ash.update()
+      |> case do
+        {:ok, _record} -> {:cont, count + 1}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      count -> {:ok, count}
     end
   end
 
@@ -662,6 +666,92 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp ensure_gateway_for_agent(attrs, actor) do
+    case normalized_gateway_id(Map.get(attrs, :gateway_id)) do
+      nil ->
+        :ok
+
+      gateway_id ->
+        case Gateway.get_by_id(gateway_id, actor: actor) do
+          {:ok, %Gateway{} = gateway} ->
+            heartbeat_gateway(gateway, actor)
+
+          {:error, reason} ->
+            if not_found_error?(reason) do
+              register_gateway(gateway_id, attrs, actor)
+            else
+              {:error, reason}
+            end
+        end
+    end
+  end
+
+  defp normalized_gateway_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalized_gateway_id(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalized_gateway_id()
+
+  defp normalized_gateway_id(_value), do: nil
+
+  defp heartbeat_gateway(gateway, actor) do
+    gateway
+    |> Ash.Changeset.for_update(:heartbeat, %{is_healthy: true})
+    |> Ash.update(actor: actor)
+    |> case do
+      {:ok, _gateway} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp register_gateway(gateway_id, attrs, actor) do
+    register_attrs =
+      compact_attrs(%{
+        id: gateway_id,
+        component_id: gateway_id,
+        registration_source: "agent-gateway-auto",
+        created_by: "agent_gateway_sync",
+        metadata: gateway_metadata(attrs)
+      })
+
+    Gateway
+    |> Ash.Changeset.for_create(:register, register_attrs)
+    |> Ash.create(actor: actor)
+    |> case do
+      {:ok, _gateway} ->
+        :ok
+
+      {:error, reason} ->
+        if unique_gateway_conflict?(reason) do
+          case Gateway.get_by_id(gateway_id, actor: actor) do
+            {:ok, %Gateway{} = gateway} -> heartbeat_gateway(gateway, actor)
+            {:error, lookup_reason} -> {:error, lookup_reason}
+          end
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  defp gateway_metadata(attrs) do
+    attrs
+    |> Map.get(:metadata, %{})
+    |> case do
+      %{} = metadata ->
+        %{
+          domain: metadata_value(metadata, :domain),
+          partition_id: metadata_value(metadata, :partition_id),
+          source: "agent_hello"
+        }
+
+      _ ->
+        %{source: "agent_hello"}
+    end
+    |> compact_attrs()
+  end
 
   defp update_agent(agent, attrs, actor) do
     update_attrs =
@@ -806,6 +896,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     |> inspect()
     |> String.contains?("ocsf_devices_unique_active_ip_idx")
   end
+
+  defp unique_gateway_conflict?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?(["gateways_unique_gateway_id_index", "gateways_pkey"])
+  end
+
+  defp metadata_value(metadata, key) when is_map(metadata) do
+    Map.get(metadata, key) || Map.get(metadata, to_string(key))
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
 
   defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_string?(_value), do: false

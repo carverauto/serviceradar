@@ -208,15 +208,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
-    {:noreply,
-     assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
+    {:noreply, assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
   end
 
-  def handle_event(
-        "import_first_party_catalog",
-        _params,
-        %{assigns: %{can_stage_plugins: false}} = socket
-      ) do
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
@@ -288,11 +283,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "create_package",
-        %{"create" => _params},
-        %{assigns: %{can_stage_plugins: false}} = socket
-      ) do
+  def handle_event("create_package", %{"create" => _params}, %{assigns: %{can_stage_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
@@ -395,8 +386,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Config schema JSON is invalid")}
 
           {:error, error} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to import GitHub package: #{format_error(error)}")}
+            {:noreply, put_flash(socket, :error, "Failed to import GitHub package: #{format_error(error)}")}
         end
 
       _ ->
@@ -446,8 +436,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Config schema JSON is invalid")}
 
           {:error, error} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to create package: #{format_error(error)}")}
+            {:noreply, put_flash(socket, :error, "Failed to create package: #{format_error(error)}")}
         end
     end
   end
@@ -481,15 +470,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
-    {:noreply,
-     assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
+    {:noreply, assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
   end
 
-  def handle_event(
-        "approve_package",
-        %{"review" => _params},
-        %{assigns: %{can_approve_plugins: false}} = socket
-      ) do
+  def handle_event("approve_package", %{"review" => _params}, %{assigns: %{can_approve_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
@@ -516,12 +500,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply, put_flash(socket, :error, message)}
 
       {:error, :verification_required} ->
-        {:noreply,
-         put_flash(socket, :error, "GitHub package must be GPG verified before approval")}
+        {:noreply, put_flash(socket, :error, "GitHub package must be GPG verified before approval")}
 
       {:error, :signature_required} ->
-        {:noreply,
-         put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
+        {:noreply, put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
 
       {:error, :trusted_upload_signers_not_configured} ->
         {:noreply,
@@ -572,9 +554,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     scope = socket.assigns.current_scope
     reason = socket.assigns.review_form["denied_reason"]
 
-    case Packages.revoke(socket.assigns.selected_package.id, %{denied_reason: reason},
-           scope: scope
-         ) do
+    case Packages.revoke(socket.assigns.selected_package.id, %{denied_reason: reason}, scope: scope) do
       {:ok, package} ->
         {:noreply,
          socket
@@ -592,11 +572,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, socket}
   end
 
-  def handle_event(
-        "create_assignment",
-        %{"assignment" => _params},
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
+  def handle_event("create_assignment", %{"assignment" => _params}, %{assigns: %{can_assign_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
@@ -618,11 +594,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "delete_assignment",
-        %{"id" => _id},
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
+  def handle_event("delete_assignment", %{"id" => _id}, %{assigns: %{can_assign_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
@@ -663,11 +635,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "delete_package",
-        %{"id" => _id},
-        %{assigns: %{can_approve_plugins: false}} = socket
-      ) do
+  def handle_event("delete_package", %{"id" => _id}, %{assigns: %{can_approve_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
@@ -693,8 +661,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Package deleted")}
 
       {:error, {:assignment_errors, errors}} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
+        {:noreply, put_flash(socket, :error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Failed to delete package: #{format_error(error)}")}
@@ -771,8 +738,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
 
-        {:noreply,
-         put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
+        {:noreply, put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
     end
   end
 
@@ -785,9 +751,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             {:ok, payload}
 
           {:error, reason} ->
-            Logger.error(
-              "plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}"
-            )
+            Logger.error("plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}")
 
             {:error, :read_failed}
         end
@@ -1844,8 +1808,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     _ -> []
   end
 
-  defp active_agent?(%Agent{status: status}) when status in [:connected, :degraded, :connecting],
-    do: true
+  defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
+       when status in [:connected, :degraded, :connecting] do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
 
   defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
     DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
@@ -2071,10 +2037,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           %{
             requested_cpu_ms: acc.requested_cpu_ms + resource_value(resources, :requested_cpu_ms),
-            requested_memory_mb:
-              acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
-            max_open_connections:
-              acc.max_open_connections + resource_value(resources, :max_open_connections)
+            requested_memory_mb: acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
+            max_open_connections: acc.max_open_connections + resource_value(resources, :max_open_connections)
           }
         end
       end
@@ -2232,8 +2196,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp parse_optional_json_map_impl(_value, label),
-    do: {:error, {:invalid_json, "#{label} must be JSON"}}
+  defp parse_optional_json_map_impl(_value, label), do: {:error, {:invalid_json, "#{label} must be JSON"}}
 
   defp config_schema_present?(schema) when is_map(schema) do
     schema = stringify_keys(schema)
@@ -2343,8 +2306,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp normalize_assignment_params(params, config_schema)
-       when is_map(params) and is_map(config_schema) do
+  defp normalize_assignment_params(params, config_schema) when is_map(params) and is_map(config_schema) do
     alias ServiceRadar.Plugins.ConfigSchema
 
     schema = stringify_keys(config_schema)
@@ -2473,8 +2435,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     "#{name} (#{agent.uid})"
   end
 
-  defp existing_assignment(assignments, agent_uid)
-       when is_list(assignments) and is_binary(agent_uid) do
+  defp existing_assignment(assignments, agent_uid) when is_list(assignments) and is_binary(agent_uid) do
     Enum.find(assignments, fn assignment ->
       assignment.agent_uid == agent_uid
     end)
