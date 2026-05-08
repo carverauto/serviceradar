@@ -101,4 +101,38 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlannerTest do
     assert length(assignments) == 1
     assert hd(assignments).agent_uid == "agent-a"
   end
+
+  test "plan can force all resolved rows to a scoped target agent" do
+    policy = %{
+      policy_id: "policy-1",
+      policy_version: 1,
+      plugin_package_id: "pkg-1"
+    }
+
+    resolved_inputs = [
+      %{
+        name: "devices",
+        entity: "devices",
+        query: "in:devices metadata.proxmox_candidate:true",
+        rows: [
+          %{"uid" => "sr:device:1", "ip" => "10.0.0.1"},
+          %{"uid" => "sr:device:2", "agent_id" => "other-agent", "ip" => "10.0.0.2"}
+        ]
+      }
+    ]
+
+    assert {:ok, %{summary: summary, assignments: assignments}} =
+             PolicyAssignmentPlanner.plan(policy, resolved_inputs,
+               generated_at: "2026-02-21T23:20:00Z",
+               target_agent_uid: "scoped-agent"
+             )
+
+    assert summary.matched_rows == 2
+    assert summary.agents == 1
+    assert length(assignments) == 1
+    assert hd(assignments).agent_uid == "scoped-agent"
+
+    [%{"items" => items}] = hd(assignments).params["inputs"]
+    assert Enum.map(items, & &1["uid"]) == ["sr:device:1", "sr:device:2"]
+  end
 end

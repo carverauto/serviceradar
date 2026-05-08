@@ -27,7 +27,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
 
   def plan(policy, resolved_inputs, opts) when is_map(policy) and is_list(resolved_inputs) do
     with {:ok, normalized_policy} <- normalize_policy(policy),
-         grouped = group_rows_by_agent(resolved_inputs),
+         grouped = group_rows_by_agent(resolved_inputs, Keyword.get(opts, :target_agent_uid)),
          {:ok, assignments} <- build_assignments(normalized_policy, grouped, opts) do
       summary = %{
         matched_rows: grouped.total_rows,
@@ -94,7 +94,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
     end
   end
 
-  defp group_rows_by_agent(resolved_inputs) do
+  defp group_rows_by_agent(resolved_inputs, target_agent_uid) do
     Enum.reduce(resolved_inputs, %{by_agent: %{}, total_rows: 0}, fn input, acc ->
       name = ValueUtils.string_value(input, [:name, "name"])
       entity = ValueUtils.string_value(input, [:entity, "entity"]) || "unknown"
@@ -102,13 +102,20 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
       rows = ValueUtils.list_value(input, [:rows, "rows"]) || []
 
       Enum.reduce(rows, acc, fn row, input_acc ->
-        accumulate_agent_row(input_acc, name, entity, query, MapUtils.stringify_keys(row))
+        accumulate_agent_row(
+          input_acc,
+          name,
+          entity,
+          query,
+          MapUtils.stringify_keys(row),
+          target_agent_uid
+        )
       end)
     end)
   end
 
-  defp accumulate_agent_row(acc, name, entity, query, row) do
-    case agent_id_from_row(row) do
+  defp accumulate_agent_row(acc, name, entity, query, row, target_agent_uid) do
+    case agent_id_for_row(row, target_agent_uid) do
       nil ->
         acc
 
@@ -161,7 +168,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
     end
   end
 
-  defp agent_id_from_row(row) do
+  defp agent_id_for_row(_row, target_agent_uid)
+       when is_binary(target_agent_uid) and target_agent_uid != "" do
+    target_agent_uid
+  end
+
+  defp agent_id_for_row(row, _target_agent_uid) do
     ValueUtils.string_value(row, [:agent_uid, "agent_uid", :agent_id, "agent_id"])
   end
 

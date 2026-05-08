@@ -69,6 +69,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.interval_seconds == 600
     assert policy.timeout_seconds == 45
     assert opts[:chunk_size] == 25
+    assert opts[:target_agent_uid] == "agent-a"
 
     assert input_defs == [
              %{

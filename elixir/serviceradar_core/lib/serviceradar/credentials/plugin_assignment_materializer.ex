@@ -90,13 +90,14 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp reconcile_rule(rule, _agent_id, package, purpose, actor, reconciler, opts) do
+  defp reconcile_rule(rule, agent_id, package, purpose, actor, reconciler, opts) do
     with {:ok, policy} <- policy_for_rule(rule, package, purpose),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
       reconcile_opts =
         opts
         |> Keyword.put(:actor, actor)
         |> Keyword.put(:chunk_size, metadata_int(rule, "chunk_size", 100))
+        |> Keyword.put(:target_agent_uid, agent_id)
 
       reconciler.reconcile(policy, input_defs, reconcile_opts)
     end
