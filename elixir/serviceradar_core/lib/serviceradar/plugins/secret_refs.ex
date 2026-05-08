@@ -5,7 +5,6 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins.MapUtils
-  alias ServiceRadar.Vault
 
   @secret_prefix "secretref:"
   @network_credential_prefix "credentialref:network-credential-secret:"
@@ -212,9 +211,9 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   end
 
   defp decrypt_network_credential_secret(secret) do
-    case Map.get(secret, :encrypted_secret_payload) do
+    case Map.get(secret, :secret_payload) do
       payload when is_binary(payload) and payload != "" ->
-        Vault.decrypt(payload)
+        {:ok, payload}
 
       _ ->
         {:error, "referenced network credential has no secret payload"}
