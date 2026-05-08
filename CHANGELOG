@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.37
+
+Agent control stream hotfix for managed release rollouts.
+
+## Whats New
+
+**1.2.37**
+- Fixed agent control streams closing immediately after connection by keeping the bidirectional gRPC stream on the agent loop context instead of canceling the stream context after creation.
+- Clarified the rollout history UI so the actor identifier is labeled as the rollout starter instead of appearing as an unlabeled SHA-like value under the version.
+
 # ServiceRadar v1.2.36
 
 Agent rollout reconciliation hotfix for agents that restart onto the desired version before sending another status batch.
