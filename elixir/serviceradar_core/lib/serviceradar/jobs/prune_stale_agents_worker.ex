@@ -64,7 +64,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(
         expr(
-          status in [:connecting, :connected, :degraded, :disconnected] and
+          status in [:connecting, :connected, :degraded, :disconnected, :unavailable] and
             (is_nil(last_seen_time) or last_seen_time < ^cutoff)
         )
       )
