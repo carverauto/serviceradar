@@ -40,7 +40,7 @@
 - [x] 6.2 Keep authenticated credential trials disabled unless the credential rule explicitly enables auto-discovery trials.
 - [x] 6.3 Record candidate evidence metadata (`port`, `title`, `fingerprint_source`, `observed_at`) without credentials.
 - [x] 6.4 Add mapper tests for credential-free candidate marking and scoped credential trial gating.
-- [ ] 6.5 Trigger the scoped demo mapper job for `agent-sr-test-pve04` and verify candidate rows appear in SRQL.
+- [x] 6.5 Trigger the scoped demo mapper job for `agent-sr-test-pve04` and verify candidate rows appear in SRQL.
 
 ## 7. Device Classification
 - [x] 7.1 Prevent camera ingestion from reclassifying agent-managed host devices as cameras.
@@ -52,5 +52,5 @@
 - [x] 8.2 Run focused Rust SRQL tests.
 - [x] 8.3 Run focused web-ng LiveView tests.
 - [x] 8.4 Run focused core/gateway agent sync tests.
-- [ ] 8.5 Verify web-ng logs no longer emit repeated Postgrex `client exited` disconnect churn during plugin import and agent settings page loads.
-- [ ] 8.6 Deploy to demo and verify the reported URLs and `agent-sr-test-pve04` workflow.
+- [x] 8.5 Verify web-ng logs no longer emit repeated Postgrex `client exited` disconnect churn during plugin import and agent settings page loads.
+- [x] 8.6 Deploy to demo and verify the reported URLs and `agent-sr-test-pve04` workflow.
