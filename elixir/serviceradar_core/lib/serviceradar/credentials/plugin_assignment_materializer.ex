@@ -129,6 +129,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp proxmox_params_template(rule, secret_id, @inventory_purpose) do
     %{
       "credential_broker" => proxmox_inventory_credential_broker_grant(rule, secret_id),
+      "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
       "include_guests" => metadata_bool(rule, "include_guests", true),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,

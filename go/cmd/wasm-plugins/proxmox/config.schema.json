@@ -11,6 +11,13 @@
       "x-serviceradar-internal": true,
       "description": "Internal credential broker grant generated from network credential rules. Do not configure manually."
     },
+    "api_token_secret_ref": {
+      "type": "string",
+      "secretRef": true,
+      "x-serviceradar-internal": true,
+      "x-serviceradar-ui-hidden": true,
+      "description": "Internal network credential reference resolved into api_token only in scoped agent runtime config."
+    },
     "targets": {
       "type": "array",
       "x-serviceradar-ui-hidden": true,

@@ -252,6 +252,46 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 	}
 }
 
+func TestConfigFromMapAppliesRuntimeResolvedAPITokenToPluginInputTargets(t *testing.T) {
+	cfg, err := configFromMap(map[string]any{
+		"schema":         sdk.PluginInputsSchemaV1,
+		"policy_id":      "policy-1",
+		"policy_version": 1,
+		"agent_id":       "agent-1",
+		"generated_at":   "2026-05-06T19:00:00Z",
+		"template": map[string]any{
+			"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
+			"api_token":            "PVEAPIToken=root@pam!sr=test-token",
+		},
+		"inputs": []any{
+			map[string]any{
+				"name":        "targets",
+				"entity":      "devices",
+				"query":       "in:devices metadata.proxmox_candidate:true",
+				"chunk_index": 0,
+				"chunk_total": 1,
+				"chunk_hash":  strings.Repeat("a", 64),
+				"items": []any{
+					map[string]any{"uid": "sr:device:1", "ip": "10.10.0.11", "hostname": "pve-a"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("configFromMap() error = %v", err)
+	}
+
+	if cfg.APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("expected runtime api token to be applied")
+	}
+	if len(cfg.Targets) != 1 {
+		t.Fatalf("expected one target, got %d", len(cfg.Targets))
+	}
+	if cfg.Targets[0].APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("expected runtime api token to be inherited by generated target")
+	}
+}
+
 func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 	discovery := sdk.NewDeviceDiscovery(discoverySource)
 
@@ -282,7 +322,7 @@ func TestRunProxmoxCheckRequiresTargetAndToken(t *testing.T) {
 	}
 }
 
-func TestConfigSchemaDoesNotExposeRawAPIToken(t *testing.T) {
+func TestConfigSchemaOnlyExposesInternalAPITokenSecretRef(t *testing.T) {
 	raw, err := os.ReadFile("config.schema.json")
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
@@ -297,8 +337,15 @@ func TestConfigSchemaDoesNotExposeRawAPIToken(t *testing.T) {
 	if _, ok := properties["api_token"]; ok {
 		t.Fatal("published schema must not expose raw api_token")
 	}
-	if _, ok := properties["api_token_secret_ref"]; ok {
-		t.Fatal("published schema must not expose one-off api_token_secret_ref")
+	apiTokenRef, ok := properties["api_token_secret_ref"].(map[string]any)
+	if !ok {
+		t.Fatal("published schema must include internal api_token_secret_ref for runtime resolution")
+	}
+	if apiTokenRef["secretRef"] != true {
+		t.Fatal("api_token_secret_ref must be a secretRef field")
+	}
+	if apiTokenRef["x-serviceradar-ui-hidden"] != true || apiTokenRef["x-serviceradar-internal"] != true {
+		t.Fatal("api_token_secret_ref must stay hidden/internal")
 	}
 	if properties["base_url"].(map[string]any)["x-serviceradar-ui-hidden"] != true {
 		t.Fatal("base_url must stay hidden from central assignment UI")
