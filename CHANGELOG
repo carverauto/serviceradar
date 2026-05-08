@@ -1,3 +1,20 @@
+# ServiceRadar v1.2.34
+
+Proxmox virtualization, network-wide credential rules, console access, MTR diagnostics, and stability fixes for datasource-backed event ingestion and edge configuration sync.
+
+## Whats New
+
+**1.2.34**
+- Added the Proxmox WASM plugin, policy input plumbing, live smoke-test paths, mapper fingerprinting for PVE candidates, and SRQL virtualization queries so discovered Proxmox hosts can enrich inventory without per-plugin target configuration.
+- Added virtualization inventory schema and ingestion for clusters, hosts, guests, datastores, storage systems, host disks, network interfaces, and Proxmox enrichment payloads, with device-detail and dashboard surfaces for virtualization state and efficiency.
+- Added network-wide credential rule resources, encrypted credential secrets, SSH private-key credential support, target-scope preview, credential redaction, Proxmox presets, broker grants, assignment materialization, and settings UI coverage.
+- Added Proxmox console access across web-ng, core, agent-gateway, and agent, including xterm React integration, session tickets, ERTS-routed stream brokering, agent-local credential handling, SSH PTY bridging, stream timeouts, RBAC gates, and unsupported guest-mode handling.
+- Added MTR diagnostics improvements, including time-window comparisons, yesterday/full-day drilldowns, persisted profile settings, and clearer comparison baseline behavior.
+- Added metric baseline alert evaluation and device-scoped log views so operators can promote sustained metric anomalies and inspect logs from device details.
+- Fixed Falco alert ingestion and the supervised datasvc client so core holds a long-lived Gun-backed gRPC channel instead of repeatedly dropping and reconnecting to datasvc.
+- Fixed agent config sync and Armis authentication handling, plus release artifact mirroring and release page behavior needed for managed agent releases.
+- Polished dashboard navigation, theme behavior, and virtualization dashboard panels.
+
 # ServiceRadar v1.2.33
 
 Dependency security refresh for Rust, Go, and dashboard JavaScript packages, including the rperf migration needed to clear stale crate alerts.
