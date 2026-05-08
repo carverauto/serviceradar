@@ -10,6 +10,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
+  alias ServiceRadar.Edge.AgentRelease
+  alias ServiceRadar.Edge.AgentReleaseRollout
+  alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
@@ -20,9 +23,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   require Ash.Query
 
   @moduletag :integration
+  @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
+  @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
+    Application.put_env(:serviceradar_core, :agent_release_public_key, @release_public_key)
     :ok
   end
 
@@ -504,6 +510,72 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert agent.version == "2.0.0"
       assert "sysmon" in agent.capabilities
     end
+
+    test "version-bearing upsert reconciles active release target", %{
+      agent_id: agent_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      version = "9.#{unique_id}.0"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(agent_id, %{
+          name: "Release Reconcile Agent",
+          version: "1.0.0",
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        })
+
+      {:ok, release} = publish_test_release(version, actor)
+
+      {:ok, rollout} =
+        AgentReleaseRollout.create_rollout(
+          %{
+            release_id: release.id,
+            desired_version: version,
+            cohort_agent_ids: [agent_id],
+            batch_size: 1,
+            status: :active,
+            created_by: "gateway-sync-test"
+          },
+          actor: actor
+        )
+
+      {:ok, target} =
+        AgentReleaseTarget.create_target(
+          %{
+            rollout_id: rollout.id,
+            release_id: release.id,
+            agent_id: agent_id,
+            cohort_index: 0,
+            desired_version: version,
+            current_version: "1.0.0",
+            status: :restarting,
+            progress_percent: 95
+          },
+          actor: actor
+        )
+
+      :ok =
+        AgentGatewaySync.upsert_agent(agent_id, %{
+          name: "Release Reconcile Agent",
+          version: version,
+          capabilities: ["agent"],
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        })
+
+      target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+      assert target.status == :healthy
+      assert target.progress_percent == 100
+      assert target.current_version == version
+
+      rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+      assert rollout.status == :completed
+
+      agent = Agent.get_by_uid!(agent_id, actor: actor)
+      assert agent.release_rollout_state == :healthy
+      assert agent.last_update_error == nil
+    end
   end
 
   describe "heartbeat_agent/2" do
@@ -601,5 +673,37 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert recovered.is_healthy == true
       assert recovered.config_source == :remote
     end
+  end
+
+  defp publish_test_release(version, actor) do
+    manifest = %{
+      "version" => version,
+      "artifacts" => [
+        %{
+          "os" => "linux",
+          "arch" => "amd64",
+          "url" => "https://example.com/releases/agent-#{version}-linux-amd64.tar.gz",
+          "sha256" => String.duplicate("a", 64)
+        }
+      ]
+    }
+
+    AgentRelease.publish(
+      %{
+        version: version,
+        manifest: manifest,
+        signature: sign_manifest(manifest)
+      },
+      actor: actor
+    )
+  end
+
+  defp sign_manifest(manifest) do
+    {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)
+    private_key = Base.decode64!(@release_private_key)
+
+    :eddsa
+    |> :crypto.sign(:none, payload, [private_key, :ed25519])
+    |> Base.encode64()
   end
 end

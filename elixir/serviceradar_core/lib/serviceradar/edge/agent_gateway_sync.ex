@@ -66,19 +66,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
-    with :ok <- ensure_gateway_for_agent(attrs, actor) do
-      case Agent.get_by_uid(agent_id, actor: actor) do
-        {:ok, %Agent{} = agent} ->
-          update_agent(agent, attrs, actor)
-
-        {:error, reason} ->
-          if not_found_error?(reason) do
-            create_agent(agent_id, attrs, actor)
-          else
-            Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
-            {:error, reason}
-          end
-      end
+    with :ok <- ensure_gateway_for_agent(attrs, actor),
+         :ok <- upsert_agent_record(agent_id, attrs, actor) do
+      reconcile_agent_release_after_version_sync(agent_id, attrs, actor)
     end
   end
 
@@ -87,19 +77,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
-    with :ok <- ensure_gateway_for_agent(attrs, actor) do
-      case Agent.get_by_uid(agent_id, actor: actor) do
-        {:ok, %Agent{} = agent} ->
-          heartbeat_agent_record(agent, attrs, actor)
-
-        {:error, reason} ->
-          if not_found_error?(reason) do
-            create_agent(agent_id, attrs, actor)
-          else
-            Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
-            {:error, reason}
-          end
-      end
+    with :ok <- ensure_gateway_for_agent(attrs, actor),
+         :ok <- heartbeat_agent_record_by_id(agent_id, attrs, actor) do
+      reconcile_agent_release_after_version_sync(agent_id, attrs, actor)
     end
   end
 
@@ -734,6 +714,44 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           {:error, reason}
         end
     end
+  end
+
+  defp upsert_agent_record(agent_id, attrs, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %Agent{} = agent} ->
+        update_agent(agent, attrs, actor)
+
+      {:error, reason} ->
+        if not_found_error?(reason) do
+          create_agent(agent_id, attrs, actor)
+        else
+          Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
+          {:error, reason}
+        end
+    end
+  end
+
+  defp heartbeat_agent_record_by_id(agent_id, attrs, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %Agent{} = agent} ->
+        heartbeat_agent_record(agent, attrs, actor)
+
+      {:error, reason} ->
+        if not_found_error?(reason) do
+          create_agent(agent_id, attrs, actor)
+        else
+          Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
+          {:error, reason}
+        end
+    end
+  end
+
+  defp reconcile_agent_release_after_version_sync(agent_id, attrs, actor) do
+    if present_string?(Map.get(attrs, :version)) do
+      AgentReleaseManager.reconcile_agent(agent_id, actor: actor)
+    end
+
+    :ok
   end
 
   defp gateway_metadata(attrs) do
