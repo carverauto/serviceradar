@@ -1644,12 +1644,26 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       |> case do
         {:ok, [%Source{device_uid: device_uid} | _]}
         when is_binary(device_uid) and device_uid != "" ->
-          {:ok, device_uid}
+          if camera_source_device_uid_reusable?(device_uid, actor) do
+            {:ok, device_uid}
+          else
+            {:error, :agent_managed_source_device}
+          end
 
         _ ->
           {:error, :not_found}
       end
     end
+  end
+
+  defp camera_source_device_uid_reusable?(device_uid, actor) do
+    case Device.get_by_uid(device_uid, false, actor: actor) do
+      {:ok, %Device{} = device} -> not agent_managed_device?(device)
+      {:ok, nil} -> true
+      _ -> true
+    end
+  rescue
+    _ -> true
   end
 
   defp resolve_strong_camera_identity(ids, actor) when is_map(ids) do
