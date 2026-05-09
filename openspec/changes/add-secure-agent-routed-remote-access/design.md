@@ -100,8 +100,8 @@ The current Proxmox console path already proves the key routing shape, but its n
 - `elixir/serviceradar_core/lib/serviceradar/credentials/network_credential_rule.ex`, `network_credential_secret.ex`, and `plugins/secret_refs.ex` provide central encrypted credential storage and plugin secret-reference resolution. Generic SSH must treat this as optional centrally brokered custody, not the default.
 
 Teleport reference findings from `~/src/teleport`:
-- `api/ssh` and `api/observability/tracing/ssh` have Apache-2.0 headers in the local checkout and are candidates for direct import after dependency/Bazel review.
-- The `github.com/gravitational/teleport/api` module is not safe to treat as uniformly Apache-2.0 without subpackage review; this checkout includes some AGPL-header files under `api/types/...`.
+- `api/ssh` and `api/observability/tracing/ssh` source files have Apache-2.0 headers in the local checkout, but their current Go dependency graph reaches AGPL-header directories through the Teleport API root (`api/gen/proto/go/teleport/hardwarekeyagent/v1` and `api/utils/iterutils`). Do not import these packages until dependency review finds a license-clean version/path or legal explicitly approves the dependency graph.
+- The `github.com/gravitational/teleport/api` module is not safe to treat as uniformly Apache-2.0 without subpackage and transitive dependency review; this checkout includes AGPL-header files under `api/types/...`, generated API packages, and utility packages.
 - `lib/bpf` and broad `lib/srv` paths have AGPL headers. Treat them as architecture reference only unless licensing is explicitly cleared.
 - Import verified Apache-2.0 Teleport subpackages wherever they fit the agent implementation. Do not copy, translate, or mechanically port AGPL implementation code. For non-Apache areas, write a clean-room ServiceRadar implementation from behavior requirements, protocol documentation, and tests that do not derive from AGPL source text.
 
