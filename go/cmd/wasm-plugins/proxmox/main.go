@@ -1020,13 +1020,26 @@ func getJSON(cfg Config, target Target, token, path string, out any) error {
 		return err
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		return fmt.Errorf("HTTP %d", resp.Status)
+		return fmt.Errorf("HTTP %d%s", resp.Status, responseBodySuffix(resp.Body))
 	}
 	if err := json.Unmarshal(resp.Body, out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 
 	return nil
+}
+
+func responseBodySuffix(body []byte) string {
+	bodyText := strings.Join(strings.Fields(string(body)), " ")
+	bodyText = sanitizeSecretString(bodyText)
+	if bodyText == "" {
+		return ""
+	}
+	if len(bodyText) > 300 {
+		bodyText = bodyText[:300] + "..."
+	}
+
+	return ": " + bodyText
 }
 
 func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []proxmoxNode) {
@@ -1861,7 +1874,7 @@ func sensitiveKey(key string) bool {
 
 func sanitizeSecretString(value string) string {
 	if strings.Contains(value, "PVEAPIToken=") {
-		return "REDACTED"
+		return redactPVEAPITokenMaterial(value)
 	}
 
 	return value
@@ -1892,11 +1905,38 @@ func sanitizeError(err error) string {
 	}
 
 	msg := err.Error()
-	if idx := strings.Index(msg, "PVEAPIToken="); idx >= 0 {
-		msg = msg[:idx] + "PVEAPIToken=REDACTED"
-	}
+	msg = redactPVEAPITokenMaterial(msg)
 
 	return msg
+}
+
+func redactPVEAPITokenMaterial(value string) string {
+	const marker = "PVEAPIToken="
+	searchStart := 0
+
+	for {
+		relativeIdx := strings.Index(value[searchStart:], marker)
+		if relativeIdx < 0 {
+			return value
+		}
+
+		idx := searchStart + relativeIdx
+		end := idx + len(marker)
+		for end < len(value) {
+			switch value[end] {
+			case '"', '\'', ',', '}', ']', '<', ' ', '\t', '\n', '\r':
+				value = value[:idx] + marker + "REDACTED" + value[end:]
+				searchStart = idx + len(marker) + len("REDACTED")
+				goto next
+			default:
+				end++
+			}
+		}
+		value = value[:idx] + marker + "REDACTED"
+		searchStart = len(value)
+
+	next:
+	}
 }
 
 func primeTinyGoJSON() {

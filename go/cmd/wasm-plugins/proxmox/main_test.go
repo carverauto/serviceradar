@@ -102,6 +102,14 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	}
 }
 
+type staticHTTPClient struct {
+	response *sdk.HTTPResponse
+}
+
+func (s staticHTTPClient) Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	return s.response, nil
+}
+
 func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	client := &fakeHTTPClient{}
 	oldHTTP := proxmoxHTTP
@@ -196,6 +204,29 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if len(result.Events) < 1 {
 		t.Fatalf("expected Ceph warning event, got %#v", result.Events)
+	}
+}
+
+func TestGetJSONIncludesSanitizedHTTPErrorBody(t *testing.T) {
+	oldHTTP := proxmoxHTTP
+	proxmoxHTTP = staticHTTPClient{response: &sdk.HTTPResponse{
+		Status: http.StatusInternalServerError,
+		Body:   []byte(`{"data":"QEMU guest agent is not running","token":"PVEAPIToken=root@pam!sr=super-secret"}`),
+	}}
+	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+
+	var out map[string]any
+	err := getJSON(Config{TimeoutMS: defaultTimeoutMS}, Target{BaseURL: "https://pve.example:8006"}, "PVEAPIToken=root@pam!sr=test", "/api2/json/test", &out)
+	if err == nil {
+		t.Fatal("expected HTTP error")
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, "HTTP 500") || !strings.Contains(got, "QEMU guest agent is not running") {
+		t.Fatalf("expected status and response body in error, got %q", got)
+	}
+	if strings.Contains(got, "super-secret") {
+		t.Fatalf("expected PVE token to be redacted, got %q", got)
 	}
 }
 
