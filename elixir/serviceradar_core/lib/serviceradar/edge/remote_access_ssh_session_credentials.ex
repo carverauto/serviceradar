@@ -11,9 +11,31 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
 
   @type grant :: %{
           broker_opts: keyword(),
-          ssh_certificate: map(),
+          ssh_certificate: map() | nil,
           audit: map()
         }
+
+  @spec build_user_present_grant(map(), keyword()) :: {:ok, grant()} | {:error, term()}
+  def build_user_present_grant(attrs, opts \\ [])
+
+  def build_user_present_grant(attrs, opts) when is_map(attrs) do
+    with {:ok, username} <- required_string(attrs, "username"),
+         {:ok, ssh_auth} <- user_present_ssh_auth(attrs, username) do
+      credential_mode = Keyword.get(opts, :credential_mode, "user_present")
+
+      {:ok,
+       %{
+         broker_opts: [
+           metadata: %{"ssh" => ssh_auth},
+           credential_mode: credential_mode
+         ],
+         ssh_certificate: nil,
+         audit: user_present_audit(attrs, credential_mode)
+       }}
+    end
+  end
+
+  def build_user_present_grant(_attrs, _opts), do: {:error, :invalid_request}
 
   @spec build_certificate_grant(map() | struct(), map(), keyword()) ::
           {:ok, grant()} | {:error, term()}
@@ -37,10 +59,46 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
 
   def build_certificate_grant(_actor, _attrs, _opts), do: {:error, :invalid_request}
 
+  defp user_present_ssh_auth(attrs, username) do
+    private_key = optional_string(attrs, "private_key")
+    passphrase = optional_string(attrs, "passphrase")
+    password = optional_string(attrs, "password")
+
+    cond do
+      private_key ->
+        {:ok,
+         maybe_put(
+           %{"username" => username, "private_key" => private_key},
+           "passphrase",
+           passphrase
+         )}
+
+      password ->
+        {:ok, %{"username" => username, "password" => password}}
+
+      true ->
+        {:error, :session_credential_required}
+    end
+  end
+
   defp ssh_session_key(private_key, nil), do: %{"private_key" => private_key}
 
   defp ssh_session_key(private_key, passphrase),
     do: %{"private_key" => private_key, "passphrase" => passphrase}
+
+  defp user_present_audit(attrs, credential_mode) do
+    %{
+      credential_custody_mode: "user_present",
+      credential_mode: credential_mode,
+      session_id: optional_string(attrs, "session_id"),
+      agent_id: optional_string(attrs, "agent_id"),
+      target_ref: target_ref(value(attrs, "target")),
+      ssh_username: optional_string(attrs, "username"),
+      credential_kind: credential_kind(attrs)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 
   defp audit(issued) do
     issued
@@ -50,6 +108,23 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
     |> Map.put(:session_id, Map.get(issued, :session_id))
   end
 
+  defp credential_kind(attrs) do
+    cond do
+      optional_string(attrs, "private_key") -> "private_key"
+      optional_string(attrs, "password") -> "password"
+      true -> nil
+    end
+  end
+
+  defp target_ref(target) when is_map(target) do
+    optional_string(target, "id") ||
+      optional_string(target, "device_uid") ||
+      optional_string(target, "uid") ||
+      optional_string(target, "host")
+  end
+
+  defp target_ref(_target), do: nil
+
   defp required_string(attrs, key) do
     case optional_string(attrs, key) do
       nil -> {:error, required_error(key)}
@@ -57,8 +132,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
     end
   end
 
+  defp required_error("username"), do: :ssh_username_required
   defp required_error("private_key"), do: :session_private_key_required
   defp required_error(_key), do: :invalid_request
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp optional_string(attrs, key), do: attrs |> value(key) |> string_or_nil()
 

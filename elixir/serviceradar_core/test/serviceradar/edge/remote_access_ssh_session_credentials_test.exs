@@ -26,6 +26,67 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
     end
   end
 
+  test "builds key-based user-present broker options without certificate issuance" do
+    assert {:ok, grant} =
+             RemoteAccessSSHSessionCredentials.build_user_present_grant(%{
+               session_id: "session-1",
+               agent_id: "agent-1",
+               username: "ubuntu",
+               private_key: "session-private-key",
+               passphrase: "session-passphrase",
+               target: %{device_uid: "device-1"}
+             })
+
+    assert grant.broker_opts == [
+             metadata: %{
+               "ssh" => %{
+                 "username" => "ubuntu",
+                 "private_key" => "session-private-key",
+                 "passphrase" => "session-passphrase"
+               }
+             },
+             credential_mode: "user_present"
+           ]
+
+    assert grant.ssh_certificate == nil
+    assert grant.audit.credential_kind == "private_key"
+    assert grant.audit.target_ref == "device-1"
+    refute inspect(grant.audit) =~ "session-private-key"
+    refute inspect(grant.audit) =~ "session-passphrase"
+  end
+
+  test "builds password-based user-present broker options without persisting password" do
+    assert {:ok, grant} =
+             RemoteAccessSSHSessionCredentials.build_user_present_grant(%{
+               session_id: "session-1",
+               agent_id: "agent-1",
+               username: "ubuntu",
+               password: "session-password",
+               target: %{host: "10.0.0.10"}
+             })
+
+    assert grant.broker_opts == [
+             metadata: %{"ssh" => %{"username" => "ubuntu", "password" => "session-password"}},
+             credential_mode: "user_present"
+           ]
+
+    assert grant.audit.credential_kind == "password"
+    assert grant.audit.target_ref == "10.0.0.10"
+    refute inspect(grant.audit) =~ "session-password"
+  end
+
+  test "fails closed without username or user-present credential material" do
+    assert {:error, :ssh_username_required} =
+             RemoteAccessSSHSessionCredentials.build_user_present_grant(%{
+               private_key: "session-private-key"
+             })
+
+    assert {:error, :session_credential_required} =
+             RemoteAccessSSHSessionCredentials.build_user_present_grant(%{
+               username: "ubuntu"
+             })
+  end
+
   test "builds broker options from a user-present key and issued certificate" do
     actor = %{id: "user-1", permissions: MapSet.new([@permission])}
 
