@@ -15,10 +15,12 @@ import (
 )
 
 const (
-	pluginID         = "proxmox-inventory"
-	discoverySource  = "proxmox"
-	defaultTimeoutMS = 30000
-	maxTimeoutMS     = 300000
+	pluginID                    = "proxmox-inventory"
+	discoverySource             = "proxmox"
+	defaultTimeoutMS            = 30000
+	maxTimeoutMS                = 300000
+	defaultHTTPMaxResponseBytes = 1024 * 1024
+	maxHTTPResponseBytes        = sdk.MaxHTTPResponseBytes
 )
 
 var (
@@ -38,6 +40,7 @@ type Config struct {
 	CredentialBroker   map[string]any `json:"credential_broker,omitempty"`
 	Targets            []Target       `json:"targets"`
 	TimeoutMS          int            `json:"timeout_ms"`
+	MaxResponseBytes   int            `json:"max_response_bytes"`
 	IncludeGuests      *bool          `json:"include_guests"`
 	InsecureSkipVerify bool           `json:"insecure_skip_verify"`
 	AutoDiscovery      bool           `json:"auto_discovery_enabled"`
@@ -324,6 +327,7 @@ func configFromPluginInputs(raw map[string]any) (Config, error) {
 
 func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 	cfg.applyDefaults()
+	applyHTTPClientLimits(cfg)
 
 	targets := cfg.effectiveTargets()
 	if len(targets) == 0 {
@@ -836,6 +840,12 @@ func (cfg *Config) applyDefaults() {
 	if cfg.TimeoutMS > maxTimeoutMS {
 		cfg.TimeoutMS = maxTimeoutMS
 	}
+	if cfg.MaxResponseBytes <= 0 {
+		cfg.MaxResponseBytes = defaultHTTPMaxResponseBytes
+	}
+	if cfg.MaxResponseBytes > maxHTTPResponseBytes {
+		cfg.MaxResponseBytes = maxHTTPResponseBytes
+	}
 	if cfg.Targets == nil {
 		cfg.Targets = []Target{}
 	}
@@ -918,6 +928,15 @@ func targetFromInputItem(item map[string]any, cfg Config) Target {
 			stringValue(item, "site"),
 		),
 	}
+}
+
+func applyHTTPClientLimits(cfg Config) {
+	client, ok := proxmoxHTTP.(*sdk.HTTPClient)
+	if !ok {
+		return
+	}
+
+	client.MaxResponseBytes = uint32(cfg.MaxResponseBytes)
 }
 
 func baseURLForItem(item map[string]any, cfg Config) string {
