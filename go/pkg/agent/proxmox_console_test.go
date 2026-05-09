@@ -369,3 +369,34 @@ func TestProxmoxConsoleManagerRejectsSSHOpenForDifferentAgent(t *testing.T) {
 		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrSSHOpenAgentMismatch)
 	}
 }
+
+func TestProxmoxConsoleManagerFailsClosedWhenRequiredEnhancedRecordingUnavailable(t *testing.T) {
+	t.Parallel()
+
+	manager := newProxmoxConsoleManagerWithAgentID("agent-1", createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			t.Fatal("dialer should not be called when required enhanced recording is unavailable")
+			return nil, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"session_id": "ssh-session-1",
+			"agent_id": "agent-1",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"},
+			"enhanced_recording_policy": {"enabled": true, "required": true, "mode": "bpf"}
+		}`),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable.Error()) {
+		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable)
+	}
+}
