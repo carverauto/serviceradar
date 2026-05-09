@@ -1,8 +1,9 @@
 ## 1. Design and Licensing
-- [ ] 1.1 Review candidate Go eBPF loader dependencies for license, maintenance, Bazel compatibility, and kernel support.
-- [ ] 1.2 Decide the shared `serviceradar-agent` eBPF runtime/loader boundary, with `github.com/cilium/ebpf` as the leading candidate unless review finds a blocker.
+- [x] 1.1 Perform initial candidate review for `github.com/cilium/ebpf` license, runtime dependencies, and fit as the shared agent eBPF library.
+- [ ] 1.2 Complete Bazel, cross-compile, kernel compatibility, and operational review for `github.com/cilium/ebpf` before adding it to `go.mod`.
 - [ ] 1.3 Record exact Teleport v14 files consulted, if any, with tag, commit, headers, and dependency scan results.
 - [ ] 1.4 Define the session scoping mechanism for SSH and provider-console adapters, preferring cgroup-scoped monitoring.
+- [ ] 1.5 Define the checked-in generated artifact strategy for BPF probes so normal agent builds do not require local clang.
 
 ## 2. Agent Collector
 - [ ] 2.1 Add Linux-only BPF build plumbing and keep non-BPF builds working by default.

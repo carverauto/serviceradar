@@ -7,6 +7,12 @@ Teleport is a useful architecture reference, but not a safe current import targe
 - `v15.0.0` commit `e126e8cd7165f26ab724aaa58f285120db8e38e5` and current `HEAD` use AGPL headers on sampled `lib/bpf/*.go` files.
 - `bpf/enhancedrecording/*.bpf.c` uses kernel BPF probe code and should still be treated carefully; ServiceRadar should prefer its own probe source unless legal and dependency review explicitly approve a copied Apache-era file.
 
+Current ServiceRadar findings:
+
+- The Go agent has no existing eBPF runtime package. `go/pkg/scan` uses classic socket BPF directly through `golang.org/x/sys/unix`; that should stay separate from the eBPF runtime unless later work deliberately unifies shared packet-filter helpers.
+- Dockerfiles contain historical Rust eBPF/profiler build references, but this checkout does not contain an active `rust/ebpf` source tree. New agent eBPF work should therefore start from a Go agent runtime unless another active owner revives that Rust path.
+- `MODULE.bazel` already registers an LLVM toolchain, which is useful for hermetic probe generation, but normal agent builds should not require a host LLVM installation.
+
 ## Goals
 - Implement ServiceRadar-owned Linux eBPF enhanced recording for remote-access sessions.
 - Capture command execution, file open/access attempts, network connection attempts, and dropped-event counters.
@@ -42,6 +48,14 @@ ServiceRadar expects substantial future eBPF work in `serviceradar-agent`, so th
 
 The preferred dependency direction is to standardize on one maintained Go eBPF library, with `github.com/cilium/ebpf` as the leading candidate because it is broadly used, Go-native, and compatible with CO-RE style workflows. The final dependency still needs license, transitive dependency, Bazel, cross-compile, kernel support, and operational review before it is introduced.
 
+Initial `github.com/cilium/ebpf` review:
+
+- Latest module observed locally: `v0.21.0`, published 2026-03-05, module Go version `1.24.0`, origin commit `fd33a781ea9ebf9d1bff748707793deccc412c05`.
+- Root repository/module license is MIT.
+- Runtime packages needed for an agent runtime (`github.com/cilium/ebpf`, `link`, `ringbuf`, `rlimit`, and `features`) pull only `golang.org/x/sys` as an external runtime dependency in a scratch module test.
+- The library is documented as pure Go and not dependent on C, libbpf, or cgo.
+- `cmd/bpf2go` is the likely probe generation tool, but it is a build-time tool with heavier indirect dependencies. ServiceRadar should generate BPF artifacts hermetically, commit generated `.go` and `.o` outputs, and keep normal `go test`/Bazel agent builds independent of a workstation LLVM setup.
+
 The shared runtime should own:
 
 - Program load and attach lifecycle.
@@ -52,6 +66,8 @@ The shared runtime should own:
 - Common metrics, logging, and loss counters.
 
 Remote-access enhanced recording should contribute session-scoped probes and event normalization on top of that runtime, not a separate runtime.
+
+Probe source should be ServiceRadar-owned and should carry an explicit SPDX header. Some kernel helpers require a GPL-compatible BPF program license string at load time; if a probe needs those helpers, prefer a dual permissive/GPL BPF program license such as `Dual MIT/GPL` after legal review, while keeping user-space loader code under the ServiceRadar project license.
 
 ### Session Scoping
 The collector should scope monitoring to the session process tree using a cgroup membership map or equivalent kernel-visible session token. The first implementation should prefer cgroup scoping because it gives a stable kernel-side filter across execs and child processes. If an adapter cannot provide a session cgroup/process boundary, required BPF policies must fail closed for that adapter until it does.
@@ -84,6 +100,7 @@ The preferred implementation path is ServiceRadar-authored code using public Lin
 ## Test Strategy
 - Unit tests for policy fail-closed behavior, capability checks, event normalization, redaction, and dropped-event accounting.
 - Linux integration tests behind an explicit build tag or environment variable that load probes on compatible hosts.
+- Build tests that prove checked-in generated BPF artifacts can compile into the agent without local clang, and a separate generation test that runs only in the hermetic LLVM-capable build environment.
 - A remote-access smoke test that starts a short-lived SSH session, executes a known command, opens a known file, attempts a known network connection, and verifies correlated events.
 - Negative smoke tests for unavailable BPF, missing permissions, incompatible kernels, and policy fallback behavior.
 - Bazel coverage for normal builds without BPF and Linux BPF-enabled builds.
