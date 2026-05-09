@@ -15,9 +15,11 @@ go_library(
 go_test(
     name = "remoteaccess_test",
     srcs = [
+        "ssh_integration_test.go",
         "manager_test.go",
         "ssh_open_test.go",
         "ssh_test.go",
     ],
     embed = [":remoteaccess"],
+    deps = ["//go/pkg/remoteaccess/sshca"],
 )
