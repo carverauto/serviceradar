@@ -116,6 +116,27 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     ProxmoxConsoleStreamHandler.terminate(:normal, attached)
   end
 
+  test "rejected attach does not echo the supplied ticket" do
+    {:ok, state} = init_state("session-reject")
+
+    supplied_ticket = "srpve_secret_ticket_value"
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: supplied_ticket,
+        session_id: "wrong-session"
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             ProxmoxConsoleStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "Invalid or expired console ticket."} =
+             Jason.decode!(response)
+
+    refute response =~ supplied_ticket
+  end
+
   test "data and resize frames forward to broker and refresh idle timer" do
     {:ok, state} = init_state("session-2")
 
@@ -143,6 +164,27 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     assert after_resize.idle_timer != after_data.idle_timer
 
     ProxmoxConsoleStreamHandler.terminate(:normal, after_resize)
+  end
+
+  test "broker output frames expose only terminal data to the browser" do
+    {:ok, state} = init_state("session-output")
+
+    {:push, {:text, attach_response}, attached} =
+      ProxmoxConsoleStreamHandler.handle_in({attach_payload("session-output"), [opcode: :text]}, state)
+
+    refute attach_response =~ "srpve_test_ticket"
+
+    assert {:push, {:text, response}, after_data} =
+             ProxmoxConsoleStreamHandler.handle_info({:proxmox_console_data, "shell output\r\n"}, attached)
+
+    assert %{"type" => "data", "data" => encoded_data} = Jason.decode!(response)
+    assert Base.decode64!(encoded_data) == "shell output\r\n"
+    refute response =~ "srpve_test_ticket"
+    refute response =~ "credential"
+    refute Map.has_key?(Jason.decode!(response), "session")
+    assert after_data.attached?
+
+    ProxmoxConsoleStreamHandler.terminate(:normal, after_data)
   end
 
   test "idle timeout expires session and renders explicit browser error" do
