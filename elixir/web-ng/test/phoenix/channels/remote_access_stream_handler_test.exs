@@ -1,7 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
 
   defmodule SessionsStub do
@@ -27,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
          attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
          idle_timeout_seconds: 30,
          absolute_timeout_seconds: 120,
-         metadata: %{"test_pid" => test_pid(opts)},
+         metadata: Map.put(scope_value(opts, :session_metadata, %{}), "test_pid", test_pid(opts)),
          inserted_at: DateTime.utc_now(),
          updated_at: DateTime.utc_now()
        }}
@@ -54,6 +55,12 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     end
 
     defp test_pid(opts), do: opts |> Keyword.fetch!(:scope) |> Map.fetch!(:test_pid)
+
+    defp scope_value(opts, key, default) do
+      opts
+      |> Keyword.fetch!(:scope)
+      |> Map.get(key, default)
+    end
   end
 
   defmodule BrokerStub do
@@ -98,6 +105,25 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
           send(state.session.metadata["test_pid"], {:broker_close, caller, reason})
           :ok
       end
+    end
+  end
+
+  defmodule SignerStub do
+    @moduledoc false
+    @behaviour RemoteAccessSSHCertificates
+
+    @impl true
+    def sign_user_certificate(request, _opts) do
+      send(Process.whereis(__MODULE__), {:sign_user_certificate, request})
+
+      {:ok,
+       %{
+         certificate: "ssh-ed25519-cert-v01@openssh.com AAAATEST",
+         expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+         fingerprint: "SHA256:test-cert",
+         serial: 42,
+         ca_key_id: "test-ca"
+       }}
     end
   end
 
@@ -152,6 +178,99 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert opts[:metadata]["ssh"]["passphrase"] == "session-passphrase"
 
     RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "ssh certificate attach issues cert from server-side identity claims" do
+    Process.register(self(), SignerStub)
+
+    original_config =
+      Application.get_env(:serviceradar_core, RemoteAccessSSHCertificates, [])
+
+    Application.put_env(:serviceradar_core, RemoteAccessSSHCertificates, signer: SignerStub)
+
+    on_exit(fn ->
+      Application.put_env(
+        :serviceradar_core,
+        RemoteAccessSSHCertificates,
+        original_config
+      )
+
+      if Process.whereis(SignerStub) == self(), do: Process.unregister(SignerStub)
+    end)
+
+    {:ok, state} =
+      init_state("session-cert",
+        credential_custody_mode: :ssh_certificate,
+        identity_claims: %{"groups" => ["linux-admins"]},
+        session_metadata: %{
+          "ssh_principal_mappings" => [
+            %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+          ],
+          "ssh_certificate_ttl_seconds" => 900
+        }
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-cert",
+        cols: 132,
+        rows: 43,
+        credential: %{
+          username: "root",
+          public_key: "ssh-ed25519 AAAATEST user@workstation",
+          private_key: "session-private-key",
+          passphrase: "session-passphrase",
+          requested_principals: ["ubuntu"],
+          claims: %{"groups" => ["browser-admins"]},
+          principal_mappings: [
+            %{"source" => "groups", "value" => "browser-admins", "principals" => ["root"]}
+          ]
+        }
+      })
+
+    assert {:push, {:text, response}, attached} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "ready", "session_id" => "session-cert"} = Jason.decode!(response)
+    refute response =~ "session-private-key"
+    refute response =~ "session-passphrase"
+    refute response =~ "AAAATEST"
+
+    assert_receive {:sign_user_certificate, sign_request}
+    assert sign_request.principals == ["ubuntu"]
+    assert sign_request.ttl_seconds == 900
+
+    assert_receive {:broker_started, "session-cert", opts}
+    assert opts[:ssh_certificate].credential_mode == "ssh_certificate"
+    assert opts[:ssh_certificate].ssh["username"] == "ubuntu"
+    assert opts[:ssh_certificate].ssh["certificate"] =~ "ssh-ed25519-cert-v01@openssh.com"
+    assert opts[:metadata]["ssh"]["private_key"] == "session-private-key"
+    assert opts[:metadata]["ssh"]["passphrase"] == "session-passphrase"
+
+    refute inspect(sign_request) =~ "browser-admins"
+    refute inspect(sign_request) =~ "session-private-key"
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "ssh certificate attach requires a session key" do
+    {:ok, state} =
+      init_state("session-cert-missing-key", credential_custody_mode: :ssh_certificate)
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-cert-missing-key"
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "A per-session SSH credential is required."} =
+             Jason.decode!(response)
   end
 
   test "rejected attach does not echo the supplied ticket" do
@@ -283,7 +402,17 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       session_id: session_id,
       scope: %{
         test_pid: self(),
-        credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :ssh_certificate)
+        credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :none),
+        identity_claims: Keyword.get(opts, :identity_claims, %{}),
+        user:
+          Keyword.get(opts, :user, %{
+            id: "user-1",
+            email: "alice@example.com",
+            external_id: "authentik|alice",
+            last_auth_method: :oidc,
+            permissions: MapSet.new(["devices.remote_access.ssh.open"])
+          }),
+        session_metadata: Keyword.get(opts, :session_metadata, %{})
       },
       sessions_module: SessionsStub,
       broker_module: BrokerStub

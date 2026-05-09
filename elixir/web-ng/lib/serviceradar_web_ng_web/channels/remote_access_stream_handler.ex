@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp start_broker(session, message, state) do
-    with {:ok, credential_opts} <- credential_broker_opts(session, message) do
+    with {:ok, credential_opts} <- credential_broker_opts(session, message, state.scope) do
       opts =
         [
           cols: message |> Map.get("cols") |> positive_int_value(),
@@ -179,10 +179,25 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
-  defp credential_broker_opts(session, message) do
+  defp credential_broker_opts(session, message, scope) do
     credential = normalize_map(Map.get(message, "credential"))
 
     case {custody_mode(session), credential} do
+      {"ssh_certificate", credential} when map_size(credential) > 0 ->
+        attrs = certificate_request_attrs(credential, session)
+
+        with {:ok, grant} <-
+               RemoteAccessSSHSessionCredentials.build_identity_certificate_grant(
+                 scope_actor(scope),
+                 attrs,
+                 idp_claims: scope_identity_claims(scope)
+               ) do
+          {:ok, grant.broker_opts}
+        end
+
+      {"ssh_certificate", _credential} ->
+        {:error, :session_credential_required}
+
       {"user_present", credential} when map_size(credential) > 0 ->
         attrs =
           credential
@@ -205,6 +220,27 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
+  defp certificate_request_attrs(credential, session) do
+    %{
+      "session_id" => session.id,
+      "agent_id" => session.agent_id,
+      "gateway_id" => session.gateway_id,
+      "public_key" => string_value(credential, "public_key"),
+      "private_key" => string_value(credential, "private_key"),
+      "passphrase" => string_value(credential, "passphrase"),
+      "target" => session_target(session),
+      "principal_mappings" => metadata_value(session, "ssh_principal_mappings") || [],
+      "allowed_principals" => metadata_value(session, "ssh_allowed_principals"),
+      "requested_principals" =>
+        list_value(credential, "requested_principals") ||
+          list_value(credential, "principals") ||
+          username_as_principal(credential),
+      "ttl_seconds" => metadata_value(session, "ssh_certificate_ttl_seconds")
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == [] end)
+    |> Map.new()
+  end
+
   defp custody_mode(%{credential_custody_mode: value}) when is_atom(value), do: Atom.to_string(value)
   defp custody_mode(%{credential_custody_mode: value}) when is_binary(value), do: value
   defp custody_mode(_session), do: "none"
@@ -217,6 +253,54 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
     |> Map.new()
+  end
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: %{}
+
+  defp scope_identity_claims(%{identity_claims: claims}) when is_map(claims), do: claims
+  defp scope_identity_claims(%{"identity_claims" => claims}) when is_map(claims), do: claims
+  defp scope_identity_claims(_scope), do: %{}
+
+  defp metadata_value(%{metadata: metadata}, key) when is_map(metadata) do
+    Map.get(metadata, key) || Map.get(metadata, safe_existing_atom(key))
+  end
+
+  defp metadata_value(_session, _key), do: nil
+
+  defp string_value(map, key) when is_map(map) do
+    case Map.get(map, key) || Map.get(map, safe_existing_atom(key)) do
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      value when is_integer(value) ->
+        Integer.to_string(value)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp list_value(map, key) when is_map(map) do
+    case Map.get(map, key) || Map.get(map, safe_existing_atom(key)) do
+      values when is_list(values) -> Enum.filter(values, &is_binary/1)
+      value when is_binary(value) -> [value]
+      _ -> nil
+    end
+  end
+
+  defp username_as_principal(credential) do
+    case string_value(credential, "username") do
+      nil -> nil
+      username -> [username]
+    end
+  end
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp normalize_map(value) when is_map(value), do: value
