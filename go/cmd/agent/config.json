@@ -9,7 +9,7 @@
   "status_debounce_interval": "30s",
   "status_heartbeat_interval": "5m",
   "sync_runtime_enabled": true,
-  "remote_access_known_hosts_file": "/var/lib/serviceradar/cache/remote-access-known_hosts",
+  "remote_access_known_hosts_file": "/var/lib/serviceradar/checkers/remote-access-known_hosts",
   "gateway_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",

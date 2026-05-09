@@ -40,7 +40,7 @@ const (
 	defaultSSHRows         = 40
 	defaultSSHTimeout      = 30 * time.Second
 	maxSSHTimeout          = 5 * time.Minute
-	defaultKnownHostsPath  = "/var/lib/serviceradar/cache/remote-access-known_hosts"
+	defaultKnownHostsPath  = "/var/lib/serviceradar/checkers/remote-access-known_hosts"
 )
 
 var (

@@ -324,7 +324,7 @@ data:
         "status_debounce_interval": "{{ default "30s" $agentVals.statusDebounceInterval }}",
         "status_heartbeat_interval": "{{ default "5m" $agentVals.statusHeartbeatInterval }}",
         "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
-        "remote_access_known_hosts_file": "{{ default "/var/lib/serviceradar/cache/remote-access-known_hosts" $agentVals.remoteAccessKnownHostsFile }}",
+        "remote_access_known_hosts_file": "{{ default "/var/lib/serviceradar/checkers/remote-access-known_hosts" $agentVals.remoteAccessKnownHostsFile }}",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",

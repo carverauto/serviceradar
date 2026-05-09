@@ -100,6 +100,7 @@ agent:
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
+  remoteAccessKnownHostsFile: "/var/lib/serviceradar/checkers/remote-access-known_hosts"
   resources:
     limits:
       memory: 4Gi
