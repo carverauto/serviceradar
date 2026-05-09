@@ -2,6 +2,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.RemoteAccessBroker
+  alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
@@ -34,6 +35,41 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       send(opts[:actor].test_pid, {:audit, opts})
       :ok
     end
+  end
+
+  defmodule LifecycleStub do
+    @moduledoc false
+
+    def mark_opening(session_id, _opts) do
+      send(lifecycle_owner(), {:lifecycle, :mark_opening, session_id})
+      :ok
+    end
+
+    def activate_session(session_id, _opts) do
+      send(lifecycle_owner(), {:lifecycle, :activate_session, session_id})
+
+      :ok
+    end
+
+    def request_close(session_id, opts) do
+      send(lifecycle_owner(), {:lifecycle, :request_close, session_id, opts})
+
+      :ok
+    end
+
+    def close_session(session_id, opts) do
+      send(lifecycle_owner(), {:lifecycle, :close_session, session_id, opts})
+
+      :ok
+    end
+
+    def fail_session(session_id, reason, opts \\ []) do
+      send(lifecycle_owner(), {:lifecycle, :fail_session, session_id, reason, opts})
+
+      :ok
+    end
+
+    defp lifecycle_owner, do: Process.whereis(:remote_access_broker_test_lifecycle_owner)
   end
 
   defmodule CertificateSignerStub do
@@ -127,6 +163,57 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, close_audit}
     assert close_audit[:action] == :remote_access_session_close_requested
     assert close_audit[:details].close_reason == "operator_closed"
+  end
+
+  test "advances durable generic session lifecycle when backed by RemoteAccessSession" do
+    Process.register(self(), :remote_access_broker_test_lifecycle_owner)
+
+    on_exit(fn ->
+      if Process.whereis(:remote_access_broker_test_lifecycle_owner) == self() do
+        Process.unregister(:remote_access_broker_test_lifecycle_owner)
+      end
+    end)
+
+    session = %RemoteAccessSession{
+      id: "session-struct-1",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      device_uid: "device-1",
+      target_host: "10.0.0.20",
+      target_port: 2022,
+      protocol: :ssh,
+      adapter: :ssh,
+      credential_custody_mode: :ssh_certificate,
+      metadata: %{}
+    }
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          lifecycle: LifecycleStub,
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    assert_receive {:lifecycle, :mark_opening, "session-struct-1"}
+
+    assert %{"target" => %{"device_uid" => "device-1", "host" => "10.0.0.20", "port" => 2022}} =
+             Jason.decode!(frame.data)
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "ready"}})
+    assert_receive {:remote_access_ready, "session-struct-1"}
+    assert_receive {:lifecycle, :activate_session, "session-struct-1"}
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    assert_receive {:remote_access_closed, "done"}
+    assert_receive {:lifecycle, :close_session, "session-struct-1", close_opts}
+    assert close_opts[:reason] == "done"
+    assert close_opts[:outcome] == :completed
   end
 
   test "forwards remote-access data and close frames to the owner" do

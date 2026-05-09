@@ -133,6 +133,33 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert closed_audit[:details][:terminal_outcome] == "completed"
   end
 
+  test "open frame and ready frame transitions advance durable session state" do
+    uid = unique_uid("opening")
+    insert_device!(uid, agent_id: "agent-open", gateway_id: "gateway-open")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(uid, %{},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, opening} =
+             RemoteAccessSessions.mark_opening(session.id, audit_writer: AuditSink)
+
+    assert opening.status == :opening
+    assert_receive {:remote_access_audit, opening_audit}
+    assert opening_audit[:action] == :remote_access_session_opening
+
+    assert {:ok, active} =
+             RemoteAccessSessions.activate_session(session.id, audit_writer: AuditSink)
+
+    assert active.status == :active
+    assert_receive {:remote_access_audit, active_audit}
+    assert active_audit[:action] == :remote_access_session_active
+  end
+
   test "provider-console sessions default to provider-ticket custody without key storage" do
     uid = unique_uid("provider")
     insert_device!(uid, agent_id: "agent-provider", gateway_id: "gateway-provider")

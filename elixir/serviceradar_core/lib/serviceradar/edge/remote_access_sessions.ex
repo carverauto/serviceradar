@@ -143,6 +143,31 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   end
 
   @doc """
+  Marks a session opening after the selected agent receives an open frame.
+  """
+  @spec mark_opening(String.t(), keyword()) :: {:ok, RemoteAccessSession.t()} | {:error, term()}
+  def mark_opening(session_id, opts \\ []) when is_binary(session_id) do
+    transition_session(session_id, :mark_opening, opts, fn session ->
+      RemoteAccessSession.mark_opening(
+        session,
+        command_attrs(opts),
+        actor: SystemActor.system(:remote_access_open)
+      )
+    end)
+  end
+
+  @doc """
+  Marks a session active after the selected agent reports the adapter is ready.
+  """
+  @spec activate_session(String.t(), keyword()) ::
+          {:ok, RemoteAccessSession.t()} | {:error, term()}
+  def activate_session(session_id, opts \\ []) when is_binary(session_id) do
+    transition_session(session_id, :activate, opts, fn session ->
+      RemoteAccessSession.activate(session, %{}, actor: SystemActor.system(:remote_access_open))
+    end)
+  end
+
+  @doc """
   Marks a session closed after the edge stream reports a clean close.
   """
   @spec close_session(String.t(), keyword()) :: {:ok, RemoteAccessSession.t()} | {:error, term()}
@@ -458,6 +483,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp audit_action(:close), do: :remote_access_session_closed
   defp audit_action(:expire), do: :remote_access_session_expired
   defp audit_action(:fail), do: :remote_access_session_failed
+  defp audit_action(:mark_opening), do: :remote_access_session_opening
+  defp audit_action(:activate), do: :remote_access_session_active
+
+  defp command_attrs(opts) do
+    case blank_to_nil(Keyword.get(opts, :command_id)) do
+      nil -> %{}
+      command_id -> %{command_id: command_id}
+    end
+  end
 
   defp audit_severity(:remote_access_session_failed), do: :high
   defp audit_severity(:remote_access_session_denied), do: :high
@@ -469,6 +503,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp action_suffix(:remote_access_session_closed), do: "closed"
   defp action_suffix(:remote_access_session_expired), do: "expired"
   defp action_suffix(:remote_access_session_failed), do: "failed"
+  defp action_suffix(:remote_access_session_opening), do: "opening"
+  defp action_suffix(:remote_access_session_active), do: "active"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp ash_opts(opts) do

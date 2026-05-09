@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.RemoteAccessPubSub
+  alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Events.AuditWriter
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
@@ -60,6 +62,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       required_gateway_node: Keyword.get(opts, :required_gateway_node),
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
+      lifecycle: Keyword.get(opts, :lifecycle, lifecycle_for(session)),
       pubsub: pubsub(opts),
       closed?: false
     }
@@ -71,6 +74,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       {:ok, data} ->
         case send_frame(state, "open", data, cols, rows, nil) do
           :ok ->
+            lifecycle(state, :mark_opening)
+
             write_audit(
               state,
               :remote_access_session_opened,
@@ -80,11 +85,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
             {:ok, state}
 
           {:error, reason} ->
+            lifecycle(state, :fail_session, [reason])
             write_audit(state, :remote_access_session_failed, failure_details(reason))
             {:stop, reason}
         end
 
       {:error, reason} ->
+        lifecycle(state, :fail_session, [reason])
         write_audit(state, :remote_access_session_failed, failure_details(reason))
         {:stop, reason}
     end
@@ -106,6 +113,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @impl true
   def handle_cast({:close, reason}, state) do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
+    lifecycle(state, :request_close, [[reason: format_reason(reason)]])
 
     write_audit(state, :remote_access_session_close_requested, %{
       close_reason: format_reason(reason)
@@ -126,6 +134,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state), do: {:stop, reason, state}
   def handle_info(_message, state), do: {:noreply, state}
 
+  defp handle_remote_access_frame(%{frame_type: "ready"}, state) do
+    lifecycle(state, :activate_session)
+    send(state.owner, {:remote_access_ready, session_id(state.session)})
+    {:noreply, state}
+  end
+
   defp handle_remote_access_frame(%{frame_type: "data", data: data}, state)
        when is_binary(data) do
     send(state.owner, {:remote_access_data, data})
@@ -135,6 +149,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
        when frame_type in ["close", "error"] do
     send(state.owner, {:remote_access_closed, reason || frame_type})
+    lifecycle_close(state, frame_type, reason || frame_type)
     write_audit(state, close_action(frame_type), %{close_reason: reason || frame_type})
     {:stop, :normal, %{state | closed?: true}}
   end
@@ -149,8 +164,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   def terminate(reason, %{closed?: false} = state) do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
 
-    if reason not in [:normal, :shutdown],
-      do: write_audit(state, :remote_access_session_failed, failure_details(reason))
+    if reason not in [:normal, :shutdown] do
+      lifecycle(state, :fail_session, [reason])
+      write_audit(state, :remote_access_session_failed, failure_details(reason))
+    end
 
     :ok
   end
@@ -202,7 +219,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           @default_protocol,
       credential_mode:
         string_value(metadata(session), "credential_mode") ||
+          string_value(metadata(session), "credential_custody_mode") ||
           string_value(session, "credential_mode") ||
+          string_value(session, "credential_custody_mode") ||
           @default_credential_mode,
       target: target(session, %{}, metadata(session))
     }
@@ -272,6 +291,29 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp audit_suffix(:remote_access_session_closed), do: "closed"
   defp audit_suffix(:remote_access_session_failed), do: "failed"
   defp audit_suffix(action), do: Atom.to_string(action)
+
+  defp lifecycle_for(%RemoteAccessSession{}), do: RemoteAccessSessions
+  defp lifecycle_for(_session), do: nil
+
+  defp lifecycle(%{lifecycle: nil}, _function), do: :ok
+  defp lifecycle(state, function), do: lifecycle(state, function, [[]])
+
+  defp lifecycle(%{lifecycle: nil}, _function, _args), do: :ok
+
+  defp lifecycle(state, function, args) do
+    _ = apply(state.lifecycle, function, [session_id(state.session) | args])
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp lifecycle_close(state, "error", reason),
+    do: lifecycle(state, :fail_session, [reason, [outcome: :protocol_error]])
+
+  defp lifecycle_close(state, _frame_type, reason),
+    do: lifecycle(state, :close_session, [[reason: reason, outcome: :completed]])
 
   defp format_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 500)
   defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -391,7 +433,18 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> map_value("target")
     |> fallback(map_value(session_metadata, "target"))
     |> fallback(value(session, "target"))
+    |> fallback(target_from_session(session))
     |> normalize_target()
+  end
+
+  defp target_from_session(session) do
+    %{
+      "device_uid" => string_value(session, "device_uid"),
+      "host" => string_value(session, "target_host"),
+      "port" => positive_int(value(session, "target_port"))
+    }
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
   end
 
   defp normalize_target(target) when is_map(target) do
@@ -435,7 +488,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> fallback(string_value(ssh_certificate, "credential_mode"))
     |> fallback(string_value(opts_metadata, "credential_mode"))
     |> fallback(string_value(session_metadata, "credential_mode"))
+    |> fallback(string_value(session_metadata, "credential_custody_mode"))
     |> fallback(string_value(session, "credential_mode"))
+    |> fallback(string_value(session, "credential_custody_mode"))
     |> fallback(@default_credential_mode)
   end
 
