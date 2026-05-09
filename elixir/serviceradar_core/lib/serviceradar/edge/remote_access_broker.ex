@@ -445,7 +445,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
           timeout_ms: int_option(session, opts, "timeout_ms"),
           ssh_host_key_policy:
-            string_option(session, opts, "ssh_host_key_policy", @default_ssh_host_key_policy)
+            string_option(session, opts, "ssh_host_key_policy", @default_ssh_host_key_policy),
+          recording_policy: policy_option(session, opts, "recording_policy"),
+          enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy")
         }
         |> Enum.reject(fn {_key, value} -> blank?(value) end)
         |> Map.new()
@@ -611,6 +613,26 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     ArgumentError ->
       positive_int(map_value(metadata(session), key)) || positive_int(value(session, key))
   end
+
+  defp policy_option(session, opts, key) do
+    opts
+    |> Keyword.get(safe_existing_atom(key), nil)
+    |> normalize_metadata()
+    |> non_empty_map()
+    |> fallback(
+      session
+      |> metadata()
+      |> map_value(key)
+      |> normalize_metadata()
+      |> non_empty_map()
+    )
+    |> fallback(session |> value(key) |> normalize_metadata() |> non_empty_map())
+    |> sanitize_policy()
+  end
+
+  defp sanitize_policy(nil), do: nil
+  defp sanitize_policy(policy) when is_map(policy), do: CredentialRedactor.redact(policy)
+  defp sanitize_policy(_policy), do: nil
 
   defp metadata(session), do: session |> value("metadata") |> normalize_metadata()
 

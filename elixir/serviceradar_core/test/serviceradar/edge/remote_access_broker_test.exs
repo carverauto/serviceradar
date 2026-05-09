@@ -319,6 +319,42 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute inspect(stats) =~ "must-not-be-used"
   end
 
+  test "open frame carries sanitized recording policies for agent-side gates" do
+    session =
+      session_fixture()
+      |> Map.put(:recording_policy, %{"enabled" => true, "retention_days" => 7})
+      |> Map.put(:enhanced_recording_policy, %{
+        "enabled" => true,
+        "required" => true,
+        "mode" => "bpf",
+        "private_key" => "must-not-leak"
+      })
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    payload = Jason.decode!(frame.data)
+
+    assert payload["recording_policy"] == %{"enabled" => true, "retention_days" => 7}
+
+    assert payload["enhanced_recording_policy"] == %{
+             "enabled" => true,
+             "required" => true,
+             "mode" => "bpf",
+             "private_key" => "REDACTED"
+           }
+
+    refute inspect(frame) =~ "must-not-leak"
+  end
+
   test "ignores remote-access frames from agents that do not own the session" do
     session = session_fixture()
 

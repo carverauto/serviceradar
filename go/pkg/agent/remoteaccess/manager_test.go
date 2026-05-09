@@ -18,8 +18,10 @@ package remoteaccess
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -115,6 +117,50 @@ func (f *fakePTY) Close() error {
 	f.once.Do(func() { close(f.closed) })
 
 	return nil
+}
+
+type fakeEnhancedRecording struct {
+	events chan EnhancedEvent
+	stop   chan struct{}
+	once   sync.Once
+}
+
+func newFakeEnhancedRecording() *fakeEnhancedRecording {
+	return &fakeEnhancedRecording{
+		events: make(chan EnhancedEvent, 8),
+		stop:   make(chan struct{}),
+	}
+}
+
+func (f *fakeEnhancedRecording) Events() <-chan EnhancedEvent {
+	return f.events
+}
+
+func (f *fakeEnhancedRecording) Stop(context.Context) error {
+	f.once.Do(func() { close(f.stop) })
+
+	return nil
+}
+
+type fakeEnhancedRecorder struct {
+	started chan EnhancedRecordingSession
+	err     error
+	current *fakeEnhancedRecording
+}
+
+func newFakeEnhancedRecorder(recording *fakeEnhancedRecording) *fakeEnhancedRecorder {
+	return &fakeEnhancedRecorder{
+		started: make(chan EnhancedRecordingSession, 1),
+		current: recording,
+	}
+}
+
+func (f *fakeEnhancedRecorder) Start(_ context.Context, session EnhancedRecordingSession) (EnhancedRecording, error) {
+	f.started <- session
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.current, nil
 }
 
 func TestManagerRoutesSessionFrames(t *testing.T) {
@@ -273,4 +319,175 @@ func TestManagerEchoesHeartbeat(t *testing.T) {
 	if heartbeat.Metadata["sent_bytes"] != "12" {
 		t.Fatalf("heartbeat metadata = %#v", heartbeat.Metadata)
 	}
+}
+
+func TestManagerFailsBeforeOpenWhenRequiredEnhancedRecordingUnavailable(t *testing.T) {
+	t.Parallel()
+
+	openerCalled := false
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			openerCalled = true
+			return newFakePTY(), nil
+		},
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"protocol":   ProtocolSSH,
+			"session_id": "remote-session-1",
+			"agent_id":   "agent-1",
+			"enhanced_recording_policy": map[string]any{
+				"enabled":  true,
+				"required": true,
+			},
+		}),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrEnhancedRecordingUnavailable.Error() {
+		t.Fatalf("error reason = %q, want %q", errorFrame.Reason, ErrEnhancedRecordingUnavailable.Error())
+	}
+	if openerCalled {
+		t.Fatal("target opener was called before required enhanced recording started")
+	}
+}
+
+func TestManagerAllowsOpenWhenEnhancedRecordingFallbackIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	pty := newFakePTY()
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			return pty, nil
+		},
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"protocol":   ProtocolSSH,
+			"session_id": "remote-session-1",
+			"enhanced_recording_policy": map[string]any{
+				"enabled":        true,
+				"required":       true,
+				"allow_fallback": true,
+			},
+		}),
+	}, sender)
+
+	ready := sender.nextFrame(t, FrameTypeReady)
+	if ready.SessionID != "remote-session-1" {
+		t.Fatalf("ready session = %q", ready.SessionID)
+	}
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		FrameType: FrameTypeClose,
+	}, sender)
+	_ = sender.nextFrame(t, FrameTypeClose)
+}
+
+func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
+	t.Parallel()
+
+	recording := newFakeEnhancedRecording()
+	recorder := newFakeEnhancedRecorder(recording)
+	pty := newFakePTY()
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			return pty, nil
+		},
+		EnhancedRecorder: recorder,
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"protocol":        ProtocolSSH,
+			"session_id":      "remote-session-1",
+			"agent_id":        "agent-1",
+			"gateway_id":      "gateway-1",
+			"credential_mode": "ssh_certificate",
+			"target": map[string]any{
+				"host": "router.example",
+				"port": 22,
+			},
+			"enhanced_recording_policy": map[string]any{
+				"enabled":                   true,
+				"mode":                      "bpf",
+				"include_command_arguments": false,
+			},
+		}),
+	}, sender)
+
+	started := <-recorder.started
+	if started.SessionID != "remote-session-1" || started.AgentID != "agent-1" {
+		t.Fatalf("enhanced session = %#v", started)
+	}
+	if started.Target["host"] != "router.example" || started.Target["port"] != "22" {
+		t.Fatalf("enhanced target = %#v", started.Target)
+	}
+
+	_ = sender.nextFrame(t, FrameTypeReady)
+
+	recording.events <- EnhancedEvent{
+		EventType:   EnhancedEventCommand,
+		CommandPath: "/usr/bin/sudo",
+		Argv:        []string{"sudo", "--password", "secret-value"},
+		PID:         123,
+		UID:         1000,
+	}
+
+	eventFrame := sender.nextFrame(t, FrameTypeEnhancedEvent)
+	var event EnhancedEvent
+	if err := json.Unmarshal(eventFrame.Data, &event); err != nil {
+		t.Fatalf("decode enhanced event: %v", err)
+	}
+
+	if event.SessionID != "remote-session-1" || event.AgentID != "agent-1" {
+		t.Fatalf("event identity = %#v", event)
+	}
+	if event.CredentialCustodyMode != "ssh_certificate" {
+		t.Fatalf("credential custody = %q", event.CredentialCustodyMode)
+	}
+	if len(event.Argv) != 0 {
+		t.Fatalf("argv should be omitted by policy, got %#v", event.Argv)
+	}
+	if strings.Contains(string(eventFrame.Data), "secret-value") {
+		t.Fatalf("enhanced event leaked argument secret: %s", string(eventFrame.Data))
+	}
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		FrameType: FrameTypeClose,
+	}, sender)
+	_ = sender.nextFrame(t, FrameTypeClose)
+
+	select {
+	case <-recording.stop:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for enhanced recording stop")
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+
+	return data
 }

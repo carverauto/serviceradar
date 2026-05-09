@@ -81,19 +81,30 @@ type ErrorReason func(error) string
 
 // ManagerConfig configures a remote-access session manager.
 type ManagerConfig struct {
-	Opener      Opener
-	ErrorReason ErrorReason
+	Opener           Opener
+	ErrorReason      ErrorReason
+	EnhancedRecorder EnhancedRecorder
 }
 
 type session struct {
-	cancel context.CancelFunc
-	pty    PTY
-	once   sync.Once
+	cancel    context.CancelFunc
+	pty       PTY
+	enhanced  EnhancedRecording
+	enhancedC context.CancelFunc
+	once      sync.Once
 }
 
 func (s *session) close() {
 	s.once.Do(func() {
 		s.cancel()
+		if s.enhancedC != nil {
+			s.enhancedC()
+		}
+		if s.enhanced != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = s.enhanced.Stop(ctx)
+		}
 		_ = s.pty.Close()
 	})
 }
@@ -104,6 +115,7 @@ type Manager struct {
 	sessions map[string]*session
 	opener   Opener
 	reason   ErrorReason
+	enhanced EnhancedRecorder
 }
 
 // NewManager creates a remote-access session manager. A nil opener reports
@@ -126,6 +138,7 @@ func NewManagerWithConfig(cfg ManagerConfig) *Manager {
 		sessions: make(map[string]*session),
 		opener:   opener,
 		reason:   cfg.ErrorReason,
+		enhanced: cfg.EnhancedRecorder,
 	}
 }
 
@@ -157,14 +170,26 @@ func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
 		return
 	}
 
-	ptySession, err := m.opener(ctx, frame)
+	enhancedSession, enhanced, enhancedCancel, err := m.startEnhancedRecording(ctx, frame)
 	if err != nil {
 		m.sendError(sender, frame.SessionID, err)
 		return
 	}
 
+	ptySession, err := m.opener(ctx, frame)
+	if err != nil {
+		stopEnhancedRecording(enhancedCancel, enhanced)
+		m.sendError(sender, frame.SessionID, err)
+		return
+	}
+
 	sessionCtx, cancel := context.WithCancel(ctx)
-	next := &session{cancel: cancel, pty: ptySession}
+	next := &session{
+		cancel:    cancel,
+		pty:       ptySession,
+		enhanced:  enhanced,
+		enhancedC: enhancedCancel,
+	}
 
 	m.mu.Lock()
 	if _, exists := m.sessions[frame.SessionID]; exists {
@@ -186,6 +211,9 @@ func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
 	})
 
 	go m.readLoop(sessionCtx, frame.SessionID, frame.Protocol, next, sender)
+	if enhanced != nil {
+		go m.enhancedLoop(sessionCtx, enhancedSession, enhanced, sender)
+	}
 }
 
 func (m *Manager) write(frame Frame, sender Sender) {
@@ -265,6 +293,69 @@ func (m *Manager) readLoop(ctx context.Context, sessionID string, protocol strin
 
 		return
 	}
+}
+
+func (m *Manager) startEnhancedRecording(
+	ctx context.Context,
+	frame Frame,
+) (EnhancedRecordingSession, EnhancedRecording, context.CancelFunc, error) {
+	policy := enhancedPolicyFromFrame(frame)
+	session := enhancedSessionFromFrame(frame, policy)
+
+	if !enhancedRecordingEnabled(policy) {
+		return session, nil, nil, nil
+	}
+
+	if m.enhanced == nil {
+		if policy.Required && !policy.AllowFallback {
+			return session, nil, nil, ErrEnhancedRecordingUnavailable
+		}
+		return session, nil, nil, nil
+	}
+
+	collectorCtx, cancel := context.WithCancel(ctx)
+	recording, err := m.enhanced.Start(collectorCtx, session)
+	if err != nil {
+		cancel()
+		if policy.Required && !policy.AllowFallback {
+			return session, nil, nil, err
+		}
+		return session, nil, nil, nil
+	}
+
+	return session, recording, cancel, nil
+}
+
+func (m *Manager) enhancedLoop(
+	ctx context.Context,
+	session EnhancedRecordingSession,
+	recording EnhancedRecording,
+	sender Sender,
+) {
+	for {
+		select {
+		case event, ok := <-recording.Events():
+			if !ok {
+				return
+			}
+			sendFrame(sender, enhancedEventFrame(session, event))
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func stopEnhancedRecording(cancel context.CancelFunc, recording EnhancedRecording) {
+	if cancel != nil {
+		cancel()
+	}
+	if recording == nil {
+		return
+	}
+
+	ctx, cancelStop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelStop()
+	_ = recording.Stop(ctx)
 }
 
 func (m *Manager) get(sessionID string) *session {
