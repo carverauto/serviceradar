@@ -8,7 +8,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
-  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.VirtualizationCluster
   alias ServiceRadar.Inventory.VirtualizationDatastore
@@ -501,7 +500,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     """
   end
 
-  defp network_identity_by_guest(network_interfaces, actor) do
+  defp network_identity_by_guest(network_interfaces, _actor) do
     identities =
       network_interfaces
       |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
@@ -539,25 +538,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         |> Enum.map(&Map.take(&1, [:type, :value, :partition]))
         |> Enum.uniq()
 
-      identifier_to_device =
-        DeviceIdentifier
-        |> Ash.Query.for_read(:lookup_any, %{identifiers: identifiers})
-        |> Ash.read(actor: actor)
-        |> unwrap_page()
-        |> case do
-          {:ok, rows} ->
-            Map.new(rows, fn row ->
-              {{row.identifier_type, row.identifier_value, row.partition || "default"},
-               row.device_id}
-            end)
-
-          {:error, reason} ->
-            Logger.warning(
-              "Hypervisor enrichment device identifier lookup failed: #{inspect(reason)}"
-            )
-
-            %{}
-        end
+      identifier_to_device = lookup_identifier_devices(identifiers)
 
       Enum.reduce(identities, %{}, fn identity, acc ->
         key = {identity.type, identity.value, identity.partition}
@@ -570,10 +551,48 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: {:ok, results}
-  defp unwrap_page({:ok, %Ash.Page.Offset{results: results}}), do: {:ok, results}
-  defp unwrap_page({:ok, results}) when is_list(results), do: {:ok, results}
-  defp unwrap_page(other), do: other
+  defp lookup_identifier_devices(identifiers) do
+    types = Enum.map(identifiers, &to_string(&1.type))
+    values = Enum.map(identifiers, & &1.value)
+    partitions = Enum.map(identifiers, &(&1.partition || "default"))
+
+    case Repo.query(identifier_lookup_sql(), [types, values, partitions]) do
+      {:ok, %{rows: rows}} ->
+        Map.new(rows, fn [type, value, partition, device_id] ->
+          {{identifier_type_atom(type), value, partition || "default"}, device_id}
+        end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Hypervisor enrichment device identifier lookup failed: #{inspect(reason)}"
+        )
+
+        %{}
+    end
+  end
+
+  defp identifier_lookup_sql do
+    """
+    WITH wanted(identifier_type, identifier_value, partition) AS (
+      SELECT * FROM unnest($1::text[], $2::text[], $3::text[])
+    )
+    SELECT DISTINCT ON (di.identifier_type::text, di.identifier_value, COALESCE(di.partition, 'default'))
+      di.identifier_type::text,
+      di.identifier_value,
+      COALESCE(di.partition, 'default') AS partition,
+      di.device_id
+    FROM platform.device_identifiers di
+    JOIN wanted w
+      ON di.identifier_type::text = w.identifier_type
+     AND di.identifier_value = w.identifier_value
+     AND COALESCE(di.partition, 'default') = COALESCE(w.partition, 'default')
+    ORDER BY di.identifier_type::text, di.identifier_value, COALESCE(di.partition, 'default'), di.last_seen DESC NULLS LAST
+    """
+  end
+
+  defp identifier_type_atom("ip"), do: :ip
+  defp identifier_type_atom("mac"), do: :mac
+  defp identifier_type_atom(_value), do: nil
 
   defp resolve_record_device_uid(record, devices) do
     current_uid = Map.get(record, :device_uid)
