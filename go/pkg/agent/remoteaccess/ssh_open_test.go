@@ -72,6 +72,61 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	}
 }
 
+func TestSSHConfigFromOpenFrameUsesSSHCertificateCredential(t *testing.T) {
+	t.Parallel()
+
+	payload := mustSSHOpenPayload(t, SSHOpenPayload{
+		Target: SSHTarget{Host: "router.example"},
+		SSH: SSHAuth{
+			Username:    "admin",
+			PrivateKey:  "session-key",
+			Certificate: "session-cert",
+		},
+		CredentialMode: SSHCredentialModeSSHCertificate,
+	})
+
+	cfg, err := SSHConfigFromOpenFrame(Frame{
+		SessionID: "session-1",
+		Protocol:  ProtocolSSH,
+		Data:      payload,
+	})
+	if err != nil {
+		t.Fatalf("SSHConfigFromOpenFrame returned error: %v", err)
+	}
+
+	if cfg.Auth.Username != "admin" ||
+		cfg.Auth.PrivateKey != "session-key" ||
+		cfg.Auth.Certificate != "session-cert" {
+		t.Fatalf("auth = %#v", cfg.Auth)
+	}
+}
+
+func TestSSHConfigFromOpenFrameRejectsInvalidSSHCertificateCredential(t *testing.T) {
+	t.Parallel()
+
+	payload := mustSSHOpenPayload(t, SSHOpenPayload{
+		Target:         SSHTarget{Host: "router.example"},
+		SSH:            SSHAuth{Username: "admin", PrivateKey: "session-key"},
+		CredentialMode: SSHCredentialModeSSHCertificate,
+	})
+
+	_, err := SSHConfigFromOpenFrame(Frame{SessionID: "session-1", Protocol: ProtocolSSH, Data: payload})
+	if !errors.Is(err, ErrSSHCertificateRequired) {
+		t.Fatalf("missing cert error = %v, want %v", err, ErrSSHCertificateRequired)
+	}
+
+	payload = mustSSHOpenPayload(t, SSHOpenPayload{
+		Target:         SSHTarget{Host: "router.example"},
+		SSH:            SSHAuth{Username: "admin", Certificate: "session-cert"},
+		CredentialMode: SSHCredentialModeSSHCertificate,
+	})
+
+	_, err = SSHConfigFromOpenFrame(Frame{SessionID: "session-1", Protocol: ProtocolSSH, Data: payload})
+	if !errors.Is(err, ErrSSHCertificateRequiresKey) {
+		t.Fatalf("missing key error = %v, want %v", err, ErrSSHCertificateRequiresKey)
+	}
+}
+
 func TestSSHConfigFromOpenFrameRejectsAgentLocalCredentialMode(t *testing.T) {
 	t.Parallel()
 

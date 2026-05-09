@@ -27,13 +27,15 @@ import (
 const (
 	ProtocolSSH = "ssh"
 
-	SSHCredentialModeUserPresent = "user_present"
+	SSHCredentialModeUserPresent    = "user_present"
+	SSHCredentialModeSSHCertificate = "ssh_certificate"
 )
 
 var (
 	ErrUnsupportedSSHProtocol       = errors.New("unsupported remote access ssh protocol")
 	ErrInvalidSSHOpenPayload        = errors.New("invalid ssh open payload")
 	ErrUnsupportedSSHCredentialMode = errors.New("unsupported ssh credential mode")
+	ErrSSHCertificateRequired       = errors.New("ssh certificate is required")
 )
 
 // SSHOpenPayload is the JSON payload carried by an SSH open frame.
@@ -100,6 +102,14 @@ func sshAuthForOpenPayload(
 ) (SSHAuth, error) {
 	switch mode {
 	case SSHCredentialModeUserPresent:
+		return payload.SSH, nil
+	case SSHCredentialModeSSHCertificate:
+		if payload.SSH.Certificate == "" {
+			return SSHAuth{}, ErrSSHCertificateRequired
+		}
+		if payload.SSH.PrivateKey == "" {
+			return SSHAuth{}, ErrSSHCertificateRequiresKey
+		}
 		return payload.SSH, nil
 	default:
 		return SSHAuth{}, fmt.Errorf("%w %q", ErrUnsupportedSSHCredentialMode, mode)
