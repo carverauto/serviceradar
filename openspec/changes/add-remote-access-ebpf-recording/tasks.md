@@ -1,5 +1,5 @@
 ## 0. Approval
-- [ ] 0.1 Review and accept this proposal before implementation starts.
+- [x] 0.1 Review and accept this proposal before implementation starts.
 
 ## 1. Design and Licensing
 - [x] 1.1 Perform initial candidate review for `github.com/cilium/ebpf` license, runtime dependencies, and fit as the shared agent eBPF library.
@@ -10,8 +10,8 @@
 - [x] 1.6 Define package ownership for the shared agent eBPF runtime, with remote access consuming it rather than owning it.
 
 ## 2. Agent Collector
-- [ ] 2.1 Add `github.com/cilium/ebpf` to `go.mod`, run `bazel mod tidy`, and keep non-Linux builds working.
-- [ ] 2.2 Add `go/pkg/agent/ebpf` shared runtime interfaces, non-Linux stubs, Linux capability checks, and runtime error types.
+- [x] 2.1 Add `github.com/cilium/ebpf` to `go.mod`, run `bazel mod tidy`, and keep non-Linux builds working.
+- [x] 2.2 Add `go/pkg/agent/ebpf` shared runtime interfaces, non-Linux stubs, Linux capability checks, and runtime error types.
 - [ ] 2.3 Add Linux-only BPF build plumbing and checked-in generated artifact workflow.
 - [ ] 2.4 Implement the shared runtime pieces needed by remote-access recording without making them remote-access-specific.
 - [ ] 2.5 Implement command exec probes and user-space normalization.
