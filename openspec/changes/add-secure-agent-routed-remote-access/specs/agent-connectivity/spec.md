@@ -8,6 +8,15 @@ Remote-access commands and frames SHALL use the existing agent-initiated control
 - **THEN** the gateway SHALL deliver open/data/resize/close frames over that existing stream
 - **AND** the platform SHALL NOT dial the agent directly.
 
+### Requirement: Agents advertise remote-access capabilities
+Agents SHALL advertise remote-access adapter and enhanced-recording capabilities during enrollment and control-stream heartbeats.
+
+#### Scenario: Agent lacks BPF support
+- **GIVEN** an agent is running on a platform without compatible BPF support
+- **WHEN** it sends Hello or a control-stream heartbeat
+- **THEN** it SHALL omit `remote_access.bpf`
+- **AND** the control plane SHALL NOT route sessions requiring enhanced BPF tracing to that agent.
+
 ### Requirement: Agent enforces session grants
 Agents SHALL enforce signed or otherwise authenticated session grants that constrain protocol, target, credential reference, TTL, and session ID.
 

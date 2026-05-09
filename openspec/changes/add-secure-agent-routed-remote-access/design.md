@@ -1,20 +1,28 @@
 ## Context
-The Proxmox console work is really a special case of a larger capability: agent-routed remote access. The operator is in the browser, the target is often reachable only from an edge agent, and the platform must route a short-lived interactive session through the existing outbound agent control path. If this is designed cleanly, ServiceRadar can cover use cases currently handled by remote access products while staying integrated with inventory, RBAC, audit, discovery, and alert context.
+The Proxmox console work is really a special case of a larger capability: a Teleport-like access plane inside ServiceRadar. The operator is in the browser, the target is often reachable only from an edge agent, and the platform must route a short-lived interactive session through the existing outbound agent control path. If this is designed cleanly, ServiceRadar can cover use cases currently handled by remote access products while staying integrated with inventory, RBAC, audit, discovery, host telemetry, and alert context.
+
+The target is functional parity class, not code cloning: SSH/shell access, protocol adapters, session recording, audit, approvals, short-lived credentials, app/database/Kubernetes/desktop-style access patterns over time, and enhanced command/disk/network tracing. Teleport has done substantial engineering in these areas, so ServiceRadar should import verified Apache-2.0 Teleport packages wherever that is legally and technically clean. Where Teleport implementation source is AGPL or has an AGPL transitive dependency path, ServiceRadar must implement equivalent behavior clean-room from requirements, public protocol/kernel interfaces, and tests.
 
 The dangerous part is credential custody. A long-lived SSH private key stored centrally can become a network-wide compromise primitive. The architecture must support central secrets where appropriate, but it must not require storing broad SSH keys in Postgres/AshCloak for generic device access.
 
 ## Goals
+- Build a ServiceRadar-native access plane with Teleport-like capability coverage over time.
+- Reuse/import verified Apache-2.0 Teleport Go packages where the full transitive dependency path is license-clean and compatible with ServiceRadar's Bazel/Go module graph.
+- Provide clean-room equivalents for non-importable Teleport functionality rather than mechanically porting AGPL implementation code.
 - Provide one remote-access substrate for SSH terminals, hypervisor consoles, and future graphical protocols such as RDP.
 - Route all target connections through a selected enrolled agent using the agent-initiated control stream.
 - Avoid direct platform-to-target connectivity requirements.
 - Make credential custody explicit per credential rule and per protocol.
 - Support customers that prohibit SaaS/control-plane storage of private keys.
 - Enforce RBAC, per-agent/per-device scope, TTLs, audit, and optional approval before session start.
+- Support policy-controlled session recording and enhanced host-event telemetry, including command execution, file activity, and network connections on Linux agents where BPF is available.
 - Keep xterm/webpty reusable and protocol-neutral.
 
 ## Non-Goals
-- Do not implement a full privileged access management product in the first iteration.
+- Do not implement the entire Teleport-equivalent capability set in the first iteration; design the architecture so the parity tracks can land incrementally.
+- Do not copy, translate, or mechanically port AGPL Teleport implementation source.
 - Do not require session recording for all customers; make it policy-controlled.
+- Do not require BPF/enhanced recording on all platforms; provide policy and capability detection with graceful fallback.
 - Do not require browser-held credentials for every SSH session; support multiple custody modes.
 - Do not build RDP immediately; reserve the protocol boundary so it can be added without redesigning the tunnel.
 - Do not build CEA-852/CN-IP support immediately; capture it as a future OT protocol adapter because we do not currently have real LonTalk/CN-IP infrastructure for validation.
@@ -34,6 +42,33 @@ browser renderer
 The session record is created in the platform before any target connection is opened. It includes actor, device or target ref, protocol, selected agent, partition, credential rule or session credential mode, RBAC decision, TTL, and requested capabilities.
 
 The target connection must be opened by the selected agent, not the platform. That preserves support for overlapping IP spaces and segmented customer networks.
+
+## Teleport-Parity Capability Tracks
+The first implementation should be narrow, but the architecture must preserve these capability tracks:
+
+- SSH and shell access: browser terminal, PTY lifecycle, resize/input/output frames, SFTP/SCP-style file transfer later, host key policy, and per-session credentials.
+- Session recording and replay: lifecycle audit first, optional byte recording later, replay metadata, recording retention, redaction boundaries, and sensitive-data classification.
+- Enhanced host telemetry: command execution, file open/access, and network connection events correlated to a remote-access session. Linux BPF support should be clean-room unless a fully importable Teleport path is cleared.
+- Access governance: RBAC, approvals, access requests, break-glass policy, per-target/per-agent scope, credential custody policy, and reauthorization on attach/resume.
+- Identity and credentials: user-present credentials, agent-local secrets, centrally brokered secrets, short-lived SSH certificates, future hardware-backed signing, and audit correlation.
+- Protocol adapters: SSH first, Proxmox/vSphere provider consoles, app/database/Kubernetes-style TCP/HTTP proxying later, and graphical desktop/RDP-style adapters later.
+- Agent inventory and presence: enrolled agents advertise capabilities such as `remote_access`, `remote_access.ssh`, `remote_access.recording`, and `remote_access.bpf` so the control plane can route only to compatible agents.
+
+## BPF / Enhanced Recording Model
+Enhanced recording is a separate host telemetry capability from the interactive byte stream. It should emit normalized ServiceRadar audit/telemetry events that can be correlated with `remote_access_session_id`, `actor_id`, `agent_id`, `target`, and `credential_custody_mode`.
+
+Initial event families:
+- `command`: exec path, argv where policy permits, cwd, uid/gid, pid/ppid, exit status when available, timestamp, and session correlation.
+- `file`: path, operation, uid/gid, pid, result, timestamp, and session correlation.
+- `network`: source/destination address and port, protocol, pid, result, timestamp, and session correlation.
+- `loss`: per-family dropped-event counters and sampler/backpressure state.
+
+Implementation constraints:
+- BPF programs and loaders must be ServiceRadar-authored clean-room code unless a license-clean import path is identified.
+- BPF attachment must be policy-controlled and capability-gated by kernel/platform compatibility.
+- Agents must fail closed for required enhanced recording policies when BPF cannot start, and fail open only when policy explicitly allows non-BPF fallback.
+- Events must avoid capturing plaintext credentials, terminal input bytes, or secret file contents.
+- Linux-specific event capture should live behind interfaces so non-Linux agents can still run remote access without enhanced recording.
 
 ## Generic Resource and Frame Model
 Use `remote_access` as the generic capability name in new code. Keep Proxmox-specific modules and routes as wrappers until the UI and API callers are migrated.
@@ -105,6 +140,13 @@ Teleport reference findings from `~/src/teleport`:
 - `lib/bpf` and broad `lib/srv` paths have AGPL headers. Treat them as architecture reference only unless licensing is explicitly cleared.
 - Import verified Apache-2.0 Teleport subpackages wherever they fit the agent implementation. Do not copy, translate, or mechanically port AGPL implementation code. For non-Apache areas, write a clean-room ServiceRadar implementation from behavior requirements, protocol documentation, and tests that do not derive from AGPL source text.
 
+Teleport capability inventory to keep mapped as design proceeds:
+- `api/ssh`, `api/observability/tracing/ssh`: SSH client/tracing API shape, currently blocked for direct import by transitive license review.
+- `lib/srv`, `lib/srv/ssh`, `lib/srv/forward`: server-side SSH, SFTP, and forwarding behavior; treat as clean-room reference due AGPL headers.
+- `lib/events`, `api/types/events`: audit/session event vocabulary; review subpackages individually before import.
+- `lib/bpf` and top-level `bpf/enhancedrecording`: enhanced recording concepts for command, disk/file, and network events; clean-room unless cleared.
+- `lib/proxy`, `lib/web`, `lib/client`, `lib/kube`, `lib/srv/db`, `lib/srv/desktop`, `lib/srv/app`: future protocol adapter and access-governance parity areas; review per feature before reuse.
+
 ## Credential Custody Modes
 ### Centrally Brokered Secret
 The control plane stores an encrypted credential and grants a short-lived, scoped broker reference to the selected agent. This is acceptable for low-scope API tokens, break-glass credentials with strict approval, or customers that explicitly choose central storage.
@@ -175,6 +217,7 @@ The SSH adapter must:
 - Credential broker grants must be one-time or short-lived and scoped to one session.
 - Audit must record actor, target, protocol, selected agent, credential rule, approval, timestamps, terminal outcome, and policy decisions.
 - Session byte recording must be optional and policy-controlled. If enabled, secrets should be redacted where feasible, but recording must be treated as sensitive data.
+- Enhanced BPF recording must be policy-controlled, session-correlated, and treated as sensitive telemetry with explicit retention and access policy.
 
 ## Browser-Held SSH Keys
 Keeping a user key local to the browser can avoid persistent server-side storage, but it is not a complete defense. If the web app or browser session is compromised, malicious JavaScript can still use a loaded non-extractable key to sign SSH challenges while the session is active. It may not be able to export the raw key, but it can still abuse it in real time.

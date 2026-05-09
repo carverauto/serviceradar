@@ -16,6 +16,21 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the session SHALL be bound to the agent selected by policy or inventory relationship
 - **AND** target host/port/protocol SHALL NOT be retargetable by browser-supplied frame data.
 
+### Requirement: Teleport-like access capability coverage
+The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
+
+#### Scenario: Capability area is added incrementally
+- **GIVEN** a capability such as SSH, session recording, application access, database access, Kubernetes access, desktop/RDP access, or enhanced host tracing is planned
+- **WHEN** the capability is implemented
+- **THEN** it SHALL reuse the generic session, authorization, audit, credential custody, and agent routing model
+- **AND** protocol-specific behavior SHALL remain isolated to an adapter or collector boundary.
+
+#### Scenario: Teleport implementation path is not license clean
+- **GIVEN** a Teleport package or source path has AGPL headers or an AGPL transitive dependency path
+- **WHEN** ServiceRadar implements equivalent functionality
+- **THEN** the implementation SHALL be clean-room and ServiceRadar-authored
+- **AND** it SHALL NOT copy, translate, or mechanically port that Teleport implementation source.
+
 ### Requirement: Remote access supports multiple protocols
 The remote-access tunnel SHALL separate session lifecycle and routing from protocol-specific adapters and browser renderers.
 
@@ -63,3 +78,20 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **WHEN** operators use a remote shell
 - **THEN** terminal byte contents SHALL NOT be persisted
 - **AND** lifecycle audit events SHALL still be recorded.
+
+### Requirement: Enhanced host-event tracing
+The system SHALL support policy-controlled enhanced tracing for remote-access sessions on capable Linux agents.
+
+#### Scenario: BPF tracing is required by policy
+- **GIVEN** a remote-access policy requires enhanced tracing
+- **AND** the selected agent cannot start the required BPF collectors
+- **WHEN** the operator starts the session
+- **THEN** the session SHALL fail before target access is opened
+- **AND** the failure SHALL be audited with a sanitized reason.
+
+#### Scenario: BPF tracing records session-correlated events
+- **GIVEN** enhanced tracing is enabled for an active session
+- **WHEN** commands execute, files are opened, or network connections are attempted from the session context
+- **THEN** the agent SHALL emit normalized events correlated to the remote-access session
+- **AND** the events SHALL include dropped-event counters when kernel or user-space buffers lose data
+- **AND** the events SHALL NOT include plaintext credentials, terminal input bytes, or file contents.
