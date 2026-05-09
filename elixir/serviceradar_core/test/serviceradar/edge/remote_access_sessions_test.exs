@@ -15,6 +15,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     end
   end
 
+  defmodule ApprovalRejector do
+    @moduledoc false
+
+    def authorize_remote_access_approval(context, _opts) do
+      send(Process.get(:remote_access_audit_owner), {:approval_checked, context})
+      {:error, :approval_denied}
+    end
+  end
+
   @system_actor SystemActor.system(:remote_access_sessions_test)
 
   setup do
@@ -94,6 +103,74 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, denial_audit}
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
+  end
+
+  test "centrally brokered SSH custody requires an approval id" do
+    uid = unique_uid("approval-required")
+    insert_device!(uid, agent_id: "agent-approval", gateway_id: "gateway-approval")
+
+    assert {:error, :approval_required} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :centrally_brokered},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "approval_required"
+    assert denial_audit[:details][:failure_reason] == "approval_required"
+  end
+
+  test "approval policy stores only the approval id after the gate passes" do
+    uid = unique_uid("approved")
+    insert_device!(uid, agent_id: "agent-approved", gateway_id: "gateway-approved")
+    approval_id = Ecto.UUID.generate()
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approval_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.approval_id == approval_id
+    assert session.rbac_decision == :allowed
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:details][:approval_id] == approval_id
+    assert create_audit[:details][:rbac_decision] == "allowed"
+  end
+
+  test "approval checker can deny a supplied approval id" do
+    uid = unique_uid("approval-denied")
+    insert_device!(uid, agent_id: "agent-denied", gateway_id: "gateway-denied")
+    approval_id = Ecto.UUID.generate()
+
+    assert {:error, :approval_denied} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approval_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               approval_checker: ApprovalRejector
+             )
+
+    assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "denied"
+    assert denial_audit[:details][:failure_reason] == "approval_denied"
   end
 
   test "lifecycle transitions write sanitized terminal outcomes" do

@@ -113,6 +113,25 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["error"] == "remote_access_session_unavailable"
       assert body["message"] =~ "custody mode"
     end
+
+    test "maps approval-required policy denials without issuing a ticket", %{conn: conn} do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        {:error, :approval_required}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "credential_custody_mode" => "centrally_brokered",
+          "approval_required" => true
+        })
+
+      body = json_response(conn, 403)
+      assert body["error"] == "approval_required"
+      refute inspect(body) =~ "ticket"
+    end
   end
 
   describe "POST /api/remote-access/sessions/:id/close" do

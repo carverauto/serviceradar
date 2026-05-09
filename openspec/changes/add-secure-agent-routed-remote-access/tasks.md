@@ -15,7 +15,7 @@
 - [x] 2.4 Add an agent-side SSH protocol adapter with user-present credential support and no generic agent-local reusable SSH secrets.
 - [x] 2.5 Add user-present session credential support without persisting credentials.
 - [x] 2.6 Convert Proxmox console handling into a provider adapter that uses the generic remote-access path.
-- [ ] 2.7 Add audit events and RBAC/approval checks for create, attach, input, resize, close, and failure transitions.
+- [x] 2.7 Add audit events and RBAC/approval checks for create, attach, input, resize, close, and failure transitions.
 - [ ] 2.8 Add browser UI for per-session SSH key upload/paste, optional client-only remembered keys, passphrase support, and key fingerprint display without server-side key persistence.
 - [ ] 2.9 Add session recording storage/retention plumbing behind policy gates.
 - [ ] 2.10 Add clean-room Linux enhanced-recording collector for command/file/network events behind agent capability and policy gates.

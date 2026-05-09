@@ -49,6 +49,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
           optional(:gateway_id) => String.t(),
           optional(:credential_custody_mode) => atom() | String.t(),
           optional(:credential_rule_id) => String.t(),
+          optional(:approval_required) => boolean() | String.t(),
           optional(:approval_id) => String.t(),
           optional(:cols) => integer(),
           optional(:rows) => integer(),
@@ -260,6 +261,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            normalize_custody_mode(value(request, :credential_custody_mode), protocol),
          {:ok, agent_id} <- resolve_agent_id(device, request),
          {:ok, target_host} <- resolve_target_host(device, request),
+         {:ok, approval} <- authorize_approval(request, protocol, custody_mode, opts),
          {:ok, ticket, ticket_hash} <- new_ticket() do
       now = RemoteAccessSession.utc_now()
 
@@ -285,8 +287,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
             credential_custody_mode: custody_mode,
             credential_rule_id: blank_to_nil(value(request, :credential_rule_id)),
             requested_by: requested_by(opts),
-            approval_id: blank_to_nil(value(request, :approval_id)),
-            rbac_decision: :allowed,
+            approval_id: approval.approval_id,
+            rbac_decision: approval.rbac_decision,
             idle_timeout_seconds:
               int_request(request, :idle_timeout_seconds, @default_idle_timeout_seconds),
             absolute_timeout_seconds:
@@ -363,6 +365,69 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     case blank_to_nil(value(request, :target_host) || device_hostname(device)) do
       nil -> {:error, :missing_remote_access_target}
       target_host -> {:ok, target_host}
+    end
+  end
+
+  defp authorize_approval(request, protocol, custody_mode, opts) do
+    approval_id = blank_to_nil(value(request, :approval_id))
+    required? = approval_required?(request, protocol, custody_mode)
+
+    if required? and is_nil(approval_id) do
+      {:error, :approval_required}
+    else
+      context = %{
+        approval_id: approval_id,
+        approval_required?: required?,
+        protocol: protocol,
+        credential_custody_mode: custody_mode,
+        target_kind: value(request, :target_kind),
+        credential_rule_id: blank_to_nil(value(request, :credential_rule_id))
+      }
+
+      case run_approval_checker(context, opts) do
+        :ok ->
+          {:ok, %{approval_id: approval_id, rbac_decision: :allowed}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp approval_required?(_request, _protocol, :centrally_brokered), do: true
+
+  defp approval_required?(request, _protocol, _custody_mode) do
+    truthy?(value(request, :approval_required)) or
+      request
+      |> value(:recording_policy)
+      |> policy_requires_approval?() or
+      request
+      |> value(:enhanced_recording_policy)
+      |> policy_requires_approval?()
+  end
+
+  defp policy_requires_approval?(policy) when is_map(policy),
+    do: truthy?(value(policy, :approval_required))
+
+  defp policy_requires_approval?(_policy), do: false
+
+  defp truthy?(value) when value in [true, "true", "required", "yes", "1", 1], do: true
+  defp truthy?(_value), do: false
+
+  defp run_approval_checker(context, opts) do
+    checker =
+      Keyword.get(opts, :approval_checker) ||
+        Application.get_env(:serviceradar_core, :remote_access_approval_checker)
+
+    cond do
+      is_nil(checker) ->
+        :ok
+
+      function_exported?(checker, :authorize_remote_access_approval, 2) ->
+        checker.authorize_remote_access_approval(context, opts)
+
+      true ->
+        {:error, :approval_denied}
     end
   end
 
@@ -471,7 +536,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
           device_uid: device_uid,
           protocol: format_atom(value(request || %{}, :protocol) || :ssh),
           credential_custody_mode: format_atom(value(request || %{}, :credential_custody_mode)),
-          rbac_decision: "denied",
+          rbac_decision: denial_decision(error),
           failure_reason: format_failure_reason(error)
         }),
       severity: :high,
@@ -496,6 +561,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp audit_severity(:remote_access_session_failed), do: :high
   defp audit_severity(:remote_access_session_denied), do: :high
   defp audit_severity(_action), do: :medium
+
+  defp denial_decision(:approval_required), do: "approval_required"
+  defp denial_decision(_error), do: "denied"
 
   defp action_suffix(:remote_access_session_create), do: "created"
   defp action_suffix(:remote_access_session_attach), do: "attached"

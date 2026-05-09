@@ -33,6 +33,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         |> put_status(:forbidden)
         |> json(%{error: "forbidden", message: "Remote access permission is required"})
 
+      {:error, :approval_required} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "approval_required", message: "Remote access approval is required"})
+
+      {:error, :approval_denied} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "approval_denied", message: "Remote access approval was denied"})
+
       {:error, reason} when reason in [:device_not_found, :not_found] ->
         conn
         |> put_status(:not_found)
@@ -126,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          gateway_id: normalize_optional_string(Map.get(params, "gateway_id")),
          credential_custody_mode: normalize_optional_string(Map.get(params, "credential_custody_mode")),
          credential_rule_id: normalize_optional_string(Map.get(params, "credential_rule_id")),
+         approval_required: Map.get(params, "approval_required"),
          approval_id: normalize_optional_string(Map.get(params, "approval_id")),
          cols: Map.get(terminal, "cols"),
          rows: Map.get(terminal, "rows"),
