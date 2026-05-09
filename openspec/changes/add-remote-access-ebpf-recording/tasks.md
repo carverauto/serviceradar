@@ -12,7 +12,7 @@
 ## 2. Agent Collector
 - [x] 2.1 Add `github.com/cilium/ebpf` to `go.mod`, run `bazel mod tidy`, and keep non-Linux builds working.
 - [x] 2.2 Add `go/pkg/agent/ebpf` shared runtime interfaces, non-Linux stubs, Linux capability checks, and runtime error types.
-- [ ] 2.3 Add Linux-only BPF build plumbing and checked-in generated artifact workflow.
+- [x] 2.3 Add Linux-only BPF build plumbing and checked-in generated artifact workflow.
 - [ ] 2.4 Implement the shared runtime pieces needed by remote-access recording without making them remote-access-specific.
 - [ ] 2.5 Implement command exec probes and user-space normalization.
 - [ ] 2.6 Implement file open/access probes and user-space normalization.
