@@ -318,6 +318,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
 	proxmoxConsoleManager := newProxmoxConsoleManagerWithAgentID(serverAgentID(server), log)
+	proxmoxConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
 	proxmoxConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {
@@ -354,6 +355,17 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		cameraRelayManager:    cameraRelayManager,
 		proxmoxConsoleManager: proxmoxConsoleManager,
 	}
+}
+
+func remoteAccessKnownHostsFile(server *Server) string {
+	if server == nil || server.config == nil {
+		return ""
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return strings.TrimSpace(server.config.RemoteAccessKnownHostsFile)
 }
 
 // Start begins the push loop. It runs until the context is cancelled or Stop is called.

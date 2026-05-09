@@ -57,7 +57,8 @@ type SSHOpenPayload struct {
 
 // SSHOpenOptions configures frame-to-PTY SSH opening.
 type SSHOpenOptions struct {
-	Dial SSHDialer
+	Dial           SSHDialer
+	KnownHostsPath string
 }
 
 // OpenSSHFromFrame opens an SSH PTY from a generic remote-access open frame.
@@ -66,6 +67,7 @@ func OpenSSHFromFrame(ctx context.Context, frame Frame, opts SSHOpenOptions) (PT
 	if err != nil {
 		return nil, err
 	}
+	cfg.KnownHostsPath = opts.KnownHostsPath
 
 	return OpenSSHPTY(ctx, cfg, opts.Dial)
 }

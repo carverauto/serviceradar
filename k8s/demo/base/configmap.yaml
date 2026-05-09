@@ -254,6 +254,7 @@ data:
         "status_debounce_interval": "30s",
         "status_heartbeat_interval": "5m",
         "sync_runtime_enabled": true,
+        "remote_access_known_hosts_file": "/var/lib/serviceradar/cache/remote-access-known_hosts",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "mtls",

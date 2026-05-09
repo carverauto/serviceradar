@@ -25,12 +25,16 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 func TestOpenSSHPTYRoutesBytesResizeAndClose(t *testing.T) {
@@ -255,17 +259,113 @@ func TestSSHSignerRejectsHostCertificate(t *testing.T) {
 	}
 }
 
-func TestSSHHostKeyPolicyRequiresExplicitSkipVerifyUntilStoreExists(t *testing.T) {
+func TestSSHHostKeyPolicyUsesKnownHostsFile(t *testing.T) {
 	t.Parallel()
 
-	if _, err := sshHostKeyCallback("known_hosts"); !errors.Is(err, ErrSSHHostKeyStoreUnavailable) {
-		t.Fatalf("known_hosts error = %v, want %v", err, ErrSSHHostKeyStoreUnavailable)
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
 	}
-	if _, err := sshHostKeyCallback("trust_on_first_use"); !errors.Is(err, ErrSSHHostKeyStoreUnavailable) {
-		t.Fatalf("trust_on_first_use error = %v, want %v", err, ErrSSHHostKeyStoreUnavailable)
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
 	}
-	if _, err := sshHostKeyCallback("skip_verify"); err != nil {
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	hostAddress := knownhosts.Normalize("router.example:2222")
+	line := knownhosts.Line([]string{hostAddress}, signer.PublicKey())
+	if err := os.WriteFile(knownHostsPath, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	callback, err := sshHostKeyCallback("known_hosts", knownHostsPath)
+	if err != nil {
+		t.Fatalf("known_hosts callback: %v", err)
+	}
+	if err := callback("router.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("known_hosts callback returned error: %v", err)
+	}
+
+	if callback, err = sshHostKeyCallback("skip_verify", ""); err != nil {
 		t.Fatalf("skip_verify returned error: %v", err)
+	} else if callback == nil {
+		t.Fatal("skip_verify returned nil callback")
+	}
+}
+
+func TestSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+
+	callback, err := sshHostKeyCallback("trust_on_first_use", knownHostsPath)
+	if err != nil {
+		t.Fatalf("trust_on_first_use callback: %v", err)
+	}
+	if err := callback("router.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("first use returned error: %v", err)
+	}
+	if data, err := os.ReadFile(knownHostsPath); err != nil {
+		t.Fatalf("read known_hosts: %v", err)
+	} else if !strings.Contains(string(data), signer.PublicKey().Type()) {
+		t.Fatalf("known_hosts did not contain pinned key: %q", string(data))
+	}
+
+	callback, err = sshHostKeyCallback("known_hosts", knownHostsPath)
+	if err != nil {
+		t.Fatalf("known_hosts callback: %v", err)
+	}
+	if err := callback("router.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("known_hosts did not accept TOFU-pinned key: %v", err)
+	}
+}
+
+func TestSSHHostKeyPolicyRejectsChangedTrustOnFirstUseKey(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	_, changedPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate changed key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	changedSigner, err := ssh.NewSignerFromKey(changedPrivateKey)
+	if err != nil {
+		t.Fatalf("new changed signer: %v", err)
+	}
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	line := knownhosts.Line([]string{knownhosts.Normalize("router.example:2222")}, signer.PublicKey())
+	if err := os.WriteFile(knownHostsPath, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	callback, err := sshHostKeyCallback("trust_on_first_use", knownHostsPath)
+	if err != nil {
+		t.Fatalf("trust_on_first_use callback: %v", err)
+	}
+	if err := callback("router.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 2222}, changedSigner.PublicKey()); err == nil {
+		t.Fatal("expected changed TOFU key to be rejected")
+	}
+}
+
+func TestSSHHostKeyPolicyRejectsUnsupportedPolicy(t *testing.T) {
+	t.Parallel()
+
+	if _, err := sshHostKeyCallback("accept_anything", ""); !errors.Is(err, ErrUnsupportedSSHHostKeyPolicy) {
+		t.Fatalf("unsupported policy error = %v, want %v", err, ErrUnsupportedSSHHostKeyPolicy)
 	}
 }
 

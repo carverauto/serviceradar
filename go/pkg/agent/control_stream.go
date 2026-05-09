@@ -381,6 +381,7 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 
 	if p.proxmoxConsoleManager == nil {
 		p.proxmoxConsoleManager = newProxmoxConsoleManagerWithAgentID(p.agentID(), p.logger)
+		p.proxmoxConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(p.server)
 	}
 
 	p.proxmoxConsoleManager.HandleFrame(context.Background(), frame, sender)

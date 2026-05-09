@@ -23,12 +23,15 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -37,6 +40,7 @@ const (
 	defaultSSHRows         = 40
 	defaultSSHTimeout      = 30 * time.Second
 	maxSSHTimeout          = 5 * time.Minute
+	defaultKnownHostsPath  = "/var/lib/serviceradar/cache/remote-access-known_hosts"
 )
 
 var (
@@ -46,10 +50,12 @@ var (
 	ErrSSHCertificateRequiresKey       = errors.New("ssh certificate requires matching private key")
 	ErrSSHCertificateKeyMismatch       = errors.New("ssh certificate public key does not match private key")
 	ErrInvalidSSHCertificate           = errors.New("invalid ssh certificate")
-	ErrSSHHostKeyStoreUnavailable      = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
+	ErrSSHHostKeyStoreUnavailable      = errors.New("SSH host key verification store is not available to the agent connector")
 	ErrUnsupportedSSHHostKeyPolicy     = errors.New("unsupported ssh_host_key_policy")
 	ErrSSHSessionOutputChannelOverflow = errors.New("ssh session output channel overflow")
 )
+
+var sshKnownHostsMu sync.Mutex
 
 // SSHTarget identifies the target host opened by the selected agent.
 type SSHTarget struct {
@@ -76,6 +82,7 @@ type SSHConfig struct {
 	Rows             uint32
 	Timeout          time.Duration
 	SSHHostKeyPolicy string
+	KnownHostsPath   string
 }
 
 // SSHSession is the subset of x/crypto/ssh.Session used by the PTY adapter.
@@ -246,7 +253,7 @@ func DialSSH(ctx context.Context, cfg SSHConfig) (SSHSession, error) {
 		return nil, err
 	}
 
-	hostKeyCallback, err := sshHostKeyCallback(cfg.SSHHostKeyPolicy)
+	hostKeyCallback, err := sshHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +272,7 @@ func DialSSH(ctx context.Context, cfg SSHConfig) (SSHSession, error) {
 		Timeout:         timeout,
 	}
 
-	conn, chans, reqs, err := ssh.NewClientConn(rawConn, rawConn.RemoteAddr().String(), sshCfg)
+	conn, chans, reqs, err := ssh.NewClientConn(rawConn, net.JoinHostPort(host, strconv.Itoa(port)), sshCfg)
 	if err != nil {
 		_ = rawConn.Close()
 		return nil, err
@@ -398,15 +405,95 @@ func sshSigner(privateKey, passphrase, certificate string) (ssh.Signer, error) {
 	return ssh.NewCertSigner(cert, signer)
 }
 
-func sshHostKeyCallback(policy string) (ssh.HostKeyCallback, error) {
+func sshHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
 	switch strings.TrimSpace(policy) {
 	case "skip_verify":
 		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for scoped agent-side SSH testing
-	case "trust_on_first_use", "known_hosts", "":
-		return nil, ErrSSHHostKeyStoreUnavailable
+	case "known_hosts", "":
+		return knownHostsCallback(knownHostsPath)
+	case "trust_on_first_use":
+		return trustOnFirstUseCallback(knownHostsPath)
 	default:
 		return nil, fmt.Errorf("%w %q", ErrUnsupportedSSHHostKeyPolicy, policy)
 	}
+}
+
+func knownHostsCallback(path string) (ssh.HostKeyCallback, error) {
+	path = normalizeKnownHostsPath(path)
+	if err := ensureKnownHostsFile(path); err != nil {
+		return nil, err
+	}
+
+	callback, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
+	}
+
+	return callback, nil
+}
+
+func trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
+	path = normalizeKnownHostsPath(path)
+	if err := ensureKnownHostsFile(path); err != nil {
+		return nil, err
+	}
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		sshKnownHostsMu.Lock()
+		defer sshKnownHostsMu.Unlock()
+
+		callback, err := knownhosts.New(path)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
+		}
+
+		err = callback(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+
+		var keyErr *knownhosts.KeyError
+		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
+			return err
+		}
+
+		line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
+		}
+		defer func() { _ = file.Close() }()
+
+		if _, err := file.WriteString(line + "\n"); err != nil {
+			return fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
+		}
+
+		return nil
+	}, nil
+}
+
+func normalizeKnownHostsPath(path string) string {
+	if path = strings.TrimSpace(path); path != "" {
+		return path
+	}
+	if path = strings.TrimSpace(os.Getenv("SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS")); path != "" {
+		return path
+	}
+
+	return defaultKnownHostsPath
+}
+
+func ensureKnownHostsFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
+	}
+
+	return file.Close()
 }
 
 func normalizeSSHTimeout(timeout time.Duration) time.Duration {
