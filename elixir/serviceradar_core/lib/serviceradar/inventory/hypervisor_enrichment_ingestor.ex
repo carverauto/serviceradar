@@ -8,7 +8,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.VirtualizationCluster
@@ -18,6 +17,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.VirtualizationHostDisk
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -462,26 +462,20 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp lookup_devices([], [], _actor), do: %{by_uid: %{}, by_name: %{}}
 
-  defp lookup_devices(uids, names, actor) do
+  defp lookup_devices(uids, names, _actor) do
     uids = Enum.uniq(uids)
     names = Enum.uniq(names)
-    filter = device_lookup_filter(uids, names)
 
-    Device
-    |> Ash.Query.for_read(:read, %{include_deleted: false})
-    |> Ash.Query.filter_input(filter)
-    |> Ash.read(actor: actor)
-    |> unwrap_page()
-    |> case do
-      {:ok, devices} ->
+    case Repo.query(device_lookup_sql(), [uids, names]) do
+      {:ok, %{rows: rows}} ->
         %{
-          by_uid: Map.new(devices, &{&1.uid, &1.uid}),
+          by_uid: Map.new(rows, fn [uid, _name, _hostname] -> {uid, uid} end),
           by_name:
-            devices
-            |> Enum.flat_map(fn device ->
+            rows
+            |> Enum.flat_map(fn [uid, name, hostname] ->
               [
-                {normalize_lookup_key(device.name), device.uid},
-                {normalize_lookup_key(device.hostname), device.uid}
+                {normalize_lookup_key(name), uid},
+                {normalize_lookup_key(hostname), uid}
               ]
             end)
             |> Enum.reject(fn {key, _uid} -> is_nil(key) end)
@@ -494,18 +488,18 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp device_lookup_filter(uids, names) do
-    conditions =
-      []
-      |> maybe_add_filter_condition(uids, %{"uid" => %{"in" => uids}})
-      |> maybe_add_filter_condition(names, %{"name" => %{"in" => names}})
-      |> maybe_add_filter_condition(names, %{"hostname" => %{"in" => names}})
-
-    %{"or" => conditions}
+  defp device_lookup_sql do
+    """
+    SELECT uid, name, hostname
+    FROM platform.ocsf_devices
+    WHERE deleted_at IS NULL
+      AND (
+        uid = ANY($1::text[])
+        OR name = ANY($2::text[])
+        OR hostname = ANY($2::text[])
+      )
+    """
   end
-
-  defp maybe_add_filter_condition(conditions, [], _condition), do: conditions
-  defp maybe_add_filter_condition(conditions, _values, condition), do: [condition | conditions]
 
   defp network_identity_by_guest(network_interfaces, actor) do
     identities =
