@@ -8,7 +8,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
+  alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Inventory.VirtualizationCluster
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
@@ -267,7 +269,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     actor = Keyword.fetch!(opts, :actor)
     records = resolve_existing_device_uids(records, actor)
 
-    with {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
+    with {:ok, records} <- ensure_inventory_devices(records, actor),
+         records = resolve_existing_device_uids(records, actor),
+         {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
          host_rows = link_refs(records.hosts, cluster_ids, %{}),
          {:ok, host_ids} <- upsert_group(VirtualizationHost, host_rows, actor),
          datastores = link_refs(records.datastores, cluster_ids, host_ids),
@@ -449,15 +453,184 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       hosts: Enum.map(records.hosts, &resolve_record_device_uid(&1, devices)),
       guests:
         Enum.map(records.guests, fn record ->
-          resolve_record_device_uid(record, devices, network_identity)
+          resolve_record_device_uid(
+            record,
+            devices,
+            network_identity,
+            actor,
+            :managed_child_asset
+          )
         end),
       host_disks: Enum.map(records.host_disks, &resolve_record_device_uid(&1, devices)),
       network_interfaces:
         Enum.map(records.network_interfaces, fn record ->
-          resolve_record_device_uid(record, devices, network_identity)
+          if present?(Map.get(record, :guest_provider_ref)) do
+            resolve_record_device_uid(
+              record,
+              devices,
+              network_identity,
+              actor,
+              :managed_child_asset
+            )
+          else
+            resolve_record_device_uid(record, devices, network_identity)
+          end
         end)
     })
   end
+
+  defp ensure_inventory_devices(records, actor) do
+    {host_updates, host_uid_by_ref} =
+      records.hosts
+      |> Enum.filter(&missing_device_uid?/1)
+      |> Enum.map(&placeholder_device_update(&1, :hypervisor))
+      |> Enum.map_reduce(%{}, fn {update, provider_ref, device_uid}, acc ->
+        {update, Map.put(acc, provider_ref, device_uid)}
+      end)
+
+    {guest_updates, guest_uid_by_ref} =
+      records.guests
+      |> Enum.filter(&missing_device_uid?/1)
+      |> Enum.map(&placeholder_device_update(&1, :virtual_guest))
+      |> Enum.map_reduce(%{}, fn {update, provider_ref, device_uid}, acc ->
+        {update, Map.put(acc, provider_ref, device_uid)}
+      end)
+
+    updates = host_updates ++ guest_updates
+
+    case updates do
+      [] ->
+        {:ok, records}
+
+      _ ->
+        case SyncIngestor.ingest_updates(updates, actor: actor) do
+          :ok ->
+            {:ok, apply_placeholder_device_uids(records, host_uid_by_ref, guest_uid_by_ref)}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+    end
+  end
+
+  defp missing_device_uid?(record) do
+    record
+    |> Map.get(:device_uid)
+    |> existing_sr_uid()
+    |> is_nil()
+  end
+
+  defp placeholder_device_update(record, role) do
+    provider_ref = Map.fetch!(record, :provider_ref)
+    partition = metadata_partition(record)
+    device_uid = deterministic_provider_device_uid(provider_ref, partition)
+    provider = Map.get(record, :provider)
+
+    metadata =
+      %{
+        "integration_id" => provider_ref,
+        "integration_type" => "hypervisor",
+        "device_role" => device_role(role),
+        "hypervisor_provider" => provider,
+        "hypervisor_provider_ref" => provider_ref
+      }
+      |> maybe_put("hypervisor_guest_type", Map.get(record, :guest_type))
+      |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
+      |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
+      |> maybe_put("hypervisor_status", Map.get(record, :status))
+
+    update = %{
+      "device_id" => device_uid,
+      "hostname" => Map.get(record, :name) || provider_ref,
+      "partition" => partition,
+      "source" => "hypervisor_enrichment",
+      "is_available" => available_status?(Map.get(record, :status)),
+      "metadata" => metadata
+    }
+
+    {update, provider_ref, device_uid}
+  end
+
+  defp deterministic_provider_device_uid(provider_ref, partition) do
+    IdentityReconciler.generate_deterministic_device_id(%{
+      agent_id: nil,
+      armis_id: nil,
+      integration_id: provider_ref,
+      netbox_id: nil,
+      mac: nil,
+      ip: nil,
+      partition: partition || "default"
+    })
+  end
+
+  defp apply_placeholder_device_uids(records, host_uid_by_ref, guest_uid_by_ref) do
+    Map.merge(records, %{
+      hosts: Enum.map(records.hosts, &put_placeholder_device_uid(&1, host_uid_by_ref)),
+      guests: Enum.map(records.guests, &put_placeholder_device_uid(&1, guest_uid_by_ref)),
+      host_disks: Enum.map(records.host_disks, &put_host_placeholder_uid(&1, host_uid_by_ref)),
+      network_interfaces:
+        Enum.map(records.network_interfaces, fn record ->
+          record
+          |> put_guest_placeholder_uid(guest_uid_by_ref)
+          |> put_host_placeholder_uid(host_uid_by_ref)
+        end),
+      console_targets:
+        Enum.map(records.console_targets, &put_placeholder_device_uid(&1, guest_uid_by_ref))
+    })
+  end
+
+  defp put_placeholder_device_uid(record, uid_by_ref) do
+    if missing_device_uid?(record) do
+      case Map.get(uid_by_ref, Map.get(record, :provider_ref)) do
+        uid when is_binary(uid) and uid != "" -> Map.put(record, :device_uid, uid)
+        _ -> record
+      end
+    else
+      record
+    end
+  end
+
+  defp put_guest_placeholder_uid(record, uid_by_ref) do
+    if missing_device_uid?(record) do
+      case Map.get(uid_by_ref, Map.get(record, :guest_provider_ref)) do
+        uid when is_binary(uid) and uid != "" -> Map.put(record, :device_uid, uid)
+        _ -> record
+      end
+    else
+      record
+    end
+  end
+
+  defp put_host_placeholder_uid(record, uid_by_ref) do
+    if missing_device_uid?(record) do
+      case Map.get(uid_by_ref, Map.get(record, :host_provider_ref)) do
+        uid when is_binary(uid) and uid != "" -> Map.put(record, :device_uid, uid)
+        _ -> record
+      end
+    else
+      record
+    end
+  end
+
+  defp metadata_partition(record) do
+    record
+    |> Map.get(:metadata, %{})
+    |> string_value("partition")
+    |> Kernel.||("default")
+  end
+
+  defp device_role(:hypervisor), do: "hypervisor"
+  defp device_role(:virtual_guest), do: "virtual-guest"
+  defp device_role(_role), do: "managed-child-asset"
+
+  defp available_status?(status) when is_binary(status) do
+    status
+    |> String.downcase()
+    |> String.trim()
+    |> Kernel.in(["online", "running", "connected", "poweredon", "ok", "available"])
+  end
+
+  defp available_status?(_status), do: false
 
   defp lookup_devices([], [], _actor), do: %{by_uid: %{}, by_name: %{}}
 
@@ -615,6 +788,22 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         existing_sr_uid(current_uid)
 
     Map.put(record, :device_uid, resolved)
+  end
+
+  defp resolve_record_device_uid(record, devices, network_identity, actor, claim_type) do
+    current_uid = reusable_current_uid(Map.get(record, :device_uid), claim_type, actor)
+
+    resolved =
+      Map.get(devices.by_uid, current_uid) ||
+        lookup_device_by_network_identity(record, network_identity) ||
+        lookup_device_by_record_name(record, devices) ||
+        existing_sr_uid(current_uid)
+
+    Map.put(record, :device_uid, resolved)
+  end
+
+  defp reusable_current_uid(uid, claim_type, actor) do
+    if DeviceClaimPolicy.reusable_for_claim?(uid, claim_type, actor), do: uid
   end
 
   defp lookup_device_by_network_identity(record, network_identity) do
@@ -961,6 +1150,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       &String.contains?(normalized, &1)
     )
   end
+
+  defp maybe_put(map, _key, value) when value in [nil, ""], do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value

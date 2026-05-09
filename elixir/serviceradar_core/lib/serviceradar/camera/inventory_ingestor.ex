@@ -11,6 +11,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
 
@@ -1690,18 +1691,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp reusable_camera_device_uid?(uid, actor) when is_binary(uid) and uid != "" do
-    case Device.get_by_uid(uid, false, actor: actor) do
-      {:ok, %Device{} = device} ->
-        camera_classified_device?(device) and not agent_managed_device?(device)
-
-      {:ok, nil} ->
-        true
-
-      _ ->
-        true
-    end
-  rescue
-    _ -> true
+    DeviceClaimPolicy.reusable_for_claim?(uid, :camera, actor)
   end
 
   defp reusable_camera_device_uid?(_uid, _actor), do: true
