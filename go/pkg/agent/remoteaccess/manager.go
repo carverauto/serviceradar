@@ -211,6 +211,7 @@ func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
 	})
 
 	go m.readLoop(sessionCtx, frame.SessionID, frame.Protocol, next, sender)
+	go m.contextCloseLoop(sessionCtx, frame.SessionID, frame.Protocol, next, sender)
 	if enhanced != nil {
 		go m.enhancedLoop(sessionCtx, enhancedSession, enhanced, sender)
 	}
@@ -292,6 +293,26 @@ func (m *Manager) readLoop(ctx context.Context, sessionID string, protocol strin
 		}
 
 		return
+	}
+}
+
+func (m *Manager) contextCloseLoop(
+	ctx context.Context,
+	sessionID string,
+	protocol string,
+	current *session,
+	sender Sender,
+) {
+	<-ctx.Done()
+	if m.removeIfSame(sessionID, current) {
+		current.close()
+		sendFrame(sender, Frame{
+			SessionID: sessionID,
+			Protocol:  protocol,
+			FrameType: FrameTypeClose,
+			Reason:    ctx.Err().Error(),
+			Timestamp: nowUnix(),
+		})
 	}
 }
 

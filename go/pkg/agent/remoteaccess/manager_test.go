@@ -30,6 +30,7 @@ import (
 const fakeCommand = "whoami\r"
 
 var errFakeReadFailed = errors.New("pty read failed")
+var errFakeOpenFailed = errors.New("pty open failed")
 
 type fakeSender struct {
 	mu     sync.Mutex
@@ -478,6 +479,102 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 	case <-recording.stop:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for enhanced recording stop")
+	}
+}
+
+func TestManagerStopsEnhancedRecordingWhenOpenFails(t *testing.T) {
+	t.Parallel()
+
+	recording := newFakeEnhancedRecording()
+	recorder := newFakeEnhancedRecorder(recording)
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			return nil, errFakeOpenFailed
+		},
+		EnhancedRecorder: recorder,
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"enhanced_recording_policy": map[string]any{
+				"enabled": true,
+				"mode":    "bpf",
+			},
+		}),
+	}, sender)
+
+	<-recorder.started
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != errFakeOpenFailed.Error() {
+		t.Fatalf("open failure reason = %q", errorFrame.Reason)
+	}
+
+	select {
+	case <-recording.stop:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for enhanced recording stop after open failure")
+	}
+}
+
+func TestManagerStopsSessionWhenContextIsCanceled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	recording := newFakeEnhancedRecording()
+	recorder := newFakeEnhancedRecorder(recording)
+	pty := newFakePTY()
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			return pty, nil
+		},
+		EnhancedRecorder: recorder,
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(ctx, Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"enhanced_recording_policy": map[string]any{
+				"enabled": true,
+				"mode":    "bpf",
+			},
+		}),
+	}, sender)
+
+	<-recorder.started
+	_ = sender.nextFrame(t, FrameTypeReady)
+	cancel()
+
+	closeFrame := sender.nextFrame(t, FrameTypeClose)
+	if closeFrame.Reason != context.Canceled.Error() {
+		t.Fatalf("context close reason = %q", closeFrame.Reason)
+	}
+
+	select {
+	case <-recording.stop:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for enhanced recording stop after context cancel")
+	}
+	select {
+	case <-pty.closed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for PTY close after context cancel")
+	}
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		FrameType: FrameTypeData,
+		Data:      []byte(fakeCommand),
+	}, sender)
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrSessionNotActive.Error() {
+		t.Fatalf("post-cancel write reason = %q", errorFrame.Reason)
 	}
 }
 

@@ -18,7 +18,7 @@
 - [x] 2.6 Implement file open/access probes and user-space normalization.
 - [x] 2.7 Implement network connect probes and user-space normalization.
 - [x] 2.8 Implement loss counters for kernel drops, parser failures, and user-space backpressure.
-- [ ] 2.9 Bind collector lifecycle to remote-access session open/close/timeout paths.
+- [x] 2.9 Bind collector lifecycle to remote-access session open/close/timeout paths.
 
 ## 3. Policy and Capabilities
 - [ ] 3.1 Add explicit agent BPF deployment/profile configuration and keep `NET_RAW` separate from BPF enablement.
