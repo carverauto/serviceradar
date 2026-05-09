@@ -8,7 +8,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
   strips caller-supplied claims before invoking certificate policy.
   """
 
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
+  alias ServiceRadar.Events.AuditWriter
 
   @trusted_auth_methods [:oidc, :saml]
   @identity_claim_keys [:claims, "claims", :idp_claims, "idp_claims"]
@@ -17,18 +19,138 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
   def issue(actor, request_attrs, opts \\ [])
 
   def issue(actor, request_attrs, opts) when is_map(request_attrs) do
-    with :ok <- require_sso_identity(actor, opts),
-         {:ok, claims} <- authoritative_claims(actor, opts) do
-      attrs =
-        request_attrs
-        |> Map.drop(@identity_claim_keys)
-        |> Map.put(:claims, claims)
+    result =
+      with :ok <- require_sso_identity(actor, opts),
+           {:ok, claims} <- authoritative_claims(actor, opts) do
+        attrs =
+          request_attrs
+          |> Map.drop(@identity_claim_keys)
+          |> Map.put(:claims, claims)
 
-      RemoteAccessSSHCertificates.issue(actor, attrs, opts)
-    end
+        RemoteAccessSSHCertificates.issue(actor, attrs, opts)
+      end
+
+    write_audit(result, actor, request_attrs, opts)
+    result
   end
 
   def issue(_actor, _request_attrs, _opts), do: {:error, :invalid_request}
+
+  defp write_audit({:ok, envelope}, actor, _request_attrs, opts) do
+    details =
+      envelope
+      |> Map.get(:audit, %{})
+      |> Map.merge(%{
+        result: "success",
+        credential_custody_mode: "short_lived_certificate",
+        credential_mode: Map.get(envelope, :credential_mode),
+        session_id: Map.get(envelope, :session_id),
+        agent_id: Map.get(envelope, :agent_id),
+        gateway_id: Map.get(envelope, :gateway_id),
+        protocol: Map.get(envelope, :protocol),
+        target: Map.get(envelope, :target)
+      })
+      |> sanitize_details()
+
+    write_audit_event(actor, details, opts)
+  end
+
+  defp write_audit({:error, reason}, actor, request_attrs, opts) do
+    details =
+      sanitize_details(%{
+        result: "denied",
+        credential_custody_mode: "short_lived_certificate",
+        credential_mode: "ssh_certificate",
+        failure_reason: format_reason(reason),
+        session_id: request_value(request_attrs, "session_id"),
+        agent_id: request_value(request_attrs, "agent_id"),
+        gateway_id: request_value(request_attrs, "gateway_id"),
+        protocol: request_value(request_attrs, "protocol") || "ssh",
+        target: request_value(request_attrs, "target"),
+        requested_principals:
+          request_value(request_attrs, "requested_principals") ||
+            request_value(request_attrs, "principals")
+      })
+
+    write_audit_event(actor, details, opts)
+  end
+
+  defp write_audit_event(actor, details, opts) do
+    session_id = Map.get(details, :session_id) || "unknown-session"
+    target_ref = target_ref(Map.get(details, :target))
+
+    audit_opts = [
+      action: :remote_access_ssh_certificate_issue,
+      resource_type: "remote_access_ssh_certificate",
+      resource_id: session_id,
+      resource_name: target_ref,
+      actor: actor,
+      details: details,
+      severity: audit_severity(details),
+      message: "SSH remote-access certificate #{Map.fetch!(details, :result)}"
+    ]
+
+    case Keyword.get(opts, :audit_writer, AuditWriter) do
+      {writer, writer_opts} -> writer.write_async(Keyword.merge(audit_opts, writer_opts))
+      writer -> writer.write_async(audit_opts)
+    end
+  end
+
+  defp sanitize_details(details) do
+    details
+    |> normalize_detail_values()
+    |> CredentialRedactor.redact()
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp normalize_detail_values(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp normalize_detail_values(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp normalize_detail_values(%Date{} = value), do: Date.to_iso8601(value)
+
+  defp normalize_detail_values(%_struct{} = value), do: inspect(value)
+
+  defp normalize_detail_values(value) when is_map(value) do
+    Map.new(value, fn {key, nested} -> {key, normalize_detail_values(nested)} end)
+  end
+
+  defp normalize_detail_values(value) when is_list(value),
+    do: Enum.map(value, &normalize_detail_values/1)
+
+  defp normalize_detail_values(value), do: value
+
+  defp audit_severity(%{result: "success"}), do: :medium
+  defp audit_severity(_details), do: :high
+
+  defp target_ref(target) when is_map(target) do
+    request_value(target, "id") ||
+      request_value(target, "device_uid") ||
+      request_value(target, "uid") ||
+      request_value(target, "host")
+  end
+
+  defp target_ref(_target), do: nil
+
+  defp request_value(container, key) when is_map(container) do
+    Map.get(container, key) || Map.get(container, safe_existing_atom(key))
+  end
+
+  defp request_value(_container, _key), do: nil
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 500)
+
+  defp format_reason(reason) do
+    reason
+    |> inspect()
+    |> String.slice(0, 500)
+  end
 
   defp require_sso_identity(actor, opts) do
     if Keyword.get(opts, :require_sso?, true) do

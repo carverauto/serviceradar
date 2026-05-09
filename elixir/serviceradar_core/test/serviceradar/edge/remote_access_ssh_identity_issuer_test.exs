@@ -26,6 +26,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     end
   end
 
+  defmodule AuditWriterStub do
+    @moduledoc false
+
+    def write_async(opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:audit, opts})
+      :ok
+    end
+  end
+
   test "issues certificates from authoritative Authentik claims" do
     actor = oidc_actor()
 
@@ -48,16 +57,28 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                  ttl_seconds: 900
                },
                signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
                idp_claims: %{"groups" => ["linux-admins", "unrelated"]}
              )
 
     assert_receive {:sign_user_certificate, sign_request}
+    assert_receive {:audit, audit}
+
     assert sign_request.principals == ["ubuntu"]
     assert sign_request.ttl_seconds == 900
     assert sign_request.key_id == "sr:remote-access:session-1:user-1:agent-1:ssh:device-1"
     assert envelope.ssh["username"] == "ubuntu"
     assert envelope.credential_mode == "ssh_certificate"
+
+    assert audit[:action] == :remote_access_ssh_certificate_issue
+    assert audit[:resource_type] == "remote_access_ssh_certificate"
+    assert audit[:resource_id] == "session-1"
+    assert audit[:severity] == :medium
+    assert audit[:details].result == "success"
+    assert audit[:details].credential_custody_mode == "short_lived_certificate"
+    assert audit[:details].principals == ["ubuntu"]
+    refute inspect(audit) =~ "AAAATEST user@workstation"
   end
 
   test "ignores browser-supplied identity claims" do
@@ -79,11 +100,43 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     assert {:error, :ssh_principal_policy_required} =
              RemoteAccessSSHIdentityIssuer.issue(actor, attrs,
                signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
                idp_claims: %{"groups" => ["auditors"]}
              )
 
     refute_received {:sign_user_certificate, _request}
+    assert_receive {:audit, audit}
+    assert audit[:severity] == :high
+    assert audit[:details].result == "denied"
+    assert audit[:details].failure_reason == "ssh_principal_policy_required"
+    refute inspect(audit) =~ "linux-admins"
+  end
+
+  test "redacts credential material from denial audit details" do
+    attrs = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      public_key: "ssh-ed25519 AAAATEST",
+      private_key:
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
+      target: %{device_uid: "device-1"},
+      allowed_principals: ["ubuntu"]
+    }
+
+    assert {:error, :sso_identity_required} =
+             RemoteAccessSSHIdentityIssuer.issue(
+               %{oidc_actor() | last_auth_method: :password},
+               attrs,
+               signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
+               test_pid: self(),
+               idp_claims: %{}
+             )
+
+    assert_receive {:audit, audit}
+    refute inspect(audit) =~ "OPENSSH PRIVATE KEY"
+    refute inspect(audit) =~ "secret"
   end
 
   test "overlays ServiceRadar actor identity into authoritative claims" do
