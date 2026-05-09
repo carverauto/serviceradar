@@ -90,7 +90,12 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/config"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55"}}`),
+			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55,bridge=vmbr0"}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/agent/network-get-interfaces"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"result":[{"name":"eth0","hardware-address":"00:11:22:33:44:55","ip-addresses":[{"ip-address":"192.168.2.50","ip-address-type":"ipv4","prefix":24},{"ip-address":"fe80::1","ip-address-type":"ipv6","prefix":64}]}]}}`),
 		}, nil
 	default:
 		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{}`)}, nil
@@ -127,8 +132,11 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if result.DeviceDiscovery[0].Devices[1].DeviceID != "proxmox:qemu:100" {
 		t.Fatalf("unexpected guest device id: %s", result.DeviceDiscovery[0].Devices[1].DeviceID)
 	}
-	if len(client.requests) != 14 {
-		t.Fatalf("expected fourteen Proxmox API requests, got %d", len(client.requests))
+	if result.DeviceDiscovery[0].Devices[1].IP != "192.168.2.50" || result.DeviceDiscovery[0].Devices[1].MAC != "00:11:22:33:44:55" {
+		t.Fatalf("expected guest discovery IP/MAC, got %#v", result.DeviceDiscovery[0].Devices[1])
+	}
+	if len(client.requests) != 15 {
+		t.Fatalf("expected fifteen Proxmox API requests, got %d", len(client.requests))
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -170,6 +178,12 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if details.Targets[0].Guests[0].Config["api_token"] != "REDACTED" {
 		t.Fatalf("expected guest config token redaction, got %#v", details.Targets[0].Guests[0].Config)
+	}
+	if len(details.Targets[0].Guests[0].Interfaces) != 1 {
+		t.Fatalf("expected guest interface details, got %#v", details.Targets[0].Guests[0].Interfaces)
+	}
+	if got := details.Targets[0].Guests[0].Interfaces[0].IPAddresses; len(got) != 1 || got[0] != "192.168.2.50/24" {
+		t.Fatalf("expected guest agent IP address, got %#v", got)
 	}
 	if len(result.Metrics) < 14 {
 		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
@@ -332,6 +346,23 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 	}
 	if got := discovery.Devices[1].DeviceID; got != "proxmox:pve:pve-b" {
 		t.Fatalf("expected non-target cluster node to get stable Proxmox ID, got %s", got)
+	}
+}
+
+func TestInterfacesFromGuestConfigParsesLXCAndQEMU(t *testing.T) {
+	interfaces := interfacesFromGuestConfig(map[string]any{
+		"net0": "name=eth0,bridge=vmbr0,gw=192.168.2.1,hwaddr=bc:24:11:76:df:7e,ip=192.168.2.15/24,type=veth",
+		"net1": "virtio=00-11-22-33-44-55,bridge=vmbr1,tag=20",
+	})
+
+	if len(interfaces) != 2 {
+		t.Fatalf("expected two interfaces, got %#v", interfaces)
+	}
+	if interfaces[0].MACAddress != "BC:24:11:76:DF:7E" || interfaces[0].IPAddresses[0] != "192.168.2.15/24" {
+		t.Fatalf("unexpected LXC interface: %#v", interfaces[0])
+	}
+	if interfaces[1].MACAddress != "00:11:22:33:44:55" || interfaces[1].Model != "virtio" || interfaces[1].VLANID != 20 {
+		t.Fatalf("unexpected QEMU interface: %#v", interfaces[1])
 	}
 }
 

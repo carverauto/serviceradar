@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.SRQL.Viz
 
@@ -555,23 +556,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     device_ip = get_device_ip(results)
     show_stale = socket.assigns.show_stale_aliases
 
+    supplemental_context = %{
+      socket: socket,
+      srql_module: srql_module,
+      uid: uid,
+      scope: scope,
+      params: params,
+      requested_tab: requested_tab,
+      device_row: device_row,
+      device_ip: device_ip,
+      show_stale: show_stale
+    }
+
     if requested_tab == "details" do
       request_ref = make_ref()
       parent = self()
 
       Task.start(fn ->
-        supplemental_assigns =
-          load_device_supplemental_assigns(
-            socket,
-            srql_module,
-            uid,
-            scope,
-            params,
-            requested_tab,
-            device_row,
-            device_ip,
-            show_stale
-          )
+        supplemental_assigns = load_device_supplemental_assigns(supplemental_context)
 
         send(parent, {:device_details_loaded, uid, request_ref, supplemental_assigns})
       end)
@@ -623,18 +625,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
        |> assign(:srql, base_srql)}
     else
-      supplemental_assigns =
-        load_device_supplemental_assigns(
-          socket,
-          srql_module,
-          uid,
-          scope,
-          params,
-          requested_tab,
-          device_row,
-          device_ip,
-          show_stale
-        )
+      supplemental_assigns = load_device_supplemental_assigns(supplemental_context)
 
       has_ifaces = Map.get(supplemental_assigns, :has_ifaces, false)
       has_flows = Map.get(supplemental_assigns, :has_flows, false)
@@ -672,17 +663,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_device_supplemental_assigns(
-         socket,
-         srql_module,
-         uid,
-         scope,
-         params,
-         requested_tab,
-         device_row,
-         device_ip,
-         show_stale
-       ) do
+  defp load_device_supplemental_assigns(%{
+         socket: socket,
+         srql_module: srql_module,
+         uid: uid,
+         scope: scope,
+         params: params,
+         requested_tab: requested_tab,
+         device_row: device_row,
+         device_ip: device_ip,
+         show_stale: show_stale
+       }) do
     load_interfaces_data? = requested_tab == "interfaces"
     load_flows_data? = requested_tab == "flows"
     load_logs_data? = requested_tab == "logs"
@@ -2950,7 +2941,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-
+          
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -3057,7 +3048,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </div>
             </div>
           </div>
-
+          
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -3657,7 +3648,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               zoom_range={@flow_zoom_range}
             />
           </div>
-    <!-- Logs Tab Content -->
+          <!-- Logs Tab Content -->
           <div :if={@active_tab == "logs" and @has_logs}>
             <.device_logs_tab_content
               logs={@device_logs}
@@ -7510,8 +7501,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp load_virtualization_summary(nil, _device_uid), do: nil
 
   defp load_virtualization_summary(scope, device_uid) do
-    host = load_proxmox_host(scope, device_uid)
-    guest = load_proxmox_guest(scope, device_uid)
+    host = load_virtualization_host(scope, device_uid)
+    guest = load_virtualization_guest(scope, device_uid)
 
     cond do
       host ->
@@ -7521,11 +7512,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           kind: :host,
           host: host,
           guest: nil,
-          datastores: load_proxmox_datastores(scope, host_id),
-          disks: load_proxmox_disks(scope, host_id),
-          network_interfaces: load_proxmox_network_interfaces(scope, host_id),
-          storage_systems: load_proxmox_storage_systems(scope, host_id),
-          guests: load_proxmox_guests_for_host(scope, host_id)
+          datastores: load_virtualization_datastores(scope, host_id),
+          disks: load_virtualization_disks(scope, host_id),
+          network_interfaces: load_virtualization_network_interfaces(scope, host_id),
+          storage_systems: load_virtualization_storage_systems(scope, host_id),
+          guests: load_virtualization_guests_for_host(scope, host_id)
         }
 
       guest ->
@@ -7535,7 +7526,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           guest: guest,
           datastores: [],
           disks: [],
-          network_interfaces: [],
+          network_interfaces: load_virtualization_network_interfaces_for_guest(scope, guest.id),
           storage_systems: [],
           guests: []
         }
@@ -7545,69 +7536,78 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   rescue
     error ->
-      Logger.warning("Failed to load Proxmox virtualization summary for #{device_uid}: #{inspect(error)}")
+      Logger.warning("Failed to load virtualization summary for #{device_uid}: #{inspect(error)}")
 
       nil
   end
 
-  defp load_proxmox_host(scope, device_uid) do
+  defp load_virtualization_host(scope, device_uid) do
     VirtualizationHost
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and device_uid == ^device_uid)
+    |> Ash.Query.filter(device_uid == ^device_uid)
     |> Ash.Query.sort(observed_at: :desc)
     |> Ash.Query.limit(1)
     |> ash_read_first(scope)
   end
 
-  defp load_proxmox_guest(scope, device_uid) do
+  defp load_virtualization_guest(scope, device_uid) do
     VirtualizationGuest
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and device_uid == ^device_uid)
+    |> Ash.Query.filter(device_uid == ^device_uid)
     |> Ash.Query.sort(observed_at: :desc)
     |> Ash.Query.limit(1)
     |> ash_read_first(scope)
   end
 
-  defp load_proxmox_datastores(scope, host_id) do
+  defp load_virtualization_datastores(scope, host_id) do
     VirtualizationDatastore
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.filter(host_id == ^host_id)
     |> Ash.Query.sort(name: :asc)
     |> Ash.Query.limit(24)
     |> ash_read_many(scope)
   end
 
-  defp load_proxmox_disks(scope, host_id) do
+  defp load_virtualization_disks(scope, host_id) do
     VirtualizationHostDisk
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.filter(host_id == ^host_id)
     |> Ash.Query.sort(path: :asc)
     |> Ash.Query.limit(24)
     |> ash_read_many(scope)
   end
 
-  defp load_proxmox_network_interfaces(scope, host_id) do
+  defp load_virtualization_network_interfaces(scope, host_id) do
     VirtualizationNetworkInterface
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.filter(host_id == ^host_id)
     |> Ash.Query.sort(name: :asc)
     |> Ash.Query.limit(32)
     |> ash_read_many(scope)
   end
 
-  defp load_proxmox_storage_systems(scope, host_id) do
+  defp load_virtualization_network_interfaces_for_guest(scope, guest_id) do
+    VirtualizationNetworkInterface
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(guest_id == ^guest_id)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.Query.limit(32)
+    |> ash_read_many(scope)
+  end
+
+  defp load_virtualization_storage_systems(scope, host_id) do
     VirtualizationStorageSystem
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.filter(host_id == ^host_id)
     |> Ash.Query.sort(name: :asc)
     |> Ash.Query.limit(16)
     |> ash_read_many(scope)
   end
 
-  defp load_proxmox_guests_for_host(scope, host_id) do
+  defp load_virtualization_guests_for_host(scope, host_id) do
     VirtualizationGuest
     |> virtualization_query(scope)
-    |> Ash.Query.filter(provider == "proxmox" and host_id == ^host_id)
+    |> Ash.Query.filter(host_id == ^host_id)
     |> Ash.Query.sort(name: :asc)
     |> Ash.Query.limit(100)
     |> ash_read_many(scope)
@@ -7755,7 +7755,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_bytes(_), do: "—"
 
   # ---------------------------------------------------------------------------
-  # Virtualization Section (Proxmox)
+  # Virtualization Section
   # ---------------------------------------------------------------------------
 
   attr(:summary, :map, required: true)
@@ -7775,6 +7775,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     running_guests = Enum.count(guests, &(to_string(&1.status) == "running"))
     ceph = Enum.find(storage_systems, &(to_string(&1.storage_system_type) == "ceph"))
     observed_at = observed_at_for_virtualization(host, guest)
+    provider_label = VirtualizationLabels.provider_label(host || guest)
 
     assigns =
       assigns
@@ -7791,6 +7792,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:running_guests, running_guests)
       |> assign(:ceph, ceph)
       |> assign(:observed_at, observed_at)
+      |> assign(:provider_label, provider_label)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100">
@@ -7799,7 +7801,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <.icon name="hero-server-stack" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Virtualization</span>
           <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-            Proxmox
+            {@provider_label}
           </span>
         </div>
         <span class="text-xs text-base-content/50 font-mono">{format_timestamp(@observed_at)}</span>
@@ -7947,7 +7949,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       {if iface.active, do: "active", else: "inactive"}
                     </span>
                   </td>
-                  <td class="font-mono">{iface.address || iface.cidr || "—"}</td>
+                  <td class="font-mono">{virtualization_interface_address(iface)}</td>
                   <td>{iface.bridge_ports || "—"}</td>
                 </tr>
               </tbody>
@@ -8012,6 +8014,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp virtualization_datastore_status(%{active: true}), do: "active"
   defp virtualization_datastore_status(%{enabled: false}), do: "disabled"
   defp virtualization_datastore_status(_store), do: "inactive"
+
+  defp virtualization_interface_address(%{ip_addresses: [first | rest]}) when is_binary(first) do
+    suffix = if rest == [], do: "", else: " +#{length(rest)}"
+    "#{first}#{suffix}"
+  end
+
+  defp virtualization_interface_address(%{address: address}) when is_binary(address) and address != "", do: address
+  defp virtualization_interface_address(%{cidr: cidr}) when is_binary(cidr) and cidr != "", do: cidr
+  defp virtualization_interface_address(_iface), do: "—"
 
   defp virtualization_health_class(value) do
     normalized = value |> to_string() |> String.downcase()
@@ -9419,7 +9430,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
 
-  defp proxmox_console_target?(%{kind: :host}), do: true
+  defp proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}}), do: true
 
   defp proxmox_console_target?(_summary), do: false
 

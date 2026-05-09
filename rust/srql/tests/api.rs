@@ -374,6 +374,30 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
     assert_eq!(rows[0]["storage"], serde_json::json!("local-zfs"));
     assert_eq!(rows[0]["total_bytes"], serde_json::json!(107374182400i64));
 
+    let guest_nics = QueryRequest {
+        query: r#"in:virtualization_network_interfaces provider:proxmox guest_provider_ref:"proxmox:guest:pve-a:qemu:100" mac:"52:54:00:aa:bb:cc" ip:"10.10.10.20/24""#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(guest_nics).await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected guest NIC body: {body}"
+    );
+    let rows = body["results"].as_array().expect("results array");
+    assert_eq!(rows.len(), 1, "expected one Proxmox guest NIC: {body}");
+    assert_eq!(rows[0]["guest_name"], serde_json::json!("vm-100"));
+    assert_eq!(rows[0]["host_name"], serde_json::json!("pve-a"));
+    assert_eq!(
+        rows[0]["ip_addresses"],
+        serde_json::json!(["10.10.10.20/24", "fe80::5054:ff:feaa:bbcc/64"])
+    );
+
     let ceph = QueryRequest {
         query: "in:virtualization_storage_systems provider:proxmox storage_system_type:ceph ceph_health:HEALTH_WARN".to_string(),
         limit: None,

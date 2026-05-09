@@ -533,7 +533,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               <div :if={!@virtualization_summary.available} class="sr-ops-virt-empty">
                 <.icon name="hero-cube-transparent" class="size-8 text-slate-500" />
                 <p>No hypervisor inventory</p>
-                <span>Proxmox and future virtualization enrichment will populate this panel.</span>
+                <span>Hypervisor enrichment will populate this panel.</span>
               </div>
 
               <div :if={@virtualization_summary.available} class="sr-ops-virt-body">

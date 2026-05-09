@@ -70,10 +70,24 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert disk.health == "PASSED"
     refute Map.has_key?(disk.metadata, "token")
 
-    assert [nic] = records.network_interfaces
-    assert nic.provider_ref == "proxmox:nic:pve-a:vmbr0"
+    assert length(records.network_interfaces) == 2
+    nic = find_record!(records.network_interfaces, "proxmox:nic:pve-a:vmbr0")
     assert nic.active == false
     assert nic.exists == true
+
+    guest_nic =
+      Enum.find(
+        records.network_interfaces,
+        &(&1.guest_provider_ref == "proxmox:guest:pve-a:qemu:100")
+      ) ||
+        flunk("missing guest NIC record")
+
+    assert guest_nic.host_provider_ref == "proxmox:node:pve-a"
+    assert guest_nic.mac_address == "00:11:22:33:44:55"
+    assert guest_nic.ip_addresses == ["192.168.2.50/24"]
+    assert guest_nic.address == "192.168.2.50"
+    assert guest_nic.bridge_ports == "vmbr0"
+    assert guest_nic.source == "config,guest_agent"
 
     assert [ceph] = records.storage_systems
     assert ceph.provider_ref == "proxmox:ceph:pve-a"
@@ -197,7 +211,18 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
               "config" => %{
                 "api_token" => "drop-me",
                 "args" => "header PVEAPIToken=secret"
-              }
+              },
+              "interfaces" => [
+                %{
+                  "name" => "eth0",
+                  "model" => "virtio",
+                  "mac_address" => "00:11:22:33:44:55",
+                  "ip_addresses" => ["192.168.2.50/24"],
+                  "bridge" => "vmbr0",
+                  "source" => "config,guest_agent",
+                  "metadata" => %{"api_token" => "drop-me"}
+                }
+              ]
             }
           ]
         }

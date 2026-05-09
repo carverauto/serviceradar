@@ -220,6 +220,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         plugins
         |> maybe_filter_release_tag(release_tag)
         |> Enum.filter(&Map.get(&1, :import_ready?))
+        |> dedupe_first_party_plugin_versions()
         |> Enum.map(fn plugin ->
           import_attrs = %{
             source_type: :first_party,
@@ -257,12 +258,26 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp maybe_filter_release_tag(plugins, release_tag)
-       when is_binary(release_tag) and release_tag != "" do
+  defp maybe_filter_release_tag(plugins, release_tag) when is_binary(release_tag) and release_tag != "" do
     Enum.filter(plugins, &(&1.release_tag == release_tag))
   end
 
   defp maybe_filter_release_tag(plugins, _release_tag), do: plugins
+
+  defp dedupe_first_party_plugin_versions(plugins) do
+    plugins
+    |> Enum.reduce({MapSet.new(), []}, fn plugin, {seen, acc} ->
+      key = {Map.get(plugin, :plugin_id), Map.get(plugin, :version)}
+
+      if MapSet.member?(seen, key) do
+        {seen, acc}
+      else
+        {MapSet.put(seen, key), [plugin | acc]}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
 
   @spec upload_blob_file(PluginPackage.t(), String.t(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, term()}

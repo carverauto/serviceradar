@@ -379,11 +379,11 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 		return
 	}
 
-	if p.proxmoxConsoleManager == nil {
-		p.proxmoxConsoleManager = newProxmoxConsoleManager(p.logger)
+	if p.remoteConsoleManager == nil {
+		p.remoteConsoleManager = newRemoteConsoleManager(p.logger)
 	}
 
-	p.proxmoxConsoleManager.HandleFrame(context.Background(), frame, sender)
+	p.remoteConsoleManager.HandleFrame(context.Background(), frame, sender)
 }
 
 func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

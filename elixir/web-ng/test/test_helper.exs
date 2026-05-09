@@ -12,14 +12,22 @@ end
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
 repo = ServiceRadar.Repo
 
+require_db_tests? = System.get_env("SERVICERADAR_REQUIRE_DB_TESTS") in ["1", "true", "TRUE"]
+
 if System.get_env("CI") not in ["1", "true", "TRUE"] do
   case SQL.query(repo, "SELECT 1", []) do
     {:ok, _} ->
       :ok
 
     {:error, reason} ->
-      IO.warn("Skipping web-ng tests; database unavailable: #{inspect(reason)}")
-      System.halt(0)
+      message = "web-ng test database unavailable: #{inspect(reason)}"
+
+      if require_db_tests? do
+        raise message
+      else
+        IO.warn("Skipping web-ng tests; #{message}")
+        System.halt(0)
+      end
   end
 end
 

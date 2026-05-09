@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
         ~p"/devices/pve-guest-1/proxmox-console?target_kind=lxc_guest&console_mode=proxmox_termproxy"
       )
 
-    assert html =~ "No scoped Proxmox console credential rule matched this device."
+    assert html =~ "No scoped console credential rule matched this device."
     assert_receive {:open_proxmox_console_session, "pve-guest-1", request, opts}
     assert request.cols == 120
     assert request.rows == 34
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
       |> log_in_user(viewer)
       |> live(~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")
 
-    assert html =~ "You do not have permission to open Proxmox consoles."
+    assert html =~ "You do not have permission to open remote consoles."
     refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
   end
 

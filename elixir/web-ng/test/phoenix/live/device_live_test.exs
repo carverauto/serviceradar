@@ -645,6 +645,183 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "console_mode=ssh"
   end
 
+  test "renders provider-neutral virtualization inventory on device details", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-vsphere-#{unique}"
+    observed_at = DateTime.utc_now()
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "esxi-live-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "vsphere",
+          provider_ref: "vsphere:host:esxi-live-#{unique}",
+          device_uid: uid,
+          name: "esxi-live-#{unique}",
+          status: "connected",
+          cpu_ratio: 0.27,
+          memory_used_bytes: 8_589_934_592,
+          memory_total_bytes: 34_359_738_368,
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _datastore} =
+      VirtualizationDatastore
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "vsphere",
+          provider_ref: "vsphere:datastore:ds-#{unique}",
+          host_id: host.id,
+          name: "vsanDatastore",
+          storage_type: "vsan",
+          active: true,
+          enabled: true,
+          used_bytes: 4_294_967_296,
+          total_bytes: 17_179_869_184,
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _guest} =
+      VirtualizationGuest
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "vsphere",
+          provider_ref: "vsphere:vm:#{unique}",
+          host_id: host.id,
+          name: "vsphere-guest-#{unique}",
+          guest_type: "vm",
+          status: "running",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    html = render_until(view, "Virtualization", 30_000)
+
+    assert html =~ "Virtualization"
+    assert html =~ "vSphere"
+    assert html =~ "vsanDatastore"
+    assert html =~ "vsan"
+    assert html =~ "1 running"
+    refute html =~ "Open PVE shell"
+    refute html =~ "proxmox-console"
+  end
+
+  test "renders guest network identity on virtualized device details", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    host_uid = "test-device-guest-host-#{unique}"
+    guest_uid = "test-device-guest-vm-#{unique}"
+    observed_at = DateTime.utc_now()
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: host_uid,
+        type_id: 0,
+        hostname: "esxi-guest-host-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: guest_uid,
+        type_id: 0,
+        hostname: "app-vm-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "vsphere",
+          provider_ref: "vsphere:host:guest-network-#{unique}",
+          device_uid: host_uid,
+          name: "esxi-guest-host-#{unique}",
+          status: "connected",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, guest} =
+      VirtualizationGuest
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "vsphere",
+          provider_ref: "vsphere:vm:guest-network-#{unique}",
+          host_id: host.id,
+          device_uid: guest_uid,
+          name: "app-vm-#{unique}",
+          guest_type: "vm",
+          status: "running",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _interface} =
+      VirtualizationNetworkInterface
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "vsphere",
+          provider_ref: "vsphere:guest-nic:#{unique}:4000",
+          host_id: host.id,
+          guest_id: guest.id,
+          guest_provider_ref: guest.provider_ref,
+          device_uid: guest_uid,
+          name: "ens192",
+          interface_type: "vmxnet3",
+          active: true,
+          bridge_ports: "VM Network",
+          mac_address: "00:50:56:aa:bb:cc",
+          ip_addresses: ["192.0.2.77/24", "2001:db8::77/64"],
+          source: "guest_tools",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{guest_uid}")
+
+    html = render_until(view, "Virtualization", 30_000)
+
+    assert html =~ "Virtualization"
+    assert html =~ "vSphere"
+    assert html =~ "ens192"
+    assert html =~ "vmxnet3"
+    assert html =~ "192.0.2.77/24 +1"
+    assert html =~ "VM Network"
+  end
+
   describe "device show page interfaces tab" do
     setup %{conn: conn} do
       device_uid = "test-device-interfaces-#{System.unique_integer([:positive])}"

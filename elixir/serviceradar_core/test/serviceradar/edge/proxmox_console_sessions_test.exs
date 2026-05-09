@@ -28,7 +28,13 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     assert {:ok, %{session: session, ticket: ticket}} =
              ProxmoxConsoleSessions.request_open(
                uid,
-               %{metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}},
+               %{
+                 metadata: %{
+                   "private_key" => private_key_fixture(),
+                   "safe" => "kept",
+                   "remote_console" => %{"provider" => "caller-controlled"}
+                 }
+               },
                previewer: Previewer,
                actor: @system_actor
              )
@@ -36,6 +42,12 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     refute inspect(session) =~ ticket
     assert session.metadata["private_key"] == "REDACTED"
     assert session.metadata["safe"] == "kept"
+    assert session.metadata["remote_console"]["schema"] == "serviceradar.remote_console_target.v1"
+    assert session.metadata["remote_console"]["provider"] == "proxmox"
+    assert session.metadata["remote_console"]["target_type"] == "host"
+    assert session.metadata["remote_console"]["protocol"] == "ssh"
+    assert session.metadata["remote_console"]["transport"] == "pty"
+    assert session.metadata["remote_console"]["agent_id"] == "agent-ticket"
     refute inspect(session.metadata) =~ "PRIVATE KEY"
 
     assert {:ok, %ProxmoxConsoleSession{status: :attached}} =

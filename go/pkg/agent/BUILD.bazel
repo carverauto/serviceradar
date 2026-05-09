@@ -28,6 +28,7 @@ go_library(
         "release_runtime.go",
         "release_runtime_unix.go",
         "release_runtime_windows.go",
+        "remote_console.go",
         "server.go",
         "snmp_service.go",
         "sync_runtime.go",

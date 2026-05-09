@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -133,6 +134,27 @@ type proxmoxMapListResponse struct {
 	Data []map[string]any `json:"data"`
 }
 
+type proxmoxGuestAgentNetworkResponse struct {
+	Data proxmoxGuestAgentNetworkData `json:"data"`
+}
+
+type proxmoxGuestAgentNetworkData struct {
+	Result []proxmoxGuestAgentInterface `json:"result"`
+}
+
+type proxmoxGuestAgentInterface struct {
+	Name            string                       `json:"name"`
+	HardwareAddress string                       `json:"hardware-address"`
+	IPAddresses     []proxmoxGuestAgentIPAddress `json:"ip-addresses"`
+	Statistics      map[string]any               `json:"statistics,omitempty"`
+}
+
+type proxmoxGuestAgentIPAddress struct {
+	IPAddress     string `json:"ip-address"`
+	IPAddressType string `json:"ip-address-type"`
+	Prefix        int    `json:"prefix"`
+}
+
 type proxmoxVersion struct {
 	Version string `json:"version,omitempty"`
 	Release string `json:"release,omitempty"`
@@ -235,8 +257,21 @@ type proxmoxResource struct {
 
 type proxmoxGuest struct {
 	proxmoxResource
-	RuntimeStatus map[string]any `json:"runtime_status,omitempty"`
-	Config        map[string]any `json:"config,omitempty"`
+	RuntimeStatus map[string]any                 `json:"runtime_status,omitempty"`
+	Config        map[string]any                 `json:"config,omitempty"`
+	Interfaces    []proxmoxGuestNetworkInterface `json:"interfaces,omitempty"`
+}
+
+type proxmoxGuestNetworkInterface struct {
+	Name        string         `json:"name,omitempty"`
+	ConfigKey   string         `json:"config_key,omitempty"`
+	Model       string         `json:"model,omitempty"`
+	MACAddress  string         `json:"mac_address,omitempty"`
+	IPAddresses []string       `json:"ip_addresses,omitempty"`
+	Bridge      string         `json:"bridge,omitempty"`
+	VLANID      int            `json:"vlan_id,omitempty"`
+	Source      string         `json:"source,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type proxmoxDetails struct {
@@ -681,6 +716,16 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 			warnings[fmt.Sprintf("guest:%s:%d:config", kind, resource.VMID)] = sanitizeError(err)
 		} else {
 			guest.Config = sanitizeMap(config)
+			guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestConfig(guest.Config))
+		}
+
+		if kind == "qemu" && strings.EqualFold(resource.Status, "running") {
+			agentInterfaces, err := fetchGuestAgentNetworkInterfaces(cfg, target, token, resource.Node, resource.VMID)
+			if err != nil {
+				warnings[fmt.Sprintf("guest:%s:%d:agent_network", kind, resource.VMID)] = sanitizeError(err)
+			} else {
+				guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestAgent(agentInterfaces))
+			}
 		}
 
 		out = append(out, guest)
@@ -707,6 +752,226 @@ func fetchGuestConfig(cfg Config, target Target, token, node, kind string, vmid 
 	}
 
 	return envelope.Data, nil
+}
+
+func fetchGuestAgentNetworkInterfaces(cfg Config, target Target, token, node string, vmid int) ([]proxmoxGuestAgentInterface, error) {
+	var envelope proxmoxGuestAgentNetworkResponse
+	path := fmt.Sprintf("/api2/json/nodes/%s/qemu/%d/agent/network-get-interfaces", url.PathEscape(node), vmid)
+	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
+		return nil, fmt.Errorf("fetch guest agent network interfaces: %w", err)
+	}
+
+	return envelope.Data.Result, nil
+}
+
+func interfacesFromGuestConfig(config map[string]any) []proxmoxGuestNetworkInterface {
+	if len(config) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(config))
+	for key := range config {
+		if isGuestNetConfigKey(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	out := make([]proxmoxGuestNetworkInterface, 0, len(keys))
+	for _, key := range keys {
+		raw, ok := config[key].(string)
+		if !ok || strings.TrimSpace(raw) == "" {
+			continue
+		}
+
+		iface := interfaceFromGuestConfigValue(key, raw)
+		if iface.Name == "" && iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
+			continue
+		}
+		out = append(out, iface)
+	}
+
+	return out
+}
+
+func isGuestNetConfigKey(key string) bool {
+	if !strings.HasPrefix(key, "net") || len(key) == 3 {
+		return false
+	}
+	for _, r := range key[3:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func interfaceFromGuestConfigValue(configKey, raw string) proxmoxGuestNetworkInterface {
+	values := parseProxmoxConfigList(raw)
+	iface := proxmoxGuestNetworkInterface{
+		ConfigKey: configKey,
+		Name:      firstNonEmpty(values["name"], configKey),
+		Bridge:    values["bridge"],
+		Source:    "config",
+		Metadata:  map[string]any{"config": raw},
+	}
+
+	if vlanID := parsePositiveInt(firstNonEmpty(values["tag"], values["vlan-id"], values["vlan_id"])); vlanID > 0 {
+		iface.VLANID = vlanID
+	}
+
+	for _, key := range []string{"hwaddr", "macaddr", "mac"} {
+		if mac := normalizeMACForOutput(values[key]); mac != "" {
+			iface.MACAddress = mac
+			break
+		}
+	}
+
+	if iface.MACAddress == "" {
+		for _, model := range []string{"virtio", "e1000", "e1000e", "rtl8139", "vmxnet3", "ne2k_pci", "i82551", "i82557b", "i82559er"} {
+			if mac := normalizeMACForOutput(values[model]); mac != "" {
+				iface.MACAddress = mac
+				iface.Model = model
+				break
+			}
+		}
+	}
+
+	if iface.Model == "" {
+		iface.Model = firstNonEmpty(values["type"], values["model"])
+	}
+
+	for _, key := range []string{"ip", "ip6"} {
+		if ip := normalizeGuestIP(values[key]); ip != "" {
+			iface.IPAddresses = appendUniqueString(iface.IPAddresses, ip)
+		}
+	}
+
+	return iface
+}
+
+func parseProxmoxConfigList(raw string) map[string]string {
+	values := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+func interfacesFromGuestAgent(agentInterfaces []proxmoxGuestAgentInterface) []proxmoxGuestNetworkInterface {
+	out := make([]proxmoxGuestNetworkInterface, 0, len(agentInterfaces))
+	for _, agentIface := range agentInterfaces {
+		iface := proxmoxGuestNetworkInterface{
+			Name:       agentIface.Name,
+			MACAddress: normalizeMACForOutput(agentIface.HardwareAddress),
+			Source:     "guest_agent",
+			Metadata:   sanitizeMap(agentIface.Statistics),
+		}
+
+		for _, address := range agentIface.IPAddresses {
+			ip := normalizeGuestIP(address.IPAddress)
+			if ip == "" || isLoopbackOrLinkLocal(ip) {
+				continue
+			}
+			if address.Prefix > 0 && !strings.Contains(ip, "/") {
+				ip = fmt.Sprintf("%s/%d", ip, address.Prefix)
+			}
+			iface.IPAddresses = appendUniqueString(iface.IPAddresses, ip)
+		}
+
+		if iface.Name == "" && iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
+			continue
+		}
+		out = append(out, iface)
+	}
+
+	return out
+}
+
+func mergeGuestInterfaces(left, right []proxmoxGuestNetworkInterface) []proxmoxGuestNetworkInterface {
+	out := append([]proxmoxGuestNetworkInterface{}, left...)
+	for _, incoming := range right {
+		idx := findGuestInterface(out, incoming)
+		if idx < 0 {
+			out = append(out, incoming)
+			continue
+		}
+
+		current := out[idx]
+		current.Name = firstNonEmpty(current.Name, incoming.Name)
+		current.ConfigKey = firstNonEmpty(current.ConfigKey, incoming.ConfigKey)
+		current.Model = firstNonEmpty(current.Model, incoming.Model)
+		current.MACAddress = firstNonEmpty(current.MACAddress, incoming.MACAddress)
+		current.Bridge = firstNonEmpty(current.Bridge, incoming.Bridge)
+		if current.VLANID == 0 {
+			current.VLANID = incoming.VLANID
+		}
+		current.Source = mergeSource(current.Source, incoming.Source)
+		current.IPAddresses = appendUniqueStrings(current.IPAddresses, incoming.IPAddresses)
+		current.Metadata = mergeMetadata(current.Metadata, incoming.Metadata)
+		out[idx] = current
+	}
+
+	return out
+}
+
+func findGuestInterface(interfaces []proxmoxGuestNetworkInterface, incoming proxmoxGuestNetworkInterface) int {
+	incomingMAC := normalizeMACKey(incoming.MACAddress)
+	for idx, candidate := range interfaces {
+		if incomingMAC != "" && normalizeMACKey(candidate.MACAddress) == incomingMAC {
+			return idx
+		}
+		if incoming.Name != "" && candidate.Name != "" && strings.EqualFold(candidate.Name, incoming.Name) {
+			return idx
+		}
+		if incoming.ConfigKey != "" && candidate.ConfigKey != "" && candidate.ConfigKey == incoming.ConfigKey {
+			return idx
+		}
+	}
+
+	return -1
+}
+
+func mergeSource(left, right string) string {
+	switch {
+	case left == "":
+		return right
+	case right == "", left == right:
+		return left
+	case strings.Contains(left, right):
+		return left
+	case strings.Contains(right, left):
+		return right
+	default:
+		return left + "," + right
+	}
+}
+
+func mergeMetadata(left, right map[string]any) map[string]any {
+	if len(left) == 0 {
+		return right
+	}
+	if len(right) == 0 {
+		return left
+	}
+	merged := make(map[string]any, len(left)+len(right))
+	for key, value := range left {
+		merged[key] = value
+	}
+	for key, value := range right {
+		if _, exists := merged[key]; !exists {
+			merged[key] = value
+		}
+	}
+	return merged
 }
 
 func getJSON(cfg Config, target Target, token, path string, out any) error {
@@ -804,6 +1069,8 @@ func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) 
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    proxmoxGuestID(guest.proxmoxResource),
 			Hostname:    firstNonEmpty(guest.Name, guest.ID),
+			IP:          primaryIP(guest.Interfaces),
+			MAC:         primaryMAC(guest.Interfaces),
 			VendorName:  "Proxmox",
 			Model:       kind,
 			Type:        kind,
@@ -816,17 +1083,18 @@ func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) 
 			},
 			Metadata: map[string]any{
 				"proxmox": map[string]any{
-					"kind":     kind,
-					"node":     guest.Node,
-					"vmid":     guest.VMID,
-					"id":       guest.ID,
-					"cpu":      guest.CPU,
-					"max_cpu":  guest.MaxCPU,
-					"mem":      guest.Mem,
-					"max_mem":  guest.MaxMem,
-					"disk":     guest.Disk,
-					"max_disk": guest.MaxDisk,
-					"uptime":   guest.Uptime,
+					"kind":       kind,
+					"node":       guest.Node,
+					"vmid":       guest.VMID,
+					"id":         guest.ID,
+					"cpu":        guest.CPU,
+					"max_cpu":    guest.MaxCPU,
+					"mem":        guest.Mem,
+					"max_mem":    guest.MaxMem,
+					"disk":       guest.Disk,
+					"max_disk":   guest.MaxDisk,
+					"uptime":     guest.Uptime,
+					"interfaces": guest.Interfaces,
 				},
 			},
 		})
@@ -1078,6 +1346,109 @@ func normalizeGuestKind(value string) string {
 	default:
 		return "guest"
 	}
+}
+
+func normalizeMACForOutput(value string) string {
+	key := normalizeMACKey(value)
+	if key == "" {
+		return ""
+	}
+
+	parts := make([]string, 0, 6)
+	for i := 0; i < len(key); i += 2 {
+		parts = append(parts, key[i:i+2])
+	}
+
+	return strings.Join(parts, ":")
+}
+
+func normalizeMACKey(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	replacer := strings.NewReplacer(":", "", "-", "", ".", "")
+	value = replacer.Replace(value)
+	if len(value) != 12 {
+		return ""
+	}
+	for _, r := range value {
+		if !((r >= '0' && r <= '9') || (r >= 'A' && r <= 'F')) {
+			return ""
+		}
+	}
+	return value
+}
+
+func normalizeGuestIP(value string) string {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "", "dhcp", "auto", "manual", "none":
+		return ""
+	default:
+		return value
+	}
+}
+
+func primaryIP(interfaces []proxmoxGuestNetworkInterface) string {
+	for _, iface := range interfaces {
+		for _, ip := range iface.IPAddresses {
+			if plain := stripIPPrefix(ip); plain != "" && !isLoopbackOrLinkLocal(plain) {
+				return plain
+			}
+		}
+	}
+	return ""
+}
+
+func primaryMAC(interfaces []proxmoxGuestNetworkInterface) string {
+	for _, iface := range interfaces {
+		if iface.MACAddress != "" {
+			return iface.MACAddress
+		}
+	}
+	return ""
+}
+
+func stripIPPrefix(value string) string {
+	value = strings.TrimSpace(value)
+	if idx := strings.Index(value, "/"); idx >= 0 {
+		value = value[:idx]
+	}
+	return value
+}
+
+func isLoopbackOrLinkLocal(value string) bool {
+	value = strings.ToLower(stripIPPrefix(value))
+	return strings.HasPrefix(value, "127.") ||
+		value == "::1" ||
+		strings.HasPrefix(value, "169.254.") ||
+		strings.HasPrefix(value, "fe80:")
+}
+
+func appendUniqueStrings(left []string, right []string) []string {
+	for _, value := range right {
+		left = appendUniqueString(left, value)
+	}
+	return left
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if strings.EqualFold(existing, value) {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func parsePositiveInt(value string) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed < 0 {
+		return 0
+	}
+	return parsed
 }
 
 func guestEndpointKind(value string) string {

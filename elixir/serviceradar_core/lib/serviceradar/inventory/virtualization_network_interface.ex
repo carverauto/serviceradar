@@ -17,6 +17,8 @@ defmodule ServiceRadar.Inventory.VirtualizationNetworkInterface do
     :provider,
     :provider_ref,
     :host_id,
+    :guest_id,
+    :guest_provider_ref,
     :device_uid,
     :name,
     :interface_type,
@@ -29,6 +31,9 @@ defmodule ServiceRadar.Inventory.VirtualizationNetworkInterface do
     :gateway,
     :bridge_ports,
     :vlan_id,
+    :mac_address,
+    :ip_addresses,
+    :source,
     :metadata,
     :observed_at
   ]
@@ -86,6 +91,14 @@ defmodule ServiceRadar.Inventory.VirtualizationNetworkInterface do
       public? true
     end
 
+    attribute :guest_id, :uuid do
+      public? true
+    end
+
+    attribute :guest_provider_ref, :string do
+      public? true
+    end
+
     attribute :device_uid, :string do
       public? true
     end
@@ -135,6 +148,20 @@ defmodule ServiceRadar.Inventory.VirtualizationNetworkInterface do
       public? true
     end
 
+    attribute :mac_address, :string do
+      public? true
+    end
+
+    attribute :ip_addresses, {:array, :string} do
+      allow_nil? false
+      default []
+      public? true
+    end
+
+    attribute :source, :string do
+      public? true
+    end
+
     attribute :metadata, :map do
       allow_nil? false
       default %{}
@@ -153,6 +180,12 @@ defmodule ServiceRadar.Inventory.VirtualizationNetworkInterface do
     belongs_to :host, ServiceRadar.Inventory.VirtualizationHost do
       source_attribute :host_id
       allow_nil? false
+      public? true
+    end
+
+    belongs_to :guest, ServiceRadar.Inventory.VirtualizationGuest do
+      source_attribute :guest_id
+      allow_nil? true
       public? true
     end
 

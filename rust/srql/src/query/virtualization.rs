@@ -145,8 +145,8 @@ fn entity_spec(entity: &Entity) -> Result<EntitySpec> {
         }),
         Entity::VirtualizationNetworkInterfaces => Ok(EntitySpec {
             table: "virtualization_network_interfaces",
-            joins: "LEFT JOIN virtualization_hosts h ON h.id = t.host_id LEFT JOIN virtualization_clusters c ON c.id = h.cluster_id",
-            payload_extra: "jsonb_build_object('host_name', h.name, 'node', h.name, 'cluster_name', c.name)",
+            joins: "LEFT JOIN virtualization_hosts h ON h.id = t.host_id LEFT JOIN virtualization_clusters c ON c.id = h.cluster_id LEFT JOIN virtualization_guests g ON g.id = t.guest_id",
+            payload_extra: "jsonb_build_object('host_name', h.name, 'node', h.name, 'cluster_name', c.name, 'guest_name', g.name, 'guest_type', g.guest_type)",
             default_order: "t.observed_at DESC NULLS LAST, t.name ASC",
         }),
         Entity::VirtualizationStorageSystems => Ok(EntitySpec {
@@ -188,8 +188,20 @@ fn filter_predicate(
             }
             _ => unsupported_field(entity, &field),
         },
+        "guest_id" => match entity {
+            Entity::VirtualizationNetworkInterfaces => {
+                text_filter(filter, "t.guest_id::text", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
         "provider" => text_filter(filter, "t.provider", params),
         "provider_ref" => text_filter(filter, "t.provider_ref", params),
+        "guest_provider_ref" => match entity {
+            Entity::VirtualizationNetworkInterfaces => {
+                text_filter(filter, "t.guest_provider_ref", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
         "name" => text_filter(filter, "t.name", params),
         "status" => text_filter(filter, "t.status", params),
         "device_uid" | "device_id" | "uid" => text_filter(filter, "t.device_uid", params),
@@ -204,6 +216,10 @@ fn filter_predicate(
             Entity::VirtualizationHosts => text_filter(filter, "t.name", params),
             Entity::VirtualizationClusters => unsupported_field(entity, &field),
             _ => text_filter(filter, "h.name", params),
+        },
+        "guest" | "guest_name" => match entity {
+            Entity::VirtualizationNetworkInterfaces => text_filter(filter, "g.name", params),
+            _ => unsupported_field(entity, &field),
         },
         "version" => match entity {
             Entity::VirtualizationClusters | Entity::VirtualizationHosts => {
@@ -252,6 +268,18 @@ fn filter_predicate(
             }
             _ => unsupported_field(entity, &field),
         },
+        "mac" | "mac_address" => match entity {
+            Entity::VirtualizationNetworkInterfaces => text_filter(filter, "t.mac_address", params),
+            _ => unsupported_field(entity, &field),
+        },
+        "ip" | "ip_address" => match entity {
+            Entity::VirtualizationNetworkInterfaces => ip_addresses_filter(filter, params),
+            _ => unsupported_field(entity, &field),
+        },
+        "source" => match entity {
+            Entity::VirtualizationNetworkInterfaces => text_filter(filter, "t.source", params),
+            _ => unsupported_field(entity, &field),
+        },
         "active" => match entity {
             Entity::VirtualizationDatastores | Entity::VirtualizationNetworkInterfaces => {
                 bool_filter(filter, "t.active", params)
@@ -280,6 +308,53 @@ fn filter_predicate(
             _ => unsupported_field(entity, &field),
         },
         other => unsupported_field(entity, other),
+    }
+}
+
+fn ip_addresses_filter(filter: &Filter, params: &mut Vec<BindParam>) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq => {
+            let placeholder = push_param(params, BindParam::Text(filter.value.as_scalar()?.into()));
+            Ok(format!("{placeholder} = ANY(t.ip_addresses)"))
+        }
+        FilterOp::NotEq => {
+            let placeholder = push_param(params, BindParam::Text(filter.value.as_scalar()?.into()));
+            Ok(format!("NOT ({placeholder} = ANY(t.ip_addresses))"))
+        }
+        FilterOp::Like => {
+            let placeholder = push_param(params, BindParam::Text(filter.value.as_scalar()?.into()));
+            Ok(format!(
+                "EXISTS (SELECT 1 FROM unnest(t.ip_addresses) AS ip_address WHERE ip_address ILIKE {placeholder})"
+            ))
+        }
+        FilterOp::NotLike => {
+            let placeholder = push_param(params, BindParam::Text(filter.value.as_scalar()?.into()));
+            Ok(format!(
+                "NOT EXISTS (SELECT 1 FROM unnest(t.ip_addresses) AS ip_address WHERE ip_address ILIKE {placeholder})"
+            ))
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                Ok("TRUE".into())
+            } else {
+                let placeholder = push_param(params, BindParam::TextArray(values));
+                Ok(format!("t.ip_addresses && {placeholder}"))
+            }
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                Ok("TRUE".into())
+            } else {
+                let placeholder = push_param(params, BindParam::TextArray(values));
+                Ok(format!("NOT (t.ip_addresses && {placeholder})"))
+            }
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for ip address filter: {:?}",
+            filter.op
+        ))),
     }
 }
 

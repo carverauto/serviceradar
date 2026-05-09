@@ -10,23 +10,28 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     def attach_with_ticket(ticket, opts) do
       send(test_pid(opts), {:attach_with_ticket, ticket, opts})
 
-      {:ok,
-       %ProxmoxConsoleSession{
-         id: opts[:session_id],
-         device_uid: "pve-1",
-         target_kind: :pve_host,
-         console_mode: :ssh,
-         agent_id: "agent-1",
-         gateway_id: "gateway-1",
-         credential_rule_id: Ecto.UUID.generate(),
-         status: :attached,
-         ticket_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
-         idle_timeout_seconds: 30,
-         absolute_timeout_seconds: 120,
-         metadata: %{"test_pid" => test_pid(opts)},
-         inserted_at: DateTime.utc_now(),
-         updated_at: DateTime.utc_now()
-       }}
+      session =
+        apply_session_overrides(
+          %ProxmoxConsoleSession{
+            id: opts[:session_id],
+            device_uid: "pve-1",
+            target_kind: :pve_host,
+            console_mode: :ssh,
+            agent_id: "agent-1",
+            gateway_id: "gateway-1",
+            credential_rule_id: Ecto.UUID.generate(),
+            status: :attached,
+            ticket_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+            idle_timeout_seconds: 30,
+            absolute_timeout_seconds: 120,
+            metadata: %{"test_pid" => test_pid(opts)},
+            inserted_at: DateTime.utc_now(),
+            updated_at: DateTime.utc_now()
+          },
+          Map.get(opts[:scope], :session_overrides, %{})
+        )
+
+      {:ok, session}
     end
 
     def request_close(session_id, opts) do
@@ -50,6 +55,32 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     end
 
     defp test_pid(opts), do: opts |> Keyword.fetch!(:scope) |> Map.fetch!(:test_pid)
+
+    defp apply_session_overrides(session, overrides) when is_map(overrides) do
+      metadata =
+        session.metadata
+        |> Map.merge(Map.get(overrides, :metadata, %{}))
+        |> Map.merge(Map.get(overrides, "metadata", %{}))
+
+      overrides =
+        overrides
+        |> Map.drop([:metadata, "metadata"])
+        |> Map.new(&normalize_override/1)
+        |> Map.reject(fn {key, _value} -> is_nil(key) end)
+
+      session
+      |> struct(overrides)
+      |> Map.put(:metadata, metadata)
+    end
+
+    defp apply_session_overrides(session, _overrides), do: session
+
+    defp normalize_override({key, value}) when key in [:device_uid, :target_kind, :console_mode], do: {key, value}
+
+    defp normalize_override({"device_uid", value}), do: {:device_uid, value}
+    defp normalize_override({"target_kind", value}), do: {:target_kind, value}
+    defp normalize_override({"console_mode", value}), do: {:console_mode, value}
+    defp normalize_override({_key, _value}), do: {nil, nil}
   end
 
   defmodule BrokerStub do
@@ -145,6 +176,60 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     ProxmoxConsoleStreamHandler.terminate(:normal, after_resize)
   end
 
+  test "generic SSH and Proxmox guest targets attach through the same broker path" do
+    targets = [
+      {"generic-ssh-session",
+       %{
+         device_uid: "linux-1",
+         target_kind: :pve_host,
+         console_mode: :ssh,
+         metadata: %{
+           "remote_console" => %{
+             "schema" => "serviceradar.remote_console_target.v1",
+             "provider" => "generic",
+             "target_ref" => "generic:device:linux-1",
+             "target_type" => "device",
+             "protocol" => "ssh",
+             "transport" => "pty",
+             "agent_id" => "agent-1"
+           }
+         }
+       }},
+      {"proxmox-guest-session",
+       %{
+         device_uid: "pve-vm-100",
+         target_kind: :qemu_guest,
+         console_mode: :proxmox_vncwebsocket,
+         metadata: %{
+           "remote_console" => %{
+             "schema" => "serviceradar.remote_console_target.v1",
+             "provider" => "proxmox",
+             "target_ref" => "proxmox:guest:pve-a:qemu:100",
+             "target_type" => "guest",
+             "protocol" => "vnc",
+             "transport" => "framebuffer",
+             "agent_id" => "agent-1"
+           }
+         }
+       }}
+    ]
+
+    for {session_id, overrides} <- targets do
+      {:ok, state} = init_state(session_id, overrides)
+
+      assert {:push, {:text, response}, attached} =
+               ProxmoxConsoleStreamHandler.handle_in({attach_payload(session_id), [opcode: :text]}, state)
+
+      assert %{"type" => "ready", "session_id" => ^session_id} = Jason.decode!(response)
+      assert_receive {:broker_started, ^session_id, opts}
+      assert opts[:cols] == 132
+      assert opts[:rows] == 43
+      assert attached.session.metadata["remote_console"]["schema"] == "serviceradar.remote_console_target.v1"
+
+      ProxmoxConsoleStreamHandler.terminate(:normal, attached)
+    end
+  end
+
   test "idle timeout expires session and renders explicit browser error" do
     {:ok, state} = init_state("session-3")
 
@@ -203,10 +288,10 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     refute_receive {:request_close, "session-4", _opts}
   end
 
-  defp init_state(session_id) do
+  defp init_state(session_id, session_overrides \\ %{}) do
     ProxmoxConsoleStreamHandler.init(
       session_id: session_id,
-      scope: %{test_pid: self()},
+      scope: %{test_pid: self(), session_overrides: session_overrides},
       sessions_module: SessionsStub,
       broker_module: BrokerStub
     )

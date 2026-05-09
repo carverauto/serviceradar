@@ -14,21 +14,16 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Edge.ProxmoxConsoleSession
+  alias ServiceRadar.Edge.RemoteConsoleTarget
+  alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Inventory.VirtualizationGuest
-  alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Plugins.ValueUtils
-
-  require Ash.Query
 
   @provider "proxmox"
   @default_ticket_ttl_seconds 60
   @default_idle_timeout_seconds 900
   @default_absolute_timeout_seconds 3600
-  @supported_target_kinds [:pve_host, :qemu_guest, :lxc_guest]
-  @supported_console_modes [:ssh, :proxmox_termproxy, :proxmox_vncwebsocket]
-  @enabled_console_modes [:ssh]
 
   @type create_request :: %{
           optional(:target_kind) => atom() | String.t(),
@@ -254,72 +249,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp resolve_target(device, request, system_opts) do
-    requested_kind =
-      normalize_target_kind(Map.get(request, :target_kind) || Map.get(request, "target_kind"))
-
-    requested_mode =
-      normalize_console_mode(Map.get(request, :console_mode) || Map.get(request, "console_mode"))
-
-    with {:ok, inferred_kind} <- infer_target_kind(device, system_opts),
-         {:ok, target_kind} <- pick_target_kind(requested_kind, inferred_kind),
-         {:ok, console_mode} <- pick_console_mode(requested_mode, target_kind) do
-      {:ok, %{target_kind: target_kind, console_mode: console_mode}}
-    end
+    RemoteConsoleTargetResolver.resolve_proxmox(device, request, ash_opts: system_opts)
   end
-
-  defp infer_target_kind(device, system_opts) do
-    with {:ok, hosts} <- virtualization_by_device(VirtualizationHost, device.uid, system_opts),
-         {:host, []} <- {:host, hosts},
-         {:ok, guests} <- virtualization_by_device(VirtualizationGuest, device.uid, system_opts),
-         {:guest, []} <- {:guest, guests} do
-      infer_target_kind_from_device(device)
-    else
-      {:host, [_host | _]} -> {:ok, :pve_host}
-      {:guest, [%{guest_type: "lxc"} | _]} -> {:ok, :lxc_guest}
-      {:guest, [%{guest_type: "qemu"} | _]} -> {:ok, :qemu_guest}
-      {:guest, [_guest | _]} -> {:ok, :qemu_guest}
-      {:error, _reason} -> infer_target_kind_from_device(device)
-    end
-  end
-
-  defp virtualization_by_device(resource, device_uid, ash_opts) do
-    resource
-    |> Ash.Query.for_read(:by_device, %{device_uid: device_uid})
-    |> Ash.read(ash_opts)
-  end
-
-  defp infer_target_kind_from_device(%{vendor_name: vendor}) when is_binary(vendor) do
-    if String.downcase(vendor) =~ "proxmox",
-      do: {:ok, :pve_host},
-      else: {:error, :unsupported_console_target}
-  end
-
-  defp infer_target_kind_from_device(%{metadata: metadata}) when is_map(metadata) do
-    case ValueUtils.string_value(metadata, [
-           "proxmox_guest_type",
-           :proxmox_guest_type,
-           "guest_type",
-           :guest_type
-         ]) do
-      "lxc" -> {:ok, :lxc_guest}
-      "qemu" -> {:ok, :qemu_guest}
-      _ -> {:error, :unsupported_console_target}
-    end
-  end
-
-  defp infer_target_kind_from_device(_device), do: {:error, :unsupported_console_target}
-
-  defp pick_target_kind(nil, inferred), do: {:ok, inferred}
-  defp pick_target_kind(kind, _inferred) when kind in @supported_target_kinds, do: {:ok, kind}
-  defp pick_target_kind(_kind, _inferred), do: {:error, :unsupported_console_target}
-
-  defp pick_console_mode(nil, :pve_host), do: {:ok, :ssh}
-  defp pick_console_mode(:ssh, :pve_host) when :ssh in @enabled_console_modes, do: {:ok, :ssh}
-
-  defp pick_console_mode(mode, _target_kind) when mode in @supported_console_modes,
-    do: {:error, :unsupported_console_mode}
-
-  defp pick_console_mode(_mode, _target_kind), do: {:error, :unsupported_console_mode}
 
   defp resolve_credential_rule(device, request, opts) do
     system_actor = SystemActor.system(:proxmox_console_rule_resolver)
@@ -430,11 +361,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
         int_request(request, :idle_timeout_seconds, @default_idle_timeout_seconds),
       absolute_timeout_seconds:
         int_request(request, :absolute_timeout_seconds, @default_absolute_timeout_seconds),
-      metadata: session_metadata(device, request)
+      metadata: session_metadata(device, target, agent_id, request)
     }
   end
 
-  defp session_metadata(device, request) do
+  defp session_metadata(device, target, agent_id, request) do
     terminal =
       %{}
       |> put_positive_int("cols", Map.get(request, :cols) || Map.get(request, "cols"))
@@ -447,10 +378,17 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
     target_metadata = target_metadata(device)
 
-    %{}
+    remote_console_target =
+      device
+      |> RemoteConsoleTarget.proxmox(Map.put(target, :agent_id, agent_id))
+      |> RemoteConsoleTarget.to_metadata()
+
+    if_result = if(is_map(request_metadata), do: request_metadata, else: %{})
+
+    if_result
     |> maybe_put("terminal", terminal)
     |> maybe_put("target", target_metadata)
-    |> Map.merge(if(is_map(request_metadata), do: request_metadata, else: %{}))
+    |> maybe_put("remote_console", remote_console_target)
   end
 
   defp target_metadata(device) do
@@ -486,6 +424,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
         device_uid: session.device_uid,
         target_kind: format_atom(session.target_kind),
         console_mode: format_atom(session.console_mode),
+        provider: remote_console_metadata_value(session, "provider"),
+        target_ref: remote_console_metadata_value(session, "target_ref"),
+        target_type: remote_console_metadata_value(session, "target_type"),
+        protocol: remote_console_metadata_value(session, "protocol"),
+        transport: remote_console_metadata_value(session, "transport"),
         agent_id: session.agent_id,
         gateway_id: session.gateway_id,
         credential_rule_id: session.credential_rule_id,
@@ -515,6 +458,12 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp action_suffix(:proxmox_console_session_closed), do: "closed"
   defp action_suffix(:proxmox_console_session_expired), do: "expired"
   defp action_suffix(action), do: Atom.to_string(action)
+
+  defp remote_console_metadata_value(%{metadata: %{"remote_console" => metadata}}, key)
+       when is_map(metadata),
+       do: Map.get(metadata, key)
+
+  defp remote_console_metadata_value(_session, _key), do: nil
 
   defp ash_opts(opts) do
     case Keyword.fetch(opts, :scope) do
@@ -577,22 +526,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       _ -> nil
     end
   end
-
-  defp normalize_target_kind(value) when is_atom(value) and value in @supported_target_kinds,
-    do: value
-
-  defp normalize_target_kind("pve_host"), do: :pve_host
-  defp normalize_target_kind("qemu_guest"), do: :qemu_guest
-  defp normalize_target_kind("lxc_guest"), do: :lxc_guest
-  defp normalize_target_kind(_value), do: nil
-
-  defp normalize_console_mode(value) when is_atom(value) and value in @supported_console_modes,
-    do: value
-
-  defp normalize_console_mode("ssh"), do: :ssh
-  defp normalize_console_mode("proxmox_termproxy"), do: :proxmox_termproxy
-  defp normalize_console_mode("proxmox_vncwebsocket"), do: :proxmox_vncwebsocket
-  defp normalize_console_mode(_value), do: nil
 
   defp int_request(request, key, default) do
     value =

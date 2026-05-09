@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
   alias ServiceRadarWebNG.Topology.RuntimeGraph
+  alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
   alias ServiceRadarWebNGWeb.Stats
 
   @default_time_window "last_24h"
@@ -273,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       stopped_guests: Enum.count(guests, &(normalized_status(map_value(&1, "status")) == "stopped")),
       datastore_count: length(datastores),
       storage_system_count: length(storage_systems),
-      provider_label: provider_label(hosts ++ guests ++ datastores ++ storage_systems),
+      provider_label: VirtualizationLabels.provider_summary(hosts ++ guests ++ datastores ++ storage_systems),
       avg_host_cpu_pct: avg_percent(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))),
       max_host_cpu_pct: max_percent(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))),
       max_host_memory_pct: max_percent(host_memory_ratios),
@@ -385,21 +386,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp normalized_status(value), do: value |> to_string() |> String.downcase()
-
-  defp provider_label(rows) when is_list(rows) do
-    providers =
-      rows
-      |> Enum.map(&map_value(&1, "provider"))
-      |> Enum.filter(&present?/1)
-      |> Enum.map(&String.capitalize/1)
-      |> Enum.uniq()
-
-    case providers do
-      [] -> "No hypervisor inventory"
-      [provider] -> provider
-      [first | rest] -> "#{first} +#{length(rest)}"
-    end
-  end
 
   defp virtualization_status_label(0, %{error_count: 0, warning_count: 0}), do: "Efficient"
   defp virtualization_status_label(_bottlenecks, %{error_count: errors}) when errors > 0, do: "Critical"
