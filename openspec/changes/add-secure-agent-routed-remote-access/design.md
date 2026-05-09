@@ -84,6 +84,7 @@ Resource and module names:
 - pubsub boundary: `ServiceRadar.Edge.RemoteAccessPubSub`
 - agent gateway router: `ServiceRadarAgentGateway.RemoteAccessStreamSession` or a genericized successor to `ControlStreamSession`
 - agent package boundary: `go/pkg/agent/remoteaccess`
+- future agent adapter registry: `go/pkg/agent/remoteaccess.AdapterRegistry`, dispatching protocol names to session-scoped `Opener` implementations without introducing reusable agent-local target credentials.
 
 Session state machine:
 - `requested`: platform created the session and issued any one-time browser attach ticket.
@@ -122,6 +123,8 @@ Compatibility:
 - The generic frame payload should carry `session_id`, `protocol`, `frame_type`, `data`, `cols`, `rows`, `reason`, `timestamp`, and optional `metadata`. Proxmox compatibility wrappers can map `ConsoleFrame` to `RemoteAccessFrame` with protocol `proxmox-console`.
 - During the compatibility phase, an existing `ConsoleFrame` `open` payload may declare `"protocol": "ssh"` to route through the generic SSH adapter. Payloads without a protocol continue to default to `proxmox-console`.
 - Persisted command records are still appropriate for on-demand commands such as mapper/MTR. Interactive remote-access byte streams should keep using the side-channel pattern used by `send_console_frame/3` to avoid persisting sensitive payload bytes in command records.
+
+Future protocol adapters for `app`, `database`, `kubernetes`, `desktop`, `rdp`, `vsphere_console`, and `ot` are registry entries, not separate privileged agent services. Each adapter must validate its open-frame payload, honor session TTL/close semantics, and inherit the same recording, approval, and credential-custody gates before any target connection is opened.
 
 ## Reusable Implementation Inventory
 The current Proxmox console path already proves the key routing shape, but its names and frame type are provider-specific.

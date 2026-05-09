@@ -23,7 +23,7 @@
 - [x] 2.12 Add a core SSH certificate policy boundary that maps actor permission, target principal policy, requested principals, and TTL into a bounded signing request shape.
 - [x] 2.13 Add a core SSH certificate issuance orchestrator that combines policy with an injected signer and returns a session certificate envelope.
 - [x] 2.14 Add ServiceRadar SSH CA issuance for Authentik-authenticated users, mapping IdP claims and RBAC to short-lived OpenSSH user certificates.
-- [ ] 2.15 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
+- [x] 2.15 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
 
 ## 3. Validation
 - [x] 3.1 Add unit tests for credential custody policy and grant scoping.
