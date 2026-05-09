@@ -68,6 +68,15 @@ Initial `github.com/cilium/ebpf` review:
 - Runtime packages needed for an agent runtime (`github.com/cilium/ebpf`, `link`, `ringbuf`, `rlimit`, and `features`) pull only `golang.org/x/sys` as an external runtime dependency in a scratch module test.
 - The library is documented as pure Go and not dependent on C, libbpf, or cgo.
 - `cmd/bpf2go` is the likely probe generation tool, but it is a build-time tool with heavier indirect dependencies. ServiceRadar should generate BPF artifacts hermetically, commit generated `.go` and `.o` outputs, and keep normal `go test`/Bazel agent builds independent of a workstation LLVM setup.
+- Scratch compile checks for the runtime imports passed for `darwin/arm64`, `linux/amd64`, and `linux/arm64` without cgo.
+
+Repository integration path:
+
+- Add `github.com/cilium/ebpf` to `go.mod` only in the implementation change that introduces `go/pkg/agent/ebpf`.
+- Run `bazel mod tidy` so `MODULE.bazel` picks up the generated `go_deps` repositories from `go.mod`.
+- Keep `go/pkg/agent/ebpf` buildable on non-Linux with stubs, so normal workstation tests and image analysis do not require Linux BPF support.
+- Gate real runtime code behind Linux build tags and an explicit ServiceRadar BPF build/runtime enablement check.
+- Keep `cmd/bpf2go` as a regeneration tool, not a normal runtime dependency.
 
 The shared runtime should own:
 
@@ -158,6 +167,7 @@ Minimum runtime checks before advertising BPF should include:
 
 - Linux platform and supported architecture.
 - Kernel feature checks for the selected program/link/map types.
+- Kernel version and syscall availability compatible with the selected attach strategy; CO-RE/BTF support should be validated directly rather than inferred from version alone.
 - Readable BTF source for CO-RE loading, usually `/sys/kernel/btf/vmlinux`.
 - bpffs availability, usually `/sys/fs/bpf`, with the chart deciding whether it is host-mounted read-write or whether the runtime uses unpinned objects only.
 - cgroup v2 or other selected session-boundary mechanism availability.
@@ -173,6 +183,8 @@ Kubernetes deployment guidance:
 - Surface disabled reasons in capability reports, for example `missing_bpffs`, `missing_btf`, `kernel_unsupported`, `permission_denied`, or `self_test_failed`.
 
 The default demo Helm values currently set `agent.hostNetwork: false` and `agent.allowNetRaw: false`; that profile should continue to omit `remote_access.bpf`. Demo or lab BPF validation should use an explicit override rather than changing the baseline demo security posture.
+
+This completes the pre-implementation review for `github.com/cilium/ebpf` as the leading shared runtime candidate. The implementation still needs the actual `go.mod`/Bazel changes, generated-probe target, Helm profile, and Linux runtime smoke tests before any release can enable BPF.
 
 ### Licensing
 Any source copied from Teleport v14 must have a provenance note in the introducing commit or design comment that records tag, commit, file path, header, and dependency scan. Current Teleport v15+ and `HEAD` `lib/bpf` implementation paths are AGPL and are clean-room reference only.
