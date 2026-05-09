@@ -9,8 +9,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   use GenServer
 
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.RemoteAccessPubSub
+  alias ServiceRadar.Events.AuditWriter
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
@@ -56,6 +58,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       owner: owner,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus),
       required_gateway_node: Keyword.get(opts, :required_gateway_node),
+      audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
+      audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
       pubsub: pubsub(opts),
       closed?: false
     }
@@ -63,26 +67,50 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     cols = Keyword.get(opts, :cols)
     rows = Keyword.get(opts, :rows)
 
-    with {:ok, data} <- open_frame_data(session, opts),
-         :ok <- send_frame(state, "open", data, cols, rows, nil) do
-      {:ok, state}
-    else
-      {:error, reason} -> {:stop, reason}
+    case open_frame_data(session, opts) do
+      {:ok, data} ->
+        case send_frame(state, "open", data, cols, rows, nil) do
+          :ok ->
+            write_audit(
+              state,
+              :remote_access_session_opened,
+              open_audit_details(data, cols, rows)
+            )
+
+            {:ok, state}
+
+          {:error, reason} ->
+            write_audit(state, :remote_access_session_failed, failure_details(reason))
+            {:stop, reason}
+        end
+
+      {:error, reason} ->
+        write_audit(state, :remote_access_session_failed, failure_details(reason))
+        {:stop, reason}
     end
   end
 
   @impl true
   def handle_call({:send_input, data}, _from, state) do
-    {:reply, send_frame(state, "data", data, nil, nil, nil), state}
+    result = send_frame(state, "data", data, nil, nil, nil)
+    write_audit(state, :remote_access_session_input, %{input_bytes: byte_size(data)})
+    {:reply, result, state}
   end
 
   def handle_call({:resize, cols, rows}, _from, state) do
-    {:reply, send_frame(state, "resize", "", cols, rows, nil), state}
+    result = send_frame(state, "resize", "", cols, rows, nil)
+    write_audit(state, :remote_access_session_resized, %{cols: uint32(cols), rows: uint32(rows)})
+    {:reply, result, state}
   end
 
   @impl true
   def handle_cast({:close, reason}, state) do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
+
+    write_audit(state, :remote_access_session_close_requested, %{
+      close_reason: format_reason(reason)
+    })
+
     {:stop, :normal, %{state | closed?: true}}
   end
 
@@ -107,6 +135,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
        when frame_type in ["close", "error"] do
     send(state.owner, {:remote_access_closed, reason || frame_type})
+    write_audit(state, close_action(frame_type), %{close_reason: reason || frame_type})
     {:stop, :normal, %{state | closed?: true}}
   end
 
@@ -119,6 +148,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @impl true
   def terminate(reason, %{closed?: false} = state) do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
+
+    if reason not in [:normal, :shutdown],
+      do: write_audit(state, :remote_access_session_failed, failure_details(reason))
+
     :ok
   end
 
@@ -138,6 +171,115 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     state.command_bus.send_console_frame(agent_id(state.session), frame,
       required_gateway_node: state.required_gateway_node
     )
+  end
+
+  defp write_audit(state, action, extra_details) do
+    details =
+      state.session
+      |> base_audit_details()
+      |> Map.merge(extra_details)
+      |> sanitize_audit_details()
+
+    state.audit_writer.write_async(
+      action: action,
+      resource_type: "remote_access_session",
+      resource_id: session_id(state.session),
+      resource_name: target_ref(Map.get(details, :target)),
+      actor: state.audit_actor,
+      details: details,
+      severity: audit_severity(action),
+      message: "Remote access session #{audit_suffix(action)}"
+    )
+  end
+
+  defp base_audit_details(session) do
+    %{
+      session_id: session_id(session),
+      agent_id: agent_id(session),
+      gateway_id: value(session, "gateway_id"),
+      protocol:
+        string_value(metadata(session), "protocol") || string_value(session, "protocol") ||
+          @default_protocol,
+      credential_mode:
+        string_value(metadata(session), "credential_mode") ||
+          string_value(session, "credential_mode") ||
+          @default_credential_mode,
+      target: target(session, %{}, metadata(session))
+    }
+  end
+
+  defp open_audit_details(data, cols, rows) do
+    data
+    |> Jason.decode()
+    |> case do
+      {:ok, decoded} when is_map(decoded) ->
+        %{
+          protocol: Map.get(decoded, "protocol"),
+          credential_mode: Map.get(decoded, "credential_mode"),
+          agent_id: Map.get(decoded, "agent_id"),
+          gateway_id: Map.get(decoded, "gateway_id"),
+          target: Map.get(decoded, "target"),
+          terminal_type: Map.get(decoded, "terminal_type"),
+          ssh_host_key_policy: Map.get(decoded, "ssh_host_key_policy"),
+          cols: uint32(cols),
+          rows: uint32(rows)
+        }
+
+      _error ->
+        %{cols: uint32(cols), rows: uint32(rows)}
+    end
+  end
+
+  defp failure_details(reason), do: %{failure_reason: format_reason(reason)}
+
+  defp sanitize_audit_details(details) do
+    details
+    |> stringify_nested()
+    |> Map.delete("ssh")
+    |> Map.delete(:ssh)
+    |> CredentialRedactor.redact()
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new(fn {key, value} -> {normalize_audit_key(key), value} end)
+  end
+
+  defp normalize_audit_key(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
+  end
+
+  defp normalize_audit_key(key), do: key
+
+  defp target_ref(target) when is_map(target) do
+    string_value(target, "id") ||
+      string_value(target, "device_uid") ||
+      string_value(target, "uid") ||
+      string_value(target, "host")
+  end
+
+  defp target_ref(_target), do: nil
+
+  defp close_action("error"), do: :remote_access_session_failed
+  defp close_action(_frame_type), do: :remote_access_session_closed
+
+  defp audit_severity(:remote_access_session_failed), do: :high
+  defp audit_severity(_action), do: :medium
+
+  defp audit_suffix(:remote_access_session_opened), do: "opened"
+  defp audit_suffix(:remote_access_session_input), do: "input"
+  defp audit_suffix(:remote_access_session_resized), do: "resized"
+  defp audit_suffix(:remote_access_session_close_requested), do: "close requested"
+  defp audit_suffix(:remote_access_session_closed), do: "closed"
+  defp audit_suffix(:remote_access_session_failed), do: "failed"
+  defp audit_suffix(action), do: Atom.to_string(action)
+
+  defp format_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 500)
+  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp format_reason(reason) do
+    reason
+    |> inspect()
+    |> String.slice(0, 500)
   end
 
   defp open_frame_data(session, opts) do

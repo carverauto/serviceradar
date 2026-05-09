@@ -27,6 +27,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     def subscribe(_session_id), do: :ok
   end
 
+  defmodule AuditWriterStub do
+    @moduledoc false
+
+    def write_async(opts) do
+      send(opts[:actor].test_pid, {:audit, opts})
+      :ok
+    end
+  end
+
   defmodule CertificateSignerStub do
     @moduledoc false
     @behaviour RemoteAccessSSHCertificates
@@ -55,6 +64,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
          {session, self(),
           command_bus: CommandBusStub,
           pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
           required_gateway_node: self(),
           cols: 132,
           rows: 43}}
@@ -80,20 +91,42 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
              }
            } = Jason.decode!(frame.data)
 
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+    assert open_audit[:resource_id] == "session-1"
+    assert open_audit[:details].credential_mode == "user_present"
+    assert open_audit[:details].target == %{"host" => "10.0.0.10", "port" => 22}
+    refute inspect(open_audit) =~ "session-key"
+    refute inspect(open_audit) =~ "session-cert"
+
     assert :ok = RemoteAccessBroker.send_input(pid, "whoami\r")
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "data", data: "whoami\r"},
                     _opts}
+
+    assert_receive {:audit, input_audit}
+    assert input_audit[:action] == :remote_access_session_input
+    assert input_audit[:details].input_bytes == 7
+    refute inspect(input_audit) =~ "whoami"
 
     assert :ok = RemoteAccessBroker.resize(pid, 120, 34)
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "resize", cols: 120, rows: 34},
                     _opts}
 
+    assert_receive {:audit, resize_audit}
+    assert resize_audit[:action] == :remote_access_session_resized
+    assert resize_audit[:details].cols == 120
+    assert resize_audit[:details].rows == 34
+
     RemoteAccessBroker.close(pid, :operator_closed)
 
     assert_receive {:send_console_frame, "agent-1",
                     %{frame_type: "close", reason: ":operator_closed"}, _opts}
+
+    assert_receive {:audit, close_audit}
+    assert close_audit[:action] == :remote_access_session_close_requested
+    assert close_audit[:details].close_reason == "operator_closed"
   end
 
   test "forwards remote-access data and close frames to the owner" do
@@ -103,16 +136,25 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       start_supervised!(
         {RemoteAccessBroker,
          {session, self(),
-          command_bus: CommandBusStub, pubsub: PubSubStub, required_gateway_node: self()}}
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
       )
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
 
     send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "hello"}})
     assert_receive {:remote_access_data, "hello"}
 
     send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
     assert_receive {:remote_access_closed, "done"}
+    assert_receive {:audit, closed_audit}
+    assert closed_audit[:action] == :remote_access_session_closed
+    assert closed_audit[:details].close_reason == "done"
   end
 
   test "ignores remote-access frames from agents that do not own the session" do
@@ -122,10 +164,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       start_supervised!(
         {RemoteAccessBroker,
          {session, self(),
-          command_bus: CommandBusStub, pubsub: PubSubStub, required_gateway_node: self()}}
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
       )
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
 
     send(
       pid,
@@ -173,11 +221,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           [
             command_bus: CommandBusStub,
             pubsub: PubSubStub,
+            audit_writer: AuditWriterStub,
+            audit_actor: audit_actor(),
             required_gateway_node: self()
           ]}}
     )
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
 
     assert %{
              "credential_mode" => "user_present",
@@ -227,11 +279,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           [
             command_bus: CommandBusStub,
             pubsub: PubSubStub,
+            audit_writer: AuditWriterStub,
+            audit_actor: audit_actor(),
             required_gateway_node: self()
           ]}}
     )
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
 
     assert %{
              "credential_mode" => "ssh_certificate",
@@ -272,11 +328,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
        {session, self(),
         command_bus: CommandBusStub,
         pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
         required_gateway_node: self(),
         ssh_certificate: issued_certificate}}
     )
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
 
     assert %{
              "credential_mode" => "ssh_certificate",
@@ -309,12 +369,19 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
              RemoteAccessBroker.start_link(session, self(),
                command_bus: CommandBusStub,
                pubsub: PubSubStub,
+               audit_writer: AuditWriterStub,
+               audit_actor: audit_actor(),
                required_gateway_node: self(),
                ssh_certificate: issued_certificate
              )
 
     refute_receive {:send_console_frame, _agent_id, _frame, _opts}
+    assert_receive {:audit, failed_audit}
+    assert failed_audit[:action] == :remote_access_session_failed
+    assert failed_audit[:details].failure_reason == "ssh_certificate_agent_mismatch"
   end
+
+  defp audit_actor, do: %{id: "user-1", test_pid: self()}
 
   defp session_fixture do
     %{

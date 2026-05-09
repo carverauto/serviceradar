@@ -159,11 +159,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                  ]
                },
                signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
                idp_claims: %{}
              )
 
     assert_receive {:sign_user_certificate, sign_request}
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_ssh_certificate_issue
     assert sign_request.principals == ["alice"]
     assert envelope.principals == ["alice"]
   end
@@ -182,11 +185,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                  allowed_principals: ["ubuntu"]
                },
                signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
                idp_claims: %{}
              )
 
     refute_received {:sign_user_certificate, _request}
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_ssh_certificate_issue
   end
 
   test "rejects malformed authoritative claims" do
@@ -201,9 +207,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                  allowed_principals: ["ubuntu"]
                },
                signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
                idp_claims: ["linux-admins"]
              )
+
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_ssh_certificate_issue
   end
 
   defp oidc_actor do
