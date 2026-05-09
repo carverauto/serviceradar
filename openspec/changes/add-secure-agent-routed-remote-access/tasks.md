@@ -12,7 +12,7 @@
 - [ ] 2.1 Add generic remote-access session resources and APIs with compatibility for current Proxmox console routes.
 - [ ] 2.2 Refactor xterm/webpty UI into a protocol-neutral remote-console component.
 - [ ] 2.3 Add gateway-to-agent session routing over the existing agent-initiated control stream.
-- [ ] 2.4 Add an agent-side SSH protocol adapter with agent-local credential support.
+- [x] 2.4 Add an agent-side SSH protocol adapter with agent-local credential support.
 - [ ] 2.5 Add user-present session credential support without persisting credentials.
 - [x] 2.6 Convert Proxmox console handling into a provider adapter that uses the generic remote-access path.
 - [ ] 2.7 Add audit events and RBAC/approval checks for create, attach, input, resize, close, and failure transitions.

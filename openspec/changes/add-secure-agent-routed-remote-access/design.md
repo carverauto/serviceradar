@@ -160,6 +160,20 @@ Initial import classification:
 
 Use `scripts/check-teleport-license-paths.sh` with `TELEPORT_SRC` pointing at a Teleport checkout before adding any Teleport Go import. A candidate import is not considered clean just because the directly imported files have Apache-2.0 headers; its transitive package directories must pass the scan or receive explicit legal approval.
 
+## Teleport Reuse Strategy
+ServiceRadar should use a three-lane strategy for Teleport functionality:
+
+1. Import current Teleport packages only when the specific package and its full transitive dependency path pass the Apache-2.0 scan. This is the preferred path for small client/API utilities because it preserves upstream fixes.
+2. Vendor or adapt code from a verified Apache-2.0 Teleport tag only when importing current packages is blocked and the old implementation is small enough to maintain. The exact git tag, commit, file paths, headers, and dependency license scan must be recorded in the ServiceRadar commit or design note that introduces the code. Do not mix copied Apache-era source with later AGPL modifications.
+3. Write a ServiceRadar clean-room implementation when the current code is AGPL and the old Apache-era implementation is too stale, too large, or too tightly coupled to Teleport internals.
+
+Local checkout findings:
+- `v14.4.0` is dated May 20, 2025 and still has an Apache-2.0 repository `LICENSE` in this checkout.
+- `v14.4.0:lib/bpf/bpf.go` has an Apache-2.0 file header, while `v15.0.0:lib/bpf/bpf.go` and current `HEAD:lib/bpf/bpf.go` have AGPL headers.
+- `v14.4.0` `lib/srv/...` files sampled locally, including app and database server paths, have Apache-2.0 headers.
+
+Practical rule: treat Teleport v14.x as the likely Apache-2.0 source baseline, but verify each file and dependency path before copying or vendoring. Treat Teleport v15+ and current `master` server/BPF implementation paths as AGPL unless a specific file/package scan proves otherwise.
+
 ## Credential Custody Modes
 ### Centrally Brokered Secret
 The control plane stores an encrypted credential and grants a short-lived, scoped broker reference to the selected agent. This is acceptable for low-scope API tokens, break-glass credentials with strict approval, or customers that explicitly choose central storage.
