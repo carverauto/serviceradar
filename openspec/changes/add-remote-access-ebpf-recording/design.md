@@ -7,6 +7,16 @@ Teleport is a useful architecture reference, but not a safe current import targe
 - `v15.0.0` commit `e126e8cd7165f26ab724aaa58f285120db8e38e5` and current `HEAD` use AGPL headers on sampled `lib/bpf/*.go` files.
 - `bpf/enhancedrecording/*.bpf.c` uses kernel BPF probe code and should still be treated carefully; ServiceRadar should prefer its own probe source unless legal and dependency review explicitly approve a copied Apache-era file.
 
+Teleport v14 provenance recorded for this proposal:
+
+| Teleport ref | Paths inspected | Header/license finding | ServiceRadar use |
+| --- | --- | --- | --- |
+| `v14.4.0` / `8113e07dc94cf2977247346d5ec28ca0d5753c54` | `lib/bpf/bpf.go`, `common.go`, `common_linux.go`, `command.go`, `disk.go`, `network.go`, `helper.go` | Apache-2.0 headers in sampled files | Architecture reference; copying requires a dedicated provenance note and dependency scan in the implementation commit. |
+| `v14.4.0` / `8113e07dc94cf2977247346d5ec28ca0d5753c54` | `bpf/enhancedrecording/command.bpf.c`, `disk.bpf.c`, `network.bpf.c`, `common.h` | Probe files use kernel BPF licensing conventions; sampled probes include dual BSD/GPL license strings where helpers require it | Behavior reference only by default; prefer ServiceRadar-authored probes with explicit SPDX headers. |
+| `v15.0.0` / `e126e8cd7165f26ab724aaa58f285120db8e38e5` and current `HEAD` | `lib/bpf/bpf.go`, `common.go`, `command.go`, `disk.go`, `network.go` | AGPL headers in sampled files | Clean-room reference only. Do not copy, translate, or mechanically port. |
+
+The inspected Teleport v14 behavior patterns are cgroup-scoped monitoring, separate command/disk/network probe families, ring-buffer event delivery, and loss counters. These are requirements-level references only; ServiceRadar implementation should be written from public Linux eBPF interfaces, this OpenSpec, and ServiceRadar tests unless an Apache-era file is explicitly imported with provenance.
+
 Current ServiceRadar findings:
 
 - The Go agent has no existing eBPF runtime package. `go/pkg/scan` uses classic socket BPF directly through `golang.org/x/sys/unix`; that should stay separate from the eBPF runtime unless later work deliberately unifies shared packet-filter helpers.
@@ -144,6 +154,14 @@ The procfs fallback must not cause `remote_access.bpf` to be advertised.
 Any source copied from Teleport v14 must have a provenance note in the introducing commit or design comment that records tag, commit, file path, header, and dependency scan. Current Teleport v15+ and `HEAD` `lib/bpf` implementation paths are AGPL and are clean-room reference only.
 
 The preferred implementation path is ServiceRadar-authored code using public Linux eBPF APIs and a single Apache-2.0/MIT-compatible agent eBPF library after Bazel and Go module review. Avoid introducing a second eBPF runtime later for network, flow, security, or host-observability work unless the existing runtime has a documented technical blocker.
+
+If an implementation later imports Apache-era Teleport v14 code, it must:
+
+1. Copy only from the recorded Apache-era ref, not from v15+ or current Teleport.
+2. Preserve required notices and headers.
+3. Document the exact file list and any modifications.
+4. Re-run a dependency/license scan for the copied path.
+5. Keep the copied code isolated from any AGPL-derived changes.
 
 ## Test Strategy
 - Unit tests for policy fail-closed behavior, capability checks, event normalization, redaction, and dropped-event accounting.

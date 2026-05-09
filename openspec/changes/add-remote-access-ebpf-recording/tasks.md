@@ -1,7 +1,7 @@
 ## 1. Design and Licensing
 - [x] 1.1 Perform initial candidate review for `github.com/cilium/ebpf` license, runtime dependencies, and fit as the shared agent eBPF library.
 - [ ] 1.2 Complete Bazel, cross-compile, kernel compatibility, and operational review for `github.com/cilium/ebpf` before adding it to `go.mod`.
-- [ ] 1.3 Record exact Teleport v14 files consulted, if any, with tag, commit, headers, and dependency scan results.
+- [x] 1.3 Record exact Teleport v14 files consulted, if any, with tag, commit, headers, and dependency scan results.
 - [x] 1.4 Define the session scoping mechanism for SSH and provider-console adapters, preferring cgroup-scoped monitoring.
 - [x] 1.5 Define the checked-in generated artifact strategy for BPF probes so normal agent builds do not require local clang.
 - [x] 1.6 Define package ownership for the shared agent eBPF runtime, with remote access consuming it rather than owning it.
