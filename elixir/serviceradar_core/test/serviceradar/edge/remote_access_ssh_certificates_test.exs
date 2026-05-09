@@ -38,6 +38,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
 
     attrs = %{
       session_id: "session-1",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
       public_key: "ssh-ed25519 AAAATEST user@workstation",
       target: %{device_uid: "device-1", host: "10.0.0.10"},
       allowed_principals: ["root", "ubuntu"],
@@ -54,13 +56,22 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
     assert_receive {:sign_user_certificate,
                     %{
                       public_key: "ssh-ed25519 AAAATEST user@workstation",
-                      key_id: "sr:remote-access:session-1:user-1:device-1",
+                      key_id: "sr:remote-access:session-1:user-1:agent-1:ssh:device-1",
                       principals: ["ubuntu"],
                       ttl_seconds: 900,
-                      audit: %{actor_id: "user-1", target_ref: "device-1", ssh_username: "ubuntu"}
+                      audit: %{
+                        actor_id: "user-1",
+                        agent_id: "agent-1",
+                        protocol: "ssh",
+                        target_ref: "device-1",
+                        ssh_username: "ubuntu"
+                      }
                     }}
 
     assert issued.session_id == "session-1"
+    assert issued.agent_id == "agent-1"
+    assert issued.gateway_id == "gateway-1"
+    assert issued.protocol == "ssh"
     assert issued.credential_mode == "ssh_certificate"
 
     assert issued.ssh == %{
@@ -68,7 +79,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
              "certificate" => "ssh-ed25519-cert-v01@openssh.com AAAATEST"
            }
 
-    assert issued.key_id == "sr:remote-access:session-1:user-1:device-1"
+    assert issued.key_id == "sr:remote-access:session-1:user-1:agent-1:ssh:device-1"
     assert issued.principals == ["ubuntu"]
     assert issued.fingerprint == "SHA256:fingerprint"
     assert issued.serial == 42
@@ -76,6 +87,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
 
     assert issued.audit == %{
              actor_id: "user-1",
+             agent_id: "agent-1",
+             gateway_id: "gateway-1",
+             protocol: "ssh",
              target_ref: "device-1",
              principals: ["ubuntu"],
              ssh_username: "ubuntu",
@@ -110,6 +124,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                actor,
                %{
                  session_id: "session-1",
+                 agent_id: "agent-1",
                  public_key: "ssh-ed25519 AAAATEST",
                  target: %{device_uid: "device-1"},
                  allowed_principals: ["root"]

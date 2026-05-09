@@ -64,6 +64,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
   defp issue_result(request, signed) do
     %{
       session_id: request.session_id,
+      agent_id: request.agent_id,
+      gateway_id: request.gateway_id,
+      protocol: request.protocol,
       credential_mode: request.credential_mode,
       ssh: %{
         "username" => request.ssh_username,

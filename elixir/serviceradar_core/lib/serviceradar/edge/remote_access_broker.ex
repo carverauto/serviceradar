@@ -63,8 +63,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     cols = Keyword.get(opts, :cols)
     rows = Keyword.get(opts, :rows)
 
-    case send_frame(state, "open", open_frame_data(session, opts), cols, rows, nil) do
-      :ok -> {:ok, state}
+    with {:ok, data} <- open_frame_data(session, opts),
+         :ok <- send_frame(state, "open", data, cols, rows, nil) do
+      {:ok, state}
+    else
       {:error, reason} -> {:stop, reason}
     end
   end
@@ -130,30 +132,35 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
 
-    target =
-      ssh_certificate
-      |> certificate_target()
-      |> fallback(target(session, opts_metadata, session_metadata))
+    with :ok <- validate_ssh_certificate_envelope(session, ssh_certificate) do
+      target =
+        ssh_certificate
+        |> certificate_target()
+        |> fallback(target(session, opts_metadata, session_metadata))
 
-    ssh = ssh_auth(session, opts_metadata, session_metadata, ssh_certificate)
+      ssh = ssh_auth(session, opts_metadata, session_metadata, ssh_certificate)
 
-    %{
-      protocol: string_option(session, opts, "protocol", @default_protocol),
-      session_id: session_id(session),
-      agent_id: agent_id(session),
-      gateway_id: value(session, "gateway_id"),
-      target: target,
-      ssh: ssh,
-      credential_mode:
-        credential_mode(session, opts, opts_metadata, session_metadata, ssh_certificate),
-      terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
-      timeout_ms: int_option(session, opts, "timeout_ms"),
-      ssh_host_key_policy:
-        string_option(session, opts, "ssh_host_key_policy", @default_ssh_host_key_policy)
-    }
-    |> Enum.reject(fn {_key, value} -> blank?(value) end)
-    |> Map.new()
-    |> Jason.encode!()
+      data =
+        %{
+          protocol: string_option(session, opts, "protocol", @default_protocol),
+          session_id: session_id(session),
+          agent_id: agent_id(session),
+          gateway_id: value(session, "gateway_id"),
+          target: target,
+          ssh: ssh,
+          credential_mode:
+            credential_mode(session, opts, opts_metadata, session_metadata, ssh_certificate),
+          terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
+          timeout_ms: int_option(session, opts, "timeout_ms"),
+          ssh_host_key_policy:
+            string_option(session, opts, "ssh_host_key_policy", @default_ssh_host_key_policy)
+        }
+        |> Enum.reject(fn {_key, value} -> blank?(value) end)
+        |> Map.new()
+        |> Jason.encode!()
+
+      {:ok, data}
+    end
   end
 
   defp ssh_certificate_envelope(session, opts, opts_metadata, session_metadata) do
@@ -172,6 +179,56 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> map_value("target")
     |> normalize_target()
     |> non_empty_map()
+  end
+
+  defp validate_ssh_certificate_envelope(_session, certificate) when certificate == %{}, do: :ok
+
+  defp validate_ssh_certificate_envelope(session, certificate) do
+    with :ok <-
+           optional_match(
+             certificate,
+             "session_id",
+             session_id(session),
+             :ssh_certificate_session_mismatch
+           ),
+         :ok <-
+           optional_match(
+             certificate,
+             "agent_id",
+             agent_id(session),
+             :ssh_certificate_agent_mismatch
+           ),
+         :ok <- optional_match(certificate, "protocol", "ssh", :ssh_certificate_protocol_mismatch),
+         :ok <-
+           optional_match(
+             certificate,
+             "credential_mode",
+             "ssh_certificate",
+             :ssh_certificate_mode_invalid
+           ) do
+      validate_ssh_certificate_auth(certificate)
+    end
+  end
+
+  defp validate_ssh_certificate_auth(certificate) do
+    auth =
+      certificate
+      |> map_value("ssh")
+      |> normalize_ssh_auth()
+
+    cond do
+      blank?(Map.get(auth, "username")) -> {:error, :ssh_certificate_username_required}
+      blank?(Map.get(auth, "certificate")) -> {:error, :ssh_certificate_required}
+      true -> :ok
+    end
+  end
+
+  defp optional_match(container, key, expected, error) do
+    case string_value(container, key) do
+      nil -> :ok
+      ^expected -> :ok
+      _other -> {:error, error}
+    end
   end
 
   defp target(session, opts_metadata, session_metadata) do

@@ -101,6 +101,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       })
 
     issued_certificate = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      protocol: "ssh",
       credential_mode: "ssh_certificate",
       target: %{"host" => "10.0.0.11", "port" => 2222},
       ssh: %{"username" => "ubuntu", "certificate" => "issued-certificate"}
@@ -127,6 +130,32 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
                "certificate" => "issued-certificate"
              }
            } = Jason.decode!(frame.data)
+  end
+
+  test "rejects SSH certificate envelopes scoped to another agent" do
+    previous_trap_exit = Process.flag(:trap_exit, true)
+    on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)
+
+    session = session_fixture()
+
+    issued_certificate = %{
+      session_id: "session-1",
+      agent_id: "other-agent",
+      protocol: "ssh",
+      credential_mode: "ssh_certificate",
+      target: %{"host" => "10.0.0.11", "port" => 2222},
+      ssh: %{"username" => "ubuntu", "certificate" => "issued-certificate"}
+    }
+
+    assert {:error, :ssh_certificate_agent_mismatch} =
+             RemoteAccessBroker.start_link(session, self(),
+               command_bus: CommandBusStub,
+               pubsub: PubSubStub,
+               required_gateway_node: self(),
+               ssh_certificate: issued_certificate
+             )
+
+    refute_receive {:send_console_frame, _agent_id, _frame, _opts}
   end
 
   defp session_fixture do

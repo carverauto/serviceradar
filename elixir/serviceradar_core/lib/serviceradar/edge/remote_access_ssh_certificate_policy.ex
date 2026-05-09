@@ -16,6 +16,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
 
   @type request :: %{
           session_id: String.t(),
+          agent_id: String.t(),
+          gateway_id: String.t() | nil,
+          protocol: String.t(),
           public_key: String.t(),
           key_id: String.t(),
           principals: [String.t()],
@@ -35,18 +38,24 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   def authorize(actor, attrs, opts) when is_map(attrs) do
     with :ok <- authorize_actor(actor),
          {:ok, session_id} <- required_string(attrs, "session_id"),
+         {:ok, agent_id} <- required_string(attrs, "agent_id"),
+         {:ok, protocol} <- resolve_protocol(attrs),
          {:ok, public_key} <- required_string(attrs, "public_key"),
          {:ok, target} <- normalize_target(value(attrs, "target")),
          {:ok, principals} <- resolve_principals(attrs),
          {:ok, ttl_seconds} <- resolve_ttl(attrs, opts) do
       actor_id = actor_ref(actor)
       target_ref = target_ref(target)
+      gateway_id = string_value(value(attrs, "gateway_id"))
 
       {:ok,
        %{
          session_id: session_id,
+         agent_id: agent_id,
+         gateway_id: gateway_id,
+         protocol: protocol,
          public_key: public_key,
-         key_id: key_id(session_id, actor_id, target_ref),
+         key_id: key_id(session_id, actor_id, agent_id, protocol, target_ref),
          principals: principals,
          ssh_username: List.first(principals),
          ttl_seconds: ttl_seconds,
@@ -54,6 +63,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
          credential_mode: "ssh_certificate",
          audit: %{
            actor_id: actor_id,
+           agent_id: agent_id,
+           gateway_id: gateway_id,
+           protocol: protocol,
            target_ref: target_ref,
            principals: principals,
            ssh_username: List.first(principals),
@@ -86,8 +98,16 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   end
 
   defp required_error("session_id"), do: :session_id_required
+  defp required_error("agent_id"), do: :agent_id_required
   defp required_error("public_key"), do: :public_key_required
   defp required_error(_key), do: :invalid_request
+
+  defp resolve_protocol(attrs) do
+    case string_value(value(attrs, "protocol")) || "ssh" do
+      "ssh" -> {:ok, "ssh"}
+      _protocol -> {:error, :unsupported_protocol}
+    end
+  end
 
   defp normalize_target(target) when is_map(target) do
     target =
@@ -158,8 +178,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
       not String.contains?(value, [",", ":", "\n", "\r", "\t", " "])
   end
 
-  defp key_id(session_id, actor_id, target_ref) do
-    "sr:remote-access:#{session_id}:#{actor_id || "unknown-actor"}:#{target_ref}"
+  defp key_id(session_id, actor_id, agent_id, protocol, target_ref) do
+    "sr:remote-access:#{session_id}:#{actor_id || "unknown-actor"}:#{agent_id}:#{protocol}:#{target_ref}"
   end
 
   defp actor_ref(actor),
