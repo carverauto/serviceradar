@@ -3,6 +3,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   Ingests Proxmox plugin enrichment into provider-neutral virtualization inventory.
   """
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.VirtualizationCluster
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
@@ -11,6 +12,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
 
+  require Ash.Query
   require Logger
 
   @provider "proxmox"
@@ -397,6 +399,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   defp persist_records(records, opts) do
     actor = Keyword.fetch!(opts, :actor)
+    records = resolve_existing_device_uids(records, actor)
 
     with {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
          host_rows = link_refs(records.hosts, cluster_ids, %{}),
@@ -414,6 +417,126 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       :ok
     end
   end
+
+  defp resolve_existing_device_uids(records, actor) do
+    candidates =
+      records.hosts ++ records.guests ++ records.host_disks ++ records.network_interfaces
+
+    current_uids =
+      candidates
+      |> Enum.map(&Map.get(&1, :device_uid))
+      |> Enum.filter(&present?/1)
+
+    names =
+      candidates
+      |> Enum.flat_map(fn record ->
+        [Map.get(record, :name), node_name_from_provider_ref(Map.get(record, :provider_ref))]
+      end)
+      |> Enum.filter(&present?/1)
+
+    devices = lookup_devices(current_uids, names, actor)
+
+    Map.merge(records, %{
+      hosts: Enum.map(records.hosts, &resolve_record_device_uid(&1, devices)),
+      guests: Enum.map(records.guests, &resolve_record_device_uid(&1, devices)),
+      host_disks: Enum.map(records.host_disks, &resolve_record_device_uid(&1, devices)),
+      network_interfaces:
+        Enum.map(records.network_interfaces, &resolve_record_device_uid(&1, devices))
+    })
+  end
+
+  defp lookup_devices([], [], _actor), do: %{by_uid: %{}, by_name: %{}}
+
+  defp lookup_devices(uids, names, actor) do
+    uids = Enum.uniq(uids)
+    names = Enum.uniq(names)
+    names_downcase = Enum.map(names, &String.downcase/1)
+
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: false})
+    |> Ash.Query.filter(
+      uid in ^uids or fragment("lower(?)", name) in ^names_downcase or
+        fragment("lower(?)", hostname) in ^names_downcase
+    )
+    |> Ash.read(actor: actor)
+    |> unwrap_page()
+    |> case do
+      {:ok, devices} ->
+        %{
+          by_uid: Map.new(devices, &{&1.uid, &1.uid}),
+          by_name:
+            devices
+            |> Enum.flat_map(fn device ->
+              [
+                {normalize_lookup_key(device.name), device.uid},
+                {normalize_lookup_key(device.hostname), device.uid}
+              ]
+            end)
+            |> Enum.reject(fn {key, _uid} -> is_nil(key) end)
+            |> Map.new()
+        }
+
+      {:error, reason} ->
+        Logger.warning("Proxmox enrichment device lookup failed: #{inspect(reason)}")
+        %{by_uid: %{}, by_name: %{}}
+    end
+  end
+
+  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: {:ok, results}
+  defp unwrap_page({:ok, %Ash.Page.Offset{results: results}}), do: {:ok, results}
+  defp unwrap_page({:ok, results}) when is_list(results), do: {:ok, results}
+  defp unwrap_page(other), do: other
+
+  defp resolve_record_device_uid(record, devices) do
+    current_uid = Map.get(record, :device_uid)
+
+    resolved =
+      Map.get(devices.by_uid, current_uid) ||
+        lookup_device_by_record_name(record, devices) ||
+        existing_sr_uid(current_uid)
+
+    Map.put(record, :device_uid, resolved)
+  end
+
+  defp lookup_device_by_record_name(record, devices) do
+    Enum.find_value(
+      [
+        Map.get(record, :name),
+        node_name_from_provider_ref(Map.get(record, :provider_ref))
+      ],
+      fn value ->
+        Map.get(devices.by_name, normalize_lookup_key(value))
+      end
+    )
+  end
+
+  defp existing_sr_uid(value) when is_binary(value) do
+    if String.starts_with?(value, "sr:"), do: value
+  end
+
+  defp existing_sr_uid(_value), do: nil
+
+  defp node_name_from_provider_ref("proxmox:node:" <> node), do: node
+
+  defp node_name_from_provider_ref("proxmox:disk:" <> rest),
+    do: rest |> String.split(":") |> List.first()
+
+  defp node_name_from_provider_ref("proxmox:nic:" <> rest),
+    do: rest |> String.split(":") |> List.first()
+
+  defp node_name_from_provider_ref("proxmox:guest:" <> rest),
+    do: rest |> String.split(":") |> List.first()
+
+  defp node_name_from_provider_ref(_value), do: nil
+
+  defp normalize_lookup_key(value) when is_binary(value) do
+    value
+    |> String.downcase()
+    |> String.trim()
+    |> blank_to_nil()
+  end
+
+  defp normalize_lookup_key(_value), do: nil
 
   defp upsert_group(_resource, [], _actor), do: {:ok, %{}}
 
@@ -749,4 +872,5 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
   defp blank?(value), do: value in [nil, ""]
+  defp present?(value), do: not blank?(value)
 end
