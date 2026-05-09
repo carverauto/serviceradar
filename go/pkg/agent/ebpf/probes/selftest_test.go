@@ -44,3 +44,20 @@ func TestLoadCommandSpec(t *testing.T) {
 		t.Fatalf("command events map %q missing from spec", CommandEventsMap)
 	}
 }
+
+func TestLoadFileSpec(t *testing.T) {
+	t.Parallel()
+
+	spec, err := LoadFileSpec()
+	if err != nil {
+		t.Fatalf("LoadFileSpec() error = %v", err)
+	}
+	for _, programName := range []string{FileOpenatProgramName, FileAccessProgramName, FileFAccessatProgramName} {
+		if spec.Programs[programName] == nil {
+			t.Fatalf("file program %q missing from spec", programName)
+		}
+	}
+	if spec.Maps[FileEventsMap] == nil {
+		t.Fatalf("file events map %q missing from spec", FileEventsMap)
+	}
+}

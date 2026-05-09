@@ -174,3 +174,51 @@ func TestNormalizeBPFCommandEvent(t *testing.T) {
 		t.Fatalf("redacted argv = %#v", redacted.Argv)
 	}
 }
+
+func TestNormalizeBPFFileEvent(t *testing.T) {
+	t.Parallel()
+
+	raw := probes.FileEvent{
+		TimestampNS: 67890,
+		PID:         5252,
+		TID:         5253,
+		UID:         2000,
+		GID:         2001,
+		Operation:   probes.FileOperationOpen,
+		Flags:       64,
+	}
+	copy(raw.Path[:], "/home/alice/.ssh/config")
+
+	observedAt := time.Unix(1700000001, 42)
+	event := normalizeBPFFileEvent(raw, observedAt)
+
+	if event.EventType != EnhancedEventFile {
+		t.Fatalf("event type = %q", event.EventType)
+	}
+	if event.TimestampUnixNano != observedAt.UnixNano() {
+		t.Fatalf("timestamp = %d, want %d", event.TimestampUnixNano, observedAt.UnixNano())
+	}
+	if event.PID != 5252 || event.UID != 2000 || event.GID != 2001 {
+		t.Fatalf("identity = %#v", event)
+	}
+	if event.FilePath != "/home/alice/.ssh/config" || event.FileOperation != "open" {
+		t.Fatalf("file event = %#v", event)
+	}
+	if event.Metadata["source"] != "linux_ebpf" || event.Metadata["probe"] != "file_open_access" ||
+		event.Metadata["kernel_timestamp_ns"] != "67890" || event.Metadata["tid"] != "5253" ||
+		event.Metadata["flags"] != "64" {
+		t.Fatalf("metadata = %#v", event.Metadata)
+	}
+
+	session := EnhancedRecordingSession{
+		SessionID: "session-1",
+		Protocol:  ProtocolSSH,
+		Policy: EnhancedRecordingPolicy{
+			IncludeFilePaths: false,
+		},
+	}
+	redacted := normalizeEnhancedEvent(session, event)
+	if redacted.FilePath != "" {
+		t.Fatalf("file path should be redacted, got %q", redacted.FilePath)
+	}
+}

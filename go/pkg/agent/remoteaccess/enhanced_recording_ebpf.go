@@ -27,6 +27,7 @@ import (
 const (
 	enhancedSourceLinuxEBPF  = "linux_ebpf"
 	enhancedBPFProbeCommand  = "command_execve"
+	enhancedBPFProbeFile     = "file_open_access"
 	enhancedBPFCollectorName = "serviceradar_agent_ebpf"
 )
 
@@ -70,6 +71,44 @@ func normalizeBPFCommandEvent(raw probes.CommandEvent, observedAt time.Time) Enh
 			"kernel_timestamp_ns": strconv.FormatUint(raw.TimestampNS, 10),
 			"tid":                 strconv.FormatUint(uint64(raw.TID), 10),
 		},
+	}
+}
+
+func normalizeBPFFileEvent(raw probes.FileEvent, observedAt time.Time) EnhancedEvent {
+	result := "ok"
+	if raw.Result != 0 {
+		result = strconv.Itoa(int(raw.Result))
+	}
+
+	return EnhancedEvent{
+		EventType:         EnhancedEventFile,
+		TimestampUnixNano: observedAt.UnixNano(),
+		PID:               int(raw.PID),
+		UID:               int(raw.UID),
+		GID:               int(raw.GID),
+		FilePath:          cString(raw.Path[:]),
+		FileOperation:     bpfFileOperation(raw.Operation),
+		Result:            result,
+		Metadata: map[string]string{
+			"source":              enhancedSourceLinuxEBPF,
+			"bpf":                 "true",
+			"collector":           enhancedBPFCollectorName,
+			"probe":               enhancedBPFProbeFile,
+			"kernel_timestamp_ns": strconv.FormatUint(raw.TimestampNS, 10),
+			"tid":                 strconv.FormatUint(uint64(raw.TID), 10),
+			"flags":               strconv.FormatUint(uint64(raw.Flags), 10),
+		},
+	}
+}
+
+func bpfFileOperation(operation uint32) string {
+	switch operation {
+	case probes.FileOperationOpen:
+		return "open"
+	case probes.FileOperationAccess:
+		return "access"
+	default:
+		return "unknown"
 	}
 }
 

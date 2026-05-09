@@ -6,6 +6,9 @@ go_library(
         "command.go",
         "command_bpfeb.go",
         "command_bpfel.go",
+        "file.go",
+        "file_bpfeb.go",
+        "file_bpfel.go",
         "selftest.go",
         "selftest_bpfeb.go",
         "selftest_bpfel.go",
@@ -13,6 +16,8 @@ go_library(
     embedsrcs = [
         "command_bpfeb.o",
         "command_bpfel.o",
+        "file_bpfeb.o",
+        "file_bpfel.o",
         "selftest_bpfeb.o",
         "selftest_bpfel.o",
     ],
