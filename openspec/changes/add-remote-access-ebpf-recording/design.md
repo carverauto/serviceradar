@@ -71,6 +71,34 @@ Remote-access enhanced recording should contribute session-scoped probes and eve
 
 Probe source should be ServiceRadar-owned and should carry an explicit SPDX header. Some kernel helpers require a GPL-compatible BPF program license string at load time; if a probe needs those helpers, prefer a dual permissive/GPL BPF program license such as `Dual MIT/GPL` after legal review, while keeping user-space loader code under the ServiceRadar project license.
 
+### Package Ownership
+Use this initial package split:
+
+- `go/pkg/agent/ebpf`: shared runtime interfaces, loader wrappers, capability probes, startup self-tests, BPF map/link cleanup, ring-buffer/perf-buffer readers, metrics, and runtime errors.
+- `go/pkg/agent/ebpf/probes`: generated probe object bindings and thin constructors for ServiceRadar-owned probe groups. This package should not know about remote-access policy, users, targets, or session state beyond typed map keys/events.
+- `go/pkg/agent/remoteaccess`: remote-access policy mapping, session scoping, event redaction, and conversion from typed BPF observations into `EnhancedEvent` frames.
+
+The shared runtime should expose narrow interfaces such as:
+
+- `Runtime.Check(ctx) CapabilityReport`
+- `Runtime.LoadCollection(ctx, CollectionSpec) (Collection, error)`
+- `Collection.Attach(ctx, AttachPlan) (SessionHandle, error)`
+- `SessionHandle.Events() <-chan Observation`
+- `SessionHandle.Close(ctx) error`
+
+This keeps future eBPF consumers from importing remote-access packages and keeps remote-access from owning global kernel state.
+
+### Generated Probe Artifacts
+Probe source should live in normal source control next to generated artifacts. The expected workflow is:
+
+1. Write ServiceRadar-owned `.bpf.c` probe source with SPDX/license headers.
+2. Generate little-endian and big-endian Go/object outputs with `bpf2go` or the selected generator in a hermetic LLVM-capable environment.
+3. Commit the generated `.go` and `.o` artifacts.
+4. Make normal `go test`, `bazel test`, and container builds consume the checked-in generated artifacts without requiring local clang/LLVM.
+5. Provide an explicit regeneration target or script that fails if generated artifacts are stale.
+
+The generated outputs must be deterministic enough for CI to verify. If source paths or DWARF metadata make generation non-deterministic, use stable build containers, controlled `BPF2GO_CFLAGS`, and path-prefix stripping before accepting the generator path.
+
 ### Session Scoping
 The collector should scope monitoring to the session process tree using a cgroup membership map or equivalent kernel-visible session token. The first implementation should prefer cgroup scoping because it gives a stable kernel-side filter across execs and child processes. If an adapter cannot provide a session cgroup/process boundary, required BPF policies must fail closed for that adapter until it does.
 
