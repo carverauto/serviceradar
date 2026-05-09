@@ -22,6 +22,9 @@ package ebpf
 import (
 	"context"
 	"errors"
+	"fmt"
+
+	ciliumebpf "github.com/cilium/ebpf"
 )
 
 const (
@@ -55,6 +58,7 @@ const (
 var (
 	ErrRuntimeDisabled       = errors.New("agent ebpf runtime disabled")
 	ErrRuntimeUnavailable    = errors.New("agent ebpf runtime unavailable")
+	ErrInvalidCollectionSpec = errors.New("invalid agent ebpf collection spec")
 	ErrRuntimeNotImplemented = errors.New("agent ebpf runtime not implemented")
 )
 
@@ -93,8 +97,12 @@ func (r CapabilityReport) HasReason(reason DisabledReason) bool {
 	return false
 }
 
+type CollectionLoader func(context.Context) (*ciliumebpf.CollectionSpec, error)
+
 type CollectionSpec struct {
-	Name string
+	Name    string
+	Load    CollectionLoader
+	Options *ciliumebpf.CollectionOptions
 }
 
 type AttachPlan struct {
@@ -120,6 +128,13 @@ type Runtime struct {
 	config Config
 }
 
+type loadedCollection struct {
+	name       string
+	raw        *ciliumebpf.Collection
+	events     chan Observation
+	attachPlan AttachPlan
+}
+
 func NewRuntime(config Config) *Runtime {
 	return &Runtime{config: normalizeConfig(config)}
 }
@@ -135,8 +150,52 @@ func (r *Runtime) Config() Config {
 	return r.config
 }
 
-func (r *Runtime) LoadCollection(context.Context, CollectionSpec) (Collection, error) {
+func StaticCollectionSpec(name string, load func() (*ciliumebpf.CollectionSpec, error)) CollectionSpec {
+	return CollectionSpec{
+		Name: name,
+		Load: func(context.Context) (*ciliumebpf.CollectionSpec, error) {
+			return load()
+		},
+	}
+}
+
+func (s CollectionSpec) validate() error {
+	if s.Name == "" {
+		return fmt.Errorf("%w: missing name", ErrInvalidCollectionSpec)
+	}
+	if s.Load == nil {
+		return fmt.Errorf("%w: %s missing loader", ErrInvalidCollectionSpec, s.Name)
+	}
+	return nil
+}
+
+func (s CollectionSpec) load(ctx context.Context) (*ciliumebpf.CollectionSpec, error) {
+	if err := s.validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	spec, err := s.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%s collection spec: %w", s.Name, err)
+	}
+	if spec == nil {
+		return nil, fmt.Errorf("%w: %s loader returned nil", ErrInvalidCollectionSpec, s.Name)
+	}
+	return spec, nil
+}
+
+func (c *loadedCollection) Attach(context.Context, AttachPlan) (SessionHandle, error) {
 	return nil, ErrRuntimeNotImplemented
+}
+
+func (c *loadedCollection) Close(context.Context) error {
+	if c == nil || c.raw == nil {
+		return nil
+	}
+	c.raw.Close()
+	return nil
 }
 
 func baseReport(platform string) CapabilityReport {

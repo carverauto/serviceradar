@@ -20,6 +20,7 @@ package ebpf
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 )
 
@@ -34,4 +35,21 @@ func (r *Runtime) Check(context.Context) CapabilityReport {
 	}
 	report.AddReason(ReasonUnsupportedOS)
 	return report
+}
+
+func (r *Runtime) LoadCollection(ctx context.Context, spec CollectionSpec) (Collection, error) {
+	if err := spec.validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if r == nil {
+		r = DefaultRuntime()
+	}
+	if !r.config.Enabled {
+		return nil, ErrRuntimeDisabled
+	}
+	report := r.Check(ctx)
+	return nil, fmt.Errorf("%w: %s", ErrRuntimeUnavailable, report.Reasons[0])
 }

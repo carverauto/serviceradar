@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes"
 )
 
 func TestCapabilityReportAddReasonDeduplicatesAndDisables(t *testing.T) {
@@ -56,11 +58,36 @@ func TestDefaultRuntimeCheckIsDisabled(t *testing.T) {
 	}
 }
 
-func TestLoadCollectionReturnsNotImplemented(t *testing.T) {
+func TestStaticCollectionSpecLoadsGeneratedSpec(t *testing.T) {
+	t.Parallel()
+
+	spec := StaticCollectionSpec("selftest", probes.LoadSelftestSpec)
+	collectionSpec, err := spec.load(context.Background())
+	if err != nil {
+		t.Fatalf("load generated spec: %v", err)
+	}
+	if collectionSpec.Programs[probes.SelftestProgramName] == nil {
+		t.Fatalf("program %q missing from generated spec", probes.SelftestProgramName)
+	}
+}
+
+func TestLoadCollectionRejectsInvalidSpec(t *testing.T) {
 	t.Parallel()
 
 	_, err := DefaultRuntime().LoadCollection(context.Background(), CollectionSpec{Name: "test"})
-	if !errors.Is(err, ErrRuntimeNotImplemented) {
-		t.Fatalf("LoadCollection error = %v, want %v", err, ErrRuntimeNotImplemented)
+	if !errors.Is(err, ErrInvalidCollectionSpec) {
+		t.Fatalf("LoadCollection error = %v, want %v", err, ErrInvalidCollectionSpec)
+	}
+}
+
+func TestLoadCollectionReturnsDisabled(t *testing.T) {
+	t.Parallel()
+
+	_, err := DefaultRuntime().LoadCollection(
+		context.Background(),
+		StaticCollectionSpec("selftest", probes.LoadSelftestSpec),
+	)
+	if !errors.Is(err, ErrRuntimeDisabled) {
+		t.Fatalf("LoadCollection error = %v, want %v", err, ErrRuntimeDisabled)
 	}
 }

@@ -23,4 +23,5 @@ go_test(
         "runtime_test.go",
     ],
     embed = [":ebpf"],
+    deps = ["//go/pkg/agent/ebpf/probes"],
 )

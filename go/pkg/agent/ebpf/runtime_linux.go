@@ -21,11 +21,13 @@ package ebpf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"syscall"
 
-	"github.com/cilium/ebpf"
+	ciliumebpf "github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/features"
 )
 
@@ -63,14 +65,49 @@ func (r *Runtime) Check(ctx context.Context) CapabilityReport {
 	}
 
 	if !config.SkipFeatureProbes {
-		checkFeature(&report, features.HaveMapType(ebpf.Hash))
-		checkFeature(&report, features.HaveMapType(ebpf.RingBuf))
-		checkFeature(&report, features.HaveProgramType(ebpf.TracePoint))
-		checkFeature(&report, features.HaveProgramType(ebpf.Kprobe))
+		checkFeature(&report, features.HaveMapType(ciliumebpf.Hash))
+		checkFeature(&report, features.HaveMapType(ciliumebpf.RingBuf))
+		checkFeature(&report, features.HaveProgramType(ciliumebpf.TracePoint))
+		checkFeature(&report, features.HaveProgramType(ciliumebpf.Kprobe))
 	}
 
 	report.Available = len(report.Reasons) == 0
 	return report
+}
+
+func (r *Runtime) LoadCollection(ctx context.Context, spec CollectionSpec) (Collection, error) {
+	if err := spec.validate(); err != nil {
+		return nil, err
+	}
+	if r == nil {
+		r = DefaultRuntime()
+	}
+	if !r.config.Enabled {
+		return nil, ErrRuntimeDisabled
+	}
+	if report := r.Check(ctx); !report.Available {
+		return nil, fmt.Errorf("%w: %s", ErrRuntimeUnavailable, formatDisabledReasons(report.Reasons))
+	}
+
+	collectionSpec, err := spec.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	options := ciliumebpf.CollectionOptions{}
+	if spec.Options != nil {
+		options = *spec.Options
+	}
+	raw, err := ciliumebpf.NewCollectionWithOptions(collectionSpec, options)
+	if err != nil {
+		return nil, fmt.Errorf("load ebpf collection %q: %w", spec.Name, err)
+	}
+
+	return &loadedCollection{
+		name:   spec.Name,
+		raw:    raw,
+		events: make(chan Observation),
+	}, nil
 }
 
 func checkFeature(report *CapabilityReport, err error) {
@@ -78,13 +115,24 @@ func checkFeature(report *CapabilityReport, err error) {
 		return
 	}
 	switch {
-	case errors.Is(err, ebpf.ErrNotSupported):
+	case errors.Is(err, ciliumebpf.ErrNotSupported):
 		report.AddReason(ReasonFeatureUnsupported)
 	case errors.Is(err, os.ErrPermission), errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EACCES):
 		report.AddReason(ReasonPermissionDenied)
 	default:
 		report.AddReason(ReasonSelfTestFailed)
 	}
+}
+
+func formatDisabledReasons(reasons []DisabledReason) string {
+	if len(reasons) == 0 {
+		return "unknown"
+	}
+	parts := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		parts = append(parts, string(reason))
+	}
+	return strings.Join(parts, ",")
 }
 
 func pathExists(path string) bool {
