@@ -1,4 +1,25 @@
 ## ADDED Requirements
+### Requirement: Agents use one shared eBPF runtime
+Agents SHALL use a single shared eBPF runtime/loader boundary for ServiceRadar-owned eBPF features instead of creating feature-specific eBPF runtimes.
+
+#### Scenario: New agent feature needs eBPF
+- **GIVEN** a future agent feature needs Linux eBPF programs, maps, links, ring buffers, or capability checks
+- **WHEN** the feature is implemented
+- **THEN** it SHALL integrate with the shared agent eBPF runtime
+- **AND** it SHALL NOT introduce a separate loader, map manager, ring-buffer loop, or kernel compatibility checker unless the proposal documents a technical blocker.
+
+#### Scenario: Remote access consumes shared runtime
+- **GIVEN** remote-access enhanced recording needs command, file, and network probes
+- **WHEN** the agent starts eBPF enhanced recording for a session
+- **THEN** remote access SHALL register session-scoped probes and event normalization on top of the shared runtime
+- **AND** shared runtime ownership SHALL remain outside the remote-access adapter package.
+
+#### Scenario: Classic socket BPF remains separate
+- **GIVEN** existing packet capture code uses classic socket BPF filters through `golang.org/x/sys/unix`
+- **WHEN** the shared eBPF runtime is introduced
+- **THEN** that classic BPF path MAY remain separate
+- **AND** any later unification SHALL be explicit rather than forced by the remote-access eBPF collector.
+
 ### Requirement: Agents advertise BPF capability only after runtime validation
 Agents SHALL advertise `remote_access.bpf` only when the running binary, platform, kernel, permissions, and startup validation can support required eBPF enhanced recording.
 

@@ -46,6 +46,8 @@ The agent should start the enhanced recorder before opening the target adapter. 
 ### Shared Agent eBPF Runtime
 ServiceRadar expects substantial future eBPF work in `serviceradar-agent`, so this change should not create a bespoke remote-access-only loader, map manager, compatibility checker, or ring-buffer event loop. Remote access should be the first consumer of a shared agent eBPF runtime package or service boundary.
 
+The runtime should live in a package owned by the agent layer, for example `go/pkg/agent/ebpf`, rather than under `go/pkg/agent/remoteaccess`. Remote access may own probe-specific normalization under `go/pkg/agent/remoteaccess`, but program loading, feature detection, map lifecycle, link cleanup, and ring-buffer plumbing should stay in the shared package so later agent features reuse the same operational controls.
+
 The preferred dependency direction is to standardize on one maintained Go eBPF library, with `github.com/cilium/ebpf` as the leading candidate because it is broadly used, Go-native, and compatible with CO-RE style workflows. The final dependency still needs license, transitive dependency, Bazel, cross-compile, kernel support, and operational review before it is introduced.
 
 Initial `github.com/cilium/ebpf` review:

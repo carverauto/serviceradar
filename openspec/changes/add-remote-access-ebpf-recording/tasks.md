@@ -4,6 +4,7 @@
 - [ ] 1.3 Record exact Teleport v14 files consulted, if any, with tag, commit, headers, and dependency scan results.
 - [ ] 1.4 Define the session scoping mechanism for SSH and provider-console adapters, preferring cgroup-scoped monitoring.
 - [ ] 1.5 Define the checked-in generated artifact strategy for BPF probes so normal agent builds do not require local clang.
+- [ ] 1.6 Define package ownership for the shared agent eBPF runtime, with remote access consuming it rather than owning it.
 
 ## 2. Agent Collector
 - [ ] 2.1 Add Linux-only BPF build plumbing and keep non-BPF builds working by default.
