@@ -26,7 +26,7 @@
 - [ ] 2.15 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
 
 ## 3. Validation
-- [ ] 3.1 Add unit tests for credential custody policy and grant scoping.
+- [x] 3.1 Add unit tests for credential custody policy and grant scoping.
 - [ ] 3.2 Add gateway/agent tests proving frames are accepted only from the session-owning agent.
 - [ ] 3.3 Add browser/channel tests proving tickets and credentials are not echoed to the client.
 - [ ] 3.4 Add a demo SSH target test through an agent in a non-platform network path.

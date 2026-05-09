@@ -2,7 +2,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.RemoteAccessBroker
+  alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
+  alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
+
+  @permission RemoteAccessSSHCertificatePolicy.permission()
 
   defmodule CommandBusStub do
     @moduledoc false
@@ -21,6 +25,25 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     @moduledoc false
 
     def subscribe(_session_id), do: :ok
+  end
+
+  defmodule CertificateSignerStub do
+    @moduledoc false
+    @behaviour RemoteAccessSSHCertificates
+
+    @impl true
+    def sign_user_certificate(request, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:sign_user_certificate, request})
+
+      {:ok,
+       %{
+         certificate: "ssh-ed25519-cert-v01@openssh.com AAAATEST",
+         expires_at: ~U[2026-05-09 13:00:00Z],
+         fingerprint: "SHA256:fingerprint",
+         serial: 42,
+         ca_key_id: "ca-main"
+       }}
+    end
   end
 
   test "opens generic SSH sessions over the existing console frame path" do
@@ -129,6 +152,67 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
            } = Jason.decode!(frame.data)
 
     refute inspect(grant.audit) =~ "session-password"
+  end
+
+  test "opens from a certificate credential grant without persisted session SSH metadata" do
+    session = %{
+      id: "session-1",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      metadata: %{}
+    }
+
+    actor = %{id: "user-1", permissions: MapSet.new([@permission])}
+
+    assert {:ok, grant} =
+             RemoteAccessSSHSessionCredentials.build_certificate_grant(
+               actor,
+               %{
+                 session_id: "session-1",
+                 agent_id: "agent-1",
+                 gateway_id: "gateway-1",
+                 public_key: "ssh-ed25519 AAAATEST user@workstation",
+                 private_key:
+                   "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+                 passphrase: "session-passphrase",
+                 target: %{device_uid: "device-1", host: "10.0.0.11", port: 2222},
+                 allowed_principals: ["ubuntu"]
+               },
+               signer: CertificateSignerStub,
+               test_pid: self()
+             )
+
+    assert_receive {:sign_user_certificate, sign_request}
+    refute Map.has_key?(sign_request, :private_key)
+    refute inspect(sign_request) =~ "session-passphrase"
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        grant.broker_opts ++
+          [
+            command_bus: CommandBusStub,
+            pubsub: PubSubStub,
+            required_gateway_node: self()
+          ]}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+
+    assert %{
+             "credential_mode" => "ssh_certificate",
+             "target" => %{"device_uid" => "device-1", "host" => "10.0.0.11", "port" => 2222},
+             "ssh" => %{
+               "username" => "ubuntu",
+               "private_key" =>
+                 "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+               "passphrase" => "session-passphrase",
+               "certificate" => "ssh-ed25519-cert-v01@openssh.com AAAATEST"
+             }
+           } = Jason.decode!(frame.data)
+
+    refute inspect(grant.ssh_certificate) =~ "OPENSSH PRIVATE KEY"
+    refute inspect(grant.audit) =~ "session-passphrase"
   end
 
   test "merges issued SSH certificate envelopes with user-present session keys" do

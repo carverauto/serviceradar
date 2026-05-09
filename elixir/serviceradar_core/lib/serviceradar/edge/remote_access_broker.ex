@@ -373,6 +373,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     end)
   end
 
+  defp stringify_nested(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp stringify_nested(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp stringify_nested(%Date{} = value), do: Date.to_iso8601(value)
+  defp stringify_nested(%Time{} = value), do: Time.to_iso8601(value)
+  defp stringify_nested(%_{} = value), do: value
   defp stringify_nested(value) when is_map(value), do: stringify_map(value)
   defp stringify_nested(value), do: value
 

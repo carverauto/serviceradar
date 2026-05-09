@@ -115,7 +115,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
       target
       |> stringify_keys()
       |> Enum.reduce(%{}, fn {key, value}, acc ->
-        case string_value(value) do
+        case normalize_target_value(key, value) do
           nil -> acc
           normalized -> Map.put(acc, key, normalized)
         end
@@ -129,6 +129,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   end
 
   defp normalize_target(_target), do: {:error, :target_required}
+
+  defp normalize_target_value("port", value), do: positive_int(value)
+  defp normalize_target_value(_key, value), do: string_value(value)
 
   defp resolve_principals(attrs) do
     allowed =
