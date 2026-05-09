@@ -66,6 +66,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
       session_id: request.session_id,
       credential_mode: request.credential_mode,
       ssh: %{
+        "username" => request.ssh_username,
         "certificate" => Map.fetch!(signed, :certificate)
       },
       target: request.target,

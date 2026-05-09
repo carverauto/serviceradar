@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicyTest do
     assert request.session_id == "session-1"
     assert request.public_key == "ssh-ed25519 AAAATEST user@workstation"
     assert request.principals == ["ubuntu"]
+    assert request.ssh_username == "ubuntu"
     assert request.ttl_seconds == 900
     assert request.credential_mode == "ssh_certificate"
     assert request.key_id == "sr:remote-access:session-1:user-1:device-1"
@@ -30,6 +31,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicyTest do
              actor_id: "user-1",
              target_ref: "device-1",
              principals: ["ubuntu"],
+             ssh_username: "ubuntu",
              ttl_seconds: 900,
              permission: @permission
            }
@@ -47,6 +49,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicyTest do
              })
 
     assert request.principals == ["root", "ubuntu", "admin"]
+    assert request.ssh_username == "root"
     assert request.ttl_seconds == 3_600
     assert request.key_id == "sr:remote-access:session-1:user-1:router.example"
   end

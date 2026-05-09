@@ -19,6 +19,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
           public_key: String.t(),
           key_id: String.t(),
           principals: [String.t()],
+          ssh_username: String.t(),
           ttl_seconds: pos_integer(),
           target: map(),
           credential_mode: String.t(),
@@ -47,6 +48,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
          public_key: public_key,
          key_id: key_id(session_id, actor_id, target_ref),
          principals: principals,
+         ssh_username: List.first(principals),
          ttl_seconds: ttl_seconds,
          target: target,
          credential_mode: "ssh_certificate",
@@ -54,6 +56,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
            actor_id: actor_id,
            target_ref: target_ref,
            principals: principals,
+           ssh_username: List.first(principals),
            ttl_seconds: ttl_seconds,
            permission: @permission
          }

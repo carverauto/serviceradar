@@ -57,12 +57,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                       key_id: "sr:remote-access:session-1:user-1:device-1",
                       principals: ["ubuntu"],
                       ttl_seconds: 900,
-                      audit: %{actor_id: "user-1", target_ref: "device-1"}
+                      audit: %{actor_id: "user-1", target_ref: "device-1", ssh_username: "ubuntu"}
                     }}
 
     assert issued.session_id == "session-1"
     assert issued.credential_mode == "ssh_certificate"
-    assert issued.ssh == %{"certificate" => "ssh-ed25519-cert-v01@openssh.com AAAATEST"}
+
+    assert issued.ssh == %{
+             "username" => "ubuntu",
+             "certificate" => "ssh-ed25519-cert-v01@openssh.com AAAATEST"
+           }
+
     assert issued.key_id == "sr:remote-access:session-1:user-1:device-1"
     assert issued.principals == ["ubuntu"]
     assert issued.fingerprint == "SHA256:fingerprint"
@@ -73,6 +78,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
              actor_id: "user-1",
              target_ref: "device-1",
              principals: ["ubuntu"],
+             ssh_username: "ubuntu",
              ttl_seconds: 900,
              permission: @permission,
              certificate_fingerprint: "SHA256:fingerprint",
