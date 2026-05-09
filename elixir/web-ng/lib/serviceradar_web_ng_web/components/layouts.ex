@@ -292,7 +292,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     nav_items = [
       %{href: "/dashboard", label: "Dashboard", icon: "hero-home"},
       %{href: "/devices", label: "Devices", icon: "hero-server-stack"},
-      %{href: "/agents", label: "Agents", icon: "hero-cpu-chip"},
       %{href: "/services", label: "Services", icon: "hero-bolt"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},
       %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
