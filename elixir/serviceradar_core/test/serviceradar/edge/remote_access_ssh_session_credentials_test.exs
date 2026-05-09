@@ -148,7 +148,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
     refute inspect(grant.ssh_certificate) =~ "OPENSSH PRIVATE KEY"
     refute inspect(grant.audit) =~ "session-passphrase"
 
-    assert grant.audit.credential_custody_mode == "user_present"
+    assert grant.audit.credential_custody_mode == "short_lived_certificate"
     assert grant.audit.credential_mode == "ssh_certificate"
     assert grant.audit.session_id == "session-1"
   end
@@ -196,6 +196,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
     assert grant.broker_opts[:ssh_certificate].ssh["username"] == "ubuntu"
     assert grant.broker_opts[:metadata]["ssh"]["private_key"] =~ "OPENSSH PRIVATE KEY"
     refute inspect(grant.audit) =~ "OPENSSH PRIVATE KEY"
+    assert grant.audit.credential_custody_mode == "short_lived_certificate"
+    assert grant.audit.credential_mode == "ssh_certificate"
   end
 
   test "fails closed without a session private key" do

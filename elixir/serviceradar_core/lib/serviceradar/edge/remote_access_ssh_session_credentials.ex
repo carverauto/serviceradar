@@ -131,7 +131,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
   defp audit(issued) do
     issued
     |> Map.get(:audit, %{})
-    |> Map.put(:credential_custody_mode, "user_present")
+    |> Map.put(:credential_custody_mode, "short_lived_certificate")
     |> Map.put(:credential_mode, Map.get(issued, :credential_mode))
     |> Map.put(:session_id, Map.get(issued, :session_id))
   end
