@@ -29,3 +29,18 @@ func TestLoadSelftestSpec(t *testing.T) {
 		t.Fatalf("self-test program %q missing from spec", SelftestProgramName)
 	}
 }
+
+func TestLoadCommandSpec(t *testing.T) {
+	t.Parallel()
+
+	spec, err := LoadCommandSpec()
+	if err != nil {
+		t.Fatalf("LoadCommandSpec() error = %v", err)
+	}
+	if spec.Programs[CommandProgramName] == nil {
+		t.Fatalf("command program %q missing from spec", CommandProgramName)
+	}
+	if spec.Maps[CommandEventsMap] == nil {
+		t.Fatalf("command events map %q missing from spec", CommandEventsMap)
+	}
+}

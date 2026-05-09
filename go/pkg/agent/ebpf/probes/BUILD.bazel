@@ -3,11 +3,16 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "probes",
     srcs = [
+        "command.go",
+        "command_bpfeb.go",
+        "command_bpfel.go",
         "selftest.go",
         "selftest_bpfeb.go",
         "selftest_bpfel.go",
     ],
     embedsrcs = [
+        "command_bpfeb.o",
+        "command_bpfel.o",
         "selftest_bpfeb.o",
         "selftest_bpfel.o",
     ],

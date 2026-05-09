@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "adapters.go",
         "enhanced_recorder.go",
+        "enhanced_recording_ebpf.go",
         "enhanced_recording.go",
         "enhanced_recording_linux.go",
         "enhanced_recording_platform_linux.go",
@@ -15,7 +16,10 @@ go_library(
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess",
     visibility = ["//visibility:public"],
-    deps = ["@org_golang_x_crypto//ssh"],
+    deps = [
+        "//go/pkg/agent/ebpf/probes",
+        "@org_golang_x_crypto//ssh",
+    ],
 )
 
 go_test(
@@ -31,5 +35,8 @@ go_test(
         "ssh_test.go",
     ],
     embed = [":remoteaccess"],
-    deps = ["//go/pkg/remoteaccess/sshca"],
+    deps = [
+        "//go/pkg/agent/ebpf/probes",
+        "//go/pkg/remoteaccess/sshca",
+    ],
 )

@@ -20,6 +20,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes"
 )
 
 func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) {
@@ -117,5 +120,57 @@ func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("serialized enhanced event leaked %q: %s", forbidden, serialized)
 		}
+	}
+}
+
+func TestNormalizeBPFCommandEvent(t *testing.T) {
+	t.Parallel()
+
+	raw := probes.CommandEvent{
+		TimestampNS: 12345,
+		PID:         4242,
+		TID:         4243,
+		UID:         1000,
+		GID:         1001,
+		Argc:        3,
+	}
+	copy(raw.Path[:], "/usr/bin/curl")
+	copy(raw.Argv[0][:], "curl")
+	copy(raw.Argv[1][:], "--header")
+	copy(raw.Argv[2][:], "token=secret")
+
+	observedAt := time.Unix(1700000000, 99)
+	event := normalizeBPFCommandEvent(raw, observedAt)
+
+	if event.EventType != EnhancedEventCommand {
+		t.Fatalf("event type = %q", event.EventType)
+	}
+	if event.TimestampUnixNano != observedAt.UnixNano() {
+		t.Fatalf("timestamp = %d, want %d", event.TimestampUnixNano, observedAt.UnixNano())
+	}
+	if event.PID != 4242 || event.UID != 1000 || event.GID != 1001 {
+		t.Fatalf("identity = %#v", event)
+	}
+	if event.CommandPath != "/usr/bin/curl" {
+		t.Fatalf("command path = %q", event.CommandPath)
+	}
+	if strings.Join(event.Argv, "|") != "curl|--header|token=secret" {
+		t.Fatalf("argv = %#v", event.Argv)
+	}
+	if event.Metadata["source"] != "linux_ebpf" || event.Metadata["probe"] != "command_execve" ||
+		event.Metadata["kernel_timestamp_ns"] != "12345" || event.Metadata["tid"] != "4243" {
+		t.Fatalf("metadata = %#v", event.Metadata)
+	}
+
+	session := EnhancedRecordingSession{
+		SessionID: "session-1",
+		Protocol:  ProtocolSSH,
+		Policy: EnhancedRecordingPolicy{
+			IncludeCommandArguments: true,
+		},
+	}
+	redacted := normalizeEnhancedEvent(session, event)
+	if redacted.Argv[2] != "REDACTED" {
+		t.Fatalf("redacted argv = %#v", redacted.Argv)
 	}
 }

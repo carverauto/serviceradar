@@ -5,6 +5,11 @@ This package contains ServiceRadar-owned eBPF probe source and checked-in
 `.go` and `.o` artifacts directly and do not require a local clang/LLVM
 installation.
 
+Current probe groups:
+
+- `selftest`: minimal load/attach validation program.
+- `command`: execve command observation event contract.
+
 Regenerate artifacts after editing `src/*.bpf.c`:
 
 ```bash

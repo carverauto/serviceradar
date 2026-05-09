@@ -14,7 +14,7 @@
 - [x] 2.2 Add `go/pkg/agent/ebpf` shared runtime interfaces, non-Linux stubs, Linux capability checks, and runtime error types.
 - [x] 2.3 Add Linux-only BPF build plumbing and checked-in generated artifact workflow.
 - [x] 2.4 Implement the shared runtime pieces needed by remote-access recording without making them remote-access-specific.
-- [ ] 2.5 Implement command exec probes and user-space normalization.
+- [x] 2.5 Implement command exec probes and user-space normalization.
 - [ ] 2.6 Implement file open/access probes and user-space normalization.
 - [ ] 2.7 Implement network connect probes and user-space normalization.
 - [ ] 2.8 Implement loss counters for kernel drops, parser failures, and user-space backpressure.
