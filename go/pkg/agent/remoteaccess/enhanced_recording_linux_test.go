@@ -74,6 +74,32 @@ func TestLinuxProcEnhancedEventSourceRejectsRequiredBPFWithoutFallback(t *testin
 	}
 }
 
+func TestLinuxProcEnhancedEventSourceAllowsExplicitBPFFallback(t *testing.T) {
+	t.Parallel()
+
+	source := NewLinuxProcEnhancedEventSource(
+		WithLinuxProcRoot(t.TempDir()),
+		WithLinuxProcPollInterval(time.Hour),
+	)
+	_, stop, err := source.Start(context.Background(), EnhancedRecordingSession{
+		SessionID: "session-1",
+		Policy: EnhancedRecordingPolicy{
+			Enabled:       true,
+			Required:      true,
+			Mode:          "bpf",
+			AllowFallback: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := stop(ctx); err != nil {
+		t.Fatalf("stop returned error: %v", err)
+	}
+}
+
 func TestLinuxProcEnhancedEventSourceEmitsProcfsEvents(t *testing.T) {
 	t.Parallel()
 

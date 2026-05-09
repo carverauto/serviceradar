@@ -396,6 +396,48 @@ func TestManagerAllowsOpenWhenEnhancedRecordingFallbackIsAllowed(t *testing.T) {
 	_ = sender.nextFrame(t, FrameTypeClose)
 }
 
+func TestManagerAllowsOpenWhenEnhancedRecordingStartFailsAndFallbackIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	recording := newFakeEnhancedRecording()
+	recorder := newFakeEnhancedRecorder(recording)
+	recorder.err = ErrEnhancedRecordingUnavailable
+	pty := newFakePTY()
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			return pty, nil
+		},
+		EnhancedRecorder: recorder,
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"enhanced_recording_policy": map[string]any{
+				"enabled":        true,
+				"required":       true,
+				"mode":           "bpf",
+				"allow_fallback": true,
+			},
+		}),
+	}, sender)
+
+	<-recorder.started
+	ready := sender.nextFrame(t, FrameTypeReady)
+	if ready.SessionID != "remote-session-1" {
+		t.Fatalf("ready session = %q", ready.SessionID)
+	}
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		FrameType: FrameTypeClose,
+	}, sender)
+	_ = sender.nextFrame(t, FrameTypeClose)
+}
+
 func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 	t.Parallel()
 
