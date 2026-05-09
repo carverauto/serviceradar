@@ -34,7 +34,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
                username: "ubuntu",
                private_key: "session-private-key",
                passphrase: "session-passphrase",
-               target: %{device_uid: "device-1"}
+               target: %{device_uid: "device-1", host: "10.0.0.10", port: 2222}
              })
 
     assert grant.broker_opts == [
@@ -43,6 +43,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
                  "username" => "ubuntu",
                  "private_key" => "session-private-key",
                  "passphrase" => "session-passphrase"
+               },
+               "target" => %{
+                 "device_uid" => "device-1",
+                 "host" => "10.0.0.10",
+                 "port" => 2222
                }
              },
              credential_mode: "user_present"
@@ -66,7 +71,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
              })
 
     assert grant.broker_opts == [
-             metadata: %{"ssh" => %{"username" => "ubuntu", "password" => "session-password"}},
+             metadata: %{
+               "ssh" => %{"username" => "ubuntu", "password" => "session-password"},
+               "target" => %{"host" => "10.0.0.10"}
+             },
              credential_mode: "user_present"
            ]
 

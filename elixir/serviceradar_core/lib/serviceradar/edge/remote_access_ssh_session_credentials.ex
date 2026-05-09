@@ -22,11 +22,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
     with {:ok, username} <- required_string(attrs, "username"),
          {:ok, ssh_auth} <- user_present_ssh_auth(attrs, username) do
       credential_mode = Keyword.get(opts, :credential_mode, "user_present")
+      metadata = session_metadata(ssh_auth, attrs)
 
       {:ok,
        %{
          broker_opts: [
-           metadata: %{"ssh" => ssh_auth},
+           metadata: metadata,
            credential_mode: credential_mode
          ],
          ssh_certificate: nil,
@@ -58,6 +59,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
   end
 
   def build_certificate_grant(_actor, _attrs, _opts), do: {:error, :invalid_request}
+
+  defp session_metadata(ssh_auth, attrs) do
+    maybe_put(%{"ssh" => ssh_auth}, "target", normalize_target(value(attrs, "target")))
+  end
 
   defp user_present_ssh_auth(attrs, username) do
     private_key = optional_string(attrs, "private_key")
@@ -124,6 +129,25 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
   end
 
   defp target_ref(_target), do: nil
+
+  defp normalize_target(target) when is_map(target) do
+    target
+    |> Enum.reduce(%{}, fn {key, value}, acc ->
+      case target_value(value) do
+        nil -> acc
+        normalized -> Map.put(acc, to_string(key), normalized)
+      end
+    end)
+    |> empty_to_nil()
+  end
+
+  defp normalize_target(_target), do: nil
+
+  defp target_value(value) when is_integer(value) and value > 0, do: value
+  defp target_value(value), do: string_or_nil(value)
+
+  defp empty_to_nil(map) when map_size(map) == 0, do: nil
+  defp empty_to_nil(map), do: map
 
   defp required_string(attrs, key) do
     case optional_string(attrs, key) do

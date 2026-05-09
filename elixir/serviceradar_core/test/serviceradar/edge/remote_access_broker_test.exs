@@ -2,6 +2,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.RemoteAccessBroker
+  alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
 
   defmodule CommandBusStub do
     @moduledoc false
@@ -89,6 +90,45 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
 
     send(pid, {:remote_access_frame, %{frame_type: "close", reason: "done"}})
     assert_receive {:remote_access_closed, "done"}
+  end
+
+  test "opens from a user-present credential grant without persisted session SSH metadata" do
+    session = %{
+      id: "session-1",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      metadata: %{}
+    }
+
+    assert {:ok, grant} =
+             RemoteAccessSSHSessionCredentials.build_user_present_grant(%{
+               session_id: "session-1",
+               agent_id: "agent-1",
+               username: "ubuntu",
+               password: "session-password",
+               target: %{host: "10.0.0.10", port: 22}
+             })
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        grant.broker_opts ++
+          [
+            command_bus: CommandBusStub,
+            pubsub: PubSubStub,
+            required_gateway_node: self()
+          ]}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+
+    assert %{
+             "credential_mode" => "user_present",
+             "target" => %{"host" => "10.0.0.10", "port" => 22},
+             "ssh" => %{"username" => "ubuntu", "password" => "session-password"}
+           } = Jason.decode!(frame.data)
+
+    refute inspect(grant.audit) =~ "session-password"
   end
 
   test "merges issued SSH certificate envelopes with user-present session keys" do
