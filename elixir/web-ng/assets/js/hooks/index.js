@@ -7,6 +7,7 @@ import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import OperationsTrafficMap from "./OperationsTrafficMap"
 import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
+import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
@@ -36,6 +37,7 @@ export default {
   MapboxFlowMap,
   OperationsTrafficMap,
   ProxmoxConsoleTerminal,
+  RemoteAccessTerminal,
   SRQLTimeCookie,
   SpatialSurveyMap,
   NetflowSankeyChart,

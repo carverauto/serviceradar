@@ -9,3 +9,4 @@
 // JDM Editor - GoRules decision model editor for Zen rules
 export { default as JdmEditor } from './src/JdmEditor.jsx';
 export { default as ProxmoxConsoleTerminal } from './src/ProxmoxConsoleTerminal.jsx';
+export { default as RemoteAccessTerminal } from './src/RemoteAccessTerminal.jsx';

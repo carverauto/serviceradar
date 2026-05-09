@@ -73,11 +73,13 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :session_id, :string, required: true
   attr :ticket, :string, required: true
   attr :websocket_path, :string, required: true
-  attr :title, :string, default: "Proxmox console"
+  attr :title, :string, default: "Remote access"
   attr :subtitle, :string, default: ""
+  attr :stream_label, :string, default: "Remote access"
+  attr :close_label, :string, default: "Remote access session"
   attr :class, :string, default: ""
 
-  def proxmox_console_terminal(assigns) do
+  def remote_access_terminal(assigns) do
     assigns =
       assigns
       |> assign(:props, %{
@@ -85,14 +87,18 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         ticket: assigns.ticket,
         websocketPath: assigns.websocket_path,
         title: assigns.title,
-        subtitle: assigns.subtitle
+        subtitle: assigns.subtitle,
+        streamLabel: assigns.stream_label,
+        closeLabel: assigns.close_label
       })
       |> assign(:render_props, %{
         sessionId: assigns.session_id,
         ticket: "",
         websocketPath: assigns.websocket_path,
         title: assigns.title,
-        subtitle: assigns.subtitle
+        subtitle: assigns.subtitle,
+        streamLabel: assigns.stream_label,
+        closeLabel: assigns.close_label
       })
 
     ~H"""
@@ -100,15 +106,30 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       id={@id}
       class={["h-full min-h-0 w-full", @class]}
       phx-update="ignore"
-      phx-hook="ProxmoxConsoleTerminal"
+      phx-hook="RemoteAccessTerminal"
       data-props={Jason.encode!(@props)}
     >
       {react_component(%{
-        component: "ProxmoxConsoleTerminal",
+        component: "RemoteAccessTerminal",
         props: @render_props,
         static: false
       })}
     </div>
     """
+  end
+
+  attr :id, :string, required: true
+  attr :session_id, :string, required: true
+  attr :ticket, :string, required: true
+  attr :websocket_path, :string, required: true
+  attr :title, :string, default: "Proxmox console"
+  attr :subtitle, :string, default: ""
+  attr :class, :string, default: ""
+
+  def proxmox_console_terminal(assigns) do
+    assigns
+    |> assign(:stream_label, "Console")
+    |> assign(:close_label, "Console session")
+    |> remote_access_terminal()
   end
 end
