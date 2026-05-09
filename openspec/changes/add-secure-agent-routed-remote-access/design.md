@@ -100,8 +100,10 @@ The current Proxmox console path already proves the key routing shape, but its n
 - `elixir/serviceradar_core/lib/serviceradar/credentials/network_credential_rule.ex`, `network_credential_secret.ex`, and `plugins/secret_refs.ex` provide central encrypted credential storage and plugin secret-reference resolution. Generic SSH must treat this as optional centrally brokered custody, not the default.
 
 Teleport reference findings from `~/src/teleport`:
-- `api/ssh` and `api/observability/tracing/ssh` have Apache-2.0 headers and are useful references for SSH client/tracing boundaries.
+- `api/ssh` and `api/observability/tracing/ssh` have Apache-2.0 headers in the local checkout and are candidates for direct import after dependency/Bazel review.
+- The `github.com/gravitational/teleport/api` module is not safe to treat as uniformly Apache-2.0 without subpackage review; this checkout includes some AGPL-header files under `api/types/...`.
 - `lib/bpf` and broad `lib/srv` paths have AGPL headers. Treat them as architecture reference only unless licensing is explicitly cleared.
+- Import verified Apache-2.0 Teleport subpackages wherever they fit the agent implementation. Do not copy, translate, or mechanically port AGPL implementation code. For non-Apache areas, write a clean-room ServiceRadar implementation from behavior requirements, protocol documentation, and tests that do not derive from AGPL source text.
 
 ## Credential Custody Modes
 ### Centrally Brokered Secret

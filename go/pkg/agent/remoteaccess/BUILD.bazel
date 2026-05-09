@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "remoteaccess",
+    srcs = ["manager.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "remoteaccess_test",
+    srcs = ["manager_test.go"],
+    embed = [":remoteaccess"],
+)

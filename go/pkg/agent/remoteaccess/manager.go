@@ -1,0 +1,319 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package remoteaccess provides provider-neutral session plumbing for
+// agent-routed interactive access. Protocol adapters such as SSH or Proxmox
+// console own target-specific dialing; Manager owns session frame routing.
+package remoteaccess
+
+import (
+	"context"
+	"errors"
+	"io"
+	"sync"
+	"time"
+)
+
+const (
+	FrameTypeOpen      = "open"
+	FrameTypeReady     = "ready"
+	FrameTypeData      = "data"
+	FrameTypeResize    = "resize"
+	FrameTypeHeartbeat = "heartbeat"
+	FrameTypeClose     = "close"
+	FrameTypeError     = "error"
+	FrameTypeOutcome   = "outcome"
+)
+
+var (
+	ErrAdapterUnavailable = errors.New("remote access adapter unavailable")
+	ErrSessionExists      = errors.New("remote access session is already active")
+	ErrSessionNotActive   = errors.New("remote access session is not active")
+)
+
+// Frame is the agent-local representation of a remote-access control frame.
+// It intentionally mirrors the OpenSpec frame vocabulary before protobuf
+// compatibility wrappers map it to existing ConsoleFrame traffic.
+type Frame struct {
+	SessionID string
+	Protocol  string
+	FrameType string
+	Data      []byte
+	Cols      uint32
+	Rows      uint32
+	Reason    string
+	Timestamp int64
+	Metadata  map[string]string
+}
+
+// Sender emits frames back to the gateway/control-plane route.
+type Sender interface {
+	SendFrame(Frame) error
+}
+
+// PTY is the byte-oriented terminal interface exposed by terminal protocols.
+type PTY interface {
+	Read(context.Context) ([]byte, error)
+	Write([]byte) error
+	Resize(cols, rows uint32) error
+	Close() error
+}
+
+// Opener opens a protocol-specific target adapter for an open frame.
+type Opener func(context.Context, Frame) (PTY, error)
+
+type session struct {
+	cancel context.CancelFunc
+	pty    PTY
+	once   sync.Once
+}
+
+func (s *session) close() {
+	s.once.Do(func() {
+		s.cancel()
+		_ = s.pty.Close()
+	})
+}
+
+// Manager routes generic remote-access frames to active adapter sessions.
+type Manager struct {
+	mu       sync.Mutex
+	sessions map[string]*session
+	opener   Opener
+}
+
+// NewManager creates a remote-access session manager. A nil opener reports
+// ErrAdapterUnavailable for open frames until the caller provides one.
+func NewManager(opener Opener) *Manager {
+	if opener == nil {
+		opener = func(context.Context, Frame) (PTY, error) {
+			return nil, ErrAdapterUnavailable
+		}
+	}
+
+	return &Manager{
+		sessions: make(map[string]*session),
+		opener:   opener,
+	}
+}
+
+// HandleFrame applies one incoming control frame to the addressed session.
+func (m *Manager) HandleFrame(ctx context.Context, frame Frame, sender Sender) {
+	if frame.SessionID == "" {
+		return
+	}
+
+	switch frame.FrameType {
+	case FrameTypeOpen:
+		m.open(ctx, frame, sender)
+	case FrameTypeData:
+		m.write(frame, sender)
+	case FrameTypeResize:
+		m.resize(frame, sender)
+	case FrameTypeHeartbeat:
+		sendFrame(sender, heartbeatFrame(frame))
+	case FrameTypeClose:
+		m.closeSession(frame.SessionID, frame.Reason, sender)
+	default:
+		sendError(sender, frame.SessionID, errors.New("unsupported remote access frame type"))
+	}
+}
+
+func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
+	if m.get(frame.SessionID) != nil {
+		sendError(sender, frame.SessionID, ErrSessionExists)
+		return
+	}
+
+	ptySession, err := m.opener(ctx, frame)
+	if err != nil {
+		sendError(sender, frame.SessionID, err)
+		return
+	}
+
+	sessionCtx, cancel := context.WithCancel(ctx)
+	next := &session{cancel: cancel, pty: ptySession}
+
+	m.mu.Lock()
+	if _, exists := m.sessions[frame.SessionID]; exists {
+		m.mu.Unlock()
+		next.close()
+		sendError(sender, frame.SessionID, ErrSessionExists)
+		return
+	}
+	m.sessions[frame.SessionID] = next
+	m.mu.Unlock()
+
+	sendFrame(sender, Frame{
+		SessionID: frame.SessionID,
+		Protocol:  frame.Protocol,
+		FrameType: FrameTypeReady,
+		Cols:      frame.Cols,
+		Rows:      frame.Rows,
+		Timestamp: nowUnix(),
+	})
+
+	go m.readLoop(sessionCtx, frame.SessionID, frame.Protocol, next, sender)
+}
+
+func (m *Manager) write(frame Frame, sender Sender) {
+	session := m.get(frame.SessionID)
+	if session == nil {
+		sendError(sender, frame.SessionID, ErrSessionNotActive)
+		return
+	}
+
+	if err := session.pty.Write(frame.Data); err != nil {
+		sendError(sender, frame.SessionID, err)
+		m.closeSession(frame.SessionID, "remote access write failed", sender)
+	}
+}
+
+func (m *Manager) resize(frame Frame, sender Sender) {
+	session := m.get(frame.SessionID)
+	if session == nil {
+		sendError(sender, frame.SessionID, ErrSessionNotActive)
+		return
+	}
+
+	if err := session.pty.Resize(frame.Cols, frame.Rows); err != nil {
+		sendError(sender, frame.SessionID, err)
+		m.closeSession(frame.SessionID, "remote access resize failed", sender)
+	}
+}
+
+func (m *Manager) closeSession(sessionID string, reason string, sender Sender) {
+	session := m.remove(sessionID)
+	if session == nil {
+		return
+	}
+
+	session.close()
+	sendFrame(sender, Frame{
+		SessionID: sessionID,
+		FrameType: FrameTypeClose,
+		Reason:    reason,
+		Timestamp: nowUnix(),
+	})
+}
+
+func (m *Manager) readLoop(ctx context.Context, sessionID string, protocol string, current *session, sender Sender) {
+	for {
+		data, err := current.pty.Read(ctx)
+		if len(data) > 0 {
+			sendFrame(sender, Frame{
+				SessionID: sessionID,
+				Protocol:  protocol,
+				FrameType: FrameTypeData,
+				Data:      data,
+				Timestamp: nowUnix(),
+			})
+		}
+
+		if err == nil {
+			continue
+		}
+
+		if ctx.Err() != nil {
+			return
+		}
+
+		if m.removeIfSame(sessionID, current) {
+			current.close()
+			if !errors.Is(err, io.EOF) {
+				sendError(sender, sessionID, err)
+			}
+			sendFrame(sender, Frame{
+				SessionID: sessionID,
+				Protocol:  protocol,
+				FrameType: FrameTypeClose,
+				Timestamp: nowUnix(),
+			})
+		}
+
+		return
+	}
+}
+
+func (m *Manager) get(sessionID string) *session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.sessions[sessionID]
+}
+
+func (m *Manager) remove(sessionID string) *session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	session := m.sessions[sessionID]
+	delete(m.sessions, sessionID)
+
+	return session
+}
+
+func (m *Manager) removeIfSame(sessionID string, current *session) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.sessions[sessionID] != current {
+		return false
+	}
+
+	delete(m.sessions, sessionID)
+
+	return true
+}
+
+func heartbeatFrame(frame Frame) Frame {
+	return Frame{
+		SessionID: frame.SessionID,
+		Protocol:  frame.Protocol,
+		FrameType: FrameTypeHeartbeat,
+		Timestamp: nowUnix(),
+		Metadata:  frame.Metadata,
+	}
+}
+
+func sendError(sender Sender, sessionID string, err error) {
+	reason := "remote access session failed"
+	if err != nil {
+		reason = err.Error()
+	}
+
+	sendFrame(sender, Frame{
+		SessionID: sessionID,
+		FrameType: FrameTypeError,
+		Reason:    reason,
+		Timestamp: nowUnix(),
+	})
+}
+
+func sendFrame(sender Sender, frame Frame) {
+	if sender == nil {
+		return
+	}
+
+	if frame.Timestamp == 0 {
+		frame.Timestamp = nowUnix()
+	}
+
+	_ = sender.SendFrame(frame)
+}
+
+func nowUnix() int64 {
+	return time.Now().Unix()
+}
