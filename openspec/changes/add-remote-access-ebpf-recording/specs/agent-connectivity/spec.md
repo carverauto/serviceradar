@@ -36,6 +36,20 @@ Agents SHALL advertise `remote_access.bpf` only when the running binary, platfor
 - **THEN** it SHALL omit `remote_access.bpf`
 - **AND** the control plane SHALL NOT route sessions requiring eBPF enhanced recording to that agent.
 
+#### Scenario: Deployment has only raw-socket capability
+- **GIVEN** an agent deployment grants `NET_RAW` for ICMP or packet probing
+- **AND** it does not explicitly enable the BPF runtime profile with required mounts, capabilities, and runtime checks
+- **WHEN** the agent reports capabilities
+- **THEN** it SHALL omit `remote_access.bpf`
+- **AND** it SHALL report BPF as disabled rather than inferring support from raw-socket access.
+
+#### Scenario: Deployment explicitly enables BPF profile
+- **GIVEN** an agent deployment explicitly enables the BPF runtime profile
+- **AND** the binary, kernel, mounts, capabilities, and startup self-test all pass
+- **WHEN** the agent reports capabilities
+- **THEN** it MAY advertise `remote_access.bpf`
+- **AND** its capability report SHALL include enough version and status metadata for the control plane to route required-BPF sessions safely.
+
 ### Requirement: Agents clean up BPF session state
 Agents SHALL remove session-scoped BPF state when a remote-access session closes, expires, fails, or the agent shuts down.
 

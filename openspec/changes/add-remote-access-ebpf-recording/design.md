@@ -22,6 +22,7 @@ Current ServiceRadar findings:
 - The Go agent has no existing eBPF runtime package. `go/pkg/scan` uses classic socket BPF directly through `golang.org/x/sys/unix`; that should stay separate from the eBPF runtime unless later work deliberately unifies shared packet-filter helpers.
 - Dockerfiles contain historical Rust eBPF/profiler build references, but this checkout does not contain an active `rust/ebpf` source tree. New agent eBPF work should therefore start from a Go agent runtime unless another active owner revives that Rust path.
 - `MODULE.bazel` already registers an LLVM toolchain, which is useful for hermetic probe generation, but normal agent builds should not require a host LLVM installation.
+- The Helm chart's current agent security profile supports `hostNetwork` and optional `NET_RAW` for network probing, but it does not mount bpffs/cgroupfs or grant BPF-specific privileges. The legacy demo base manifest has used a privileged agent container, but the Helm path should introduce an explicit BPF profile instead of treating privileged mode as the default.
 
 ## Goals
 - Implement ServiceRadar-owned Linux eBPF enhanced recording for remote-access sessions.
@@ -150,6 +151,29 @@ All events must reuse the existing `EnhancedEvent` shape or a strictly compatibl
 
 The procfs fallback must not cause `remote_access.bpf` to be advertised.
 
+### Kubernetes and Host Operations
+The eBPF runtime should be opt-in at deployment time. `agent.allowNetRaw` is not sufficient and should not imply BPF access. Add a separate future chart value such as `agent.ebpf.enabled` with explicit security and mount choices.
+
+Minimum runtime checks before advertising BPF should include:
+
+- Linux platform and supported architecture.
+- Kernel feature checks for the selected program/link/map types.
+- Readable BTF source for CO-RE loading, usually `/sys/kernel/btf/vmlinux`.
+- bpffs availability, usually `/sys/fs/bpf`, with the chart deciding whether it is host-mounted read-write or whether the runtime uses unpinned objects only.
+- cgroup v2 or other selected session-boundary mechanism availability.
+- Sufficient process permissions/capabilities to load programs, create maps, attach links, and read ring buffers.
+- Container security context and seccomp profile compatible with the required BPF syscalls.
+
+Kubernetes deployment guidance:
+
+- Prefer least privilege over blanket `privileged: true`.
+- On modern kernels, prefer specific capabilities such as `BPF`, `PERFMON`, and any required tracing/admin capability when the container runtime and Kubernetes version support them.
+- Fall back to `SYS_ADMIN` or privileged mode only as an explicitly documented compatibility mode for older kernels or runtimes.
+- Mount `/sys/fs/bpf`, `/sys/kernel/btf`, and the selected cgroup filesystem only for agents with BPF enabled.
+- Surface disabled reasons in capability reports, for example `missing_bpffs`, `missing_btf`, `kernel_unsupported`, `permission_denied`, or `self_test_failed`.
+
+The default demo Helm values currently set `agent.hostNetwork: false` and `agent.allowNetRaw: false`; that profile should continue to omit `remote_access.bpf`. Demo or lab BPF validation should use an explicit override rather than changing the baseline demo security posture.
+
 ### Licensing
 Any source copied from Teleport v14 must have a provenance note in the introducing commit or design comment that records tag, commit, file path, header, and dependency scan. Current Teleport v15+ and `HEAD` `lib/bpf` implementation paths are AGPL and are clean-room reference only.
 
@@ -167,6 +191,7 @@ If an implementation later imports Apache-era Teleport v14 code, it must:
 - Unit tests for policy fail-closed behavior, capability checks, event normalization, redaction, and dropped-event accounting.
 - Linux integration tests behind an explicit build tag or environment variable that load probes on compatible hosts.
 - Build tests that prove checked-in generated BPF artifacts can compile into the agent without local clang, and a separate generation test that runs only in the hermetic LLVM-capable build environment.
+- Helm/render tests that prove BPF mounts and capabilities appear only when the explicit BPF profile is enabled.
 - A remote-access smoke test that starts a short-lived SSH session, executes a known command, opens a known file, attempts a known network connection, and verifies correlated events.
 - Negative smoke tests for unavailable BPF, missing permissions, incompatible kernels, and policy fallback behavior.
 - Bazel coverage for normal builds without BPF and Linux BPF-enabled builds.
