@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/config"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -298,6 +299,33 @@ func (s *Server) proxmoxConsoleCredentialsFile() string {
 		return value
 	}
 	candidate := filepath.Join(s.configDir, "proxmox-console-credentials.json")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
+}
+
+func (s *Server) remoteAccessSSHCredentialResolver() remoteaccess.SSHCredentialResolver {
+	path := s.remoteAccessSSHCredentialsFile()
+	if path == "" {
+		return nil
+	}
+	return remoteaccess.FileSSHCredentialResolver{Path: path}
+}
+
+func (s *Server) remoteAccessSSHCredentialsFile() string {
+	if s == nil {
+		return ""
+	}
+	if s.config != nil {
+		if value := strings.TrimSpace(s.config.RemoteAccessSSHCredentialsFile); value != "" {
+			return value
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("SERVICERADAR_REMOTE_ACCESS_SSH_CREDENTIALS_FILE")); value != "" {
+		return value
+	}
+	candidate := filepath.Join(s.configDir, "remote-access-ssh-credentials.json")
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate
 	}

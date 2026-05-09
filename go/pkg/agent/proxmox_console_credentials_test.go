@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestProxmoxConsoleLocalCredentialResolverMatchesBrokerGrant(t *testing.T) {
@@ -116,6 +117,51 @@ func TestServerProxmoxConsoleCredentialsFilePrecedence(t *testing.T) {
 	t.Setenv("SERVICERADAR_PROXMOX_CONSOLE_CREDENTIALS_FILE", "")
 	if got := srv.proxmoxConsoleCredentialsFile(); got != defaultPath {
 		t.Fatalf("expected default adjacent path, got %q", got)
+	}
+}
+
+func TestServerRemoteAccessSSHCredentialsFilePrecedence(t *testing.T) {
+	configDir := t.TempDir()
+	defaultPath := filepath.Join(configDir, "remote-access-ssh-credentials.json")
+	if err := os.WriteFile(defaultPath, []byte(`{"credentials":[]}`), 0o600); err != nil {
+		t.Fatalf("write default credential file: %v", err)
+	}
+
+	t.Setenv("SERVICERADAR_REMOTE_ACCESS_SSH_CREDENTIALS_FILE", "/env/remote-access-ssh-credentials.json")
+
+	srv := &Server{
+		configDir: configDir,
+		config: &ServerConfig{
+			RemoteAccessSSHCredentialsFile: "/config/remote-access-ssh-credentials.json",
+		},
+	}
+	if got := srv.remoteAccessSSHCredentialsFile(); got != "/config/remote-access-ssh-credentials.json" {
+		t.Fatalf("expected explicit config path, got %q", got)
+	}
+
+	srv.config.RemoteAccessSSHCredentialsFile = ""
+	if got := srv.remoteAccessSSHCredentialsFile(); got != "/env/remote-access-ssh-credentials.json" {
+		t.Fatalf("expected env path, got %q", got)
+	}
+
+	t.Setenv("SERVICERADAR_REMOTE_ACCESS_SSH_CREDENTIALS_FILE", "")
+	if got := srv.remoteAccessSSHCredentialsFile(); got != defaultPath {
+		t.Fatalf("expected default adjacent path, got %q", got)
+	}
+}
+
+func TestNewPushLoopConfiguresRemoteAccessSSHCredentialResolver(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote-access-ssh-credentials.json")
+	server := &Server{
+		config: &ServerConfig{
+			RemoteAccessSSHCredentialsFile: path,
+		},
+	}
+
+	loop := NewPushLoop(server, nil, time.Second, createTestLogger())
+	if loop.proxmoxConsoleManager == nil ||
+		loop.proxmoxConsoleManager.sshOptions.CredentialResolver == nil {
+		t.Fatalf("expected remote access SSH credential resolver")
 	}
 }
 

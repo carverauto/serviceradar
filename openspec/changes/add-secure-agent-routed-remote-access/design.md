@@ -192,6 +192,7 @@ Constraints:
 - The agent validates file permissions or local secret-store policy before use.
 - The platform can revoke policy by no longer granting sessions.
 - This mode is preferred for customers that will not place private keys in SaaS/control-plane storage.
+- The initial generic SSH implementation uses an optional agent-local JSON file, configured by `remote_access_ssh_credentials_file`, `SERVICERADAR_REMOTE_ACCESS_SSH_CREDENTIALS_FILE`, or the default `remote-access-ssh-credentials.json` beside the agent config. The file must be readable only by the agent user.
 
 ### User-Present Session Credential
 The operator supplies a credential at session start. This can mean a pasted password/key that is held in memory only for the session, a browser-held non-extractable key, a local helper, or a workstation SSH agent bridge.
