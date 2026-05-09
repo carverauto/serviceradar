@@ -102,7 +102,13 @@ func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing
 	frame := enhancedEventFrame(session, EnhancedEvent{
 		EventType: EnhancedEventCommand,
 		Argv:      []string{"whoami", "--password", "secret"},
-		Metadata:  map[string]string{"terminal_input": "whoami\r", "api_token": "secret-token"},
+		Metadata: map[string]string{
+			"terminal_input":  "whoami\r",
+			"api_token":       "secret-token",
+			"private_key_pem": "-----BEGIN OPENSSH PRIVATE KEY-----",
+			"file_contents":   "shadow-file-bytes",
+			"note":            "contains private key material",
+		},
 	})
 
 	var event EnhancedEvent
@@ -117,7 +123,15 @@ func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing
 		t.Fatalf("argv should be omitted by default, got %#v", event.Argv)
 	}
 	serialized := string(frame.Data)
-	for _, forbidden := range []string{"--password", "secret", "whoami\r", "secret-token"} {
+	for _, forbidden := range []string{
+		"--password",
+		"secret",
+		"whoami\r",
+		"secret-token",
+		"BEGIN OPENSSH PRIVATE KEY",
+		"shadow-file-bytes",
+		"private key material",
+	} {
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("serialized enhanced event leaked %q: %s", forbidden, serialized)
 		}

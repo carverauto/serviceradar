@@ -261,7 +261,7 @@ func redactMetadata(metadata map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(metadata))
 	for key, value := range metadata {
-		if sensitiveToken(key) {
+		if sensitiveToken(key) || sensitiveToken(value) {
 			out[key] = "REDACTED"
 		} else {
 			out[key] = value
@@ -276,6 +276,9 @@ func sensitiveToken(value string) bool {
 		strings.Contains(normalized, "passwd") ||
 		strings.Contains(normalized, "passphrase") ||
 		strings.Contains(normalized, "private_key") ||
+		strings.Contains(normalized, "private key") ||
+		strings.Contains(normalized, "file_content") ||
+		strings.Contains(normalized, "file contents") ||
 		strings.Contains(normalized, "secret") ||
 		strings.Contains(normalized, "terminal") ||
 		strings.Contains(normalized, "token")
