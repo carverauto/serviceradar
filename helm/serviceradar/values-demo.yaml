@@ -95,6 +95,8 @@ agent:
   enabled: true
   hostNetwork: false
   allowNetRaw: false
+  ebpf:
+    enabled: false
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"

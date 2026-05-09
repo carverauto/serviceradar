@@ -21,7 +21,7 @@
 - [x] 2.9 Bind collector lifecycle to remote-access session open/close/timeout paths.
 
 ## 3. Policy and Capabilities
-- [ ] 3.1 Add explicit agent BPF deployment/profile configuration and keep `NET_RAW` separate from BPF enablement.
+- [x] 3.1 Add explicit agent BPF deployment/profile configuration and keep `NET_RAW` separate from BPF enablement.
 - [ ] 3.2 Make `remote_access.bpf` advertise only after build, kernel, permission, mount, and startup self-test checks pass.
 - [ ] 3.3 Preserve fail-closed behavior when policy requires BPF and the collector cannot start.
 - [ ] 3.4 Preserve explicit procfs fallback behavior only when policy allows fallback.
