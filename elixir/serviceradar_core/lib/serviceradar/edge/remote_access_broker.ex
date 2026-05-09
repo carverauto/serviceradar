@@ -18,7 +18,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @callback close(pid(), term()) :: :ok
 
   @default_protocol "ssh"
-  @default_credential_mode "agent_local"
+  @default_credential_mode "user_present"
   @default_terminal_type "xterm-256color"
   @default_ssh_host_key_policy "skip_verify"
 
@@ -139,7 +139,6 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       target: target,
       ssh: ssh,
       credential_mode: string_option(session, opts, "credential_mode", @default_credential_mode),
-      credential_ref: credential_ref(session, opts_metadata, session_metadata),
       terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
       timeout_ms: int_option(session, opts, "timeout_ms"),
       ssh_host_key_policy:
@@ -183,13 +182,6 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   defp normalize_ssh_auth(_auth), do: %{}
-
-  defp credential_ref(session, opts_metadata, session_metadata) do
-    string_value(opts_metadata, "credential_ref") ||
-      string_value(session_metadata, "credential_ref") ||
-      string_value(session, "credential_ref") ||
-      string_value(session, "credential_rule_id")
-  end
 
   defp string_option(session, opts, key, default) do
     opts

@@ -8,7 +8,7 @@ The current Proxmox console work proves the route, but the console/xterm substra
 ## What Changes
 - Define a generic remote-access session model routed from browser to web-ng to agent-gateway to selected agent to target.
 - Support protocol adapters for SSH first, Proxmox/vSphere console targets as consumers, RDP later, and deferred OT/industrial protocol adapters such as CEA-852/CN-IP for LonTalk networks.
-- Define credential custody modes: centrally brokered secret refs, agent-local credentials, user-present session credentials, and future short-lived SSH certificates/FIDO2 signing.
+- Define credential custody modes: short-lived SSH certificates as the enterprise default, user-present session credentials as a transitional fallback, and tightly scoped centrally brokered secrets only for explicit break-glass or non-SSH-device cases.
 - Add RBAC, approval, audit, network scope, session lifecycle, optional recording/redaction, and enhanced host-event tracing requirements.
 - Inventory Teleport functionality and reuse verified Apache-2.0 Go code wherever its full transitive dependency path is license-clean.
 - Build clean-room ServiceRadar implementations for Teleport-equivalent features whose implementation source is AGPL or otherwise unsuitable for import, including BPF/enhanced recording if no importable path is cleared.

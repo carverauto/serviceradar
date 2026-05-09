@@ -118,9 +118,6 @@ type ServerConfig struct {
 
 	// Optional agent-local credential file for Proxmox console SSH sessions.
 	ProxmoxConsoleCredentialsFile string `json:"proxmox_console_credentials_file,omitempty"`
-
-	// Optional agent-local credential file for generic remote-access SSH sessions.
-	RemoteAccessSSHCredentialsFile string `json:"remote_access_ssh_credentials_file,omitempty"`
 }
 
 // ServiceError represents an error that occurred in a specific service.

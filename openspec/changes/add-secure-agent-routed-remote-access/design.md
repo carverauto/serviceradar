@@ -50,7 +50,7 @@ The first implementation should be narrow, but the architecture must preserve th
 - Session recording and replay: lifecycle audit first, optional byte recording later, replay metadata, recording retention, redaction boundaries, and sensitive-data classification.
 - Enhanced host telemetry: command execution, file open/access, and network connection events correlated to a remote-access session. Linux BPF support should be clean-room unless a fully importable Teleport path is cleared.
 - Access governance: RBAC, approvals, access requests, break-glass policy, per-target/per-agent scope, credential custody policy, and reauthorization on attach/resume.
-- Identity and credentials: user-present credentials, agent-local secrets, centrally brokered secrets, short-lived SSH certificates, future hardware-backed signing, and audit correlation.
+- Identity and credentials: short-lived SSH certificates, user-present credentials, tightly scoped centrally brokered break-glass secrets, future hardware-backed signing, and audit correlation.
 - Protocol adapters: SSH first, Proxmox/vSphere provider consoles, app/database/Kubernetes-style TCP/HTTP proxying later, and graphical desktop/RDP-style adapters later.
 - Agent inventory and presence: enrolled agents advertise capabilities such as `remote_access`, `remote_access.ssh`, `remote_access.recording`, and `remote_access.bpf` so the control plane can route only to compatible agents.
 
@@ -131,7 +131,7 @@ The current Proxmox console path already proves the key routing shape, but its n
 - `go/pkg/agent/proxmox_console.go` contains the reusable PTY session manager pattern: per-session open/write/resize/close handling, read loop, and frame emission back through the control stream.
 - `go/pkg/agent/proxmox_console_plugin.go` adapts Proxmox console open payloads into streaming Wasm plugin execution and exposes the bridge used by the plugin host functions.
 - `go/pkg/agent/proxmox_console_ssh.go` is a concrete SSH PTY implementation using `golang.org/x/crypto/ssh`. Generic inventory SSH should extract this shape without inheriting the Proxmox credential assumptions.
-- `go/pkg/agent/proxmox_console_credentials.go` implements an agent-local credential file with permission checks. This is directly reusable for the agent-local custody mode after renaming and generalizing the grant match fields.
+- `go/pkg/agent/proxmox_console_credentials.go` implements a legacy Proxmox-specific local credential file with permission checks. Do not generalize this into generic SSH remote access; generic enterprise SSH should use short-lived certificates.
 - `proto/camera_media.proto`, `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/camera_media_session_tracker.ex`, and `camera_media_server.ex` provide a separate session-ownership example where an agent ID is bound to relay sessions before heartbeats/chunks/closes are accepted.
 - `elixir/serviceradar_core/lib/serviceradar/credentials/network_credential_rule.ex`, `network_credential_secret.ex`, and `plugins/secret_refs.ex` provide central encrypted credential storage and plugin secret-reference resolution. Generic SSH must treat this as optional centrally brokered custody, not the default.
 
@@ -175,6 +175,27 @@ Local checkout findings:
 
 Practical rule: treat Teleport v14.x as the likely Apache-2.0 source baseline, but verify each file and dependency path before copying or vendoring. Treat Teleport v15+ and current `master` server/BPF implementation paths as AGPL unless a specific file/package scan proves otherwise.
 
+## Teleport v14 SSH CA Architecture Findings
+The local Teleport `v14.4.0` tag has an Apache-2.0 repository license and is useful as an architectural baseline for certificate-based OpenSSH access. These findings are design constraints for ServiceRadar; they are not permission to copy later AGPL implementation code.
+
+Key architecture patterns to preserve:
+- Teleport separates the Auth/CA service from the Proxy path. The proxy checks roles and asks Auth to sign a dynamically generated OpenSSH certificate; the target OpenSSH server trusts the CA public key through `TrustedUserCAKeys`.
+- The signing request is built around a public key, user identity, role set, trait-expanded principals, target/cluster routing, and a requested TTL. The private key is not a stored target credential.
+- TTL is not user-controlled. It is defaulted or bounded by auth preference, the active user session, and role/session maximums.
+- Unix login principals are derived from roles after IdP traits are applied, then filtered by session TTL and deny/allow policy.
+- Cert issuance is gated by the caller's authority. Teleport's role wrapper allows the OpenSSH cert issuance path only for trusted proxy roles, while normal user cert issuance protects against recursive impersonation and indefinite self-renewal.
+- MFA, device trust, access requests, locks, and active approvals can become part of the certificate issuance decision before the target connection opens.
+- OpenSSH agentless access requires targets to be registered as resources with an address/hostname/labels, so RBAC and audit are applied to a known target instead of arbitrary browser-supplied hostnames.
+- Audit and recording are preserved by routing the target connection through the proxy path. Direct user bypass is limited because the signing CA is held by Auth, not by arbitrary clients.
+
+ServiceRadar should adapt those patterns as follows:
+- Core or a dedicated remote-access CA service owns SSH CA key material. web-ng, agent-gateway, and edge agents MUST NOT hold the CA private key.
+- The browser or a local helper generates or exposes a per-session public key. ServiceRadar signs only that public key after Authentik/SSO identity, ServiceRadar RBAC, approval, target route, and TTL checks.
+- The selected agent receives a session-scoped SSH credential envelope only after the session grant is bound to one actor, target, selected agent, protocol, principal set, and TTL.
+- Generic SSH certificate issuance must be non-renewable from the session credential. A certificate issued for a remote-access session MUST NOT be usable to ask ServiceRadar for another certificate.
+- OpenSSH targets should be represented as inventory/remote-access resources with labels, reachable address, host key policy, allowed agents, and allowed principals. Free-form host/port entry may exist only behind explicit policy.
+- Audit events should include actor, IdP subject, sanitized IdP groups/traits, selected principals, target, selected agent, certificate serial/key ID/fingerprint, CA key ID, TTL, approval/MFA context, and final outcome. They must not include private key bytes, passphrases, or terminal input.
+
 ## Credential Custody Modes
 ### Centrally Brokered Secret
 The control plane stores an encrypted credential and grants a short-lived, scoped broker reference to the selected agent. This is acceptable for low-scope API tokens, break-glass credentials with strict approval, or customers that explicitly choose central storage.
@@ -184,15 +205,6 @@ Constraints:
 - Grants are scoped to one agent, one target, one protocol, one session, and a short TTL.
 - The browser never receives plaintext.
 - Audit records include credential rule ID but not secret material.
-
-### Agent-Local Credential
-The control plane stores only a credential reference and policy metadata. The actual SSH key or password lives on the agent host or in an agent-local secret store.
-
-Constraints:
-- The agent validates file permissions or local secret-store policy before use.
-- The platform can revoke policy by no longer granting sessions.
-- This mode is preferred for customers that will not place private keys in SaaS/control-plane storage.
-- The initial generic SSH implementation uses an optional agent-local JSON file, configured by `remote_access_ssh_credentials_file`, `SERVICERADAR_REMOTE_ACCESS_SSH_CREDENTIALS_FILE`, or the default `remote-access-ssh-credentials.json` beside the agent config. The file must be readable only by the agent user.
 
 ### User-Present Session Credential
 The operator supplies a credential at session start. This can mean a pasted password/key that is held in memory only for the session, a browser-held non-extractable key, a local helper, or a workstation SSH agent bridge.
@@ -217,7 +229,14 @@ Enterprise target model:
 - The preferred enterprise model is SSO/LDAP-authenticated ServiceRadar users mapped by RBAC to allowed SSH principals, then issued short-lived SSH certificates by a ServiceRadar remote-access CA.
 - Linux targets can either run a ServiceRadar/Teleport-like node component or configure OpenSSH to trust the ServiceRadar user CA with `TrustedUserCAKeys`.
 - LDAP/PAM can remain the host account/session authority, but ServiceRadar should avoid pass-through storage of LDAP passwords. The SSO/LDAP login proves user identity; the short-lived SSH certificate is the per-session access credential.
-- Agent-local and user-present credentials remain brownfield, break-glass, or non-SSH-device compatibility modes, not the default enterprise posture.
+- User-present credentials remain a transitional or emergency fallback, not the default enterprise posture. Agent-local reusable SSH secrets are explicitly out of scope for generic remote access because they recreate the bastion-key anti-pattern.
+
+Authentik validation path:
+- Use the internal Kubernetes Authentik deployment as the IdP for the first enterprise proof.
+- Authentik provides OIDC/SAML login, MFA, groups, username, email, and policy traits. It is not expected to issue OpenSSH certificates.
+- ServiceRadar owns the SSH CA role: map Authentik claims and ServiceRadar RBAC to allowed SSH principals, generate or accept a session public key, and sign a short-lived OpenSSH user certificate.
+- A test Linux target trusts the ServiceRadar user CA through OpenSSH `TrustedUserCAKeys`; PAM/LDAP may still manage local account/session policy.
+- The validation should prove that no reusable target password, shared bastion account, or long-lived target private key is stored in web-ng, core, agent-gateway, or the database.
 
 ## Protocol Adapters
 Protocol adapters run on the selected agent.
@@ -235,7 +254,7 @@ The platform channel carries framed data/control messages: open, data, resize, h
 ## Proxmox Console vs Generic SSH
 Proxmox console support must not be modeled as generic SSH key custody. PVE node shells, LXC consoles, and VM noVNC/SPICE-style consoles are requested through the Proxmox API and returned as temporary tickets, ports, or proxy endpoints. The agent-side provider adapter should use the same scoped Proxmox API credential that inventory enrichment uses, request a short-lived console ticket, and proxy the resulting console stream through the generic remote-access tunnel. No SSH private key is required for that path.
 
-Generic inventory device SSH is different. For a first SSH implementation, the operator should provide a key or password per session from the browser, or the selected agent should use an agent-local bastion key that the customer manages on the agent host. The control plane may store public key fingerprints, credential rule metadata, and audit references, but it should not store broad private SSH keys by default.
+Generic inventory device SSH is different. For early compatibility, the operator may provide a key, certificate, signing capability, or password per session from the browser or a local helper. The target enterprise path is ServiceRadar-issued short-lived SSH certificates backed by SSO/LDAP identity and RBAC. The selected agent MUST NOT use a reusable agent-local bastion key for generic SSH access.
 
 The SSH adapter must:
 - Accept private key bytes and passphrases only inside a session-open frame or a one-time session credential grant.
@@ -267,8 +286,9 @@ Safer options are:
 1. Keep the existing Proxmox console path working.
 2. Introduce generic remote-access session/resource names and compatibility wrappers for Proxmox-specific routes.
 3. Move xterm/webpty React components behind a generic remote-console component.
-4. Add agent-side SSH adapter using agent-local and user-present credential modes before encouraging centrally stored SSH keys.
-5. Add provider console adapters as target metadata emitters from hypervisor enrichment.
-6. Add RDP only after the protocol/renderer split is proven.
-7. Add CEA-852/CN-IP support only after we have a test strategy using real equipment, partner-provided captures, or an accepted simulator.
-8. Start CEA-852 with passive capture parsing or safe diagnostics only; defer active control paths until we can prove safety against real devices.
+4. Add agent-side SSH adapter using user-present credentials as a transitional fallback; do not add generic agent-local reusable SSH secrets.
+5. Add short-lived SSH certificate issuance using Authentik-derived identity claims and a ServiceRadar-managed user CA.
+6. Add provider console adapters as target metadata emitters from hypervisor enrichment.
+7. Add RDP only after the protocol/renderer split is proven.
+8. Add CEA-852/CN-IP support only after we have a test strategy using real equipment, partner-provided captures, or an accepted simulator.
+9. Start CEA-852 with passive capture parsing or safe diagnostics only; defer active control paths until we can prove safety against real devices.

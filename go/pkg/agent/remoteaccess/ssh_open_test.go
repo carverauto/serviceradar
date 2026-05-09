@@ -39,14 +39,14 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 		SSHHostKeyPolicy: "skip_verify",
 	})
 
-	cfg, err := SSHConfigFromOpenFrame(context.Background(), Frame{
+	cfg, err := SSHConfigFromOpenFrame(Frame{
 		SessionID: "session-1",
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data:      payload,
 		Cols:      132,
 		Rows:      43,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("SSHConfigFromOpenFrame returned error: %v", err)
 	}
@@ -68,61 +68,21 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	}
 }
 
-func TestSSHConfigFromOpenFrameResolvesAgentLocalCredential(t *testing.T) {
-	t.Parallel()
-
-	resolver := &fakeSSHCredentialResolver{
-		auth: SSHAuth{
-			Username:   "from-resolver",
-			PrivateKey: "agent-local-key",
-		},
-	}
-	payload := mustSSHOpenPayload(t, SSHOpenPayload{
-		Target:         SSHTarget{Host: "switch.example"},
-		SSH:            SSHAuth{Username: "operator-selected-user"},
-		CredentialMode: SSHCredentialModeAgentLocal,
-		CredentialRef:  "ssh/router-admin",
-	})
-
-	cfg, err := SSHConfigFromOpenFrame(context.Background(), Frame{
-		SessionID: "session-1",
-		Protocol:  ProtocolSSH,
-		Data:      payload,
-	}, resolver)
-	if err != nil {
-		t.Fatalf("SSHConfigFromOpenFrame returned error: %v", err)
-	}
-
-	if cfg.Auth.Username != "operator-selected-user" {
-		t.Fatalf("username = %q", cfg.Auth.Username)
-	}
-	if cfg.Auth.PrivateKey != "agent-local-key" {
-		t.Fatalf("private key = %q", cfg.Auth.PrivateKey)
-	}
-	if resolver.request.SessionID != "session-1" ||
-		resolver.request.CredentialRef != "ssh/router-admin" ||
-		resolver.request.Target.Host != "switch.example" ||
-		resolver.request.Username != "operator-selected-user" {
-		t.Fatalf("resolver request = %#v", resolver.request)
-	}
-}
-
-func TestSSHConfigFromOpenFrameRejectsAgentLocalWithoutResolver(t *testing.T) {
+func TestSSHConfigFromOpenFrameRejectsAgentLocalCredentialMode(t *testing.T) {
 	t.Parallel()
 
 	payload := mustSSHOpenPayload(t, SSHOpenPayload{
 		Target:         SSHTarget{Host: "switch.example"},
-		CredentialMode: SSHCredentialModeAgentLocal,
-		CredentialRef:  "ssh/router-admin",
+		CredentialMode: "agent_local",
 	})
 
-	_, err := SSHConfigFromOpenFrame(context.Background(), Frame{
+	_, err := SSHConfigFromOpenFrame(Frame{
 		SessionID: "session-1",
 		Protocol:  ProtocolSSH,
 		Data:      payload,
-	}, nil)
-	if !errors.Is(err, ErrSSHCredentialResolverMissing) {
-		t.Fatalf("error = %v, want %v", err, ErrSSHCredentialResolverMissing)
+	})
+	if !errors.Is(err, ErrUnsupportedSSHCredentialMode) {
+		t.Fatalf("error = %v, want %v", err, ErrUnsupportedSSHCredentialMode)
 	}
 }
 
@@ -134,20 +94,20 @@ func TestSSHConfigFromOpenFrameRejectsInvalidModeAndProtocol(t *testing.T) {
 		CredentialMode: "central",
 	})
 
-	_, err := SSHConfigFromOpenFrame(context.Background(), Frame{
+	_, err := SSHConfigFromOpenFrame(Frame{
 		SessionID: "session-1",
 		Protocol:  ProtocolSSH,
 		Data:      payload,
-	}, nil)
+	})
 	if !errors.Is(err, ErrUnsupportedSSHCredentialMode) {
 		t.Fatalf("mode error = %v, want %v", err, ErrUnsupportedSSHCredentialMode)
 	}
 
-	_, err = SSHConfigFromOpenFrame(context.Background(), Frame{
+	_, err = SSHConfigFromOpenFrame(Frame{
 		SessionID: "session-1",
 		Protocol:  "rdp",
 		Data:      payload,
-	}, nil)
+	})
 	if !errors.Is(err, ErrUnsupportedSSHProtocol) {
 		t.Fatalf("protocol error = %v, want %v", err, ErrUnsupportedSSHProtocol)
 	}
@@ -200,17 +160,4 @@ func mustSSHOpenPayload(t *testing.T, payload SSHOpenPayload) []byte {
 	}
 
 	return data
-}
-
-type fakeSSHCredentialResolver struct {
-	auth    SSHAuth
-	request SSHCredentialRequest
-}
-
-func (f *fakeSSHCredentialResolver) ResolveSSHCredential(
-	_ context.Context,
-	request SSHCredentialRequest,
-) (SSHAuth, error) {
-	f.request = request
-	return f.auth, nil
 }

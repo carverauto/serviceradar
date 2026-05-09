@@ -40,9 +40,9 @@ The remote-access tunnel SHALL separate session lifecycle and routing from proto
 - **THEN** both SHALL use the same RBAC, audit, TTL, gateway routing, and agent ownership model
 - **AND** only protocol adapter and browser renderer behavior SHALL differ.
 
-#### Scenario: Generic SSH uses session-present or agent-local credentials
+#### Scenario: Generic SSH uses session-present credentials before certificate issuance is available
 - **GIVEN** an operator opens an SSH terminal for a general inventory device
-- **WHEN** no approved agent-local credential exists for that device
+- **WHEN** short-lived certificate issuance is not yet available for that target
 - **THEN** the browser SHALL collect the private key or password for that session only
 - **AND** the platform SHALL forward it through the remote-access tunnel without persisting it in core, gateway, database, object storage, or plugin configuration
 - **AND** the agent SHALL discard the credential when the session ends.
@@ -78,6 +78,24 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **WHEN** operators use a remote shell
 - **THEN** terminal byte contents SHALL NOT be persisted
 - **AND** lifecycle audit events SHALL still be recorded.
+
+### Requirement: Generic SSH uses certificate-first enterprise identity
+Generic SSH remote access SHALL support an enterprise certificate flow where ServiceRadar exchanges an authenticated SSO identity and ServiceRadar RBAC decision for a short-lived OpenSSH user certificate.
+
+#### Scenario: Authentik-backed user opens SSH session
+- **GIVEN** an operator authenticated through Authentik with OIDC or SAML claims
+- **AND** ServiceRadar RBAC maps those claims to allowed SSH principals for a registered target
+- **AND** the target trusts the ServiceRadar SSH user CA through OpenSSH `TrustedUserCAKeys`
+- **WHEN** the operator opens an SSH remote-access session
+- **THEN** ServiceRadar SHALL sign a per-session public key with a TTL bounded by session and role policy
+- **AND** the certificate SHALL be scoped to the actor, principal set, target, selected agent, protocol, and session
+- **AND** no shared bastion account, reusable target password, generic agent-local target private key, or LDAP password pass-through secret SHALL be required.
+
+#### Scenario: Certificate issuance is denied before target dial
+- **GIVEN** the requested principal, target, agent route, approval, MFA state, or TTL violates policy
+- **WHEN** the operator attempts to open an SSH session
+- **THEN** ServiceRadar SHALL deny certificate issuance before the selected agent dials the target
+- **AND** the denial SHALL be audited without exposing credential material.
 
 ### Requirement: Enhanced host-event tracing
 The system SHALL support policy-controlled enhanced tracing for remote-access sessions on capable Linux agents.

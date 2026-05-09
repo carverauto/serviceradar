@@ -29,12 +29,6 @@ Agents SHALL enforce signed or otherwise authenticated session grants that const
 ### Requirement: Credential custody modes for remote access
 Agents SHALL support remote-access credentials supplied through explicit custody modes and SHALL fail closed when the required custody mode is unavailable.
 
-#### Scenario: Agent-local SSH key is used
-- **GIVEN** a credential rule references an agent-local SSH key
-- **WHEN** the agent opens an SSH session
-- **THEN** the agent SHALL load the key from its local configured path or secret store
-- **AND** the control plane SHALL NOT need the private key material.
-
 #### Scenario: User-present credential is not persisted
 - **GIVEN** an operator supplies a password, key, or signing capability for one session
 - **WHEN** the session ends or expires
@@ -42,7 +36,14 @@ Agents SHALL support remote-access credentials supplied through explicit custody
 - **AND** it SHALL NOT be written to the database or agent config.
 
 #### Scenario: Central credential grant is tightly scoped
-- **GIVEN** a centrally stored remote-access credential is allowed by policy
+- **GIVEN** a centrally stored remote-access credential is explicitly allowed by break-glass or non-SSH-device policy
 - **WHEN** the credential broker issues a grant
 - **THEN** the grant SHALL be scoped to one session, one agent, one target, one protocol, and a short TTL
 - **AND** the browser SHALL NOT receive plaintext secret material.
+
+#### Scenario: SSO identity is exchanged for a short-lived SSH certificate
+- **GIVEN** an operator authenticated to ServiceRadar through an OIDC/SAML identity provider such as Authentik
+- **AND** ServiceRadar RBAC allows the operator to assume one or more SSH principals on a target
+- **WHEN** the operator opens a generic SSH remote-access session
+- **THEN** ServiceRadar SHALL be able to issue a short-lived OpenSSH user certificate scoped to that actor, target, principal set, and session
+- **AND** the selected agent SHALL use the certificate for SSH authentication without storing a reusable target password or shared bastion private key.

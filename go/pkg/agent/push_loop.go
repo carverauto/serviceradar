@@ -36,7 +36,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -318,9 +317,6 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
 	proxmoxConsoleManager := newProxmoxConsoleManager(log)
-	proxmoxConsoleManager.sshOptions = remoteaccess.SSHOpenOptions{
-		CredentialResolver: server.remoteAccessSSHCredentialResolver(),
-	}
 	proxmoxConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {

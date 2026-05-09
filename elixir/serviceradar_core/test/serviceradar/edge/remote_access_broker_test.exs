@@ -46,8 +46,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
              "session_id" => "session-1",
              "agent_id" => "agent-1",
              "gateway_id" => "gateway-1",
-             "credential_mode" => "agent_local",
-             "credential_ref" => "ssh/root@host-1",
+             "credential_mode" => "user_present",
              "ssh_host_key_policy" => "skip_verify",
              "target" => %{"host" => "10.0.0.10", "port" => 22},
              "ssh" => %{"username" => "root"}
@@ -94,7 +93,6 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       metadata: %{
-        "credential_ref" => "ssh/root@host-1",
         "target" => %{"host" => "10.0.0.10", "port" => 22},
         "ssh" => %{"username" => "root"}
       }
