@@ -18,6 +18,7 @@ package remoteaccess
 
 import (
 	"encoding/json"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -220,5 +221,68 @@ func TestNormalizeBPFFileEvent(t *testing.T) {
 	redacted := normalizeEnhancedEvent(session, event)
 	if redacted.FilePath != "" {
 		t.Fatalf("file path should be redacted, got %q", redacted.FilePath)
+	}
+}
+
+func TestNormalizeBPFNetworkEvent(t *testing.T) {
+	t.Parallel()
+
+	raw := probes.NetworkEvent{
+		TimestampNS: 11111,
+		PID:         6262,
+		TID:         6263,
+		UID:         3000,
+		GID:         3001,
+		Family:      probes.AddressFamilyIPv4,
+		AddrLen:     16,
+		DestPort:    [2]byte{0x01, 0xbb},
+	}
+	copy(raw.DestAddr[:], []byte{192, 0, 2, 10})
+
+	observedAt := time.Unix(1700000002, 7)
+	event := normalizeBPFNetworkEvent(raw, observedAt)
+
+	if event.EventType != EnhancedEventNetwork {
+		t.Fatalf("event type = %q", event.EventType)
+	}
+	if event.TimestampUnixNano != observedAt.UnixNano() {
+		t.Fatalf("timestamp = %d, want %d", event.TimestampUnixNano, observedAt.UnixNano())
+	}
+	if event.PID != 6262 || event.UID != 3000 || event.GID != 3001 {
+		t.Fatalf("identity = %#v", event)
+	}
+	if event.NetworkProtocol != "connect" || event.DestinationAddress != "192.0.2.10" ||
+		event.DestinationPort != 443 {
+		t.Fatalf("network event = %#v", event)
+	}
+	if event.Metadata["source"] != "linux_ebpf" || event.Metadata["probe"] != "network_connect" ||
+		event.Metadata["kernel_timestamp_ns"] != "11111" || event.Metadata["tid"] != "6263" ||
+		event.Metadata["family"] != "2" || event.Metadata["addr_len"] != "16" ||
+		event.Metadata["syscall"] != "connect" {
+		t.Fatalf("metadata = %#v", event.Metadata)
+	}
+
+	session := EnhancedRecordingSession{
+		SessionID: "session-1",
+		Protocol:  ProtocolSSH,
+		Policy: EnhancedRecordingPolicy{
+			IncludeNetworkAddresses: false,
+		},
+	}
+	redacted := normalizeEnhancedEvent(session, event)
+	if redacted.DestinationAddress != "" || redacted.DestinationPort != 0 {
+		t.Fatalf("network destination should be redacted, got %#v", redacted)
+	}
+}
+
+func TestBPFNetworkAddressIPv6(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddr("2001:db8::1").As16()
+	raw := probes.NetworkEvent{Family: probes.AddressFamilyIPv6}
+	copy(raw.DestAddr[:], addr[:])
+
+	if got := bpfNetworkAddress(raw); got != "2001:db8::1" {
+		t.Fatalf("IPv6 address = %q", got)
 	}
 }

@@ -18,6 +18,8 @@ package remoteaccess
 
 import (
 	"bytes"
+	"encoding/binary"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -28,6 +30,7 @@ const (
 	enhancedSourceLinuxEBPF  = "linux_ebpf"
 	enhancedBPFProbeCommand  = "command_execve"
 	enhancedBPFProbeFile     = "file_open_access"
+	enhancedBPFProbeNetwork  = "network_connect"
 	enhancedBPFCollectorName = "serviceradar_agent_ebpf"
 )
 
@@ -101,6 +104,36 @@ func normalizeBPFFileEvent(raw probes.FileEvent, observedAt time.Time) EnhancedE
 	}
 }
 
+func normalizeBPFNetworkEvent(raw probes.NetworkEvent, observedAt time.Time) EnhancedEvent {
+	result := "ok"
+	if raw.Result != 0 {
+		result = strconv.Itoa(int(raw.Result))
+	}
+
+	return EnhancedEvent{
+		EventType:          EnhancedEventNetwork,
+		TimestampUnixNano:  observedAt.UnixNano(),
+		PID:                int(raw.PID),
+		UID:                int(raw.UID),
+		GID:                int(raw.GID),
+		NetworkProtocol:    "connect",
+		DestinationAddress: bpfNetworkAddress(raw),
+		DestinationPort:    int(binary.BigEndian.Uint16(raw.DestPort[:])),
+		Result:             result,
+		Metadata: map[string]string{
+			"source":              enhancedSourceLinuxEBPF,
+			"bpf":                 "true",
+			"collector":           enhancedBPFCollectorName,
+			"probe":               enhancedBPFProbeNetwork,
+			"kernel_timestamp_ns": strconv.FormatUint(raw.TimestampNS, 10),
+			"tid":                 strconv.FormatUint(uint64(raw.TID), 10),
+			"family":              strconv.FormatUint(uint64(raw.Family), 10),
+			"addr_len":            strconv.FormatUint(uint64(raw.AddrLen), 10),
+			"syscall":             "connect",
+		},
+	}
+}
+
 func bpfFileOperation(operation uint32) string {
 	switch operation {
 	case probes.FileOperationOpen:
@@ -109,6 +142,25 @@ func bpfFileOperation(operation uint32) string {
 		return "access"
 	default:
 		return "unknown"
+	}
+}
+
+func bpfNetworkAddress(raw probes.NetworkEvent) string {
+	switch raw.Family {
+	case probes.AddressFamilyIPv4:
+		var addr [4]byte
+
+		copy(addr[:], raw.DestAddr[:4])
+
+		return netip.AddrFrom4(addr).String()
+	case probes.AddressFamilyIPv6:
+		var addr [16]byte
+
+		copy(addr[:], raw.DestAddr[:])
+
+		return netip.AddrFrom16(addr).String()
+	default:
+		return ""
 	}
 }
 

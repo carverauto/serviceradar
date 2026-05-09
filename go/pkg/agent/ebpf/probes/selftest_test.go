@@ -61,3 +61,18 @@ func TestLoadFileSpec(t *testing.T) {
 		t.Fatalf("file events map %q missing from spec", FileEventsMap)
 	}
 }
+
+func TestLoadNetworkSpec(t *testing.T) {
+	t.Parallel()
+
+	spec, err := LoadNetworkSpec()
+	if err != nil {
+		t.Fatalf("LoadNetworkSpec() error = %v", err)
+	}
+	if spec.Programs[NetworkConnectProgramName] == nil {
+		t.Fatalf("network program %q missing from spec", NetworkConnectProgramName)
+	}
+	if spec.Maps[NetworkEventsMap] == nil {
+		t.Fatalf("network events map %q missing from spec", NetworkEventsMap)
+	}
+}

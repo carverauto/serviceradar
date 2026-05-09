@@ -77,9 +77,20 @@ generate() {
       -no-global-types \
       -cflags '-O2 -g -Wall -Werror' \
       file "${probe_src_dir}/file.bpf.c"
+  GOPACKAGE=probes \
+    BPF2GO_CC="${clang}" \
+    BPF2GO_STRIP="${strip}" \
+    go run "github.com/cilium/ebpf/cmd/bpf2go@${bpf2go_version}" \
+      -go-package probes \
+      -output-dir "${out_dir}" \
+      -target bpfel,bpfeb \
+      -no-global-types \
+      -cflags '-O2 -g -Wall -Werror' \
+      network "${probe_src_dir}/network.bpf.c"
   gofmt -w "${out_dir}"/selftest_bpf*.go
   gofmt -w "${out_dir}"/command_bpf*.go
   gofmt -w "${out_dir}"/file_bpf*.go
+  gofmt -w "${out_dir}"/network_bpf*.go
 }
 
 if [[ "${check}" -eq 1 ]]; then
@@ -92,12 +103,16 @@ if [[ "${check}" -eq 1 ]]; then
   diff -u "${probe_dir}/command_bpfeb.go" "${tmp_dir}/command_bpfeb.go"
   diff -u "${probe_dir}/file_bpfel.go" "${tmp_dir}/file_bpfel.go"
   diff -u "${probe_dir}/file_bpfeb.go" "${tmp_dir}/file_bpfeb.go"
+  diff -u "${probe_dir}/network_bpfel.go" "${tmp_dir}/network_bpfel.go"
+  diff -u "${probe_dir}/network_bpfeb.go" "${tmp_dir}/network_bpfeb.go"
   cmp "${probe_dir}/selftest_bpfel.o" "${tmp_dir}/selftest_bpfel.o"
   cmp "${probe_dir}/selftest_bpfeb.o" "${tmp_dir}/selftest_bpfeb.o"
   cmp "${probe_dir}/command_bpfel.o" "${tmp_dir}/command_bpfel.o"
   cmp "${probe_dir}/command_bpfeb.o" "${tmp_dir}/command_bpfeb.o"
   cmp "${probe_dir}/file_bpfel.o" "${tmp_dir}/file_bpfel.o"
   cmp "${probe_dir}/file_bpfeb.o" "${tmp_dir}/file_bpfeb.o"
+  cmp "${probe_dir}/network_bpfel.o" "${tmp_dir}/network_bpfel.o"
+  cmp "${probe_dir}/network_bpfeb.o" "${tmp_dir}/network_bpfeb.o"
 else
   generate "${probe_dir}"
 fi

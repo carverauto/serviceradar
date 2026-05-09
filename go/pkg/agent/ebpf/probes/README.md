@@ -10,6 +10,7 @@ Current probe groups:
 - `selftest`: minimal load/attach validation program.
 - `command`: execve command observation event contract.
 - `file`: open/access observation event contract.
+- `network`: connect syscall observation event contract.
 
 Regenerate artifacts after editing `src/*.bpf.c`:
 
