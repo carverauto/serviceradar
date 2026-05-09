@@ -103,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:availability, nil)
      |> assign(:healthcheck_summary, nil)
      |> assign(:virtualization_summary, nil)
+     |> assign(:has_virtualization_guests, false)
      |> assign(:sweep_results, nil)
      |> assign(:process_metrics, nil)
      |> assign(:limit, @default_limit)
@@ -150,6 +151,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_facets, %{protocols: [], directions: [], services: []})
      |> assign(:flow_stats_request_ref, nil)
      |> assign(:flow_ip_request_ref, nil)
+     |> assign(:device_metrics_request_ref, nil)
+     |> assign(:metrics_loading, false)
      |> assign(:flow_active_facets, %{})
      |> assign(:flow_active_topn, nil)
      |> assign(:flow_zoom_range, nil)
@@ -294,6 +297,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_info({:device_metrics_loaded, device_uid, request_ref, assigns}, socket) do
+    current_ref = Map.get(socket.assigns, :device_metrics_request_ref)
+
+    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+      {:noreply,
+       socket
+       |> assign(assigns)
+       |> assign(:metrics_loading, false)
+       |> assign(:device_metrics_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:command_result, _result}, socket), do: {:noreply, socket}
   def handle_info({:command_ack, _ack}, socket), do: {:noreply, socket}
   def handle_info({:command_progress, _progress}, socket), do: {:noreply, socket}
@@ -386,8 +403,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_refresh_current_device(socket, _uid), do: {:noreply, socket}
 
+  defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
+    request_ref = make_ref()
+    parent = self()
+
+    Task.start(fn ->
+      sysmon_filters = resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+
+      assigns = %{
+        metric_sections: load_metric_sections(srql_module, sysmon_filters, scope),
+        process_metrics: load_process_metrics(srql_module, sysmon_filters, scope),
+        sysmon_presence: sysmon_filters != []
+      }
+
+      send(parent, {:device_metrics_loaded, uid, request_ref, assigns})
+    end)
+
+    socket
+    |> assign(:device_metrics_request_ref, request_ref)
+    |> assign(:metrics_loading, true)
+  end
+
   defp normalize_requested_tab(url_tab, fallback_tab) do
-    if url_tab in ["details", "interfaces", "flows", "logs", "profiles", "sysmon", "mtr"],
+    if url_tab in ["details", "interfaces", "flows", "logs", "profiles", "sysmon", "mtr", "guests"],
       do: url_tab,
       else: fallback_tab
   end
@@ -403,7 +441,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         socket.assigns.has_ifaces,
         socket.assigns.has_flows,
         socket.assigns.has_logs,
-        socket.assigns.has_mtr
+        socket.assigns.has_mtr,
+        socket.assigns.has_virtualization_guests
       )
 
     srql = srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
@@ -571,12 +610,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     if requested_tab == "details" do
       request_ref = make_ref()
       parent = self()
+      base_context = Map.put(supplemental_context, :include_metrics?, false)
 
       Task.start(fn ->
-        supplemental_assigns = load_device_supplemental_assigns(supplemental_context)
+        supplemental_assigns = load_device_supplemental_assigns(base_context)
 
         send(parent, {:device_details_loaded, uid, request_ref, supplemental_assigns})
       end)
+
+      socket =
+        begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity(device_row, uid), scope)
 
       {:noreply,
        socket
@@ -621,6 +664,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:availability, nil)
        |> assign(:healthcheck_summary, nil)
        |> assign(:virtualization_summary, nil)
+       |> assign(:has_virtualization_guests, false)
        |> assign(:sweep_results, nil)
        |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
        |> assign(:srql, base_srql)}
@@ -631,7 +675,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       has_flows = Map.get(supplemental_assigns, :has_flows, false)
       has_logs = Map.get(supplemental_assigns, :has_logs, false)
       has_mtr = Map.get(supplemental_assigns, :has_mtr, false)
-      active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows, has_logs, has_mtr)
+      has_virtualization_guests = Map.get(supplemental_assigns, :has_virtualization_guests, false)
+      active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows, has_logs, has_mtr, has_virtualization_guests)
       srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
       {:noreply,
@@ -663,24 +708,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_device_supplemental_assigns(%{
-         socket: socket,
-         srql_module: srql_module,
-         uid: uid,
-         scope: scope,
-         params: params,
-         requested_tab: requested_tab,
-         device_row: device_row,
-         device_ip: device_ip,
-         show_stale: show_stale
-       }) do
+  defp load_device_supplemental_assigns(context) do
+    socket = Map.fetch!(context, :socket)
+    srql_module = Map.fetch!(context, :srql_module)
+    uid = Map.fetch!(context, :uid)
+    scope = Map.get(context, :scope)
+    params = Map.get(context, :params, %{})
+    requested_tab = Map.get(context, :requested_tab, "details")
+    device_row = Map.get(context, :device_row)
+    device_ip = Map.get(context, :device_ip)
+    show_stale = Map.get(context, :show_stale, false)
+    include_metrics? = Map.get(context, :include_metrics?, true)
+
     load_interfaces_data? = requested_tab == "interfaces"
     load_flows_data? = requested_tab == "flows"
     load_logs_data? = requested_tab == "logs"
     sysmon_identity = sysmon_identity(device_row, uid)
-
-    sysmon_task =
-      Task.async(fn -> resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope) end)
 
     parallel_tasks =
       build_device_parallel_tasks(%{
@@ -698,17 +741,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         load_logs_data?: load_logs_data?
       })
 
-    sysmon_filters = Task.await(sysmon_task, 15_000)
-    sysmon_presence = sysmon_filters != []
+    sysmon_filters =
+      if include_metrics? do
+        resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+      else
+        []
+      end
 
-    metrics_task =
-      Task.async(fn -> {:metrics, load_metric_sections(srql_module, sysmon_filters, scope)} end)
-
-    process_task =
-      Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
+    metric_tasks =
+      if include_metrics? do
+        [
+          Task.async(fn -> {:metrics, load_metric_sections(srql_module, sysmon_filters, scope)} end),
+          Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
+        ]
+      else
+        []
+      end
 
     parallel_results =
-      safe_yield_many(parallel_tasks ++ [metrics_task, process_task], 30_000)
+      safe_yield_many(parallel_tasks ++ metric_tasks, 30_000)
 
     {network_interfaces, interfaces_error} =
       extract_interface_results(parallel_results, load_interfaces_data?)
@@ -774,11 +825,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Map.get(parallel_results, :camera_sources, {[], nil})
 
     {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
+    virtualization_summary = Map.get(parallel_results, :virtualization)
 
-    %{
+    base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
-      virtualization_summary: Map.get(parallel_results, :virtualization),
+      virtualization_summary: virtualization_summary,
+      has_virtualization_guests: virtualization_guests?(virtualization_summary),
       sweep_results: Map.get(parallel_results, :sweep, []),
       sysmon_profile_info: sysmon_profile_info,
       available_profiles: available_profiles,
@@ -797,14 +850,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       interface_metrics: interface_metrics,
       ip_aliases: ip_aliases,
       ip_alias_error: ip_alias_error,
-      metric_sections: Map.get(parallel_results, :metrics, []),
-      process_metrics: Map.get(parallel_results, :process, []),
-      sysmon_presence: sysmon_presence,
       has_ifaces: has_ifaces,
       has_flows: has_flows,
       has_logs: has_logs,
       has_mtr: has_mtr
     }
+
+    if include_metrics? do
+      Map.merge(base_assigns, %{
+        metric_sections: Map.get(parallel_results, :metrics, []),
+        process_metrics: Map.get(parallel_results, :process, []),
+        sysmon_presence: sysmon_filters != []
+      })
+    else
+      base_assigns
+    end
   end
 
   defp build_device_parallel_tasks(%{
@@ -1018,12 +1078,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp resolve_active_tab("interfaces", false, _has_flows, _has_logs, _has_mtr), do: "details"
-  defp resolve_active_tab("flows", _has_ifaces, false, _has_logs, _has_mtr), do: "details"
-  defp resolve_active_tab("logs", _has_ifaces, _has_flows, false, _has_mtr), do: "details"
-  defp resolve_active_tab("mtr", _has_ifaces, _has_flows, _has_logs, false), do: "details"
+  defp resolve_active_tab("interfaces", false, _has_flows, _has_logs, _has_mtr, _has_guests), do: "details"
+  defp resolve_active_tab("flows", _has_ifaces, false, _has_logs, _has_mtr, _has_guests), do: "details"
+  defp resolve_active_tab("logs", _has_ifaces, _has_flows, false, _has_mtr, _has_guests), do: "details"
+  defp resolve_active_tab("mtr", _has_ifaces, _has_flows, _has_logs, false, _has_guests), do: "details"
+  defp resolve_active_tab("guests", _has_ifaces, _has_flows, _has_logs, _has_mtr, false), do: "details"
 
-  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_logs, _has_mtr), do: requested_tab
+  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_logs, _has_mtr, _has_guests), do: requested_tab
 
   @impl true
   def handle_event("srql_change", %{"q" => q}, socket) do
@@ -1320,7 +1381,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         socket.assigns.has_ifaces,
         socket.assigns.has_flows,
         socket.assigns.has_logs,
-        socket.assigns.has_mtr
+        socket.assigns.has_mtr,
+        socket.assigns.has_virtualization_guests
       )
 
     srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
@@ -3438,6 +3500,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-document-text" class="size-4 mr-1.5" /> Details
             </button>
             <button
+              :if={@has_virtualization_guests}
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="guests"
+              class={["tab", @active_tab == "guests" && "tab-active"]}
+            >
+              <.icon name="hero-squares-2x2" class="size-4 mr-1.5" /> Guests
+            </button>
+            <button
               :if={@has_ifaces}
               type="button"
               phx-click="switch_tab"
@@ -3605,6 +3676,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 <% end %>
               <% end %>
             </div>
+          </div>
+          
+    <!-- Guests Tab Content -->
+          <div :if={@active_tab == "guests" and @has_virtualization_guests}>
+            <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
           
     <!-- Interfaces Tab Content -->
@@ -7760,6 +7836,81 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:summary, :map, required: true)
 
+  defp virtualization_guests_tab(assigns) do
+    guests =
+      case assigns.summary do
+        summary when is_map(summary) -> Map.get(summary, :guests, [])
+        _ -> []
+      end
+
+    running_count = Enum.count(guests, &(to_string(&1.status) == "running"))
+
+    assigns =
+      assigns
+      |> assign(:guests, guests)
+      |> assign(:running_count, running_count)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-squares-2x2" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Guests</span>
+          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            {length(@guests)} total
+          </span>
+        </div>
+        <span class="text-xs text-base-content/60">{@running_count} running</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>VMID</th>
+              <th>Status</th>
+              <th class="text-right">CPU</th>
+              <th class="text-right">Memory</th>
+              <th class="text-right">Disk</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={guest <- @guests}>
+              <td class="font-medium">{guest.name || guest.provider_ref}</td>
+              <td>{virtualization_guest_type_label(guest.guest_type)}</td>
+              <td class="font-mono">{guest.vmid || "—"}</td>
+              <td><.virtualization_health_badge value={guest.status} /></td>
+              <td class="text-right font-mono">{format_virtualization_pct(guest.cpu_ratio)}</td>
+              <td class="text-right font-mono">
+                {format_bytes(guest.memory_used_bytes)}
+                <span class="text-base-content/40">/ {format_bytes(guest.memory_total_bytes)}</span>
+              </td>
+              <td class="text-right font-mono">
+                {format_bytes(guest.disk_used_bytes)}
+                <span class="text-base-content/40">/ {format_bytes(guest.disk_total_bytes)}</span>
+              </td>
+              <td class="text-right">
+                <.link
+                  :if={is_binary(guest.device_uid) and guest.device_uid != ""}
+                  navigate={~p"/devices/#{guest.device_uid}"}
+                  class="btn btn-ghost btn-xs"
+                >
+                  Open
+                </.link>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:summary, :map, required: true)
+
   defp virtualization_section(assigns) do
     summary = assigns.summary
     host = Map.get(summary, :host)
@@ -8023,6 +8174,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp virtualization_interface_address(%{address: address}) when is_binary(address) and address != "", do: address
   defp virtualization_interface_address(%{cidr: cidr}) when is_binary(cidr) and cidr != "", do: cidr
   defp virtualization_interface_address(_iface), do: "—"
+
+  defp virtualization_guests?(%{guests: guests}) when is_list(guests), do: guests != []
+  defp virtualization_guests?(_summary), do: false
 
   defp virtualization_health_class(value) do
     normalized = value |> to_string() |> String.downcase()
