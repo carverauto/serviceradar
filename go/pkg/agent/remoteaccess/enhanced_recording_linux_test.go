@@ -24,7 +24,38 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	agentebpf "github.com/carverauto/serviceradar/go/pkg/agent/ebpf"
 )
+
+func TestPlatformEnhancedRecordingAvailableRequiresExplicitEBPFProfile(t *testing.T) {
+	t.Setenv(envAgentEBPFEnabled, "false")
+
+	if PlatformEnhancedRecordingAvailable() {
+		t.Fatal("PlatformEnhancedRecordingAvailable() = true without explicit BPF enablement")
+	}
+
+	report := linuxBPFRemoteAccessCapabilityReport(context.Background())
+	if report.Available || !report.HasReason(agentebpf.ReasonConfigDisabled) {
+		t.Fatalf("capability report = %#v, want config disabled", report)
+	}
+}
+
+func TestLinuxBPFRemoteAccessRuntimeReadsEnvironment(t *testing.T) {
+	t.Setenv(envAgentEBPFEnabled, "true")
+	t.Setenv(envAgentEBPFBPFFSPath, "/tmp/bpffs")
+	t.Setenv(envAgentEBPFBTFPath, "/tmp/btf/vmlinux")
+	t.Setenv(envAgentEBPFCgroupPath, "/tmp/cgroup")
+
+	config := linuxBPFRemoteAccessRuntimeFromEnv().Config()
+	if !config.Enabled {
+		t.Fatal("BPF runtime config should be enabled")
+	}
+	if config.BPFFSPath != "/tmp/bpffs" || config.BTFPath != "/tmp/btf/vmlinux" ||
+		config.CgroupPath != "/tmp/cgroup" {
+		t.Fatalf("BPF runtime config = %#v", config)
+	}
+}
 
 func TestLinuxProcEnhancedEventSourceRejectsRequiredBPFWithoutFallback(t *testing.T) {
 	t.Parallel()

@@ -18,6 +18,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess",
     visibility = ["//visibility:public"],
     deps = [
+        "//go/pkg/agent/ebpf",
         "//go/pkg/agent/ebpf/probes",
         "@org_golang_x_crypto//ssh",
     ],

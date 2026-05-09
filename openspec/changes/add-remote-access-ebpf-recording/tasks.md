@@ -22,7 +22,7 @@
 
 ## 3. Policy and Capabilities
 - [x] 3.1 Add explicit agent BPF deployment/profile configuration and keep `NET_RAW` separate from BPF enablement.
-- [ ] 3.2 Make `remote_access.bpf` advertise only after build, kernel, permission, mount, and startup self-test checks pass.
+- [x] 3.2 Make `remote_access.bpf` advertise only after build, kernel, permission, mount, and startup self-test checks pass.
 - [ ] 3.3 Preserve fail-closed behavior when policy requires BPF and the collector cannot start.
 - [ ] 3.4 Preserve explicit procfs fallback behavior only when policy allows fallback.
 - [ ] 3.5 Ensure enhanced events never include private keys, passwords, terminal input bytes, or file contents.
