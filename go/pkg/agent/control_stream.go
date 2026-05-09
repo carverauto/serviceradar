@@ -380,10 +380,18 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 	}
 
 	if p.proxmoxConsoleManager == nil {
-		p.proxmoxConsoleManager = newProxmoxConsoleManager(p.logger)
+		p.proxmoxConsoleManager = newProxmoxConsoleManagerWithAgentID(p.agentID(), p.logger)
 	}
 
 	p.proxmoxConsoleManager.HandleFrame(context.Background(), frame, sender)
+}
+
+func (p *PushLoop) agentID() string {
+	if p == nil {
+		return ""
+	}
+
+	return serverAgentID(p.server)
 }
 
 func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

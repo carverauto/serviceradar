@@ -57,10 +57,16 @@ type proxmoxConsoleManager struct {
 	opener     proxmoxConsoleOpener
 	manager    *remoteaccess.Manager
 	sshOptions remoteaccess.SSHOpenOptions
+	agentID    string
 }
 
-func newProxmoxConsoleManager(_ logger.Logger) *proxmoxConsoleManager {
+func newProxmoxConsoleManager(log logger.Logger) *proxmoxConsoleManager {
+	return newProxmoxConsoleManagerWithAgentID("", log)
+}
+
+func newProxmoxConsoleManagerWithAgentID(agentID string, _ logger.Logger) *proxmoxConsoleManager {
 	manager := &proxmoxConsoleManager{
+		agentID: agentID,
 		opener: func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 			return nil, errProxmoxConsoleBridgeUnavailable
 		},
@@ -74,6 +80,17 @@ func newProxmoxConsoleManager(_ logger.Logger) *proxmoxConsoleManager {
 	return manager
 }
 
+func serverAgentID(server *Server) string {
+	if server == nil || server.config == nil {
+		return ""
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return server.config.AgentID
+}
+
 func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	if frame == nil || frame.GetSessionId() == "" {
 		return
@@ -84,7 +101,7 @@ func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.Co
 		remoteSender = proxmoxConsoleRemoteSender{sender: sender}
 	}
 
-	m.manager.HandleFrame(ctx, proxmoxConsoleRemoteFrame(frame), remoteSender)
+	m.manager.HandleFrame(ctx, m.proxmoxConsoleRemoteFrame(frame), remoteSender)
 }
 
 func (m *proxmoxConsoleManager) openRemoteAccessPTY(
@@ -113,7 +130,12 @@ func (s proxmoxConsoleRemoteSender) SendFrame(frame remoteaccess.Frame) error {
 	))
 }
 
-func proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
+func (m *proxmoxConsoleManager) proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
+	metadata := map[string]string(nil)
+	if m != nil && m.agentID != "" {
+		metadata = map[string]string{"agent_id": m.agentID}
+	}
+
 	return remoteaccess.Frame{
 		SessionID: frame.GetSessionId(),
 		Protocol:  consoleFrameProtocol(frame),
@@ -123,6 +145,7 @@ func proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
 		Rows:      frame.GetRows(),
 		Reason:    frame.GetReason(),
 		Timestamp: frame.GetTimestamp(),
+		Metadata:  metadata,
 	}
 }
 

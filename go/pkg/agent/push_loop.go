@@ -316,7 +316,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
-	proxmoxConsoleManager := newProxmoxConsoleManager(log)
+	proxmoxConsoleManager := newProxmoxConsoleManagerWithAgentID(serverAgentID(server), log)
 	proxmoxConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {

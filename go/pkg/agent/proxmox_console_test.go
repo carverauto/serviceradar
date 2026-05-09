@@ -339,3 +339,33 @@ func TestProxmoxConsoleManagerRoutesSSHOpenPayload(t *testing.T) {
 		t.Fatal("expected SSH session to close")
 	}
 }
+
+func TestProxmoxConsoleManagerRejectsSSHOpenForDifferentAgent(t *testing.T) {
+	t.Parallel()
+
+	manager := newProxmoxConsoleManagerWithAgentID("agent-1", createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			t.Fatal("dialer should not be called for mismatched agent_id")
+			return nil, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"session_id": "ssh-session-1",
+			"agent_id": "agent-2",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"}
+		}`),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrSSHOpenAgentMismatch.Error()) {
+		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrSSHOpenAgentMismatch)
+	}
+}
