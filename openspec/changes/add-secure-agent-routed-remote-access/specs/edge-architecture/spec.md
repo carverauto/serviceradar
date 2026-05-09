@@ -79,6 +79,12 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **THEN** terminal byte contents SHALL NOT be persisted
 - **AND** lifecycle audit events SHALL still be recorded.
 
+#### Scenario: Recording manifest tracks retention without plaintext defaults
+- **GIVEN** session recording is enabled by policy
+- **WHEN** a remote-access session opens, exchanges terminal data, and closes
+- **THEN** the system SHALL persist a recording manifest with storage pointer, retention expiry, lifecycle status, and aggregate input/output byte counters
+- **AND** raw terminal byte contents SHALL NOT be persisted unless a separate explicit content-recording policy permits it.
+
 ### Requirement: Generic SSH uses certificate-first enterprise identity
 Generic SSH remote access SHALL support an enterprise certificate flow where ServiceRadar exchanges an authenticated SSO identity and ServiceRadar RBAC decision for a short-lived OpenSSH user certificate.
 

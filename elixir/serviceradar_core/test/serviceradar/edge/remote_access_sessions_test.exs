@@ -2,6 +2,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.RemoteAccessRecording
+  alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Repo
@@ -259,6 +261,108 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert session.credential_custody_mode == :provider_ticket
     assert session.metadata["ticket"] == "REDACTED"
     refute inspect(session.metadata) =~ "pve-temporary-ticket"
+  end
+
+  test "recording manifests store retention and counters without terminal payloads" do
+    uid = unique_uid("recording")
+    insert_device!(uid, agent_id: "agent-recording", gateway_id: "gateway-recording")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7,
+                   "private_key" => private_key_fixture(),
+                   "storage" => %{"bucket" => "ra-test", "prefix" => "edge"}
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert recording.status == :pending
+    assert recording.session_id == session.id
+    assert recording.storage_backend == "datasvc_object_store"
+    assert recording.storage_bucket == "ra-test"
+    assert recording.object_key == "edge/sessions/#{session.id}/recording.jsonl"
+    assert recording.policy["private_key"] == "REDACTED"
+    assert recording.manifest["raw_terminal_payloads_stored"] == false
+    assert recording.retention_expires_at
+    assert DateTime.after?(recording.retention_expires_at, DateTime.utc_now())
+    refute inspect(recording) =~ "OPENSSH PRIVATE KEY"
+
+    assert_receive {:remote_access_audit, recording_create_audit}
+    assert recording_create_audit[:action] == :remote_access_recording_created
+    assert recording_create_audit[:resource_type] == "remote_access_recording"
+
+    assert {:ok, active} =
+             RemoteAccessRecordings.activate(recording,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert active.status == :active
+    assert_receive {:remote_access_audit, recording_active_audit}
+    assert recording_active_audit[:action] == :remote_access_recording_active
+
+    assert {:ok, completed} =
+             RemoteAccessRecordings.complete(
+               active,
+               %{input_bytes: 7, output_bytes: 5, event_count: 2},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert completed.status == :completed
+    assert completed.input_bytes == 7
+    assert completed.output_bytes == 5
+    assert completed.event_count == 2
+    assert completed.manifest["raw_terminal_payloads_stored"] == false
+    refute inspect(completed) =~ "whoami"
+    refute inspect(completed) =~ "root"
+
+    assert_receive {:remote_access_audit, recording_complete_audit}
+    assert recording_complete_audit[:action] == :remote_access_recording_completed
+    assert recording_complete_audit[:details][:input_bytes] == 7
+    assert recording_complete_audit[:details][:output_bytes] == 5
+    assert recording_complete_audit[:details][:event_count] == 2
+
+    assert {:ok, fetched} = RemoteAccessRecording.get_by_session(session.id, actor: @system_actor)
+    assert fetched.id == completed.id
+  end
+
+  test "recording manifests are skipped unless policy enables recording" do
+    uid = unique_uid("recording-disabled")
+    insert_device!(uid, agent_id: "agent-recording-disabled", gateway_id: "gateway-recording")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(uid, %{},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, nil} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    refute_receive {:remote_access_audit, %{action: :remote_access_recording_created}}, 50
   end
 
   defp insert_device!(uid, opts) do

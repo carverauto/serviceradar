@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.RemoteAccessPubSub
+  alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Events.AuditWriter
@@ -63,6 +64,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
       lifecycle: Keyword.get(opts, :lifecycle, lifecycle_for(session)),
+      recordings: Keyword.get(opts, :recordings, RemoteAccessRecordings),
+      recording: nil,
+      recording_stats: %{input_bytes: 0, output_bytes: 0, event_count: 0},
       pubsub: pubsub(opts),
       closed?: false
     }
@@ -82,7 +86,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
               open_audit_details(data, cols, rows)
             )
 
-            {:ok, state}
+            {:ok, start_recording(state)}
 
           {:error, reason} ->
             lifecycle(state, :fail_session, [reason])
@@ -101,6 +105,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   def handle_call({:send_input, data}, _from, state) do
     result = send_frame(state, "data", data, nil, nil, nil)
     write_audit(state, :remote_access_session_input, %{input_bytes: byte_size(data)})
+    state = if result == :ok, do: count_recording_input(state, data), else: state
     {:reply, result, state}
   end
 
@@ -118,6 +123,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     write_audit(state, :remote_access_session_close_requested, %{
       close_reason: format_reason(reason)
     })
+
+    state = complete_recording(state)
 
     {:stop, :normal, %{state | closed?: true}}
   end
@@ -137,12 +144,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp handle_remote_access_frame(%{frame_type: "ready"}, state) do
     lifecycle(state, :activate_session)
     send(state.owner, {:remote_access_ready, session_id(state.session)})
+    state = activate_recording(state)
     {:noreply, state}
   end
 
   defp handle_remote_access_frame(%{frame_type: "data", data: data}, state)
        when is_binary(data) do
     send(state.owner, {:remote_access_data, data})
+    state = count_recording_output(state, data)
     {:noreply, state}
   end
 
@@ -151,6 +160,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     send(state.owner, {:remote_access_closed, reason || frame_type})
     lifecycle_close(state, frame_type, reason || frame_type)
     write_audit(state, close_action(frame_type), %{close_reason: reason || frame_type})
+    state = finish_recording_for_close(state, frame_type, reason || frame_type)
     {:stop, :normal, %{state | closed?: true}}
   end
 
@@ -164,15 +174,100 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   def terminate(reason, %{closed?: false} = state) do
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
 
-    if reason not in [:normal, :shutdown] do
+    if reason in [:normal, :shutdown] do
+      _ = complete_recording(state)
+    else
       lifecycle(state, :fail_session, [reason])
       write_audit(state, :remote_access_session_failed, failure_details(reason))
+      _ = fail_recording(state, reason)
     end
 
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
+
+  defp start_recording(state) do
+    case state.recordings.ensure_for_session(state.session, recording_opts(state)) do
+      {:ok, recording} -> %{state | recording: recording}
+      {:error, _reason} -> state
+    end
+  rescue
+    _error -> state
+  catch
+    _kind, _reason -> state
+  end
+
+  defp activate_recording(%{recording: nil} = state), do: state
+
+  defp activate_recording(state) do
+    case state.recordings.activate(state.recording, recording_opts(state)) do
+      {:ok, recording} -> %{state | recording: recording}
+      {:error, _reason} -> state
+    end
+  rescue
+    _error -> state
+  catch
+    _kind, _reason -> state
+  end
+
+  defp count_recording_input(%{recording: nil} = state, _data), do: state
+
+  defp count_recording_input(state, data) do
+    update_in(state.recording_stats, fn stats ->
+      %{
+        stats
+        | input_bytes: stats.input_bytes + byte_size(data),
+          event_count: stats.event_count + 1
+      }
+    end)
+  end
+
+  defp count_recording_output(%{recording: nil} = state, _data), do: state
+
+  defp count_recording_output(state, data) do
+    update_in(state.recording_stats, fn stats ->
+      %{
+        stats
+        | output_bytes: stats.output_bytes + byte_size(data),
+          event_count: stats.event_count + 1
+      }
+    end)
+  end
+
+  defp finish_recording_for_close(state, "error", reason), do: fail_recording(state, reason)
+  defp finish_recording_for_close(state, _frame_type, _reason), do: complete_recording(state)
+
+  defp complete_recording(%{recording: nil} = state), do: state
+
+  defp complete_recording(state) do
+    _ = state.recordings.complete(state.recording, state.recording_stats, recording_opts(state))
+    %{state | recording: nil}
+  rescue
+    _error -> %{state | recording: nil}
+  catch
+    _kind, _reason -> %{state | recording: nil}
+  end
+
+  defp fail_recording(%{recording: nil} = state, _reason), do: state
+
+  defp fail_recording(state, reason) do
+    _ =
+      state.recordings.fail(state.recording, reason, state.recording_stats, recording_opts(state))
+
+    %{state | recording: nil}
+  rescue
+    _error -> %{state | recording: nil}
+  catch
+    _kind, _reason -> %{state | recording: nil}
+  end
+
+  defp recording_opts(state) do
+    [
+      audit_writer: state.audit_writer,
+      audit_actor: state.audit_actor
+    ]
+  end
 
   defp send_frame(state, frame_type, data, cols, rows, reason) do
     frame = %{

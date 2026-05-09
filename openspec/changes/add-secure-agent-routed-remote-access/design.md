@@ -54,6 +54,8 @@ The first implementation should be narrow, but the architecture must preserve th
 - Protocol adapters: SSH first, Proxmox/vSphere provider consoles, app/database/Kubernetes-style TCP/HTTP proxying later, and graphical desktop/RDP-style adapters later.
 - Agent inventory and presence: enrolled agents advertise capabilities such as `remote_access`, `remote_access.ssh`, `remote_access.recording`, and `remote_access.bpf` so the control plane can route only to compatible agents.
 
+Session recording starts as manifest and retention plumbing, not unconditional transcript persistence. When `recording_policy` enables recording, the platform creates a `remote_access_recordings` manifest with policy snapshot, storage backend/bucket/object key, retention expiry, lifecycle status, and aggregate input/output byte counters. Raw terminal input/output payload storage remains separately policy-gated and is not written by default.
+
 ## BPF / Enhanced Recording Model
 Enhanced recording is a separate host telemetry capability from the interactive byte stream. It should emit normalized ServiceRadar audit/telemetry events that can be correlated with `remote_access_session_id`, `actor_id`, `agent_id`, `target`, and `credential_custody_mode`.
 

@@ -37,6 +37,30 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     end
   end
 
+  defmodule RecordingStub do
+    @moduledoc false
+
+    def ensure_for_session(session, opts) do
+      send(opts[:audit_actor].test_pid, {:recording_create, session, opts})
+      {:ok, %{id: "recording-1", session_id: Map.get(session, :id) || Map.get(session, "id")}}
+    end
+
+    def activate(recording, opts) do
+      send(opts[:audit_actor].test_pid, {:recording_active, recording, opts})
+      {:ok, Map.put(recording, :status, :active)}
+    end
+
+    def complete(recording, stats, opts) do
+      send(opts[:audit_actor].test_pid, {:recording_complete, recording, stats, opts})
+      {:ok, Map.merge(recording, stats)}
+    end
+
+    def fail(recording, reason, stats, opts) do
+      send(opts[:audit_actor].test_pid, {:recording_failed, recording, reason, stats, opts})
+      {:ok, Map.merge(recording, stats)}
+    end
+  end
+
   defmodule LifecycleStub do
     @moduledoc false
 
@@ -242,6 +266,57 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, closed_audit}
     assert closed_audit[:action] == :remote_access_session_closed
     assert closed_audit[:details].close_reason == "done"
+  end
+
+  test "recording hook receives only policy-gated counters and lifecycle state" do
+    session =
+      Map.put(session_fixture(), :recording_policy, %{
+        "enabled" => true,
+        "retention_days" => 7,
+        "private_key" => "must-not-be-used"
+      })
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          recordings: RecordingStub,
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+    assert_receive {:recording_create, ^session, recording_opts}
+    refute inspect(recording_opts) =~ "must-not-be-used"
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "ready"}})
+    assert_receive {:remote_access_ready, "session-1"}
+    assert_receive {:recording_active, %{id: "recording-1"}, _opts}
+
+    assert :ok = RemoteAccessBroker.send_input(pid, "whoami\r")
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "data", data: "whoami\r"},
+                    _opts}
+
+    assert_receive {:audit, input_audit}
+    assert input_audit[:details].input_bytes == 7
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "root\n"}})
+    assert_receive {:remote_access_data, "root\n"}
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    assert_receive {:remote_access_closed, "done"}
+    assert_receive {:recording_complete, %{id: "recording-1"}, stats, _opts}
+
+    assert stats == %{input_bytes: 7, output_bytes: 5, event_count: 2}
+    refute inspect(stats) =~ "whoami"
+    refute inspect(stats) =~ "root"
+    refute inspect(stats) =~ "must-not-be-used"
   end
 
   test "ignores remote-access frames from agents that do not own the session" do

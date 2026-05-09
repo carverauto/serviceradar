@@ -398,6 +398,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       public? true
       define_attribute? false
     end
+
+    has_one :recording, ServiceRadar.Edge.RemoteAccessRecording do
+      source_attribute :id
+      destination_attribute :session_id
+      public? true
+    end
   end
 
   identities do
