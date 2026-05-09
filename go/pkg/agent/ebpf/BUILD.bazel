@@ -18,6 +18,7 @@ go_library(
 go_test(
     name = "ebpf_test",
     srcs = [
+        "runtime_integration_linux_test.go",
         "runtime_linux_test.go",
         "runtime_other_test.go",
         "runtime_test.go",

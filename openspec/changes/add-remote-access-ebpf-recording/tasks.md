@@ -29,10 +29,10 @@
 - [x] 3.6 Ensure agentless SSH cannot satisfy target-side command/file BPF requirements unless a managed target component owns the execution boundary.
 
 ## 4. Validation
-- [ ] 4.1 Add unit tests for capability checks, policy gates, redaction, normalization, and loss counters.
-- [ ] 4.2 Add Linux integration tests behind explicit build tags or environment gates.
-- [ ] 4.3 Add Helm/render tests that prove BPF mounts and capabilities appear only when the explicit BPF profile is enabled.
-- [ ] 4.4 Add a remote-access eBPF smoke script that proves command, file, network, and loss event correlation.
-- [ ] 4.5 Run `go test ./go/pkg/agent/remoteaccess` and focused `go/pkg/agent/ebpf` tests.
+- [x] 4.1 Add unit tests for capability checks, policy gates, redaction, normalization, and loss counters.
+- [x] 4.2 Add Linux integration tests behind explicit build tags or environment gates.
+- [x] 4.3 Add Helm/render tests that prove BPF mounts and capabilities appear only when the explicit BPF profile is enabled.
+- [x] 4.4 Add a remote-access eBPF smoke script that proves command, file, network, and loss event correlation.
+- [x] 4.5 Run `go test ./go/pkg/agent/remoteaccess` and focused `go/pkg/agent/ebpf` tests.
 - [ ] 4.6 Run a BPF-enabled focused test on a compatible Linux host.
-- [ ] 4.7 Run `openspec validate add-remote-access-ebpf-recording --strict`.
+- [x] 4.7 Run `openspec validate add-remote-access-ebpf-recording --strict`.
