@@ -8,8 +8,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
-  import Ash.Expr
-
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -467,16 +465,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp lookup_devices(uids, names, actor) do
     uids = Enum.uniq(uids)
     names = Enum.uniq(names)
-    names_downcase = Enum.map(names, &String.downcase/1)
+    filter = device_lookup_filter(uids, names)
 
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: false})
-    |> Ash.Query.filter(
-      expr(
-        uid in ^uids or fragment("lower(?)", name) in ^names_downcase or
-          fragment("lower(?)", hostname) in ^names_downcase
-      )
-    )
+    |> Ash.Query.filter_input(filter)
     |> Ash.read(actor: actor)
     |> unwrap_page()
     |> case do
@@ -500,6 +493,19 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         %{by_uid: %{}, by_name: %{}}
     end
   end
+
+  defp device_lookup_filter(uids, names) do
+    conditions =
+      []
+      |> maybe_add_filter_condition(uids, %{"uid" => %{"in" => uids}})
+      |> maybe_add_filter_condition(names, %{"name" => %{"in" => names}})
+      |> maybe_add_filter_condition(names, %{"hostname" => %{"in" => names}})
+
+    %{"or" => conditions}
+  end
+
+  defp maybe_add_filter_condition(conditions, [], _condition), do: conditions
+  defp maybe_add_filter_condition(conditions, _values, condition), do: [condition | conditions]
 
   defp network_identity_by_guest(network_interfaces, actor) do
     identities =
