@@ -116,6 +116,7 @@ Terminal outcomes:
 Compatibility:
 - Existing `ConsoleFrame` protobuf messages should continue to flow for Proxmox console callers while generic `RemoteAccessFrame` messages are introduced.
 - The generic frame payload should carry `session_id`, `protocol`, `frame_type`, `data`, `cols`, `rows`, `reason`, `timestamp`, and optional `metadata`. Proxmox compatibility wrappers can map `ConsoleFrame` to `RemoteAccessFrame` with protocol `proxmox-console`.
+- During the compatibility phase, an existing `ConsoleFrame` `open` payload may declare `"protocol": "ssh"` to route through the generic SSH adapter. Payloads without a protocol continue to default to `proxmox-console`.
 - Persisted command records are still appropriate for on-demand commands such as mapper/MTR. Interactive remote-access byte streams should keep using the side-channel pattern used by `send_console_frame/3` to avoid persisting sensitive payload bytes in command records.
 
 ## Reusable Implementation Inventory

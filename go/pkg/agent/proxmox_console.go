@@ -17,7 +17,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -52,8 +54,9 @@ type proxmoxConsolePTY interface {
 type proxmoxConsoleOpener func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error)
 
 type proxmoxConsoleManager struct {
-	opener  proxmoxConsoleOpener
-	manager *remoteaccess.Manager
+	opener     proxmoxConsoleOpener
+	manager    *remoteaccess.Manager
+	sshOptions remoteaccess.SSHOpenOptions
 }
 
 func newProxmoxConsoleManager(_ logger.Logger) *proxmoxConsoleManager {
@@ -88,6 +91,10 @@ func (m *proxmoxConsoleManager) openRemoteAccessPTY(
 	ctx context.Context,
 	frame remoteaccess.Frame,
 ) (remoteaccess.PTY, error) {
+	if frame.Protocol == remoteaccess.ProtocolSSH {
+		return remoteaccess.OpenSSHFromFrame(ctx, frame, m.sshOptions)
+	}
+
 	return m.opener(ctx, remoteAccessConsoleFrame(frame))
 }
 
@@ -109,7 +116,7 @@ func (s proxmoxConsoleRemoteSender) SendFrame(frame remoteaccess.Frame) error {
 func proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
 	return remoteaccess.Frame{
 		SessionID: frame.GetSessionId(),
-		Protocol:  "proxmox-console",
+		Protocol:  consoleFrameProtocol(frame),
 		FrameType: frame.GetFrameType(),
 		Data:      frame.GetData(),
 		Cols:      frame.GetCols(),
@@ -117,6 +124,24 @@ func proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
 		Reason:    frame.GetReason(),
 		Timestamp: frame.GetTimestamp(),
 	}
+}
+
+func consoleFrameProtocol(frame *proto.ConsoleFrame) string {
+	if frame.GetFrameType() != consoleFrameTypeOpen || len(bytes.TrimSpace(frame.GetData())) == 0 {
+		return "proxmox-console"
+	}
+
+	var payload struct {
+		Protocol string `json:"protocol"`
+	}
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		return "proxmox-console"
+	}
+	if payload.Protocol == remoteaccess.ProtocolSSH {
+		return remoteaccess.ProtocolSSH
+	}
+
+	return "proxmox-console"
 }
 
 func remoteAccessConsoleFrame(frame remoteaccess.Frame) *proto.ConsoleFrame {

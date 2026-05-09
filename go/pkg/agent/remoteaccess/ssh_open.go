@@ -41,6 +41,7 @@ var (
 
 // SSHOpenPayload is the JSON payload carried by an SSH open frame.
 type SSHOpenPayload struct {
+	Protocol         string    `json:"protocol,omitempty"`
 	Target           SSHTarget `json:"target"`
 	SSH              SSHAuth   `json:"ssh,omitempty"`
 	CredentialMode   string    `json:"credential_mode,omitempty"`
