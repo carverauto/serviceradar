@@ -9,7 +9,7 @@
 - [x] 1.8 Define clean-room BPF/enhanced-recording event schemas, kernel attachment strategy, compatibility gates, loss counters, and fallback policy.
 
 ## 2. Implementation
-- [ ] 2.1 Add generic remote-access session resources and APIs with compatibility for current Proxmox console routes.
+- [x] 2.1 Add generic remote-access session resources and APIs with compatibility for current Proxmox console routes.
 - [ ] 2.2 Refactor xterm/webpty UI into a protocol-neutral remote-console component.
 - [x] 2.3 Add gateway-to-agent session routing over the existing agent-initiated control stream.
 - [x] 2.4 Add an agent-side SSH protocol adapter with user-present credential support and no generic agent-local reusable SSH secrets.
