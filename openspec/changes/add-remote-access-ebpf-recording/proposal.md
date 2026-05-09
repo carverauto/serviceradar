@@ -12,6 +12,9 @@ The completed `add-secure-agent-routed-remote-access` work defines the remote-ac
 - Add tests and smoke tooling that prove event correlation, dropped-event reporting, policy fail-closed behavior, and capability advertisement.
 - Record the license provenance for any Teleport v14 Apache-2.0 source consulted or imported, and require clean-room implementation for current Teleport AGPL paths.
 
+## Implementation Gate
+The design and dependency review are complete enough for proposal review. Implementation should start only after this change is accepted, and the first implementation slice should build the shared agent eBPF runtime with non-Linux stubs before adding command/file/network probes or advertising `remote_access.bpf`.
+
 ## Impact
 - Affected specs: `edge-architecture`, `agent-connectivity`
 - Affected code: `go/pkg/agent/remoteaccess`, agent capability advertisement, Go/Bazel build rules, Linux-only eBPF build tooling, remote-access smoke tests
