@@ -147,6 +147,19 @@ Teleport capability inventory to keep mapped as design proceeds:
 - `lib/bpf` and top-level `bpf/enhancedrecording`: enhanced recording concepts for command, disk/file, and network events; clean-room unless cleared.
 - `lib/proxy`, `lib/web`, `lib/client`, `lib/kube`, `lib/srv/db`, `lib/srv/desktop`, `lib/srv/app`: future protocol adapter and access-governance parity areas; review per feature before reuse.
 
+Initial import classification:
+
+| Teleport area | ServiceRadar target | Status | Notes |
+| --- | --- | --- | --- |
+| `api/ssh` | SSH client/dialer behavior | Blocked pending legal or cleaner dependency path | Local dependency scan reaches AGPL-header directories: `api/utils/iterutils`, `api/gen/proto/go/teleport/hardwarekeyagent/v1`, and `api/types`. |
+| `api/observability/tracing/ssh` | SSH tracing spans around dial/session activity | Blocked pending legal or cleaner dependency path | Same AGPL transitive directories as `api/ssh`. |
+| `lib/srv`, `lib/srv/ssh`, `lib/srv/forward` | SSH server, SFTP, forwarding behavior | Clean-room required | Source headers are AGPL in this checkout. |
+| `lib/bpf`, `bpf/enhancedrecording` | Command/file/network enhanced recording | Clean-room required | Source headers are AGPL in this checkout; use public kernel/BPF interfaces and ServiceRadar-authored tests. |
+| `lib/events`, `api/types/events` | Audit and recording vocabulary | Review per subpackage before import | Mixed API/event surfaces need package-level and transitive checks before reuse. |
+| `lib/proxy`, `lib/kube`, `lib/srv/db`, `lib/srv/desktop`, `lib/srv/app` | Future app/database/Kubernetes/desktop adapters | Review per feature before import | Treat as parity reference until each path is classified. |
+
+Use `scripts/check-teleport-license-paths.sh` with `TELEPORT_SRC` pointing at a Teleport checkout before adding any Teleport Go import. A candidate import is not considered clean just because the directly imported files have Apache-2.0 headers; its transitive package directories must pass the scan or receive explicit legal approval.
+
 ## Credential Custody Modes
 ### Centrally Brokered Secret
 The control plane stores an encrypted credential and grants a short-lived, scoped broker reference to the selected agent. This is acceptable for low-scope API tokens, break-glass credentials with strict approval, or customers that explicitly choose central storage.
