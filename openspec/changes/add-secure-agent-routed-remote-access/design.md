@@ -212,6 +212,13 @@ Constraints:
 - The CA key must not run in web-ng.
 - Revocation and expiry behavior must be documented before enabling broad rollout.
 
+Enterprise target model:
+- ServiceRadar SHOULD NOT require a shared bastion account or broad reusable SSH key for generic host access.
+- The preferred enterprise model is SSO/LDAP-authenticated ServiceRadar users mapped by RBAC to allowed SSH principals, then issued short-lived SSH certificates by a ServiceRadar remote-access CA.
+- Linux targets can either run a ServiceRadar/Teleport-like node component or configure OpenSSH to trust the ServiceRadar user CA with `TrustedUserCAKeys`.
+- LDAP/PAM can remain the host account/session authority, but ServiceRadar should avoid pass-through storage of LDAP passwords. The SSO/LDAP login proves user identity; the short-lived SSH certificate is the per-session access credential.
+- Agent-local and user-present credentials remain brownfield, break-glass, or non-SSH-device compatibility modes, not the default enterprise posture.
+
 ## Protocol Adapters
 Protocol adapters run on the selected agent.
 

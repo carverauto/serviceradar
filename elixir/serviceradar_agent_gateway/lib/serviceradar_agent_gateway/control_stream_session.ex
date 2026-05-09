@@ -7,6 +7,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.ProxmoxConsolePubSub
+  alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
 
   require Logger
@@ -291,7 +292,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     session_id = to_string(frame.session_id || "")
 
     if session_id != "" do
-      ProxmoxConsolePubSub.broadcast_frame(session_id, %{
+      frame_payload = %{
         session_id: session_id,
         frame_type: frame.frame_type,
         data: frame.data,
@@ -302,7 +303,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         agent_id: state.agent_id,
         partition_id: state.partition_id,
         gateway_node: state.gateway_node
-      })
+      }
+
+      ProxmoxConsolePubSub.broadcast_frame(session_id, frame_payload)
+      RemoteAccessPubSub.broadcast_frame(session_id, frame_payload)
     end
   end
 
