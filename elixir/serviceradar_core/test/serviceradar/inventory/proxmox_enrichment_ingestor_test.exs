@@ -49,7 +49,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert host_a.device_uid == "sr:device:pve-a"
     assert host_a.cluster_provider_ref == "proxmox:cluster:lab"
     assert host_a.cpu_ratio == 0.25
+    assert host_a.metadata["ip"] == "10.10.0.11"
+    assert host_a.metadata["cluster_node"]["ip"] == "10.10.0.11"
     assert host_b.device_uid == "proxmox:pve:pve-b"
+    assert host_b.metadata["ip"] == "10.10.0.12"
 
     assert [guest] = records.guests
     assert guest.provider_ref == "proxmox:guest:pve-a:qemu:100"
@@ -148,7 +151,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
             "hostname" => "pve-a.example"
           },
           "cluster" => [
-            %{"type" => "cluster", "name" => "lab", "quorate" => 1}
+            %{"type" => "cluster", "name" => "lab", "quorate" => 1},
+            %{"type" => "node", "name" => "pve-a", "ip" => "10.10.0.11", "online" => 1},
+            %{"type" => "node", "id" => "node/pve-b", "ip" => "10.10.0.12", "online" => 1}
           ],
           "nodes" => [
             %{

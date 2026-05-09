@@ -30,7 +30,7 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/cluster/status"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":[{"id":"cluster/lab","name":"lab","type":"cluster","nodes":1,"quorate":1},{"id":"node/pve-a","name":"pve-a","type":"node","online":1}]}`),
+			Body:   []byte(`{"data":[{"id":"cluster/lab","name":"lab","type":"cluster","nodes":1,"quorate":1},{"id":"node/pve-a","name":"pve-a","type":"node","online":1,"ip":"10.10.0.11"}]}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes"):
 		return &sdk.HTTPResponse{
@@ -129,6 +129,9 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if result.DeviceDiscovery[0].Devices[0].DeviceID != "proxmox:pve:pve-a" {
 		t.Fatalf("unexpected node device id: %s", result.DeviceDiscovery[0].Devices[0].DeviceID)
 	}
+	if result.DeviceDiscovery[0].Devices[0].IP != "10.10.0.11" {
+		t.Fatalf("expected node discovery IP from cluster status, got %#v", result.DeviceDiscovery[0].Devices[0])
+	}
 	if result.DeviceDiscovery[0].Devices[1].DeviceID != "proxmox:qemu:100" {
 		t.Fatalf("unexpected guest device id: %s", result.DeviceDiscovery[0].Devices[1].DeviceID)
 	}
@@ -154,6 +157,9 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if len(details.Targets[0].Cluster) != 2 {
 		t.Fatalf("expected cluster status details, got %#v", details.Targets[0].Cluster)
+	}
+	if details.Targets[0].Nodes[0].IP != "10.10.0.11" {
+		t.Fatalf("expected node details IP from cluster status, got %#v", details.Targets[0].Nodes[0])
 	}
 	if details.Targets[0].Nodes[0].RuntimeState["wait"] != 0.01 {
 		t.Fatalf("expected node runtime status, got %#v", details.Targets[0].Nodes[0].RuntimeState)
@@ -337,8 +343,8 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 		DeviceID: "sr:device:pve-a",
 		Hostname: "pve-a.example",
 	}, []proxmoxNode{
-		{Node: "pve-a", Status: "online"},
-		{Node: "pve-b", Status: "online"},
+		{Node: "pve-a", Status: "online", IP: "192.0.2.10/24"},
+		{Node: "pve-b", Status: "online", IP: "192.0.2.11/24"},
 	})
 
 	if got := discovery.Devices[0].DeviceID; got != "sr:device:pve-a" {
@@ -346,6 +352,30 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 	}
 	if got := discovery.Devices[1].DeviceID; got != "proxmox:pve:pve-b" {
 		t.Fatalf("expected non-target cluster node to get stable Proxmox ID, got %s", got)
+	}
+	if got := discovery.Devices[1].IP; got != "192.0.2.11" {
+		t.Fatalf("expected non-target cluster node discovery IP, got %s", got)
+	}
+}
+
+func TestAnnotateNodesWithClusterStatusCopiesNodeIPs(t *testing.T) {
+	nodes := annotateNodesWithClusterStatus(
+		[]proxmoxNode{
+			{Node: "pve-a", Status: "online"},
+			{Node: "pve-b", Status: "online", IP: "192.0.2.20"},
+		},
+		[]proxmoxClusterNode{
+			{ID: "cluster/lab", Name: "lab", Type: "cluster"},
+			{ID: "node/pve-a", Type: "node", IP: "192.0.2.10"},
+			{Name: "pve-b", Type: "node", IP: "192.0.2.21"},
+		},
+	)
+
+	if nodes[0].IP != "192.0.2.10" {
+		t.Fatalf("expected pve-a IP from cluster status, got %#v", nodes[0])
+	}
+	if nodes[1].IP != "192.0.2.20" {
+		t.Fatalf("expected existing pve-b IP to be preserved, got %#v", nodes[1])
 	}
 }
 

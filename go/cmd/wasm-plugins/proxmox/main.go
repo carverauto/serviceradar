@@ -176,6 +176,7 @@ type proxmoxClusterNode struct {
 type proxmoxNode struct {
 	Node         string                    `json:"node"`
 	Status       string                    `json:"status"`
+	IP           string                    `json:"ip,omitempty"`
 	CPU          float64                   `json:"cpu"`
 	MaxCPU       float64                   `json:"maxcpu"`
 	Mem          float64                   `json:"mem"`
@@ -512,7 +513,10 @@ func fetchTargetInventory(cfg Config, target Target) (proxmoxInventory, error) {
 	if err != nil {
 		return proxmoxInventory{}, err
 	}
-	inventory.Nodes = enrichNodes(cfg, target, token, nodes, inventory.Warnings)
+	inventory.Nodes = annotateNodesWithClusterStatus(
+		enrichNodes(cfg, target, token, nodes, inventory.Warnings),
+		inventory.Cluster,
+	)
 
 	if !cfg.includeGuests() {
 		inventory.Summary = summarizeInventory(inventory.Nodes, nil)
@@ -603,6 +607,36 @@ func enrichNodes(cfg Config, target Target, token string, nodes []proxmoxNode, w
 			warnings["node:"+node.Node+":ceph"] = sanitizeError(err)
 		} else if !ceph.empty() {
 			node.Ceph = &ceph
+		}
+		out = append(out, node)
+	}
+
+	return out
+}
+
+func annotateNodesWithClusterStatus(nodes []proxmoxNode, cluster []proxmoxClusterNode) []proxmoxNode {
+	if len(nodes) == 0 || len(cluster) == 0 {
+		return nodes
+	}
+
+	clusterByNode := make(map[string]proxmoxClusterNode, len(cluster))
+	for _, entry := range cluster {
+		if !strings.EqualFold(strings.TrimSpace(entry.Type), "node") {
+			continue
+		}
+		name := firstNonEmpty(entry.Name, strings.TrimPrefix(entry.ID, "node/"))
+		if name == "" {
+			continue
+		}
+		clusterByNode[strings.ToLower(name)] = entry
+	}
+
+	out := make([]proxmoxNode, 0, len(nodes))
+	for _, node := range nodes {
+		if entry, ok := clusterByNode[strings.ToLower(strings.TrimSpace(node.Node))]; ok {
+			if node.IP == "" {
+				node.IP = strings.TrimSpace(entry.IP)
+			}
 		}
 		out = append(out, node)
 	}
@@ -1007,6 +1041,7 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    deviceID,
 			Hostname:    hostname,
+			IP:          stripIPPrefix(node.IP),
 			VendorName:  "Proxmox",
 			Model:       "PVE",
 			Type:        "hypervisor",
@@ -1021,6 +1056,7 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 				"proxmox": map[string]any{
 					"kind":    "node",
 					"node":    node.Node,
+					"ip":      node.IP,
 					"cpu":     node.CPU,
 					"max_cpu": node.MaxCPU,
 					"mem":     node.Mem,

@@ -525,6 +525,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     partition = metadata_partition(record)
     device_uid = deterministic_provider_device_uid(provider_ref, partition)
     provider = Map.get(record, :provider)
+    ip = metadata_ip(record)
 
     metadata =
       %{
@@ -539,16 +540,36 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
       |> maybe_put("hypervisor_status", Map.get(record, :status))
 
-    update = %{
-      "device_id" => device_uid,
-      "hostname" => Map.get(record, :name) || provider_ref,
-      "partition" => partition,
-      "source" => "hypervisor_enrichment",
-      "is_available" => available_status?(Map.get(record, :status)),
-      "metadata" => metadata
-    }
+    update =
+      maybe_put(
+        %{
+          "device_id" => device_uid,
+          "hostname" => Map.get(record, :name) || provider_ref,
+          "partition" => partition,
+          "source" => "hypervisor_enrichment",
+          "is_available" => available_status?(Map.get(record, :status)),
+          "metadata" => metadata
+        },
+        "ip",
+        ip
+      )
 
     {update, provider_ref, device_uid}
+  end
+
+  defp metadata_ip(record) do
+    metadata = Map.get(record, :metadata) || %{}
+
+    Enum.find_value(
+      [
+        Map.get(metadata, "ip"),
+        get_in(metadata, ["cluster_node", "ip"])
+      ],
+      fn
+        value when is_binary(value) -> value |> strip_cidr() |> blank_to_nil()
+        _ -> nil
+      end
+    )
   end
 
   defp deterministic_provider_device_uid(provider_ref, partition) do

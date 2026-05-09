@@ -164,6 +164,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     else
       host_ref = "proxmox:node:#{node_name}"
       device_uid = device_uid_for_node(target, node_name)
+      cluster_node = cluster_node_for(target, node_name)
 
       host = %{
         provider: @provider,
@@ -177,7 +178,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         memory_used_bytes: integer_value(node, "mem"),
         memory_total_bytes: integer_value(node, "maxmem"),
         uptime_seconds: integer_value(node, "uptime"),
-        metadata: sanitize_metadata(Map.take(node, ["runtime_status"])),
+        metadata: node_metadata(node, cluster_node),
         observed_at: observed_at
       }
 
@@ -402,6 +403,31 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         put_record(records, :storage_systems, record)
     end
   end
+
+  defp node_metadata(node, cluster_node) do
+    %{}
+    |> maybe_put_metadata("runtime_status", map_value(node, "runtime_status"))
+    |> maybe_put_metadata("ip", string_value(node, "ip") || string_value(cluster_node, "ip"))
+    |> maybe_put_metadata("cluster_node", cluster_node)
+    |> sanitize_metadata()
+  end
+
+  defp cluster_node_for(target, node_name) do
+    target
+    |> list_value("cluster")
+    |> Enum.find(fn entry ->
+      string_value(entry, "type") == "node" and
+        same_host_or_node?(cluster_node_name(entry), node_name)
+    end)
+  end
+
+  defp cluster_node_name(entry) do
+    string_value(entry, "name") ||
+      entry |> string_value("id") |> strip_cluster_node_prefix()
+  end
+
+  defp strip_cluster_node_prefix("node/" <> name), do: name
+  defp strip_cluster_node_prefix(value), do: value
 
   defp device_uid_for_node(target, node_name) do
     meta = map_value(target, "metadata") || %{}

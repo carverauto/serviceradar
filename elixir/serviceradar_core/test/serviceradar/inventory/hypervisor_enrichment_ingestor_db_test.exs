@@ -33,7 +33,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
           %{
             "provider_ref" => host_ref,
             "name" => "pve-placeholder-#{suffix}",
-            "status" => "online"
+            "status" => "online",
+            "metadata" => %{"ip" => "10.10.#{rem(suffix, 200)}.11/24"}
           }
         ],
         "guests" => [
@@ -75,10 +76,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     assert String.starts_with?(guest_uid, "sr:")
     assert host_uid != guest_uid
 
-    assert [[host_uid, "Hypervisor", 99, host_ref]] ==
+    assert [[host_uid, "Hypervisor", 99, "10.10.#{rem(suffix, 200)}.11", host_ref]] ==
              Repo.query!(
                """
-               SELECT d.uid, d.type, d.type_id, di.identifier_value
+               SELECT d.uid, d.type, d.type_id, d.ip, di.identifier_value
                FROM platform.ocsf_devices d
                JOIN platform.device_identifiers di
                  ON di.device_id = d.uid

@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadar.Inventory.VirtualizationCluster
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
@@ -7587,6 +7588,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           kind: :host,
           host: host,
+          cluster: load_virtualization_cluster(scope, host.cluster_id),
           guest: nil,
           datastores: load_virtualization_datastores(scope, host_id),
           disks: load_virtualization_disks(scope, host_id),
@@ -7599,6 +7601,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           kind: :guest,
           host: nil,
+          cluster: nil,
           guest: guest,
           datastores: [],
           disks: [],
@@ -7631,6 +7634,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> virtualization_query(scope)
     |> Ash.Query.filter(device_uid == ^device_uid)
     |> Ash.Query.sort(observed_at: :desc)
+    |> Ash.Query.limit(1)
+    |> ash_read_first(scope)
+  end
+
+  defp load_virtualization_cluster(_scope, nil), do: nil
+
+  defp load_virtualization_cluster(scope, cluster_id) do
+    VirtualizationCluster
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(id == ^cluster_id)
     |> Ash.Query.limit(1)
     |> ash_read_first(scope)
   end
@@ -7914,6 +7927,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp virtualization_section(assigns) do
     summary = assigns.summary
     host = Map.get(summary, :host)
+    cluster = Map.get(summary, :cluster)
     guest = Map.get(summary, :guest)
     datastores = Map.get(summary, :datastores, [])
     disks = Map.get(summary, :disks, [])
@@ -7931,6 +7945,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     assigns =
       assigns
       |> assign(:host, host)
+      |> assign(:cluster, cluster)
       |> assign(:guest, guest)
       |> assign(:datastores, datastores)
       |> assign(:disks, disks)
@@ -7984,6 +7999,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             value={Integer.to_string(length(@guests))}
             subvalue={"#{@running_guests} running"}
           />
+        </div>
+
+        <div :if={@cluster} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0 flex items-center gap-2">
+              <.icon name="hero-cube-transparent" class="size-4 text-info" />
+              <span class="truncate text-sm font-medium">{@cluster.name}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span :if={@cluster.version} class="font-mono text-xs text-base-content/60">
+                {@cluster.version}
+              </span>
+              <.virtualization_health_badge value={@cluster.status} />
+            </div>
+          </div>
         </div>
 
         <div :if={@guest} class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
