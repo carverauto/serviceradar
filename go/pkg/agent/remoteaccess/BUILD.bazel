@@ -3,7 +3,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "remoteaccess",
     srcs = [
+        "enhanced_recorder.go",
         "enhanced_recording.go",
+        "enhanced_recording_platform_linux.go",
+        "enhanced_recording_platform_other.go",
         "manager.go",
         "ssh_open.go",
         "ssh.go",
@@ -16,6 +19,7 @@ go_library(
 go_test(
     name = "remoteaccess_test",
     srcs = [
+        "enhanced_recorder_test.go",
         "enhanced_recording_test.go",
         "ssh_integration_test.go",
         "manager_test.go",

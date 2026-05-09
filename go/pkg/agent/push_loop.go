@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -3172,7 +3173,11 @@ func isDockerRuntime() bool {
 }
 
 func getAgentCapabilities() []string {
-	return []string{
+	return agentCapabilities(remoteaccess.PlatformEnhancedRecordingAvailable())
+}
+
+func agentCapabilities(enhancedBPF bool) []string {
+	capabilities := []string{
 		"icmp",
 		"mtr",
 		sweepType,
@@ -3180,5 +3185,14 @@ func getAgentCapabilities() []string {
 		"mapper",
 		"sync",
 		"sysmon",
+		remoteaccess.CapabilityRemoteAccess,
+		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessRecording,
 	}
+
+	if enhancedBPF {
+		capabilities = append(capabilities, remoteaccess.CapabilityRemoteAccessBPF)
+	}
+
+	return capabilities
 }

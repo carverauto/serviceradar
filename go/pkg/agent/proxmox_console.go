@@ -73,8 +73,9 @@ func newProxmoxConsoleManagerWithAgentID(agentID string, _ logger.Logger) *proxm
 	}
 
 	manager.manager = remoteaccess.NewManagerWithConfig(remoteaccess.ManagerConfig{
-		Opener:      manager.openRemoteAccessPTY,
-		ErrorReason: proxmoxConsoleErrorReason,
+		Opener:           manager.openRemoteAccessPTY,
+		ErrorReason:      proxmoxConsoleErrorReason,
+		EnhancedRecorder: remoteaccess.NewPlatformEnhancedRecorder(),
 	})
 
 	return manager

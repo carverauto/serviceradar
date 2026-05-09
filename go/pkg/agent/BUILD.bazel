@@ -96,6 +96,7 @@ go_test(
     ],
     embed = [":agent"],
     deps = [
+        "//go/pkg/agent/remoteaccess",
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/grpc",

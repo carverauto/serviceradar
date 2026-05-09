@@ -72,7 +72,7 @@ Implementation constraints:
 - Events must avoid capturing plaintext credentials, terminal input bytes, or secret file contents.
 - Linux-specific event capture should live behind interfaces so non-Linux agents can still run remote access without enhanced recording.
 
-The first agent implementation adds the clean-room `EnhancedRecorder` boundary, policy parser, fail-closed/fallback gate, and normalized event frame shape. The Linux BPF loader/probes remain behind that interface and must be ServiceRadar-authored before the policy can be advertised as a real `remote_access.bpf` capability on production agents.
+The first agent implementation adds the clean-room `EnhancedRecorder` boundary, policy parser, fail-closed/fallback gate, normalized event frame shape, and agent capability gates. Agents may advertise `remote_access`, `remote_access.ssh`, and `remote_access.recording` once the generic adapter is present, but `remote_access.bpf` is advertised only when the platform collector reports compatible Linux BPF surfaces. The Linux BPF loader/probes remain behind that interface and must be ServiceRadar-authored before required BPF policies can succeed on production agents.
 
 ## Generic Resource and Frame Model
 Use `remote_access` as the generic capability name in new code. Keep Proxmox-specific modules and routes as wrappers until the UI and API callers are migrated.

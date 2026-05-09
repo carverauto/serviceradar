@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/metadata"
@@ -278,5 +280,28 @@ func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
 	}
 	if frame.GetReason() != "proxmox console PTY bridge unavailable" {
 		t.Fatalf("Reason = %q", frame.GetReason())
+	}
+}
+
+func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
+	t.Parallel()
+
+	base := agentCapabilities(false)
+	for _, capability := range []string{
+		remoteaccess.CapabilityRemoteAccess,
+		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessRecording,
+	} {
+		if !slices.Contains(base, capability) {
+			t.Fatalf("base capabilities missing %q: %#v", capability, base)
+		}
+	}
+	if slices.Contains(base, remoteaccess.CapabilityRemoteAccessBPF) {
+		t.Fatalf("base capabilities should not advertise BPF: %#v", base)
+	}
+
+	withBPF := agentCapabilities(true)
+	if !slices.Contains(withBPF, remoteaccess.CapabilityRemoteAccessBPF) {
+		t.Fatalf("BPF capabilities missing %q: %#v", remoteaccess.CapabilityRemoteAccessBPF, withBPF)
 	}
 }
