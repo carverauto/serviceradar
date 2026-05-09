@@ -19,8 +19,9 @@
 - [ ] 2.8 Add browser UI for per-session SSH key upload/paste, optional client-only remembered keys, passphrase support, and key fingerprint display without server-side key persistence.
 - [ ] 2.9 Add session recording storage/retention plumbing behind policy gates.
 - [ ] 2.10 Add clean-room Linux enhanced-recording collector for command/file/network events behind agent capability and policy gates.
-- [ ] 2.11 Add ServiceRadar SSH CA issuance for Authentik-authenticated users, mapping IdP claims and RBAC to short-lived OpenSSH user certificates.
-- [ ] 2.12 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
+- [x] 2.11 Add a ServiceRadar-owned SSH CA signing primitive for short-lived OpenSSH user certificates.
+- [ ] 2.12 Add ServiceRadar SSH CA issuance for Authentik-authenticated users, mapping IdP claims and RBAC to short-lived OpenSSH user certificates.
+- [ ] 2.13 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
 
 ## 3. Validation
 - [ ] 3.1 Add unit tests for credential custody policy and grant scoping.
