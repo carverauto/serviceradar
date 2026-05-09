@@ -108,10 +108,44 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
 
-    send(pid, {:remote_access_frame, %{frame_type: "data", data: "hello"}})
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "hello"}})
     assert_receive {:remote_access_data, "hello"}
 
-    send(pid, {:remote_access_frame, %{frame_type: "close", reason: "done"}})
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    assert_receive {:remote_access_closed, "done"}
+  end
+
+  test "ignores remote-access frames from agents that do not own the session" do
+    session = session_fixture()
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub, pubsub: PubSubStub, required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+
+    send(
+      pid,
+      {:remote_access_frame, %{agent_id: "agent-2", frame_type: "data", data: "intrusion"}}
+    )
+
+    send(pid, {:remote_access_frame, %{frame_type: "data", data: "missing-agent-id"}})
+
+    send(
+      pid,
+      {:remote_access_frame, %{agent_id: "agent-2", frame_type: "close", reason: "wrong-agent"}}
+    )
+
+    refute_receive {:remote_access_data, _data}, 50
+    refute_receive {:remote_access_closed, _reason}, 50
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "owned"}})
+    assert_receive {:remote_access_data, "owned"}
+
+    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
     assert_receive {:remote_access_closed, "done"}
   end
 

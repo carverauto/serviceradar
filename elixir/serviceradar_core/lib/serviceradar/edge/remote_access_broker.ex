@@ -87,21 +87,34 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   @impl true
-  def handle_info({:remote_access_frame, %{frame_type: "data", data: data}}, state)
-      when is_binary(data) do
+  def handle_info({:remote_access_frame, frame}, state) when is_map(frame) do
+    if owns_remote_access_frame?(state.session, frame) do
+      handle_remote_access_frame(frame, state)
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, reason}, state), do: {:stop, reason, state}
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp handle_remote_access_frame(%{frame_type: "data", data: data}, state)
+       when is_binary(data) do
     send(state.owner, {:remote_access_data, data})
     {:noreply, state}
   end
 
-  def handle_info({:remote_access_frame, %{frame_type: frame_type, reason: reason}}, state)
-      when frame_type in ["close", "error"] do
+  defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
+       when frame_type in ["close", "error"] do
     send(state.owner, {:remote_access_closed, reason || frame_type})
     {:stop, :normal, %{state | closed?: true}}
   end
 
-  def handle_info({:remote_access_frame, _frame}, state), do: {:noreply, state}
-  def handle_info({:DOWN, _ref, :process, _pid, reason}, state), do: {:stop, reason, state}
-  def handle_info(_message, state), do: {:noreply, state}
+  defp handle_remote_access_frame(_frame, state), do: {:noreply, state}
+
+  defp owns_remote_access_frame?(session, frame) do
+    string_value(frame, "agent_id") == agent_id(session)
+  end
 
   @impl true
   def terminate(reason, %{closed?: false} = state) do
