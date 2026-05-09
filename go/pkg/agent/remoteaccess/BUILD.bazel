@@ -6,6 +6,7 @@ go_library(
         "adapters.go",
         "enhanced_recorder.go",
         "enhanced_recording.go",
+        "enhanced_recording_linux.go",
         "enhanced_recording_platform_linux.go",
         "enhanced_recording_platform_other.go",
         "manager.go",
@@ -22,6 +23,7 @@ go_test(
     srcs = [
         "adapters_test.go",
         "enhanced_recorder_test.go",
+        "enhanced_recording_linux_test.go",
         "enhanced_recording_test.go",
         "ssh_integration_test.go",
         "manager_test.go",

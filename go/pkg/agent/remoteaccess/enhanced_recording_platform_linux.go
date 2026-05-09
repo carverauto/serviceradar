@@ -23,10 +23,17 @@ import (
 	"os"
 )
 
-// PlatformEnhancedRecordingAvailable reports whether this host has the minimum
-// Linux kernel surfaces needed for the future clean-room BPF collector.
+// PlatformEnhancedRecordingAvailable reports whether this host has a
+// ServiceRadar-owned BPF collector that can satisfy required BPF policies.
+// The procfs collector returned by NewPlatformEnhancedRecorder is an
+// optional/fallback collector and must not advertise the BPF capability.
 func PlatformEnhancedRecordingAvailable() bool {
-	return pathExists("/sys/fs/bpf") && (pathExists("/sys/kernel/tracing") || pathExists("/sys/kernel/debug/tracing"))
+	return false
+}
+
+func linuxBPFSurfacesAvailable() bool {
+	return pathExists("/sys/fs/bpf") &&
+		(pathExists("/sys/kernel/tracing") || pathExists("/sys/kernel/debug/tracing"))
 }
 
 func pathExists(path string) bool {
@@ -34,10 +41,11 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-// NewPlatformEnhancedRecorder returns the platform collector. The BPF source is
-// intentionally unavailable until ServiceRadar-owned probes are implemented.
+// NewPlatformEnhancedRecorder returns the Linux host-event fallback collector.
+// It reads public procfs surfaces and refuses required BPF policies unless the
+// policy explicitly allows fallback.
 func NewPlatformEnhancedRecorder() EnhancedRecorder {
-	return NewSourceEnhancedRecorder(unavailableEnhancedEventSource{})
+	return NewSourceEnhancedRecorder(NewLinuxProcEnhancedEventSource())
 }
 
 type unavailableEnhancedEventSource struct{}

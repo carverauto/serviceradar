@@ -18,7 +18,7 @@
 - [x] 2.7 Add audit events and RBAC/approval checks for create, attach, input, resize, close, and failure transitions.
 - [x] 2.8 Add browser UI for per-session SSH key upload/paste, optional client-only remembered keys, passphrase support, and key fingerprint display without server-side key persistence.
 - [x] 2.9 Add session recording storage/retention plumbing behind policy gates.
-- [ ] 2.10 Add clean-room Linux enhanced-recording collector for command/file/network events behind agent capability and policy gates.
+- [x] 2.10 Add clean-room Linux enhanced-recording collector for command/file/network events behind agent capability and policy gates.
 - [x] 2.11 Add a ServiceRadar-owned SSH CA signing primitive for short-lived OpenSSH user certificates.
 - [x] 2.12 Add a core SSH certificate policy boundary that maps actor permission, target principal policy, requested principals, and TTL into a bounded signing request shape.
 - [x] 2.13 Add a core SSH certificate issuance orchestrator that combines policy with an injected signer and returns a session certificate envelope.
