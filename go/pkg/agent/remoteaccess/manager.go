@@ -42,6 +42,7 @@ var (
 	ErrAdapterUnavailable = errors.New("remote access adapter unavailable")
 	ErrSessionExists      = errors.New("remote access session is already active")
 	ErrSessionNotActive   = errors.New("remote access session is not active")
+	ErrUnsupportedFrame   = errors.New("unsupported remote access frame type")
 )
 
 // Frame is the agent-local representation of a remote-access control frame.
@@ -75,6 +76,15 @@ type PTY interface {
 // Opener opens a protocol-specific target adapter for an open frame.
 type Opener func(context.Context, Frame) (PTY, error)
 
+// ErrorReason maps internal errors to user-facing frame reasons.
+type ErrorReason func(error) string
+
+// ManagerConfig configures a remote-access session manager.
+type ManagerConfig struct {
+	Opener      Opener
+	ErrorReason ErrorReason
+}
+
 type session struct {
 	cancel context.CancelFunc
 	pty    PTY
@@ -93,11 +103,19 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	opener   Opener
+	reason   ErrorReason
 }
 
 // NewManager creates a remote-access session manager. A nil opener reports
 // ErrAdapterUnavailable for open frames until the caller provides one.
 func NewManager(opener Opener) *Manager {
+	return NewManagerWithConfig(ManagerConfig{Opener: opener})
+}
+
+// NewManagerWithConfig creates a remote-access session manager with optional
+// compatibility hooks for callers that are adapting an existing protocol.
+func NewManagerWithConfig(cfg ManagerConfig) *Manager {
+	opener := cfg.Opener
 	if opener == nil {
 		opener = func(context.Context, Frame) (PTY, error) {
 			return nil, ErrAdapterUnavailable
@@ -107,6 +125,7 @@ func NewManager(opener Opener) *Manager {
 	return &Manager{
 		sessions: make(map[string]*session),
 		opener:   opener,
+		reason:   cfg.ErrorReason,
 	}
 }
 
@@ -128,19 +147,19 @@ func (m *Manager) HandleFrame(ctx context.Context, frame Frame, sender Sender) {
 	case FrameTypeClose:
 		m.closeSession(frame.SessionID, frame.Reason, sender)
 	default:
-		sendError(sender, frame.SessionID, errors.New("unsupported remote access frame type"))
+		m.sendError(sender, frame.SessionID, ErrUnsupportedFrame)
 	}
 }
 
 func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
 	if m.get(frame.SessionID) != nil {
-		sendError(sender, frame.SessionID, ErrSessionExists)
+		m.sendError(sender, frame.SessionID, ErrSessionExists)
 		return
 	}
 
 	ptySession, err := m.opener(ctx, frame)
 	if err != nil {
-		sendError(sender, frame.SessionID, err)
+		m.sendError(sender, frame.SessionID, err)
 		return
 	}
 
@@ -151,7 +170,7 @@ func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
 	if _, exists := m.sessions[frame.SessionID]; exists {
 		m.mu.Unlock()
 		next.close()
-		sendError(sender, frame.SessionID, ErrSessionExists)
+		m.sendError(sender, frame.SessionID, ErrSessionExists)
 		return
 	}
 	m.sessions[frame.SessionID] = next
@@ -172,12 +191,12 @@ func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
 func (m *Manager) write(frame Frame, sender Sender) {
 	session := m.get(frame.SessionID)
 	if session == nil {
-		sendError(sender, frame.SessionID, ErrSessionNotActive)
+		m.sendError(sender, frame.SessionID, ErrSessionNotActive)
 		return
 	}
 
 	if err := session.pty.Write(frame.Data); err != nil {
-		sendError(sender, frame.SessionID, err)
+		m.sendError(sender, frame.SessionID, err)
 		m.closeSession(frame.SessionID, "remote access write failed", sender)
 	}
 }
@@ -185,12 +204,12 @@ func (m *Manager) write(frame Frame, sender Sender) {
 func (m *Manager) resize(frame Frame, sender Sender) {
 	session := m.get(frame.SessionID)
 	if session == nil {
-		sendError(sender, frame.SessionID, ErrSessionNotActive)
+		m.sendError(sender, frame.SessionID, ErrSessionNotActive)
 		return
 	}
 
 	if err := session.pty.Resize(frame.Cols, frame.Rows); err != nil {
-		sendError(sender, frame.SessionID, err)
+		m.sendError(sender, frame.SessionID, err)
 		m.closeSession(frame.SessionID, "remote access resize failed", sender)
 	}
 }
@@ -234,7 +253,7 @@ func (m *Manager) readLoop(ctx context.Context, sessionID string, protocol strin
 		if m.removeIfSame(sessionID, current) {
 			current.close()
 			if !errors.Is(err, io.EOF) {
-				sendError(sender, sessionID, err)
+				m.sendError(sender, sessionID, err)
 			}
 			sendFrame(sender, Frame{
 				SessionID: sessionID,
@@ -288,9 +307,11 @@ func heartbeatFrame(frame Frame) Frame {
 	}
 }
 
-func sendError(sender Sender, sessionID string, err error) {
+func (m *Manager) sendError(sender Sender, sessionID string, err error) {
 	reason := "remote access session failed"
-	if err != nil {
+	if m.reason != nil {
+		reason = m.reason(err)
+	} else if err != nil {
 		reason = err.Error()
 	}
 

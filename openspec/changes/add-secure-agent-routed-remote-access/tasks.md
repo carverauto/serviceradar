@@ -14,7 +14,7 @@
 - [ ] 2.3 Add gateway-to-agent session routing over the existing agent-initiated control stream.
 - [ ] 2.4 Add an agent-side SSH protocol adapter with agent-local credential support.
 - [ ] 2.5 Add user-present session credential support without persisting credentials.
-- [ ] 2.6 Convert Proxmox console handling into a provider adapter that uses the generic remote-access path.
+- [x] 2.6 Convert Proxmox console handling into a provider adapter that uses the generic remote-access path.
 - [ ] 2.7 Add audit events and RBAC/approval checks for create, attach, input, resize, close, and failure transitions.
 - [ ] 2.8 Add browser UI for per-session SSH key upload/paste, optional client-only remembered keys, passphrase support, and key fingerprint display without server-side key persistence.
 - [ ] 2.9 Add session recording storage/retention plumbing behind policy gates.
@@ -26,7 +26,7 @@
 - [ ] 3.2 Add gateway/agent tests proving frames are accepted only from the session-owning agent.
 - [ ] 3.3 Add browser/channel tests proving tickets and credentials are not echoed to the client.
 - [ ] 3.4 Add a demo SSH target test through an agent in a non-platform network path.
-- [ ] 3.5 Add regression tests that Proxmox console still works through the generic path.
+- [x] 3.5 Add regression tests that Proxmox console still works through the generic path.
 - [ ] 3.6 Document why CEA-852/CN-IP support remains deferred until representative LonTalk/CN-IP test data is available, and require read-only/passive behavior before any active control support.
 - [x] 3.7 Add license-review tests or scripts that fail if a supposedly imported Teleport path includes AGPL-header source in its transitive Go package directories.
 - [ ] 3.8 Add enhanced-recording tests for command/file/network event normalization, session correlation, dropped-event counters, and policy fallback behavior.
