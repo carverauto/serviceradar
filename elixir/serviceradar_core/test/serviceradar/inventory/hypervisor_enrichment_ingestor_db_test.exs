@@ -46,6 +46,17 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
             "vmid" => 132,
             "status" => "unknown"
           }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "#{provider}:guest-nic:pve-placeholder-#{suffix}:vm:132:net0",
+            "host_provider_ref" => host_ref,
+            "guest_provider_ref" => guest_ref,
+            "name" => "net0",
+            "mac_address" => "02:00:00:00:#{rem(suffix, 90) + 10}:01",
+            "ip_addresses" => ["10.20.#{rem(suffix, 200)}.12/24"],
+            "source" => "config"
+          }
         ]
       }
     }
@@ -89,10 +100,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                [host_uid]
              ).rows
 
-    assert [[guest_uid, "Virtual", 6, guest_ref]] ==
+    assert [[guest_uid, "Virtual", 6, "10.20.#{rem(suffix, 200)}.12", guest_ref]] ==
              Repo.query!(
                """
-               SELECT d.uid, d.type, d.type_id, di.identifier_value
+               SELECT d.uid, d.type, d.type_id, d.ip, di.identifier_value
                FROM platform.ocsf_devices d
                JOIN platform.device_identifiers di
                  ON di.device_id = d.uid

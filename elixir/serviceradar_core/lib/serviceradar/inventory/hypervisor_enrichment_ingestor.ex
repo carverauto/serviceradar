@@ -480,6 +480,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp ensure_inventory_devices(records, actor) do
+    guest_ip_by_ref = primary_ip_by_guest(records.network_interfaces)
+
     {host_updates, host_uid_by_ref} =
       records.hosts
       |> Enum.filter(&missing_device_uid?/1)
@@ -491,12 +493,22 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     {guest_updates, guest_uid_by_ref} =
       records.guests
       |> Enum.filter(&missing_device_uid?/1)
-      |> Enum.map(&placeholder_device_update(&1, :virtual_guest))
+      |> Enum.map(fn record ->
+        placeholder_device_update(
+          record,
+          :virtual_guest,
+          Map.get(guest_ip_by_ref, Map.get(record, :provider_ref))
+        )
+      end)
       |> Enum.map_reduce(%{}, fn {update, provider_ref, device_uid}, acc ->
         {update, Map.put(acc, provider_ref, device_uid)}
       end)
 
-    updates = host_updates ++ guest_updates
+    updates =
+      host_updates ++
+        guest_updates ++
+        existing_device_ip_updates(records.hosts, :hypervisor, %{}) ++
+        existing_device_ip_updates(records.guests, :virtual_guest, guest_ip_by_ref)
 
     case updates do
       [] ->
@@ -520,25 +532,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     |> is_nil()
   end
 
-  defp placeholder_device_update(record, role) do
+  defp placeholder_device_update(record, role, ip_override \\ nil) do
     provider_ref = Map.fetch!(record, :provider_ref)
     partition = metadata_partition(record)
     device_uid = deterministic_provider_device_uid(provider_ref, partition)
-    provider = Map.get(record, :provider)
-    ip = metadata_ip(record)
+    ip = first_non_empty(ip_override, metadata_ip(record))
 
-    metadata =
-      %{
-        "integration_id" => provider_ref,
-        "integration_type" => "hypervisor",
-        "device_role" => device_role(role),
-        "hypervisor_provider" => provider,
-        "hypervisor_provider_ref" => provider_ref
-      }
-      |> maybe_put("hypervisor_guest_type", Map.get(record, :guest_type))
-      |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
-      |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
-      |> maybe_put("hypervisor_status", Map.get(record, :status))
+    metadata = placeholder_device_metadata(record, role)
 
     update =
       maybe_put(
@@ -555,6 +555,69 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       )
 
     {update, provider_ref, device_uid}
+  end
+
+  defp existing_device_ip_updates(records, role, guest_ip_by_ref) do
+    records
+    |> Enum.reject(&missing_device_uid?/1)
+    |> Enum.flat_map(fn record ->
+      ip =
+        first_non_empty(
+          Map.get(guest_ip_by_ref, Map.get(record, :provider_ref)),
+          metadata_ip(record)
+        )
+
+      case {existing_sr_uid(Map.get(record, :device_uid)), ip} do
+        {uid, ip} when is_binary(uid) and is_binary(ip) ->
+          [
+            %{
+              "device_id" => uid,
+              "partition" => metadata_partition(record),
+              "source" => "hypervisor_enrichment",
+              "ip" => ip,
+              "metadata" => placeholder_device_metadata(record, role)
+            }
+          ]
+
+        _ ->
+          []
+      end
+    end)
+  end
+
+  defp placeholder_device_metadata(record, role) do
+    provider_ref = Map.fetch!(record, :provider_ref)
+
+    %{
+      "integration_id" => provider_ref,
+      "integration_type" => "hypervisor",
+      "device_role" => device_role(role),
+      "hypervisor_provider" => Map.get(record, :provider),
+      "hypervisor_provider_ref" => provider_ref
+    }
+    |> maybe_put("hypervisor_guest_type", Map.get(record, :guest_type))
+    |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
+    |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
+    |> maybe_put("hypervisor_status", Map.get(record, :status))
+  end
+
+  defp primary_ip_by_guest(network_interfaces) do
+    Enum.reduce(network_interfaces, %{}, fn iface, acc ->
+      guest_ref = Map.get(iface, :guest_provider_ref)
+      ip = primary_interface_ip(iface)
+
+      if present?(guest_ref) and present?(ip) do
+        Map.put_new(acc, guest_ref, ip)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp primary_interface_ip(iface) do
+    iface
+    |> Map.get(:ip_addresses, [])
+    |> Enum.find_value(&normalize_ip_identifier/1)
   end
 
   defp metadata_ip(record) do
@@ -1179,4 +1242,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp blank_to_nil(value), do: value
   defp blank?(value), do: value in [nil, ""]
   defp present?(value), do: not blank?(value)
+  defp first_non_empty(left, right) when left in [nil, ""], do: right
+  defp first_non_empty(left, _right), do: left
 end
