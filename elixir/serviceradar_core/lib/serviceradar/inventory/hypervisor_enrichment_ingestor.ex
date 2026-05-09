@@ -8,6 +8,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
+  import Ash.Expr
+
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -470,8 +472,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: false})
     |> Ash.Query.filter(
-      uid in ^uids or fragment("lower(?)", name) in ^names_downcase or
-        fragment("lower(?)", hostname) in ^names_downcase
+      expr(
+        uid in ^uids or fragment("lower(?)", name) in ^names_downcase or
+          fragment("lower(?)", hostname) in ^names_downcase
+      )
     )
     |> Ash.read(actor: actor)
     |> unwrap_page()
