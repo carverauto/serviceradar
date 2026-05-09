@@ -339,12 +339,14 @@ func TestManagerFailsBeforeOpenWhenRequiredEnhancedRecordingUnavailable(t *testi
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
-			"protocol":   ProtocolSSH,
-			"session_id": "remote-session-1",
-			"agent_id":   "agent-1",
+			"protocol":              ProtocolSSH,
+			"session_id":            "remote-session-1",
+			"agent_id":              "agent-1",
+			"target_execution_mode": EnhancedExecutionManagedTarget,
 			"enhanced_recording_policy": map[string]any{
 				"enabled":  true,
 				"required": true,
+				"mode":     "bpf",
 			},
 		}),
 	}, sender)
@@ -355,6 +357,50 @@ func TestManagerFailsBeforeOpenWhenRequiredEnhancedRecordingUnavailable(t *testi
 	}
 	if openerCalled {
 		t.Fatal("target opener was called before required enhanced recording started")
+	}
+}
+
+func TestManagerRejectsAgentlessSSHRequiredBPF(t *testing.T) {
+	t.Parallel()
+
+	openerCalled := false
+	recording := newFakeEnhancedRecording()
+	recorder := newFakeEnhancedRecorder(recording)
+	manager := NewManagerWithConfig(ManagerConfig{
+		Opener: func(context.Context, Frame) (PTY, error) {
+			openerCalled = true
+			return newFakePTY(), nil
+		},
+		EnhancedRecorder: recorder,
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  ProtocolSSH,
+		FrameType: FrameTypeOpen,
+		Data: mustJSON(t, map[string]any{
+			"protocol":   ProtocolSSH,
+			"session_id": "remote-session-1",
+			"enhanced_recording_policy": map[string]any{
+				"enabled":  true,
+				"required": true,
+				"mode":     "bpf",
+			},
+		}),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrEnhancedRecordingTargetBoundaryRequired.Error() {
+		t.Fatalf("error reason = %q, want %q", errorFrame.Reason, ErrEnhancedRecordingTargetBoundaryRequired.Error())
+	}
+	if openerCalled {
+		t.Fatal("target opener was called for agentless SSH required BPF")
+	}
+	select {
+	case started := <-recorder.started:
+		t.Fatalf("enhanced recorder started for invalid boundary: %#v", started)
+	default:
 	}
 }
 

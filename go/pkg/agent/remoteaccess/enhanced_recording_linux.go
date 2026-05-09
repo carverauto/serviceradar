@@ -145,11 +145,6 @@ func (source *LinuxProcEnhancedEventSource) Start(
 	return events, stop, nil
 }
 
-func requiresBPF(policy EnhancedRecordingPolicy) bool {
-	mode := strings.TrimSpace(strings.ToLower(policy.Mode))
-	return mode == "bpf"
-}
-
 type linuxProcState struct {
 	commands map[int]struct{}
 	files    map[string]struct{}

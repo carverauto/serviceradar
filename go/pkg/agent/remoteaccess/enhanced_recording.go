@@ -35,6 +35,11 @@ const (
 )
 
 var ErrEnhancedRecordingUnavailable = errors.New("enhanced recording unavailable")
+var ErrEnhancedRecordingTargetBoundaryRequired = errors.New("target-side enhanced recording requires managed target execution")
+
+const (
+	EnhancedExecutionManagedTarget = "managed_target"
+)
 
 // EnhancedRecordingPolicy is the agent-visible subset of the platform policy.
 // It controls whether host-event tracing is required before target access opens
@@ -56,6 +61,7 @@ type EnhancedRecordingSession struct {
 	AgentID               string
 	GatewayID             string
 	Target                map[string]string
+	TargetExecutionMode   string
 	CredentialCustodyMode string
 	Policy                EnhancedRecordingPolicy
 }
@@ -135,6 +141,8 @@ func enhancedSessionFromFrame(frame Frame, policy EnhancedRecordingPolicy) Enhan
 		Target           map[string]any    `json:"target,omitempty"`
 		CredentialMode   string            `json:"credential_mode,omitempty"`
 		CredentialPolicy string            `json:"credential_custody_mode,omitempty"`
+		TargetExecMode   string            `json:"target_execution_mode,omitempty"`
+		ManagedTarget    bool              `json:"managed_target,omitempty"`
 		Metadata         map[string]string `json:"metadata,omitempty"`
 	}
 	_ = json.Unmarshal(frame.Data, &payload)
@@ -149,15 +157,31 @@ func enhancedSessionFromFrame(frame Frame, policy EnhancedRecordingPolicy) Enhan
 		mode = payload.CredentialPolicy
 	}
 
+	target := stringifyTarget(payload.Target)
+	targetExecutionMode := firstNonEmpty(payload.TargetExecMode, payload.Metadata["target_execution_mode"], target["execution_mode"])
+	if payload.ManagedTarget || target["managed_target"] == "true" {
+		targetExecutionMode = EnhancedExecutionManagedTarget
+	}
+
 	return EnhancedRecordingSession{
 		SessionID:             frame.SessionID,
 		Protocol:              frame.Protocol,
 		AgentID:               agentID,
 		GatewayID:             payload.GatewayID,
-		Target:                stringifyTarget(payload.Target),
+		Target:                target,
+		TargetExecutionMode:   targetExecutionMode,
 		CredentialCustodyMode: mode,
 		Policy:                policy,
 	}
+}
+
+func validateEnhancedRecordingBoundary(session EnhancedRecordingSession) error {
+	if session.Protocol == ProtocolSSH && session.Policy.Required && requiresBPF(session.Policy) &&
+		!session.Policy.AllowFallback && session.TargetExecutionMode != EnhancedExecutionManagedTarget {
+		return ErrEnhancedRecordingTargetBoundaryRequired
+	}
+
+	return nil
 }
 
 func normalizeEnhancedEvent(session EnhancedRecordingSession, event EnhancedEvent) EnhancedEvent {
@@ -302,4 +326,9 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func requiresBPF(policy EnhancedRecordingPolicy) bool {
+	mode := strings.TrimSpace(strings.ToLower(policy.Mode))
+	return mode == "bpf"
 }

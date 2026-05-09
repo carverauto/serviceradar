@@ -389,6 +389,7 @@ func TestProxmoxConsoleManagerFailsClosedWhenRequiredEnhancedRecordingUnavailabl
 			"protocol": "ssh",
 			"session_id": "ssh-session-1",
 			"agent_id": "agent-1",
+			"target_execution_mode": "managed_target",
 			"target": {"host": "router.example"},
 			"ssh": {"username": "admin", "password": "secret"},
 			"enhanced_recording_policy": {"enabled": true, "required": true, "mode": "bpf"}

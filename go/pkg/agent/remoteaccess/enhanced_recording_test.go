@@ -90,6 +90,28 @@ func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) 
 	}
 }
 
+func TestEnhancedSessionCapturesManagedTargetExecutionBoundary(t *testing.T) {
+	t.Parallel()
+
+	session := enhancedSessionFromFrame(Frame{
+		SessionID: "session-1",
+		Protocol:  ProtocolSSH,
+		Data: mustJSON(t, map[string]any{
+			"target": map[string]any{
+				"host":           "target.example",
+				"managed_target": true,
+			},
+		}),
+	}, EnhancedRecordingPolicy{})
+
+	if session.TargetExecutionMode != EnhancedExecutionManagedTarget {
+		t.Fatalf("target execution mode = %q", session.TargetExecutionMode)
+	}
+	if session.Target["managed_target"] != "true" {
+		t.Fatalf("target metadata = %#v", session.Target)
+	}
+}
+
 func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing.T) {
 	t.Parallel()
 

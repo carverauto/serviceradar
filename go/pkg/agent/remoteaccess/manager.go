@@ -323,6 +323,10 @@ func (m *Manager) startEnhancedRecording(
 	policy := enhancedPolicyFromFrame(frame)
 	session := enhancedSessionFromFrame(frame, policy)
 
+	if err := validateEnhancedRecordingBoundary(session); err != nil {
+		return session, nil, nil, err
+	}
+
 	if !enhancedRecordingEnabled(policy) {
 		return session, nil, nil, nil
 	}
