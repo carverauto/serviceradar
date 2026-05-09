@@ -127,9 +127,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp open_frame_data(session, opts) do
     session_metadata = metadata(session)
-    opts_metadata = Keyword.get(opts, :metadata, %{})
-    target = target(session, opts_metadata, session_metadata)
-    ssh = ssh_auth(session, opts_metadata, session_metadata)
+    opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
+    ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
+
+    target =
+      ssh_certificate
+      |> certificate_target()
+      |> fallback(target(session, opts_metadata, session_metadata))
+
+    ssh = ssh_auth(session, opts_metadata, session_metadata, ssh_certificate)
 
     %{
       protocol: string_option(session, opts, "protocol", @default_protocol),
@@ -138,7 +144,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       gateway_id: value(session, "gateway_id"),
       target: target,
       ssh: ssh,
-      credential_mode: string_option(session, opts, "credential_mode", @default_credential_mode),
+      credential_mode:
+        credential_mode(session, opts, opts_metadata, session_metadata, ssh_certificate),
       terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
       timeout_ms: int_option(session, opts, "timeout_ms"),
       ssh_host_key_policy:
@@ -147,6 +154,24 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> Enum.reject(fn {_key, value} -> blank?(value) end)
     |> Map.new()
     |> Jason.encode!()
+  end
+
+  defp ssh_certificate_envelope(session, opts, opts_metadata, session_metadata) do
+    opts
+    |> Keyword.get(:ssh_certificate)
+    |> fallback(map_value(opts_metadata, "ssh_certificate"))
+    |> fallback(map_value(opts_metadata, "certificate_envelope"))
+    |> fallback(map_value(session_metadata, "ssh_certificate"))
+    |> fallback(map_value(session_metadata, "certificate_envelope"))
+    |> fallback(value(session, "ssh_certificate"))
+    |> normalize_metadata()
+  end
+
+  defp certificate_target(certificate) do
+    certificate
+    |> map_value("target")
+    |> normalize_target()
+    |> non_empty_map()
   end
 
   defp target(session, opts_metadata, session_metadata) do
@@ -166,12 +191,20 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp normalize_target(_target), do: %{}
 
-  defp ssh_auth(session, opts_metadata, session_metadata) do
-    opts_metadata
-    |> map_value("ssh")
-    |> fallback(map_value(session_metadata, "ssh"))
-    |> fallback(value(session, "ssh"))
-    |> normalize_ssh_auth()
+  defp ssh_auth(session, opts_metadata, session_metadata, ssh_certificate) do
+    session_auth =
+      opts_metadata
+      |> map_value("ssh")
+      |> fallback(map_value(session_metadata, "ssh"))
+      |> fallback(value(session, "ssh"))
+      |> normalize_ssh_auth()
+
+    certificate_auth =
+      ssh_certificate
+      |> map_value("ssh")
+      |> normalize_ssh_auth()
+
+    Map.merge(session_auth, certificate_auth)
   end
 
   defp normalize_ssh_auth(auth) when is_map(auth) do
@@ -182,6 +215,17 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   defp normalize_ssh_auth(_auth), do: %{}
+
+  defp credential_mode(session, opts, opts_metadata, session_metadata, ssh_certificate) do
+    opts
+    |> Keyword.get(:credential_mode, nil)
+    |> string_or_nil()
+    |> fallback(string_value(ssh_certificate, "credential_mode"))
+    |> fallback(string_value(opts_metadata, "credential_mode"))
+    |> fallback(string_value(session_metadata, "credential_mode"))
+    |> fallback(string_value(session, "credential_mode"))
+    |> fallback(@default_credential_mode)
+  end
 
   defp string_option(session, opts, key, default) do
     opts
@@ -257,6 +301,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp fallback(nil, fallback), do: fallback
   defp fallback(value, _fallback), do: value
+
+  defp non_empty_map(%{} = map) when map_size(map) == 0, do: nil
+  defp non_empty_map(%{} = map), do: map
 
   defp blank?(value) when value in [nil, "", 0], do: true
   defp blank?(value) when is_map(value), do: map_size(value) == 0

@@ -91,6 +91,44 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:remote_access_closed, "done"}
   end
 
+  test "merges issued SSH certificate envelopes with user-present session keys" do
+    session =
+      put_in(session_fixture(), [:metadata, "ssh"], %{
+        "username" => "stale-login",
+        "private_key" => "session-private-key",
+        "passphrase" => "session-passphrase",
+        "certificate" => "stale-certificate"
+      })
+
+    issued_certificate = %{
+      credential_mode: "ssh_certificate",
+      target: %{"host" => "10.0.0.11", "port" => 2222},
+      ssh: %{"username" => "ubuntu", "certificate" => "issued-certificate"}
+    }
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        required_gateway_node: self(),
+        ssh_certificate: issued_certificate}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+
+    assert %{
+             "credential_mode" => "ssh_certificate",
+             "target" => %{"host" => "10.0.0.11", "port" => 2222},
+             "ssh" => %{
+               "username" => "ubuntu",
+               "private_key" => "session-private-key",
+               "passphrase" => "session-passphrase",
+               "certificate" => "issued-certificate"
+             }
+           } = Jason.decode!(frame.data)
+  end
+
   defp session_fixture do
     %{
       id: "session-1",
