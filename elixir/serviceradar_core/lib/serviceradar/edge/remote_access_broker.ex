@@ -423,12 +423,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     session_metadata = metadata(session)
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
+    session_target = target(session, opts_metadata, session_metadata)
 
-    with :ok <- validate_ssh_certificate_envelope(session, ssh_certificate) do
+    with :ok <- validate_ssh_certificate_envelope(session, ssh_certificate, session_target) do
       target =
         ssh_certificate
         |> certificate_target()
-        |> fallback(target(session, opts_metadata, session_metadata))
+        |> merge_certificate_target(session_target)
 
       ssh = ssh_auth(session, opts_metadata, session_metadata, ssh_certificate)
 
@@ -475,9 +476,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> non_empty_map()
   end
 
-  defp validate_ssh_certificate_envelope(_session, certificate) when certificate == %{}, do: :ok
+  defp validate_ssh_certificate_envelope(_session, certificate, _session_target)
+       when certificate == %{}, do: :ok
 
-  defp validate_ssh_certificate_envelope(session, certificate) do
+  defp validate_ssh_certificate_envelope(session, certificate, session_target) do
     with :ok <-
            optional_match(
              certificate,
@@ -499,9 +501,26 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
              "credential_mode",
              "ssh_certificate",
              :ssh_certificate_mode_invalid
-           ) do
+           ),
+         :ok <- validate_ssh_certificate_target(certificate_target(certificate), session_target) do
       validate_ssh_certificate_auth(certificate)
     end
+  end
+
+  defp validate_ssh_certificate_target(certificate_target, _session_target)
+       when certificate_target == %{}, do: :ok
+
+  defp validate_ssh_certificate_target(certificate_target, session_target) do
+    conflict? =
+      Enum.any?(["id", "device_uid", "uid", "host", "port"], fn key ->
+        certificate_value = comparable_target_value(certificate_target, key)
+        session_value = comparable_target_value(session_target, key)
+
+        not blank?(certificate_value) and not blank?(session_value) and
+          certificate_value != session_value
+      end)
+
+    if conflict?, do: {:error, :ssh_certificate_target_mismatch}, else: :ok
   end
 
   defp validate_ssh_certificate_auth(certificate) do
@@ -526,13 +545,27 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   defp target(session, opts_metadata, session_metadata) do
-    opts_metadata
-    |> map_value("target")
+    session
+    |> target_from_session()
+    |> non_empty_map()
     |> fallback(map_value(session_metadata, "target"))
+    |> fallback(map_value(opts_metadata, "target"))
     |> fallback(value(session, "target"))
-    |> fallback(target_from_session(session))
     |> normalize_target()
   end
+
+  defp merge_certificate_target(certificate_target, session_target) do
+    certificate_target
+    |> fallback(%{})
+    |> Map.merge(session_target)
+    |> non_empty_map()
+  end
+
+  defp comparable_target_value(target, key),
+    do: target |> map_value(key) |> target_compare_string()
+
+  defp target_compare_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp target_compare_string(value), do: string_or_nil(value)
 
   defp target_from_session(session) do
     %{

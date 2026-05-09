@@ -517,7 +517,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       agent_id: "agent-1",
       protocol: "ssh",
       credential_mode: "ssh_certificate",
-      target: %{"host" => "10.0.0.11", "port" => 2222},
+      target: %{"host" => "10.0.0.10", "port" => 22},
       ssh: %{"username" => "ubuntu", "certificate" => "issued-certificate"}
     }
 
@@ -538,13 +538,43 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
 
     assert %{
              "credential_mode" => "ssh_certificate",
-             "target" => %{"host" => "10.0.0.11", "port" => 2222},
+             "target" => %{"host" => "10.0.0.10", "port" => 22},
              "ssh" => %{
                "username" => "ubuntu",
                "private_key" => "session-private-key",
                "passphrase" => "session-passphrase",
                "certificate" => "issued-certificate"
              }
+           } = Jason.decode!(frame.data)
+  end
+
+  test "durable session target wins over caller metadata" do
+    session =
+      Map.merge(session_fixture(), %{
+        device_uid: "device-1",
+        target_host: "10.0.0.10",
+        target_port: 22,
+        metadata: %{
+          "target" => %{"host" => "metadata-retarget.example", "port" => 2022},
+          "ssh" => %{"username" => "root", "private_key" => "session-key"}
+        }
+      })
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self(),
+        metadata: %{"target" => %{"host" => "opts-retarget.example", "port" => 2222}}}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+
+    assert %{
+             "target" => %{"device_uid" => "device-1", "host" => "10.0.0.10", "port" => 22}
            } = Jason.decode!(frame.data)
   end
 
@@ -577,6 +607,42 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, failed_audit}
     assert failed_audit[:action] == :remote_access_session_failed
     assert failed_audit[:details].failure_reason == "ssh_certificate_agent_mismatch"
+  end
+
+  test "rejects SSH certificate envelopes scoped to another target" do
+    previous_trap_exit = Process.flag(:trap_exit, true)
+    on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)
+
+    session =
+      Map.merge(session_fixture(), %{
+        device_uid: "device-1",
+        target_host: "10.0.0.10",
+        target_port: 22
+      })
+
+    issued_certificate = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      protocol: "ssh",
+      credential_mode: "ssh_certificate",
+      target: %{"device_uid" => "other-device", "host" => "10.0.0.11", "port" => 22},
+      ssh: %{"username" => "ubuntu", "certificate" => "issued-certificate"}
+    }
+
+    assert {:error, :ssh_certificate_target_mismatch} =
+             RemoteAccessBroker.start_link(session, self(),
+               command_bus: CommandBusStub,
+               pubsub: PubSubStub,
+               audit_writer: AuditWriterStub,
+               audit_actor: audit_actor(),
+               required_gateway_node: self(),
+               ssh_certificate: issued_certificate
+             )
+
+    refute_receive {:send_console_frame, _agent_id, _frame, _opts}
+    assert_receive {:audit, failed_audit}
+    assert failed_audit[:action] == :remote_access_session_failed
+    assert failed_audit[:details].failure_reason == "ssh_certificate_target_mismatch"
   end
 
   defp audit_actor, do: %{id: "user-1", test_pid: self()}
