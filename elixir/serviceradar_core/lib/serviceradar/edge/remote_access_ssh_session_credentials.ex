@@ -8,6 +8,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
   """
 
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
+  alias ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer
 
   @type grant :: %{
           broker_opts: keyword(),
@@ -59,6 +60,28 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentials do
   end
 
   def build_certificate_grant(_actor, _attrs, _opts), do: {:error, :invalid_request}
+
+  @spec build_identity_certificate_grant(map() | struct(), map(), keyword()) ::
+          {:ok, grant()} | {:error, term()}
+  def build_identity_certificate_grant(actor, attrs, opts \\ [])
+
+  def build_identity_certificate_grant(actor, attrs, opts) when is_map(attrs) do
+    with {:ok, private_key} <- required_string(attrs, "private_key"),
+         passphrase = optional_string(attrs, "passphrase"),
+         {:ok, issued} <- RemoteAccessSSHIdentityIssuer.issue(actor, attrs, opts) do
+      {:ok,
+       %{
+         broker_opts: [
+           metadata: %{"ssh" => ssh_session_key(private_key, passphrase)},
+           ssh_certificate: issued
+         ],
+         ssh_certificate: issued,
+         audit: audit(issued)
+       }}
+    end
+  end
+
+  def build_identity_certificate_grant(_actor, _attrs, _opts), do: {:error, :invalid_request}
 
   defp session_metadata(ssh_auth, attrs) do
     maybe_put(%{"ssh" => ssh_auth}, "target", normalize_target(value(attrs, "target")))

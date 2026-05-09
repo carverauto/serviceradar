@@ -26,6 +26,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
     end
   end
 
+  defmodule AuditWriterStub do
+    @moduledoc false
+
+    def write_async(opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:audit, opts})
+      :ok
+    end
+  end
+
   test "builds key-based user-present broker options without certificate issuance" do
     assert {:ok, grant} =
              RemoteAccessSSHSessionCredentials.build_user_present_grant(%{
@@ -142,6 +151,51 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
     assert grant.audit.credential_custody_mode == "user_present"
     assert grant.audit.credential_mode == "ssh_certificate"
     assert grant.audit.session_id == "session-1"
+  end
+
+  test "builds identity certificate grant from authoritative SSO claims" do
+    actor = %{
+      id: "user-1",
+      email: "alice@example.com",
+      external_id: "authentik|alice",
+      last_auth_method: :oidc,
+      permissions: MapSet.new([@permission])
+    }
+
+    attrs = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      public_key: "ssh-ed25519 AAAATEST user@workstation",
+      private_key: "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      claims: %{"groups" => ["browser-admins"]},
+      target: %{device_uid: "device-1", host: "10.0.0.10"},
+      principal_mappings: [
+        %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+      ],
+      requested_principals: ["ubuntu"]
+    }
+
+    assert {:ok, grant} =
+             RemoteAccessSSHSessionCredentials.build_identity_certificate_grant(
+               actor,
+               attrs,
+               signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
+               test_pid: self(),
+               idp_claims: %{"groups" => ["linux-admins"]}
+             )
+
+    assert_receive {:sign_user_certificate, sign_request}
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_ssh_certificate_issue
+    assert sign_request.principals == ["ubuntu"]
+    refute inspect(sign_request) =~ "OPENSSH PRIVATE KEY"
+    refute inspect(sign_request) =~ "browser-admins"
+
+    assert grant.broker_opts[:ssh_certificate].credential_mode == "ssh_certificate"
+    assert grant.broker_opts[:ssh_certificate].ssh["username"] == "ubuntu"
+    assert grant.broker_opts[:metadata]["ssh"]["private_key"] =~ "OPENSSH PRIVATE KEY"
+    refute inspect(grant.audit) =~ "OPENSSH PRIVATE KEY"
   end
 
   test "fails closed without a session private key" do
