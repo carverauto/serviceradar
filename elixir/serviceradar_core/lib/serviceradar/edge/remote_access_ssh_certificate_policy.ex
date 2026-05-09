@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   the bounded request shape that a ServiceRadar SSH CA issuer can sign.
   """
 
+  alias ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper
   alias ServiceRadar.Identity.RBAC
 
   @permission "devices.remote_access.ssh.open"
@@ -130,7 +131,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   defp normalize_target(_target), do: {:error, :target_required}
 
   defp resolve_principals(attrs) do
-    allowed = normalize_principal_list(value(attrs, "allowed_principals"))
+    allowed =
+      case normalize_principal_list(value(attrs, "allowed_principals")) do
+        [] -> mapped_principals(attrs)
+        principals -> principals
+      end
 
     requested =
       normalize_principal_list(value(attrs, "principals") || value(attrs, "requested_principals"))
@@ -151,6 +156,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
           {:ok, selected}
         end
     end
+  end
+
+  defp mapped_principals(attrs) do
+    claims = value(attrs, "claims") || value(attrs, "idp_claims") || %{}
+    mappings = value(attrs, "principal_mappings") || value(attrs, "ssh_principal_mappings") || []
+
+    RemoteAccessSSHPrincipalMapper.resolve(claims, mappings)
   end
 
   defp resolve_ttl(attrs, opts) do

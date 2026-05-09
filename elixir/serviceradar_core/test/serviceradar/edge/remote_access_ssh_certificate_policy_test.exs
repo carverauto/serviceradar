@@ -63,6 +63,30 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicyTest do
     assert request.key_id == "sr:remote-access:session-1:user-1:agent-1:ssh:router.example"
   end
 
+  test "derives allowed principals from IdP claims and principal mappings" do
+    actor = %{id: "user-1", permissions: MapSet.new([@permission])}
+
+    assert {:ok, request} =
+             RemoteAccessSSHCertificatePolicy.authorize(actor, %{
+               session_id: "session-1",
+               agent_id: "agent-1",
+               public_key: "ssh-ed25519 AAAATEST",
+               target: %{device_uid: "device-1"},
+               claims: %{"groups" => ["linux-admins", "unrelated"]},
+               principal_mappings: [
+                 %{
+                   "source" => "groups",
+                   "value" => "linux-admins",
+                   "principals" => ["root", "ubuntu"]
+                 }
+               ],
+               requested_principals: ["ubuntu"]
+             })
+
+    assert request.principals == ["ubuntu"]
+    assert request.ssh_username == "ubuntu"
+  end
+
   test "rejects unauthorized actors and denied principals" do
     attrs = %{
       session_id: "session-1",
