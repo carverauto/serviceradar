@@ -142,7 +142,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
              "agent_id" => "agent-1",
              "gateway_id" => "gateway-1",
              "credential_mode" => "user_present",
-             "ssh_host_key_policy" => "skip_verify",
+             "ssh_host_key_policy" => "known_hosts",
              "target" => %{"host" => "10.0.0.10", "port" => 22},
              "ssh" => %{
                "username" => "root",
@@ -187,6 +187,46 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, close_audit}
     assert close_audit[:action] == :remote_access_session_close_requested
     assert close_audit[:details].close_reason == "operator_closed"
+  end
+
+  test "allows explicit skip-verify host key policy" do
+    session = put_in(session_fixture(), [:metadata, "ssh_host_key_policy"], "skip_verify")
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    assert %{"ssh_host_key_policy" => "skip_verify"} = Jason.decode!(frame.data)
+  end
+
+  test "rejects unsupported host key policy before dispatching open frame" do
+    session = put_in(session_fixture(), [:metadata, "ssh_host_key_policy"], "accept_anything")
+    previous_flag = Process.flag(:trap_exit, true)
+
+    try do
+      assert {:error, :unsupported_ssh_host_key_policy} =
+               RemoteAccessBroker.start_link(session, self(),
+                 command_bus: CommandBusStub,
+                 pubsub: PubSubStub,
+                 audit_writer: AuditWriterStub,
+                 audit_actor: audit_actor(),
+                 required_gateway_node: self()
+               )
+
+      assert_receive {:audit, audit}
+      assert audit[:action] == :remote_access_session_failed
+      assert audit[:details].failure_reason == "unsupported_ssh_host_key_policy"
+      refute_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}, 50
+    after
+      Process.flag(:trap_exit, previous_flag)
+    end
   end
 
   test "advances durable generic session lifecycle when backed by RemoteAccessSession" do

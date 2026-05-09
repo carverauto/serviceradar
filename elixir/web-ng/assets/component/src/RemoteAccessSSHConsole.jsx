@@ -81,6 +81,7 @@ export function Component({
   const [username, setUsername] = useState("")
   const [targetHost, setTargetHost] = useState("")
   const [targetPort, setTargetPort] = useState("22")
+  const [hostKeyPolicy, setHostKeyPolicy] = useState("known_hosts")
   const [privateKey, setPrivateKey] = useState("")
   const [passphrase, setPassphrase] = useState("")
   const [rememberKey, setRememberKey] = useState(false)
@@ -151,6 +152,7 @@ export function Component({
       protocol: "ssh",
       adapter: "ssh",
       credential_custody_mode: "user_present",
+      ssh_host_key_policy: hostKeyPolicy,
       terminal: {cols: 120, rows: 34},
     }
 
@@ -248,6 +250,21 @@ export function Component({
               />
             </label>
           </div>
+
+          <label className="form-control">
+            <div className="label">
+              <span className="label-text">Host key policy</span>
+            </div>
+            <select
+              className="select select-bordered"
+              value={hostKeyPolicy}
+              onChange={(event) => setHostKeyPolicy(event.target.value)}
+            >
+              <option value="known_hosts">Known hosts</option>
+              <option value="trust_on_first_use">Trust on first use</option>
+              <option value="skip_verify">Skip verification</option>
+            </select>
+          </label>
 
           <label className="form-control">
             <div className="label">

@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @remote_access_permission "devices.remote_access.ssh.open"
+  @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
 
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -121,8 +122,17 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_create_request(params) when is_map(params) do
-    with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid") do
+    metadata = normalize_metadata(Map.get(params, "metadata"))
+    raw_ssh_host_key_policy = Map.get(params, "ssh_host_key_policy", metadata_value(metadata, "ssh_host_key_policy"))
+
+    with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
+         {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
       terminal = Map.get(params, "terminal") || %{}
+
+      metadata =
+        metadata
+        |> drop_metadata_key("ssh_host_key_policy")
+        |> put_optional("ssh_host_key_policy", ssh_host_key_policy)
 
       {:ok,
        %{
@@ -140,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          approval_id: normalize_optional_string(Map.get(params, "approval_id")),
          cols: Map.get(terminal, "cols"),
          rows: Map.get(terminal, "rows"),
-         metadata: normalize_metadata(Map.get(params, "metadata")),
+         metadata: metadata,
          recording_policy: normalize_metadata(Map.get(params, "recording_policy")),
          enhanced_recording_policy: normalize_metadata(Map.get(params, "enhanced_recording_policy"))
        }}
@@ -176,8 +186,33 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   defp normalize_optional_string(_value), do: nil
 
+  defp normalize_ssh_host_key_policy(nil), do: {:ok, nil}
+
+  defp normalize_ssh_host_key_policy(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      policy when policy in @ssh_host_key_policies -> {:ok, policy}
+      _policy -> {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+    end
+  end
+
+  defp normalize_ssh_host_key_policy(_value), do: {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+
   defp normalize_metadata(value) when is_map(value), do: value
   defp normalize_metadata(_value), do: %{}
+
+  defp metadata_value(map, "ssh_host_key_policy") do
+    Map.get(map, "ssh_host_key_policy") || Map.get(map, :ssh_host_key_policy)
+  end
+
+  defp drop_metadata_key(map, "ssh_host_key_policy") do
+    map
+    |> Map.delete("ssh_host_key_policy")
+    |> Map.delete(:ssh_host_key_policy)
+  end
+
+  defp put_optional(map, _key, nil), do: map
+  defp put_optional(map, key, value), do: Map.put(map, key, value)
 
   defp session_json(session, ticket \\ nil) do
     data = %{

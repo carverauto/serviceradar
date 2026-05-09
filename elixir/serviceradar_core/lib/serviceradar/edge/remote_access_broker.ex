@@ -25,7 +25,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @default_protocol "ssh"
   @default_credential_mode "user_present"
   @default_terminal_type "xterm-256color"
-  @default_ssh_host_key_policy "skip_verify"
+  @default_ssh_host_key_policy "known_hosts"
+  @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
 
   def child_spec({session, owner, opts}) do
     %{
@@ -425,7 +426,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
     session_target = target(session, opts_metadata, session_metadata)
 
-    with :ok <- validate_ssh_certificate_envelope(session, ssh_certificate, session_target) do
+    with :ok <- validate_ssh_certificate_envelope(session, ssh_certificate, session_target),
+         {:ok, ssh_host_key_policy} <- ssh_host_key_policy_option(session, opts) do
       target =
         ssh_certificate
         |> certificate_target()
@@ -445,8 +447,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
             credential_mode(session, opts, opts_metadata, session_metadata, ssh_certificate),
           terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
           timeout_ms: int_option(session, opts, "timeout_ms"),
-          ssh_host_key_policy:
-            string_option(session, opts, "ssh_host_key_policy", @default_ssh_host_key_policy),
+          ssh_host_key_policy: ssh_host_key_policy,
           recording_policy: policy_option(session, opts, "recording_policy"),
           enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy")
         }
@@ -622,6 +623,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> fallback(string_value(session, "credential_mode"))
     |> fallback(string_value(session, "credential_custody_mode"))
     |> fallback(@default_credential_mode)
+  end
+
+  defp ssh_host_key_policy_option(session, opts) do
+    policy = string_option(session, opts, "ssh_host_key_policy", @default_ssh_host_key_policy)
+
+    if policy in @ssh_host_key_policies do
+      {:ok, policy}
+    else
+      {:error, :unsupported_ssh_host_key_policy}
+    end
   end
 
   defp string_option(session, opts, key, default) do

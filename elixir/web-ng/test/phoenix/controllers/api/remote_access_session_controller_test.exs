@@ -56,6 +56,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           "target_host" => "10.0.0.10",
           "target_port" => 2222,
           "credential_custody_mode" => "ssh_certificate",
+          "ssh_host_key_policy" => "skip_verify",
           "terminal" => %{"cols" => 120, "rows" => 40},
           "metadata" => %{"private_key" => "must-not-return", "safe" => "kept"}
         })
@@ -80,7 +81,34 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.cols == 120
       assert request.rows == 40
       assert request.metadata["private_key"] == "must-not-return"
+      assert request.metadata["ssh_host_key_policy"] == "skip_verify"
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "rejects unsupported SSH host key policies", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "ssh_host_key_policy" => "accept_anything"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "ssh_host_key_policy"
+    end
+
+    test "rejects unsupported SSH host key policies from metadata", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "metadata" => %{"ssh_host_key_policy" => "accept_anything"}
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "ssh_host_key_policy"
     end
 
     test "denies users without remote-access permission", %{conn: _conn} do
