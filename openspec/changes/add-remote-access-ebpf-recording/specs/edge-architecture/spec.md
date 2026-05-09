@@ -15,6 +15,19 @@ The system SHALL support Linux eBPF enhanced recording for remote-access session
 - **THEN** those unrelated host events SHALL NOT be emitted as remote-access session events
 - **AND** emitted events SHALL be correlated to the session, actor, target, selected agent, and policy snapshot.
 
+#### Scenario: Agentless SSH cannot satisfy target-side command tracing
+- **GIVEN** a generic SSH session is opened by an intermediate ServiceRadar agent to a separate target host
+- **AND** the target host is not running a ServiceRadar-managed execution component for that session
+- **WHEN** policy requires target-side command or file eBPF tracing
+- **THEN** the system SHALL NOT treat the intermediate agent's eBPF support as satisfying that policy
+- **AND** the session SHALL fail before target access unless policy explicitly allows a non-target-side fallback.
+
+#### Scenario: Managed target satisfies target-side tracing
+- **GIVEN** a target host runs a ServiceRadar-managed execution component that can place the remote-access shell process tree in a session boundary
+- **WHEN** policy requires target-side command, file, or network eBPF tracing
+- **THEN** the managed target component SHALL register the session boundary before the shell starts
+- **AND** emitted eBPF events SHALL describe the target-side process tree rather than only the intermediate SSH client.
+
 #### Scenario: Sensitive contents are not captured
 - **GIVEN** eBPF enhanced recording observes commands, file activity, and network connections
 - **WHEN** the agent emits enhanced events

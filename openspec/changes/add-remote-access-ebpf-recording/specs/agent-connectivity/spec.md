@@ -50,3 +50,19 @@ Agents SHALL remove session-scoped BPF state when a remote-access session closes
 - **WHEN** the target adapter fails before the session becomes active
 - **THEN** the agent SHALL stop the collector or unregister the session
 - **AND** it SHALL emit a sanitized terminal outcome without leaking target credentials.
+
+### Requirement: Agents enforce eBPF execution-boundary compatibility
+Agents SHALL fail closed when a remote-access policy requires target-side eBPF tracing but the adapter cannot place the actual target execution context into a ServiceRadar-managed session boundary.
+
+#### Scenario: Adapter cannot scope target process tree
+- **GIVEN** a remote-access policy requires target-side command or file eBPF tracing
+- **AND** the selected adapter only opens an outbound client connection to another host
+- **WHEN** the adapter cannot register the target shell process tree with the shared eBPF runtime
+- **THEN** the agent SHALL reject the open before target access
+- **AND** it SHALL report a sanitized capability or policy failure.
+
+#### Scenario: Adapter scopes local process tree
+- **GIVEN** a remote-access adapter starts a local PTY process on the same Linux host as the ServiceRadar agent
+- **WHEN** eBPF enhanced recording is enabled for that session
+- **THEN** the agent SHALL register the local process tree with the shared eBPF runtime before the PTY starts
+- **AND** it SHALL unregister the process tree when the session closes or fails.

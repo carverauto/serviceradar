@@ -104,6 +104,24 @@ The collector should scope monitoring to the session process tree using a cgroup
 
 The agent must remove the session identifier from BPF maps when the session closes, expires, or fails during open.
 
+There is an important target-side observability boundary:
+
+- For local shell/session adapters where the ServiceRadar agent starts the PTY process on the same Linux host, the agent can place that process tree in a session cgroup and BPF can observe command, file, and network activity for that session.
+- For managed targets that run a ServiceRadar agent or a future ServiceRadar-controlled SSH/session component on the target host, the target-side component can own the cgroup and emit enhanced events for the actual shell process tree.
+- For agentless SSH through an intermediate ServiceRadar agent, the selected agent is only an SSH client. It can observe the agent-side SSH client process and network connection, but it cannot BPF-observe commands, file opens, or child processes inside the remote target's sshd session.
+
+Therefore, policies that require command/file eBPF tracing must route only to local-execution or managed-target execution modes. Agentless SSH targets may use lifecycle audit, terminal recording when allowed, SSH certificate audit, host-key audit, and agent-side network observations, but they must not be represented as satisfying target-side command/file BPF requirements.
+
+Session scoping for the first BPF-capable adapter should be:
+
+1. Create or allocate a session cgroup before the target process starts.
+2. Register the cgroup/session key in the shared BPF runtime maps.
+3. Start the local PTY process or managed target session inside that cgroup.
+4. Emit only events whose kernel-side cgroup/session key matches the registered session.
+5. Unregister the session key and remove the cgroup on close, timeout, open failure, or agent shutdown.
+
+If a protocol adapter cannot perform those steps, it may still run with BPF disabled or with an explicitly allowed fallback, but it must fail closed when policy requires target-side BPF.
+
 ### Event Families
 - `command`: exec path, argv subject to policy redaction, cwd when available, uid/gid, pid/ppid, exit code when available, timestamp.
 - `file`: path, operation, flags where safe, uid/gid, pid, result/error code, timestamp.
