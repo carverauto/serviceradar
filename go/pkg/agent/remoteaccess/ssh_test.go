@@ -183,6 +183,78 @@ func TestSSHSignerWrapsOpenSSHCertificate(t *testing.T) {
 	}
 }
 
+func TestSSHSignerRejectsCertificateForDifferentKey(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate private key: %v", err)
+	}
+	_, otherPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate other key: %v", err)
+	}
+
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	otherSigner, err := ssh.NewSignerFromKey(otherPrivateKey)
+	if err != nil {
+		t.Fatalf("new other signer: %v", err)
+	}
+
+	cert := &ssh.Certificate{
+		Key:             otherSigner.PublicKey(),
+		Serial:          1234,
+		CertType:        ssh.UserCert,
+		KeyId:           "session-1",
+		ValidPrincipals: []string{"admin"},
+		ValidAfter:      uint64(time.Now().Add(-time.Minute).Unix()),
+		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
+	}
+	if err := cert.SignCert(rand.Reader, signer); err != nil {
+		t.Fatalf("sign cert: %v", err)
+	}
+
+	_, err = sshSigner(privateKeyPEM(t, privateKey), "", string(ssh.MarshalAuthorizedKey(cert)))
+	if !errors.Is(err, ErrSSHCertificateKeyMismatch) {
+		t.Fatalf("sshSigner error = %v, want %v", err, ErrSSHCertificateKeyMismatch)
+	}
+}
+
+func TestSSHSignerRejectsHostCertificate(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+
+	cert := &ssh.Certificate{
+		Key:             signer.PublicKey(),
+		Serial:          1234,
+		CertType:        ssh.HostCert,
+		KeyId:           "session-1",
+		ValidPrincipals: []string{"router.example"},
+		ValidAfter:      uint64(time.Now().Add(-time.Minute).Unix()),
+		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
+	}
+	if err := cert.SignCert(rand.Reader, signer); err != nil {
+		t.Fatalf("sign cert: %v", err)
+	}
+
+	_, err = sshSigner(privateKeyPEM(t, privateKey), "", string(ssh.MarshalAuthorizedKey(cert)))
+	if !errors.Is(err, ErrInvalidSSHCertificate) {
+		t.Fatalf("sshSigner error = %v, want %v", err, ErrInvalidSSHCertificate)
+	}
+}
+
 func TestSSHHostKeyPolicyRequiresExplicitSkipVerifyUntilStoreExists(t *testing.T) {
 	t.Parallel()
 

@@ -17,6 +17,7 @@
 package remoteaccess
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -43,6 +44,7 @@ var (
 	ErrSSHUsernameRequired             = errors.New("ssh username is required")
 	ErrSSHCredentialRequired           = errors.New("ssh private key or password is required")
 	ErrSSHCertificateRequiresKey       = errors.New("ssh certificate requires matching private key")
+	ErrSSHCertificateKeyMismatch       = errors.New("ssh certificate public key does not match private key")
 	ErrInvalidSSHCertificate           = errors.New("invalid ssh certificate")
 	ErrSSHHostKeyStoreUnavailable      = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
 	ErrUnsupportedSSHHostKeyPolicy     = errors.New("unsupported ssh_host_key_policy")
@@ -385,6 +387,12 @@ func sshSigner(privateKey, passphrase, certificate string) (ssh.Signer, error) {
 	cert, ok := publicKey.(*ssh.Certificate)
 	if !ok {
 		return nil, ErrInvalidSSHCertificate
+	}
+	if cert.CertType != ssh.UserCert {
+		return nil, ErrInvalidSSHCertificate
+	}
+	if !bytes.Equal(cert.Key.Marshal(), signer.PublicKey().Marshal()) {
+		return nil, ErrSSHCertificateKeyMismatch
 	}
 
 	return ssh.NewCertSigner(cert, signer)
