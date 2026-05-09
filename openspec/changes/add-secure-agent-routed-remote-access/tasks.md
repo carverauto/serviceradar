@@ -20,8 +20,9 @@
 - [ ] 2.9 Add session recording storage/retention plumbing behind policy gates.
 - [ ] 2.10 Add clean-room Linux enhanced-recording collector for command/file/network events behind agent capability and policy gates.
 - [x] 2.11 Add a ServiceRadar-owned SSH CA signing primitive for short-lived OpenSSH user certificates.
-- [ ] 2.12 Add ServiceRadar SSH CA issuance for Authentik-authenticated users, mapping IdP claims and RBAC to short-lived OpenSSH user certificates.
-- [ ] 2.13 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
+- [x] 2.12 Add a core SSH certificate policy boundary that maps actor permission, target principal policy, requested principals, and TTL into a bounded signing request shape.
+- [ ] 2.13 Add ServiceRadar SSH CA issuance for Authentik-authenticated users, mapping IdP claims and RBAC to short-lived OpenSSH user certificates.
+- [ ] 2.14 Add future adapter scaffolds or proposals for app/database/Kubernetes/desktop-style access once SSH and recording primitives are stable.
 
 ## 3. Validation
 - [ ] 3.1 Add unit tests for credential custody policy and grant scoping.

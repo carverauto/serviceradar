@@ -88,6 +88,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Open device consoles",
           description: "Open browser terminal sessions to supported managed devices",
           default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.ssh.open",
+          label: "Open SSH remote access",
+          description:
+            "Open SSH remote-access sessions and request short-lived SSH user certificates",
+          default_roles: @admin_roles
         }
       ]
     },
@@ -346,7 +353,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "cli.session.read_own",
           label: "View own CLI sessions",
-          description: "List your own active and historical CLI sessions in Settings → CLI sessions.",
+          description:
+            "List your own active and historical CLI sessions in Settings → CLI sessions.",
           default_roles: @all_roles
         },
         %{
