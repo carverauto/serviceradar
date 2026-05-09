@@ -9,6 +9,7 @@ go_library(
         "file.go",
         "file_bpfeb.go",
         "file_bpfel.go",
+        "loss.go",
         "network.go",
         "network_bpfeb.go",
         "network_bpfel.go",

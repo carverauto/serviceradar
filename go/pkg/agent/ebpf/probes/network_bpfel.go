@@ -62,6 +62,7 @@ type networkProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type networkMapSpecs struct {
 	SrNetworkEvents *ebpf.MapSpec `ebpf:"sr_network_events"`
+	SrNetworkLosses *ebpf.MapSpec `ebpf:"sr_network_losses"`
 }
 
 // networkVariableSpecs contains global variables before they are loaded into the kernel.
@@ -91,11 +92,13 @@ func (o *networkObjects) Close() error {
 // It can be passed to loadNetworkObjects or ebpf.CollectionSpec.LoadAndAssign.
 type networkMaps struct {
 	SrNetworkEvents *ebpf.Map `ebpf:"sr_network_events"`
+	SrNetworkLosses *ebpf.Map `ebpf:"sr_network_losses"`
 }
 
 func (m *networkMaps) Close() error {
 	return _NetworkClose(
 		m.SrNetworkEvents,
+		m.SrNetworkLosses,
 	)
 }
 

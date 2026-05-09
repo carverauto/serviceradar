@@ -43,6 +43,9 @@ func TestLoadCommandSpec(t *testing.T) {
 	if spec.Maps[CommandEventsMap] == nil {
 		t.Fatalf("command events map %q missing from spec", CommandEventsMap)
 	}
+	if spec.Maps[CommandLossesMap] == nil {
+		t.Fatalf("command losses map %q missing from spec", CommandLossesMap)
+	}
 }
 
 func TestLoadFileSpec(t *testing.T) {
@@ -60,6 +63,9 @@ func TestLoadFileSpec(t *testing.T) {
 	if spec.Maps[FileEventsMap] == nil {
 		t.Fatalf("file events map %q missing from spec", FileEventsMap)
 	}
+	if spec.Maps[FileLossesMap] == nil {
+		t.Fatalf("file losses map %q missing from spec", FileLossesMap)
+	}
 }
 
 func TestLoadNetworkSpec(t *testing.T) {
@@ -74,5 +80,19 @@ func TestLoadNetworkSpec(t *testing.T) {
 	}
 	if spec.Maps[NetworkEventsMap] == nil {
 		t.Fatalf("network events map %q missing from spec", NetworkEventsMap)
+	}
+	if spec.Maps[NetworkLossesMap] == nil {
+		t.Fatalf("network losses map %q missing from spec", NetworkLossesMap)
+	}
+}
+
+func TestLossCounterHelpersRejectNilMap(t *testing.T) {
+	t.Parallel()
+
+	if _, err := ReadLossCounters(nil); err == nil {
+		t.Fatal("ReadLossCounters(nil) error = nil")
+	}
+	if err := ResetLossCounters(nil); err == nil {
+		t.Fatal("ResetLossCounters(nil) error = nil")
 	}
 }

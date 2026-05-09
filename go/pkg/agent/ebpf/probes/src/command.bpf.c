@@ -2,12 +2,18 @@
 
 #define SEC(name) __attribute__((section(name), used))
 #define __uint(name, val) int (*name)[val]
+#define __type(name, val) val *name
+#define __always_inline inline __attribute__((always_inline))
 
+#define BPF_MAP_TYPE_ARRAY 2
 #define BPF_MAP_TYPE_RINGBUF 27
 
 #define SR_COMMAND_PATH_SIZE 256
 #define SR_COMMAND_ARG_SIZE 128
 #define SR_COMMAND_MAX_ARGS 8
+#define SR_LOSS_KERNEL_DROPS 0
+#define SR_LOSS_PARSER_FAILURES 1
+#define SR_LOSS_COUNTERS 2
 
 typedef unsigned char __u8;
 typedef unsigned int __u32;
@@ -18,6 +24,13 @@ struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 20);
 } sr_command_events SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, SR_LOSS_COUNTERS);
+    __type(key, __u32);
+    __type(value, __u64);
+} sr_command_losses SEC(".maps");
 
 struct sys_enter_execve_ctx {
     unsigned short common_type;
@@ -43,12 +56,21 @@ struct sr_command_event {
 };
 
 static __u64 (*bpf_ktime_get_ns)(void) = (void *)5;
+static void *(*bpf_map_lookup_elem)(void *map, const void *key) = (void *)1;
 static __u64 (*bpf_get_current_pid_tgid)(void) = (void *)14;
 static __u64 (*bpf_get_current_uid_gid)(void) = (void *)15;
 static long (*bpf_probe_read_user)(void *dst, __u32 size, const void *unsafe_ptr) = (void *)112;
 static long (*bpf_probe_read_user_str)(void *dst, __u32 size, const void *unsafe_ptr) = (void *)114;
 static void *(*bpf_ringbuf_reserve)(void *ringbuf, __u64 size, __u64 flags) = (void *)131;
 static void (*bpf_ringbuf_submit)(void *data, __u64 flags) = (void *)132;
+
+static __always_inline void sr_increment_command_loss(__u32 key) {
+    __u64 *value = bpf_map_lookup_elem(&sr_command_losses, &key);
+
+    if (value) {
+        __sync_fetch_and_add(value, 1);
+    }
+}
 
 SEC("tracepoint/syscalls/sys_enter_execve")
 int sr_command_execve(struct sys_enter_execve_ctx *ctx) {
@@ -58,6 +80,7 @@ int sr_command_execve(struct sys_enter_execve_ctx *ctx) {
 
     event = bpf_ringbuf_reserve(&sr_command_events, sizeof(*event), 0);
     if (!event) {
+        sr_increment_command_loss(SR_LOSS_KERNEL_DROPS);
         return 0;
     }
 
@@ -72,17 +95,25 @@ int sr_command_execve(struct sys_enter_execve_ctx *ctx) {
     event->argc = 0;
     event->result = 0;
 
-    bpf_probe_read_user_str(event->path, sizeof(event->path), ctx->filename);
+    if (bpf_probe_read_user_str(event->path, sizeof(event->path), ctx->filename) <= 0) {
+        sr_increment_command_loss(SR_LOSS_PARSER_FAILURES);
+    }
 
 #pragma unroll
     for (int i = 0; i < SR_COMMAND_MAX_ARGS; i++) {
         const char *arg = 0;
 
-        if (bpf_probe_read_user(&arg, sizeof(arg), &ctx->argv[i]) < 0 || !arg) {
+        if (bpf_probe_read_user(&arg, sizeof(arg), &ctx->argv[i]) < 0) {
+            sr_increment_command_loss(SR_LOSS_PARSER_FAILURES);
+            break;
+        }
+        if (!arg) {
             break;
         }
         if (bpf_probe_read_user_str(event->argv[i], sizeof(event->argv[i]), arg) > 0) {
             event->argc++;
+        } else {
+            sr_increment_command_loss(SR_LOSS_PARSER_FAILURES);
         }
     }
 

@@ -64,6 +64,7 @@ type fileProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type fileMapSpecs struct {
 	SrFileEvents *ebpf.MapSpec `ebpf:"sr_file_events"`
+	SrFileLosses *ebpf.MapSpec `ebpf:"sr_file_losses"`
 }
 
 // fileVariableSpecs contains global variables before they are loaded into the kernel.
@@ -93,11 +94,13 @@ func (o *fileObjects) Close() error {
 // It can be passed to loadFileObjects or ebpf.CollectionSpec.LoadAndAssign.
 type fileMaps struct {
 	SrFileEvents *ebpf.Map `ebpf:"sr_file_events"`
+	SrFileLosses *ebpf.Map `ebpf:"sr_file_losses"`
 }
 
 func (m *fileMaps) Close() error {
 	return _FileClose(
 		m.SrFileEvents,
+		m.SrFileLosses,
 	)
 }
 

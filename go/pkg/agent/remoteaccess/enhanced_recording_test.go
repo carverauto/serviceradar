@@ -286,3 +286,47 @@ func TestBPFNetworkAddressIPv6(t *testing.T) {
 		t.Fatalf("IPv6 address = %q", got)
 	}
 }
+
+func TestBPFLossTrackerEmitsCounters(t *testing.T) {
+	t.Parallel()
+
+	tracker := newBPFLossTracker(func() time.Time { return time.Unix(1700000003, 8) })
+	tracker.addKernelCounters(EnhancedEventCommand, probes.LossCounters{
+		KernelDrops:    2,
+		ParserFailures: 3,
+	})
+	tracker.addParserFailure(EnhancedEventCommand)
+	tracker.noteRingRemaining(EnhancedEventCommand, 7)
+	tracker.noteRingRemaining(EnhancedEventCommand, 5)
+
+	events := make(chan EnhancedEvent)
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventCommand})
+
+	losses := tracker.drainLossEvents()
+	if len(losses) != 1 {
+		t.Fatalf("loss event count = %d, want 1: %#v", len(losses), losses)
+	}
+
+	loss := losses[0]
+	if loss.EventType != EnhancedEventLoss {
+		t.Fatalf("loss event type = %q", loss.EventType)
+	}
+	if loss.TimestampUnixNano != time.Unix(1700000003, 8).UnixNano() {
+		t.Fatalf("timestamp = %d", loss.TimestampUnixNano)
+	}
+	if loss.DroppedEvents != 7 {
+		t.Fatalf("dropped events = %d, want 7", loss.DroppedEvents)
+	}
+	if loss.Metadata["source"] != "linux_ebpf" || loss.Metadata["bpf"] != "true" ||
+		loss.Metadata["collector"] != "serviceradar_agent_ebpf" ||
+		loss.Metadata["event_family"] != "command" ||
+		loss.Metadata["kernel_drops"] != "2" ||
+		loss.Metadata["parser_failures"] != "4" ||
+		loss.Metadata["backpressure_drops"] != "1" ||
+		loss.Metadata["backpressure_high_watermark"] != "7" {
+		t.Fatalf("metadata = %#v", loss.Metadata)
+	}
+	if got := tracker.drainLossEvents(); len(got) != 0 {
+		t.Fatalf("loss tracker should drain counters, got %#v", got)
+	}
+}

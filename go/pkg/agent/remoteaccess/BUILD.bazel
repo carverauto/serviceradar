@@ -6,6 +6,7 @@ go_library(
         "adapters.go",
         "enhanced_recorder.go",
         "enhanced_recording_ebpf.go",
+        "enhanced_recording_ebpf_loss.go",
         "enhanced_recording.go",
         "enhanced_recording_linux.go",
         "enhanced_recording_platform_linux.go",

@@ -2,13 +2,18 @@
 
 #define SEC(name) __attribute__((section(name), used))
 #define __uint(name, val) int (*name)[val]
+#define __type(name, val) val *name
 #define __always_inline inline __attribute__((always_inline))
 
+#define BPF_MAP_TYPE_ARRAY 2
 #define BPF_MAP_TYPE_RINGBUF 27
 
 #define SR_FILE_PATH_SIZE 256
 #define SR_FILE_OPERATION_OPEN 1
 #define SR_FILE_OPERATION_ACCESS 2
+#define SR_LOSS_KERNEL_DROPS 0
+#define SR_LOSS_PARSER_FAILURES 1
+#define SR_LOSS_COUNTERS 2
 
 typedef unsigned char __u8;
 typedef unsigned int __u32;
@@ -19,6 +24,13 @@ struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 20);
 } sr_file_events SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, SR_LOSS_COUNTERS);
+    __type(key, __u32);
+    __type(value, __u64);
+} sr_file_losses SEC(".maps");
 
 struct sys_enter_openat_ctx {
     unsigned short common_type;
@@ -66,11 +78,20 @@ struct sr_file_event {
 };
 
 static __u64 (*bpf_ktime_get_ns)(void) = (void *)5;
+static void *(*bpf_map_lookup_elem)(void *map, const void *key) = (void *)1;
 static __u64 (*bpf_get_current_pid_tgid)(void) = (void *)14;
 static __u64 (*bpf_get_current_uid_gid)(void) = (void *)15;
 static long (*bpf_probe_read_user_str)(void *dst, __u32 size, const void *unsafe_ptr) = (void *)114;
 static void *(*bpf_ringbuf_reserve)(void *ringbuf, __u64 size, __u64 flags) = (void *)131;
 static void (*bpf_ringbuf_submit)(void *data, __u64 flags) = (void *)132;
+
+static __always_inline void sr_increment_file_loss(__u32 key) {
+    __u64 *value = bpf_map_lookup_elem(&sr_file_losses, &key);
+
+    if (value) {
+        __sync_fetch_and_add(value, 1);
+    }
+}
 
 static __always_inline int sr_emit_file_event(const char *path, __u32 operation, __u32 flags) {
     struct sr_file_event *event;
@@ -79,6 +100,7 @@ static __always_inline int sr_emit_file_event(const char *path, __u32 operation,
 
     event = bpf_ringbuf_reserve(&sr_file_events, sizeof(*event), 0);
     if (!event) {
+        sr_increment_file_loss(SR_LOSS_KERNEL_DROPS);
         return 0;
     }
 
@@ -94,7 +116,9 @@ static __always_inline int sr_emit_file_event(const char *path, __u32 operation,
     event->flags = flags;
     event->result = 0;
 
-    bpf_probe_read_user_str(event->path, sizeof(event->path), path);
+    if (bpf_probe_read_user_str(event->path, sizeof(event->path), path) <= 0) {
+        sr_increment_file_loss(SR_LOSS_PARSER_FAILURES);
+    }
     bpf_ringbuf_submit(event, 0);
 
     return 0;

@@ -62,6 +62,7 @@ type commandProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type commandMapSpecs struct {
 	SrCommandEvents *ebpf.MapSpec `ebpf:"sr_command_events"`
+	SrCommandLosses *ebpf.MapSpec `ebpf:"sr_command_losses"`
 }
 
 // commandVariableSpecs contains global variables before they are loaded into the kernel.
@@ -91,11 +92,13 @@ func (o *commandObjects) Close() error {
 // It can be passed to loadCommandObjects or ebpf.CollectionSpec.LoadAndAssign.
 type commandMaps struct {
 	SrCommandEvents *ebpf.Map `ebpf:"sr_command_events"`
+	SrCommandLosses *ebpf.Map `ebpf:"sr_command_losses"`
 }
 
 func (m *commandMaps) Close() error {
 	return _CommandClose(
 		m.SrCommandEvents,
+		m.SrCommandLosses,
 	)
 }
 
