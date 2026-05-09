@@ -221,9 +221,10 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end
   end
 
-  defp decrypt_ash_cloak_secret_payload(encrypted) when is_binary(encrypted) and encrypted != "" do
+  defp decrypt_ash_cloak_secret_payload(encrypted)
+       when is_binary(encrypted) and encrypted != "" do
     with {:ok, decoded} <- Base.decode64(encrypted),
-         decrypted <- Vault.decrypt!(decoded),
+         decrypted = Vault.decrypt!(decoded),
          payload when is_binary(payload) <- Ash.Helpers.non_executable_binary_to_term(decrypted),
          true <- payload != "" do
       {:ok, payload}
@@ -252,6 +253,7 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   defp format_proxmox_api_token(secret, payload) do
     payload = String.trim(payload)
     token_id = proxmox_token_id(secret)
+    {_payload_token_id, payload_secret} = split_proxmox_api_token_payload(payload)
 
     cond do
       String.starts_with?(payload, "PVEAPIToken=") ->
@@ -263,25 +265,44 @@ defmodule ServiceRadar.Plugins.SecretRefs do
       String.starts_with?(payload, token_id <> "=") ->
         payload
 
+      payload_secret not in [nil, ""] ->
+        token_id <> "=" <> payload_secret
+
       true ->
         token_id <> "=" <> payload
+    end
+  end
+
+  defp split_proxmox_api_token_payload(payload) when is_binary(payload) do
+    case String.split(payload, "=", parts: 2) do
+      [token_id, secret] when token_id != "" and secret != "" ->
+        if String.contains?(token_id, "!") do
+          {token_id, secret}
+        else
+          {nil, nil}
+        end
+
+      _ ->
+        {nil, nil}
     end
   end
 
   defp proxmox_token_id(secret) do
     metadata = Map.get(secret, :metadata) || %{}
 
-    [Map.get(metadata, "token_id"), Map.get(metadata, :token_id), Map.get(secret, :username)]
-    |> Enum.find_value(fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
+    Enum.find_value(
+      [Map.get(metadata, "token_id"), Map.get(metadata, :token_id), Map.get(secret, :username)],
+      fn
+        value when is_binary(value) ->
+          case String.trim(value) do
+            "" -> nil
+            trimmed -> trimmed
+          end
 
-      _ ->
-        nil
-    end)
+        _ ->
+          nil
+      end
+    )
   end
 
   defp load_network_credential_secret(secret_id) do

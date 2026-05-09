@@ -918,7 +918,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     realm = realm |> to_string() |> String.trim()
     token_id = token_id |> to_string() |> String.trim()
 
-    "#{user}@#{realm}!#{token_id}"
+    if String.contains?(token_id, "!") do
+      token_id
+    else
+      "#{user}@#{realm}!#{token_id}"
+    end
   end
 
   defp secret_fingerprint(payload) do
