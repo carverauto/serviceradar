@@ -466,7 +466,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp upsert_device_inventory(device_uid, attrs, actor) do
     attrs = enrich_camera_device_attrs(device_uid, attrs, actor)
 
-    case Device.get_by_uid(device_uid, true, actor: actor) do
+    case get_device_by_uid(device_uid, true, actor) do
       {:ok, nil} ->
         {create_attrs, conflicting_ip_device} = prepare_camera_ip_claim(device_uid, attrs, actor)
 
@@ -494,6 +494,16 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp get_device_by_uid(device_uid, include_deleted, actor) do
+    case Device.get_by_uid(device_uid, include_deleted, actor: actor) do
+      {:error, reason} ->
+        if ash_not_found?(reason), do: {:ok, nil}, else: {:error, reason}
+
+      result ->
+        result
     end
   end
 
@@ -1593,11 +1603,18 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           blank?(explicit_uid) ->
             Map.put(descriptor, "device_uid", value)
 
+          value == explicit_uid and not reusable_camera_device_uid?(explicit_uid, actor) ->
+            maybe_replace_descriptor_device_uid(
+              descriptor,
+              fallback_camera_device_uid_from_identity(descriptor, actor)
+            )
+
           value == explicit_uid ->
             descriptor
 
           IdentityReconciler.serviceradar_uuid?(value) and
-              replace_explicit_camera_uid?(explicit_uid, descriptor) ->
+              (replace_explicit_camera_uid?(explicit_uid, descriptor) or
+                 not reusable_camera_device_uid?(explicit_uid, actor)) ->
             Map.put(descriptor, "device_uid", value)
 
           true ->
@@ -1630,6 +1647,64 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
               normalize_identifier_component(descriptor_vendor_camera_id(descriptor))
             )))
   end
+
+  defp maybe_replace_descriptor_device_uid(descriptor, {:ok, uid})
+       when is_binary(uid) and uid != "" do
+    Map.put(descriptor, "device_uid", uid)
+  end
+
+  defp maybe_replace_descriptor_device_uid(descriptor, _result), do: descriptor
+
+  defp fallback_camera_device_uid_from_identity(descriptor, actor) when is_map(descriptor) do
+    with {:ok, update} <- identity_update_from_descriptor(descriptor) do
+      ids = IdentityReconciler.extract_strong_identifiers(update)
+
+      case resolve_camera_identity(ids, update, descriptor, actor) do
+        {:ok, uid} when is_binary(uid) and uid != "" ->
+          if reusable_camera_device_uid?(uid, actor) do
+            {:ok, uid}
+          else
+            fallback_generated_camera_uid(ids, update, descriptor, actor)
+          end
+
+        _ ->
+          fallback_generated_camera_uid(ids, update, descriptor, actor)
+      end
+    end
+  end
+
+  defp fallback_camera_device_uid_from_identity(_descriptor, _actor), do: {:error, :unresolved}
+
+  defp fallback_generated_camera_uid(ids, update, descriptor, actor) when is_map(ids) do
+    if IdentityReconciler.has_strong_identifier?(ids) do
+      {:ok, IdentityReconciler.generate_deterministic_device_id(ids)}
+    else
+      case lookup_device_by_hostname(descriptor_hostname(descriptor), actor) do
+        {:ok, uid} when is_binary(uid) and uid != "" ->
+          {:ok, uid}
+
+        _ ->
+          IdentityReconciler.resolve_device_id(update, actor: actor)
+      end
+    end
+  end
+
+  defp reusable_camera_device_uid?(uid, actor) when is_binary(uid) and uid != "" do
+    case Device.get_by_uid(uid, false, actor: actor) do
+      {:ok, %Device{} = device} ->
+        camera_classified_device?(device) and not agent_managed_device?(device)
+
+      {:ok, nil} ->
+        true
+
+      _ ->
+        true
+    end
+  rescue
+    _ -> true
+  end
+
+  defp reusable_camera_device_uid?(_uid, _actor), do: true
 
   defp default_resolve_device_uid(descriptor, status, actor) do
     case resolve_identity_from_hints(descriptor, status, actor) do
@@ -1689,13 +1764,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   defp camera_source_device_uid_reusable?(device_uid, actor) do
-    case Device.get_by_uid(device_uid, false, actor: actor) do
-      {:ok, %Device{} = device} -> not agent_managed_device?(device)
-      {:ok, nil} -> true
-      _ -> true
-    end
-  rescue
-    _ -> true
+    reusable_camera_device_uid?(device_uid, actor)
   end
 
   defp resolve_strong_camera_identity(ids, actor) when is_map(ids) do
@@ -1881,6 +1950,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       _ -> {:error, :not_found}
     end
   end
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(_reason), do: false
 
   defp ip_address?(value) when is_binary(value) do
     case :inet.parse_address(String.to_charlist(String.trim(value))) do
