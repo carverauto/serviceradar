@@ -228,6 +228,10 @@ ServiceRadar should adapt those patterns as follows:
 - OpenSSH targets should be represented as inventory/remote-access resources with labels, reachable address, host key policy, allowed agents, and allowed principals. Free-form host/port entry may exist only behind explicit policy.
 - Audit events should include actor, IdP subject, sanitized IdP groups/traits, selected principals, target, selected agent, certificate serial/key ID/fingerprint, CA key ID, TTL, approval/MFA context, and final outcome. They must not include private key bytes, passphrases, or terminal input.
 
+Validation harness:
+- `scripts/remote-access-authentik-oidc-ssh-smoke.sh` provisions a disposable Authentik OIDC application, group, user, and post-authenticated authorization code in the Kubernetes `authentik` namespace. It then exchanges the code at Authentik's discovered token endpoint, verifies the signed ID token through ServiceRadar's OIDC client, maps the Authentik group claim to an SSH login principal, issues a ServiceRadar short-lived OpenSSH user certificate through the command signer, and authenticates to an OpenSSH target configured with `TrustedUserCAKeys`.
+- The harness generates temporary CA/user key material under `mktemp`, deletes the Authentik fixture unless `SERVICERADAR_AUTHENTIK_SMOKE_KEEP=1`, and never creates or stores a reusable target password, target private key, or shared bastion account.
+
 ## Credential Custody Modes
 ### Centrally Brokered Secret
 The control plane stores an encrypted credential and grants a short-lived, scoped broker reference to the selected agent. This is acceptable for low-scope API tokens, break-glass credentials with strict approval, or customers that explicitly choose central storage.

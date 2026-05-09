@@ -34,4 +34,4 @@
 - [x] 3.6 Document why CEA-852/CN-IP support remains deferred until representative LonTalk/CN-IP test data is available, and require read-only/passive behavior before any active control support.
 - [x] 3.7 Add license-review tests or scripts that fail if a supposedly imported Teleport path includes AGPL-header source in its transitive Go package directories.
 - [x] 3.8 Add enhanced-recording tests for command/file/network event normalization, session correlation, dropped-event counters, and policy fallback behavior.
-- [ ] 3.9 Validate Authentik OIDC login to ServiceRadar SSH certificate issuance against an OpenSSH target configured with `TrustedUserCAKeys`, proving no shared bastion credential or reusable target key is stored.
+- [x] 3.9 Validate Authentik OIDC login to ServiceRadar SSH certificate issuance against an OpenSSH target configured with `TrustedUserCAKeys`, proving no shared bastion credential or reusable target key is stored.
