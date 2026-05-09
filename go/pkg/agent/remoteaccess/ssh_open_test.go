@@ -29,7 +29,10 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	t.Parallel()
 
 	payload := mustSSHOpenPayload(t, SSHOpenPayload{
-		Target: SSHTarget{Host: "router.example", Port: 2222},
+		Protocol:  ProtocolSSH,
+		SessionID: "session-1",
+		AgentID:   "agent-1",
+		Target:    SSHTarget{Host: "router.example", Port: 2222},
 		SSH: SSHAuth{
 			Username:    "admin",
 			PrivateKey:  "private-key",
@@ -47,6 +50,7 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 		Data:      payload,
 		Cols:      132,
 		Rows:      43,
+		Metadata:  map[string]string{"agent_id": "agent-1"},
 	})
 	if err != nil {
 		t.Fatalf("SSHConfigFromOpenFrame returned error: %v", err)
@@ -69,6 +73,58 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	}
 	if cfg.SSHHostKeyPolicy != "skip_verify" {
 		t.Fatalf("host key policy = %q", cfg.SSHHostKeyPolicy)
+	}
+}
+
+func TestSSHConfigFromOpenFrameRejectsPayloadScopeMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload SSHOpenPayload
+		frame   Frame
+		want    error
+	}{
+		{
+			name:    "session",
+			payload: SSHOpenPayload{SessionID: "session-2", Target: SSHTarget{Host: "router.example"}},
+			frame:   Frame{SessionID: "session-1", Protocol: ProtocolSSH},
+			want:    ErrSSHOpenSessionMismatch,
+		},
+		{
+			name:    "payload protocol",
+			payload: SSHOpenPayload{Protocol: "rdp", Target: SSHTarget{Host: "router.example"}},
+			frame:   Frame{SessionID: "session-1", Protocol: ProtocolSSH},
+			want:    ErrUnsupportedSSHProtocol,
+		},
+		{
+			name:    "frame protocol",
+			payload: SSHOpenPayload{Protocol: ProtocolSSH, Target: SSHTarget{Host: "router.example"}},
+			frame:   Frame{SessionID: "session-1", Protocol: "proxmox-console"},
+			want:    ErrUnsupportedSSHProtocol,
+		},
+		{
+			name:    "agent metadata",
+			payload: SSHOpenPayload{AgentID: "agent-2", Target: SSHTarget{Host: "router.example"}},
+			frame: Frame{
+				SessionID: "session-1",
+				Protocol:  ProtocolSSH,
+				Metadata:  map[string]string{"agent_id": "agent-1"},
+			},
+			want: ErrSSHOpenAgentMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.frame.Data = mustSSHOpenPayload(t, tt.payload)
+			_, err := SSHConfigFromOpenFrame(tt.frame)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("error = %v, want %v", err, tt.want)
+			}
+		})
 	}
 }
 
