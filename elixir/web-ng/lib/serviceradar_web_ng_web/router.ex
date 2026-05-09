@@ -179,6 +179,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
     get("/proxmox/console-sessions/:id/stream", ProxmoxConsoleStreamController, :connect)
+    get("/remote-access/sessions/:id/stream", RemoteAccessStreamController, :connect)
   end
 
   # Other scopes may use custom stacks.

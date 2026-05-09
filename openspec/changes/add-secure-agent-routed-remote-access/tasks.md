@@ -28,7 +28,7 @@
 ## 3. Validation
 - [x] 3.1 Add unit tests for credential custody policy and grant scoping.
 - [x] 3.2 Add gateway/agent tests proving frames are accepted only from the session-owning agent.
-- [ ] 3.3 Add browser/channel tests proving tickets and credentials are not echoed to the client.
+- [x] 3.3 Add browser/channel tests proving tickets and credentials are not echoed to the client.
 - [ ] 3.4 Add a demo SSH target test through an agent in a non-platform network path.
 - [x] 3.5 Add regression tests that Proxmox console still works through the generic path.
 - [x] 3.6 Document why CEA-852/CN-IP support remains deferred until representative LonTalk/CN-IP test data is available, and require read-only/passive behavior before any active control support.
