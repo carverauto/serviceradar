@@ -49,7 +49,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
              "credential_mode" => "user_present",
              "ssh_host_key_policy" => "skip_verify",
              "target" => %{"host" => "10.0.0.10", "port" => 22},
-             "ssh" => %{"username" => "root"}
+             "ssh" => %{
+               "username" => "root",
+               "private_key" => "session-key",
+               "certificate" => "session-cert"
+             }
            } = Jason.decode!(frame.data)
 
     assert :ok = RemoteAccessBroker.send_input(pid, "whoami\r")
@@ -94,7 +98,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       gateway_id: "gateway-1",
       metadata: %{
         "target" => %{"host" => "10.0.0.10", "port" => 22},
-        "ssh" => %{"username" => "root"}
+        "ssh" => %{
+          "username" => "root",
+          "private_key" => "session-key",
+          "certificate" => "session-cert"
+        }
       }
     }
   end

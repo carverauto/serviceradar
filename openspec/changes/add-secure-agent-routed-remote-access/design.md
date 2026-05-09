@@ -257,7 +257,8 @@ Proxmox console support must not be modeled as generic SSH key custody. PVE node
 Generic inventory device SSH is different. For early compatibility, the operator may provide a key, certificate, signing capability, or password per session from the browser or a local helper. The target enterprise path is ServiceRadar-issued short-lived SSH certificates backed by SSO/LDAP identity and RBAC. The selected agent MUST NOT use a reusable agent-local bastion key for generic SSH access.
 
 The SSH adapter must:
-- Accept private key bytes and passphrases only inside a session-open frame or a one-time session credential grant.
+- Accept private key bytes, passphrases, and OpenSSH user certificates only inside a session-open frame or a one-time session credential grant.
+- Treat `ssh.certificate` as a session-scoped OpenSSH user certificate that must be paired with the matching `ssh.private_key`; the agent must reject a certificate without the matching key material.
 - Keep key material in process memory only for the active session.
 - Avoid logging, tracing, audit payloads, crash dumps, and persisted state that contain private key bytes or passphrases.
 - Record the key fingerprint, credential custody mode, actor, target, and selected agent for audit.

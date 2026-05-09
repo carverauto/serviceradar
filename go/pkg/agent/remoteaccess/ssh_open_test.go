@@ -31,9 +31,10 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	payload := mustSSHOpenPayload(t, SSHOpenPayload{
 		Target: SSHTarget{Host: "router.example", Port: 2222},
 		SSH: SSHAuth{
-			Username:   "admin",
-			PrivateKey: "private-key",
-			Passphrase: "passphrase",
+			Username:    "admin",
+			PrivateKey:  "private-key",
+			Passphrase:  "passphrase",
+			Certificate: "user-cert",
 		},
 		TimeoutMS:        45000,
 		SSHHostKeyPolicy: "skip_verify",
@@ -54,7 +55,10 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	if cfg.Target.Host != "router.example" || cfg.Target.Port != 2222 {
 		t.Fatalf("target = %#v", cfg.Target)
 	}
-	if cfg.Auth.Username != "admin" || cfg.Auth.PrivateKey != "private-key" || cfg.Auth.Passphrase != "passphrase" {
+	if cfg.Auth.Username != "admin" ||
+		cfg.Auth.PrivateKey != "private-key" ||
+		cfg.Auth.Passphrase != "passphrase" ||
+		cfg.Auth.Certificate != "user-cert" {
 		t.Fatalf("auth = %#v", cfg.Auth)
 	}
 	if cfg.Cols != 132 || cfg.Rows != 43 {

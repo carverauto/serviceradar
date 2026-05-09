@@ -19,12 +19,18 @@ package remoteaccess
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func TestOpenSSHPTYRoutesBytesResizeAndClose(t *testing.T) {
@@ -113,6 +119,14 @@ func TestOpenSSHPTYValidatesConfig(t *testing.T) {
 			cfg:  SSHConfig{Target: SSHTarget{Host: "router.example"}, Auth: SSHAuth{Username: "admin"}},
 			want: ErrSSHCredentialRequired,
 		},
+		{
+			name: "certificate requires private key",
+			cfg: SSHConfig{
+				Target: SSHTarget{Host: "router.example"},
+				Auth:   SSHAuth{Username: "admin", Certificate: "ssh-ed25519-cert-v01@openssh.com AAAA"},
+			},
+			want: ErrSSHCertificateRequiresKey,
+		},
 	}
 
 	for _, tt := range tests {
@@ -130,6 +144,45 @@ func TestOpenSSHPTYValidatesConfig(t *testing.T) {
 	}
 }
 
+func TestSSHSignerWrapsOpenSSHCertificate(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+
+	cert := &ssh.Certificate{
+		Key:             signer.PublicKey(),
+		Serial:          1234,
+		CertType:        ssh.UserCert,
+		KeyId:           "session-1",
+		ValidPrincipals: []string{"admin"},
+		ValidAfter:      uint64(time.Now().Add(-time.Minute).Unix()),
+		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
+		Permissions: ssh.Permissions{
+			Extensions: map[string]string{"permit-pty": ""},
+		},
+	}
+	if err := cert.SignCert(rand.Reader, signer); err != nil {
+		t.Fatalf("sign cert: %v", err)
+	}
+
+	certSigner, err := sshSigner(privateKeyPEM(t, privateKey), "", string(ssh.MarshalAuthorizedKey(cert)))
+	if err != nil {
+		t.Fatalf("sshSigner returned error: %v", err)
+	}
+
+	if got := certSigner.PublicKey().Type(); got != ssh.CertAlgoED25519v01 {
+		t.Fatalf("public key type = %q, want %q", got, ssh.CertAlgoED25519v01)
+	}
+}
+
 func TestSSHHostKeyPolicyRequiresExplicitSkipVerifyUntilStoreExists(t *testing.T) {
 	t.Parallel()
 
@@ -142,6 +195,17 @@ func TestSSHHostKeyPolicyRequiresExplicitSkipVerifyUntilStoreExists(t *testing.T
 	if _, err := sshHostKeyCallback("skip_verify"); err != nil {
 		t.Fatalf("skip_verify returned error: %v", err)
 	}
+}
+
+func privateKeyPEM(t *testing.T, key ed25519.PrivateKey) string {
+	t.Helper()
+
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 }
 
 func waitForSSHTest(t *testing.T, timeout time.Duration, predicate func() bool) {

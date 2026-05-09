@@ -42,6 +42,8 @@ var (
 	ErrMissingSSHTargetHost            = errors.New("missing SSH target host")
 	ErrSSHUsernameRequired             = errors.New("ssh username is required")
 	ErrSSHCredentialRequired           = errors.New("ssh private key or password is required")
+	ErrSSHCertificateRequiresKey       = errors.New("ssh certificate requires matching private key")
+	ErrInvalidSSHCertificate           = errors.New("invalid ssh certificate")
 	ErrSSHHostKeyStoreUnavailable      = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
 	ErrUnsupportedSSHHostKeyPolicy     = errors.New("unsupported ssh_host_key_policy")
 	ErrSSHSessionOutputChannelOverflow = errors.New("ssh session output channel overflow")
@@ -49,17 +51,18 @@ var (
 
 // SSHTarget identifies the target host opened by the selected agent.
 type SSHTarget struct {
-	Host string
-	Port int
+	Host string `json:"host,omitempty"`
+	Port int    `json:"port,omitempty"`
 }
 
 // SSHAuth contains session-scoped SSH credentials. Callers must not persist
 // private keys, passwords, or passphrases when using user-present custody.
 type SSHAuth struct {
-	Username   string
-	Password   string
-	PrivateKey string
-	Passphrase string
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
+	PrivateKey  string `json:"private_key,omitempty"`
+	Passphrase  string `json:"passphrase,omitempty"`
+	Certificate string `json:"certificate,omitempty"`
 }
 
 // SSHConfig configures an SSH-backed PTY adapter.
@@ -319,6 +322,9 @@ func validateSSHConfig(cfg SSHConfig) error {
 	if strings.TrimSpace(cfg.Auth.Username) == "" {
 		return ErrSSHUsernameRequired
 	}
+	if strings.TrimSpace(cfg.Auth.Certificate) != "" && strings.TrimSpace(cfg.Auth.PrivateKey) == "" {
+		return ErrSSHCertificateRequiresKey
+	}
 	if strings.TrimSpace(cfg.Auth.PrivateKey) == "" && strings.TrimSpace(cfg.Auth.Password) == "" {
 		return ErrSSHCredentialRequired
 	}
@@ -340,7 +346,7 @@ func sshTargetAddress(target SSHTarget) (string, int, error) {
 func sshAuthMethods(auth SSHAuth) ([]ssh.AuthMethod, error) {
 	methods := make([]ssh.AuthMethod, 0, 2)
 	if strings.TrimSpace(auth.PrivateKey) != "" {
-		signer, err := sshSigner(auth.PrivateKey, auth.Passphrase)
+		signer, err := sshSigner(auth.PrivateKey, auth.Passphrase, auth.Certificate)
 		if err != nil {
 			return nil, err
 		}
@@ -352,12 +358,36 @@ func sshAuthMethods(auth SSHAuth) ([]ssh.AuthMethod, error) {
 	return methods, nil
 }
 
-func sshSigner(privateKey, passphrase string) (ssh.Signer, error) {
+func sshSigner(privateKey, passphrase, certificate string) (ssh.Signer, error) {
 	key := []byte(strings.TrimSpace(privateKey))
+	var (
+		signer ssh.Signer
+		err    error
+	)
 	if strings.TrimSpace(passphrase) != "" {
-		return ssh.ParsePrivateKeyWithPassphrase(key, []byte(passphrase))
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(passphrase))
+	} else {
+		signer, err = ssh.ParsePrivateKey(key)
 	}
-	return ssh.ParsePrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	certPEM := strings.TrimSpace(certificate)
+	if certPEM == "" {
+		return signer, nil
+	}
+
+	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(certPEM))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidSSHCertificate, err)
+	}
+	cert, ok := publicKey.(*ssh.Certificate)
+	if !ok {
+		return nil, ErrInvalidSSHCertificate
+	}
+
+	return ssh.NewCertSigner(cert, signer)
 }
 
 func sshHostKeyCallback(policy string) (ssh.HostKeyCallback, error) {
