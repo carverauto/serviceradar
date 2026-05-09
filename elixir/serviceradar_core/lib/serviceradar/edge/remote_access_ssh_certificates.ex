@@ -30,6 +30,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
 
   @spec issue(map() | struct(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def issue(actor, attrs, opts \\ []) do
+    opts = Keyword.merge(config(), opts)
     signer = Keyword.get(opts, :signer)
 
     with {:ok, signer} <- validate_signer(signer),
@@ -37,6 +38,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
          {:ok, signed} <- signer.sign_user_certificate(sign_request(request), opts) do
       {:ok, issue_result(request, signed)}
     end
+  end
+
+  defp config do
+    Application.get_env(:serviceradar_core, __MODULE__, [])
   end
 
   defp validate_signer(nil), do: {:error, :ssh_certificate_signer_unavailable}

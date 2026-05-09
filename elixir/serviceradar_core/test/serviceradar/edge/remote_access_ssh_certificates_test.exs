@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
@@ -31,6 +31,25 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
 
     @impl true
     def sign_user_certificate(_request, _opts), do: {:error, :signer_failed}
+  end
+
+  defmodule ConfiguredSignerStub do
+    @moduledoc false
+    @behaviour RemoteAccessSSHCertificates
+
+    @impl true
+    def sign_user_certificate(request, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:configured_sign_user_certificate, request})
+
+      {:ok,
+       %{
+         certificate: "ssh-ed25519-cert-v01@openssh.com CONFIGURED",
+         expires_at: ~U[2026-05-09 14:00:00Z],
+         fingerprint: "SHA256:configured",
+         serial: 84,
+         ca_key_id: "ca-configured"
+       }}
+    end
   end
 
   test "issues SSH certificate through injected signer after policy authorization" do
@@ -114,6 +133,40 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                %{session_id: "session-1"},
                signer: SignerStub
              )
+  end
+
+  test "uses configured signer when no per-call signer is provided" do
+    previous = Application.get_env(:serviceradar_core, RemoteAccessSSHCertificates)
+
+    Application.put_env(:serviceradar_core, RemoteAccessSSHCertificates,
+      signer: ConfiguredSignerStub,
+      test_pid: self()
+    )
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:serviceradar_core, RemoteAccessSSHCertificates)
+      else
+        Application.put_env(:serviceradar_core, RemoteAccessSSHCertificates, previous)
+      end
+    end)
+
+    actor = %{id: "user-1", permissions: MapSet.new([@permission])}
+
+    assert {:ok, issued} =
+             RemoteAccessSSHCertificates.issue(actor, %{
+               session_id: "session-1",
+               agent_id: "agent-1",
+               public_key: "ssh-ed25519 AAAATEST",
+               target: %{device_uid: "device-1"},
+               allowed_principals: ["ubuntu"]
+             })
+
+    assert_receive {:configured_sign_user_certificate,
+                    %{key_id: "sr:remote-access:session-1:user-1:agent-1:ssh:device-1"}}
+
+    assert issued.ssh["certificate"] == "ssh-ed25519-cert-v01@openssh.com CONFIGURED"
+    assert issued.ca_key_id == "ca-configured"
   end
 
   test "returns signer errors without building an issued envelope" do
