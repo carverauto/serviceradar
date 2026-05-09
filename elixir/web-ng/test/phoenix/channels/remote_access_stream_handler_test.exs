@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
          adapter: :ssh,
          agent_id: "agent-1",
          gateway_id: "gateway-1",
-         credential_custody_mode: :ssh_certificate,
+         credential_custody_mode: opts |> Keyword.fetch!(:scope) |> Map.get(:credential_custody_mode, :ssh_certificate),
          rbac_decision: :allowed,
          status: :attached,
          attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
@@ -116,6 +116,40 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert_receive {:broker_started, "session-1", opts}
     assert opts[:cols] == 132
     assert opts[:rows] == 43
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "user-present attach passes SSH credential to broker without echoing it" do
+    {:ok, state} = init_state("session-user-present", credential_custody_mode: :user_present)
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-user-present",
+        cols: 132,
+        rows: 43,
+        credential: %{
+          username: "alice",
+          private_key: "session-private-key",
+          passphrase: "session-passphrase"
+        }
+      })
+
+    assert {:push, {:text, response}, attached} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "ready", "session_id" => "session-user-present"} = Jason.decode!(response)
+    refute response =~ "srra_test_ticket"
+    refute response =~ "session-private-key"
+    refute response =~ "session-passphrase"
+
+    assert_receive {:broker_started, "session-user-present", opts}
+    assert opts[:credential_mode] == "user_present"
+    assert opts[:metadata]["ssh"]["username"] == "alice"
+    assert opts[:metadata]["ssh"]["private_key"] == "session-private-key"
+    assert opts[:metadata]["ssh"]["passphrase"] == "session-passphrase"
 
     RemoteAccessStreamHandler.terminate(:normal, attached)
   end
@@ -244,10 +278,13 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     refute_receive {:request_close, "session-4", _opts}
   end
 
-  defp init_state(session_id) do
+  defp init_state(session_id, opts \\ []) do
     RemoteAccessStreamHandler.init(
       session_id: session_id,
-      scope: %{test_pid: self()},
+      scope: %{
+        test_pid: self(),
+        credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :ssh_certificate)
+      },
       sessions_module: SessionsStub,
       broker_module: BrokerStub
     )

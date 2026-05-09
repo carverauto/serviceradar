@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   alias ServiceRadar.Edge.RemoteAccessBroker
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
+  alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
 
   require Logger
 
@@ -57,6 +58,18 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         {:stop, :normal, 1011,
          [{:text, encode(%{type: "error", message: "Remote access broker is not available on the edge agent yet."})}],
          state}
+
+      {:error, reason} when reason in [:session_credential_required, :ssh_username_required] ->
+        _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
+
+        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "A per-session SSH credential is required."})}],
+         state}
+
+      {:error, reason} when reason in [:credential_policy_denied, :invalid_request] ->
+        _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
+
+        {:stop, :normal, 1008,
+         [{:text, encode(%{type: "error", message: "The supplied SSH credential was rejected by policy."})}], state}
 
       {:error, reason} ->
         Logger.warning("Remote access websocket attach rejected",
@@ -155,13 +168,59 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp start_broker(session, message, state) do
-    opts = [
-      cols: message |> Map.get("cols") |> positive_int_value(),
-      rows: message |> Map.get("rows") |> positive_int_value()
-    ]
+    with {:ok, credential_opts} <- credential_broker_opts(session, message) do
+      opts =
+        [
+          cols: message |> Map.get("cols") |> positive_int_value(),
+          rows: message |> Map.get("rows") |> positive_int_value()
+        ] ++ credential_opts
 
-    state.broker_module.start_link(session, self(), opts)
+      state.broker_module.start_link(session, self(), opts)
+    end
   end
+
+  defp credential_broker_opts(session, message) do
+    credential = normalize_map(Map.get(message, "credential"))
+
+    case {custody_mode(session), credential} do
+      {"user_present", credential} when map_size(credential) > 0 ->
+        attrs =
+          credential
+          |> Map.put("session_id", session.id)
+          |> Map.put("agent_id", session.agent_id)
+          |> Map.put("target", session_target(session))
+
+        with {:ok, grant} <- RemoteAccessSSHSessionCredentials.build_user_present_grant(attrs) do
+          {:ok, grant.broker_opts}
+        end
+
+      {"user_present", _credential} ->
+        {:error, :session_credential_required}
+
+      {_mode, credential} when map_size(credential) > 0 ->
+        {:error, :credential_policy_denied}
+
+      {_mode, _credential} ->
+        {:ok, []}
+    end
+  end
+
+  defp custody_mode(%{credential_custody_mode: value}) when is_atom(value), do: Atom.to_string(value)
+  defp custody_mode(%{credential_custody_mode: value}) when is_binary(value), do: value
+  defp custody_mode(_session), do: "none"
+
+  defp session_target(session) do
+    %{
+      "device_uid" => session.device_uid,
+      "host" => session.target_host,
+      "port" => session.target_port
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Map.new()
+  end
+
+  defp normalize_map(value) when is_map(value), do: value
+  defp normalize_map(_value), do: %{}
 
   defp stop_for_broker_error(reason, state) do
     _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)

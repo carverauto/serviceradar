@@ -2847,6 +2847,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
+      |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope))
       |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
@@ -2914,6 +2915,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             >
               <.icon name="hero-command-line" class="size-4" />
               {proxmox_console_action_label(@virtualization_summary)}
+            </.ui_button>
+            <.ui_button
+              :if={@can_remote_access and not @device_deleted}
+              href={~p"/devices/#{@device_uid}/remote-access/ssh"}
+              variant="outline"
+              size="sm"
+            >
+              <.icon name="hero-key" class="size-4" /> SSH
             </.ui_button>
             <.ui_button
               :if={@can_edit and not @editing}
@@ -3657,7 +3666,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               zoom_range={@flow_zoom_range}
             />
           </div>
-    <!-- Logs Tab Content -->
+          <!-- Logs Tab Content -->
           <div :if={@active_tab == "logs" and @has_logs}>
             <.device_logs_tab_content
               logs={@device_logs}
@@ -9418,6 +9427,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
 
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
+
+  defp can_remote_access_device?(scope), do: RBAC.can?(scope, "devices.remote_access.ssh.open")
 
   defp proxmox_console_target?(%{kind: :host}), do: true
 

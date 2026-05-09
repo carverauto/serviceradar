@@ -70,6 +70,37 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   end
 
   attr :id, :string, required: true
+  attr :device_uid, :string, required: true
+  attr :create_path, :string, default: "/api/remote-access/sessions"
+  attr :title, :string, default: "SSH remote access"
+  attr :class, :string, default: ""
+
+  def remote_access_ssh_console(assigns) do
+    assigns =
+      assign(assigns, :props, %{
+        deviceUid: assigns.device_uid,
+        createPath: assigns.create_path,
+        title: assigns.title
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["h-full min-h-0 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="RemoteAccessSSHConsole"
+      data-props={Jason.encode!(@props)}
+    >
+      {react_component(%{
+        component: "RemoteAccessSSHConsole",
+        props: @props,
+        static: false
+      })}
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
   attr :session_id, :string, required: true
   attr :ticket, :string, required: true
   attr :websocket_path, :string, required: true

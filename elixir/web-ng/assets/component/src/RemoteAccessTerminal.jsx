@@ -51,6 +51,7 @@ export function Component({
   subtitle = "",
   streamLabel = "Remote access",
   closeLabel = "Remote access session",
+  attachPayload = null,
   terminalModuleLoader = null,
 }) {
   const containerRef = useRef(null)
@@ -168,8 +169,14 @@ export function Component({
       socket.addEventListener("open", () => {
         setStatus("connected")
         setError("")
+        const extraAttachPayload =
+          attachPayload && typeof attachPayload === "object" && !Array.isArray(attachPayload)
+            ? attachPayload
+            : {}
+
         socket.send(
           JSON.stringify({
+            ...extraAttachPayload,
             type: "attach",
             ticket,
             session_id: sessionId,
@@ -235,7 +242,7 @@ export function Component({
       terminalRef.current = null
       socketRef.current = null
     }
-  }, [closeLabel, sessionId, streamLabel, terminalModuleLoader, ticket, websocketPath])
+  }, [attachPayload, closeLabel, sessionId, streamLabel, terminalModuleLoader, ticket, websocketPath])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100">
