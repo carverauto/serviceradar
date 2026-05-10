@@ -1,0 +1,151 @@
+name: Publish Wasm Plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional extra tag to apply to published Wasm plugin artifacts."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    enable-openid-connect: true
+    environment: release
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+      PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}
+      PLUGIN_UPLOAD_SIGNING_KEY_ID: ${{ secrets.PLUGIN_UPLOAD_SIGNING_KEY_ID }}
+      PLUGIN_UPLOAD_SIGNING_SIGNER: ${{ secrets.PLUGIN_UPLOAD_SIGNING_SIGNER }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Configure BuildBuddy remote cache
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
+        run: |
+          umask 077
+          cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
+            build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+            build --bes_backend=grpcs://carverauto.buildbuddy.io
+            build --remote_cache=grpcs://carverauto.buildbuddy.io
+            build --remote_executor=grpcs://carverauto.buildbuddy.io
+            build --remote_timeout=10m
+            build --remote_download_minimal
+            build --remote_upload_local_results
+            build --jobs=100
+            build --strategy=ExpandTemplate=local
+            build --strategy=NpmPackageExtract=local
+            build --strategy=CopyDirectory=local
+          EOF
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Verify Bazel version
+        run: |
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          if [[ "${actual}" != "${expected}" ]]; then
+            echo "Expected Bazel ${expected}, got ${actual}" >&2
+            exit 1
+          fi
+
+      - name: Login to Harbor
+        run: |
+          set -euo pipefail
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            exit 1
+          fi
+
+          echo "${OCI_TOKEN}" | docker login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+          echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+
+      - name: Publish Wasm plugin OCI artifacts
+        env:
+          EXTRA_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "Missing Wasm upload signing key. Set PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
+            exit 1
+          fi
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_KEY_ID:-}" ]]; then
+            echo "Missing Wasm upload signing key id. Set PLUGIN_UPLOAD_SIGNING_KEY_ID." >&2
+            exit 1
+          fi
+
+          push_args=()
+          verify_tags=("sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG:-}" ]]; then
+            push_args+=(--tag "${EXTRA_TAG}")
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+
+          ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
+          ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
+          ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
+
+      - name: Generate import index
+        env:
+          EXTRA_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
+          OUTPUT="${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json" \
+            ./scripts/generate-wasm-plugin-import-index.sh "${tag}"
+          jq '.plugins | length' "${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json"
