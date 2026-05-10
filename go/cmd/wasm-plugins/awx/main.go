@@ -115,12 +115,14 @@ func dispatch(cfg Config) *sdk.Result {
 		return runListTemplates(cfg)
 	case "awx.fetch_template":
 		return runFetchTemplate(cfg)
-	case
-		"awx.launch_job",
-		"awx.fetch_job",
-		"awx.cancel_job",
-		"awx.fetch_events_for_jobs":
-		return notImplemented(verb)
+	case "awx.launch_job":
+		return runLaunchJob(cfg)
+	case "awx.fetch_job":
+		return runFetchJob(cfg)
+	case "awx.cancel_job":
+		return runCancelJob(cfg)
+	case "awx.fetch_events_for_jobs":
+		return runFetchEventsForJobs(cfg)
 	default:
 		return sdk.Critical(fmt.Sprintf("unknown verb %q", verb))
 	}
@@ -128,6 +130,260 @@ func dispatch(cfg Config) *sdk.Result {
 
 func notImplemented(verb string) *sdk.Result {
 	return sdk.Critical(fmt.Sprintf("verb %q not yet implemented in this plugin build", verb))
+}
+
+// runLaunchJob handles `awx.launch_job` verb.
+//
+// Required args: template_id (int).
+// Optional args: extra_vars (map), host_limit (string), inventory_id (int).
+//
+// AWX accepts a `limit:` parameter that scopes the run to a comma-joined list
+// of host names — this is what the Device Actions modal sends when running
+// against a specific selection of devices.
+func runLaunchJob(cfg Config) *sdk.Result {
+	templateID, ok := argInt(cfg.Args, "template_id")
+	if !ok {
+		return errorResult("awx.launch_job", fmt.Errorf("args.template_id is required"))
+	}
+
+	reqBody := map[string]any{}
+	if extraVars, ok := argMap(cfg.Args, "extra_vars"); ok && len(extraVars) > 0 {
+		reqBody["extra_vars"] = extraVars
+	}
+	if limit, ok := argString(cfg.Args, "host_limit"); ok && limit != "" {
+		reqBody["limit"] = limit
+	}
+	if inv, ok := argInt(cfg.Args, "inventory_id"); ok && inv > 0 {
+		reqBody["inventory"] = inv
+	}
+
+	resp, err := postJSON(cfg, fmt.Sprintf("/api/v2/job_templates/%d/launch/", templateID), reqBody)
+	if err != nil {
+		return errorResult("awx.launch_job", err)
+	}
+
+	var job json.RawMessage
+	if err := json.Unmarshal(resp.Body, &job); err != nil {
+		return errorResult("awx.launch_job", fmt.Errorf("decode launch response: %w", err))
+	}
+
+	payload := map[string]any{
+		"verb":        "awx.launch_job",
+		"ok":          true,
+		"template_id": templateID,
+		"job":         job,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("launched job template %d", templateID)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.launch_job")
+}
+
+// runFetchJob handles `awx.fetch_job` verb. Required arg: job_id.
+//
+// RunPulseWorker uses this to detect terminal-status transitions when no
+// new task events have fired in a tick (the watermark hasn't moved but the
+// job may have finished).
+func runFetchJob(cfg Config) *sdk.Result {
+	jobID, ok := argInt(cfg.Args, "job_id")
+	if !ok {
+		return errorResult("awx.fetch_job", fmt.Errorf("args.job_id is required"))
+	}
+	resp, err := getJSON(cfg, fmt.Sprintf("/api/v2/jobs/%d/", jobID))
+	if err != nil {
+		return errorResult("awx.fetch_job", err)
+	}
+	var job json.RawMessage
+	if err := json.Unmarshal(resp.Body, &job); err != nil {
+		return errorResult("awx.fetch_job", fmt.Errorf("decode job: %w", err))
+	}
+	payload := map[string]any{
+		"verb":   "awx.fetch_job",
+		"ok":     true,
+		"job_id": jobID,
+		"job":    job,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("fetched job %d", jobID)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.fetch_job")
+}
+
+// runCancelJob handles `awx.cancel_job` verb. Required arg: job_id.
+//
+// AWX's cancel endpoint accepts an empty POST and returns 202 when the job
+// is cancelable. We don't pre-check `can_cancel` — the eventual GET
+// /api/v2/jobs/{id}/ via fetch_job will surface the canceled state.
+func runCancelJob(cfg Config) *sdk.Result {
+	jobID, ok := argInt(cfg.Args, "job_id")
+	if !ok {
+		return errorResult("awx.cancel_job", fmt.Errorf("args.job_id is required"))
+	}
+	resp, err := postJSON(cfg, fmt.Sprintf("/api/v2/jobs/%d/cancel/", jobID), nil)
+	if err != nil {
+		return errorResult("awx.cancel_job", err)
+	}
+	payload := map[string]any{
+		"verb":   "awx.cancel_job",
+		"ok":     true,
+		"job_id": jobID,
+		"status": resp.Status,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("canceled job %d", jobID)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.cancel_job")
+}
+
+// jobEventsResult is one entry in the fetch_events_for_jobs response.
+type jobEventsResult struct {
+	JobID      int               `json:"job_id"`
+	OK         bool              `json:"ok"`
+	Error      string            `json:"error,omitempty"`
+	Events     []json.RawMessage `json:"events"`
+	MaxCounter int               `json:"max_counter"`
+	Count      int               `json:"count"`
+}
+
+// runFetchEventsForJobs handles `awx.fetch_events_for_jobs` verb — the bulk
+// pulse verb RunPulseWorker drives. Args: pairs ([]{job_id, since_id}).
+//
+// For each pair we GET /api/v2/jobs/{id}/job_events/?counter__gt={since_id}
+// (paginated) and aggregate the result. Per-job failures don't fail the
+// whole verb — the response carries per-job ok/error so the worker can
+// retry the failures next tick without losing state for the others.
+func runFetchEventsForJobs(cfg Config) *sdk.Result {
+	pairsRaw, ok := cfg.Args["pairs"]
+	if !ok {
+		return errorResult("awx.fetch_events_for_jobs", fmt.Errorf("args.pairs is required"))
+	}
+	pairs, ok := pairsRaw.([]any)
+	if !ok {
+		return errorResult("awx.fetch_events_for_jobs", fmt.Errorf("args.pairs must be an array"))
+	}
+
+	jobs := make([]jobEventsResult, 0, len(pairs))
+	successful := 0
+	for _, p := range pairs {
+		pair, ok := p.(map[string]any)
+		if !ok {
+			jobs = append(jobs, jobEventsResult{OK: false, Error: "pair must be an object"})
+			continue
+		}
+		jobID, _ := argInt(pair, "job_id")
+		sinceID, _ := argInt(pair, "since_id")
+		if jobID <= 0 {
+			jobs = append(jobs, jobEventsResult{OK: false, Error: "pair.job_id required"})
+			continue
+		}
+
+		path := fmt.Sprintf(
+			"/api/v2/jobs/%d/job_events/?counter__gt=%d&page_size=200&order=counter",
+			jobID, sinceID,
+		)
+		events, total, err := listAWXPath(cfg, path)
+		if err != nil {
+			jobs = append(jobs, jobEventsResult{
+				JobID: jobID,
+				OK:    false,
+				Error: sanitizeError(err),
+			})
+			continue
+		}
+
+		maxCounter := sinceID
+		for _, ev := range events {
+			var probe struct {
+				Counter int `json:"counter"`
+			}
+			if err := json.Unmarshal(ev, &probe); err == nil && probe.Counter > maxCounter {
+				maxCounter = probe.Counter
+			}
+		}
+
+		jobs = append(jobs, jobEventsResult{
+			JobID:      jobID,
+			OK:         true,
+			Events:     events,
+			MaxCounter: maxCounter,
+			Count:      total,
+		})
+		successful++
+	}
+
+	payload := map[string]any{
+		"verb": "awx.fetch_events_for_jobs",
+		"ok":   true,
+		"jobs": jobs,
+	}
+	out, _ := json.Marshal(payload)
+
+	return sdk.Ok(fmt.Sprintf("fetched events for %d/%d jobs", successful, len(jobs))).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.fetch_events_for_jobs")
+}
+
+// argString extracts a string arg.
+func argString(args map[string]any, key string) (string, bool) {
+	v, ok := args[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
+}
+
+// argMap extracts a nested map arg (e.g. extra_vars).
+func argMap(args map[string]any, key string) (map[string]any, bool) {
+	v, ok := args[key]
+	if !ok {
+		return nil, false
+	}
+	m, ok := v.(map[string]any)
+	return m, ok
+}
+
+// postJSON performs an authenticated POST. A nil body is encoded as no body
+// (used by the cancel endpoint, which expects an empty POST).
+func postJSON(cfg Config, path string, body any) (*sdk.HTTPResponse, error) {
+	timeoutMS := cfg.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = defaultTimeoutMS
+	}
+
+	var bodyBytes []byte
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("encode body: %w", err)
+		}
+		bodyBytes = b
+	}
+
+	req := sdk.HTTPRequest{
+		Method: http.MethodPost,
+		URL:    strings.TrimRight(cfg.BaseURL, "/") + path,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + cfg.APIToken,
+			"Accept":        "application/json",
+			"Content-Type":  "application/json",
+		},
+		Body:               bodyBytes,
+		TimeoutMS:          timeoutMS,
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+	}
+
+	resp, err := awxHTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
+			return nil, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
+		}
+		return nil, fmt.Errorf("AWX HTTP %d", resp.Status)
+	}
+	return resp, nil
 }
 
 // awxPingResponse mirrors the relevant subset of /api/v2/ping/.
