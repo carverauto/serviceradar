@@ -638,6 +638,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       # Ansible runs (read-only browsing of playbook execution history)
       live("/ansible/runs", AnsibleLive.RunsIndex, :index)
       live("/ansible/runs/:id", AnsibleLive.RunsShow, :show)
+
+      # Ansible launch (ad-hoc playbook run dispatch, takes ?devices=uid1,uid2)
+      live("/ansible/launch", AnsibleLive.LaunchLive, :index)
     end
 
     post("/users/update-password", UserSessionController, :update_password)
