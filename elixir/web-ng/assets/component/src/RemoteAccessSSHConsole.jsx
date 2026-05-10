@@ -75,6 +75,7 @@ export function Component({
   deviceUid = "",
   createPath = "/api/remote-access/sessions",
   title = "SSH remote access",
+  allowRememberedKeys = false,
   terminalModuleLoader = null,
 }) {
   const [mode, setMode] = useState("paste")
@@ -92,6 +93,12 @@ export function Component({
   const [opening, setOpening] = useState(false)
 
   useEffect(() => {
+    if (!allowRememberedKeys) {
+      clearRemembered(deviceUid)
+      setRememberKey(false)
+      return
+    }
+
     const remembered = loadRemembered(deviceUid)
 
     if (remembered) {
@@ -99,7 +106,7 @@ export function Component({
       setPrivateKey(remembered.privateKey || "")
       setRememberKey(Boolean(remembered.privateKey))
     }
-  }, [deviceUid])
+  }, [allowRememberedKeys, deviceUid])
 
   useEffect(() => {
     let cancelled = false
@@ -181,7 +188,7 @@ export function Component({
         throw new Error(payload?.message || payload?.error)
       }
 
-      if (rememberKey) {
+      if (allowRememberedKeys && rememberKey) {
         saveRemembered(deviceUid, {username: sshUsername, privateKey: key})
       } else {
         clearRemembered(deviceUid)
@@ -327,20 +334,22 @@ export function Component({
         </div>
 
         <div className="space-y-4">
-          <div className="rounded border border-base-300 bg-base-200 p-4">
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="checkbox checkbox-sm mt-1"
-                checked={rememberKey}
-                onChange={(event) => setRememberKey(event.target.checked)}
-              />
-              <span>
-                <span className="block text-sm font-medium">Remember key in this browser</span>
-                <span className="block text-xs text-base-content/60">Passphrases are never saved.</span>
-              </span>
-            </label>
-          </div>
+          {allowRememberedKeys ? (
+            <div className="rounded border border-base-300 bg-base-200 p-4">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-sm mt-1"
+                  checked={rememberKey}
+                  onChange={(event) => setRememberKey(event.target.checked)}
+                />
+                <span>
+                  <span className="block text-sm font-medium">Remember key in this browser</span>
+                  <span className="block text-xs text-base-content/60">Passphrases are never saved.</span>
+                </span>
+              </label>
+            </div>
+          ) : null}
 
           {error ? <div className="alert alert-error text-sm">{error}</div> : null}
 

@@ -461,6 +461,12 @@ camera_relay_browser_stream_timeout_ms =
     _other -> 86_400_000
   end
 
+remote_access_browser_key_remember_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -491,6 +497,9 @@ config :serviceradar_web_ng,
 config :serviceradar_web_ng,
   god_view_runtime_graph_refresh_ms: god_view_runtime_graph_refresh_ms,
   god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh
+
+config :serviceradar_web_ng,
+  remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
 
 if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,

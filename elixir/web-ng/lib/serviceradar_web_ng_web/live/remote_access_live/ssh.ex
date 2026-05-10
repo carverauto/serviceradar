@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
       |> assign(:page_title, "SSH Remote Access")
       |> assign(:device_uid, device_uid)
       |> assign(:can_open?, can_open?)
+      |> assign(:allow_remembered_keys?, allow_remembered_keys?())
 
     {:ok, socket}
   end
@@ -46,9 +47,14 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
           class="min-h-0 flex-1"
           device_uid={@device_uid}
           title="SSH remote access"
+          allow_remembered_keys={@allow_remembered_keys?}
         />
       </div>
     </Layouts.app>
     """
+  end
+
+  defp allow_remembered_keys? do
+    Application.get_env(:serviceradar_web_ng, :remote_access_browser_key_remember_enabled, false) == true
   end
 end

@@ -73,6 +73,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :device_uid, :string, required: true
   attr :create_path, :string, default: "/api/remote-access/sessions"
   attr :title, :string, default: "SSH remote access"
+  attr :allow_remembered_keys, :boolean, default: false
   attr :class, :string, default: ""
 
   def remote_access_ssh_console(assigns) do
@@ -80,7 +81,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       assign(assigns, :props, %{
         deviceUid: assigns.device_uid,
         createPath: assigns.create_path,
-        title: assigns.title
+        title: assigns.title,
+        allowRememberedKeys: assigns.allow_remembered_keys
       })
 
     ~H"""
