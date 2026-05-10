@@ -273,6 +273,28 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
              Jason.decode!(response)
   end
 
+  test "attach rejects oversized terminal dimensions before broker start" do
+    {:ok, state} = init_state("session-oversized-attach")
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-oversized-attach",
+        cols: 10_000,
+        rows: 43
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
+             Jason.decode!(response)
+
+    assert_receive {:fail_session, "session-oversized-attach", :invalid_size, _opts}
+    refute_receive {:broker_started, "session-oversized-attach", _opts}
+  end
+
   test "rejected attach does not echo the supplied ticket" do
     {:ok, state} = init_state("session-reject")
 
@@ -321,6 +343,26 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert after_resize.idle_timer != after_data.idle_timer
 
     RemoteAccessStreamHandler.terminate(:normal, after_resize)
+  end
+
+  test "oversized resize frames fail the session without reaching the broker" do
+    {:ok, state} = init_state("session-resize-too-large")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-resize-too-large"), [opcode: :text]}, state)
+
+    assert {:stop, :normal, 1011, [{:text, response}], failed_state} =
+             RemoteAccessStreamHandler.handle_in(
+               {Jason.encode!(%{type: "resize", cols: 10_000, rows: 34}), [opcode: :text]},
+               attached
+             )
+
+    assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+    assert failed_state.closing_action == :failed
+    assert_receive {:fail_session, "session-resize-too-large", :invalid_size, _opts}
+    refute_receive {:broker_resize, _caller, 10_000, 34}
+
+    RemoteAccessStreamHandler.terminate(:normal, failed_state)
   end
 
   test "broker output frames expose only terminal data to the browser" do

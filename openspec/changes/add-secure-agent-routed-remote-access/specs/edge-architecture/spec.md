@@ -35,9 +35,9 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **AND** future protocol adapters SHALL use a dedicated endpoint or permission check before target access is opened.
 
 #### Scenario: Terminal dimensions are bounded
-- **WHEN** the browser create request supplies terminal dimensions
-- **THEN** the public API SHALL require integer columns and rows within deployment-safe bounds
-- **AND** malformed terminal payloads SHALL be rejected before a session ticket is issued.
+- **WHEN** the browser create request, attach frame, or resize frame supplies terminal dimensions
+- **THEN** the browser-facing boundary SHALL require integer columns and rows within deployment-safe bounds
+- **AND** malformed terminal payloads SHALL be rejected before opening or resizing the agent-side adapter.
 
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
