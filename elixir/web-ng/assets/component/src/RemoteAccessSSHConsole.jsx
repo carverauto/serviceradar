@@ -79,11 +79,13 @@ export function Component({
   terminalModuleLoader = null,
 }) {
   const [mode, setMode] = useState("paste")
+  const [credentialMode, setCredentialMode] = useState("ssh_certificate")
   const [username, setUsername] = useState("")
   const [targetHost, setTargetHost] = useState("")
   const [targetPort, setTargetPort] = useState("22")
   const [hostKeyPolicy, setHostKeyPolicy] = useState("known_hosts")
   const [privateKey, setPrivateKey] = useState("")
+  const [publicKey, setPublicKey] = useState("")
   const [passphrase, setPassphrase] = useState("")
   const [rememberKey, setRememberKey] = useState(false)
   const [keyDigest, setKeyDigest] = useState("")
@@ -107,6 +109,12 @@ export function Component({
       setRememberKey(Boolean(remembered.privateKey))
     }
   }, [allowRememberedKeys, deviceUid])
+
+  useEffect(() => {
+    if (credentialMode !== "user_present") {
+      setRememberKey(false)
+    }
+  }, [credentialMode])
 
   useEffect(() => {
     let cancelled = false
@@ -146,11 +154,24 @@ export function Component({
     setError("")
 
     const key = normalizeKey(privateKey)
+    const publicKeyValue = normalizeKey(publicKey)
     const sshUsername = username.trim()
 
-    if (!sshUsername || !key) {
+    if (!key) {
       setOpening(false)
-      setError("Username and private key are required.")
+      setError("Private key is required.")
+      return
+    }
+
+    if (credentialMode === "user_present" && !sshUsername) {
+      setOpening(false)
+      setError("SSH username is required.")
+      return
+    }
+
+    if (credentialMode === "ssh_certificate" && !publicKeyValue) {
+      setOpening(false)
+      setError("Public key is required for certificate sessions.")
       return
     }
 
@@ -158,7 +179,7 @@ export function Component({
       device_uid: deviceUid,
       protocol: "ssh",
       adapter: "ssh",
-      credential_custody_mode: "user_present",
+      credential_custody_mode: credentialMode,
       ssh_host_key_policy: hostKeyPolicy,
       terminal: {cols: 120, rows: 34},
     }
@@ -188,17 +209,24 @@ export function Component({
         throw new Error(payload?.message || payload?.error)
       }
 
-      if (allowRememberedKeys && rememberKey) {
+      if (allowRememberedKeys && rememberKey && credentialMode === "user_present") {
         saveRemembered(deviceUid, {username: sshUsername, privateKey: key})
       } else {
         clearRemembered(deviceUid)
       }
 
-      setCredential({
+      const nextCredential = {
         username: sshUsername,
         private_key: key,
         passphrase: passphrase.trim(),
-      })
+      }
+
+      if (credentialMode === "ssh_certificate") {
+        nextCredential.public_key = publicKeyValue
+        nextCredential.requested_principals = sshUsername ? [sshUsername] : []
+      }
+
+      setCredential(nextCredential)
       setSession(payload.data)
     } catch (openError) {
       setError(errorMessage(openError))
@@ -232,10 +260,26 @@ export function Component({
 
       <form className="grid min-h-0 flex-1 gap-5 overflow-auto p-5 lg:grid-cols-[minmax(0,1fr)_22rem]" onSubmit={openSession}>
         <div className="space-y-4">
+          <label className="form-control">
+            <div className="label">
+              <span className="label-text">Credential mode</span>
+            </div>
+            <select
+              className="select select-bordered"
+              value={credentialMode}
+              onChange={(event) => setCredentialMode(event.target.value)}
+            >
+              <option value="ssh_certificate">SSO certificate</option>
+              <option value="user_present">User-present key</option>
+            </select>
+          </label>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="form-control">
               <div className="label">
-                <span className="label-text">SSH username</span>
+                <span className="label-text">
+                  {credentialMode === "ssh_certificate" ? "Requested login principal" : "SSH username"}
+                </span>
               </div>
               <input
                 className="input input-bordered"
@@ -319,6 +363,20 @@ export function Component({
             />
           </label>
 
+          {credentialMode === "ssh_certificate" ? (
+            <label className="form-control">
+              <div className="label">
+                <span className="label-text">Public key</span>
+              </div>
+              <textarea
+                className="textarea textarea-bordered min-h-24 font-mono text-xs"
+                spellCheck="false"
+                value={publicKey}
+                onChange={(event) => setPublicKey(event.target.value)}
+              />
+            </label>
+          ) : null}
+
           <label className="form-control">
             <div className="label">
               <span className="label-text">Passphrase</span>
@@ -334,7 +392,7 @@ export function Component({
         </div>
 
         <div className="space-y-4">
-          {allowRememberedKeys ? (
+          {allowRememberedKeys && credentialMode === "user_present" ? (
             <div className="rounded border border-base-300 bg-base-200 p-4">
               <label className="flex cursor-pointer items-start gap-3">
                 <input
