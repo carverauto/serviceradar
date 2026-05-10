@@ -95,6 +95,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.target_port == nil
       assert request.agent_id == nil
       assert request.gateway_id == nil
+      assert request.credential_rule_id == nil
+      assert request.approval_id == nil
       assert request.cols == 120
       assert request.rows == 40
       assert request.metadata["ssh_host_key_policy"] == "known_hosts"
@@ -178,6 +180,30 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
       assert body["message"] =~ "gateway_id"
+    end
+
+    test "rejects browser-selected credential rules", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "credential_rule_id" => Ecto.UUID.generate()
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "credential_rule_id"
+    end
+
+    test "rejects invalid approval ids before session creation", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "approval_id" => "not-a-uuid"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "approval_id"
     end
 
     test "rejects malformed terminal dimensions", %{conn: conn} do

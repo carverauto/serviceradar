@@ -166,9 +166,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          :ok <- validate_public_ssh_request(params),
          :ok <- validate_browser_route_selection(params),
          :ok <- validate_browser_policy_selection(params),
+         :ok <- validate_browser_credential_rule_selection(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
          {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
          {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")),
+         {:ok, approval_id} <- normalize_optional_uuid(Map.get(params, "approval_id"), "approval_id"),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
       metadata =
         metadata
@@ -187,9 +189,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          agent_id: nil,
          gateway_id: nil,
          credential_custody_mode: normalize_optional_string(Map.get(params, "credential_custody_mode")),
-         credential_rule_id: normalize_optional_string(Map.get(params, "credential_rule_id")),
+         credential_rule_id: nil,
          approval_required: Map.get(params, "approval_required"),
-         approval_id: normalize_optional_string(Map.get(params, "approval_id")),
+         approval_id: approval_id,
          cols: terminal.cols,
          rows: terminal.rows,
          metadata: metadata,
@@ -240,6 +242,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   defp reject_browser_supplied_policy(_value, field_name),
     do: {:error, :invalid_request, "#{field_name} is selected by remote-access policy"}
+
+  defp validate_browser_credential_rule_selection(params) do
+    case normalize_optional_string(Map.get(params, "credential_rule_id")) do
+      nil -> :ok
+      _credential_rule_id -> {:error, :invalid_request, "credential_rule_id is selected by remote-access policy"}
+    end
+  end
 
   defp validate_target_host_override(value) do
     case normalize_optional_string(value) do
@@ -309,6 +318,17 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_uuid(_value, field_name), do: {:error, :invalid_request, "#{field_name} is required"}
+
+  defp normalize_optional_uuid(nil, _field_name), do: {:ok, nil}
+
+  defp normalize_optional_uuid(value, field_name) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      trimmed -> normalize_uuid(trimmed, field_name)
+    end
+  end
+
+  defp normalize_optional_uuid(_value, field_name), do: {:error, :invalid_request, "#{field_name} must be a valid UUID"}
 
   defp normalize_required_string(value, field_name) when is_binary(value) do
     case String.trim(value) do

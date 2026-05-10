@@ -112,6 +112,11 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **THEN** the public API SHALL reject the request before a session ticket is issued
 - **AND** recording policy SHALL be selected only by trusted remote-access policy.
 
+#### Scenario: Browser cannot choose credential rules
+- **WHEN** the browser create request supplies a credential rule ID
+- **THEN** the public API SHALL reject the request before a session ticket is issued
+- **AND** credential rule selection SHALL be selected only by trusted remote-access policy.
+
 #### Scenario: Recording manifest tracks retention without plaintext defaults
 - **GIVEN** session recording is enabled by policy
 - **WHEN** a remote-access session opens, exchanges terminal data, and closes
