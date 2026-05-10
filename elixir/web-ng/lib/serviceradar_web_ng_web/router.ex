@@ -630,6 +630,10 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
       live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
+
+      # Ansible settings (Controllers tab v1; Repositories / Schedules /
+      # Retention land in follow-up commits)
+      live("/settings/ansible", Settings.AnsibleLive, :index)
     end
 
     post("/users/update-password", UserSessionController, :update_password)
