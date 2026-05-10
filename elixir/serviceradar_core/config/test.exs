@@ -237,7 +237,8 @@ config :serviceradar_core,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
-    ServiceRadar.WifiMap
+    ServiceRadar.WifiMap,
+    ServiceRadar.Automation.Ansible
   ]
 
 # Disable cluster in tests by default
