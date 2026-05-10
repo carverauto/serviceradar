@@ -82,6 +82,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       assert_receive {:open_remote_access_session, "linux-1", request, opts}
       assert request.protocol == "ssh"
+      assert request.adapter == "ssh"
+      assert request.target_kind == "inventory_device"
       assert request.target_host == nil
       assert request.target_port == 2222
       assert request.cols == 120
@@ -89,6 +91,55 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.metadata["private_key"] == "must-not-return"
       assert request.metadata["ssh_host_key_policy"] == "known_hosts"
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "defaults the public create API to SSH inventory sessions", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1"
+        })
+
+      assert json_response(conn, 201)
+      assert_receive {:open_remote_access_session, "linux-1", request, _opts}
+      assert request.protocol == "ssh"
+      assert request.adapter == "ssh"
+      assert request.target_kind == "inventory_device"
+    end
+
+    test "rejects non-SSH protocols on the public SSH endpoint", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "rdp"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "protocol"
+    end
+
+    test "rejects non-SSH adapters on the public SSH endpoint", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "adapter" => "proxmox_console"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "adapter"
+    end
+
+    test "rejects non-inventory target kinds on the public SSH endpoint", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "target_kind" => "provider_console"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "target_kind"
     end
 
     test "rejects target host override unless deployment allows it", %{conn: conn} do

@@ -147,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     raw_ssh_host_key_policy = Map.get(params, "ssh_host_key_policy", metadata_value(metadata, "ssh_host_key_policy"))
 
     with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
+         :ok <- validate_public_ssh_request(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
       terminal = Map.get(params, "terminal") || %{}
@@ -160,9 +161,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       {:ok,
        %{
          device_uid: device_uid,
-         protocol: normalize_optional_string(Map.get(params, "protocol")),
-         adapter: normalize_optional_string(Map.get(params, "adapter")),
-         target_kind: normalize_optional_string(Map.get(params, "target_kind")),
+         protocol: "ssh",
+         adapter: "ssh",
+         target_kind: "inventory_device",
          target_host: normalize_optional_string(Map.get(params, "target_host")),
          target_port: Map.get(params, "target_port"),
          agent_id: normalize_optional_string(Map.get(params, "agent_id")),
@@ -181,6 +182,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_create_request(_params), do: {:error, :invalid_request, "request body is required"}
+
+  defp validate_public_ssh_request(params) do
+    with :ok <- validate_optional_string_value(Map.get(params, "protocol"), "ssh", "protocol"),
+         :ok <- validate_optional_string_value(Map.get(params, "adapter"), "ssh", "adapter") do
+      validate_optional_string_value(Map.get(params, "target_kind"), "inventory_device", "target_kind")
+    end
+  end
+
+  defp validate_optional_string_value(value, allowed_value, field_name) do
+    case normalize_optional_string(value) do
+      nil -> :ok
+      ^allowed_value -> :ok
+      _other -> {:error, :invalid_request, "#{field_name} is not supported by this endpoint"}
+    end
+  end
 
   defp validate_target_host_override(value) do
     case normalize_optional_string(value) do

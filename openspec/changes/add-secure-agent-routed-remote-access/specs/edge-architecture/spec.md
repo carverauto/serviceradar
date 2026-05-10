@@ -22,6 +22,12 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the public API SHALL reject the request unless target-host override policy is explicitly enabled
 - **AND** the target SHALL default to the inventory target selected by policy.
 
+#### Scenario: Public SSH endpoint cannot request other adapters
+- **GIVEN** the public browser endpoint is authorized by the SSH remote-access permission
+- **WHEN** the browser create request supplies a non-SSH protocol, non-SSH adapter, or non-inventory target kind
+- **THEN** the public API SHALL reject the request before a session ticket is issued
+- **AND** future protocol adapters SHALL use a dedicated endpoint or permission check before target access is opened.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 
