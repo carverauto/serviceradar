@@ -1026,9 +1026,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       ]
   end
 
-  defp maybe_add_log_tasks(tasks, false, srql_module, uid, scope, _params) do
-    tasks ++ [timed_device_task(:has_logs, fn -> detect_has_logs(srql_module, uid, scope) end)]
-  end
+  defp maybe_add_log_tasks(tasks, false, _srql_module, _uid, _scope, _params), do: tasks
 
   defp extract_interface_results(parallel_results, true), do: Map.get(parallel_results, :interfaces, {[], nil})
 
@@ -1102,7 +1100,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_binary(logs_error) or (is_list(device_logs) and device_logs != [])
   end
 
-  defp determine_has_logs(false, _logs_error, _device_logs, probe), do: probe
+  defp determine_has_logs(false, _logs_error, _device_logs, _probe), do: true
 
   defp detect_has_interfaces(srql_module, device_uid, scope) do
     query =
@@ -1139,15 +1137,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp detect_has_flows(srql_module, device_uid, scope) do
     query = default_flows_query(device_uid) <> " limit:1"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [_ | _]}} -> true
-      _ -> false
-    end
-  end
-
-  defp detect_has_logs(srql_module, device_uid, scope) do
-    query = default_logs_query(device_uid) <> " limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [_ | _]}} -> true
