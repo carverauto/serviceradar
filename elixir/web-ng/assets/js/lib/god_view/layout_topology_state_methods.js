@@ -803,7 +803,8 @@ export const godViewLayoutTopologyStateMethods = {
 
     if (topologyClass === "endpoints" || topologyClass === "endpoint") return false
     if (topologyClass === "inferred" || topologyClass === "observed") return false
-    if (topologyClass === "backbone" || topologyClass === "logical" || topologyClass === "hosted") return true
+    if (topologyClass === "hosted") return false
+    if (topologyClass === "backbone" || topologyClass === "logical") return true
 
     if (evidenceClass === "endpoint-attachment") return false
     if (evidenceClass === "inferred" || evidenceClass === "inferred-segment") return false
@@ -814,8 +815,6 @@ export const godViewLayoutTopologyStateMethods = {
       evidenceClass === "direct-physical" ||
       evidenceClass === "logical" ||
       evidenceClass === "direct-logical" ||
-      evidenceClass === "hosted" ||
-      evidenceClass === "hosted-virtual" ||
       topologyClass === "" ||
       topologyClass === "unknown"
     )

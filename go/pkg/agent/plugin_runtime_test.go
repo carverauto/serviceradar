@@ -177,6 +177,79 @@ func TestPluginManagerStreamingAssignmentSnapshot(t *testing.T) {
 	}
 }
 
+func TestPluginManagerDebugSnapshotRedactsDownloadSecrets(t *testing.T) {
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:        logger.NewTestLogger(),
+		CacheDir:      t.TempDir(),
+		LocalStoreDir: t.TempDir(),
+	})
+	defer mgr.Stop()
+
+	mgr.ApplyConfig(&proto.PluginConfig{
+		Assignments: []*proto.PluginAssignmentConfig{
+			{
+				AssignmentId:  "scheduled-1",
+				PluginId:      "proxmox-inventory",
+				PackageId:     "pkg-1",
+				Name:          "Proxmox Inventory",
+				Entrypoint:    "run_check",
+				Runtime:       "wasi-preview1",
+				Enabled:       true,
+				IntervalSec:   3600,
+				TimeoutSec:    30,
+				WasmObjectKey: "plugins/proxmox-inventory/0.1.0/pkg-1.wasm",
+				ContentHash:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				DownloadUrl:   "https://plugins.example/download/pkg-1?token=do-not-leak",
+				DownloadToken: "secret-token",
+				Capabilities:  []string{"http_request", "submit_result"},
+				ParamsJson:    []byte(`{"api_token":"do-not-leak"}`),
+			},
+			{
+				AssignmentId: "streaming-1",
+				PluginId:     "camera-streamer",
+				Name:         "Camera Streamer",
+				Entrypoint:   "stream_camera",
+				Runtime:      "wasi-preview1",
+				Enabled:      true,
+				Capabilities: []string{pluginCapabilityCameraMediaStream},
+			},
+		},
+	})
+
+	snapshot := mgr.DebugSnapshot()
+	if snapshot.Engine.AssignmentsTotal != 2 || snapshot.Engine.AssignmentsAdmitted != 2 {
+		t.Fatalf("unexpected engine counts: %#v", snapshot.Engine)
+	}
+	if len(snapshot.Assignments) != 2 {
+		t.Fatalf("expected 2 assignments, got %d", len(snapshot.Assignments))
+	}
+
+	var scheduled PluginEngineAssignmentSnapshot
+	for _, assignment := range snapshot.Assignments {
+		if assignment.AssignmentID == "scheduled-1" {
+			scheduled = assignment
+		}
+	}
+
+	if scheduled.DownloadHost != "plugins.example" {
+		t.Fatalf("expected redacted download host, got %q", scheduled.DownloadHost)
+	}
+	if !scheduled.DownloadTokenPresent {
+		t.Fatalf("expected token presence flag")
+	}
+	if scheduled.Mode != string(pluginExecutionModeScheduled) {
+		t.Fatalf("expected scheduled mode, got %q", scheduled.Mode)
+	}
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal debug snapshot: %v", err)
+	}
+	if strings.Contains(string(data), "do-not-leak") || strings.Contains(string(data), "secret-token") {
+		t.Fatalf("debug snapshot leaked credential material: %s", string(data))
+	}
+}
+
 func TestPluginManagerOpenCameraRelayStreamUsesStreamingBridge(t *testing.T) {
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{
 		Logger:        logger.NewTestLogger(),

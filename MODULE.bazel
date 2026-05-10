@@ -530,11 +530,11 @@ crates = use_extension(
 )
 crates.annotation(
     crate = "reqsign",
+    repositories = ["rust_crates"],
     deps = [
         "@@//third_party/rust_patches/reqsign-azure-storage-1.0.0:reqsign_azure_storage",
         "@@//third_party/rust_patches/reqsign-google-1.0.0:reqsign_google",
     ],
-    repositories = ["rust_crates"],
 )
 crates.annotation(
     additive_build_file_content = """
@@ -709,9 +709,9 @@ http_file(
 http_file(
     name = "cosign_linux_amd64",
     executable = True,
-    sha256 = "8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b",
+    sha256 = "052363a0e23e2e7ed53641351b8b420918e7e08f9c1d8a42a3dd3877a78a2e10",
     urls = [
-        "https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64",
+        "https://github.com/sigstore/cosign/releases/download/v3.0.3/cosign-linux-amd64",
     ],
 )
 

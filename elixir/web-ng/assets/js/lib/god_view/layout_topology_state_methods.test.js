@@ -662,7 +662,7 @@ describe("layout_topology_state_methods", () => {
 
     expect(context.edgeDrivesBackboneLayout({topologyClass: "backbone"})).toEqual(true)
     expect(context.edgeDrivesBackboneLayout({topologyClass: "logical"})).toEqual(true)
-    expect(context.edgeDrivesBackboneLayout({topologyClass: "hosted"})).toEqual(true)
+    expect(context.edgeDrivesBackboneLayout({topologyClass: "hosted"})).toEqual(false)
     expect(context.edgeDrivesBackboneLayout({topologyClass: "endpoints"})).toEqual(false)
     expect(context.edgeDrivesBackboneLayout({topologyClass: "inferred"})).toEqual(false)
     expect(context.edgeDrivesBackboneLayout({topologyClass: "observed"})).toEqual(false)
