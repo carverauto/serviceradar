@@ -6,6 +6,7 @@ import Config
 alias Cluster.Strategy.DNSPoll
 alias Cluster.Strategy.Kubernetes.DNS
 alias Geolix.Adapter.MMDB2
+alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 
@@ -65,6 +66,24 @@ remote_access_ssh_certificate_policy =
       Jason.decode!(raw)
   end
 
+remote_access_ssh_ca_signer_enabled =
+  System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED", "false") in ~w(true 1 yes)
+
+remote_access_ssh_ca_signer_args =
+  case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON") do
+    nil ->
+      []
+
+    "" ->
+      []
+
+    raw ->
+      case Jason.decode!(raw) do
+        values when is_list(values) -> Enum.filter(values, &is_binary/1)
+        _other -> []
+      end
+  end
+
 config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :serviceradar_core,
@@ -75,6 +94,24 @@ if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,
     remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
+end
+
+if remote_access_ssh_ca_signer_enabled do
+  signer_command =
+    System.get_env(
+      "SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND",
+      "serviceradar-sshca-signer"
+    )
+
+  signer_ca_key_id = System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID")
+
+  config :serviceradar_core, RemoteAccessSSHCACommandSigner,
+    command: signer_command,
+    args: remote_access_ssh_ca_signer_args,
+    ca_key_id: signer_ca_key_id
+
+  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates,
+    signer: RemoteAccessSSHCACommandSigner
 end
 
 if config_env() == :prod do
