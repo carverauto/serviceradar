@@ -27,7 +27,7 @@ function base64Digest(buffer) {
   return btoa(binary).replace(/=+$/u, "")
 }
 
-async function fingerprintFor(value) {
+async function keyDigestFor(value) {
   const normalized = normalizeKey(value)
 
   if (!normalized || !window.crypto?.subtle) {
@@ -85,7 +85,7 @@ export function Component({
   const [privateKey, setPrivateKey] = useState("")
   const [passphrase, setPassphrase] = useState("")
   const [rememberKey, setRememberKey] = useState(false)
-  const [fingerprint, setFingerprint] = useState("")
+  const [keyDigest, setKeyDigest] = useState("")
   const [session, setSession] = useState(null)
   const [credential, setCredential] = useState(null)
   const [error, setError] = useState("")
@@ -104,9 +104,9 @@ export function Component({
   useEffect(() => {
     let cancelled = false
 
-    fingerprintFor(privateKey).then((value) => {
+    keyDigestFor(privateKey).then((value) => {
       if (!cancelled) {
-        setFingerprint(value)
+        setKeyDigest(value)
       }
     })
 
@@ -302,7 +302,7 @@ export function Component({
           <label className="form-control">
             <div className="label">
               <span className="label-text">Private key</span>
-              {fingerprint ? <span className="label-text-alt font-mono">{fingerprint}</span> : null}
+              {keyDigest ? <span className="label-text-alt font-mono">Key digest {keyDigest}</span> : null}
             </div>
             <textarea
               className="textarea textarea-bordered min-h-52 font-mono text-xs"
