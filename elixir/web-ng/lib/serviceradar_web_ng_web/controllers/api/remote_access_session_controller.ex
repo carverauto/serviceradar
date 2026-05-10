@@ -165,6 +165,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
          :ok <- validate_public_ssh_request(params),
          :ok <- validate_browser_route_selection(params),
+         :ok <- validate_browser_policy_selection(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
          {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
          {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")),
@@ -192,8 +193,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          cols: terminal.cols,
          rows: terminal.rows,
          metadata: metadata,
-         recording_policy: normalize_metadata(Map.get(params, "recording_policy")),
-         enhanced_recording_policy: normalize_metadata(Map.get(params, "enhanced_recording_policy"))
+         recording_policy: %{},
+         enhanced_recording_policy: %{}
        }}
     end
   end
@@ -227,6 +228,18 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       _route_value -> {:error, :invalid_request, "#{field_name} is selected by inventory policy"}
     end
   end
+
+  defp validate_browser_policy_selection(params) do
+    with :ok <- reject_browser_supplied_policy(Map.get(params, "recording_policy"), "recording_policy") do
+      reject_browser_supplied_policy(Map.get(params, "enhanced_recording_policy"), "enhanced_recording_policy")
+    end
+  end
+
+  defp reject_browser_supplied_policy(nil, _field_name), do: :ok
+  defp reject_browser_supplied_policy(value, _field_name) when value == %{}, do: :ok
+
+  defp reject_browser_supplied_policy(_value, field_name),
+    do: {:error, :invalid_request, "#{field_name} is selected by remote-access policy"}
 
   defp validate_target_host_override(value) do
     case normalize_optional_string(value) do

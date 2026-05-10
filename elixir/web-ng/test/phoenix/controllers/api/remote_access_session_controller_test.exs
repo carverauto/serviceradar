@@ -102,6 +102,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.metadata["nested"]["safe"] == "nested-kept"
       refute Map.has_key?(request.metadata, "private_key")
       refute Map.has_key?(request.metadata["nested"], "password")
+      assert request.recording_policy == %{}
+      assert request.enhanced_recording_policy == %{}
       assert match?(%Scope{}, opts[:scope])
     end
 
@@ -202,6 +204,32 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
       assert body["message"] =~ "terminal"
+    end
+
+    test "rejects browser-selected recording policy", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "recording_policy" => %{"enabled" => false}
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "recording_policy"
+    end
+
+    test "rejects browser-selected enhanced recording policy", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "enhanced_recording_policy" => %{"enabled" => false}
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "enhanced_recording_policy"
     end
 
     test "rejects target host override unless deployment allows it", %{conn: conn} do
