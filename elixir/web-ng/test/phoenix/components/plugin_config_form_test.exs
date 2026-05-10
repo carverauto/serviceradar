@@ -82,6 +82,32 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     refute html =~ "credential_secret_ref"
   end
 
+  test "does not render reserved runtime fields from legacy schemas" do
+    schema = %{
+      "type" => "object",
+      "title" => "Proxmox Console",
+      "properties" => %{
+        "console" => %{"type" => "object", "title" => "Console"},
+        "credential_broker" => %{"type" => "object", "title" => "Credential Broker"},
+        "credential_rule_id" => %{"type" => "string", "title" => "Credential Rule"},
+        "timeout_ms" => %{"type" => "integer", "title" => "Timeout"}
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{},
+        base_name: "assignment[params]"
+      })
+
+    assert html =~ "Timeout"
+    assert html =~ "Open the configuration guide"
+    refute html =~ "Credential Broker"
+    refute html =~ "Credential Rule"
+    refute html =~ ~s(assignment[params][console])
+  end
+
   test "renders schema documentation link" do
     schema = %{
       "type" => "object",

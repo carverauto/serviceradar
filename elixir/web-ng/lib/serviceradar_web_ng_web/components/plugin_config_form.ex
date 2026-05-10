@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     properties =
       schema
       |> Map.get("properties", %{})
-      |> Enum.reject(fn {_name, prop} -> internal_property?(prop) end)
+      |> Enum.reject(fn {name, prop} -> internal_property?(name, prop) end)
 
     required = Map.get(schema, "required", [])
 
@@ -28,7 +28,10 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
     ~H"""
     <div class="space-y-4">
-      <div :if={@docs_url} class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+      <div
+        :if={@docs_url}
+        class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80"
+      >
         Need help with these settings?
         <a class="link link-primary" href={@docs_url} target="_blank" rel="noopener noreferrer">
           Open the configuration guide
@@ -156,19 +159,29 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp input_type_from_type(%{"type" => "array"}), do: :textarea
   defp input_type_from_type(_), do: :text
 
-  defp internal_property?(%{} = prop) do
-    Map.get(prop, "x-serviceradar-internal") == true or Map.get(prop, "x-serviceradar-ui-hidden") == true
+  defp internal_property?(name, %{} = prop) do
+    Map.get(prop, "x-serviceradar-internal") == true or
+      Map.get(prop, "x-serviceradar-ui-hidden") == true or
+      name in ["console", "credential_broker", "credential_rule_id"]
   end
 
-  defp internal_property?(_), do: false
+  defp internal_property?(_name, _), do: false
 
   defp docs_url(schema) do
     schema
     |> Map.get("x-serviceradar-docs-url")
     |> case do
       value when is_binary(value) and value != "" -> value
-      _ -> nil
+      _ -> fallback_docs_url(schema)
     end
+  end
+
+  defp fallback_docs_url(%{"title" => "Proxmox Console"}) do
+    "https://docs.serviceradar.cloud/docs/proxmox#console-access"
+  end
+
+  defp fallback_docs_url(_schema) do
+    nil
   end
 
   defp text_input_type(%{"format" => "uri"}), do: "url"
