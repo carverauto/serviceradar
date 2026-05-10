@@ -472,6 +472,216 @@ func TestRunFetchEventsForJobsPartialFailure(t *testing.T) {
 	}
 }
 
+func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
+	inventories := []byte(`{
+		"count": 2,
+		"next": null,
+		"results": [
+			{"id": 7, "name": "Production"},
+			{"id": 8, "name": "Lab"}
+		]
+	}`)
+	prodHosts := []byte(`{
+		"count": 2,
+		"next": null,
+		"results": [
+			{"id": 100, "name": "web01.example.com", "inventory": 7, "enabled": true, "variables": "ansible_host: 10.0.0.5\nansible_user: ubuntu\n"},
+			{"id": 101, "name": "web02.example.com", "inventory": 7, "enabled": true, "variables": "{\"ansible_host\":\"10.0.0.6\"}"}
+		]
+	}`)
+	labHosts := []byte(`{
+		"count": 1,
+		"next": null,
+		"results": [
+			{"id": 200, "name": "lab01", "inventory": 8, "enabled": false, "variables": ""}
+		]
+	}`)
+
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200":         {Status: http.StatusOK, Body: inventories},
+		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: prodHosts},
+		"/api/v2/inventories/8/hosts/?page_size=200": {Status: http.StatusOK, Body: labHosts},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := InventorySyncConfig{
+		ControllerID:   "ctrl-uuid-1",
+		ControllerName: "Production AWX",
+		BaseURL:        "https://awx.example.com",
+		APIToken:       "tok",
+	}
+	res := runInventorySync(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	if !strings.Contains(res.Summary, "3 hosts") {
+		t.Errorf("summary should report 3 hosts, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "2 inventories") {
+		t.Errorf("summary should report 2 inventories, got %q", res.Summary)
+	}
+
+	if len(res.DeviceDiscovery) != 1 {
+		t.Fatalf("expected 1 DeviceDiscovery, got %d", len(res.DeviceDiscovery))
+	}
+	disc := res.DeviceDiscovery[0]
+	if disc.Source != "awx" {
+		t.Errorf("source = %q, want awx", disc.Source)
+	}
+	if !strings.HasPrefix(disc.CollectionID, "awx-ctrl-uuid-1-") {
+		t.Errorf("collection_id = %q", disc.CollectionID)
+	}
+	if disc.Metadata["controller_id"] != "ctrl-uuid-1" {
+		t.Errorf("metadata.controller_id = %v", disc.Metadata["controller_id"])
+	}
+	if disc.Metadata["controller_name"] != "Production AWX" {
+		t.Errorf("metadata.controller_name = %v", disc.Metadata["controller_name"])
+	}
+	if len(disc.Devices) != 3 {
+		t.Fatalf("expected 3 devices, got %d", len(disc.Devices))
+	}
+
+	byID := map[string]sdk.DiscoveredDevice{}
+	for _, d := range disc.Devices {
+		byID[d.DeviceID] = d
+	}
+
+	web01 := byID["awx:ctrl-uuid-1:host:100"]
+	if web01.Hostname != "web01.example.com" {
+		t.Errorf("web01.hostname = %q", web01.Hostname)
+	}
+	if web01.IP != "10.0.0.5" {
+		t.Errorf("web01.ip = %q (YAML variables should resolve)", web01.IP)
+	}
+	if web01.Labels["controller_id"] != "ctrl-uuid-1" {
+		t.Errorf("web01.labels.controller_id = %v", web01.Labels["controller_id"])
+	}
+	if web01.Labels["provider"] != "awx" {
+		t.Errorf("web01.labels.provider = %v", web01.Labels["provider"])
+	}
+	awxMeta, ok := web01.Metadata["awx"].(map[string]any)
+	if !ok {
+		t.Fatalf("web01.metadata.awx not a map: %T", web01.Metadata["awx"])
+	}
+	if awxMeta["host_id"].(int) != 100 {
+		t.Errorf("metadata.awx.host_id = %v", awxMeta["host_id"])
+	}
+	if awxMeta["inventory_id"].(int) != 7 {
+		t.Errorf("metadata.awx.inventory_id = %v", awxMeta["inventory_id"])
+	}
+
+	web02 := byID["awx:ctrl-uuid-1:host:101"]
+	if web02.IP != "10.0.0.6" {
+		t.Errorf("web02.ip = %q (JSON variables should resolve)", web02.IP)
+	}
+
+	lab01 := byID["awx:ctrl-uuid-1:host:200"]
+	if lab01.IP != "" {
+		t.Errorf("lab01.ip should be empty (no variables), got %q", lab01.IP)
+	}
+	if lab01.IsAvailable == nil || *lab01.IsAvailable {
+		t.Errorf("lab01.is_available should reflect enabled=false")
+	}
+}
+
+func TestRunInventorySyncContinuesOnPerInventoryError(t *testing.T) {
+	inventories := []byte(`{
+		"count": 2,
+		"next": null,
+		"results": [
+			{"id": 7, "name": "Production"},
+			{"id": 8, "name": "Broken"}
+		]
+	}`)
+	prodHosts := []byte(`{"count":1,"next":null,"results":[{"id":100,"name":"ok","inventory":7,"enabled":true}]}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200":         {Status: http.StatusOK, Body: inventories},
+		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: prodHosts},
+		"/api/v2/inventories/8/hosts/?page_size=200": {Status: http.StatusInternalServerError, Body: []byte(`{}`)},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := InventorySyncConfig{
+		ControllerID: "ctrl-1",
+		BaseURL:      "https://awx.example.com",
+		APIToken:     "tok",
+	}
+	res := runInventorySync(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK with partial coverage, got %s", res.Status)
+	}
+	if len(res.DeviceDiscovery) != 1 {
+		t.Fatalf("expected 1 DeviceDiscovery, got %d", len(res.DeviceDiscovery))
+	}
+	disc := res.DeviceDiscovery[0]
+	if len(disc.Devices) != 1 {
+		t.Errorf("expected 1 device from working inventory, got %d", len(disc.Devices))
+	}
+	if _, has := disc.Metadata["error_inventory_8"]; !has {
+		t.Errorf("expected metadata.error_inventory_8 to flag the failure, got %+v", disc.Metadata)
+	}
+}
+
+func TestRunInventorySyncFailsHardWhenInventoriesEndpointFails(t *testing.T) {
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200": {Status: http.StatusInternalServerError, Body: []byte(`{}`)},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := InventorySyncConfig{
+		ControllerID: "ctrl-1",
+		BaseURL:      "https://awx.example.com",
+		APIToken:     "tok",
+	}
+	res := runInventorySync(cfg)
+
+	if res.Status != sdk.StatusCritical {
+		t.Fatalf("expected CRITICAL when inventories endpoint fails, got %s", res.Status)
+	}
+}
+
+func TestExtractAnsibleHostFromVariables(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"ansible_host: 10.0.0.1\nansible_user: ubuntu", "10.0.0.1"},
+		{`{"ansible_host":"10.0.0.2"}`, "10.0.0.2"},
+		{`ansible_host: "host.example.com"`, "host.example.com"},
+		{`ansible_ssh_host: 192.168.1.1`, "192.168.1.1"},
+		{`ansible_host: 10.0.0.1 # comment`, "10.0.0.1"},
+		{"unrelated: value\nfoo: bar", ""},
+	}
+	for _, c := range cases {
+		if got := extractAnsibleHostFromVariables(c.in); got != c.want {
+			t.Errorf("extractAnsibleHostFromVariables(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestIsProbablyIP(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"10.0.0.1", true},
+		{"192.168.1.255", true},
+		{"::1", true},
+		{"fe80::1", true},
+		{"host.example.com", false},
+		{"10.0.0", false},
+		{"10.0.0.1.5", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isProbablyIP(c.in); got != c.want {
+			t.Errorf("isProbablyIP(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
 func TestArgHelpers(t *testing.T) {
 	args := map[string]any{
 		"int_f":  float64(7),

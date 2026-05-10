@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -748,6 +749,279 @@ func primeTinyGoJSON() {
 	_, _ = json.Marshal(map[string]any{"t": time.Time{}})
 }
 
-// main is required by TinyGo's wasi target even though run_check is the
-// real export. Mirrors proxmox/main.go.
+// InventorySyncConfig drives the scheduled `inventory_sync` entrypoint.
+// One assignment per AWX controller; the assignment carries the resolved
+// API token (the agent's broker resolved a grant before invoking us).
+type InventorySyncConfig struct {
+	// ControllerID is the ServiceRadar AnsibleController.id. We embed
+	// it in DeviceID so DIRE can attribute hosts back to the right
+	// controller even when the AWX host_id is reused across instances.
+	ControllerID string `json:"controller_id"`
+
+	// ControllerName is operator-facing; lands in DiscoveredDevice
+	// labels and metadata for searchability.
+	ControllerName string `json:"controller_name,omitempty"`
+
+	BaseURL  string `json:"base_url"`
+	APIToken string `json:"api_token"`
+
+	TimeoutMS          int  `json:"timeout_ms,omitempty"`
+	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
+}
+
+// asConfig returns a request-shaped Config for reusing getJSON / listAWXPath.
+func (c InventorySyncConfig) asConfig() Config {
+	return Config{
+		BaseURL:            c.BaseURL,
+		APIToken:           c.APIToken,
+		TimeoutMS:          c.TimeoutMS,
+		InsecureSkipVerify: c.InsecureSkipVerify,
+	}
+}
+
+//export inventory_sync
+func inventory_sync() {
+	primeTinyGoJSONInventory()
+
+	_ = sdk.Execute(func() (*sdk.Result, error) {
+		var cfg InventorySyncConfig
+		if err := sdk.LoadConfig(&cfg); err != nil {
+			return sdk.Unknown("AWX inventory_sync configuration could not be loaded"), nil
+		}
+		if err := validateInventorySyncConfig(cfg); err != nil {
+			return sdk.Unknown("AWX inventory_sync configuration invalid: " + err.Error()), nil
+		}
+		return runInventorySync(cfg), nil
+	})
+}
+
+func validateInventorySyncConfig(cfg InventorySyncConfig) error {
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		return fmt.Errorf("base_url is required")
+	}
+	if strings.TrimSpace(cfg.APIToken) == "" {
+		return fmt.Errorf("api_token is required (resolved from credential broker grant)")
+	}
+	if strings.TrimSpace(cfg.ControllerID) == "" {
+		return fmt.Errorf("controller_id is required")
+	}
+	return nil
+}
+
+// awxInventoryRow is the subset of /api/v2/inventories/ we care about.
+type awxInventoryRow struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Kind         string `json:"kind"`
+	Organization int    `json:"organization"`
+	TotalHosts   int    `json:"total_hosts"`
+}
+
+// awxHostRow is the subset of /api/v2/inventories/{id}/hosts/ we care about.
+type awxHostRow struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Inventory   int    `json:"inventory"`
+	Enabled     bool   `json:"enabled"`
+	InstanceID  string `json:"instance_id"`
+	Variables   string `json:"variables"`
+}
+
+// runInventorySync walks every inventory + host on the controller and
+// emits a single DeviceDiscovery aggregate via WithDeviceDiscovery. The
+// agent → gateway → DIRE pipeline carries it the rest of the way.
+func runInventorySync(cfg InventorySyncConfig) *sdk.Result {
+	now := time.Now().UTC()
+	discovery := sdk.NewDeviceDiscovery("awx")
+	discovery.ObservedAt = now.Format(time.RFC3339Nano)
+	discovery.CollectionID = "awx-" + cfg.ControllerID + "-" + now.Format("20060102T150405Z")
+	if discovery.Metadata == nil {
+		discovery.Metadata = map[string]any{}
+	}
+	discovery.Metadata["controller_id"] = cfg.ControllerID
+	if cfg.ControllerName != "" {
+		discovery.Metadata["controller_name"] = cfg.ControllerName
+	}
+
+	cmdCfg := cfg.asConfig()
+	invRows, _, err := listAWXPath(cmdCfg, "/api/v2/inventories/?page_size=200")
+	if err != nil {
+		return sdk.Critical("AWX inventory_sync failed listing inventories: " + sanitizeError(err))
+	}
+
+	totalHosts := 0
+	totalInventories := 0
+	for _, row := range invRows {
+		var inv awxInventoryRow
+		if err := json.Unmarshal(row, &inv); err != nil {
+			// Skip malformed rows but keep going; one bad row shouldn't
+			// fail the whole sync.
+			continue
+		}
+		totalInventories++
+
+		hostsPath := fmt.Sprintf("/api/v2/inventories/%d/hosts/?page_size=200", inv.ID)
+		hostRows, _, err := listAWXPath(cmdCfg, hostsPath)
+		if err != nil {
+			// Per-inventory failure: continue with what we have, but
+			// stash a metadata note so DIRE can see partial coverage.
+			discovery.Metadata["error_inventory_"+strconv.Itoa(inv.ID)] = sanitizeError(err)
+			continue
+		}
+
+		for _, hostRow := range hostRows {
+			var host awxHostRow
+			if err := json.Unmarshal(hostRow, &host); err != nil {
+				continue
+			}
+			discovery.AddDevice(buildDiscoveredHost(cfg, inv, host))
+			totalHosts++
+		}
+	}
+
+	summary := fmt.Sprintf(
+		"AWX inventory_sync: %d hosts across %d inventories on %s",
+		totalHosts, totalInventories, nonEmpty(cfg.ControllerName, cfg.ControllerID),
+	)
+
+	result := sdk.Ok(summary)
+	result.WithDeviceDiscovery(*discovery)
+	result.WithLabel("controller_id", cfg.ControllerID)
+	result.WithLabel("inventories", strconv.Itoa(totalInventories))
+	result.WithLabel("hosts", strconv.Itoa(totalHosts))
+	return result
+}
+
+// buildDiscoveredHost maps one AWX host row to a DiscoveredDevice. The
+// `Metadata.awx` block carries the controller_id, inventory_id, host_id, and
+// host_name that AnsibleController/PlaybookRunTarget joins resolve against.
+func buildDiscoveredHost(cfg InventorySyncConfig, inv awxInventoryRow, host awxHostRow) sdk.DiscoveredDevice {
+	enabled := host.Enabled
+
+	hostname := host.Name
+	ip := ""
+	if v := extractAnsibleHostFromVariables(host.Variables); v != "" {
+		if isProbablyIP(v) {
+			ip = v
+		} else if hostname == "" {
+			hostname = v
+		}
+	}
+
+	return sdk.DiscoveredDevice{
+		DeviceID:    fmt.Sprintf("awx:%s:host:%d", cfg.ControllerID, host.ID),
+		Hostname:    hostname,
+		IP:          ip,
+		VendorName:  "Ansible",
+		Type:        "host",
+		Role:        "ansible_host",
+		Status:      hostStatusString(host.Enabled),
+		IsAvailable: &enabled,
+		Labels: map[string]string{
+			"provider":      "awx",
+			"controller_id": cfg.ControllerID,
+		},
+		Metadata: map[string]any{
+			"awx": map[string]any{
+				"controller_id":   cfg.ControllerID,
+				"controller_name": cfg.ControllerName,
+				"inventory_id":    inv.ID,
+				"inventory_name":  inv.Name,
+				"host_id":         host.ID,
+				"host_name":       host.Name,
+				"description":     host.Description,
+				"instance_id":     host.InstanceID,
+				"variables":       host.Variables,
+			},
+		},
+	}
+}
+
+func hostStatusString(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+// extractAnsibleHostFromVariables pulls `ansible_host` (or
+// `ansible_ssh_host` legacy) from an AWX host's `variables` blob. AWX
+// returns this as either a YAML or JSON string. We try JSON first, then
+// fall back to a simple line-by-line YAML scan — full YAML parsing in
+// TinyGo isn't ergonomic and we only need this one key.
+func extractAnsibleHostFromVariables(variables string) string {
+	if variables == "" {
+		return ""
+	}
+	trimmed := strings.TrimSpace(variables)
+	if strings.HasPrefix(trimmed, "{") {
+		var asJSON map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &asJSON); err == nil {
+			for _, key := range []string{"ansible_host", "ansible_ssh_host"} {
+				if v, ok := asJSON[key].(string); ok && v != "" {
+					return v
+				}
+			}
+		}
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		for _, key := range []string{"ansible_host:", "ansible_ssh_host:"} {
+			if strings.HasPrefix(line, key) {
+				v := strings.TrimSpace(strings.TrimPrefix(line, key))
+				// Strip optional quotes and inline comments.
+				if i := strings.Index(v, "#"); i >= 0 {
+					v = strings.TrimSpace(v[:i])
+				}
+				v = strings.Trim(v, "\"'")
+				if v != "" {
+					return v
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// isProbablyIP returns true for trivial IPv4 dotted-quads or IPv6 strings
+// without trying to be a real parser. Good enough for routing the value
+// into DiscoveredDevice.IP vs DiscoveredDevice.Hostname.
+func isProbablyIP(s string) bool {
+	if strings.Contains(s, ":") {
+		// Crude IPv6 check: contains a colon and at least one hex char.
+		for _, r := range s {
+			if (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || (r >= '0' && r <= '9') || r == ':' {
+				continue
+			}
+			return false
+		}
+		return true
+	}
+	// IPv4: four dotted decimal octets.
+	parts := strings.Split(s, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" || len(p) > 3 {
+			return false
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func primeTinyGoJSONInventory() {
+	_, _ = json.Marshal(awxInventoryRow{})
+	_, _ = json.Marshal(awxHostRow{})
+}
+
+// main is required by TinyGo's wasi target even though run_check /
+// inventory_sync are the real exports. Mirrors proxmox/main.go.
 func main() {}
