@@ -33,4 +33,19 @@ defmodule ServiceRadar.Automation.Ansible.IngestorActions do
 
   @callback transition_run(run :: run(), transition :: atom(), args :: map()) ::
               {:ok, run()} | {:error, term()}
+
+  @doc """
+  Look up the `context` map on the `AgentCommand` row identified by
+  `command_id`. Used by the launch_job / fetch_job / cancel_job / ping
+  result handlers to correlate the result back to its originating
+  PlaybookRun or AnsibleController.
+  """
+  @callback get_command_context(command_id :: String.t()) :: {:ok, map()} | {:error, term()}
+
+  @callback get_run_by_id(run_id :: id) :: {:ok, run()} | {:error, term()}
+
+  @callback get_controller_by_id(controller_id :: id) :: {:ok, map()} | {:error, term()}
+
+  @callback record_controller_health(controller :: map(), args :: map()) ::
+              {:ok, map()} | {:error, term()}
 end

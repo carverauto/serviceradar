@@ -63,6 +63,31 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       {:ok, %{run | state: terminal_state_for(transition)}}
     end
 
+    @impl true
+    def get_command_context(command_id) do
+      put_call({:get_command_context, command_id})
+      Map.get(state().contexts, command_id, {:error, :command_not_found})
+    end
+
+    @impl true
+    def get_run_by_id(run_id) do
+      put_call({:get_run_by_id, run_id})
+      Map.get(state().runs_by_id, run_id, {:error, :run_not_found})
+    end
+
+    @impl true
+    def get_controller_by_id(controller_id) do
+      put_call({:get_controller_by_id, controller_id})
+      Map.get(state().controllers_by_id, controller_id, {:error, :controller_not_found})
+    end
+
+    @impl true
+    def record_controller_health(controller, args) do
+      put_call({:record_controller_health, controller.id, args})
+      {:ok, controller}
+    end
+
+    defp terminal_state_for(:record_launching), do: :launching
     defp terminal_state_for(:record_running), do: :running
     defp terminal_state_for(:record_succeeded), do: :succeeded
     defp terminal_state_for(:record_partial), do: :partial
@@ -75,7 +100,15 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       Process.put(:fake_actions_state, %{st | calls: st.calls ++ [call]})
     end
 
-    defp default_state, do: %{calls: [], runs_by_job_id: %{}, targets_by_host: %{}}
+    defp default_state,
+      do: %{
+        calls: [],
+        runs_by_job_id: %{},
+        targets_by_host: %{},
+        contexts: %{},
+        runs_by_id: %{},
+        controllers_by_id: %{}
+      }
   end
 
   setup do
@@ -109,10 +142,354 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       assert FakeActions.state().calls == []
     end
 
-    test "stub verbs (launch_job, fetch_job, cancel_job, ping) currently no-op" do
-      for v <- ~w(awx.launch_job awx.fetch_job awx.cancel_job awx.ping) do
-        assert :ok = EventIngestor.handle_command_result(%{command_type: v}, opts())
+  end
+
+  describe "awx.launch_job" do
+    test "happy path: extracts awx_job_id, transitions :pending → :launching" do
+      run = run_fixture(id: "run-99", state: :pending)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.launch_job",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.launch_job",
+          "ok" => true,
+          "template_id" => 42,
+          "job" => %{"id" => 7331, "status" => "pending"}
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      calls = FakeActions.state().calls
+
+      assert Enum.any?(
+               calls,
+               &match?({:transition_run, "run-99", :record_launching, %{awx_job_id: 7331}}, &1)
+             )
+    end
+
+    test "ok=false logs and does nothing else" do
+      result = %{
+        command_type: "awx.launch_job",
+        command_id: "cmd-1",
+        result_payload: %{"verb" => "awx.launch_job", "ok" => false, "error" => "AWX HTTP 401"}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+      assert FakeActions.state().calls == []
+    end
+
+    test "skips when run is already :launching (no double-transition)" do
+      run = run_fixture(id: "run-99", state: :launching)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.launch_job",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.launch_job",
+          "ok" => true,
+          "job" => %{"id" => 7331}
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, _, _, _}, &1)
+             )
+    end
+
+    test "no-op when context is missing playbook_run_id" do
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}}
+      )
+
+      result = %{
+        command_type: "awx.launch_job",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => true, "job" => %{"id" => 7331}}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, _, _, _}, &1)
+             )
+    end
+  end
+
+  describe "awx.fetch_job (terminal-status backstop)" do
+    test "AWX status 'successful' on a still-running run → record_succeeded" do
+      run = run_fixture(id: "run-99", state: :running)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.fetch_job",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.fetch_job",
+          "ok" => true,
+          "job_id" => 7331,
+          "job" => %{"id" => 7331, "status" => "successful"}
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      assert Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, "run-99", :record_succeeded, _}, &1)
+             )
+    end
+
+    test "AWX status 'canceled' → record_canceled" do
+      run = run_fixture(id: "run-99", state: :running)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.fetch_job",
+        command_id: "cmd-1",
+        result_payload: %{
+          "ok" => true,
+          "job" => %{"status" => "canceled"}
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      assert Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, "run-99", :record_canceled, _}, &1)
+             )
+    end
+
+    test "AWX status 'failed' or 'error' → record_failed" do
+      for awx_status <- ~w(failed error) do
+        FakeActions.reset()
+        run = run_fixture(id: "run-99", state: :running)
+
+        FakeActions.configure(
+          contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+          runs_by_id: %{"run-99" => {:ok, run}}
+        )
+
+        result = %{
+          command_type: "awx.fetch_job",
+          command_id: "cmd-1",
+          result_payload: %{
+            "ok" => true,
+            "job" => %{"status" => awx_status}
+          }
+        }
+
+        assert :ok = EventIngestor.handle_command_result(result, opts())
+
+        assert Enum.any?(
+                 FakeActions.state().calls,
+                 &match?({:transition_run, "run-99", :record_failed, _}, &1)
+               ),
+               "expected record_failed for AWX status #{awx_status}"
       end
+    end
+
+    test "non-terminal AWX status (running/pending/waiting) is a no-op" do
+      run = run_fixture(id: "run-99", state: :running)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.fetch_job",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => true, "job" => %{"status" => "running"}}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, _, _, _}, &1)
+             )
+    end
+
+    test "skips when run is already terminal" do
+      run = run_fixture(id: "run-99", state: :succeeded)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.fetch_job",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => true, "job" => %{"status" => "successful"}}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, _, _, _}, &1)
+             )
+    end
+  end
+
+  describe "awx.cancel_job" do
+    test "ok=true on a running run → record_canceled" do
+      run = run_fixture(id: "run-99", state: :running)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.cancel_job",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => true, "job_id" => 7331, "status" => 202}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      assert Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, "run-99", :record_canceled, _}, &1)
+             )
+    end
+
+    test "ok=true on a non-running run is a no-op" do
+      run = run_fixture(id: "run-99", state: :succeeded)
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"playbook_run_id" => "run-99"}}},
+        runs_by_id: %{"run-99" => {:ok, run}}
+      )
+
+      result = %{
+        command_type: "awx.cancel_job",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => true}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:transition_run, _, _, _}, &1)
+             )
+    end
+
+    test "ok=false logs and skips" do
+      result = %{
+        command_type: "awx.cancel_job",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => false, "error" => "AWX HTTP 405"}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+      assert FakeActions.state().calls == []
+    end
+  end
+
+  describe "awx.ping" do
+    test "ok=true updates controller status :ok with version + summary" do
+      controller = %{id: "ctrl-1", name: "Production AWX"}
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}},
+        controllers_by_id: %{"ctrl-1" => {:ok, controller}}
+      )
+
+      result = %{
+        command_type: "awx.ping",
+        command_id: "cmd-1",
+        result_payload: %{
+          "ok" => true,
+          "version" => "23.5.1",
+          "active_node" => "awx-1"
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      health_calls =
+        Enum.filter(FakeActions.state().calls, &match?({:record_controller_health, _, _}, &1))
+
+      assert [{:record_controller_health, "ctrl-1", args}] = health_calls
+      assert args.status == :ok
+      assert args.awx_version == "23.5.1"
+      assert args.last_health_summary =~ "23.5.1"
+      assert args.last_health_summary =~ "awx-1"
+    end
+
+    test "ok=false sets status :unreachable" do
+      controller = %{id: "ctrl-1", name: "Production AWX"}
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}},
+        controllers_by_id: %{"ctrl-1" => {:ok, controller}}
+      )
+
+      result = %{
+        command_type: "awx.ping",
+        command_id: "cmd-1",
+        result_payload: %{
+          "ok" => false,
+          "error" => "AWX HTTP 401: authentication failed"
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      assert {:record_controller_health, "ctrl-1",
+              %{status: :unreachable, awx_version: nil, last_health_summary: summary}} =
+               Enum.find(
+                 FakeActions.state().calls,
+                 &match?({:record_controller_health, _, _}, &1)
+               )
+
+      assert summary =~ "401"
+    end
+
+    test "no-op when context is missing controller_id" do
+      FakeActions.configure(contexts: %{"cmd-1" => {:ok, %{}}})
+
+      result = %{
+        command_type: "awx.ping",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => true, "version" => "23.5.1"}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:record_controller_health, _, _}, &1)
+             )
     end
   end
 
@@ -520,6 +897,10 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         def record_target_outcome(_, _), do: raise("nope")
         def advance_watermark(_, _), do: raise("nope")
         def transition_run(_, _, _), do: raise("nope")
+        def get_command_context(_), do: raise("nope")
+        def get_run_by_id(_), do: raise("nope")
+        def get_controller_by_id(_), do: raise("nope")
+        def record_controller_health(_, _), do: raise("nope")
       end
 
       payload = %{"jobs" => [%{"job_id" => 1, "ok" => true, "events" => [], "max_counter" => 0}]}

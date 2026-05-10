@@ -295,12 +295,167 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
 
   defp advance_watermark_if_needed(_run, _max_counter, _actions), do: :ok
 
-  ## Other verbs (stubs; full impl in subsequent commits) ----------------------
+  ## awx.launch_job ------------------------------------------------------------
 
-  defp handle_launch(_data, _actions), do: :ok
-  defp handle_fetch_job(_data, _actions), do: :ok
-  defp handle_cancel(_data, _actions), do: :ok
-  defp handle_ping(_data, _actions), do: :ok
+  defp handle_launch(data, actions) do
+    payload = result_payload(data)
+
+    cond do
+      not Map.get(payload, "ok", false) ->
+        log_verb_failure("awx.launch_job", payload, command_id(data))
+        :ok
+
+      true ->
+        with awx_job_id when is_integer(awx_job_id) <- get_in(payload, ["job", "id"]),
+             {:ok, run_id} <- correlate_run_id(data, actions),
+             {:ok, run} <- actions.get_run_by_id(run_id) do
+          if run.state == :pending do
+            _ = actions.transition_run(run, :record_launching, %{awx_job_id: awx_job_id})
+          end
+
+          :ok
+        else
+          _ -> :ok
+        end
+    end
+  end
+
+  ## awx.fetch_job -------------------------------------------------------------
+
+  # Backstop for the case where AWX terminates a job without emitting
+  # `playbook_on_stats` (e.g., AWX killed mid-run, network drop). RunPulseWorker
+  # dispatches awx.fetch_job when a watermark hasn't moved during a tick; if
+  # AWX reports a terminal status and our run is still non-terminal, we
+  # transition based on the AWX status -- per-target detail is whatever
+  # `playbook_on_stats` already wrote (possibly nothing).
+  defp handle_fetch_job(data, actions) do
+    payload = result_payload(data)
+    awx_status = get_in(payload, ["job", "status"])
+
+    if Map.get(payload, "ok", false) and awx_status in ~w(successful failed canceled error) do
+      with {:ok, run_id} <- correlate_run_id(data, actions),
+           {:ok, run} <- actions.get_run_by_id(run_id),
+           true <- run.state in [:pending, :launching, :running] do
+        transition = awx_status_to_transition(awx_status)
+        summary = "AWX reported job " <> awx_status
+
+        _ =
+          actions.transition_run(run, transition, %{
+            summary: summary,
+            diagnostics: %{awx_status: awx_status}
+          })
+
+        :ok
+      else
+        _ -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp awx_status_to_transition("successful"), do: :record_succeeded
+  defp awx_status_to_transition("canceled"), do: :record_canceled
+  defp awx_status_to_transition(_), do: :record_failed
+
+  ## awx.cancel_job ------------------------------------------------------------
+
+  defp handle_cancel(data, actions) do
+    payload = result_payload(data)
+
+    if Map.get(payload, "ok", false) do
+      with {:ok, run_id} <- correlate_run_id(data, actions),
+           {:ok, run} <- actions.get_run_by_id(run_id),
+           true <- run.state == :running do
+        _ = actions.transition_run(run, :record_canceled, %{summary: "operator-canceled via UI"})
+        :ok
+      else
+        _ -> :ok
+      end
+    else
+      log_verb_failure("awx.cancel_job", payload, command_id(data))
+      :ok
+    end
+  end
+
+  ## awx.ping ------------------------------------------------------------------
+
+  defp handle_ping(data, actions) do
+    payload = result_payload(data)
+
+    with {:ok, controller_id} <- correlate_controller_id(data, actions),
+         {:ok, controller} <- actions.get_controller_by_id(controller_id) do
+      args = ping_args(payload)
+      _ = actions.record_controller_health(controller, args)
+      :ok
+    else
+      _ -> :ok
+    end
+  end
+
+  defp ping_args(%{"ok" => true} = payload) do
+    %{
+      status: :ok,
+      awx_version: Map.get(payload, "version"),
+      last_health_summary: ping_summary(payload)
+    }
+  end
+
+  defp ping_args(payload) do
+    %{
+      status: :unreachable,
+      awx_version: nil,
+      last_health_summary: Map.get(payload, "error", "AWX ping returned ok=false")
+    }
+  end
+
+  defp ping_summary(payload) do
+    "AWX " <> nonempty(Map.get(payload, "version"), "?") <>
+      " reachable (active: " <> nonempty(Map.get(payload, "active_node"), "?") <> ")"
+  end
+
+  defp nonempty(nil, fallback), do: fallback
+  defp nonempty("", fallback), do: fallback
+  defp nonempty(s, _) when is_binary(s), do: s
+  defp nonempty(_, fallback), do: fallback
+
+  ## Correlation helpers -------------------------------------------------------
+
+  defp correlate_run_id(data, actions) do
+    with {:ok, ctx} <- fetch_context(data, actions),
+         id when is_binary(id) <- Map.get(ctx, "playbook_run_id") || Map.get(ctx, :playbook_run_id) do
+      {:ok, id}
+    else
+      _ -> {:error, :no_playbook_run_id}
+    end
+  end
+
+  defp correlate_controller_id(data, actions) do
+    with {:ok, ctx} <- fetch_context(data, actions),
+         id when is_binary(id) <- Map.get(ctx, "controller_id") || Map.get(ctx, :controller_id) do
+      {:ok, id}
+    else
+      _ -> {:error, :no_controller_id}
+    end
+  end
+
+  defp fetch_context(data, actions) do
+    case command_id(data) do
+      nil -> {:error, :no_command_id}
+      id -> actions.get_command_context(id)
+    end
+  end
+
+  defp command_id(data) do
+    Map.get(data, :command_id) || Map.get(data, "command_id")
+  end
+
+  defp log_verb_failure(verb, payload, command_id) do
+    Logger.warning("AWX EventIngestor: #{verb} reported ok=false",
+      command_id: command_id,
+      error: Map.get(payload, "error")
+    )
+  end
 
   ## Event field accessors -----------------------------------------------------
   #

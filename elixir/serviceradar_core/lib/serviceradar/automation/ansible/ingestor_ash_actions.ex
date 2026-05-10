@@ -8,11 +8,13 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   @behaviour ServiceRadar.Automation.Ansible.IngestorActions
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.PlaybookPlay
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
   alias ServiceRadar.Automation.Ansible.PlaybookTask
   alias ServiceRadar.Automation.Ansible.PlaybookTaskResult
+  alias ServiceRadar.Edge.AgentCommand
 
   defp actor, do: [actor: SystemActor.system(:awx_event_ingestor)]
 
@@ -76,4 +78,42 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
 
   def transition_run(run, :record_canceled, args),
     do: PlaybookRun.record_canceled(run, args, actor())
+
+  def transition_run(run, :record_launching, args),
+    do: PlaybookRun.record_launching(run, args, actor())
+
+  @impl true
+  def get_command_context(command_id) when is_binary(command_id) do
+    case AgentCommand.get_by_id(command_id, actor()) do
+      {:ok, %{context: context}} when is_map(context) -> {:ok, context}
+      {:ok, _} -> {:ok, %{}}
+      {:error, _} = err -> err
+      nil -> {:error, :command_not_found}
+    end
+  end
+
+  def get_command_context(_), do: {:error, :invalid_command_id}
+
+  @impl true
+  def get_run_by_id(run_id) do
+    case PlaybookRun.get_by_id(run_id, actor()) do
+      {:ok, run} -> {:ok, run}
+      {:error, _} = err -> err
+      nil -> {:error, :run_not_found}
+    end
+  end
+
+  @impl true
+  def get_controller_by_id(controller_id) do
+    case Controller.get_by_id(controller_id, actor()) do
+      {:ok, controller} -> {:ok, controller}
+      {:error, _} = err -> err
+      nil -> {:error, :controller_not_found}
+    end
+  end
+
+  @impl true
+  def record_controller_health(controller, args) do
+    Controller.record_health(controller, args, actor())
+  end
 end
