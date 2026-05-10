@@ -338,9 +338,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp normalize_custody_mode(nil, :proxmox_console), do: {:ok, :provider_ticket}
   defp normalize_custody_mode(nil, _protocol), do: {:ok, :none}
 
-  defp normalize_custody_mode(value, _protocol)
-       when is_atom(value) and value in @supported_custody_modes,
-       do: {:ok, value}
+  defp normalize_custody_mode(value, protocol)
+       when is_atom(value) and value in @supported_custody_modes do
+    if value in allowed_custody_modes(protocol) do
+      {:ok, value}
+    else
+      {:error, :unsupported_credential_custody_mode}
+    end
+  end
 
   defp normalize_custody_mode(value, protocol) when is_binary(value) do
     case to_known_atom(value, @supported_custody_modes) do
@@ -351,6 +356,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp normalize_custody_mode(_value, _protocol),
     do: {:error, :unsupported_credential_custody_mode}
+
+  defp allowed_custody_modes(:ssh), do: [:ssh_certificate, :user_present, :centrally_brokered]
+  defp allowed_custody_modes(:proxmox_console), do: [:provider_ticket]
+  defp allowed_custody_modes(_protocol), do: [:none, :centrally_brokered]
 
   defp to_known_atom(value, allowed) do
     Enum.find(allowed, &(Atom.to_string(&1) == value))

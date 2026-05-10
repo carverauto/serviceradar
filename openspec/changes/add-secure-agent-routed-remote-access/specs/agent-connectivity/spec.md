@@ -47,3 +47,9 @@ Agents SHALL support remote-access credentials supplied through explicit custody
 - **WHEN** the operator opens a generic SSH remote-access session
 - **THEN** ServiceRadar SHALL be able to issue a short-lived OpenSSH user certificate scoped to that actor, target, principal set, and session
 - **AND** the selected agent SHALL use the certificate for SSH authentication without storing a reusable target password or shared bastion private key.
+
+#### Scenario: Protocol rejects mismatched custody mode
+- **GIVEN** a protocol uses a specific credential custody model
+- **WHEN** a session request supplies a custody mode intended for a different protocol
+- **THEN** the control plane SHALL reject the session before issuing an attach ticket
+- **AND** generic SSH SHALL NOT accept provider-ticket or no-credential custody modes.

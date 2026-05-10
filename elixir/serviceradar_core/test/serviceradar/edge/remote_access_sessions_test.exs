@@ -132,6 +132,26 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:details][:rbac_decision] == "denied"
   end
 
+  test "generic SSH rejects provider-ticket and no-credential custody modes" do
+    uid = unique_uid("ssh-custody")
+    insert_device!(uid, agent_id: "agent-custody", gateway_id: "gateway-custody")
+
+    for custody_mode <- [:provider_ticket, :none] do
+      assert {:error, :unsupported_credential_custody_mode} =
+               RemoteAccessSessions.request_open(
+                 uid,
+                 %{protocol: :ssh, credential_custody_mode: custody_mode},
+                 actor: @system_actor,
+                 audit_writer: AuditSink
+               )
+
+      assert_receive {:remote_access_audit, denial_audit}
+      assert denial_audit[:action] == :remote_access_session_denied
+      assert denial_audit[:details][:rbac_decision] == "denied"
+      assert denial_audit[:details][:failure_reason] == "unsupported_credential_custody_mode"
+    end
+  end
+
   test "SSH certificate sessions require trusted principal policy" do
     uid = unique_uid("ssh-cert-policy-required")
     insert_device!(uid, agent_id: "agent-policy-required", gateway_id: "gateway-policy-required")
