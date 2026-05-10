@@ -238,7 +238,6 @@ webNg:
     autoSyncEnabled: true
     syncReleaseLimit: 20
     syncIntervalSeconds: 3600
-    cosignRequireRekor: false
     cosignPublicKey: |
       -----BEGIN PUBLIC KEY-----
       MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7

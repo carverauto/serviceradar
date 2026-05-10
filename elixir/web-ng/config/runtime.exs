@@ -579,11 +579,6 @@ first_party_plugin_import_overrides =
     :cosign_public_key_file,
     System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY_FILE")
   )
-  |> maybe_put_env.(
-    :cosign_require_rekor,
-    System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_REQUIRE_REKOR"),
-    to_bool
-  )
   |> maybe_put_env_simple.(
     :registry_docker_config_json,
     System.get_env("SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_JSON")

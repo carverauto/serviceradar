@@ -40,20 +40,6 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
              CosignVerifier.verify(%{ref: "registry.example.test/plugins/example:v1", digest: "sha256:abc"})
   end
 
-  test "can skip Rekor verification when configured for offline key verification" do
-    record_path = Path.join(System.tmp_dir!(), "serviceradar-cosign-args-#{System.unique_integer([:positive])}")
-
-    configure_cosign("The signatures were verified against the specified public key", 0,
-      cosign_require_rekor: false,
-      record_args_path: record_path
-    )
-
-    assert :ok = CosignVerifier.verify(%{ref: "registry.example.test/plugins/example:v1", digest: "sha256:abc"})
-
-    args = File.read!(record_path)
-    assert args =~ "--insecure-ignore-tlog=true"
-  end
-
   test "runs cosign with writable runtime cache paths" do
     record_path = Path.join(System.tmp_dir!(), "serviceradar-cosign-env-#{System.unique_integer([:positive])}")
     path = Path.join(System.tmp_dir!(), "serviceradar-cosign-test-#{System.unique_integer([:positive])}.sh")
@@ -101,20 +87,11 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
     end
   end
 
-  defp configure_cosign(output, status, opts \\ []) do
+  defp configure_cosign(output, status) do
     path = Path.join(System.tmp_dir!(), "serviceradar-cosign-test-#{System.unique_integer([:positive])}.sh")
-    record_args_path = Keyword.get(opts, :record_args_path)
-
-    record_args =
-      if record_args_path do
-        "printf '%s\\n' \"$*\" > #{record_args_path}\n"
-      else
-        ""
-      end
 
     File.write!(path, """
     #!/usr/bin/env sh
-    #{record_args}
     cat <<'EOF'
     #{output}
     EOF
@@ -125,16 +102,9 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
 
     Application.put_env(:serviceradar_web_ng, :first_party_plugin_import,
       cosign_binary: path,
-      cosign_public_key: "test-public-key",
-      cosign_require_rekor: Keyword.get(opts, :cosign_require_rekor, true)
+      cosign_public_key: "test-public-key"
     )
 
-    on_exit(fn ->
-      File.rm(path)
-
-      if record_args_path do
-        File.rm(record_args_path)
-      end
-    end)
+    on_exit(fn -> File.rm(path) end)
   end
 end
