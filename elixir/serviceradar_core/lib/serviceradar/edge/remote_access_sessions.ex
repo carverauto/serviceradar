@@ -295,7 +295,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
               int_request(request, :absolute_timeout_seconds, @default_absolute_timeout_seconds),
             recording_policy: sanitized_map(value(request, :recording_policy)),
             enhanced_recording_policy: sanitized_map(value(request, :enhanced_recording_policy)),
-            metadata: session_metadata(device, request)
+            metadata: session_metadata(device, request, protocol, custody_mode)
           },
           :__attach_ticket__,
           ticket
@@ -437,7 +437,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       value_string(device, [:uid, "uid"])
   end
 
-  defp session_metadata(device, request) do
+  defp session_metadata(device, request, protocol, custody_mode) do
     terminal =
       %{}
       |> put_positive_int("cols", value(request, :cols))
@@ -458,8 +458,104 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     |> maybe_put("terminal", terminal)
     |> maybe_put("target", target_metadata)
     |> Map.merge(request_metadata)
+    |> Map.merge(ssh_certificate_policy_metadata(device, protocol, custody_mode))
     |> CredentialRedactor.redact()
   end
+
+  defp ssh_certificate_policy_metadata(device, :ssh, :ssh_certificate) do
+    case configured_ssh_certificate_policy(device) do
+      policy when map_size(policy) == 0 ->
+        %{}
+
+      policy ->
+        %{}
+        |> maybe_put(
+          "ssh_allowed_principals",
+          principal_list(policy_value(policy, "allowed_principals"))
+        )
+        |> maybe_put(
+          "ssh_principal_mappings",
+          mapping_list(policy_value(policy, "principal_mappings"))
+        )
+        |> maybe_put(
+          "ssh_certificate_ttl_seconds",
+          positive_int(policy_value(policy, "ttl_seconds"))
+        )
+    end
+  end
+
+  defp ssh_certificate_policy_metadata(_device, _protocol, _custody_mode), do: %{}
+
+  defp configured_ssh_certificate_policy(device) do
+    config =
+      :serviceradar_core
+      |> Application.get_env(:remote_access_ssh_certificate_policy, %{})
+      |> normalize_policy_map()
+
+    target_policy =
+      config
+      |> policy_value("targets")
+      |> target_policy(device)
+      |> normalize_policy_map()
+
+    config
+    |> Map.delete("targets")
+    |> Map.merge(target_policy)
+  end
+
+  defp target_policy(targets, device) when is_map(targets) do
+    uid = value_string(device, [:uid, "uid"])
+    hostname = value_string(device, [:hostname, "hostname", :name, "name"])
+    ip = value_string(device, [:ip, "ip"])
+
+    Enum.find_value([uid, hostname, ip], %{}, fn key ->
+      if key, do: policy_value(targets, key)
+    end)
+  end
+
+  defp target_policy(_targets, _device), do: %{}
+
+  defp normalize_policy_map(policy) when is_list(policy),
+    do: policy |> Map.new() |> normalize_policy_map()
+
+  defp normalize_policy_map(policy) when is_map(policy) do
+    Map.new(policy, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp normalize_policy_map(_policy), do: %{}
+
+  defp policy_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, safe_existing_atom(key))
+
+  defp policy_value(_map, _key), do: nil
+
+  defp principal_list(values) when is_list(values) do
+    values
+    |> Enum.map(&string_or_nil/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> empty_to_nil()
+  end
+
+  defp principal_list(value) when is_binary(value) do
+    value
+    |> String.split([",", "\n"], trim: true)
+    |> principal_list()
+  end
+
+  defp principal_list(_value), do: nil
+
+  defp mapping_list(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&normalize_policy_map/1)
+    |> empty_to_nil()
+  end
+
+  defp mapping_list(_values), do: nil
+
+  defp empty_to_nil([]), do: nil
+  defp empty_to_nil(value), do: value
 
   defp new_ticket do
     ticket = "srra_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
@@ -692,6 +788,28 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     |> blank_to_nil()
   rescue
     _ -> nil
+  end
+
+  defp string_or_nil(value) when is_binary(value), do: blank_to_nil(value)
+  defp string_or_nil(value) when is_atom(value), do: value |> Atom.to_string() |> blank_to_nil()
+  defp string_or_nil(value) when is_integer(value), do: Integer.to_string(value)
+  defp string_or_nil(_value), do: nil
+
+  defp positive_int(value) when is_integer(value) and value > 0, do: value
+
+  defp positive_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} when int > 0 -> int
+      _ -> nil
+    end
+  end
+
+  defp positive_int(_value), do: nil
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp blank_to_nil(value) when is_binary(value) do

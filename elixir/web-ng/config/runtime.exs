@@ -467,6 +467,22 @@ remote_access_browser_key_remember_enabled =
     value -> value
   end
 
+remote_access_ssh_certificate_policy =
+  case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON") do
+    nil ->
+      case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE") do
+        nil -> %{}
+        "" -> %{}
+        path -> path |> File.read!() |> Jason.decode!()
+      end
+
+    "" ->
+      %{}
+
+    raw ->
+      Jason.decode!(raw)
+  end
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -500,6 +516,11 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
+
+if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
+  config :serviceradar_core,
+    remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
+end
 
 if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,

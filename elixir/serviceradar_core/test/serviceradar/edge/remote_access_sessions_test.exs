@@ -29,7 +29,23 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   @system_actor SystemActor.system(:remote_access_sessions_test)
 
   setup do
+    previous_policy =
+      Application.get_env(:serviceradar_core, :remote_access_ssh_certificate_policy)
+
     Process.put(:remote_access_audit_owner, self())
+
+    on_exit(fn ->
+      if previous_policy do
+        Application.put_env(
+          :serviceradar_core,
+          :remote_access_ssh_certificate_policy,
+          previous_policy
+        )
+      else
+        Application.delete_env(:serviceradar_core, :remote_access_ssh_certificate_policy)
+      end
+    end)
+
     :ok
   end
 
@@ -105,6 +121,50 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, denial_audit}
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
+  end
+
+  test "SSH certificate sessions copy trusted principal policy from deployment config" do
+    uid = unique_uid("ssh-cert-policy")
+
+    Application.put_env(:serviceradar_core, :remote_access_ssh_certificate_policy, %{
+      "allowed_principals" => ["ubuntu"],
+      "principal_mappings" => [
+        %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+      ],
+      "ttl_seconds" => 900,
+      "targets" => %{
+        uid => %{
+          "allowed_principals" => ["root"],
+          "ttl_seconds" => 600
+        }
+      }
+    })
+
+    insert_device!(uid, agent_id: "agent-policy", gateway_id: "gateway-policy")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :ssh_certificate,
+                 metadata: %{
+                   "safe" => "kept",
+                   "ssh_allowed_principals" => ["client-controlled"],
+                   "ssh_certificate_ttl_seconds" => 28_800
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.metadata["safe"] == "kept"
+    assert session.metadata["ssh_allowed_principals"] == ["root"]
+    assert session.metadata["ssh_certificate_ttl_seconds"] == 600
+
+    assert session.metadata["ssh_principal_mappings"] == [
+             %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+           ]
   end
 
   test "centrally brokered SSH custody requires an approval id" do

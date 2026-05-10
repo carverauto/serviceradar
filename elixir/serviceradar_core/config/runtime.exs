@@ -49,11 +49,33 @@ ipinfo_dbs = [
   }
 ]
 
+remote_access_ssh_certificate_policy =
+  case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON") do
+    nil ->
+      case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE") do
+        nil -> %{}
+        "" -> %{}
+        path -> path |> File.read!() |> Jason.decode!()
+      end
+
+    "" ->
+      %{}
+
+    raw ->
+      Jason.decode!(raw)
+  end
+
 config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
   geolite_mmdb_dir: geolite_dir
+
+if is_map(remote_access_ssh_certificate_policy) and
+     map_size(remote_access_ssh_certificate_policy) > 0 do
+  config :serviceradar_core,
+    remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
+end
 
 if config_env() == :prod do
   read_secret_env = fn env_name, file_env_name ->
