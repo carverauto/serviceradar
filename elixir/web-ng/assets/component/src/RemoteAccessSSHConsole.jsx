@@ -101,6 +101,11 @@ export function Component({
       return
     }
 
+    if (credentialMode !== "user_present") {
+      setRememberKey(false)
+      return
+    }
+
     const remembered = loadRemembered(deviceUid)
 
     if (remembered) {
@@ -108,13 +113,7 @@ export function Component({
       setPrivateKey(remembered.privateKey || "")
       setRememberKey(Boolean(remembered.privateKey))
     }
-  }, [allowRememberedKeys, deviceUid])
-
-  useEffect(() => {
-    if (credentialMode !== "user_present") {
-      setRememberKey(false)
-    }
-  }, [credentialMode])
+  }, [allowRememberedKeys, credentialMode, deviceUid])
 
   useEffect(() => {
     let cancelled = false
