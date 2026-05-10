@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials")
 
     assert html =~ "Credential Rules"
+    assert html =~ "Read the Proxmox setup guide"
     assert html =~ "No credential rules found"
   end
 

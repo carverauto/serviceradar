@@ -24,9 +24,17 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
       |> assign(:params, params)
       |> assign(:properties, properties)
       |> assign(:required, required)
+      |> assign(:docs_url, docs_url(schema))
 
     ~H"""
     <div class="space-y-4">
+      <div :if={@docs_url} class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+        Need help with these settings?
+        <a class="link link-primary" href={@docs_url} target="_blank" rel="noopener noreferrer">
+          Open the configuration guide
+        </a>
+      </div>
+
       <%= for {name, prop} <- @properties do %>
         <div class="space-y-2">
           <label class="label">
@@ -153,6 +161,15 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   end
 
   defp internal_property?(_), do: false
+
+  defp docs_url(schema) do
+    schema
+    |> Map.get("x-serviceradar-docs-url")
+    |> case do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
 
   defp text_input_type(%{"format" => "uri"}), do: "url"
   defp text_input_type(%{"format" => "email"}), do: "email"

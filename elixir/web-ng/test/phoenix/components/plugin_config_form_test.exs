@@ -81,4 +81,24 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     refute html =~ "Credential Broker"
     refute html =~ "credential_secret_ref"
   end
+
+  test "renders schema documentation link" do
+    schema = %{
+      "type" => "object",
+      "x-serviceradar-docs-url" => "https://docs.serviceradar.cloud/docs/proxmox#console-access",
+      "properties" => %{
+        "timeout_ms" => %{"type" => "integer", "title" => "Timeout"}
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{},
+        base_name: "assignment[params]"
+      })
+
+    assert html =~ "Open the configuration guide"
+    assert html =~ "https://docs.serviceradar.cloud/docs/proxmox#console-access"
+  end
 end
