@@ -23,6 +23,14 @@ defmodule ServiceRadar.Automation.Ansible do
   resources do
     resource ServiceRadar.Automation.Ansible.Controller
     resource ServiceRadar.Automation.Ansible.PlaybookRepository
+    resource ServiceRadar.Automation.Ansible.Playbook
+    resource ServiceRadar.Automation.Ansible.PlaybookRun
+    resource ServiceRadar.Automation.Ansible.PlaybookRunTarget
+    resource ServiceRadar.Automation.Ansible.PlaybookPlay
+    resource ServiceRadar.Automation.Ansible.PlaybookTask
+    resource ServiceRadar.Automation.Ansible.PlaybookTaskResult
+    resource ServiceRadar.Automation.Ansible.PlaybookContent
+    resource ServiceRadar.Automation.Ansible.PlaybookSchedule
   end
 
   authorization do
