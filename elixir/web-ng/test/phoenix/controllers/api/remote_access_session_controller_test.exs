@@ -263,6 +263,26 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["error"] == "approval_required"
       refute inspect(body) =~ "ticket"
     end
+
+    test "maps missing approval verifier without issuing a ticket", %{conn: conn} do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        {:error, :approval_checker_required}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "credential_custody_mode" => "centrally_brokered",
+          "approval_id" => Ecto.UUID.generate()
+        })
+
+      body = json_response(conn, 403)
+      assert body["error"] == "approval_checker_required"
+      assert body["message"] =~ "verified"
+      refute inspect(body) =~ "ticket"
+    end
   end
 
   describe "POST /api/remote-access/sessions/:id/close" do

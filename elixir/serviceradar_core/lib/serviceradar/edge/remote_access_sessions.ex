@@ -422,6 +422,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
         Application.get_env(:serviceradar_core, :remote_access_approval_checker)
 
     cond do
+      is_nil(checker) and context.approval_required? ->
+        {:error, :approval_checker_required}
+
       is_nil(checker) ->
         :ok
 

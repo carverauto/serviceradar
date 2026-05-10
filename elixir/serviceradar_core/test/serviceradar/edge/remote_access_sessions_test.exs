@@ -26,6 +26,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     end
   end
 
+  defmodule ApprovalApprover do
+    @moduledoc false
+
+    def authorize_remote_access_approval(context, _opts) do
+      send(Process.get(:remote_access_audit_owner), {:approval_checked, context})
+      :ok
+    end
+  end
+
   @system_actor SystemActor.system(:remote_access_sessions_test)
 
   setup do
@@ -217,15 +226,45 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                  approval_id: approval_id
                },
                actor: @system_actor,
-               audit_writer: AuditSink
+               audit_writer: AuditSink,
+               approval_checker: ApprovalApprover
              )
 
+    assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
     assert session.approval_id == approval_id
     assert session.rbac_decision == :allowed
 
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:details][:approval_id] == approval_id
     assert create_audit[:details][:rbac_decision] == "allowed"
+  end
+
+  test "approval-required sessions fail closed without an approval checker" do
+    uid = unique_uid("approval-checker-required")
+
+    insert_device!(uid,
+      agent_id: "agent-checker-required",
+      gateway_id: "gateway-checker-required"
+    )
+
+    approval_id = Ecto.UUID.generate()
+
+    assert {:error, :approval_checker_required} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approval_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "denied"
+    assert denial_audit[:details][:failure_reason] == "approval_checker_required"
   end
 
   test "approval checker can deny a supplied approval id" do

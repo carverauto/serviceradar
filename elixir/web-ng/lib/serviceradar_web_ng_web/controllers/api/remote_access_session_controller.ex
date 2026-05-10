@@ -56,6 +56,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         |> put_status(:forbidden)
         |> json(%{error: "approval_denied", message: "Remote access approval was denied"})
 
+      {:error, :approval_checker_required} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{
+          error: "approval_checker_required",
+          message: "Remote access approval must be verified before a session can start"
+        })
+
       {:error, reason} when reason in [:device_not_found, :not_found] ->
         conn
         |> put_status(:not_found)
