@@ -15,6 +15,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
   @min_target_port 1
   @max_target_port 65_535
+  @min_terminal_cols 1
+  @max_terminal_cols 500
+  @min_terminal_rows 1
+  @max_terminal_rows 200
   @client_controlled_metadata_denylist ~w(
     allowed_principals
     certificate_envelope
@@ -163,9 +167,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          :ok <- validate_browser_route_selection(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
          {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
+         {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
-      terminal = Map.get(params, "terminal") || %{}
-
       metadata =
         metadata
         |> drop_metadata_key("ssh_host_key_policy")
@@ -186,8 +189,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          credential_rule_id: normalize_optional_string(Map.get(params, "credential_rule_id")),
          approval_required: Map.get(params, "approval_required"),
          approval_id: normalize_optional_string(Map.get(params, "approval_id")),
-         cols: Map.get(terminal, "cols"),
-         rows: Map.get(terminal, "rows"),
+         cols: terminal.cols,
+         rows: terminal.rows,
          metadata: metadata,
          recording_policy: normalize_metadata(Map.get(params, "recording_policy")),
          enhanced_recording_policy: normalize_metadata(Map.get(params, "enhanced_recording_policy"))
@@ -260,6 +263,29 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     end
   end
 
+  defp normalize_terminal(nil), do: {:ok, %{cols: nil, rows: nil}}
+
+  defp normalize_terminal(value) when is_map(value) do
+    with {:ok, cols} <-
+           normalize_optional_integer(
+             Map.get(value, "cols") || Map.get(value, :cols),
+             "terminal.cols",
+             @min_terminal_cols,
+             @max_terminal_cols
+           ),
+         {:ok, rows} <-
+           normalize_optional_integer(
+             Map.get(value, "rows") || Map.get(value, :rows),
+             "terminal.rows",
+             @min_terminal_rows,
+             @max_terminal_rows
+           ) do
+      {:ok, %{cols: cols, rows: rows}}
+    end
+  end
+
+  defp normalize_terminal(_value), do: {:error, :invalid_request, "terminal must be an object"}
+
   defp normalize_uuid(value, field_name) when is_binary(value) do
     trimmed = String.trim(value)
 
@@ -286,6 +312,17 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_optional_string(_value), do: nil
+
+  defp normalize_optional_integer(nil, _field_name, _min, _max), do: {:ok, nil}
+
+  defp normalize_optional_integer(value, field_name, min, max) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      _present -> normalize_integer(value, field_name, min, max)
+    end
+  end
+
+  defp normalize_optional_integer(value, field_name, min, max), do: normalize_integer(value, field_name, min, max)
 
   defp normalize_integer(value, field_name, min, max) when is_integer(value) do
     if value >= min and value <= max do

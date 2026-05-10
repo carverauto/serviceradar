@@ -178,6 +178,32 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["message"] =~ "gateway_id"
     end
 
+    test "rejects malformed terminal dimensions", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "terminal" => %{"cols" => 10_000, "rows" => 40}
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "terminal.cols"
+    end
+
+    test "rejects non-object terminal payloads", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "terminal" => "120x40"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "terminal"
+    end
+
     test "rejects target host override unless deployment allows it", %{conn: conn} do
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
