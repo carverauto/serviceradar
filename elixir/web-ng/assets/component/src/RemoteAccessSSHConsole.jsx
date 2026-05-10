@@ -77,6 +77,7 @@ export function Component({
   title = "SSH remote access",
   allowRememberedKeys = false,
   allowSkipVerifyHostKeyPolicy = false,
+  allowTargetHostOverride = false,
   terminalModuleLoader = null,
 }) {
   const [mode, setMode] = useState("paste")
@@ -135,6 +136,12 @@ export function Component({
       setHostKeyPolicy("known_hosts")
     }
   }, [allowSkipVerifyHostKeyPolicy, hostKeyPolicy])
+
+  useEffect(() => {
+    if (!allowTargetHostOverride && targetHost) {
+      setTargetHost("")
+    }
+  }, [allowTargetHostOverride, targetHost])
 
   const attachPayload = useMemo(() => {
     if (!credential) {
@@ -323,17 +330,19 @@ export function Component({
             </select>
           </label>
 
-          <label className="form-control">
-            <div className="label">
-              <span className="label-text">Target host override</span>
-            </div>
-            <input
-              className="input input-bordered"
-              placeholder="Use inventory target"
-              value={targetHost}
-              onChange={(event) => setTargetHost(event.target.value)}
-            />
-          </label>
+          {allowTargetHostOverride ? (
+            <label className="form-control">
+              <div className="label">
+                <span className="label-text">Target host override</span>
+              </div>
+              <input
+                className="input input-bordered"
+                placeholder="Use inventory target"
+                value={targetHost}
+                onChange={(event) => setTargetHost(event.target.value)}
+              />
+            </label>
+          ) : null}
 
           <div className="join">
             <button

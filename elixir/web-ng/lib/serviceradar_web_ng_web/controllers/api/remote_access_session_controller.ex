@@ -147,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     raw_ssh_host_key_policy = Map.get(params, "ssh_host_key_policy", metadata_value(metadata, "ssh_host_key_policy"))
 
     with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
+         :ok <- validate_target_host_override(Map.get(params, "target_host")),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
       terminal = Map.get(params, "terminal") || %{}
 
@@ -180,6 +181,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_create_request(_params), do: {:error, :invalid_request, "request body is required"}
+
+  defp validate_target_host_override(value) do
+    case normalize_optional_string(value) do
+      nil ->
+        :ok
+
+      _target_host ->
+        if Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, false) ==
+             true do
+          :ok
+        else
+          {:error, :invalid_request, "target_host override is not enabled"}
+        end
+    end
+  end
 
   defp normalize_uuid(value, field_name) when is_binary(value) do
     trimmed = String.trim(value)

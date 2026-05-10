@@ -23,6 +23,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_skip_verify =
       Application.get_env(:serviceradar_web_ng, :remote_access_ssh_host_key_skip_verify_enabled)
 
+    previous_target_host_override =
+      Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled)
+
     Application.put_env(
       :serviceradar_web_ng,
       :remote_access_session_manager,
@@ -41,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       restore_env(:remote_access_session_manager_close_result, previous_close_result)
       restore_env(:remote_access_session_manager_test_pid, previous_test_pid)
       restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
+      restore_env(:remote_access_target_host_override_enabled, previous_target_host_override)
     end)
 
     user = admin_user_fixture()
@@ -57,7 +61,6 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
         post(conn, ~p"/api/remote-access/sessions", %{
           "device_uid" => "linux-1",
           "protocol" => "ssh",
-          "target_host" => "10.0.0.10",
           "target_port" => 2222,
           "credential_custody_mode" => "ssh_certificate",
           "ssh_host_key_policy" => "known_hosts",
@@ -69,7 +72,6 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       assert body["data"]["device_uid"] == "linux-1"
       assert body["data"]["protocol"] == "ssh"
-      assert body["data"]["target_host"] == "10.0.0.10"
       assert body["data"]["target_port"] == 2222
       assert body["data"]["credential_custody_mode"] == "ssh_certificate"
       assert body["data"]["ticket"] == "srra_test_ticket_value"
@@ -80,13 +82,41 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       assert_receive {:open_remote_access_session, "linux-1", request, opts}
       assert request.protocol == "ssh"
-      assert request.target_host == "10.0.0.10"
+      assert request.target_host == nil
       assert request.target_port == 2222
       assert request.cols == 120
       assert request.rows == 40
       assert request.metadata["private_key"] == "must-not-return"
       assert request.metadata["ssh_host_key_policy"] == "known_hosts"
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "rejects target host override unless deployment allows it", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "target_host" => "10.0.0.10"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "target_host"
+    end
+
+    test "allows target host override when deployment explicitly enables it", %{conn: conn} do
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, true)
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "target_host" => "10.0.0.10"
+        })
+
+      assert json_response(conn, 201)
+      assert_receive {:open_remote_access_session, "linux-1", request, _opts}
+      assert request.target_host == "10.0.0.10"
     end
 
     test "rejects skip-verify SSH host key policy unless deployment allows it", %{conn: conn} do

@@ -75,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :title, :string, default: "SSH remote access"
   attr :allow_remembered_keys, :boolean, default: false
   attr :allow_skip_verify_host_key_policy, :boolean, default: false
+  attr :allow_target_host_override, :boolean, default: false
   attr :class, :string, default: ""
 
   def remote_access_ssh_console(assigns) do
@@ -84,7 +85,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         createPath: assigns.create_path,
         title: assigns.title,
         allowRememberedKeys: assigns.allow_remembered_keys,
-        allowSkipVerifyHostKeyPolicy: assigns.allow_skip_verify_host_key_policy
+        allowSkipVerifyHostKeyPolicy: assigns.allow_skip_verify_host_key_policy,
+        allowTargetHostOverride: assigns.allow_target_host_override
       })
 
     ~H"""

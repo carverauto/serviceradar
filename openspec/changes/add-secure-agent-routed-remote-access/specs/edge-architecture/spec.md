@@ -16,6 +16,12 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the session SHALL be bound to the agent selected by policy or inventory relationship
 - **AND** target host/port/protocol SHALL NOT be retargetable by browser-supplied frame data.
 
+#### Scenario: Browser target override is disabled by default
+- **GIVEN** an operator opens a session for a registered inventory target
+- **WHEN** the browser create request supplies a different target host
+- **THEN** the public API SHALL reject the request unless target-host override policy is explicitly enabled
+- **AND** the target SHALL default to the inventory target selected by policy.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 
