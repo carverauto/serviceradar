@@ -68,7 +68,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
              :unsupported_remote_access_protocol,
              :unsupported_remote_access_adapter,
              :unsupported_remote_access_target,
-             :unsupported_credential_custody_mode
+             :unsupported_credential_custody_mode,
+             :ssh_principal_policy_required
            ] ->
         conn
         |> put_status(:unprocessable_entity)
@@ -290,6 +291,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp format_reason(:unsupported_remote_access_adapter), do: "requested remote-access adapter is not supported"
   defp format_reason(:unsupported_remote_access_target), do: "requested remote-access target is not supported"
   defp format_reason(:unsupported_credential_custody_mode), do: "requested credential custody mode is not supported"
+
+  defp format_reason(:ssh_principal_policy_required),
+    do: "SSH certificate access requires trusted principal policy for the target"
+
   defp format_reason(reason), do: Atom.to_string(reason)
 
   defp remote_access_session_manager do

@@ -58,7 +58,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                uid,
                %{
                  protocol: "ssh",
-                 credential_custody_mode: "ssh_certificate",
+                 credential_custody_mode: "user_present",
                  cols: 120,
                  rows: 40,
                  metadata: %{
@@ -73,7 +73,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     refute inspect(session) =~ ticket
     assert session.protocol == :ssh
-    assert session.credential_custody_mode == :ssh_certificate
+    assert session.credential_custody_mode == :user_present
     assert session.agent_id == "agent-ticket"
     assert session.gateway_id == "gateway-ticket"
     assert session.metadata["private_key"] == "REDACTED"
@@ -86,7 +86,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
     assert create_audit[:details][:protocol] == "ssh"
-    assert create_audit[:details][:credential_custody_mode] == "ssh_certificate"
+    assert create_audit[:details][:credential_custody_mode] == "user_present"
     refute inspect(create_audit) =~ "PRIVATE KEY"
     refute inspect(create_audit) =~ "not-persisted"
 
@@ -121,6 +121,24 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, denial_audit}
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
+  end
+
+  test "SSH certificate sessions require trusted principal policy" do
+    uid = unique_uid("ssh-cert-policy-required")
+    insert_device!(uid, agent_id: "agent-policy-required", gateway_id: "gateway-policy-required")
+
+    assert {:error, :ssh_principal_policy_required} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :ssh_certificate},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "denied"
+    assert denial_audit[:details][:failure_reason] == "ssh_principal_policy_required"
   end
 
   test "SSH certificate sessions copy trusted principal policy from deployment config" do
@@ -240,7 +258,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     insert_device!(uid, agent_id: "agent-life", gateway_id: "gateway-life")
 
     assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(uid, %{},
+             RemoteAccessSessions.request_open(
+               uid,
+               %{credential_custody_mode: :user_present},
                actor: @system_actor,
                audit_writer: AuditSink
              )
@@ -277,7 +297,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     insert_device!(uid, agent_id: "agent-open", gateway_id: "gateway-open")
 
     assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(uid, %{},
+             RemoteAccessSessions.request_open(
+               uid,
+               %{credential_custody_mode: :user_present},
                actor: @system_actor,
                audit_writer: AuditSink
              )
@@ -332,6 +354,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                uid,
                %{
                  protocol: :ssh,
+                 credential_custody_mode: :user_present,
                  recording_policy: %{
                    "enabled" => true,
                    "mode" => "metadata",
@@ -409,7 +432,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     insert_device!(uid, agent_id: "agent-recording-disabled", gateway_id: "gateway-recording")
 
     assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(uid, %{},
+             RemoteAccessSessions.request_open(
+               uid,
+               %{credential_custody_mode: :user_present},
                actor: @system_actor,
                audit_writer: AuditSink
              )

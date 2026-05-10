@@ -262,6 +262,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
          {:ok, agent_id} <- resolve_agent_id(device, request),
          {:ok, target_host} <- resolve_target_host(device, request),
          {:ok, approval} <- authorize_approval(request, protocol, custody_mode, opts),
+         metadata = session_metadata(device, request, protocol, custody_mode),
+         :ok <- ensure_ssh_certificate_principal_policy(protocol, custody_mode, metadata),
          {:ok, ticket, ticket_hash} <- new_ticket() do
       now = RemoteAccessSession.utc_now()
 
@@ -295,7 +297,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
               int_request(request, :absolute_timeout_seconds, @default_absolute_timeout_seconds),
             recording_policy: sanitized_map(value(request, :recording_policy)),
             enhanced_recording_policy: sanitized_map(value(request, :enhanced_recording_policy)),
-            metadata: session_metadata(device, request, protocol, custody_mode)
+            metadata: metadata
           },
           :__attach_ticket__,
           ticket
@@ -461,6 +463,26 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     |> Map.merge(ssh_certificate_policy_metadata(device, protocol, custody_mode))
     |> CredentialRedactor.redact()
   end
+
+  defp ensure_ssh_certificate_principal_policy(:ssh, :ssh_certificate, metadata) do
+    allowed_principals =
+      metadata
+      |> policy_value("ssh_allowed_principals")
+      |> principal_list()
+
+    principal_mappings =
+      metadata
+      |> policy_value("ssh_principal_mappings")
+      |> mapping_list()
+
+    if allowed_principals || principal_mappings do
+      :ok
+    else
+      {:error, :ssh_principal_policy_required}
+    end
+  end
+
+  defp ensure_ssh_certificate_principal_policy(_protocol, _custody_mode, _metadata), do: :ok
 
   defp ssh_certificate_policy_metadata(device, :ssh, :ssh_certificate) do
     case configured_ssh_certificate_policy(device) do

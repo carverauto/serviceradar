@@ -190,6 +190,25 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["message"] =~ "custody mode"
     end
 
+    test "rejects SSH certificate sessions when trusted principal policy is missing", %{conn: conn} do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        {:error, :ssh_principal_policy_required}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "credential_custody_mode" => "ssh_certificate"
+        })
+
+      body = json_response(conn, 422)
+      assert body["error"] == "remote_access_session_unavailable"
+      assert body["message"] =~ "trusted principal policy"
+    end
+
     test "maps approval-required policy denials without issuing a ticket", %{conn: conn} do
       Application.put_env(
         :serviceradar_web_ng,
