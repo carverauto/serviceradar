@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @remote_access_permission "devices.remote_access.ssh.open"
-  @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
+  @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
   @client_controlled_metadata_denylist ~w(
     allowed_principals
     certificate_envelope
@@ -205,12 +205,31 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp normalize_ssh_host_key_policy(value) when is_binary(value) do
     case String.trim(value) do
       "" -> {:ok, nil}
-      policy when policy in @ssh_host_key_policies -> {:ok, policy}
-      _policy -> {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+      policy -> validate_ssh_host_key_policy(policy)
     end
   end
 
   defp normalize_ssh_host_key_policy(_value), do: {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+
+  defp validate_ssh_host_key_policy(policy) do
+    if policy in allowed_ssh_host_key_policies() do
+      {:ok, policy}
+    else
+      {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+    end
+  end
+
+  defp allowed_ssh_host_key_policies do
+    if Application.get_env(
+         :serviceradar_web_ng,
+         :remote_access_ssh_host_key_skip_verify_enabled,
+         false
+       ) == true do
+      @base_ssh_host_key_policies ++ ["skip_verify"]
+    else
+      @base_ssh_host_key_policies
+    end
+  end
 
   defp normalize_metadata(value) when is_map(value), do: value
   defp normalize_metadata(_value), do: %{}

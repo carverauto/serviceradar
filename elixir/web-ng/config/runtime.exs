@@ -468,6 +468,12 @@ remote_access_browser_key_remember_enabled =
     value -> value
   end
 
+remote_access_ssh_host_key_skip_verify_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
 remote_access_ssh_certificate_policy =
   case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON") do
     nil ->
@@ -535,6 +541,9 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
+
+config :serviceradar_web_ng,
+  remote_access_ssh_host_key_skip_verify_enabled: remote_access_ssh_host_key_skip_verify_enabled
 
 if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,

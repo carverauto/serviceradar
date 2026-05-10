@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
       |> assign(:device_uid, device_uid)
       |> assign(:can_open?, can_open?)
       |> assign(:allow_remembered_keys?, allow_remembered_keys?())
+      |> assign(:allow_skip_verify_host_key_policy?, allow_skip_verify_host_key_policy?())
 
     {:ok, socket}
   end
@@ -48,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
           device_uid={@device_uid}
           title="SSH remote access"
           allow_remembered_keys={@allow_remembered_keys?}
+          allow_skip_verify_host_key_policy={@allow_skip_verify_host_key_policy?}
         />
       </div>
     </Layouts.app>
@@ -56,5 +58,13 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
 
   defp allow_remembered_keys? do
     Application.get_env(:serviceradar_web_ng, :remote_access_browser_key_remember_enabled, false) == true
+  end
+
+  defp allow_skip_verify_host_key_policy? do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :remote_access_ssh_host_key_skip_verify_enabled,
+      false
+    ) == true
   end
 end

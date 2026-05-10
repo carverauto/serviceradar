@@ -76,6 +76,7 @@ export function Component({
   createPath = "/api/remote-access/sessions",
   title = "SSH remote access",
   allowRememberedKeys = false,
+  allowSkipVerifyHostKeyPolicy = false,
   terminalModuleLoader = null,
 }) {
   const [mode, setMode] = useState("paste")
@@ -128,6 +129,12 @@ export function Component({
       cancelled = true
     }
   }, [privateKey])
+
+  useEffect(() => {
+    if (!allowSkipVerifyHostKeyPolicy && hostKeyPolicy === "skip_verify") {
+      setHostKeyPolicy("known_hosts")
+    }
+  }, [allowSkipVerifyHostKeyPolicy, hostKeyPolicy])
 
   const attachPayload = useMemo(() => {
     if (!credential) {
@@ -312,7 +319,7 @@ export function Component({
             >
               <option value="known_hosts">Known hosts</option>
               <option value="trust_on_first_use">Trust on first use</option>
-              <option value="skip_verify">Skip verification</option>
+              {allowSkipVerifyHostKeyPolicy ? <option value="skip_verify">Skip verification</option> : null}
             </select>
           </label>
 

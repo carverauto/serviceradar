@@ -20,6 +20,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_test_pid =
       Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_test_pid)
 
+    previous_skip_verify =
+      Application.get_env(:serviceradar_web_ng, :remote_access_ssh_host_key_skip_verify_enabled)
+
     Application.put_env(
       :serviceradar_web_ng,
       :remote_access_session_manager,
@@ -37,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       restore_env(:remote_access_session_manager_open_result, previous_open_result)
       restore_env(:remote_access_session_manager_close_result, previous_close_result)
       restore_env(:remote_access_session_manager_test_pid, previous_test_pid)
+      restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
     end)
 
     user = admin_user_fixture()
@@ -56,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           "target_host" => "10.0.0.10",
           "target_port" => 2222,
           "credential_custody_mode" => "ssh_certificate",
-          "ssh_host_key_policy" => "skip_verify",
+          "ssh_host_key_policy" => "known_hosts",
           "terminal" => %{"cols" => 120, "rows" => 40},
           "metadata" => %{"private_key" => "must-not-return", "safe" => "kept"}
         })
@@ -81,8 +85,40 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.cols == 120
       assert request.rows == 40
       assert request.metadata["private_key"] == "must-not-return"
-      assert request.metadata["ssh_host_key_policy"] == "skip_verify"
+      assert request.metadata["ssh_host_key_policy"] == "known_hosts"
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "rejects skip-verify SSH host key policy unless deployment allows it", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "ssh_host_key_policy" => "skip_verify"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "ssh_host_key_policy"
+    end
+
+    test "allows skip-verify SSH host key policy when deployment explicitly enables it", %{conn: conn} do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_ssh_host_key_skip_verify_enabled,
+        true
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "ssh_host_key_policy" => "skip_verify"
+        })
+
+      assert json_response(conn, 201)
+      assert_receive {:open_remote_access_session, "linux-1", request, _opts}
+      assert request.metadata["ssh_host_key_policy"] == "skip_verify"
     end
 
     test "rejects unsupported SSH host key policies", %{conn: conn} do
