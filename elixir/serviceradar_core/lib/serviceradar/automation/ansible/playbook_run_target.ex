@@ -29,6 +29,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_by_run_host, action: :by_run_host, args: [:run_id, :awx_host_name]
     define :list_for_run, action: :for_run, args: [:run_id]
     define :create_target, action: :create
     define :record_outcome, action: :record_outcome
@@ -48,6 +49,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
     read :for_run do
       argument :run_id, :uuid, allow_nil?: false
       filter expr(run_id == ^arg(:run_id))
+    end
+
+    read :by_run_host do
+      description "Resolve a target from (run_id, awx_host_name) — used by EventIngestor"
+      argument :run_id, :uuid, allow_nil?: false
+      argument :awx_host_name, :string, allow_nil?: false
+      get? true
+      filter expr(run_id == ^arg(:run_id) and awx_host_name == ^arg(:awx_host_name))
     end
 
     create :create do

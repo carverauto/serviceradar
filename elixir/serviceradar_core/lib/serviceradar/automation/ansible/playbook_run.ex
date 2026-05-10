@@ -84,6 +84,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_by_awx_job_id, action: :by_awx_job_id, args: [:awx_job_id]
     define :list_active_for_controller, action: :active_for_controller, args: [:controller_id]
     define :list_by_schedule, action: :by_schedule, args: [:schedule_id]
     define :create_run, action: :create
@@ -113,6 +114,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
       description "Non-terminal runs for a controller — drives RunPulseWorker tick batching"
       argument :controller_id, :uuid, allow_nil?: false
       filter expr(controller_id == ^arg(:controller_id) and state in [:pending, :launching, :running])
+      prepare build(select: @public_read_fields)
+    end
+
+    read :by_awx_job_id do
+      description "Resolve a run from the AWX job id — used by EventIngestor to attribute events"
+      argument :awx_job_id, :integer, allow_nil?: false
+      get? true
+      filter expr(awx_job_id == ^arg(:awx_job_id))
       prepare build(select: @public_read_fields)
     end
 
