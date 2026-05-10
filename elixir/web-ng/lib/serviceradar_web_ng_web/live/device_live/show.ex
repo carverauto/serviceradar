@@ -2982,6 +2982,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
+      |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
+      |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
@@ -3040,6 +3042,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </span>
           </:subtitle>
           <:actions>
+            <.ui_button
+              :if={@can_run_ansible and not @device_deleted and @device_ansible_managed}
+              href={~p"/ansible/launch?devices=#{@device_uid}"}
+              variant="primary"
+              size="sm"
+            >
+              <.icon name="hero-play" class="size-4" /> Run Task
+            </.ui_button>
             <.ui_button
               :if={
                 @can_console and not @device_deleted and
@@ -9734,6 +9744,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
 
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
+
+  defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
+
+  defp ansible_managed?(%{ansible_managed: true}), do: true
+  defp ansible_managed?(%{"ansible_managed" => true}), do: true
+  defp ansible_managed?(_), do: false
 
   defp proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}}), do: true
 
