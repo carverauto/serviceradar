@@ -89,6 +89,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.target_kind == "inventory_device"
       assert request.target_host == nil
       assert request.target_port == nil
+      assert request.agent_id == nil
+      assert request.gateway_id == nil
       assert request.cols == 120
       assert request.rows == 40
       assert request.metadata["private_key"] == "must-not-return"
@@ -143,6 +145,30 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
       assert body["message"] =~ "target_kind"
+    end
+
+    test "rejects browser-selected agent routes", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "agent_id" => "agent-from-browser"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "agent_id"
+    end
+
+    test "rejects browser-selected gateway routes", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "gateway_id" => "gateway-from-browser"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "gateway_id"
     end
 
     test "rejects target host override unless deployment allows it", %{conn: conn} do

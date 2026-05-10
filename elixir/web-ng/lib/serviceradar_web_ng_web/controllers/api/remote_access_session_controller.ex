@@ -148,6 +148,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
     with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
          :ok <- validate_public_ssh_request(params),
+         :ok <- validate_browser_route_selection(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
          :ok <- validate_target_port_override(Map.get(params, "target_port")),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
@@ -167,8 +168,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          target_kind: "inventory_device",
          target_host: normalize_optional_string(Map.get(params, "target_host")),
          target_port: Map.get(params, "target_port"),
-         agent_id: normalize_optional_string(Map.get(params, "agent_id")),
-         gateway_id: normalize_optional_string(Map.get(params, "gateway_id")),
+         agent_id: nil,
+         gateway_id: nil,
          credential_custody_mode: normalize_optional_string(Map.get(params, "credential_custody_mode")),
          credential_rule_id: normalize_optional_string(Map.get(params, "credential_rule_id")),
          approval_required: Map.get(params, "approval_required"),
@@ -196,6 +197,19 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       nil -> :ok
       ^allowed_value -> :ok
       _other -> {:error, :invalid_request, "#{field_name} is not supported by this endpoint"}
+    end
+  end
+
+  defp validate_browser_route_selection(params) do
+    with :ok <- reject_browser_supplied_route_value(Map.get(params, "agent_id"), "agent_id") do
+      reject_browser_supplied_route_value(Map.get(params, "gateway_id"), "gateway_id")
+    end
+  end
+
+  defp reject_browser_supplied_route_value(value, field_name) do
+    case normalize_optional_string(value) do
+      nil -> :ok
+      _route_value -> {:error, :invalid_request, "#{field_name} is selected by inventory policy"}
     end
   end
 

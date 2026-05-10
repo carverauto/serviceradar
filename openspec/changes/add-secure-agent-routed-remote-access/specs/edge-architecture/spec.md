@@ -14,6 +14,7 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **GIVEN** two agents can each reach a target at `192.168.1.10` in different networks
 - **WHEN** an operator opens a session for a specific inventory target
 - **THEN** the session SHALL be bound to the agent selected by policy or inventory relationship
+- **AND** browser create requests SHALL NOT select or override the agent or gateway route
 - **AND** target host/port/protocol SHALL NOT be retargetable by browser-supplied frame data.
 
 #### Scenario: Browser target override is disabled by default
