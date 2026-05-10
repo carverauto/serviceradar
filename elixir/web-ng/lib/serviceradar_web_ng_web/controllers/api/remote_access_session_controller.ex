@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   @remote_access_permission "devices.remote_access.ssh.open"
   @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
+  @min_target_port 1
+  @max_target_port 65_535
   @client_controlled_metadata_denylist ~w(
     allowed_principals
     certificate_envelope
@@ -160,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          :ok <- validate_public_ssh_request(params),
          :ok <- validate_browser_route_selection(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
-         :ok <- validate_target_port_override(Map.get(params, "target_port")),
+         {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
       terminal = Map.get(params, "terminal") || %{}
 
@@ -177,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          adapter: "ssh",
          target_kind: "inventory_device",
          target_host: normalize_optional_string(Map.get(params, "target_host")),
-         target_port: Map.get(params, "target_port"),
+         target_port: target_port,
          agent_id: nil,
          gateway_id: nil,
          credential_custody_mode: normalize_optional_string(Map.get(params, "credential_custody_mode")),
@@ -238,23 +240,25 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     end
   end
 
-  defp validate_target_port_override(value) do
-    if target_port_override_present?(value) and
-         Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) !=
-           true do
-      {:error, :invalid_request, "target_port override is not enabled"}
-    else
-      :ok
+  defp normalize_target_port(nil), do: {:ok, nil}
+
+  defp normalize_target_port(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      _present -> normalize_present_target_port(value)
     end
   end
 
-  defp target_port_override_present?(nil), do: false
+  defp normalize_target_port(value), do: normalize_present_target_port(value)
 
-  defp target_port_override_present?(value) when is_binary(value) do
-    not is_nil(normalize_optional_string(value))
+  defp normalize_present_target_port(value) do
+    if Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) ==
+         true do
+      normalize_integer(value, "target_port", @min_target_port, @max_target_port)
+    else
+      {:error, :invalid_request, "target_port override is not enabled"}
+    end
   end
-
-  defp target_port_override_present?(_value), do: true
 
   defp normalize_uuid(value, field_name) when is_binary(value) do
     trimmed = String.trim(value)
@@ -282,6 +286,24 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_optional_string(_value), do: nil
+
+  defp normalize_integer(value, field_name, min, max) when is_integer(value) do
+    if value >= min and value <= max do
+      {:ok, value}
+    else
+      {:error, :invalid_request, "#{field_name} must be between #{min} and #{max}"}
+    end
+  end
+
+  defp normalize_integer(value, field_name, min, max) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> normalize_integer(int, field_name, min, max)
+      _error -> {:error, :invalid_request, "#{field_name} must be an integer"}
+    end
+  end
+
+  defp normalize_integer(_value, field_name, _min, _max),
+    do: {:error, :invalid_request, "#{field_name} must be an integer"}
 
   defp normalize_ssh_host_key_policy(nil), do: {:ok, nil}
 

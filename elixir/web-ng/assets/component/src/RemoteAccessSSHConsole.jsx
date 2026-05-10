@@ -209,7 +209,15 @@ export function Component({
     }
 
     if (allowTargetPortOverride && targetPort.trim()) {
-      body.target_port = Number.parseInt(targetPort, 10)
+      const parsedTargetPort = Number.parseInt(targetPort, 10)
+
+      if (!Number.isInteger(parsedTargetPort) || parsedTargetPort < 1 || parsedTargetPort > 65535) {
+        setOpening(false)
+        setError("Target port must be between 1 and 65535.")
+        return
+      }
+
+      body.target_port = parsedTargetPort
     }
 
     try {
@@ -316,7 +324,10 @@ export function Component({
                 </div>
                 <input
                   className="input input-bordered"
+                  min="1"
+                  max="65535"
                   inputMode="numeric"
+                  type="number"
                   value={targetPort}
                   onChange={(event) => setTargetPort(event.target.value)}
                 />

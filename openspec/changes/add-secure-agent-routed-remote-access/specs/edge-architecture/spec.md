@@ -23,6 +23,11 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the public API SHALL reject the request unless the matching target override policy is explicitly enabled
 - **AND** the target SHALL default to the inventory target selected by policy.
 
+#### Scenario: Enabled target port override is range checked
+- **GIVEN** target-port override policy is explicitly enabled
+- **WHEN** the browser create request supplies a target port outside the valid TCP port range
+- **THEN** the public API SHALL reject the request before a session ticket is issued.
+
 #### Scenario: Public SSH endpoint cannot request other adapters
 - **GIVEN** the public browser endpoint is authorized by the SSH remote-access permission
 - **WHEN** the browser create request supplies a non-SSH protocol, non-SSH adapter, or non-inventory target kind

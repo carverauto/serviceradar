@@ -219,6 +219,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.target_port == 2222
     end
 
+    test "rejects invalid target port overrides when deployment explicitly enables them", %{conn: conn} do
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, true)
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "target_port" => 70_000
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "target_port"
+    end
+
     test "allows target host override when deployment explicitly enables it", %{conn: conn} do
       Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, true)
 
