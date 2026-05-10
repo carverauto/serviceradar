@@ -178,6 +178,32 @@ type PluginEngineSnapshot struct {
 	LastConfigAt         time.Time
 }
 
+type PluginEngineDebugSnapshot struct {
+	Engine      PluginEngineSnapshot             `json:"engine"`
+	Assignments []PluginEngineAssignmentSnapshot `json:"assignments"`
+}
+
+type PluginEngineAssignmentSnapshot struct {
+	AssignmentID         string   `json:"assignment_id"`
+	PluginID             string   `json:"plugin_id"`
+	PackageID            string   `json:"package_id,omitempty"`
+	Version              string   `json:"version,omitempty"`
+	Name                 string   `json:"name,omitempty"`
+	Entrypoint           string   `json:"entrypoint,omitempty"`
+	Runtime              string   `json:"runtime,omitempty"`
+	Mode                 string   `json:"mode"`
+	Outputs              string   `json:"outputs,omitempty"`
+	Capabilities         []string `json:"capabilities,omitempty"`
+	IntervalSeconds      int64    `json:"interval_seconds,omitempty"`
+	TimeoutSeconds       int64    `json:"timeout_seconds,omitempty"`
+	WasmObject           string   `json:"wasm_object,omitempty"`
+	ContentHash          string   `json:"content_hash,omitempty"`
+	DownloadHost         string   `json:"download_host,omitempty"`
+	DownloadTokenPresent bool     `json:"download_token_present"`
+	Ready                bool     `json:"ready"`
+	FirstSeenAt          string   `json:"first_seen_at,omitempty"`
+}
+
 type StreamingPluginAssignment struct {
 	AssignmentID string
 	PluginID     string
@@ -485,6 +511,122 @@ func (m *PluginManager) Snapshot() PluginEngineSnapshot {
 		LastFailureAt:        stats.lastFailureAt,
 		LastConfigAt:         stats.lastConfigAt,
 	}
+}
+
+func (m *PluginManager) DebugSnapshot() PluginEngineDebugSnapshot {
+	if m == nil {
+		return PluginEngineDebugSnapshot{}
+	}
+
+	engine := m.Snapshot()
+
+	type assignmentWithMode struct {
+		assignment *pluginAssignment
+		mode       string
+	}
+
+	m.mu.RLock()
+	assignments := make([]assignmentWithMode, 0, len(m.runners)+len(m.streams))
+	for _, runner := range m.runners {
+		if runner == nil || runner.assignment == nil {
+			continue
+		}
+		assignments = append(assignments, assignmentWithMode{
+			assignment: runner.assignment,
+			mode:       string(pluginExecutionModeScheduled),
+		})
+	}
+	for _, assignment := range m.streams {
+		if assignment == nil {
+			continue
+		}
+		assignments = append(assignments, assignmentWithMode{
+			assignment: assignment,
+			mode:       string(pluginExecutionModeStreaming),
+		})
+	}
+	m.mu.RUnlock()
+
+	out := PluginEngineDebugSnapshot{
+		Engine:      engine,
+		Assignments: make([]PluginEngineAssignmentSnapshot, 0, len(assignments)),
+	}
+
+	for _, item := range assignments {
+		out.Assignments = append(out.Assignments, m.assignmentDebugSnapshot(item.assignment, item.mode))
+	}
+
+	sort.Slice(out.Assignments, func(i, j int) bool {
+		return out.Assignments[i].AssignmentID < out.Assignments[j].AssignmentID
+	})
+
+	return out
+}
+
+func (m *PluginManager) assignmentDebugSnapshot(
+	assignment *pluginAssignment,
+	mode string,
+) PluginEngineAssignmentSnapshot {
+	if assignment == nil {
+		return PluginEngineAssignmentSnapshot{}
+	}
+
+	capabilities := make([]string, 0, len(assignment.Capabilities))
+	for capability := range assignment.Capabilities {
+		capabilities = append(capabilities, capability)
+	}
+	sort.Strings(capabilities)
+
+	state := m.readAssignmentState(assignment.AssignmentID)
+	firstSeenAt := ""
+	if !state.firstSeen.IsZero() {
+		firstSeenAt = state.firstSeen.UTC().Format(time.RFC3339Nano)
+	}
+
+	return PluginEngineAssignmentSnapshot{
+		AssignmentID:         assignment.AssignmentID,
+		PluginID:             assignment.PluginID,
+		PackageID:            assignment.PackageID,
+		Version:              assignment.Version,
+		Name:                 assignment.Name,
+		Entrypoint:           assignment.Entrypoint,
+		Runtime:              assignment.Runtime,
+		Mode:                 mode,
+		Outputs:              assignment.Outputs,
+		Capabilities:         capabilities,
+		IntervalSeconds:      int64(assignment.Interval.Seconds()),
+		TimeoutSeconds:       int64(assignment.Timeout.Seconds()),
+		WasmObject:           assignment.WasmObject,
+		ContentHash:          assignment.ContentHash,
+		DownloadHost:         downloadURLHost(assignment.DownloadURL),
+		DownloadTokenPresent: assignment.DownloadToken != "",
+		Ready:                state.ready,
+		FirstSeenAt:          firstSeenAt,
+	}
+}
+
+func (m *PluginManager) readAssignmentState(assignmentID string) assignmentState {
+	if m == nil {
+		return assignmentState{}
+	}
+
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	state := m.states[assignmentID]
+	if state == nil {
+		return assignmentState{}
+	}
+
+	return *state
+}
+
+func downloadURLHost(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed == nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 type engineUsage struct {

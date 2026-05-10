@@ -594,7 +594,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:device_logs, logs)
     |> assign(:logs_pagination, pagination)
     |> assign(:logs_error, logs_error)
-    |> assign(:has_logs, is_binary(logs_error) or logs != [])
+    |> assign(:has_logs, true)
   end
 
   defp maybe_reload_logs_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
@@ -1097,7 +1097,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp determine_has_flows(false, _flows_error, _device_flows, probe), do: probe
 
   defp determine_has_logs(true, logs_error, device_logs, _probe) do
-    is_binary(logs_error) or (is_list(device_logs) and device_logs != [])
+    is_binary(logs_error) or is_list(device_logs)
   end
 
   defp determine_has_logs(false, _logs_error, _device_logs, _probe), do: true

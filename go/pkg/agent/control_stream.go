@@ -50,6 +50,7 @@ const (
 	commandTypeCameraRelayStop = "camera.close_relay"
 	commandTypeAgentUpdate     = "agent.update_release"
 	commandTypeProxmoxTest     = "proxmox.credential_test"
+	commandTypePluginSnapshot  = "plugin.debug_snapshot"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
@@ -437,10 +438,25 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleAgentUpdateRelease(ctx, cmd, sender)
 		case commandTypeProxmoxTest:
 			p.handleProxmoxCredentialTest(ctx, cmd, sender)
+		case commandTypePluginSnapshot:
+			p.handlePluginDebugSnapshot(cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
 	}()
+}
+
+func (p *PushLoop) handlePluginDebugSnapshot(cmd *proto.CommandRequest, sender *controlStreamSender) {
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	p.server.mu.RUnlock()
+
+	if pluginManager == nil {
+		_ = sender.Send(commandResult(cmd, false, "plugin manager unavailable", nil))
+		return
+	}
+
+	_ = sender.Send(commandResult(cmd, true, "plugin snapshot captured", pluginManager.DebugSnapshot()))
 }
 
 func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

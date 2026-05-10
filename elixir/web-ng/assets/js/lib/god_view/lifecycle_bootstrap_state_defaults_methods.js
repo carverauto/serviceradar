@@ -39,7 +39,7 @@ const LIGHT_VISUAL = {
   mantleEdgeAlphaBase: 190,                // strong base alpha for light bg
   mantleEdgeAlphaBoost: 45,                // alpha boost from zoom
   crustArc: [3, 105, 161, 240],            // #0369A1 sky-800 (primary) high alpha
-  atmosphereParticle: [2, 132, 165, 240],   // bold cyan-600 near-opaque
+  atmosphereParticle: [15, 118, 110, 245],   // dark teal particle for light maps
   nodeRoot: [220, 38, 38, 255],            // #DC2626 red-600 (error)
   nodeAffected: [217, 119, 6, 255],        // #D97706 amber-600 (warning)
   nodeHealthy: [5, 150, 105, 255],         // #059669 emerald-600 (success)
@@ -56,8 +56,8 @@ const LIGHT_VISUAL = {
   crustLowVivid: [3, 115, 185, 245],      // sky-800 near-opaque
   crustHigh: [130, 40, 220, 235],         // rich purple bold
   crustHighVivid: [147, 51, 234, 250],    // purple-600 near-opaque
-  particleCyan: [0, 150, 220, 255],       // bold sky-blue at full alpha
-  particleMagenta: [147, 30, 210, 255],   // bold purple at full alpha
+  particleCyan: [12, 74, 110, 255],       // dark sky particle on light edges
+  particleMagenta: [88, 28, 135, 255],    // dark purple particle on light edges
   particleBlend: [770, 771],              // standard alpha blending for light bg
   label: [15, 23, 42, 240],               // #0F172A slate-900 (base-content)
   edgeLabel: [71, 85, 105, 220],           // slate-600

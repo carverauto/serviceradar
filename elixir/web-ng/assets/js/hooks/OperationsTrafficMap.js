@@ -642,6 +642,16 @@ function rgbaCss(color, alphaMultiplier = 1) {
   return `rgba(${rgba[0]}, ${rgba[1]}, ${rgba[2]}, ${Math.max(0.18, Math.min(1, rgba[3] / 255))})`
 }
 
+function lightThemeEnabled() {
+  return document.documentElement?.dataset?.theme === "light"
+}
+
+function topologyParticleFill(link) {
+  if (!lightThemeEnabled()) return rgbaCss(link.color, 1.2)
+  const magnitude = visualMagnitude(link)
+  return magnitude > 0 ? "rgba(15, 118, 110, 0.96)" : "rgba(30, 41, 59, 0.86)"
+}
+
 function strokeWidthFor(link, mapView = "topology_traffic") {
   const magnitude = Math.log10(Math.max(10, visualMagnitude(link)))
   const width = mapView === "netflow" ? 0.62 + Math.min(1.75, magnitude / 3.2) : 0.82 + Math.min(3.25, magnitude / 1.55)
@@ -1410,7 +1420,7 @@ export default {
         const motion = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion")
 
         particle.setAttribute("r", String(this.mapView === "netflow" ? 0.7 : Math.min(1.85, Math.max(1, strokeWidthFor(link) * 0.38))))
-        particle.setAttribute("fill", rgbaCss(link.color, 1.2))
+        particle.setAttribute("fill", topologyParticleFill(link))
         particle.setAttribute("class", "sr-ops-traffic-particle")
         motion.setAttribute("dur", `${Math.max(2.4, 5.8 - Math.min(2.6, Math.log10(Math.max(10, visualMagnitude(link) || 10)) * 0.24))}s`)
         motion.setAttribute("begin", `${(idx % 6) * 0.22}s`)
