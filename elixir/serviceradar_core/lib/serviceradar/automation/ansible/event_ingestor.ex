@@ -43,6 +43,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
       "awx.fetch_job" -> handle_fetch_job(data, actions)
       "awx.cancel_job" -> handle_cancel(data, actions)
       "awx.ping" -> handle_ping(data, actions)
+      "awx.list_templates" -> handle_list_templates(data, actions)
       "awx." <> _ -> :ok
       _ -> :ok
     end
@@ -418,6 +419,84 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp nonempty("", fallback), do: fallback
   defp nonempty(s, _) when is_binary(s), do: s
   defp nonempty(_, fallback), do: fallback
+
+  ## awx.list_templates --------------------------------------------------------
+
+  # Drives `:awx`-sourced catalog ingestion. Worker dispatches list_templates,
+  # we get the result here, upsert one Playbook per template via the
+  # `Playbook.upsert_awx` action. Survey_spec is left at its default (empty
+  # map) for now -- the launch UI fetches it lazily via `awx.fetch_template`
+  # when the operator picks a playbook. See add-ansible-integration design.md
+  # decision 2.
+  defp handle_list_templates(data, actions) do
+    payload = result_payload(data)
+
+    cond do
+      not Map.get(payload, "ok", true) ->
+        log_verb_failure("awx.list_templates", payload, command_id(data))
+        :ok
+
+      true ->
+        with {:ok, controller_id} <- correlate_controller_id(data, actions) do
+          payload
+          |> Map.get("results", [])
+          |> Enum.each(fn template -> upsert_template(actions, controller_id, template) end)
+
+          :ok
+        else
+          _ -> :ok
+        end
+    end
+  end
+
+  defp upsert_template(actions, controller_id, %{"id" => awx_id} = template)
+       when is_integer(awx_id) do
+    args = %{
+      awx_job_template_id: awx_id,
+      name: Map.get(template, "name", ""),
+      description: Map.get(template, "description"),
+      tags: tags_from_template(template),
+      hosts_pattern: Map.get(template, "limit"),
+      survey_spec: %{},
+      parse_status: :ok,
+      metadata: %{
+        "job_type" => Map.get(template, "job_type"),
+        "playbook" => Map.get(template, "playbook"),
+        "project" => Map.get(template, "project"),
+        "inventory" => Map.get(template, "inventory"),
+        "survey_enabled" => Map.get(template, "survey_enabled", false),
+        "ask_variables_on_launch" => Map.get(template, "ask_variables_on_launch", false),
+        "ask_inventory_on_launch" => Map.get(template, "ask_inventory_on_launch", false),
+        "ask_limit_on_launch" => Map.get(template, "ask_limit_on_launch", false)
+      }
+    }
+
+    case actions.upsert_awx_playbook(controller_id, args) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("AWX EventIngestor: failed to upsert AWX template",
+          controller_id: controller_id,
+          awx_template_id: awx_id,
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp upsert_template(_actions, _controller_id, _malformed), do: :ok
+
+  defp tags_from_template(template) do
+    # AWX stores comma-separated tags on the job template's `job_tags` field.
+    case Map.get(template, "job_tags") do
+      nil -> []
+      "" -> []
+      raw when is_binary(raw) -> raw |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      _ -> []
+    end
+  end
 
   ## Correlation helpers -------------------------------------------------------
 

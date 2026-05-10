@@ -9,6 +9,7 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookPlay
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
@@ -115,5 +116,10 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   @impl true
   def record_controller_health(controller, args) do
     Controller.record_health(controller, args, actor())
+  end
+
+  @impl true
+  def upsert_awx_playbook(controller_id, args) do
+    Playbook.upsert_awx(Map.put(args, :controller_id, controller_id), actor())
   end
 end

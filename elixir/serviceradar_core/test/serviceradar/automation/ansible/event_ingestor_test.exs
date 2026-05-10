@@ -87,6 +87,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       {:ok, controller}
     end
 
+    @impl true
+    def upsert_awx_playbook(controller_id, args) do
+      put_call({:upsert_awx_playbook, controller_id, args})
+      {:ok, %{id: "pb-" <> to_string(args.awx_job_template_id)}}
+    end
+
     defp terminal_state_for(:record_launching), do: :launching
     defp terminal_state_for(:record_running), do: :running
     defp terminal_state_for(:record_succeeded), do: :succeeded
@@ -490,6 +496,138 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
                FakeActions.state().calls,
                &match?({:record_controller_health, _, _}, &1)
              )
+    end
+  end
+
+  describe "awx.list_templates" do
+    test "upserts one Playbook per template with source_type :awx" do
+      FakeActions.configure(contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}})
+
+      result = %{
+        command_type: "awx.list_templates",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.list_templates",
+          "ok" => true,
+          "count" => 2,
+          "results" => [
+            %{
+              "id" => 42,
+              "name" => "Deploy Web",
+              "description" => "Deploys the web tier",
+              "job_type" => "run",
+              "playbook" => "deploy.yml",
+              "project" => 7,
+              "inventory" => 5,
+              "limit" => "tag:web",
+              "job_tags" => "deploy, web",
+              "survey_enabled" => true,
+              "ask_variables_on_launch" => true
+            },
+            %{
+              "id" => 43,
+              "name" => "Restart DB",
+              "description" => "",
+              "job_type" => "run",
+              "playbook" => "restart_db.yml",
+              "project" => 7,
+              "inventory" => 5,
+              "limit" => "",
+              "survey_enabled" => false
+            }
+          ]
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      upserts =
+        Enum.filter(FakeActions.state().calls, &match?({:upsert_awx_playbook, _, _}, &1))
+
+      assert length(upserts) == 2
+
+      [{:upsert_awx_playbook, "ctrl-1", a1}, {:upsert_awx_playbook, "ctrl-1", a2}] = upserts
+
+      assert a1.awx_job_template_id == 42
+      assert a1.name == "Deploy Web"
+      assert a1.description == "Deploys the web tier"
+      assert a1.tags == ["deploy", "web"]
+      assert a1.hosts_pattern == "tag:web"
+      assert a1.parse_status == :ok
+      assert a1.metadata["playbook"] == "deploy.yml"
+      assert a1.metadata["project"] == 7
+      assert a1.metadata["survey_enabled"] == true
+      assert a1.metadata["ask_variables_on_launch"] == true
+
+      assert a2.awx_job_template_id == 43
+      assert a2.name == "Restart DB"
+      assert a2.tags == []
+      # `limit: ""` becomes the literal empty string -- the launch UI / spec
+      # validation can decide whether to coerce to nil. We don't drop it
+      # here because that would lose AWX's intent.
+      assert a2.hosts_pattern == ""
+      assert a2.metadata["survey_enabled"] == false
+    end
+
+    test "ok=false logs and skips" do
+      FakeActions.configure(contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}})
+
+      result = %{
+        command_type: "awx.list_templates",
+        command_id: "cmd-1",
+        result_payload: %{"ok" => false, "error" => "AWX HTTP 401"}
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:upsert_awx_playbook, _, _}, &1)
+             )
+    end
+
+    test "no-op when context is missing controller_id" do
+      FakeActions.configure(contexts: %{"cmd-1" => {:ok, %{}}})
+
+      result = %{
+        command_type: "awx.list_templates",
+        command_id: "cmd-1",
+        result_payload: %{
+          "ok" => true,
+          "results" => [%{"id" => 42, "name" => "x"}]
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      refute Enum.any?(
+               FakeActions.state().calls,
+               &match?({:upsert_awx_playbook, _, _}, &1)
+             )
+    end
+
+    test "skips templates with non-integer id (malformed)" do
+      FakeActions.configure(contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}})
+
+      result = %{
+        command_type: "awx.list_templates",
+        command_id: "cmd-1",
+        result_payload: %{
+          "ok" => true,
+          "results" => [
+            %{"id" => "not-an-int", "name" => "garbage"},
+            %{"id" => 99, "name" => "good"}
+          ]
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      upserts =
+        Enum.filter(FakeActions.state().calls, &match?({:upsert_awx_playbook, _, _}, &1))
+
+      assert [{:upsert_awx_playbook, "ctrl-1", args}] = upserts
+      assert args.awx_job_template_id == 99
     end
   end
 
@@ -901,6 +1039,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         def get_run_by_id(_), do: raise("nope")
         def get_controller_by_id(_), do: raise("nope")
         def record_controller_health(_, _), do: raise("nope")
+        def upsert_awx_playbook(_, _), do: raise("nope")
       end
 
       payload = %{"jobs" => [%{"job_id" => 1, "ok" => true, "events" => [], "max_counter" => 0}]}

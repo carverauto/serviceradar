@@ -48,4 +48,11 @@ defmodule ServiceRadar.Automation.Ansible.IngestorActions do
 
   @callback record_controller_health(controller :: map(), args :: map()) ::
               {:ok, map()} | {:error, term()}
+
+  @doc """
+  Upsert one Playbook row with `source_type: :awx` from a list_templates
+  entry. Driven by the `awx.list_templates` result handler in EventIngestor.
+  """
+  @callback upsert_awx_playbook(controller_id :: id, args :: map()) ::
+              {:ok, map()} | {:error, term()}
 end
