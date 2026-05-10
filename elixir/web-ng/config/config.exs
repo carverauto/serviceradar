@@ -182,7 +182,8 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   sync_interval_seconds: 3_600,
   cosign_binary: "cosign",
   cosign_public_key: nil,
-  cosign_public_key_file: nil
+  cosign_public_key_file: nil,
+  cosign_require_rekor: true
 
 config :serviceradar_web_ng, :god_view_enabled, false
 

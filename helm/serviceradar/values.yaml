@@ -575,6 +575,7 @@ webNg:
     cosignBinary: "/usr/local/bin/cosign"
     cosignPublicKey: ""
     cosignPublicKeyFile: ""
+    cosignRequireRekor: true
     registryDockerConfigSecret: ""
     registryDockerConfigSecretKey: ".dockerconfigjson"
     registryDockerConfigJson: ""

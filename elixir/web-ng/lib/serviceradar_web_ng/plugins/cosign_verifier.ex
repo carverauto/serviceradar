@@ -17,8 +17,10 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
           {cmd_opts, cleanup_cmd_opts} = cosign_cmd_opts(config)
 
           try do
-            with {:ok, output} <- run_cosign(binary, key_arg, target, cmd_opts) do
-              verify_rekor_output(output)
+            require_rekor? = Keyword.get(config, :cosign_require_rekor, true)
+
+            with {:ok, output} <- run_cosign(binary, key_arg, target, cmd_opts, require_rekor?) do
+              verify_rekor_output(output, require_rekor?)
             end
           after
             cleanup_cmd_opts.()
@@ -57,8 +59,10 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
     end
   end
 
-  defp run_cosign(binary, key_arg, target, opts) do
-    case System.cmd(binary, ["verify", "--key", key_arg, target], opts) do
+  defp run_cosign(binary, key_arg, target, opts, require_rekor?) do
+    args = ["verify", "--key", key_arg] ++ rekor_args(require_rekor?) ++ [target]
+
+    case System.cmd(binary, args, opts) do
       {output, 0} -> {:ok, output}
       {output, status} -> {:error, {:cosign_verify_failed, status, output}}
     end
@@ -66,7 +70,12 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
     error in ErlangError -> {:error, {:cosign_verify_failed, Exception.message(error)}}
   end
 
-  defp verify_rekor_output(output) do
+  defp rekor_args(true), do: []
+  defp rekor_args(false), do: ["--insecure-ignore-tlog=true"]
+
+  defp verify_rekor_output(_output, false), do: :ok
+
+  defp verify_rekor_output(output, true) do
     if rekor_verified?(output) do
       :ok
     else
