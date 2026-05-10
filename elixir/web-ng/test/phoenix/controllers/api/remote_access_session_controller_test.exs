@@ -111,6 +111,54 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["message"] =~ "ssh_host_key_policy"
     end
 
+    test "strips client-controlled SSH certificate policy metadata", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "credential_custody_mode" => "ssh_certificate",
+          "metadata" => %{
+            "safe" => "kept",
+            "ssh_host_key_policy" => "known_hosts",
+            "ssh_allowed_principals" => ["root"],
+            "allowed_principals" => ["root"],
+            "ssh_principal_mappings" => [
+              %{"source" => "groups", "value" => "admins", "principals" => ["root"]}
+            ],
+            "principal_mappings" => [
+              %{"source" => "groups", "value" => "admins", "principals" => ["root"]}
+            ],
+            "ssh_certificate_ttl_seconds" => 28_800,
+            "credential_mode" => "ssh_certificate",
+            "credential_custody_mode" => "ssh_certificate",
+            "ssh" => %{"username" => "root"},
+            "ssh_certificate" => %{"ssh" => %{"certificate" => "client-controlled"}},
+            "certificate_envelope" => %{"ssh" => %{"certificate" => "client-controlled"}}
+          }
+        })
+
+      assert json_response(conn, 201)
+      assert_receive {:open_remote_access_session, "linux-1", request, _opts}
+
+      assert request.metadata["safe"] == "kept"
+      assert request.metadata["ssh_host_key_policy"] == "known_hosts"
+
+      for key <- ~w(
+            ssh_allowed_principals
+            allowed_principals
+            ssh_principal_mappings
+            principal_mappings
+            ssh_certificate_ttl_seconds
+            credential_mode
+            credential_custody_mode
+            ssh
+            ssh_certificate
+            certificate_envelope
+          ) do
+        refute Map.has_key?(request.metadata, key)
+      end
+    end
+
     test "denies users without remote-access permission", %{conn: _conn} do
       viewer = viewer_user_fixture()
       {:ok, token, _claims} = Guardian.create_access_token(viewer)

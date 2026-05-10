@@ -13,6 +13,18 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   @remote_access_permission "devices.remote_access.ssh.open"
   @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
+  @client_controlled_metadata_denylist ~w(
+    allowed_principals
+    certificate_envelope
+    credential_custody_mode
+    credential_mode
+    principal_mappings
+    ssh
+    ssh_allowed_principals
+    ssh_certificate
+    ssh_certificate_ttl_seconds
+    ssh_principal_mappings
+  )
 
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -132,6 +144,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       metadata =
         metadata
         |> drop_metadata_key("ssh_host_key_policy")
+        |> drop_client_controlled_metadata()
         |> put_optional("ssh_host_key_policy", ssh_host_key_policy)
 
       {:ok,
@@ -211,8 +224,31 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     |> Map.delete(:ssh_host_key_policy)
   end
 
+  defp drop_metadata_key(map, key) when is_binary(key) do
+    map
+    |> Map.delete(key)
+    |> then(fn map ->
+      case safe_existing_atom(key) do
+        nil -> map
+        atom_key -> Map.delete(map, atom_key)
+      end
+    end)
+  end
+
+  defp drop_client_controlled_metadata(map) do
+    Enum.reduce(@client_controlled_metadata_denylist, map, fn key, acc ->
+      drop_metadata_key(acc, key)
+    end)
+  end
+
   defp put_optional(map, _key, nil), do: map
   defp put_optional(map, key, value), do: Map.put(map, key, value)
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
 
   defp session_json(session, ticket \\ nil) do
     data = %{
