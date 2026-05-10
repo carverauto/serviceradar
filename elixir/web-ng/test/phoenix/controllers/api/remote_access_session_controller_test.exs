@@ -68,7 +68,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           "credential_custody_mode" => "ssh_certificate",
           "ssh_host_key_policy" => "known_hosts",
           "terminal" => %{"cols" => 120, "rows" => 40},
-          "metadata" => %{"private_key" => "must-not-return", "safe" => "kept"}
+          "metadata" => %{
+            "private_key" => "must-not-return",
+            "nested" => %{"password" => "must-not-forward", "safe" => "nested-kept"},
+            "safe" => "kept"
+          }
         })
 
       body = json_response(conn, 201)
@@ -93,8 +97,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.gateway_id == nil
       assert request.cols == 120
       assert request.rows == 40
-      assert request.metadata["private_key"] == "must-not-return"
       assert request.metadata["ssh_host_key_policy"] == "known_hosts"
+      assert request.metadata["safe"] == "kept"
+      assert request.metadata["nested"]["safe"] == "nested-kept"
+      refute Map.has_key?(request.metadata, "private_key")
+      refute Map.has_key?(request.metadata["nested"], "password")
       assert match?(%Scope{}, opts[:scope])
     end
 

@@ -16,15 +16,25 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   @client_controlled_metadata_denylist ~w(
     allowed_principals
     certificate_envelope
+    credential
     credential_custody_mode
     credential_mode
+    credentials
+    passphrase
+    password
     principal_mappings
+    private_key
+    secret
+    secret_payload
     ssh
     ssh_allowed_principals
     ssh_certificate
     ssh_certificate_ttl_seconds
     ssh_principal_mappings
+    ticket
+    token
   )
+  @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
 
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -329,10 +339,32 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp drop_client_controlled_metadata(map) do
-    Enum.reduce(@client_controlled_metadata_denylist, map, fn key, acc ->
-      drop_metadata_key(acc, key)
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      if client_controlled_metadata_key?(key) do
+        acc
+      else
+        Map.put(acc, key, drop_client_controlled_metadata_value(value))
+      end
     end)
   end
+
+  defp drop_client_controlled_metadata_value(value) when is_map(value), do: drop_client_controlled_metadata(value)
+
+  defp drop_client_controlled_metadata_value(value) when is_list(value),
+    do: Enum.map(value, &drop_client_controlled_metadata_value/1)
+
+  defp drop_client_controlled_metadata_value(value), do: value
+
+  defp client_controlled_metadata_key?(key) when is_atom(key), do: client_controlled_metadata_key?(Atom.to_string(key))
+
+  defp client_controlled_metadata_key?(key) when is_binary(key) do
+    normalized = String.downcase(key)
+
+    normalized in @client_controlled_metadata_denylist or
+      Enum.any?(@client_controlled_metadata_suffixes, &String.ends_with?(normalized, &1))
+  end
+
+  defp client_controlled_metadata_key?(_key), do: false
 
   defp put_optional(map, _key, nil), do: map
   defp put_optional(map, key, value), do: Map.put(map, key, value)

@@ -86,6 +86,11 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **THEN** the audit event SHALL include actor, target, selected agent, protocol, credential rule or custody mode, RBAC/approval result, timestamps, and terminal outcome
 - **AND** the audit event SHALL NOT include plaintext credentials.
 
+#### Scenario: Browser metadata cannot carry credentials
+- **WHEN** a browser create request includes credential-shaped metadata such as private keys, passwords, passphrases, tickets, tokens, or secrets
+- **THEN** the public API SHALL remove those fields before requesting a session
+- **AND** only non-sensitive metadata SHALL be forwarded to the session lifecycle.
+
 #### Scenario: Session recording is policy controlled
 - **GIVEN** session recording is disabled by policy
 - **WHEN** operators use a remote shell
