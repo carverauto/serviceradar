@@ -636,8 +636,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/ansible", Settings.AnsibleLive, :index)
 
       # Ansible runs (read-only browsing of playbook execution history)
-      # Detail page lands in a follow-up commit.
       live("/ansible/runs", AnsibleLive.RunsIndex, :index)
+      live("/ansible/runs/:id", AnsibleLive.RunsShow, :show)
     end
 
     post("/users/update-password", UserSessionController, :update_password)

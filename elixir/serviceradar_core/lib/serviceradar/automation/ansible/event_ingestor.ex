@@ -20,6 +20,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   require Logger
 
   alias ServiceRadar.Automation.Ansible.IngestorAshActions
+  alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
 
   @type result_data :: %{
           required(:command_type) => String.t(),
@@ -77,6 +78,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
         run = maybe_transition_to_running(run, events, actions)
         run = apply_events(run, events, actions)
         _ = advance_watermark_if_needed(run, max_counter, actions)
+        _ = AnsiblePubSub.broadcast_run_updated(run)
         :ok
 
       {:error, reason} ->
@@ -311,7 +313,10 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
              {:ok, run_id} <- correlate_run_id(data, actions),
              {:ok, run} <- actions.get_run_by_id(run_id) do
           if run.state == :pending do
-            _ = actions.transition_run(run, :record_launching, %{awx_job_id: awx_job_id})
+            case actions.transition_run(run, :record_launching, %{awx_job_id: awx_job_id}) do
+              {:ok, updated} -> AnsiblePubSub.broadcast_run_updated(updated)
+              _ -> :ok
+            end
           end
 
           :ok
@@ -340,11 +345,13 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
         transition = awx_status_to_transition(awx_status)
         summary = "AWX reported job " <> awx_status
 
-        _ =
-          actions.transition_run(run, transition, %{
-            summary: summary,
-            diagnostics: %{awx_status: awx_status}
-          })
+        case actions.transition_run(run, transition, %{
+               summary: summary,
+               diagnostics: %{awx_status: awx_status}
+             }) do
+          {:ok, updated} -> AnsiblePubSub.broadcast_run_updated(updated)
+          _ -> :ok
+        end
 
         :ok
       else
@@ -368,7 +375,11 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
       with {:ok, run_id} <- correlate_run_id(data, actions),
            {:ok, run} <- actions.get_run_by_id(run_id),
            true <- run.state == :running do
-        _ = actions.transition_run(run, :record_canceled, %{summary: "operator-canceled via UI"})
+        case actions.transition_run(run, :record_canceled, %{summary: "operator-canceled via UI"}) do
+          {:ok, updated} -> AnsiblePubSub.broadcast_run_updated(updated)
+          _ -> :ok
+        end
+
         :ok
       else
         _ -> :ok
