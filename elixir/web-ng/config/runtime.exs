@@ -480,6 +480,12 @@ remote_access_target_host_override_enabled =
     value -> value
   end
 
+remote_access_target_port_override_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
 remote_access_ssh_certificate_policy =
   case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON") do
     nil ->
@@ -553,6 +559,9 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_target_host_override_enabled: remote_access_target_host_override_enabled
+
+config :serviceradar_web_ng,
+  remote_access_target_port_override_enabled: remote_access_target_port_override_enabled
 
 if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,

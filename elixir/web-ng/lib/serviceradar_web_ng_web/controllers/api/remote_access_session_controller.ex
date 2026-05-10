@@ -149,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
          :ok <- validate_public_ssh_request(params),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
+         :ok <- validate_target_port_override(Map.get(params, "target_port")),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
       terminal = Map.get(params, "terminal") || %{}
 
@@ -212,6 +213,24 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         end
     end
   end
+
+  defp validate_target_port_override(value) do
+    if target_port_override_present?(value) and
+         Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) !=
+           true do
+      {:error, :invalid_request, "target_port override is not enabled"}
+    else
+      :ok
+    end
+  end
+
+  defp target_port_override_present?(nil), do: false
+
+  defp target_port_override_present?(value) when is_binary(value) do
+    not is_nil(normalize_optional_string(value))
+  end
+
+  defp target_port_override_present?(_value), do: true
 
   defp normalize_uuid(value, field_name) when is_binary(value) do
     trimmed = String.trim(value)

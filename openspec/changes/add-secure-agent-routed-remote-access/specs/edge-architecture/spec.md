@@ -18,8 +18,8 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 
 #### Scenario: Browser target override is disabled by default
 - **GIVEN** an operator opens a session for a registered inventory target
-- **WHEN** the browser create request supplies a different target host
-- **THEN** the public API SHALL reject the request unless target-host override policy is explicitly enabled
+- **WHEN** the browser create request supplies a different target host or target port
+- **THEN** the public API SHALL reject the request unless the matching target override policy is explicitly enabled
 - **AND** the target SHALL default to the inventory target selected by policy.
 
 #### Scenario: Public SSH endpoint cannot request other adapters

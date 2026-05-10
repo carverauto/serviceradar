@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
       |> assign(:allow_remembered_keys?, allow_remembered_keys?())
       |> assign(:allow_skip_verify_host_key_policy?, allow_skip_verify_host_key_policy?())
       |> assign(:allow_target_host_override?, allow_target_host_override?())
+      |> assign(:allow_target_port_override?, allow_target_port_override?())
 
     {:ok, socket}
   end
@@ -52,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
           allow_remembered_keys={@allow_remembered_keys?}
           allow_skip_verify_host_key_policy={@allow_skip_verify_host_key_policy?}
           allow_target_host_override={@allow_target_host_override?}
+          allow_target_port_override={@allow_target_port_override?}
         />
       </div>
     </Layouts.app>
@@ -72,5 +74,9 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
 
   defp allow_target_host_override? do
     Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, false) == true
+  end
+
+  defp allow_target_port_override? do
+    Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) == true
   end
 end

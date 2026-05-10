@@ -78,6 +78,7 @@ export function Component({
   allowRememberedKeys = false,
   allowSkipVerifyHostKeyPolicy = false,
   allowTargetHostOverride = false,
+  allowTargetPortOverride = false,
   terminalModuleLoader = null,
 }) {
   const [mode, setMode] = useState("paste")
@@ -143,6 +144,12 @@ export function Component({
     }
   }, [allowTargetHostOverride, targetHost])
 
+  useEffect(() => {
+    if (!allowTargetPortOverride && targetPort !== "22") {
+      setTargetPort("22")
+    }
+  }, [allowTargetPortOverride, targetPort])
+
   const attachPayload = useMemo(() => {
     if (!credential) {
       return null
@@ -201,7 +208,7 @@ export function Component({
       body.target_host = targetHost.trim()
     }
 
-    if (targetPort.trim()) {
+    if (allowTargetPortOverride && targetPort.trim()) {
       body.target_port = Number.parseInt(targetPort, 10)
     }
 
@@ -302,17 +309,19 @@ export function Component({
               />
             </label>
 
-            <label className="form-control">
-              <div className="label">
-                <span className="label-text">Target port</span>
-              </div>
-              <input
-                className="input input-bordered"
-                inputMode="numeric"
-                value={targetPort}
-                onChange={(event) => setTargetPort(event.target.value)}
-              />
-            </label>
+            {allowTargetPortOverride ? (
+              <label className="form-control">
+                <div className="label">
+                  <span className="label-text">Target port override</span>
+                </div>
+                <input
+                  className="input input-bordered"
+                  inputMode="numeric"
+                  value={targetPort}
+                  onChange={(event) => setTargetPort(event.target.value)}
+                />
+              </label>
+            ) : null}
           </div>
 
           <label className="form-control">
