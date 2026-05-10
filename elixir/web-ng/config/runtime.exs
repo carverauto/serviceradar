@@ -449,9 +449,14 @@ god_view_runtime_graph_refresh_ms =
     _ -> 30_000
   end
 
+god_view_runtime_graph_auto_refresh_default =
+  if config_env() == :test, do: "false", else: "true"
+
 god_view_runtime_graph_auto_refresh =
-  case to_bool.(System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH", "true")) do
-    nil -> true
+  case to_bool.(
+         System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH", god_view_runtime_graph_auto_refresh_default)
+       ) do
+    nil -> config_env() != :test
     value -> value
   end
 

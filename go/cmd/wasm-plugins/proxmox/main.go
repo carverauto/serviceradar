@@ -138,8 +138,20 @@ type proxmoxGuestAgentNetworkResponse struct {
 	Data proxmoxGuestAgentNetworkData `json:"data"`
 }
 
+type proxmoxGuestAgentFSInfoResponse struct {
+	Data proxmoxGuestAgentFSInfoData `json:"data"`
+}
+
+type proxmoxLXCInterfacesResponse struct {
+	Data []proxmoxLXCInterface `json:"data"`
+}
+
 type proxmoxGuestAgentNetworkData struct {
 	Result []proxmoxGuestAgentInterface `json:"result"`
+}
+
+type proxmoxGuestAgentFSInfoData struct {
+	Result []proxmoxGuestFilesystem `json:"result"`
 }
 
 type proxmoxGuestAgentInterface struct {
@@ -153,6 +165,23 @@ type proxmoxGuestAgentIPAddress struct {
 	IPAddress     string `json:"ip-address"`
 	IPAddressType string `json:"ip-address-type"`
 	Prefix        int    `json:"prefix"`
+}
+
+type proxmoxGuestFilesystem struct {
+	Name       string           `json:"name,omitempty"`
+	Mountpoint string           `json:"mountpoint,omitempty"`
+	Type       string           `json:"type,omitempty"`
+	TotalBytes float64          `json:"total-bytes,omitempty"`
+	UsedBytes  float64          `json:"used-bytes,omitempty"`
+	Disk       []map[string]any `json:"disk,omitempty"`
+}
+
+type proxmoxLXCInterface struct {
+	Name       string `json:"name,omitempty"`
+	Hardware   string `json:"hardware,omitempty"`
+	MACAddress string `json:"hwaddr,omitempty"`
+	Inet       string `json:"inet,omitempty"`
+	Inet6      string `json:"inet6,omitempty"`
 }
 
 type proxmoxVersion struct {
@@ -261,6 +290,7 @@ type proxmoxGuest struct {
 	RuntimeStatus map[string]any                 `json:"runtime_status,omitempty"`
 	Config        map[string]any                 `json:"config,omitempty"`
 	Interfaces    []proxmoxGuestNetworkInterface `json:"interfaces,omitempty"`
+	Filesystems   []proxmoxGuestFilesystem       `json:"filesystems,omitempty"`
 }
 
 type proxmoxGuestNetworkInterface struct {
@@ -760,6 +790,26 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 			} else {
 				guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestAgent(agentInterfaces))
 			}
+
+			filesystems, err := fetchGuestAgentFilesystems(cfg, target, token, resource.Node, resource.VMID)
+			if err != nil {
+				warnings[fmt.Sprintf("guest:%s:%d:agent_filesystems", kind, resource.VMID)] = sanitizeError(err)
+			} else {
+				guest.Filesystems = filterGuestFilesystems(filesystems)
+				if used, total := summarizeGuestFilesystems(guest.Filesystems); total > 0 {
+					guest.Disk = used
+					guest.MaxDisk = total
+				}
+			}
+		}
+
+		if kind == "lxc" && strings.EqualFold(resource.Status, "running") {
+			lxcInterfaces, err := fetchLXCInterfaces(cfg, target, token, resource.Node, resource.VMID)
+			if err != nil {
+				warnings[fmt.Sprintf("guest:%s:%d:interfaces", kind, resource.VMID)] = sanitizeError(err)
+			} else {
+				guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromLXCInterfaces(lxcInterfaces))
+			}
 		}
 
 		out = append(out, guest)
@@ -798,6 +848,26 @@ func fetchGuestAgentNetworkInterfaces(cfg Config, target Target, token, node str
 	return envelope.Data.Result, nil
 }
 
+func fetchGuestAgentFilesystems(cfg Config, target Target, token, node string, vmid int) ([]proxmoxGuestFilesystem, error) {
+	var envelope proxmoxGuestAgentFSInfoResponse
+	path := fmt.Sprintf("/api2/json/nodes/%s/qemu/%d/agent/get-fsinfo", url.PathEscape(node), vmid)
+	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
+		return nil, fmt.Errorf("fetch guest agent filesystems: %w", err)
+	}
+
+	return envelope.Data.Result, nil
+}
+
+func fetchLXCInterfaces(cfg Config, target Target, token, node string, vmid int) ([]proxmoxLXCInterface, error) {
+	var envelope proxmoxLXCInterfacesResponse
+	path := fmt.Sprintf("/api2/json/nodes/%s/lxc/%d/interfaces", url.PathEscape(node), vmid)
+	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
+		return nil, fmt.Errorf("fetch lxc interfaces: %w", err)
+	}
+
+	return envelope.Data, nil
+}
+
 func interfacesFromGuestConfig(config map[string]any) []proxmoxGuestNetworkInterface {
 	if len(config) == 0 {
 		return nil
@@ -819,7 +889,7 @@ func interfacesFromGuestConfig(config map[string]any) []proxmoxGuestNetworkInter
 		}
 
 		iface := interfaceFromGuestConfigValue(key, raw)
-		if iface.Name == "" && iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
+		if iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
 			continue
 		}
 		out = append(out, iface)
@@ -921,13 +991,78 @@ func interfacesFromGuestAgent(agentInterfaces []proxmoxGuestAgentInterface) []pr
 			iface.IPAddresses = appendUniqueString(iface.IPAddresses, ip)
 		}
 
-		if iface.Name == "" && iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
+		if iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
 			continue
 		}
 		out = append(out, iface)
 	}
 
 	return out
+}
+
+func interfacesFromLXCInterfaces(lxcInterfaces []proxmoxLXCInterface) []proxmoxGuestNetworkInterface {
+	out := make([]proxmoxGuestNetworkInterface, 0, len(lxcInterfaces))
+	for _, lxcIface := range lxcInterfaces {
+		iface := proxmoxGuestNetworkInterface{
+			Name:       lxcIface.Name,
+			MACAddress: normalizeMACForOutput(firstNonEmpty(lxcIface.MACAddress, lxcIface.Hardware)),
+			Source:     "lxc_interfaces",
+		}
+
+		for _, ip := range []string{lxcIface.Inet, lxcIface.Inet6} {
+			ip = normalizeGuestIP(ip)
+			if ip == "" || isLoopbackOrLinkLocal(ip) {
+				continue
+			}
+			iface.IPAddresses = appendUniqueString(iface.IPAddresses, ip)
+		}
+
+		if iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
+			continue
+		}
+		out = append(out, iface)
+	}
+
+	return out
+}
+
+func filterGuestFilesystems(filesystems []proxmoxGuestFilesystem) []proxmoxGuestFilesystem {
+	out := make([]proxmoxGuestFilesystem, 0, len(filesystems))
+	for _, fs := range filesystems {
+		if fs.TotalBytes <= 0 || ignoredGuestFilesystem(fs) {
+			continue
+		}
+		out = append(out, fs)
+	}
+	return out
+}
+
+func summarizeGuestFilesystems(filesystems []proxmoxGuestFilesystem) (float64, float64) {
+	var used, total float64
+	for _, fs := range filesystems {
+		if fs.TotalBytes <= 0 {
+			continue
+		}
+		used += fs.UsedBytes
+		total += fs.TotalBytes
+	}
+	return used, total
+}
+
+func ignoredGuestFilesystem(fs proxmoxGuestFilesystem) bool {
+	fsType := strings.ToLower(strings.TrimSpace(fs.Type))
+	switch fsType {
+	case "tmpfs", "devtmpfs", "proc", "sysfs", "cgroup", "cgroup2", "overlay", "squashfs",
+		"tracefs", "debugfs", "securityfs", "pstore", "bpf", "fusectl", "mqueue", "hugetlbfs",
+		"rpc_pipefs", "nsfs", "autofs":
+		return true
+	}
+
+	mountpoint := strings.TrimSpace(fs.Mountpoint)
+	return strings.HasPrefix(mountpoint, "/proc") ||
+		strings.HasPrefix(mountpoint, "/sys") ||
+		strings.HasPrefix(mountpoint, "/dev") ||
+		strings.HasPrefix(mountpoint, "/run")
 }
 
 func mergeGuestInterfaces(left, right []proxmoxGuestNetworkInterface) []proxmoxGuestNetworkInterface {

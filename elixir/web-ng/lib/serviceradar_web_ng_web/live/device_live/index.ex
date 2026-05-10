@@ -152,6 +152,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   @impl true
+  def handle_async({:device_enrichment, token}, {:ok, enrichments}, socket) do
+    socket = clear_task_ref(socket, :device_enrichment_task, {:device_enrichment, token})
+    apply_device_enrichments(socket, token, enrichments)
+  end
+
+  def handle_async({:device_enrichment, token}, {:exit, reason}, socket) do
+    Logger.warning("Device enrichment task failed: #{inspect(reason)}")
+
+    socket = clear_task_ref(socket, :device_enrichment_task, {:device_enrichment, token})
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:device_stats, token}, {:ok, stats}, socket) do
+    socket = clear_task_ref(socket, :device_stats_task, {:device_stats, token})
+    apply_device_stats(socket, token, stats)
+  end
+
+  def handle_async({:device_stats, token}, {:exit, reason}, socket) do
+    Logger.warning("Device stats task failed: #{inspect(reason)}")
+
+    socket =
+      socket
+      |> clear_task_ref(:device_stats_task, {:device_stats, token})
+      |> assign(:device_stats_loading, false)
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
   end
@@ -508,24 +538,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp start_device_enrichment_task(socket, token, scope, query, devices) do
-    task =
-      Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-        enrichments = build_device_enrichments(scope, query, devices)
-        {:device_enrichments_loaded, token, enrichments}
-      end)
+    task = {:device_enrichment, token}
 
-    assign(socket, :device_enrichment_task, task)
+    socket
+    |> assign(:device_enrichment_task, task)
+    |> start_async(task, fn -> build_device_enrichments(scope, query, devices) end)
   end
 
   defp start_device_stats_task(socket, token, scope) do
-    task =
-      Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-        srql = srql_module()
-        stats = load_device_stats(srql, scope)
-        {:device_stats_loaded, token, stats}
-      end)
+    task = {:device_stats, token}
 
-    assign(socket, :device_stats_task, task)
+    socket
+    |> assign(:device_stats_task, task)
+    |> start_async(task, fn ->
+      srql = srql_module()
+      load_device_stats(srql, scope)
+    end)
   end
 
   defp cancel_inflight_device_tasks(socket) do
@@ -536,6 +564,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp cancel_task(socket, key) do
     case Map.get(socket.assigns, key) do
+      {task_type, _token} = task when task_type in [:device_enrichment, :device_stats] ->
+        socket
+        |> cancel_async(task)
+        |> assign(key, nil)
+
       %Task{pid: pid} = task when is_pid(pid) ->
         Process.demonitor(task.ref, [:flush])
         Process.exit(pid, :kill)
@@ -549,6 +582,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp clear_task_ref(socket, key, ref) do
     case Map.get(socket.assigns, key) do
       %Task{ref: ^ref} -> assign(socket, key, nil)
+      ^ref -> assign(socket, key, nil)
       _ -> socket
     end
   end
@@ -2452,23 +2486,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           " "
         )
 
-      {snmp_presence, sysmon_presence} =
-        [snmp: snmp_query, sysmon: sysmon_query]
-        |> Task.async_stream(
-          fn {key, query} -> {key, srql_module.query(query, %{scope: scope})} end,
-          ordered: false,
-          timeout: 30_000
-        )
-        |> Enum.reduce({%{}, %{}}, fn
-          {:ok, {:snmp, {:ok, %{"results" => rows}}}}, {_snmp, sysmon} ->
-            {presence_from_downsample(rows), sysmon}
+      snmp_presence =
+        case srql_module.query(snmp_query, %{scope: scope}) do
+          {:ok, %{"results" => rows}} -> presence_from_downsample(rows)
+          _ -> %{}
+        end
 
-          {:ok, {:sysmon, {:ok, %{"results" => rows}}}}, {snmp, _sysmon} ->
-            {snmp, presence_from_downsample(rows)}
-
-          _, acc ->
-            acc
-        end)
+      sysmon_presence =
+        case srql_module.query(sysmon_query, %{scope: scope}) do
+          {:ok, %{"results" => rows}} -> presence_from_downsample(rows)
+          _ -> %{}
+        end
 
       {snmp_presence, sysmon_presence}
     end

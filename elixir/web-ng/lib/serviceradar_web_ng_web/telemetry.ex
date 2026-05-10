@@ -20,13 +20,22 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   @impl true
   def init(_arg) do
     children = [
-      {TelemetryMetricsPrometheus.Core, metrics: metrics(), name: @prometheus_reporter, start_async: false},
-      # Telemetry poller will execute the given period measurements
-      # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
-      {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
-      # Add reporters as children of your supervision tree.
-      # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
+      {TelemetryMetricsPrometheus.Core, metrics: metrics(), name: @prometheus_reporter, start_async: false}
     ]
+
+    children =
+      if Application.get_env(:serviceradar_web_ng, :telemetry_poller_enabled, true) do
+        children ++
+          [
+            # Telemetry poller will execute the given period measurements
+            # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
+            {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
+            # Add reporters as children of your supervision tree.
+            # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
+          ]
+      else
+        children
+      end
 
     Supervisor.init(children, strategy: :one_for_one)
   end

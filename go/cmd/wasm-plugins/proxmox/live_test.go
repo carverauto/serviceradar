@@ -62,13 +62,41 @@ func TestRunProxmoxCheckLiveFromEnv(t *testing.T) {
 	}
 
 	warnings := 0
+	nodesWithIPs := 0
+	guestsWithIPs := 0
+	guestsWithMACs := 0
+	guestsWithFilesystems := 0
 	if len(details.Targets) > 0 {
 		warnings = len(details.Targets[0].Warnings)
 	}
+	for _, target := range details.Targets {
+		for _, node := range target.Nodes {
+			if strings.TrimSpace(node.IP) != "" {
+				nodesWithIPs++
+			}
+		}
+		for _, guest := range target.Guests {
+			if len(guest.Filesystems) > 0 {
+				guestsWithFilesystems++
+			}
+			for _, iface := range guest.Interfaces {
+				if strings.TrimSpace(iface.MACAddress) != "" {
+					guestsWithMACs++
+				}
+				if len(iface.IPAddresses) > 0 {
+					guestsWithIPs++
+				}
+			}
+		}
+	}
 	t.Logf(
-		"Proxmox live plugin smoke passed: nodes=%d guests=%d storage=%d network=%d disks=%d ceph_nodes=%d warnings=%d status=%s",
+		"Proxmox live plugin smoke passed: nodes=%d nodes_with_ips=%d guests=%d guests_with_ips=%d guests_with_macs=%d guests_with_filesystems=%d storage=%d network=%d disks=%d ceph_nodes=%d warnings=%d status=%s",
 		details.Summary.Nodes,
+		nodesWithIPs,
 		details.Summary.Guests,
+		guestsWithIPs,
+		guestsWithMACs,
+		guestsWithFilesystems,
 		details.Summary.Storage,
 		details.Summary.NetworkInterfaces,
 		details.Summary.Disks,
@@ -87,7 +115,7 @@ func liveConfigFromEnv(t *testing.T) (Config, bool) {
 		return Config{}, false
 	}
 
-	includeGuests := false
+	includeGuests := true
 	cfg := Config{
 		BaseURL:            normalizeBaseURL(baseURL),
 		APIToken:           token,

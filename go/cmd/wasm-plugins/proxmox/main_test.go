@@ -97,6 +97,11 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":{"result":[{"name":"eth0","hardware-address":"00:11:22:33:44:55","ip-addresses":[{"ip-address":"192.168.2.50","ip-address-type":"ipv4","prefix":24},{"ip-address":"fe80::1","ip-address-type":"ipv6","prefix":64}]}]}}`),
 		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/agent/get-fsinfo"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"result":[{"name":"sda1","mountpoint":"/","type":"ext4","total-bytes":8192,"used-bytes":6144},{"name":"tmpfs","mountpoint":"/run","type":"tmpfs","total-bytes":2048,"used-bytes":128}]}}`),
+		}, nil
 	default:
 		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{}`)}, nil
 	}
@@ -146,8 +151,8 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if result.DeviceDiscovery[0].Devices[1].IP != "192.168.2.50" || result.DeviceDiscovery[0].Devices[1].MAC != "00:11:22:33:44:55" {
 		t.Fatalf("expected guest discovery IP/MAC, got %#v", result.DeviceDiscovery[0].Devices[1])
 	}
-	if len(client.requests) != 15 {
-		t.Fatalf("expected fifteen Proxmox API requests, got %d", len(client.requests))
+	if len(client.requests) != 16 {
+		t.Fatalf("expected sixteen Proxmox API requests, got %d", len(client.requests))
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -199,11 +204,32 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if got := details.Targets[0].Guests[0].Interfaces[0].IPAddresses; len(got) != 1 || got[0] != "192.168.2.50/24" {
 		t.Fatalf("expected guest agent IP address, got %#v", got)
 	}
+	if details.Targets[0].Guests[0].Disk != 6144 || details.Targets[0].Guests[0].MaxDisk != 8192 {
+		t.Fatalf("expected guest agent filesystem usage, got disk=%v maxdisk=%v", details.Targets[0].Guests[0].Disk, details.Targets[0].Guests[0].MaxDisk)
+	}
 	if len(result.Metrics) < 14 {
 		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
 	}
 	if len(result.Events) < 1 {
 		t.Fatalf("expected Ceph warning event, got %#v", result.Events)
+	}
+}
+
+func TestInterfacesFromLXCInterfacesIncludesRuntimeDHCPAddress(t *testing.T) {
+	interfaces := interfacesFromLXCInterfaces([]proxmoxLXCInterface{
+		{Name: "lo", Inet: "127.0.0.1/8"},
+		{Name: "eth0", MACAddress: "bc:24:11:53:84:67", Inet: "192.168.2.73/24", Inet6: "fe80::1/64"},
+	})
+
+	if len(interfaces) != 1 {
+		t.Fatalf("expected only the routable eth0 interface record, got %#v", interfaces)
+	}
+	got := interfaces[0]
+	if got.MACAddress != "BC:24:11:53:84:67" || got.Source != "lxc_interfaces" {
+		t.Fatalf("expected normalized LXC interface identity, got %#v", got)
+	}
+	if len(got.IPAddresses) != 1 || got.IPAddresses[0] != "192.168.2.73/24" {
+		t.Fatalf("expected non-link-local LXC address, got %#v", got.IPAddresses)
 	}
 }
 

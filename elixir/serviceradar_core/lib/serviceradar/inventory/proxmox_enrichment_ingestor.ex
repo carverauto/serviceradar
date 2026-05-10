@@ -219,7 +219,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
           disk_used_bytes: integer_value(guest, "disk"),
           disk_total_bytes: integer_value(guest, "maxdisk"),
           uptime_seconds: integer_value(guest, "uptime"),
-          metadata: sanitize_metadata(Map.take(guest, ["id", "config", "runtime_status"])),
+          metadata: sanitize_metadata(Map.take(guest, ["id", "config", "runtime_status", "filesystems"])),
           observed_at: observed_at
         }
 

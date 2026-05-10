@@ -4,4 +4,5 @@
 - [x] 1.3 Add structured storage for Proxmox guest NIC/IP evidence.
 - [x] 1.4 Link virtualization guests to existing devices using MAC/IP/name identity hints.
 - [x] 1.5 Emit guest IP/MAC identity hints in device discovery payloads.
-- [ ] 1.6 Add focused tests and validate against demo Proxmox data.
+- [x] 1.6 Add focused tests for guest NIC/IP identity hints and persisted guest-device linking.
+- [ ] 1.7 Validate against demo Proxmox data.

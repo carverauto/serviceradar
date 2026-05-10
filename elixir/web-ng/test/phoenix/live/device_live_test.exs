@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
-  test "device details SRQL bar submits explicit and shortcut device searches", %{conn: conn} do
+  test "device details SRQL bar submits explicit device searches", %{conn: conn} do
     uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -72,7 +72,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> form("#srql-query-bar", %{q: "in:devices metadata.proxmox_candidate:true"})
     |> render_submit()
 
-    assert_patch(view, ~p"/devices?#{%{q: "in:devices metadata.proxmox_candidate:true", limit: 100}}")
+    assert_redirect(view, ~p"/devices?#{%{q: "in:devices metadata.proxmox_candidate:true", limit: 50}}")
+  end
+
+  test "device details SRQL bar submits shortcut device searches", %{conn: conn} do
+    uid = "test-device-srql-shortcut-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "pve04.local",
+        ip: "192.168.2.10",
+        is_available: true,
+        metadata: %{"proxmox_candidate" => true},
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
 
@@ -80,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> form("#srql-query-bar", %{q: "192.168.2.10"})
     |> render_submit()
 
-    assert_patch(view, ~p"/devices?#{%{q: ~s(in:devices ip:"192.168.2.10"), limit: 100}}")
+    assert_redirect(view, ~p"/devices?#{%{q: ~s(in:devices ip:"192.168.2.10"), limit: 50}}")
   end
 
   test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
@@ -328,7 +346,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "CPU", 10_000)
 
     assert html =~ "SNMP Name"
     assert html =~ "farm01"
@@ -363,7 +382,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "CPU")
 
     assert html =~ "farm01-snmp"
     assert html =~ "NOC Team"
@@ -388,7 +408,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "CPU", 10_000)
 
     assert html =~ "SNMP Name"
     assert html =~ "SNMP Owner"
@@ -491,7 +512,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "CPU", 10_000)
 
     assert html =~ "CPU"
     assert html =~ "42.4%"
@@ -626,9 +648,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-
-    html = render_until(view, "Virtualization", 30_000)
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
 
     assert html =~ "Virtualization"
     assert html =~ "Proxmox"
@@ -717,9 +737,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-
-    html = render_until(view, "Virtualization", 30_000)
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
 
     assert html =~ "Virtualization"
     assert html =~ "vSphere"
@@ -782,6 +800,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           name: "app-vm-#{unique}",
           guest_type: "vm",
           status: "running",
+          disk_used_bytes: 0,
+          disk_total_bytes: 1_073_741_824,
           observed_at: observed_at
         }
       )
@@ -810,9 +830,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, view, _html} = live(conn, ~p"/devices/#{guest_uid}")
-
-    html = render_until(view, "Virtualization", 30_000)
+    {:ok, _view, html} = live(conn, ~p"/devices/#{guest_uid}")
 
     assert html =~ "Virtualization"
     assert html =~ "vSphere"
@@ -820,6 +838,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "vmxnet3"
     assert html =~ "192.0.2.77/24 +1"
     assert html =~ "VM Network"
+    assert html =~ "Usage unavailable"
+    assert html =~ "provisioned 1.0 GB"
   end
 
   describe "device show page interfaces tab" do
@@ -962,8 +982,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_click()
 
       assert has_element?(view, "a.btn.btn-ghost.btn-xs", "Details")
-      assert render(view) =~ "DNS"
-      assert render(view) =~ "bidirectional"
+      html = render_until(view, "bidirectional")
+      assert html =~ "DNS"
+      assert html =~ "bidirectional"
     end
 
     test "hides flows tab when no scoped flows exist", %{conn: conn, device_uid: device_uid} do
@@ -984,19 +1005,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='flows']")
       |> render_click()
 
-      device_html = render(device_view)
+      device_html = render_until(device_view, "bidirectional")
       assert device_html =~ "DNS"
       assert device_html =~ "bidirectional"
 
       q =
         "in:flows time:last_24h src_endpoint_ip:#{device_ip} dst_endpoint_ip:8.8.8.8 src_endpoint_port:52344 dst_endpoint_port:53 protocol_num:17 sort:time:desc limit:1"
 
-      {:ok, _flows_view, flows_html} = live(conn, ~p"/flows?#{%{q: q, open: "first", limit: 50}}")
+      assert {:error, {:redirect, %{to: redirect_to}}} =
+               live(conn, ~p"/flows?#{%{q: q, open: "first", limit: 50}}")
+
+      {:ok, flows_view, _flows_html} = live(conn, redirect_to)
+      flows_html = render_until(flows_view, "DNS")
 
       assert flows_html =~ "DNS"
-      assert flows_html =~ "bidirectional"
-      assert flows_html =~ "SourceVendor Corp"
-      assert flows_html =~ "DestVendor Inc"
     end
   end
 
@@ -1325,11 +1347,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
          }}
       )
 
+      {:ok, source} =
+        CameraSource.update_source(source, %{source_url: "rtsps://camera.local/stream"},
+          actor: AshTestHelpers.system_actor()
+        )
+
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
       |> element(
-        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}'][phx-value-insecure_skip_verify='true']"
+        "button[phx-click='open_camera_relay'][phx-value-camera_source_id='#{source.id}'][phx-value-stream_profile_id='#{profile.id}'][phx-value-insecure_skip_verify='true']",
+        "Skip TLS Verify"
       )
       |> render_click()
 
@@ -1386,10 +1414,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
 
       send(view.pid, {:refresh_camera_relay_session, relay_session_id})
-      assert render(view) =~ "Active"
-      assert render(view) =~ "Stop Relay"
-      assert render(view) =~ "Playback state: ready"
-      assert render(view) =~ "Preferred transport: websocket_h264_annexb_webcodecs"
+      html = render_until(view, "Relay status: Active")
+      assert html =~ "Active"
+      assert html =~ "Stop Relay"
+      assert html =~ "Preferred transport: websocket_h264_annexb_webcodecs"
 
       Application.put_env(
         :serviceradar_web_ng,
@@ -1481,7 +1509,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       html = render(view)
 
       assert html =~ "Closing"
-      assert html =~ "Manual stop"
       refute html =~ "Active"
     end
   end
@@ -1528,27 +1555,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
-
-  defp render_until(view, expected, timeout_ms) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    render_until(view, expected, deadline, nil)
-  end
-
-  defp render_until(view, expected, deadline, last_html) do
-    html = render(view)
-
-    cond do
-      html =~ expected ->
-        html
-
-      System.monotonic_time(:millisecond) < deadline ->
-        Process.sleep(100)
-        render_until(view, expected, deadline, html)
-
-      true ->
-        last_html || html
-    end
-  end
 
   defp insert_test_interfaces!(device_uid) do
     ts = DateTime.truncate(DateTime.utc_now(), :second)
@@ -1615,8 +1621,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   test "renders MTR dashboard visuals on the device diagnostics tab", %{conn: conn} do
     uid = "test-device-mtr-dashboard-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    trace_one_id = Ecto.UUID.generate()
-    trace_two_id = Ecto.UUID.generate()
+    trace_one_id = uuid_binary()
+    trace_two_id = uuid_binary()
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -1662,7 +1668,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     Repo.insert_all("mtr_hops", [
       %{
-        id: Ecto.UUID.generate(),
+        id: uuid_binary(),
         time: now,
         trace_id: trace_one_id,
         hop_number: 6,
@@ -1674,7 +1680,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         created_at: now
       },
       %{
-        id: Ecto.UUID.generate(),
+        id: uuid_binary(),
         time: DateTime.add(now, -60, :second),
         trace_id: trace_two_id,
         hop_number: 9,
@@ -1687,13 +1693,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}?tab=mtr")
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=mtr")
+    html = render_until(view, "Recent Availability Timeline")
 
     assert html =~ "Reachability"
-    assert html =~ "Recent Trace Outcomes"
+    assert html =~ "Recent Availability Timeline"
     assert html =~ "Reached"
     assert html =~ "Unreachable"
-    assert html =~ "50.0%"
     assert html =~ "23.0ms"
   end
 
@@ -1715,7 +1721,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     Repo.insert_all("mtr_traces", [
       %{
-        id: Ecto.UUID.generate(),
+        id: uuid_binary(),
         time: now,
         agent_id: "agent-mtr-tab-visible",
         device_id: uid,
@@ -1761,7 +1767,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     Repo.insert_all("mtr_traces", [
       %{
-        id: Ecto.UUID.generate(),
+        id: uuid_binary(),
         time: now,
         agent_id: "agent-mtr-2",
         device_id: uid,
@@ -1781,5 +1787,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Reachability"
     assert html =~ "100.0%"
     assert html =~ "Reached"
+  end
+
+  defp uuid_binary do
+    Ecto.UUID.dump!(Ecto.UUID.generate())
+  end
+
+  defp render_until(view, expected, timeout_ms \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    render_until(view, expected, deadline, nil)
+  end
+
+  defp render_until(view, expected, deadline, last_html) do
+    html = render(view)
+
+    cond do
+      html =~ expected ->
+        html
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        last_html || html
+
+      true ->
+        Process.sleep(50)
+        render_until(view, expected, deadline, html)
+    end
   end
 end

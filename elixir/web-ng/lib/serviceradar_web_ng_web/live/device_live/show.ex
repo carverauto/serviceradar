@@ -64,6 +64,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @availability_window "last_24h"
   @availability_bucket "30m"
   @camera_relay_poll_interval_ms 1_000
+  @details_supplemental_timeout_ms 3_000
+  @tab_supplemental_timeout_ms 15_000
+  @slow_device_task_ms 1_500
 
   @impl true
   def mount(_params, _session, socket) do
@@ -250,22 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     current_ref = Map.get(socket.assigns, :flow_stats_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
-      {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-       top_ports_json, top_protocols_json, facets} = stats_bundle
-
-      {:noreply,
-       socket
-       |> assign(:flow_stats, flow_stats)
-       |> assign(:flow_stats_loading, false)
-       |> assign(:flow_sparkline_json, sparkline_json)
-       |> assign(:flow_proto_json, proto_json)
-       |> assign(:flow_chart_keys_json, chart_keys)
-       |> assign(:flow_chart_points_json, chart_points)
-       |> assign(:flow_top_talkers_json, top_talkers_json)
-       |> assign(:flow_top_destinations_json, top_destinations_json)
-       |> assign(:flow_top_ports_json, top_ports_json)
-       |> assign(:flow_top_protocols_json, top_protocols_json)
-       |> assign(:flow_facets, facets)}
+      {:noreply, apply_flow_stats_bundle(socket, stats_bundle)}
     else
       {:noreply, socket}
     end
@@ -275,10 +263,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
-      {:noreply,
-       socket
-       |> assign(:rdns_map, rdns_map)
-       |> assign(:geo_iso2_map, geo_iso2_map)}
+      {:noreply, apply_flow_ip_enrichment(socket, rdns_map, geo_iso2_map)}
     else
       {:noreply, socket}
     end
@@ -288,11 +273,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     current_ref = Map.get(socket.assigns, :device_details_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
-      {:noreply,
-       socket
-       |> assign(assigns)
-       |> assign(:details_loading, false)
-       |> assign(:device_details_request_ref, nil)}
+      {:noreply, apply_device_details_assigns(socket, assigns)}
     else
       {:noreply, socket}
     end
@@ -302,11 +283,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     current_ref = Map.get(socket.assigns, :device_metrics_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
-      {:noreply,
-       socket
-       |> assign(assigns)
-       |> assign(:metrics_loading, false)
-       |> assign(:device_metrics_request_ref, nil)}
+      {:noreply, apply_device_metrics_assigns(socket, assigns)}
     else
       {:noreply, socket}
     end
@@ -347,6 +324,120 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end)
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_async({:device_details, device_uid, request_ref}, {:ok, assigns}, socket) do
+    current_ref = Map.get(socket.assigns, :device_details_request_ref)
+
+    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+      {:noreply, apply_device_details_assigns(socket, assigns)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_details, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device details task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.device_details_request_ref do
+      {:noreply, socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_metrics, device_uid, request_ref}, {:ok, assigns}, socket) do
+    current_ref = Map.get(socket.assigns, :device_metrics_request_ref)
+
+    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+      {:noreply, apply_device_metrics_assigns(socket, assigns)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_metrics, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device metrics task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.device_metrics_request_ref do
+      {:noreply, socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:flow_stats, device_uid, request_ref}, {:ok, stats_bundle}, socket) do
+    current_ref = Map.get(socket.assigns, :flow_stats_request_ref)
+
+    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+      {:noreply, apply_flow_stats_bundle(socket, stats_bundle)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:flow_stats, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device flow stats task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.flow_stats_request_ref do
+      {:noreply, assign(socket, :flow_stats_loading, false)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:flow_ip_enrichment, device_uid, request_ref}, {:ok, {rdns_map, geo_iso2_map}}, socket) do
+    current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
+
+    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+      {:noreply, apply_flow_ip_enrichment(socket, rdns_map, geo_iso2_map)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:flow_ip_enrichment, device_uid, _request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device flow IP enrichment task failed for #{device_uid}: #{inspect(reason)}")
+    {:noreply, socket}
+  end
+
+  defp apply_device_details_assigns(socket, assigns) do
+    socket
+    |> assign(assigns)
+    |> assign(:details_loading, false)
+    |> assign(:device_details_request_ref, nil)
+  end
+
+  defp apply_device_metrics_assigns(socket, assigns) do
+    socket
+    |> assign(assigns)
+    |> assign(:metrics_loading, false)
+    |> assign(:device_metrics_request_ref, nil)
+  end
+
+  defp apply_flow_stats_bundle(socket, stats_bundle) do
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets} = stats_bundle
+
+    socket
+    |> assign(:flow_stats, flow_stats)
+    |> assign(:flow_stats_loading, false)
+    |> assign(:flow_sparkline_json, sparkline_json)
+    |> assign(:flow_proto_json, proto_json)
+    |> assign(:flow_chart_keys_json, chart_keys)
+    |> assign(:flow_chart_points_json, chart_points)
+    |> assign(:flow_top_talkers_json, top_talkers_json)
+    |> assign(:flow_top_destinations_json, top_destinations_json)
+    |> assign(:flow_top_ports_json, top_ports_json)
+    |> assign(:flow_top_protocols_json, top_protocols_json)
+    |> assign(:flow_facets, facets)
+  end
+
+  defp apply_flow_ip_enrichment(socket, rdns_map, geo_iso2_map) do
+    socket
+    |> assign(:rdns_map, rdns_map)
+    |> assign(:geo_iso2_map, geo_iso2_map)
   end
 
   defp summarize_unhandled_msg(msg) when is_tuple(msg) do
@@ -406,9 +497,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
     request_ref = make_ref()
-    parent = self()
 
-    Task.start(fn ->
+    if Application.get_env(:serviceradar_web_ng, :env) == :test do
       sysmon_filters = resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
 
       assigns = %{
@@ -417,12 +507,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         sysmon_presence: sysmon_filters != []
       }
 
-      send(parent, {:device_metrics_loaded, uid, request_ref, assigns})
-    end)
+      socket
+      |> assign(:device_metrics_request_ref, request_ref)
+      |> assign(:metrics_loading, false)
+      |> apply_device_metrics_assigns(assigns)
+    else
+      socket
+      |> assign(:device_metrics_request_ref, request_ref)
+      |> assign(:metrics_loading, true)
+      |> start_async({:device_metrics, uid, request_ref}, fn ->
+        sysmon_filters = resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
 
-    socket
-    |> assign(:device_metrics_request_ref, request_ref)
-    |> assign(:metrics_loading, true)
+        %{
+          metric_sections: load_metric_sections(srql_module, sysmon_filters, scope),
+          process_metrics: load_process_metrics(srql_module, sysmon_filters, scope),
+          sysmon_presence: sysmon_filters != []
+        }
+      end)
+    end
   end
 
   defp normalize_requested_tab(url_tab, fallback_tab) do
@@ -501,23 +603,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
 
-    results =
-      safe_yield_many(
-        [
-          Task.async(fn -> {:interfaces, load_interfaces(srql_mod, uid, scope)} end),
-          Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end)
-        ],
-        15_000
-      )
-
-    {network_interfaces, interfaces_error} = Map.get(results, :interfaces, {[], nil})
+    {network_interfaces, interfaces_error} = load_interfaces(srql_mod, uid, scope)
 
     interface_settings =
-      Map.get(results, :iface_settings, %{
-        favorited: MapSet.new(),
-        metrics_enabled: MapSet.new(),
-        by_uid: %{}
-      })
+      load_interface_settings(scope, uid)
 
     network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
@@ -533,7 +622,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     has_ifaces =
       is_binary(interfaces_error) or
-        (is_list(network_interfaces) and network_interfaces != [])
+        (is_list(network_interfaces) and network_interfaces != []) or
+        not is_nil(socket.assigns.discovery_job)
 
     socket
     |> assign(:network_interfaces, network_interfaces)
@@ -595,6 +685,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     device_row = List.first(Enum.filter(results, &is_map/1))
     device_ip = get_device_ip(results)
     show_stale = socket.assigns.show_stale_aliases
+    virtualization_summary = load_virtualization_summary(scope, uid)
+    has_virtualization_guests = virtualization_guests?(virtualization_summary)
+    {camera_sources, camera_inventory_error} = load_camera_sources(scope, uid, device_row)
 
     supplemental_context = %{
       socket: socket,
@@ -605,28 +698,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       requested_tab: requested_tab,
       device_row: device_row,
       device_ip: device_ip,
-      show_stale: show_stale
+      show_stale: show_stale,
+      virtualization_summary: virtualization_summary,
+      camera_sources: camera_sources,
+      camera_inventory_error: camera_inventory_error
     }
 
     if requested_tab == "details" do
-      request_ref = make_ref()
-      parent = self()
       base_context = Map.put(supplemental_context, :include_metrics?, false)
-
-      Task.start(fn ->
-        supplemental_assigns = load_device_supplemental_assigns(base_context)
-
-        send(parent, {:device_details_loaded, uid, request_ref, supplemental_assigns})
-      end)
-
-      socket =
-        begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity(device_row, uid), scope)
+      base_context = Map.put(base_context, :supplemental_timeout_ms, @details_supplemental_timeout_ms)
+      supplemental_assigns = load_device_supplemental_assigns(base_context)
 
       {:noreply,
        socket
        |> assign(:device_uid, uid)
-       |> assign(:device_details_request_ref, request_ref)
-       |> assign(:details_loading, true)
+       |> assign(:device_details_request_ref, nil)
+       |> assign(:details_loading, false)
        |> assign(:limit, limit)
        |> assign(:results, results)
        |> assign(:network_interfaces, [])
@@ -658,17 +745,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:sysmon_profile_info, nil)
        |> assign(:available_profiles, [])
        |> assign(:process_metrics, nil)
-       |> assign(:camera_sources, [])
-       |> assign(:camera_inventory_error, nil)
+       |> assign(:camera_sources, camera_sources)
+       |> assign(:camera_inventory_error, camera_inventory_error)
        |> assign(:active_camera_relay_session, active_camera_relay_session)
        |> assign(:last_camera_relay_session, last_camera_relay_session)
        |> assign(:availability, nil)
        |> assign(:healthcheck_summary, nil)
-       |> assign(:virtualization_summary, nil)
-       |> assign(:has_virtualization_guests, false)
+       |> assign(:virtualization_summary, virtualization_summary)
+       |> assign(:has_virtualization_guests, has_virtualization_guests)
        |> assign(:sweep_results, nil)
        |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
-       |> assign(:srql, base_srql)}
+       |> assign(:srql, base_srql)
+       |> assign(supplemental_assigns)
+       |> begin_device_metrics_refresh(uid, srql_module, sysmon_identity(device_row, uid), scope)}
     else
       supplemental_assigns = load_device_supplemental_assigns(supplemental_context)
 
@@ -720,6 +809,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     device_ip = Map.get(context, :device_ip)
     show_stale = Map.get(context, :show_stale, false)
     include_metrics? = Map.get(context, :include_metrics?, true)
+    virtualization_summary = Map.get(context, :virtualization_summary)
+    supplemental_timeout_ms = Map.get(context, :supplemental_timeout_ms, @tab_supplemental_timeout_ms)
+    camera_sources = Map.get(context, :camera_sources, [])
+    camera_inventory_error = Map.get(context, :camera_inventory_error)
 
     load_interfaces_data? = requested_tab == "interfaces"
     load_flows_data? = requested_tab == "flows"
@@ -752,15 +845,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     metric_tasks =
       if include_metrics? do
         [
-          Task.async(fn -> {:metrics, load_metric_sections(srql_module, sysmon_filters, scope)} end),
-          Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
+          timed_device_task(:metrics, fn -> load_metric_sections(srql_module, sysmon_filters, scope) end),
+          timed_device_task(:process, fn -> load_process_metrics(srql_module, sysmon_filters, scope) end)
         ]
       else
         []
       end
 
     parallel_results =
-      safe_yield_many(parallel_tasks ++ metric_tasks, 30_000)
+      safe_yield_many(parallel_tasks ++ metric_tasks, supplemental_timeout_ms)
 
     {network_interfaces, interfaces_error} =
       extract_interface_results(parallel_results, load_interfaces_data?)
@@ -822,11 +915,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
 
-    {camera_sources, camera_inventory_error} =
-      Map.get(parallel_results, :camera_sources, {[], nil})
-
     {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
-    virtualization_summary = Map.get(parallel_results, :virtualization)
 
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
@@ -883,13 +972,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          load_logs_data?: load_logs_data?
        }) do
     base_tasks = [
-      Task.async(fn -> {:availability, load_availability(srql_module, uid, scope)} end),
-      Task.async(fn -> {:healthcheck, load_healthcheck_summary(srql_module, uid, scope)} end),
-      Task.async(fn -> {:sweep, load_sweep_results(socket.assigns.current_scope, device_ip)} end),
-      Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
-      Task.async(fn -> {:camera_sources, load_camera_sources(scope, uid, device_row)} end),
-      Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end),
-      Task.async(fn -> {:virtualization, load_virtualization_summary(scope, uid)} end)
+      timed_device_task(:availability, fn -> load_availability(srql_module, uid, scope) end),
+      timed_device_task(:healthcheck, fn -> load_healthcheck_summary(srql_module, uid, scope) end),
+      timed_device_task(:sweep, fn -> load_sweep_results(socket.assigns.current_scope, device_ip) end),
+      timed_device_task(:mapper, fn -> load_mapper_jobs_for_device(scope, device_row) end),
+      timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end)
     ]
 
     base_tasks
@@ -900,7 +987,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_profile_task(tasks, "profiles", uid, scope) do
-    tasks ++ [Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end)]
+    tasks ++ [timed_device_task(:profile, fn -> load_sysmon_profile_info(scope, uid) end)]
   end
 
   defp maybe_add_profile_task(tasks, _active_tab, _uid, _scope), do: tasks
@@ -908,39 +995,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_add_interface_tasks(tasks, true, srql_module, uid, scope) do
     tasks ++
       [
-        Task.async(fn -> {:interfaces, load_interfaces(srql_module, uid, scope)} end),
-        Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end)
+        timed_device_task(:interfaces, fn -> load_interfaces(srql_module, uid, scope) end),
+        timed_device_task(:iface_settings, fn -> load_interface_settings(scope, uid) end)
       ]
   end
 
   defp maybe_add_interface_tasks(tasks, false, srql_module, uid, scope) do
-    tasks ++ [Task.async(fn -> {:has_ifaces, detect_has_interfaces(srql_module, uid, scope)} end)]
+    tasks ++ [timed_device_task(:has_ifaces, fn -> detect_has_interfaces(srql_module, uid, scope) end)]
   end
 
   defp maybe_add_flow_tasks(tasks, true, srql_module, uid, scope, params) do
     tasks ++
       [
-        Task.async(fn ->
-          {:flows, load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
+        timed_device_task(:flows, fn ->
+          load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))
         end)
       ]
   end
 
   defp maybe_add_flow_tasks(tasks, false, srql_module, uid, scope, _params) do
-    tasks ++ [Task.async(fn -> {:has_flows, detect_has_flows(srql_module, uid, scope)} end)]
+    tasks ++ [timed_device_task(:has_flows, fn -> detect_has_flows(srql_module, uid, scope) end)]
   end
 
   defp maybe_add_log_tasks(tasks, true, srql_module, uid, scope, params) do
     tasks ++
       [
-        Task.async(fn ->
-          {:logs, load_logs(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))}
+        timed_device_task(:logs, fn ->
+          load_logs(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))
         end)
       ]
   end
 
   defp maybe_add_log_tasks(tasks, false, srql_module, uid, scope, _params) do
-    tasks ++ [Task.async(fn -> {:has_logs, detect_has_logs(srql_module, uid, scope)} end)]
+    tasks ++ [timed_device_task(:has_logs, fn -> detect_has_logs(srql_module, uid, scope) end)]
   end
 
   defp extract_interface_results(parallel_results, true), do: Map.get(parallel_results, :interfaces, {[], nil})
@@ -1113,10 +1200,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         page_path
       end
 
-    {:noreply,
-     push_patch(socket,
-       to: page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => socket.assigns.limit})
-     )}
+    current_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_uid}"
+    target = page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => socket.assigns.limit})
+
+    socket =
+      if page_path == current_path do
+        push_patch(socket, to: target)
+      else
+        push_navigate(socket, to: target)
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("toggle_edit", _params, socket) do
@@ -1396,12 +1490,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         ~p"/devices/#{socket.assigns.device_uid}?tab=#{tab}"
       end
 
+    uid = socket.assigns.device_uid
+
     socket =
-      if tab == "mtr" do
-        load_mtr_traces(socket)
-      else
-        socket
-      end
+      socket
+      |> maybe_reload_flows_for_active_tab(tab, uid, nil)
+      |> maybe_reload_logs_for_active_tab(tab, uid, nil)
+      |> maybe_reload_interfaces_for_active_tab(tab, uid)
+      |> maybe_reload_profiles_for_active_tab(tab, uid)
+      |> maybe_load_mtr_for_active_tab(tab)
 
     {:noreply,
      socket
@@ -2170,12 +2267,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
     request_ref = make_ref()
-    parent = self()
-
-    Task.start(fn ->
-      stats_bundle = load_device_flow_stats(srql_mod, uid, scope)
-      send(parent, {:flow_stats_loaded, uid, request_ref, stats_bundle})
-    end)
 
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
      top_ports_json, top_protocols_json, facets} =
@@ -2194,12 +2285,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:flow_top_ports_json, top_ports_json)
     |> assign(:flow_top_protocols_json, top_protocols_json)
     |> assign(:flow_facets, facets)
+    |> start_async({:flow_stats, uid, request_ref}, fn ->
+      load_device_flow_stats(srql_mod, uid, scope)
+    end)
   end
 
   defp begin_flow_ip_enrichment(socket, uid, flows) do
     request_ref = make_ref()
     scope = Map.get(socket.assigns, :current_scope)
-    parent = self()
     ips = flow_ips(flows)
 
     if ips == [] do
@@ -2208,16 +2301,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:rdns_map, %{})
       |> assign(:geo_iso2_map, %{})
     else
-      Task.start(fn ->
-        rdns_map = bulk_rdns(ips, scope)
-        geo_iso2_map = bulk_geo_iso2(ips, scope)
-        send(parent, {:flow_ip_enrichment_loaded, uid, request_ref, rdns_map, geo_iso2_map})
-      end)
-
       socket
       |> assign(:flow_ip_request_ref, request_ref)
       |> assign(:rdns_map, %{})
       |> assign(:geo_iso2_map, %{})
+      |> start_async({:flow_ip_enrichment, uid, request_ref}, fn ->
+        rdns_map = bulk_rdns(ips, scope)
+        geo_iso2_map = bulk_geo_iso2(ips, scope)
+        {rdns_map, geo_iso2_map}
+      end)
     end
   end
 
@@ -2908,7 +3000,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         if sysmon_metrics_visible?(assigns) do
           Enum.filter(assigns.metric_sections, fn section ->
             is_binary(Map.get(section, :error)) or
-              Map.get(section, :panels, []) != [] or Map.get(section, :rows, []) != []
+              Map.get(section, :panels, []) != [] or Map.get(section, :rows, []) != [] or
+              not is_nil(Map.get(section, :header_value)) or
+              not is_nil(Map.get(section, :header_stats))
           end)
         else
           []
@@ -4748,30 +4842,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       <span class="text-xs text-error">Relay unavailable</span>
                     <% end %>
                   <% true -> %>
-                    <div class="flex flex-wrap items-center gap-2">
-                      <.ui_button
-                        phx-click="open_camera_relay"
-                        phx-value-camera_source_id={source.id}
-                        phx-value-stream_profile_id={profile.id}
-                        variant="outline"
-                        size="xs"
-                        disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
-                      >
-                        Open Relay
-                      </.ui_button>
-                      <.ui_button
-                        :if={camera_profile_supports_insecure_tls_override?(source, profile)}
-                        phx-click="open_camera_relay"
-                        phx-value-camera_source_id={source.id}
-                        phx-value-stream_profile_id={profile.id}
-                        phx-value-insecure_skip_verify="true"
-                        variant="ghost"
-                        size="xs"
-                        disabled={not is_nil(@active_session) or not camera_source_openable?(source)}
-                      >
-                        Skip TLS Verify
-                      </.ui_button>
-                    </div>
+                    <%= if camera_source_openable?(source) do %>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <.ui_button
+                          phx-click="open_camera_relay"
+                          phx-value-camera_source_id={source.id}
+                          phx-value-stream_profile_id={profile.id}
+                          variant="outline"
+                          size="xs"
+                          disabled={not is_nil(@active_session)}
+                        >
+                          Open Relay
+                        </.ui_button>
+                        <.ui_button
+                          :if={camera_profile_supports_insecure_tls_override?(source, profile)}
+                          phx-click="open_camera_relay"
+                          phx-value-camera_source_id={source.id}
+                          phx-value-stream_profile_id={profile.id}
+                          phx-value-insecure_skip_verify="true"
+                          variant="ghost"
+                          size="xs"
+                          disabled={not is_nil(@active_session)}
+                        >
+                          Skip TLS Verify
+                        </.ui_button>
+                      </div>
+                    <% else %>
+                      <span class="text-xs text-error">Relay unavailable</span>
+                    <% end %>
                 <% end %>
               </div>
             </div>
@@ -6605,12 +6703,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp parse_positive_page(page) when is_integer(page) and page > 0, do: page
   defp parse_positive_page(_), do: 1
 
-  # Gracefully await a list of keyed async tasks. Each task must return {:key, value}.
+  defp timed_device_task(key, fun) when is_atom(key) and is_function(fun, 0) do
+    {key,
+     Task.async(fn ->
+       started_at = System.monotonic_time(:millisecond)
+       value = fun.()
+       elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+       if elapsed_ms >= @slow_device_task_ms do
+         Logger.warning("Device details task #{key} took #{elapsed_ms}ms")
+       end
+
+       {key, value}
+     end)}
+  end
+
   # Returns a map of results; timed-out or crashed tasks are silently omitted.
   defp safe_yield_many(tasks, timeout) do
-    tasks
+    keyed_tasks = Enum.map(tasks, &normalize_timed_task/1)
+    key_by_ref = Map.new(keyed_tasks, fn {key, task} -> {task.ref, key} end)
+
+    keyed_tasks
+    |> Enum.map(fn {_key, task} -> task end)
     |> Task.yield_many(timeout)
     |> Enum.map(fn {task, result} ->
+      key = Map.get(key_by_ref, task.ref)
+
       case result do
         {:ok, {key, value}} when is_atom(key) ->
           {key, value}
@@ -6619,6 +6737,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           nil
 
         _ ->
+          if not is_nil(key) do
+            Logger.warning("Device details task #{key} timed out after #{timeout}ms")
+          end
+
           Task.shutdown(task, :brutal_kill)
           nil
       end
@@ -6626,6 +6748,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> Enum.reject(&is_nil/1)
     |> Map.new()
   end
+
+  defp normalize_timed_task({key, %Task{} = task}) when is_atom(key), do: {key, task}
+  defp normalize_timed_task(%Task{} = task), do: {nil, task}
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -6694,21 +6819,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp load_metric_sections(_srql_module, [], _scope), do: []
 
   defp load_metric_sections(srql_module, filter_tokens, scope) do
-    results =
-      safe_yield_many(
-        [
-          Task.async(fn -> {:cpu, build_cpu_section(srql_module, filter_tokens, scope)} end),
-          Task.async(fn ->
-            {:memory, build_memory_section(srql_module, filter_tokens, scope)}
-          end),
-          Task.async(fn -> {:disk, build_disk_section(srql_module, filter_tokens, scope)} end)
-        ],
-        30_000
-      )
-
-    [:cpu, :memory, :disk]
-    |> Enum.map(&Map.get(results, &1))
-    |> Enum.filter(& &1)
+    Enum.filter(
+      [
+        build_cpu_section(srql_module, filter_tokens, scope),
+        build_memory_section(srql_module, filter_tokens, scope),
+        build_disk_section(srql_module, filter_tokens, scope)
+      ],
+      & &1
+    )
   end
 
   defp build_cpu_section(srql_module, filter_tokens, scope) do
@@ -7340,17 +7458,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
-    ["cpu_metrics", "memory_metrics", "disk_metrics", "process_metrics"]
-    |> Task.async_stream(
-      &sysmon_entity_has_data?(srql_module, &1, filter_tokens, scope),
-      timeout: 10_000,
-      ordered: false,
-      max_concurrency: 4
+    Enum.any?(
+      ["cpu_metrics", "memory_metrics", "disk_metrics", "process_metrics"],
+      &sysmon_entity_has_data?(srql_module, &1, filter_tokens, scope)
     )
-    |> Enum.any?(fn
-      {:ok, true} -> true
-      _ -> false
-    end)
   end
 
   defp sysmon_entity_has_data?(srql_module, entity, filter_tokens, scope) do
@@ -7902,8 +8013,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 <span class="text-base-content/40">/ {format_bytes(guest.memory_total_bytes)}</span>
               </td>
               <td class="text-right font-mono">
-                {format_bytes(guest.disk_used_bytes)}
-                <span class="text-base-content/40">/ {format_bytes(guest.disk_total_bytes)}</span>
+                {virtualization_guest_disk_value(guest)}
+                <span class="text-base-content/40">{virtualization_guest_disk_subvalue(guest)}</span>
               </td>
               <td class="text-right">
                 <.link
@@ -8037,8 +8148,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <.virtualization_stat
             icon="hero-square-3-stack-3d"
             label="Disk"
-            value={format_bytes(@guest.disk_used_bytes)}
-            subvalue={"of #{format_bytes(@guest.disk_total_bytes)}"}
+            value={virtualization_guest_disk_value(@guest)}
+            subvalue={virtualization_guest_disk_subvalue(@guest)}
           />
         </div>
 
@@ -8190,6 +8301,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp virtualization_guest_type_label("container"), do: "LXC"
   defp virtualization_guest_type_label(value) when is_binary(value), do: String.upcase(value)
   defp virtualization_guest_type_label(_value), do: "Guest"
+
+  defp virtualization_guest_disk_value(%{disk_used_bytes: used}) when is_integer(used) and used > 0 do
+    format_bytes(used)
+  end
+
+  defp virtualization_guest_disk_value(%{disk_total_bytes: total}) when is_integer(total) and total > 0 do
+    "Usage unavailable"
+  end
+
+  defp virtualization_guest_disk_value(_guest), do: "—"
+
+  defp virtualization_guest_disk_subvalue(%{disk_used_bytes: used, disk_total_bytes: total})
+       when is_integer(used) and used > 0 and is_integer(total) and total > 0 do
+    "of #{format_bytes(total)}"
+  end
+
+  defp virtualization_guest_disk_subvalue(%{disk_total_bytes: total}) when is_integer(total) and total > 0 do
+    "provisioned #{format_bytes(total)}"
+  end
+
+  defp virtualization_guest_disk_subvalue(_guest), do: nil
 
   defp virtualization_datastore_status(%{active: true, enabled: false}), do: "disabled"
   defp virtualization_datastore_status(%{active: true}), do: "active"
@@ -9691,6 +9823,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         id: source.id,
         vendor: source.vendor || "camera",
         display_name: camera_source_display_name(source),
+        source_url: source.source_url,
         assigned_agent_id: source.assigned_agent_id,
         assigned_gateway_id: source.assigned_gateway_id,
         availability_status: camera_source_availability_status(source),
