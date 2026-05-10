@@ -166,11 +166,6 @@ func TestDispatchUnknownVerbIsCritical(t *testing.T) {
 func TestDispatchPlannedVerbsReportNotImplemented(t *testing.T) {
 	swapHTTP(t, &fakeHTTPClient{})
 	planned := []string{
-		"awx.list_inventories",
-		"awx.list_hosts",
-		"awx.list_projects",
-		"awx.list_templates",
-		"awx.fetch_template",
 		"awx.launch_job",
 		"awx.fetch_job",
 		"awx.cancel_job",
@@ -187,6 +182,233 @@ func TestDispatchPlannedVerbsReportNotImplemented(t *testing.T) {
 				t.Errorf("expected 'not yet implemented' in summary, got %q", res.Summary)
 			}
 		})
+	}
+}
+
+func TestRunListInventoriesPaginates(t *testing.T) {
+	page1 := []byte(`{
+		"count": 3,
+		"next": "/api/v2/inventories/?page=2&page_size=2",
+		"previous": null,
+		"results": [
+			{"id": 1, "name": "Production"},
+			{"id": 2, "name": "Staging"}
+		]
+	}`)
+	page2 := []byte(`{
+		"count": 3,
+		"next": null,
+		"previous": "/api/v2/inventories/?page=1&page_size=2",
+		"results": [
+			{"id": 3, "name": "Lab"}
+		]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200":          {Status: http.StatusOK, Body: page1},
+		"/api/v2/inventories/?page=2&page_size=2":     {Status: http.StatusOK, Body: page2},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.list_inventories"}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload listResultPayload
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("Details should decode as list payload: %v", err)
+	}
+	if payload.Count != 3 {
+		t.Errorf("count = %d, want 3", payload.Count)
+	}
+	if len(payload.Results) != 3 {
+		t.Errorf("results len = %d, want 3", len(payload.Results))
+	}
+	if len(fake.requests) != 2 {
+		t.Errorf("expected 2 page fetches, got %d", len(fake.requests))
+	}
+}
+
+func TestRunListInventoriesAbsoluteNextLinkRebasedToConfiguredHost(t *testing.T) {
+	// AWX sometimes returns absolute `next` URLs. We must NOT chase the
+	// embedded host; we must reuse cfg.BaseURL.
+	page1 := []byte(`{
+		"count": 1,
+		"next": "https://internal-awx.private/api/v2/inventories/?page=2&page_size=200",
+		"results": [{"id": 1, "name": "X"}]
+	}`)
+	page2 := []byte(`{"count": 1, "next": null, "results": []}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200":          {Status: http.StatusOK, Body: page1},
+		"/api/v2/inventories/?page=2&page_size=200":   {Status: http.StatusOK, Body: page2},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.list_inventories"}
+	_ = dispatch(cfg)
+
+	if len(fake.requests) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(fake.requests))
+	}
+	for _, req := range fake.requests {
+		if !strings.HasPrefix(req.URL, "https://awx.example.com/") {
+			t.Errorf("plugin chased an absolute next link: %q", req.URL)
+		}
+	}
+}
+
+func TestRunListHostsRequiresInventoryID(t *testing.T) {
+	swapHTTP(t, &fakeHTTPClient{})
+	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.list_hosts"}
+	res := dispatch(cfg)
+	if res.Status != sdk.StatusCritical {
+		t.Fatalf("expected CRITICAL when inventory_id missing, got %s", res.Status)
+	}
+	if !strings.Contains(res.Summary, "inventory_id") {
+		t.Errorf("expected 'inventory_id' to be named in summary, got %q", res.Summary)
+	}
+}
+
+func TestRunListHostsHappyPath(t *testing.T) {
+	body := []byte(`{
+		"count": 2,
+		"next": null,
+		"results": [
+			{"id": 100, "name": "web01", "inventory": 7, "enabled": true},
+			{"id": 101, "name": "web02", "inventory": 7, "enabled": true}
+		]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{
+		BaseURL:  "https://awx.example.com",
+		APIToken: "tok",
+		Verb:     "awx.list_hosts",
+		Args:     map[string]any{"inventory_id": float64(7)},
+	}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload listResultPayload
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Extra["inventory_id"].(float64) != 7 {
+		t.Errorf("extra.inventory_id = %v, want 7", payload.Extra["inventory_id"])
+	}
+	if payload.Count != 2 {
+		t.Errorf("count = %d, want 2", payload.Count)
+	}
+}
+
+func TestRunFetchTemplateMergesTemplateAndSurvey(t *testing.T) {
+	tmpl := []byte(`{"id": 42, "name": "Deploy", "playbook": "deploy.yml", "survey_enabled": true}`)
+	survey := []byte(`{"name":"Deploy Survey","spec":[{"variable":"version","type":"text"}]}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/job_templates/42/":             {Status: http.StatusOK, Body: tmpl},
+		"/api/v2/job_templates/42/survey_spec/": {Status: http.StatusOK, Body: survey},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{
+		BaseURL:  "https://awx.example.com",
+		APIToken: "tok",
+		Verb:     "awx.fetch_template",
+		Args:     map[string]any{"template_id": float64(42)},
+	}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["verb"] != "awx.fetch_template" {
+		t.Errorf("verb = %v", payload["verb"])
+	}
+	if payload["template_id"].(float64) != 42 {
+		t.Errorf("template_id = %v", payload["template_id"])
+	}
+	if payload["template"] == nil {
+		t.Errorf("payload.template missing")
+	}
+	if payload["survey_spec"] == nil {
+		t.Errorf("payload.survey_spec missing")
+	}
+	if len(fake.requests) != 2 {
+		t.Errorf("expected 2 requests (template + survey_spec), got %d", len(fake.requests))
+	}
+}
+
+func TestRunFetchTemplateToleratesMissingSurvey(t *testing.T) {
+	tmpl := []byte(`{"id": 42, "name": "Deploy", "playbook": "deploy.yml"}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/job_templates/42/":             {Status: http.StatusOK, Body: tmpl},
+		"/api/v2/job_templates/42/survey_spec/": {Status: http.StatusNotFound, Body: []byte(`{}`)},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{
+		BaseURL:  "https://awx.example.com",
+		APIToken: "tok",
+		Verb:     "awx.fetch_template",
+		Args:     map[string]any{"template_id": float64(42)},
+	}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK on missing survey, got %s: %s", res.Status, res.Summary)
+	}
+}
+
+func TestRunListProjectsAndTemplatesUseCorrectPaths(t *testing.T) {
+	emptyPage := []byte(`{"count":0,"next":null,"results":[]}`)
+	cases := []struct {
+		verb     string
+		wantPath string
+	}{
+		{"awx.list_projects", "/api/v2/projects/?page_size=200"},
+		{"awx.list_templates", "/api/v2/job_templates/?page_size=200"},
+	}
+	for _, c := range cases {
+		t.Run(c.verb, func(t *testing.T) {
+			fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+				c.wantPath: {Status: http.StatusOK, Body: emptyPage},
+			}}
+			swapHTTP(t, fake)
+			cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: c.verb}
+			res := dispatch(cfg)
+			if res.Status != sdk.StatusOK {
+				t.Fatalf("got %s: %s", res.Status, res.Summary)
+			}
+			if len(fake.requests) != 1 || !strings.HasSuffix(fake.requests[0].URL, c.wantPath) {
+				t.Errorf("expected GET %s, got %v", c.wantPath, fake.requests)
+			}
+		})
+	}
+}
+
+func TestRelativizeAWXPath(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"/api/v2/inventories/?page=2", "/api/v2/inventories/?page=2"},
+		{"https://other.host/api/v2/inventories/?page=2", "/api/v2/inventories/?page=2"},
+		{"http://10.0.0.1:8080/api/v2/projects/?page=3&page_size=200", "/api/v2/projects/?page=3&page_size=200"},
+	}
+	for _, c := range cases {
+		if got := relativizeAWXPath(c.in); got != c.want {
+			t.Errorf("relativizeAWXPath(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

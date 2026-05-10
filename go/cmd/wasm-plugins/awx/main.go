@@ -105,12 +105,17 @@ func dispatch(cfg Config) *sdk.Result {
 	switch verb {
 	case "awx.ping":
 		return runPing(cfg)
+	case "awx.list_inventories":
+		return runListInventories(cfg)
+	case "awx.list_hosts":
+		return runListHosts(cfg)
+	case "awx.list_projects":
+		return runListProjects(cfg)
+	case "awx.list_templates":
+		return runListTemplates(cfg)
+	case "awx.fetch_template":
+		return runFetchTemplate(cfg)
 	case
-		"awx.list_inventories",
-		"awx.list_hosts",
-		"awx.list_projects",
-		"awx.list_templates",
-		"awx.fetch_template",
 		"awx.launch_job",
 		"awx.fetch_job",
 		"awx.cancel_job",
@@ -195,6 +200,208 @@ func runPing(cfg Config) *sdk.Result {
 		result.WithLabel("active_node", ping.ActiveNode)
 	}
 	return result
+}
+
+// awxPage is the envelope every paginated AWX list endpoint returns.
+type awxPage struct {
+	Count    int               `json:"count"`
+	Next     string            `json:"next"`
+	Previous string            `json:"previous"`
+	Results  []json.RawMessage `json:"results"`
+}
+
+// maxPaginationPages caps how far we walk a paginated endpoint per verb
+// invocation. With AWX's default page_size of 200 this allows up to 10k
+// records, which exceeds the practical inventory sizes we expect; if it
+// ever becomes a problem we'll switch to an explicit since-cursor verb.
+const maxPaginationPages = 50
+
+// listAWXPath walks /api/v2/<resource>/?... following the `next` link until
+// it's null or we hit `maxPaginationPages`. Returns the aggregated raw
+// results and the controller-reported total count.
+func listAWXPath(cfg Config, path string) ([]json.RawMessage, int, error) {
+	var (
+		all   []json.RawMessage
+		total int
+		next  = path
+	)
+	for page := 0; page < maxPaginationPages && next != ""; page++ {
+		resp, err := getJSON(cfg, next)
+		if err != nil {
+			return nil, 0, err
+		}
+		var pageBody awxPage
+		if err := json.Unmarshal(resp.Body, &pageBody); err != nil {
+			return nil, 0, fmt.Errorf("decode %s: %w", next, err)
+		}
+		if page == 0 {
+			total = pageBody.Count
+		}
+		all = append(all, pageBody.Results...)
+
+		// AWX returns `next` either as null or as a path like
+		// "/api/v2/inventories/?page=2". We always strip the host so
+		// the same host:port the operator configured is reused.
+		next = relativizeAWXPath(pageBody.Next)
+	}
+	return all, total, nil
+}
+
+// relativizeAWXPath turns AWX's `next` URL into a base-URL-relative path so
+// we never accidentally chase a redirect to a different host than the
+// configured controller.
+func relativizeAWXPath(next string) string {
+	switch {
+	case next == "":
+		return ""
+	case strings.HasPrefix(next, "/"):
+		return next
+	case strings.HasPrefix(next, "https://"):
+		i := strings.Index(next[len("https://"):], "/")
+		if i < 0 {
+			return ""
+		}
+		return next[len("https://")+i:]
+	case strings.HasPrefix(next, "http://"):
+		i := strings.Index(next[len("http://"):], "/")
+		if i < 0 {
+			return ""
+		}
+		return next[len("http://")+i:]
+	default:
+		return next
+	}
+}
+
+// listResultPayload is the wire shape every list verb returns inside
+// Result.Details. The Elixir AwxClient parses this directly.
+type listResultPayload struct {
+	Verb    string            `json:"verb"`
+	OK      bool              `json:"ok"`
+	Count   int               `json:"count"`
+	Pages   int               `json:"pages_walked"`
+	Results []json.RawMessage `json:"results"`
+	Extra   map[string]any    `json:"extra,omitempty"`
+}
+
+func encodeListPayload(verb string, results []json.RawMessage, total int, extra map[string]any) string {
+	pages := (len(results) + 199) / 200
+	if pages < 1 && len(results) > 0 {
+		pages = 1
+	}
+	body, _ := json.Marshal(listResultPayload{
+		Verb:    verb,
+		OK:      true,
+		Count:   total,
+		Pages:   pages,
+		Results: results,
+		Extra:   extra,
+	})
+	return string(body)
+}
+
+func runListInventories(cfg Config) *sdk.Result {
+	results, total, err := listAWXPath(cfg, "/api/v2/inventories/?page_size=200")
+	if err != nil {
+		return errorResult("awx.list_inventories", err)
+	}
+	return sdk.Ok(fmt.Sprintf("listed %d inventories", total)).
+		WithDetails(encodeListPayload("awx.list_inventories", results, total, nil)).
+		WithLabel("verb", "awx.list_inventories")
+}
+
+func runListHosts(cfg Config) *sdk.Result {
+	inventoryID, ok := argInt(cfg.Args, "inventory_id")
+	if !ok {
+		return errorResult("awx.list_hosts", fmt.Errorf("args.inventory_id is required"))
+	}
+	path := fmt.Sprintf("/api/v2/inventories/%d/hosts/?page_size=200", inventoryID)
+	results, total, err := listAWXPath(cfg, path)
+	if err != nil {
+		return errorResult("awx.list_hosts", err)
+	}
+	extra := map[string]any{"inventory_id": inventoryID}
+	return sdk.Ok(fmt.Sprintf("listed %d hosts in inventory %d", total, inventoryID)).
+		WithDetails(encodeListPayload("awx.list_hosts", results, total, extra)).
+		WithLabel("verb", "awx.list_hosts")
+}
+
+func runListProjects(cfg Config) *sdk.Result {
+	results, total, err := listAWXPath(cfg, "/api/v2/projects/?page_size=200")
+	if err != nil {
+		return errorResult("awx.list_projects", err)
+	}
+	return sdk.Ok(fmt.Sprintf("listed %d projects", total)).
+		WithDetails(encodeListPayload("awx.list_projects", results, total, nil)).
+		WithLabel("verb", "awx.list_projects")
+}
+
+func runListTemplates(cfg Config) *sdk.Result {
+	results, total, err := listAWXPath(cfg, "/api/v2/job_templates/?page_size=200")
+	if err != nil {
+		return errorResult("awx.list_templates", err)
+	}
+	return sdk.Ok(fmt.Sprintf("listed %d job templates", total)).
+		WithDetails(encodeListPayload("awx.list_templates", results, total, nil)).
+		WithLabel("verb", "awx.list_templates")
+}
+
+// runFetchTemplate fetches /api/v2/job_templates/{id}/ AND the corresponding
+// /survey_spec/, merging both into a single payload so the catalog sync
+// worker only needs one verb call per template.
+func runFetchTemplate(cfg Config) *sdk.Result {
+	templateID, ok := argInt(cfg.Args, "template_id")
+	if !ok {
+		return errorResult("awx.fetch_template", fmt.Errorf("args.template_id is required"))
+	}
+
+	tmplResp, err := getJSON(cfg, fmt.Sprintf("/api/v2/job_templates/%d/", templateID))
+	if err != nil {
+		return errorResult("awx.fetch_template", err)
+	}
+	var tmpl json.RawMessage
+	if err := json.Unmarshal(tmplResp.Body, &tmpl); err != nil {
+		return errorResult("awx.fetch_template", fmt.Errorf("decode template: %w", err))
+	}
+
+	// Survey spec is on a sub-resource; AWX returns 200 with `{}` when no
+	// survey is defined. A 404 is also tolerated for older AWX versions.
+	var survey json.RawMessage = json.RawMessage("{}")
+	if surveyResp, err := getJSON(cfg, fmt.Sprintf("/api/v2/job_templates/%d/survey_spec/", templateID)); err == nil {
+		if err := json.Unmarshal(surveyResp.Body, &survey); err != nil {
+			return errorResult("awx.fetch_template", fmt.Errorf("decode survey_spec: %w", err))
+		}
+	}
+
+	payload := map[string]any{
+		"verb":        "awx.fetch_template",
+		"ok":          true,
+		"template_id": templateID,
+		"template":    tmpl,
+		"survey_spec": survey,
+	}
+	body, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("fetched job template %d", templateID)).
+		WithDetails(string(body)).
+		WithLabel("verb", "awx.fetch_template")
+}
+
+// argInt extracts an integer from an `Args` map. JSON numbers come back as
+// float64 in Go's default unmarshaler; accept both.
+func argInt(args map[string]any, key string) (int, bool) {
+	v, ok := args[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	}
+	return 0, false
 }
 
 // errorResult builds a structured CRITICAL result for a verb call that
