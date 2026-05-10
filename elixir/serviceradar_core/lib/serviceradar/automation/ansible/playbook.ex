@@ -54,6 +54,9 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     repo ServiceRadar.Repo
     schema "platform"
 
+    identity_wheres_to_sql unique_git_path: "source_type = 'git'",
+                           unique_awx_template: "source_type = 'awx'"
+
     references do
       reference :repository, on_delete: :delete
       reference :controller, on_delete: :delete
