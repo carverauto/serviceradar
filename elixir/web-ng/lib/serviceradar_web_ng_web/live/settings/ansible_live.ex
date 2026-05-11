@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.PlaybookRepository
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
 
@@ -40,8 +41,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "edit_controller" => :update,
       "save_controller" => :update,
       "delete_controller" => :delete,
+      "new_repository" => :create,
+      "edit_repository" => :update,
+      "save_repository" => :update,
+      "delete_repository" => :delete,
       "cancel_form" => :read,
       "validate_controller" => :read,
+      "validate_repository" => :read,
       "select_tab" => :read
     })
   end
@@ -55,25 +61,34 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if RBAC.can?(scope, "ansible.controllers.manage") do
-      controllers = list_controllers()
+    cond do
+      RBAC.can?(scope, "ansible.controllers.manage") or
+          RBAC.can?(scope, "ansible.repositories.manage") ->
+        controllers = list_controllers()
+        repositories = list_repositories()
 
-      {:ok,
-       socket
-       |> assign(:page_title, "Ansible Settings")
-       |> assign(:current_path, "/settings/ansible")
-       |> assign(:tabs, @tabs)
-       |> assign(:active_tab, :controllers)
-       |> assign(:show_controller_form, false)
-       |> assign(:editing_controller_id, nil)
-       |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
-       |> stream(:controllers, controllers, reset: true)
-       |> assign(:controller_count, length(controllers))}
-    else
-      {:ok,
-       socket
-       |> put_flash(:error, "You don't have permission to manage Ansible controllers.")
-       |> push_navigate(to: ~p"/dashboard")}
+        {:ok,
+         socket
+         |> assign(:page_title, "Ansible Settings")
+         |> assign(:current_path, "/settings/ansible")
+         |> assign(:tabs, @tabs)
+         |> assign(:active_tab, :controllers)
+         |> assign(:show_controller_form, false)
+         |> assign(:editing_controller_id, nil)
+         |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
+         |> stream(:controllers, controllers, reset: true)
+         |> assign(:controller_count, length(controllers))
+         |> assign(:show_repository_form, false)
+         |> assign(:editing_repository_id, nil)
+         |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
+         |> stream(:repositories, repositories, reset: true)
+         |> assign(:repository_count, length(repositories))}
+
+      true ->
+        {:ok,
+         socket
+         |> put_flash(:error, "You don't have permission to manage Ansible settings.")
+         |> push_navigate(to: ~p"/dashboard")}
     end
   end
 
@@ -146,6 +161,62 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
+  ## Repository CRUD ----------------------------------------------------------
+
+  def handle_event("new_repository", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_repository_form, true)
+     |> assign(:editing_repository_id, nil)
+     |> assign(:repository_form, to_form(default_repository_form(), as: :repository))}
+  end
+
+  def handle_event("edit_repository", %{"id" => id}, socket) do
+    case PlaybookRepository.get_by_id(id, actor: actor()) do
+      {:ok, repo} ->
+        {:noreply,
+         socket
+         |> assign(:show_repository_form, true)
+         |> assign(:editing_repository_id, repo.id)
+         |> assign(:repository_form, to_form(repository_form_from(repo), as: :repository))}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Repository not found.")}
+    end
+  end
+
+  def handle_event("validate_repository", %{"repository" => params}, socket) do
+    {:noreply, assign(socket, :repository_form, to_form(params, as: :repository))}
+  end
+
+  def handle_event("save_repository", %{"repository" => params}, socket) do
+    case socket.assigns.editing_repository_id do
+      nil -> create_repository(socket, params)
+      id -> update_repository(socket, id, params)
+    end
+  end
+
+  def handle_event("delete_repository", %{"id" => id}, socket) do
+    case PlaybookRepository.get_by_id(id, actor: actor()) do
+      {:ok, repo} ->
+        case Ash.destroy(repo, actor: actor()) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Repository \"#{repo.name}\" deleted.")
+             |> stream_delete(:repositories, repo)
+             |> update(:repository_count, &max(&1 - 1, 0))}
+
+          {:error, reason} ->
+            Logger.warning("delete repository failed", reason: inspect(reason))
+            {:noreply, put_flash(socket, :error, "Could not delete repository.")}
+        end
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Repository not found.")}
+    end
+  end
+
   ## Render --------------------------------------------------------------------
 
   @impl true
@@ -184,8 +255,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         />
       </section>
 
+      <section :if={@active_tab == :repositories} class="space-y-4">
+        <.repositories_panel
+          repositories={@streams.repositories}
+          repository_count={@repository_count}
+          show_form={@show_repository_form}
+          form={@repository_form}
+          editing_id={@editing_repository_id}
+        />
+      </section>
+
       <section
-        :if={@active_tab != :controllers}
+        :if={@active_tab not in [:controllers, :repositories]}
         class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/70"
       >
         <p class="font-medium">{tab_label(@active_tab, @tabs)}</p>
@@ -405,6 +486,190 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
+  ## Repository panel + form --------------------------------------------------
+
+  attr :repositories, :any, required: true
+  attr :repository_count, :integer, required: true
+  attr :show_form, :boolean, required: true
+  attr :form, :any, required: true
+  attr :editing_id, :string, default: nil
+
+  defp repositories_panel(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between">
+      <p class="text-sm text-base-content/70">
+        <span class="font-medium">{@repository_count}</span>
+        registered git repositor{if @repository_count == 1, do: "y", else: "ies"}.
+      </p>
+      <button type="button" phx-click="new_repository" class="btn btn-sm btn-primary">
+        + Add repository
+      </button>
+    </div>
+
+    <div :if={@repository_count == 0 and !@show_form} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+      <p>No playbook repositories registered yet.</p>
+      <p class="mt-2">Click <strong>Add repository</strong> to register your first.</p>
+    </div>
+
+    <.repository_form :if={@show_form} form={@form} editing_id={@editing_id} />
+
+    <div :if={@repository_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      <table class="table table-zebra">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Git URL</th>
+            <th>Ref</th>
+            <th>Last sync</th>
+            <th class="w-28">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="ansible-repositories" phx-update="stream">
+          <tr :for={{id, repo} <- @repositories} id={id}>
+            <td>
+              <div class="font-medium">{repo.name}</div>
+              <div :if={repo.description} class="text-xs text-base-content/60">{repo.description}</div>
+            </td>
+            <td><code class="text-xs">{repo.git_url}</code></td>
+            <td><code class="text-xs">{repo.git_ref}</code></td>
+            <td>
+              <span class={["badge", sync_badge_class(repo.last_sync_status)]}>
+                {repo.last_sync_status}
+              </span>
+              <div :if={repo.last_sync_at} class="text-xs text-base-content/60 mt-1">
+                {Calendar.strftime(repo.last_sync_at, "%Y-%m-%d %H:%M:%S UTC")}
+              </div>
+              <div :if={repo.last_sync_summary} class="text-xs text-base-content/60 mt-1">
+                {repo.last_sync_summary}
+              </div>
+            </td>
+            <td>
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  class="btn btn-xs"
+                  phx-click="edit_repository"
+                  phx-value-id={repo.id}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-error btn-outline"
+                  phx-click="delete_repository"
+                  phx-value-id={repo.id}
+                  data-confirm={"Delete repository '#{repo.name}'? Playbooks sourced from it will be removed too."}
+                >
+                  Delete
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :editing_id, :string, default: nil
+
+  defp repository_form(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+      <h2 class="text-lg font-medium mb-3">
+        {if @editing_id, do: "Edit repository", else: "Add repository"}
+      </h2>
+
+      <.form for={@form} phx-change="validate_repository" phx-submit="save_repository" class="space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text">Name</span></label>
+            <input
+              type="text"
+              name="repository[name]"
+              value={Phoenix.HTML.Form.input_value(@form, :name)}
+              required
+              class="input input-bordered input-sm"
+              placeholder="ops-playbooks"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label"><span class="label-text">Ref</span></label>
+            <input
+              type="text"
+              name="repository[git_ref]"
+              value={Phoenix.HTML.Form.input_value(@form, :git_ref)}
+              required
+              class="input input-bordered input-sm"
+              placeholder="main"
+            />
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Description</span></label>
+            <input
+              type="text"
+              name="repository[description]"
+              value={Phoenix.HTML.Form.input_value(@form, :description)}
+              class="input input-bordered input-sm"
+            />
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Git URL (HTTPS)</span></label>
+            <input
+              type="url"
+              name="repository[git_url]"
+              value={Phoenix.HTML.Form.input_value(@form, :git_url)}
+              required
+              class="input input-bordered input-sm font-mono"
+              placeholder="https://github.com/example/playbooks.git"
+            />
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label">
+              <span class="label-text">Deploy token secret ID</span>
+              <span class="label-text-alt text-xs text-base-content/60">
+                Optional. Required for private repos. UUID from Settings → Credentials.
+              </span>
+            </label>
+            <input
+              type="text"
+              name="repository[credential_secret_id]"
+              value={Phoenix.HTML.Form.input_value(@form, :credential_secret_id)}
+              class="input input-bordered input-sm font-mono"
+              placeholder="(public repo — leave blank)"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Sync interval (s)</span>
+            </label>
+            <input
+              type="number"
+              name="repository[sync_interval_seconds]"
+              value={Phoenix.HTML.Form.input_value(@form, :sync_interval_seconds) || 600}
+              min="60"
+              class="input input-bordered input-sm"
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">
+            {if @editing_id, do: "Save changes", else: "Create repository"}
+          </button>
+        </div>
+      </.form>
+    </div>
+    """
+  end
+
   ## Helpers -------------------------------------------------------------------
 
   defp create_controller(socket, params) do
@@ -493,6 +758,92 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       _ -> []
     end
   end
+
+  defp list_repositories do
+    case Ash.read(PlaybookRepository, action: :read, actor: actor()) do
+      {:ok, rows} -> rows
+      _ -> []
+    end
+  end
+
+  defp create_repository(socket, params) do
+    attrs = repository_attrs(params)
+
+    case PlaybookRepository.create_repository(attrs, actor: actor()) do
+      {:ok, repo} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Repository \"#{repo.name}\" created.")
+         |> assign(:show_repository_form, false)
+         |> stream_insert(:repositories, repo)
+         |> update(:repository_count, &(&1 + 1))}
+
+      {:error, error} ->
+        Logger.info("Repository create failed", error: inspect(error))
+
+        {:noreply,
+         socket
+         |> assign(:repository_form, to_form(params, as: :repository))
+         |> put_flash(:error, format_ash_error(error))}
+    end
+  end
+
+  defp update_repository(socket, id, params) do
+    with {:ok, repo} <- PlaybookRepository.get_by_id(id, actor: actor()),
+         {:ok, updated} <- PlaybookRepository.update_repository(repo, repository_attrs(params), actor: actor()) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Repository \"#{updated.name}\" updated.")
+       |> assign(:show_repository_form, false)
+       |> stream_insert(:repositories, updated)}
+    else
+      {:error, error} ->
+        Logger.info("Repository update failed", error: inspect(error))
+
+        {:noreply,
+         socket
+         |> assign(:repository_form, to_form(params, as: :repository))
+         |> put_flash(:error, format_ash_error(error))}
+    end
+  end
+
+  defp repository_attrs(params) do
+    %{
+      name: params["name"],
+      description: nilify_blank(params["description"]),
+      git_url: params["git_url"],
+      git_ref: nilify_blank(params["git_ref"]) || "main",
+      credential_secret_id: nilify_blank(params["credential_secret_id"]),
+      sync_interval_seconds: to_int(params["sync_interval_seconds"]) || 600
+    }
+  end
+
+  defp default_repository_form do
+    %{
+      "name" => "",
+      "description" => "",
+      "git_url" => "",
+      "git_ref" => "main",
+      "credential_secret_id" => "",
+      "sync_interval_seconds" => "600"
+    }
+  end
+
+  defp repository_form_from(%PlaybookRepository{} = repo) do
+    %{
+      "name" => repo.name,
+      "description" => repo.description || "",
+      "git_url" => repo.git_url,
+      "git_ref" => repo.git_ref,
+      "credential_secret_id" => repo.credential_secret_id || "",
+      "sync_interval_seconds" => to_string(repo.sync_interval_seconds)
+    }
+  end
+
+  defp sync_badge_class(:ok), do: "badge-success"
+  defp sync_badge_class(:error), do: "badge-error"
+  defp sync_badge_class(:pending), do: "badge-ghost"
+  defp sync_badge_class(_), do: "badge-ghost"
 
   defp actor, do: SystemActor.system(:ansible_settings_live)
 
