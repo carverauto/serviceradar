@@ -641,6 +641,9 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Ansible launch (ad-hoc playbook run dispatch, takes ?devices=uid1,uid2)
       live("/ansible/launch", AnsibleLive.LaunchLive, :index)
+
+      # Ansible playbook catalog browser (read-only)
+      live("/ansible/catalog", AnsibleLive.CatalogIndex, :index)
     end
 
     post("/users/update-password", UserSessionController, :update_password)
