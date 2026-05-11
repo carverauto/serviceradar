@@ -57,20 +57,22 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              ProxmoxConsoleSessions.attach_with_ticket(ticket, session_id: session.id)
   end
 
-  test "requested console credential rule must be scoped to the target device agent" do
-    uid = unique_uid("scope-denied")
-    insert_device!(uid, agent_id: "agent-device", gateway_id: "gateway-device")
+  test "requested agent-scoped console credential rule can route unmanaged targets" do
+    uid = unique_uid("agent-scoped-route")
+    insert_device!(uid, agent_id: nil, gateway_id: nil)
     Process.put(:proxmox_console_test_device_uid, uid)
-    secret = create_secret!("scope-denied")
-    rule = create_rule!(secret, scope_value: "agent-other")
+    secret = create_secret!("agent-scoped-route")
+    rule = create_rule!(secret, scope_value: "agent-proxmox")
 
-    assert {:error, :credential_rule_scope_denied} =
+    assert {:ok, %{session: session}} =
              ProxmoxConsoleSessions.request_open(
                uid,
                %{credential_rule_id: rule.id},
                previewer: Previewer,
                actor: @system_actor
              )
+
+    assert session.agent_id == "agent-proxmox"
   end
 
   test "native guest console modes can use scoped Proxmox API token rules" do

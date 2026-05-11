@@ -106,7 +106,11 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreview do
   defp in_rule_scope?(row, rule) do
     case {rule_scope_type(rule), value_string(rule, [:scope_value, "scope_value"])} do
       {:agent, scope} ->
-        value_string(row, [:agent_id, "agent_id", :agent_uid, "agent_uid"]) == scope
+        case value_string(row, [:agent_id, "agent_id", :agent_uid, "agent_uid"]) do
+          nil -> true
+          "" -> true
+          row_scope -> row_scope == scope
+        end
 
       {:gateway, scope} ->
         value_string(row, [:gateway_id, "gateway_id"]) == scope

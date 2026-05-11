@@ -607,7 +607,21 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
     |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
     |> maybe_put("hypervisor_status", Map.get(record, :status))
+    |> maybe_put_proxmox_candidate(record, role)
   end
+
+  defp maybe_put_proxmox_candidate(metadata, record, :hypervisor) do
+    if String.downcase(to_string(Map.get(record, :provider))) == "proxmox" do
+      metadata
+      |> Map.put("proxmox_candidate", true)
+      |> Map.put("proxmox_candidate_source", "hypervisor_enrichment")
+      |> Map.put("proxmox_candidate_service", "pve-api")
+    else
+      metadata
+    end
+  end
+
+  defp maybe_put_proxmox_candidate(metadata, _record, _role), do: metadata
 
   defp primary_ip_by_guest(network_interfaces) do
     Enum.reduce(network_interfaces, %{}, fn iface, acc ->

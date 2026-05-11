@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     actor: actor
   } do
     suffix = System.unique_integer([:positive])
-    provider = "testhv"
+    provider = "proxmox"
     host_ref = "#{provider}:node:pve-placeholder-#{suffix}"
     guest_ref = "#{provider}:guest:pve-placeholder-#{suffix}:vm:132"
 
@@ -118,7 +118,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
 
   test "does not let virtual guests claim an agent-managed host UID", %{actor: actor} do
     suffix = System.unique_integer([:positive])
-    provider = "testhv"
+    provider = "proxmox"
     host_uid = "sr:agent-managed-hv-parent-#{suffix}"
     guest_ref = "#{provider}:guest:pve-parent-#{suffix}:vm:133"
 
@@ -190,7 +190,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     actor: actor
   } do
     suffix = System.unique_integer([:positive])
-    provider = "testhv"
+    provider = "proxmox"
     host_ref = "#{provider}:node:pve-network-ip-#{suffix}"
     host_uid = "sr:existing-hv-network-ip-#{suffix}"
     host_ip = "10.55.#{rem(suffix, 200)}.11"
@@ -251,6 +251,19 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
              Repo.query!(
                """
                SELECT uid, ip
+               FROM platform.ocsf_devices
+               WHERE uid = $1
+               """,
+               [host_uid]
+             ).rows
+
+    assert [[true, "hypervisor_enrichment", "pve-api"]] =
+             Repo.query!(
+               """
+               SELECT
+                 metadata->>'proxmox_candidate' = 'true',
+                 metadata->>'proxmox_candidate_source',
+                 metadata->>'proxmox_candidate_service'
                FROM platform.ocsf_devices
                WHERE uid = $1
                """,

@@ -181,6 +181,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         source: :policy,
         source_key: spec.assignment_key,
         policy_id: spec.metadata["policy_id"],
+        plugin_package_id: spec.plugin_package_id,
         enabled: spec.enabled,
         interval_seconds: spec.interval_seconds,
         timeout_seconds: spec.timeout_seconds,

@@ -37,6 +37,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
       "in:devices metadata.proxmox_candidate:true" => [
         %{"uid" => "device-1", "agent_id" => "agent-a", "ip" => "192.0.2.10"},
         %{"uid" => "device-2", "agent_id" => "agent-a", "ip" => "192.0.2.11"},
+        %{"uid" => "device-unmanaged", "ip" => "192.0.2.13"},
         %{"uid" => "device-3", "agent_id" => "agent-b", "ip" => "192.0.2.12"}
       ]
     }
@@ -50,8 +51,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
              )
 
     assert preview.rule_id == "rule-a"
-    assert preview.matched_devices == 3
-    assert preview.scoped_devices == 2
+    assert preview.matched_devices == 4
+    assert preview.scoped_devices == 3
     assert [%{agent_id: "agent-a", device_count: 2}] = preview.agents
     assert [%{"uid" => "device-1"}] = preview.sample_devices
     assert preview.conflicts == []

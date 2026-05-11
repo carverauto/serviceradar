@@ -20,6 +20,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ValueUtils
 
+  require Ash.Query
+
   @provider "proxmox"
   @default_ticket_ttl_seconds 60
   @default_idle_timeout_seconds 900
@@ -264,7 +266,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
         with {:ok, %NetworkCredentialRule{} = rule} <-
                NetworkCredentialRule.get_by_id(rule_id, actor: system_actor),
              :ok <- ensure_console_rule(rule, target),
-             :ok <- ensure_rule_scope_allows_device(rule, device),
              :ok <- ensure_rule_targets_device(rule, device, opts) do
           {:ok, rule}
         end
@@ -289,11 +290,38 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
           {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      {:error, :no_console_credential_rule} ->
+        resolve_first_targeted_rule(target, device, system_actor, opts)
+
+      result ->
+        result
+    end
+  end
+
+  defp resolve_first_targeted_rule(target, device, system_actor, opts) do
+    case enabled_provider_rules(system_actor) do
+      {:ok, rules} ->
+        case Enum.find(rules, &matching_console_rule?(&1, target, device, opts)) do
+          nil -> {:error, :no_console_credential_rule}
+          rule -> {:ok, rule}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp enabled_provider_rules(system_actor) do
+    NetworkCredentialRule
+    |> Ash.Query.for_read(:read, %{}, actor: system_actor)
+    |> Ash.Query.filter(provider == @provider and enabled == true)
+    |> Ash.Query.sort(priority: :asc, inserted_at: :asc)
+    |> Ash.read(actor: system_actor)
   end
 
   defp matching_console_rule?(rule, target, device, opts) do
     ensure_console_rule(rule, target) == :ok and
-      ensure_rule_scope_allows_device(rule, device) == :ok and
       ensure_rule_targets_device(rule, device, opts) == :ok
   end
 
@@ -348,16 +376,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
   defp nil_to_empty_list(nil), do: []
   defp nil_to_empty_list(value), do: value
-
-  defp ensure_rule_scope_allows_device(rule, device) do
-    if {rule_scope_type(rule), value_string(rule, [:scope_value, "scope_value"])} in rule_scopes(
-         device
-       ) do
-      :ok
-    else
-      {:error, :credential_rule_scope_denied}
-    end
-  end
 
   defp ensure_rule_targets_device(rule, device, opts) do
     previewer = Keyword.get(opts, :previewer, NetworkCredentialRulePreview)
