@@ -230,6 +230,37 @@ describe("layout_topology_state_methods", () => {
     expect(positions.get("vjunos").y).toBeGreaterThanOrEqual(positions.get("core").y)
   })
 
+  it("computeBackboneLayeredPositions keeps hosted virtualization islands separate from the backbone", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [
+        {id: "core", label: "Core", pps: 1000, details: {}},
+        {id: "switch-a", label: "Switch A", pps: 300, details: {}},
+        {id: "pve-a", label: "pve01", pps: 0, details: {type: "Hypervisor"}},
+        {id: "guest-a", label: "vm-100", pps: 0, details: {type: "Virtual Machine"}},
+        {id: "pve-b", label: "pve02", pps: 0, details: {type: "Hypervisor"}},
+        {id: "guest-b", label: "ct-101", pps: 0, details: {type: "Container"}},
+      ],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 4, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 2, target: 3, topologyClass: "hosted", evidenceClass: "hosted-virtual"},
+        {source: 4, target: 5, topologyClass: "hosted", evidenceClass: "hosted-virtual"},
+      ],
+    }
+
+    const positions = context.computeBackboneLayeredPositions(graph, new Set())
+
+    expect(positions.get("core").x).toEqual(320)
+    expect(positions.get("switch-a").x).toBeGreaterThan(positions.get("core").x)
+    expect(positions.get("pve-a").x).toBeGreaterThan(positions.get("switch-a").x)
+    expect(positions.get("guest-a").x).toBeGreaterThan(positions.get("pve-a").x)
+    expect(positions.get("pve-b").x).toEqual(positions.get("pve-a").x)
+    expect(positions.get("pve-b").y - positions.get("pve-a").y).toBeGreaterThan(150)
+    expect(positions.get("guest-b").x).toBeGreaterThan(positions.get("pve-b").x)
+  })
+
   it("computeBackboneLayeredPositions stays deterministic for meshed backbone edges", () => {
     const context = makeContext()
     const graph = {
