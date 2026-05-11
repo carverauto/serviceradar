@@ -358,7 +358,6 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 		if v, ok := check.Settings["dns_resolve"]; ok {
 			cfg.DNSResolve = strings.ToLower(v) != "false"
 		}
-
 	}
 
 	return cfg

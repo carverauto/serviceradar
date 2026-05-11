@@ -72,16 +72,15 @@ type Tracer struct {
 	ipVersion int
 
 	// probe state
-	hops              []*HopResult
-	probes            map[int]probeRecord // seq -> probe
-	probesMu          sync.Mutex
-	pendingProbes     atomic.Int32
-	probeUpdateCh     chan struct{}
-	nextSeq           int
-	icmpID            int
-	payload           []byte
-	activeHopsScratch []*HopResult
-	expiredScratch    []probeRecord
+	hops           []*HopResult
+	probes         map[int]probeRecord // seq -> probe
+	probesMu       sync.Mutex
+	pendingProbes  atomic.Int32
+	probeUpdateCh  chan struct{}
+	nextSeq        int
+	icmpID         int
+	payload        []byte
+	expiredScratch []probeRecord
 
 	// target reached flag
 	targetReached atomic.Bool
