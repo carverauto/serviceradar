@@ -29,7 +29,6 @@ func TestParseMtrCheckConfig_ValidConfig(t *testing.T) {
 			"probe_interval_ms": "100",
 			"packet_size":       "64",
 			"dns_resolve":       "true",
-			"asn_db_path":       "/data/GeoLite2-ASN.mmdb",
 		},
 	}
 
@@ -49,7 +48,6 @@ func TestParseMtrCheckConfig_ValidConfig(t *testing.T) {
 	assert.Equal(t, 100, cfg.ProbeIntervalMs)
 	assert.Equal(t, 64, cfg.PacketSize)
 	assert.True(t, cfg.DNSResolve)
-	assert.Equal(t, "/data/GeoLite2-ASN.mmdb", cfg.ASNDBPath)
 }
 
 func TestParseMtrCheckConfig_Defaults(t *testing.T) {
@@ -74,7 +72,6 @@ func TestParseMtrCheckConfig_Defaults(t *testing.T) {
 	assert.Equal(t, mtr.DefaultProbeIntervalMs, cfg.ProbeIntervalMs)
 	assert.Equal(t, mtr.DefaultPacketSize, cfg.PacketSize)
 	assert.True(t, cfg.DNSResolve)
-	assert.Equal(t, mtr.DefaultASNDBPath, cfg.ASNDBPath)
 }
 
 func TestParseMtrCheckConfig_NilCheck(t *testing.T) {

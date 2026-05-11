@@ -56,7 +56,6 @@ type mtrCheckConfig struct {
 	ProbeIntervalMs int
 	PacketSize      int
 	DNSResolve      bool
-	ASNDBPath       string
 }
 
 type mtrCheckResult struct {
@@ -189,7 +188,6 @@ func (p *PushLoop) runMtrCheck(ctx context.Context, check *mtrCheckConfig) mtrCh
 		ProbeInterval:  time.Duration(check.ProbeIntervalMs) * time.Millisecond,
 		PacketSize:     check.PacketSize,
 		DNSResolve:     check.DNSResolve,
-		ASNDBPath:      check.ASNDBPath,
 		MaxUnknownHops: mtr.DefaultMaxUnknownHops,
 		RingBufferSize: mtr.DefaultRingBufferSize,
 	}
@@ -316,7 +314,6 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 		ProbeIntervalMs: mtr.DefaultProbeIntervalMs,
 		PacketSize:      mtr.DefaultPacketSize,
 		DNSResolve:      true,
-		ASNDBPath:       mtr.DefaultASNDBPath,
 	}
 
 	if check.Settings != nil {
@@ -362,9 +359,6 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 			cfg.DNSResolve = strings.ToLower(v) != "false"
 		}
 
-		if v, ok := check.Settings["asn_db_path"]; ok && v != "" {
-			cfg.ASNDBPath = v
-		}
 	}
 
 	return cfg
