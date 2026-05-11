@@ -176,6 +176,27 @@ core:
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
   mtrRetentionDays: 30
+  # Ansible integration: AWX/AAP playbook execution + observability.
+  # Per-controller / per-repository / per-schedule overrides are stored
+  # on the Ash resources themselves (e.g. AnsibleController.run_pulse_interval_ms);
+  # the values below are the deployment-wide defaults.
+  ansible:
+    # Days of run-detail retention (PlaybookPlay / PlaybookTask /
+    # PlaybookTaskResult rows). Set to 0 to disable detail pruning.
+    runDetailDays: 90
+    # Days of run-summary retention. Empty / 0 means keep forever.
+    runSummaryDays: ""
+    # How often RetentionWorker scans for prunable runs.
+    retentionIntervalSeconds: 86400
+    # AWX controller health probe cadence.
+    controllerHealthIntervalSeconds: 30
+    # RunWatchdog interval (flags stuck non-terminal runs).
+    runWatchdogIntervalSeconds: 60
+    # ScheduleEvaluatorWorker cron evaluation cadence.
+    scheduleEvaluatorIntervalSeconds: 60
+    # Base directory for GitCatalogSyncWorker repo clones.
+    # Mount a PVC at this path if you want survival across pod restarts.
+    catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
   database:

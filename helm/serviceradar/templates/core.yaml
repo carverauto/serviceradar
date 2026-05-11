@@ -20,6 +20,7 @@
 {{- $obanQueues := default (dict) $coreVals.obanQueues -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
+{{- $ansibleVals := default (dict) $coreVals.ansible -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
 {{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
@@ -318,6 +319,20 @@ spec:
           value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
         - name: MTR_RETENTION_DAYS
           value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        - name: ANSIBLE_RETENTION_RUN_DETAIL_DAYS
+          value: {{ default 90 $ansibleVals.runDetailDays | quote }}
+        - name: ANSIBLE_RETENTION_RUN_SUMMARY_DAYS
+          value: {{ default "" $ansibleVals.runSummaryDays | quote }}
+        - name: ANSIBLE_RETENTION_INTERVAL_SECONDS
+          value: {{ default 86400 $ansibleVals.retentionIntervalSeconds | quote }}
+        - name: AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS
+          value: {{ default 30 $ansibleVals.controllerHealthIntervalSeconds | quote }}
+        - name: AWX_RUN_WATCHDOG_INTERVAL_SECONDS
+          value: {{ default 60 $ansibleVals.runWatchdogIntervalSeconds | quote }}
+        - name: AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS
+          value: {{ default 60 $ansibleVals.scheduleEvaluatorIntervalSeconds | quote }}
+        - name: ANSIBLE_CATALOG_BASE_DIR
+          value: {{ default "/var/lib/serviceradar/ansible_catalog" $ansibleVals.catalogBaseDir | quote }}
         - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:
