@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Automation.Ansible.Controller
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.Playbook
@@ -30,7 +31,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
-
   require Logger
 
   @tabs [
@@ -73,44 +73,42 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    cond do
-      RBAC.can?(scope, "ansible.controllers.manage") or
-        RBAC.can?(scope, "ansible.repositories.manage") or
-          RBAC.can?(scope, "ansible.schedules.manage") ->
-        controllers = list_controllers()
-        repositories = list_repositories()
-        schedules = list_schedules()
-        playbooks = launchable_playbooks()
+    if RBAC.can?(scope, "ansible.controllers.manage") or
+         RBAC.can?(scope, "ansible.repositories.manage") or
+         RBAC.can?(scope, "ansible.schedules.manage") do
+      controllers = list_controllers()
+      repositories = list_repositories()
+      schedules = list_schedules()
+      playbooks = launchable_playbooks()
 
-        {:ok,
-         socket
-         |> assign(:page_title, "Ansible Settings")
-         |> assign(:current_path, "/settings/ansible")
-         |> assign(:tabs, @tabs)
-         |> assign(:active_tab, :controllers)
-         |> assign(:show_controller_form, false)
-         |> assign(:editing_controller_id, nil)
-         |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
-         |> stream(:controllers, controllers, reset: true)
-         |> assign(:controller_count, length(controllers))
-         |> assign(:show_repository_form, false)
-         |> assign(:editing_repository_id, nil)
-         |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
-         |> stream(:repositories, repositories, reset: true)
-         |> assign(:repository_count, length(repositories))
-         |> assign(:show_schedule_form, false)
-         |> assign(:editing_schedule_id, nil)
-         |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))
-         |> assign(:playbooks, playbooks)
-         |> stream(:schedules, schedules, reset: true)
-         |> assign(:schedule_count, length(schedules))
-         |> assign(:retention_config, retention_config())}
-
-      true ->
-        {:ok,
-         socket
-         |> put_flash(:error, "You don't have permission to manage Ansible settings.")
-         |> push_navigate(to: ~p"/dashboard")}
+      {:ok,
+       socket
+       |> assign(:page_title, "Ansible Settings")
+       |> assign(:current_path, "/settings/ansible")
+       |> assign(:tabs, @tabs)
+       |> assign(:active_tab, :controllers)
+       |> assign(:show_controller_form, false)
+       |> assign(:editing_controller_id, nil)
+       |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
+       |> stream(:controllers, controllers, reset: true)
+       |> assign(:controller_count, length(controllers))
+       |> assign(:show_repository_form, false)
+       |> assign(:editing_repository_id, nil)
+       |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
+       |> stream(:repositories, repositories, reset: true)
+       |> assign(:repository_count, length(repositories))
+       |> assign(:show_schedule_form, false)
+       |> assign(:editing_schedule_id, nil)
+       |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))
+       |> assign(:playbooks, playbooks)
+       |> stream(:schedules, schedules, reset: true)
+       |> assign(:schedule_count, length(schedules))
+       |> assign(:retention_config, retention_config())}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to manage Ansible settings.")
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 
@@ -314,64 +312,66 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <SettingsComponents.settings_shell current_path={@current_path}>
-      <SettingsComponents.settings_nav current_path={@current_path} current_scope={@current_scope} />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <SettingsComponents.settings_shell current_path={@current_path}>
+        <SettingsComponents.settings_nav current_path={@current_path} current_scope={@current_scope} />
 
-      <header class="space-y-1">
-        <h1 class="text-2xl font-semibold">Ansible</h1>
-        <p class="text-sm text-base-content/70">
-          AWX/AAP controllers, git playbook repositories, schedules, and retention.
-        </p>
-      </header>
+        <header class="space-y-1">
+          <h1 class="text-2xl font-semibold">Ansible</h1>
+          <p class="text-sm text-base-content/70">
+            AWX/AAP controllers, git playbook repositories, schedules, and retention.
+          </p>
+        </header>
 
-      <div role="tablist" class="tabs tabs-bordered">
-        <button
-          :for={{key, label} <- @tabs}
-          type="button"
-          role="tab"
-          phx-click="select_tab"
-          phx-value-tab={key}
-          class={["tab", @active_tab == key && "tab-active"]}
-        >
-          {label}
-        </button>
-      </div>
+        <div role="tablist" class="tabs tabs-bordered">
+          <button
+            :for={{key, label} <- @tabs}
+            type="button"
+            role="tab"
+            phx-click="select_tab"
+            phx-value-tab={key}
+            class={["tab", @active_tab == key && "tab-active"]}
+          >
+            {label}
+          </button>
+        </div>
 
-      <section :if={@active_tab == :controllers} class="space-y-4">
-        <.controllers_panel
-          controllers={@streams.controllers}
-          controller_count={@controller_count}
-          show_form={@show_controller_form}
-          form={@controller_form}
-          editing_id={@editing_controller_id}
-        />
-      </section>
+        <section :if={@active_tab == :controllers} class="space-y-4">
+          <.controllers_panel
+            controllers={@streams.controllers}
+            controller_count={@controller_count}
+            show_form={@show_controller_form}
+            form={@controller_form}
+            editing_id={@editing_controller_id}
+          />
+        </section>
 
-      <section :if={@active_tab == :repositories} class="space-y-4">
-        <.repositories_panel
-          repositories={@streams.repositories}
-          repository_count={@repository_count}
-          show_form={@show_repository_form}
-          form={@repository_form}
-          editing_id={@editing_repository_id}
-        />
-      </section>
+        <section :if={@active_tab == :repositories} class="space-y-4">
+          <.repositories_panel
+            repositories={@streams.repositories}
+            repository_count={@repository_count}
+            show_form={@show_repository_form}
+            form={@repository_form}
+            editing_id={@editing_repository_id}
+          />
+        </section>
 
-      <section :if={@active_tab == :schedules} class="space-y-4">
-        <.schedules_panel
-          schedules={@streams.schedules}
-          schedule_count={@schedule_count}
-          show_form={@show_schedule_form}
-          form={@schedule_form}
-          editing_id={@editing_schedule_id}
-          playbooks={@playbooks}
-        />
-      </section>
+        <section :if={@active_tab == :schedules} class="space-y-4">
+          <.schedules_panel
+            schedules={@streams.schedules}
+            schedule_count={@schedule_count}
+            show_form={@show_schedule_form}
+            form={@schedule_form}
+            editing_id={@editing_schedule_id}
+            playbooks={@playbooks}
+          />
+        </section>
 
-      <section :if={@active_tab == :retention} class="space-y-4">
-        <.retention_panel config={@retention_config} />
-      </section>
-    </SettingsComponents.settings_shell>
+        <section :if={@active_tab == :retention} class="space-y-4">
+          <.retention_panel config={@retention_config} />
+        </section>
+      </SettingsComponents.settings_shell>
+    </Layouts.app>
     """
   end
 
@@ -393,14 +393,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       </button>
     </div>
 
-    <div :if={@controller_count == 0 and !@show_form} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+    <div
+      :if={@controller_count == 0 and !@show_form}
+      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+    >
       <p>No AWX/AAP controllers registered yet.</p>
       <p class="mt-2">Click <strong>Add controller</strong> to register your first.</p>
     </div>
 
     <.controller_form :if={@show_form} form={@form} editing_id={@editing_id} />
 
-    <div :if={@controller_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    <div
+      :if={@controller_count > 0}
+      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+    >
       <table class="table table-zebra">
         <thead>
           <tr>
@@ -415,7 +421,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, ctrl} <- @controllers} id={id}>
             <td>
               <div class="font-medium">{ctrl.name}</div>
-              <div :if={ctrl.description} class="text-xs text-base-content/60">{ctrl.description}</div>
+              <div :if={ctrl.description} class="text-xs text-base-content/60">
+                {ctrl.description}
+              </div>
             </td>
             <td><code class="text-xs">{ctrl.base_url}</code></td>
             <td><code class="text-xs">{ctrl.agent_id}</code></td>
@@ -465,7 +473,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         {if @editing_id, do: "Edit controller", else: "Add controller"}
       </h2>
 
-      <.form for={@form} phx-change="validate_controller" phx-submit="save_controller" class="space-y-3">
+      <.form
+        for={@form}
+        phx-change="validate_controller"
+        phx-submit="save_controller"
+        class="space-y-3"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="form-control">
             <label class="label"><span class="label-text">Name</span></label>
@@ -602,14 +615,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       </button>
     </div>
 
-    <div :if={@repository_count == 0 and !@show_form} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+    <div
+      :if={@repository_count == 0 and !@show_form}
+      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+    >
       <p>No playbook repositories registered yet.</p>
       <p class="mt-2">Click <strong>Add repository</strong> to register your first.</p>
     </div>
 
     <.repository_form :if={@show_form} form={@form} editing_id={@editing_id} />
 
-    <div :if={@repository_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    <div
+      :if={@repository_count > 0}
+      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+    >
       <table class="table table-zebra">
         <thead>
           <tr>
@@ -624,7 +643,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, repo} <- @repositories} id={id}>
             <td>
               <div class="font-medium">{repo.name}</div>
-              <div :if={repo.description} class="text-xs text-base-content/60">{repo.description}</div>
+              <div :if={repo.description} class="text-xs text-base-content/60">
+                {repo.description}
+              </div>
             </td>
             <td><code class="text-xs">{repo.git_url}</code></td>
             <td><code class="text-xs">{repo.git_ref}</code></td>
@@ -677,7 +698,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         {if @editing_id, do: "Edit repository", else: "Add repository"}
       </h2>
 
-      <.form for={@form} phx-change="validate_repository" phx-submit="save_repository" class="space-y-3">
+      <.form
+        for={@form}
+        phx-change="validate_repository"
+        phx-submit="save_repository"
+        class="space-y-3"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="form-control">
             <label class="label"><span class="label-text">Name</span></label>
@@ -787,14 +813,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       </button>
     </div>
 
-    <div :if={@schedule_count == 0 and !@show_form} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+    <div
+      :if={@schedule_count == 0 and !@show_form}
+      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+    >
       <p>No schedules registered.</p>
       <p class="mt-2">Click <strong>Add schedule</strong> to create a cron-driven run.</p>
     </div>
 
     <.schedule_form :if={@show_form} form={@form} editing_id={@editing_id} playbooks={@playbooks} />
 
-    <div :if={@schedule_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    <div
+      :if={@schedule_count > 0}
+      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+    >
       <table class="table table-zebra">
         <thead>
           <tr>
@@ -810,7 +842,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, sched} <- @schedules} id={id}>
             <td>
               <div class="font-medium">{sched.name}</div>
-              <div :if={sched.description} class="text-xs text-base-content/60">{sched.description}</div>
+              <div :if={sched.description} class="text-xs text-base-content/60">
+                {sched.description}
+              </div>
             </td>
             <td>
               <code class="text-xs">{sched.cron}</code>
@@ -820,10 +854,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <div :if={sched.last_evaluated_at} class="text-xs">
                 {Calendar.strftime(sched.last_evaluated_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
-              <span :if={sched.last_evaluation_outcome} class={["badge badge-xs mt-1", outcome_badge_class(sched.last_evaluation_outcome)]}>
+              <span
+                :if={sched.last_evaluation_outcome}
+                class={["badge badge-xs mt-1", outcome_badge_class(sched.last_evaluation_outcome)]}
+              >
                 {sched.last_evaluation_outcome}
               </span>
-              <div :if={!sched.last_evaluated_at} class="text-xs text-base-content/60">never fired</div>
+              <div :if={!sched.last_evaluated_at} class="text-xs text-base-content/60">
+                never fired
+              </div>
             </td>
             <td>
               <div :if={sched.next_run_at} class="text-xs">
@@ -834,14 +873,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             <td>
               <span :if={sched.enabled} class="badge badge-success">enabled</span>
               <span :if={!sched.enabled} class="badge badge-ghost">disabled</span>
-              <span :if={sched.allow_concurrent} class="badge badge-xs badge-warning mt-1">concurrent</span>
+              <span :if={sched.allow_concurrent} class="badge badge-xs badge-warning mt-1">
+                concurrent
+              </span>
             </td>
             <td>
               <div class="flex gap-1 flex-wrap">
-                <button type="button" class="btn btn-xs" phx-click="toggle_schedule" phx-value-id={sched.id}>
+                <button
+                  type="button"
+                  class="btn btn-xs"
+                  phx-click="toggle_schedule"
+                  phx-value-id={sched.id}
+                >
                   {if sched.enabled, do: "Disable", else: "Enable"}
                 </button>
-                <button type="button" class="btn btn-xs" phx-click="edit_schedule" phx-value-id={sched.id}>
+                <button
+                  type="button"
+                  class="btn btn-xs"
+                  phx-click="edit_schedule"
+                  phx-value-id={sched.id}
+                >
                   Edit
                 </button>
                 <button
@@ -928,7 +979,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               </span>
             </label>
             <select name="schedule[playbook_id]" required class="select select-bordered select-sm">
-              <option value="" disabled selected={Phoenix.HTML.Form.input_value(@form, :playbook_id) in [nil, ""]}>
+              <option
+                value=""
+                disabled
+                selected={Phoenix.HTML.Form.input_value(@form, :playbook_id) in [nil, ""]}
+              >
                 — pick a playbook —
               </option>
               <option
@@ -981,13 +1036,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               class="input input-bordered input-sm"
               placeholder="UTC"
             />
-            <p class="text-xs text-base-content/60 mt-1">Non-UTC needs the tzdata dep — v1 supports UTC / Etc/UTC.</p>
+            <p class="text-xs text-base-content/60 mt-1">
+              Non-UTC needs the tzdata dep — v1 supports UTC / Etc/UTC.
+            </p>
           </div>
 
           <div class="form-control md:col-span-2">
             <label class="label">
               <span class="label-text">extra_vars (JSON)</span>
-              <span class="label-text-alt text-xs text-base-content/60">passed to AWX on each fire</span>
+              <span class="label-text-alt text-xs text-base-content/60">
+                passed to AWX on each fire
+              </span>
             </label>
             <textarea
               name="schedule[requested_extra_vars]"
@@ -1296,9 +1355,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   ## Schedule helpers ---------------------------------------------------------
 
   defp list_schedules do
-    query =
-      PlaybookSchedule
-      |> Ash.Query.sort(name: :asc)
+    query = Ash.Query.sort(PlaybookSchedule, name: :asc)
 
     case Ash.read(query, actor: actor()) do
       {:ok, rows} -> rows
@@ -1362,7 +1419,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
        |> assign(:show_schedule_form, false)
        |> stream_insert(:schedules, updated)}
     else
-      {:error, %Ash.Error.Invalid{} = err} ->
+      {:error, %Invalid{} = err} ->
         {:noreply,
          socket
          |> assign(:schedule_form, to_form(params, as: :schedule))
@@ -1384,11 +1441,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched),
-    do: PlaybookSchedule.disable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched), do: PlaybookSchedule.disable(sched, actor: actor())
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched),
-    do: PlaybookSchedule.enable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched), do: PlaybookSchedule.enable(sched, actor: actor())
 
   defp validate_and_normalize_schedule(params) do
     with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
@@ -1529,16 +1584,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     %{
       run_detail_days: base.run_detail_days,
       run_summary_days: base.run_summary_days,
-      interval_seconds:
-        Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
-      health_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
-      watchdog_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
-      scheduler_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
+      interval_seconds: Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
+      health_interval_seconds: Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
+      watchdog_interval_seconds: Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
+      scheduler_interval_seconds: Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
       catalog_base_dir:
-        Application.get_env(:serviceradar_core, :ansible_catalog_base_dir,
+        Application.get_env(
+          :serviceradar_core,
+          :ansible_catalog_base_dir,
           Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
         )
     }
@@ -1606,10 +1659,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp to_atom_tab(_), do: nil
 
-  defp format_ash_error(%Ash.Error.Invalid{errors: errs}) do
+  defp format_ash_error(%Invalid{errors: errs}) do
     errs
-    |> Enum.map(&inspect/1)
-    |> Enum.join("; ")
+    |> Enum.map_join("; ", &inspect/1)
     |> String.slice(0, 240)
   end
 
