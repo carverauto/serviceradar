@@ -30,6 +30,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.RunLauncher
+  alias ServiceRadar.Automation.Ansible.VariableSchema
+  alias ServiceRadar.Automation.Ansible.VariableSchema.Var
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.RBAC
 
@@ -69,24 +71,49 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
          |> assign(:requested_uids, uids)
          |> assign(:devices, devices)
          |> assign(:playbooks, playbooks)
-         |> assign(:selected_playbook_id, default_playbook_id(playbooks))
+         |> assign(:selected_playbook_id, nil)
+         |> assign(:vars, [])
+         |> assign(:var_values, %{})
          |> assign(:extra_vars_text, "{}")
+         |> assign(:show_raw_override, false)
          |> assign(:launch_in_progress, false)}
     end
   end
 
   @impl true
   def handle_event("validate", params, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_playbook_id, params["playbook_id"] || socket.assigns.selected_playbook_id)
-     |> assign(:extra_vars_text, params["extra_vars"] || socket.assigns.extra_vars_text)}
+    playbook_id = params["playbook_id"] || socket.assigns.selected_playbook_id
+
+    socket =
+      socket
+      |> assign(:extra_vars_text, params["extra_vars"] || socket.assigns.extra_vars_text)
+      |> assign(:show_raw_override, params["show_raw_override"] == "on" || socket.assigns.show_raw_override)
+      |> assign(:var_values, Map.merge(socket.assigns.var_values, var_values_from_params(socket.assigns.vars, params)))
+
+    socket =
+      if playbook_id != socket.assigns.selected_playbook_id do
+        playbook = Enum.find(socket.assigns.playbooks, &(&1.id == playbook_id))
+        vars = if playbook, do: VariableSchema.from_playbook(playbook), else: []
+
+        socket
+        |> assign(:selected_playbook_id, playbook_id)
+        |> assign(:vars, vars)
+        |> assign(:var_values, defaults_for(vars))
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("launch", params, socket) do
     with {:ok, playbook_id} <- require_playbook(params["playbook_id"]),
-         {:ok, extra_vars} <- parse_extra_vars(params["extra_vars"]),
+         {:ok, override_vars} <- parse_extra_vars(params["extra_vars"]),
          :ok <- ensure_can_launch(socket.assigns) do
+      form_vars = VariableSchema.extra_vars_from_form(socket.assigns.vars, params)
+      # Override JSON takes precedence over typed inputs so operators
+      # can poke values not in the schema.
+      extra_vars = Map.merge(form_vars, override_vars)
       do_launch(socket, playbook_id, extra_vars)
     else
       {:error, :no_playbook} ->
@@ -200,18 +227,39 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
           </p>
         </div>
 
+        <div :if={@vars != []} class="space-y-3">
+          <h3 class="text-sm font-medium">Variables</h3>
+          <p class="text-xs text-base-content/60">
+            Derived from the playbook's {variable_source_label(@selected_playbook_id, @playbooks)}.
+          </p>
+          <.var_input :for={var <- @vars} var={var} value={Map.get(@var_values, var.name)} />
+        </div>
+
+        <div :if={@vars == [] and @selected_playbook_id} class="text-xs text-base-content/60">
+          This playbook has no declared variables. Use the raw override below for any
+          extra_vars AWX needs.
+        </div>
+
         <div class="form-control">
-          <label class="label">
-            <span class="label-text">extra_vars (JSON)</span>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input
+              type="checkbox"
+              name="show_raw_override"
+              class="checkbox checkbox-xs"
+              checked={@show_raw_override}
+            />
+            <span class="label-text text-xs">Override extra_vars as raw JSON</span>
             <span class="label-text-alt text-xs text-base-content/60">
-              Merged into the AWX job template's defaults
+              Merged on top of the typed inputs above
             </span>
           </label>
+
           <textarea
+            :if={@show_raw_override}
             name="extra_vars"
             rows="4"
             class="textarea textarea-bordered font-mono text-xs"
-            placeholder={"{\n  \"version\": \"1.2.3\"\n}"}
+            placeholder={"{\n  \"region\": \"us-east-1\"\n}"}
           >{@extra_vars_text}</textarea>
         </div>
 
@@ -228,6 +276,174 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
       </.form>
     </div>
     """
+  end
+
+  ## Internals -----------------------------------------------------------------
+
+  defp var_values_from_params(vars, params) when is_list(vars) and is_map(params) do
+    Enum.reduce(vars, %{}, fn %Var{name: name}, acc ->
+      case Map.get(params, name) do
+        nil -> acc
+        v -> Map.put(acc, name, v)
+      end
+    end)
+  end
+
+  defp defaults_for(vars) do
+    Enum.reduce(vars, %{}, fn %Var{} = var, acc ->
+      case var.default do
+        nil -> acc
+        d -> Map.put(acc, var.name, to_string_default(d))
+      end
+    end)
+  end
+
+  defp to_string_default(d) when is_binary(d), do: d
+  defp to_string_default(d) when is_integer(d) or is_float(d), do: to_string(d)
+  defp to_string_default(true), do: "true"
+  defp to_string_default(false), do: "false"
+  defp to_string_default(d), do: inspect(d)
+
+  ## Variable input component --------------------------------------------------
+
+  attr :var, :any, required: true
+  attr :value, :any, default: nil
+
+  defp var_input(%{var: %Var{type: :textarea}} = assigns) do
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+        <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
+      </label>
+      <textarea name={@var.name} rows="3" class="textarea textarea-bordered text-sm">{@value}</textarea>
+      <p :if={@var.help} class="text-xs text-base-content/60 mt-1">{@var.help}</p>
+    </div>
+    """
+  end
+
+  defp var_input(%{var: %Var{type: :password}} = assigns) do
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+        <span class="label-text-alt text-xs text-base-content/60">stored only at launch time</span>
+      </label>
+      <input
+        type="password"
+        name={@var.name}
+        value={@value}
+        class="input input-bordered input-sm font-mono"
+        autocomplete="off"
+      />
+    </div>
+    """
+  end
+
+  defp var_input(%{var: %Var{type: :integer}} = assigns) do
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+        <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
+      </label>
+      <input
+        type="number"
+        name={@var.name}
+        value={@value}
+        min={@var.min}
+        max={@var.max}
+        step="1"
+        class="input input-bordered input-sm"
+      />
+    </div>
+    """
+  end
+
+  defp var_input(%{var: %Var{type: :float}} = assigns) do
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+      </label>
+      <input
+        type="number"
+        name={@var.name}
+        value={@value}
+        step="any"
+        class="input input-bordered input-sm"
+      />
+    </div>
+    """
+  end
+
+  defp var_input(%{var: %Var{type: :select}} = assigns) do
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+      </label>
+      <select name={@var.name} class="select select-bordered select-sm">
+        <option value="" selected={is_nil(@value) or @value == ""}>—</option>
+        <option :for={choice <- @var.choices} value={choice} selected={@value == choice}>{choice}</option>
+      </select>
+    </div>
+    """
+  end
+
+  defp var_input(%{var: %Var{type: :multiselect}} = assigns) do
+    selected = if is_list(assigns.value), do: assigns.value, else: []
+    assigns = assign(assigns, :selected_choices, selected)
+
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+        <span class="label-text-alt text-xs text-base-content/60">tick all that apply</span>
+      </label>
+      <div class="flex flex-wrap gap-3 px-1">
+        <label :for={choice <- @var.choices} class="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name={"#{@var.name}[]"}
+            value={choice}
+            checked={choice in @selected_choices}
+            class="checkbox checkbox-sm"
+          />
+          {choice}
+        </label>
+      </div>
+    </div>
+    """
+  end
+
+  defp var_input(assigns) do
+    ~H"""
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">{@var.label}</span>
+        <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
+      </label>
+      <input
+        type="text"
+        name={@var.name}
+        value={@value}
+        class="input input-bordered input-sm"
+        placeholder={@var.default && to_string(@var.default)}
+      />
+      <p :if={@var.help} class="text-xs text-base-content/60 mt-1">{@var.help}</p>
+    </div>
+    """
+  end
+
+  defp variable_source_label(nil, _playbooks), do: "schema"
+
+  defp variable_source_label(playbook_id, playbooks) do
+    case Enum.find(playbooks, &(&1.id == playbook_id)) do
+      %{source_type: :awx} -> "AWX survey_spec"
+      %{source_type: :git} -> "vars_prompt block"
+      _ -> "schema"
+    end
   end
 
   ## Helpers -------------------------------------------------------------------
@@ -274,9 +490,6 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
       _ -> []
     end
   end
-
-  defp default_playbook_id([]), do: nil
-  defp default_playbook_id(_), do: nil
 
   defp require_playbook(nil), do: {:error, :no_playbook}
   defp require_playbook(""), do: {:error, :no_playbook}
