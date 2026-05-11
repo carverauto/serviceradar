@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SshPrivateKeyCredential
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
@@ -133,6 +134,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, assign(socket, :secret_form, secret_form(default_secret_params()))}
   end
 
+  def handle_event("new_ssh_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_ssh_secret_params()))}
+  end
+
   def handle_event("close_secret_form", _params, socket) do
     {:noreply, assign(socket, :secret_form, nil)}
   end
@@ -188,6 +193,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <button type="button" class="btn btn-ghost btn-sm" phx-click="new_proxmox_secret">
                 New Proxmox Token
               </button>
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="new_ssh_secret">
+                New Console SSH Key
+              </button>
+              <.link
+                navigate={~p"/settings/networks/credentials/new?purpose=console_access"}
+                class="btn btn-outline btn-sm"
+              >
+                New Console Rule
+              </.link>
               <.link navigate={~p"/settings/networks/credentials/new"} class="btn btn-primary btn-sm">
                 New Rule
               </.link>
@@ -321,40 +335,65 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :tls_policies, :list, required: true
 
   defp secret_form_modal(assigns) do
+    assigns =
+      assigns
+      |> assign(:secret_kind, form_string(assigns.form, :kind))
+      |> assign(:secret_title, secret_form_title(form_string(assigns.form, :kind)))
+
     ~H"""
     <div class="modal modal-open">
       <div class="modal-box max-w-3xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-lg font-semibold">New Proxmox Token</h2>
+          <h2 class="text-lg font-semibold">{@secret_title}</h2>
           <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
             Close
           </button>
         </div>
 
         <.form for={@form} phx-submit="save_secret" class="space-y-4">
-          <div class="grid gap-4 md:grid-cols-2">
-            <.input field={@form[:name]} label="Name" required />
-            <.input field={@form[:user]} label="User" required />
-            <.input field={@form[:realm]} label="Realm" required />
-            <.input field={@form[:token_id]} label="Token ID" required />
-            <.input
-              field={@form[:tls_policy]}
-              type="select"
-              label="TLS Policy"
-              options={enum_options(@tls_policies)}
-              required
-            />
+          <input type="hidden" name={@form[:kind].name} value={@secret_kind} />
+
+          <div :if={@secret_kind == "proxmox_api_token"} class="space-y-4">
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+              <.input field={@form[:user]} label="User" required />
+              <.input field={@form[:realm]} label="Realm" required />
+              <.input field={@form[:token_id]} label="Token ID" required />
+              <.input
+                field={@form[:tls_policy]}
+                type="select"
+                label="TLS Policy"
+                options={enum_options(@tls_policies)}
+                required
+              />
+            </div>
+
+            <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
+            <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
-          <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
-          <.input field={@form[:description]} type="textarea" label="Description" />
+          <div :if={@secret_kind == "ssh_private_key"} class="space-y-4">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+              Store the PVE host SSH key used by console access rules. The private key is encrypted
+              with AshCloak and only injected into the scoped agent config for matching console
+              sessions.
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+              <.input field={@form[:username]} label="Username" required />
+              <.input field={@form[:passphrase]} type="password" label="Passphrase" />
+            </div>
+
+            <.input field={@form[:private_key]} type="textarea" label="Private Key" required />
+            <.input field={@form[:description]} type="textarea" label="Description" />
+          </div>
 
           <div class="modal-action">
             <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
               Cancel
             </button>
             <button type="submit" class="btn btn-primary">
-              Save Token
+              Save
             </button>
           </div>
         </.form>
@@ -506,11 +545,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
         <.form for={@form} phx-change="change_rule" phx-submit="save_rule" class="space-y-4">
           <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-            Use purpose <span class="font-mono">inventory_enrichment</span> for read-only PVE API
-            collection. Use purpose <span class="font-mono">console_access</span> for PVE host SSH
-            consoles. Runtime fields such as
-            <span class="font-mono">credential_broker</span>,
-            <span class="font-mono">credential_rule_id</span>, and
+            Use purpose <span class="font-mono">inventory_enrichment</span>
+            for read-only PVE API
+            collection. Use purpose <span class="font-mono">console_access</span>
+            for PVE host SSH
+            consoles. Runtime fields such as <span class="font-mono">credential_broker</span>, <span class="font-mono">credential_rule_id</span>, and
             <span class="font-mono">console</span>
             are generated by ServiceRadar when a console session starts.
             <a
@@ -627,7 +666,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
     case socket.assigns.form_mode do
       :new ->
-        assign(socket, :rule_form, rule_form(default_rule_params()))
+        assign(socket, :rule_form, rule_form(default_rule_params(params)))
 
       :edit ->
         assign_edit_form(socket, params["id"], rules)
@@ -696,12 +735,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       {:ok, _secret} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Proxmox token saved")
+         |> put_flash(:info, "Credential secret saved")
          |> assign(:secret_form, nil)
          |> load_page(%{})}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to save token: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
     end
   end
 
@@ -803,6 +842,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required fields are missing"}
   end
 
+  defp normalize_secret_params(%{"kind" => "ssh_private_key"} = params) do
+    name = required_string(params, "name")
+    username = required_string(params, "username")
+    private_key = required_string(params, "private_key")
+
+    SshPrivateKeyCredential.build_attrs(%{
+      name: name,
+      description: blank_to_nil(params["description"]),
+      provider: "proxmox",
+      username: username,
+      private_key: private_key,
+      passphrase: blank_to_nil(params["passphrase"]),
+      metadata: %{
+        "auth_method" => "ssh_private_key",
+        "usage" => "console_access"
+      }
+    })
+  rescue
+    ArgumentError -> {:error, "Required SSH key fields are missing"}
+  end
+
   defp normalize_secret_params(params) do
     with {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy") do
       name = required_string(params, "name")
@@ -834,7 +894,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required token fields are missing"}
   end
 
-  defp default_rule_params do
+  defp default_rule_params(params \\ %{})
+
+  defp default_rule_params(%{"purpose" => "console_access"}) do
+    %{
+      "name" => "",
+      "description" => "",
+      "provider" => "proxmox",
+      "auth_method" => "ssh_private_key",
+      "purpose" => "console_access",
+      "target_query" => ~s(in:devices type:"Hypervisor" vendor:"Proxmox"),
+      "scope_type" => "agent",
+      "scope_value" => "",
+      "secret_id" => "",
+      "priority" => "100",
+      "allowed_ports" => "22",
+      "tls_policy" => "verify",
+      "ssh_host_key_policy" => "known_hosts",
+      "auto_discovery_enabled" => "false"
+    }
+  end
+
+  defp default_rule_params(_params) do
     %{
       "name" => "",
       "description" => "",
@@ -855,6 +936,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp default_secret_params do
     %{
+      "kind" => "proxmox_api_token",
       "name" => "",
       "description" => "",
       "user" => "root",
@@ -862,6 +944,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "token_id" => "",
       "tls_policy" => "verify",
       "token_secret" => ""
+    }
+  end
+
+  defp default_ssh_secret_params do
+    %{
+      "kind" => "ssh_private_key",
+      "name" => "",
+      "description" => "",
+      "username" => "root",
+      "private_key" => "",
+      "passphrase" => ""
     }
   end
 
@@ -895,6 +988,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp rule_form(params), do: to_form(params, as: :credential_rule)
 
   defp secret_form(params), do: to_form(params, as: :credential_secret)
+
+  defp secret_form_title("ssh_private_key"), do: "New Console SSH Key"
+  defp secret_form_title(_kind), do: "New Proxmox Token"
 
   defp enum_param(params, key, allowed, label) do
     value = params |> Map.get(key, "") |> to_string()

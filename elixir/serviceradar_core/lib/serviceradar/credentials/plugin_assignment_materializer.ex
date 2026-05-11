@@ -141,6 +141,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp proxmox_params_template(rule, secret_id, @console_purpose) do
     %{
       "credential_broker" => proxmox_console_credential_broker_grant(rule, secret_id),
+      "credential_secret" => SecretRefs.network_credential_ref(secret_id),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
       "ssh_host_key_policy" => ssh_host_key_policy(rule),

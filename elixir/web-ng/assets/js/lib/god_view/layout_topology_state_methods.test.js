@@ -255,10 +255,42 @@ describe("layout_topology_state_methods", () => {
     expect(positions.get("core").x).toEqual(320)
     expect(positions.get("switch-a").x).toBeGreaterThan(positions.get("core").x)
     expect(positions.get("pve-a").x).toBeGreaterThan(positions.get("switch-a").x)
-    expect(positions.get("guest-a").x).toBeGreaterThan(positions.get("pve-a").x)
+    expect(Math.hypot(positions.get("guest-a").x - positions.get("pve-a").x, positions.get("guest-a").y - positions.get("pve-a").y)).toBeGreaterThan(90)
     expect(positions.get("pve-b").x).toEqual(positions.get("pve-a").x)
     expect(positions.get("pve-b").y - positions.get("pve-a").y).toBeGreaterThan(150)
-    expect(positions.get("guest-b").x).toBeGreaterThan(positions.get("pve-b").x)
+    expect(Math.hypot(positions.get("guest-b").x - positions.get("pve-b").x, positions.get("guest-b").y - positions.get("pve-b").y)).toBeGreaterThan(90)
+  })
+
+  it("computeBackboneLayeredPositions does not merge hypervisor-hosted islands through cluster edges", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [
+        {id: "core", label: "Core", pps: 1000, details: {}},
+        {id: "switch-a", label: "Switch A", pps: 300, details: {}},
+        {id: "pve-a", label: "pve01", pps: 0, details: {type: "Hypervisor"}},
+        {id: "guest-a", label: "vm-100", pps: 0, details: {type: "Virtual Machine"}},
+        {id: "pve-b", label: "pve02", pps: 0, details: {type: "Hypervisor"}},
+        {id: "guest-b", label: "ct-101", pps: 0, details: {type: "Container"}},
+      ],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 4, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 2, target: 4, topologyClass: "hosted", evidenceClass: "hosted-virtual"},
+        {source: 2, target: 3, topologyClass: "hosted", evidenceClass: "hosted-virtual"},
+        {source: 4, target: 5, topologyClass: "hosted", evidenceClass: "hosted-virtual"},
+      ],
+    }
+
+    const positions = context.computeBackboneLayeredPositions(graph, new Set())
+
+    const guestAToPveA = Math.hypot(positions.get("guest-a").x - positions.get("pve-a").x, positions.get("guest-a").y - positions.get("pve-a").y)
+    const guestAToPveB = Math.hypot(positions.get("guest-a").x - positions.get("pve-b").x, positions.get("guest-a").y - positions.get("pve-b").y)
+    const guestBToPveB = Math.hypot(positions.get("guest-b").x - positions.get("pve-b").x, positions.get("guest-b").y - positions.get("pve-b").y)
+    const guestBToPveA = Math.hypot(positions.get("guest-b").x - positions.get("pve-a").x, positions.get("guest-b").y - positions.get("pve-a").y)
+
+    expect(guestAToPveA).toBeLessThan(guestAToPveB)
+    expect(guestBToPveB).toBeLessThan(guestBToPveA)
   })
 
   it("computeBackboneLayeredPositions stays deterministic for meshed backbone edges", () => {

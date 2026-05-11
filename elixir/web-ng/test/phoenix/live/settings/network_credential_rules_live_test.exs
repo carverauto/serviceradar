@@ -43,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     assert html =~ "Credential Rules"
     assert html =~ "Read the Proxmox setup guide"
+    assert html =~ "New Console SSH Key"
+    assert html =~ "New Console Rule"
     assert html =~ "No credential rules found"
   end
 
@@ -212,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       )
       |> render_submit()
 
-    assert html =~ "Proxmox token saved"
+    assert html =~ "Credential secret saved"
     refute html =~ "super-secret-token"
 
     secret = get_secret_by_name!(scope, "Lab PVE token")
@@ -223,6 +225,45 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["realm"] == "pam"
     assert secret.metadata["token_id"] == "serviceradar"
     assert secret.metadata["tls_policy"] == "verify"
+  end
+
+  test "creates an SSH console credential secret from the settings preset", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert lv
+           |> element("button[phx-click='new_ssh_secret']")
+           |> render_click() =~ "New Console SSH Key"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "ssh_private_key",
+          "name" => "PVE console key",
+          "description" => "Shell access for pve hosts",
+          "username" => "root",
+          "private_key" => private_key_fixture(),
+          "passphrase" => "key-passphrase"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    refute html =~ "OPENSSH PRIVATE KEY"
+    refute html =~ "key-passphrase"
+
+    secret = get_secret_by_name!(scope, "PVE console key")
+    assert secret.provider == "proxmox"
+    assert secret.credential_kind == :ssh_private_key
+    assert secret.username == "root"
+    assert secret.public_fingerprint =~ "SHA256:"
+    assert secret.metadata["auth_method"] == "ssh_private_key"
+    assert secret.metadata["usage"] == "console_access"
+
+    assert %Ash.NotLoaded{} = secret.secret_payload
   end
 
   test "validates Proxmox token preset fields without storing partial secrets", %{
@@ -427,6 +468,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     rule
   end
+
+  defp private_key_fixture do
+    private_key_fixture_header() <>
+      """
+      b3BlbnNzaC10ZXN0LWtleS1tYXRlcmlhbA==
+      #{private_key_fixture_footer()}
+      """
+  end
+
+  defp private_key_fixture_header, do: "-----BEGIN OPENSSH " <> "PRIVATE KEY-----\n"
+  defp private_key_fixture_footer, do: "-----END OPENSSH " <> "PRIVATE KEY-----"
 
   defp get_rule_by_name!(scope, name) do
     NetworkCredentialRule

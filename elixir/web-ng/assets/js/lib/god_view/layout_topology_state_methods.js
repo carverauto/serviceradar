@@ -19,10 +19,9 @@ const UNPLACED_LANE_X_OFFSET = 220
 const UNPLACED_LANE_GAP_Y = 92
 const HOSTED_ISLAND_X_OFFSET = 300
 const HOSTED_ISLAND_GAP_Y = 220
-const HOSTED_ISLAND_ROOT_TO_GUEST_X = 170
-const HOSTED_ISLAND_GUEST_GAP_X = 108
-const HOSTED_ISLAND_GUEST_GAP_Y = 64
-const HOSTED_ISLAND_GUESTS_PER_COLUMN = 8
+const HOSTED_ISLAND_GUEST_RING_RADIUS = 118
+const HOSTED_ISLAND_GUEST_RING_STEP = 78
+const HOSTED_ISLAND_GUESTS_PER_RING = 12
 
 const ELK_ROOT_OPTIONS = {
   "elk.algorithm": "layered",
@@ -93,6 +92,22 @@ function isEndpointAnchorNode(node) {
 function isUnplacedNode(node) {
   const details = graphNodeDetails(node)
   return details.topology_unplaced === true || String(details.topology_plane || "").trim() === "unplaced"
+}
+
+function isHypervisorNode(node) {
+  const details = graphNodeDetails(node)
+  const tokens = [
+    node?.type,
+    details.type,
+    details.device_type,
+    details.type_name,
+    details.device_role,
+    details.hypervisor_provider,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter((value) => value !== "")
+
+  return tokens.some((value) => value === "hypervisor" || value === "virtualization_host" || value === "proxmox")
 }
 
 function isHostedTopologyEdge(edge) {
@@ -604,7 +619,7 @@ export const godViewLayoutTopologyStateMethods = {
         if (islandPoints.length > 0) {
           const minY = Math.min(...islandPoints.map((point) => Number(point.y || 0)))
           const maxY = Math.max(...islandPoints.map((point) => Number(point.y || 0)))
-          hostedCursorY += Math.max(maxY - minY, HOSTED_ISLAND_GUEST_GAP_Y) + HOSTED_ISLAND_GAP_Y
+          hostedCursorY += Math.max(maxY - minY, HOSTED_ISLAND_GUEST_RING_RADIUS * 2) + HOSTED_ISLAND_GAP_Y
         } else {
           hostedCursorY += HOSTED_ISLAND_GAP_Y
         }
@@ -676,6 +691,9 @@ export const godViewLayoutTopologyStateMethods = {
       const sourceId = edgeNodeId(graph, edge, "source")
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId) continue
+      const sourceHypervisor = isHypervisorNode(nodeById.get(sourceId))
+      const targetHypervisor = isHypervisorNode(nodeById.get(targetId))
+      if (sourceHypervisor && targetHypervisor) continue
 
       for (const nodeId of [sourceId, targetId]) {
         if (excludedNodeIds.has(nodeId)) continue
@@ -691,8 +709,8 @@ export const godViewLayoutTopologyStateMethods = {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return []
 
     const nodeById = new Map()
-    const adjacency = new Map()
-    const rootScore = new Map()
+    const rootGroups = new Map()
+    const fallbackAdjacency = new Map()
 
     for (let index = 0; index < graph.nodes.length; index += 1) {
       const node = graph.nodes[index]
@@ -708,18 +726,34 @@ export const godViewLayoutTopologyStateMethods = {
       if (!sourceId || !targetId || sourceId === targetId) continue
       if (!nodeById.has(sourceId) || !nodeById.has(targetId)) continue
 
-      if (!adjacency.has(sourceId)) adjacency.set(sourceId, new Set())
-      if (!adjacency.has(targetId)) adjacency.set(targetId, new Set())
-      adjacency.get(sourceId).add(targetId)
-      adjacency.get(targetId).add(sourceId)
-      rootScore.set(sourceId, Number(rootScore.get(sourceId) || 0) + 4)
-      rootScore.set(targetId, Number(rootScore.get(targetId) || 0) + 1)
+      const sourceHypervisor = isHypervisorNode(nodeById.get(sourceId))
+      const targetHypervisor = isHypervisorNode(nodeById.get(targetId))
+
+      if (sourceHypervisor && targetHypervisor) continue
+
+      if (sourceHypervisor || targetHypervisor) {
+        const rootId = sourceHypervisor ? sourceId : targetId
+        const childId = sourceHypervisor ? targetId : sourceId
+        const group = rootGroups.get(rootId) || new Set([rootId])
+        group.add(childId)
+        rootGroups.set(rootId, group)
+        continue
+      }
+
+      if (!fallbackAdjacency.has(sourceId)) fallbackAdjacency.set(sourceId, new Set())
+      if (!fallbackAdjacency.has(targetId)) fallbackAdjacency.set(targetId, new Set())
+      fallbackAdjacency.get(sourceId).add(targetId)
+      fallbackAdjacency.get(targetId).add(sourceId)
     }
 
     const visited = new Set()
-    const islands = []
+    const islands = Array.from(rootGroups.entries()).map(([rootId, group]) => ({
+      rootId,
+      nodeIds: this.sortedHostedIslandNodeIds(Array.from(group), rootId, nodeById),
+      nodeById,
+    }))
 
-    for (const nodeId of Array.from(adjacency.keys()).sort()) {
+    for (const nodeId of Array.from(fallbackAdjacency.keys()).sort()) {
       if (visited.has(nodeId)) continue
       const queue = [nodeId]
       const nodeIds = []
@@ -729,7 +763,7 @@ export const godViewLayoutTopologyStateMethods = {
         const current = queue.shift()
         nodeIds.push(current)
 
-        for (const neighbor of adjacency.get(current) || []) {
+        for (const neighbor of fallbackAdjacency.get(current) || []) {
           if (visited.has(neighbor)) continue
           visited.add(neighbor)
           queue.push(neighbor)
@@ -739,13 +773,11 @@ export const godViewLayoutTopologyStateMethods = {
       const rootId = [...nodeIds].sort((leftId, rightId) => {
         const leftNode = nodeById.get(leftId) || {}
         const rightNode = nodeById.get(rightId) || {}
-        const leftScore = Number(rootScore.get(leftId) || 0)
-        const rightScore = Number(rootScore.get(rightId) || 0)
-        const leftDegree = Number((adjacency.get(leftId) || new Set()).size)
-        const rightDegree = Number((adjacency.get(rightId) || new Set()).size)
+        const leftDegree = Number((fallbackAdjacency.get(leftId) || new Set()).size)
+        const rightDegree = Number((fallbackAdjacency.get(rightId) || new Set()).size)
 
         return (
-          rightScore - leftScore ||
+          Number(isHypervisorNode(rightNode)) - Number(isHypervisorNode(leftNode)) ||
           rightDegree - leftDegree ||
           String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
           leftId.localeCompare(rightId)
@@ -754,16 +786,7 @@ export const godViewLayoutTopologyStateMethods = {
 
       islands.push({
         rootId,
-        nodeIds: nodeIds.sort((leftId, rightId) => {
-          if (leftId === rootId) return -1
-          if (rightId === rootId) return 1
-          const leftNode = nodeById.get(leftId) || {}
-          const rightNode = nodeById.get(rightId) || {}
-          return (
-            String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
-            leftId.localeCompare(rightId)
-          )
-        }),
+        nodeIds: this.sortedHostedIslandNodeIds(nodeIds, rootId, nodeById),
         nodeById,
       })
     }
@@ -777,6 +800,18 @@ export const godViewLayoutTopologyStateMethods = {
       )
     })
   },
+  sortedHostedIslandNodeIds(nodeIds, rootId, nodeById) {
+    return nodeIds.sort((leftId, rightId) => {
+      if (leftId === rootId) return -1
+      if (rightId === rootId) return 1
+      const leftNode = nodeById.get(leftId) || {}
+      const rightNode = nodeById.get(rightId) || {}
+      return (
+        String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
+        leftId.localeCompare(rightId)
+      )
+    })
+  },
   hostedIslandPositions(island, anchorX, anchorY) {
     const positions = new Map()
     const rootId = island?.rootId
@@ -786,16 +821,18 @@ export const godViewLayoutTopologyStateMethods = {
     positions.set(rootId, {x: anchorX, y: anchorY})
 
     const guests = nodeIds.filter((nodeId) => nodeId !== rootId)
-    const visibleRows = Math.min(HOSTED_ISLAND_GUESTS_PER_COLUMN, Math.max(1, guests.length))
 
     for (let index = 0; index < guests.length; index += 1) {
-      const column = Math.floor(index / HOSTED_ISLAND_GUESTS_PER_COLUMN)
-      const row = index % HOSTED_ISLAND_GUESTS_PER_COLUMN
-      const rowOffset = row - ((visibleRows - 1) / 2)
+      const ring = Math.floor(index / HOSTED_ISLAND_GUESTS_PER_RING)
+      const ringStart = ring * HOSTED_ISLAND_GUESTS_PER_RING
+      const ringCount = Math.min(HOSTED_ISLAND_GUESTS_PER_RING, guests.length - ringStart)
+      const ringIndex = index - ringStart
+      const radius = HOSTED_ISLAND_GUEST_RING_RADIUS + ring * HOSTED_ISLAND_GUEST_RING_STEP
+      const angle = -Math.PI / 2 + (Math.PI * 2 * ringIndex) / Math.max(1, ringCount)
 
       positions.set(guests[index], {
-        x: anchorX + HOSTED_ISLAND_ROOT_TO_GUEST_X + (column * HOSTED_ISLAND_GUEST_GAP_X),
-        y: anchorY + (rowOffset * HOSTED_ISLAND_GUEST_GAP_Y),
+        x: anchorX + Math.cos(angle) * radius,
+        y: anchorY + Math.sin(angle) * radius,
       })
     }
 

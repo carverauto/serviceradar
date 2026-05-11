@@ -410,8 +410,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     do: config_schema
 
   defp maybe_add_policy_secret_field_from_params(config_schema, params) do
+    params = normalize_map(params)
+
     if policy_credential_broker_assignment?(params) do
-      add_secret_ref_property(config_schema, "api_token_secret_ref")
+      config_schema
+      |> maybe_add_secret_ref_property(params, "api_token_secret_ref")
+      |> maybe_add_secret_ref_property(params, "credential_secret")
     else
       config_schema
     end
@@ -429,7 +433,24 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp credential_broker_params?(params, broker) do
     fetch_map_value(broker, :schema) == "serviceradar.edge_credential_broker_grant.v1" and
-      SecretRefs.secret_ref?(fetch_map_value(params, :api_token_secret_ref))
+      (SecretRefs.secret_ref?(fetch_map_value(params, :api_token_secret_ref)) or
+         SecretRefs.secret_ref?(fetch_map_value(params, :credential_secret)))
+  end
+
+  defp maybe_add_secret_ref_property(config_schema, params, field) do
+    if secret_ref_in_params_or_template?(params, field) do
+      add_secret_ref_property(config_schema, field)
+    else
+      config_schema
+    end
+  end
+
+  defp secret_ref_in_params_or_template?(params, field) do
+    params = normalize_map(params)
+    template = normalize_map(fetch_map_value(params, :template, %{}))
+
+    SecretRefs.secret_ref?(fetch_map_value(params, field)) or
+      SecretRefs.secret_ref?(fetch_map_value(template, field))
   end
 
   defp add_secret_ref_property(config_schema, field) do

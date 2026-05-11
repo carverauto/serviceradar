@@ -25,6 +25,10 @@ describe("rendering_graph_layer_node_methods", () => {
     )
 
     const labelLayer = layers.find((layer) => layer.id === "god-view-node-labels")
+    const hitboxLayer = layers.find((layer) => layer.id === "god-view-nodes-hitbox")
+
+    expect(hitboxLayer).toBeTruthy()
+    expect(hitboxLayer.props.pickable).toEqual(true)
     expect(labelLayer).toBeTruthy()
     expect(labelLayer.props.pickable).toEqual(true)
   })

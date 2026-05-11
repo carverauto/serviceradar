@@ -211,6 +211,49 @@ func (e *DiscoveryEngine) probeProxmoxCandidates(
 	return devices
 }
 
+func (e *DiscoveryEngine) probeProxmoxKnownDeviceCandidates(ctx context.Context, job *DiscoveryJob) {
+	seeds := proxmoxCandidateSeedsFromJob(job)
+	if len(seeds) == 0 {
+		return
+	}
+
+	devices := e.probeProxmoxCandidates(ctx, job, seeds)
+	if len(devices) == 0 {
+		return
+	}
+
+	job.mu.Lock()
+	defer job.mu.Unlock()
+
+	e.processDevicesForSNMPTargets(job, devices, map[string]bool{}, map[string]string{})
+}
+
+func proxmoxCandidateSeedsFromJob(job *DiscoveryJob) []string {
+	if job == nil || job.Results == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	seeds := make([]string, 0, len(job.Results.Devices))
+
+	for _, device := range job.Results.Devices {
+		if device == nil {
+			continue
+		}
+		ip := strings.TrimSpace(device.IP)
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		seeds = append(seeds, ip)
+	}
+
+	return seeds
+}
+
 func (e *DiscoveryEngine) probeProxmoxCandidate(
 	ctx context.Context,
 	client *http.Client,

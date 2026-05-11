@@ -165,6 +165,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
                "grant_type" => "proxmox_console",
                "auth_method" => "ssh_private_key"
              },
+             "credential_secret" => ref,
              "credential_rule_id" => "console-rule",
              "ssh_host_key_policy" => "trust_on_first_use",
              "timeout_ms" => 20_000

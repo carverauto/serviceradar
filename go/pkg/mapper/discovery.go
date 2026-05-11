@@ -2052,6 +2052,11 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 			}
 		}
 	}
+	if shouldProbeProxmoxCandidates(job) {
+		apiCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
+		e.probeProxmoxKnownDeviceCandidates(apiCtx, job)
+		cancel()
+	}
 	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusCompleted, "enrichment complete")
 
 	// Hard invariant: topology resolution starts only after identity reconciliation completes.

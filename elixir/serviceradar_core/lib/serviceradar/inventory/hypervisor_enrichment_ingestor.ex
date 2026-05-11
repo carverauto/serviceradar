@@ -268,6 +268,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   def persist_records(records, opts) do
     actor = Keyword.fetch!(opts, :actor)
     records = resolve_existing_device_uids(records, actor)
+    records = normalize_host_management_ips(records)
 
     with {:ok, records} <- ensure_inventory_devices(records, actor),
          records = resolve_existing_device_uids(records, actor),
@@ -481,11 +482,18 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp ensure_inventory_devices(records, actor) do
     guest_ip_by_ref = primary_ip_by_guest(records.network_interfaces)
+    host_ip_by_ref = primary_ip_by_host(records.network_interfaces)
 
     {host_updates, host_uid_by_ref} =
       records.hosts
       |> Enum.filter(&missing_device_uid?/1)
-      |> Enum.map(&placeholder_device_update(&1, :hypervisor))
+      |> Enum.map(fn record ->
+        placeholder_device_update(
+          record,
+          :hypervisor,
+          Map.get(host_ip_by_ref, Map.get(record, :provider_ref))
+        )
+      end)
       |> Enum.map_reduce(%{}, fn {update, provider_ref, device_uid}, acc ->
         {update, Map.put(acc, provider_ref, device_uid)}
       end)
@@ -507,7 +515,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     updates =
       host_updates ++
         guest_updates ++
-        existing_device_ip_updates(records.hosts, :hypervisor, %{}) ++
+        existing_device_ip_updates(records.hosts, :hypervisor, host_ip_by_ref) ++
         existing_device_ip_updates(records.guests, :virtual_guest, guest_ip_by_ref)
 
     case updates do
@@ -532,7 +540,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     |> is_nil()
   end
 
-  defp placeholder_device_update(record, role, ip_override \\ nil) do
+  defp placeholder_device_update(record, role, ip_override) do
     provider_ref = Map.fetch!(record, :provider_ref)
     partition = metadata_partition(record)
     device_uid = deterministic_provider_device_uid(provider_ref, partition)
@@ -614,11 +622,95 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
-  defp primary_interface_ip(iface) do
-    iface
-    |> Map.get(:ip_addresses, [])
-    |> Enum.find_value(&normalize_ip_identifier/1)
+  defp primary_ip_by_host(network_interfaces) do
+    network_interfaces
+    |> Enum.reduce(%{}, fn iface, acc ->
+      host_ref = Map.get(iface, :host_provider_ref)
+      guest_ref = Map.get(iface, :guest_provider_ref)
+      ip = primary_interface_ip(iface)
+
+      if present?(host_ref) and not present?(guest_ref) and present?(ip) do
+        candidate = {ip, management_ip_score(iface, ip)}
+
+        Map.update(acc, host_ref, candidate, fn current ->
+          if elem(candidate, 1) > elem(current, 1), do: candidate, else: current
+        end)
+      else
+        acc
+      end
+    end)
+    |> Map.new(fn {host_ref, {ip, _score}} -> {host_ref, ip} end)
   end
+
+  defp normalize_host_management_ips(records) do
+    host_ip_by_ref = primary_ip_by_host(records.network_interfaces)
+
+    Map.update!(records, :hosts, fn hosts ->
+      Enum.map(hosts, fn record ->
+        provider_ref = Map.get(record, :provider_ref)
+        ip = Map.get(host_ip_by_ref, provider_ref)
+
+        if present?(ip) and not present?(metadata_ip(record)) do
+          metadata =
+            record
+            |> Map.get(:metadata, %{})
+            |> Map.put("ip", ip)
+
+          Map.put(record, :metadata, metadata)
+        else
+          record
+        end
+      end)
+    end)
+  end
+
+  defp primary_interface_ip(iface) do
+    Enum.find_value(
+      [
+        iface |> Map.get(:ip_addresses, []) |> Enum.find_value(&normalize_ip_identifier/1),
+        normalize_ip_identifier(Map.get(iface, :cidr)),
+        normalize_ip_identifier(Map.get(iface, :address))
+      ],
+      & &1
+    )
+  end
+
+  defp management_ip_score(iface, ip) do
+    score =
+      cond do
+        not routable_management_ip?(ip) -> 0
+        present?(Map.get(iface, :gateway)) -> 100
+        private_management_ip?(ip) -> 80
+        true -> 50
+      end
+
+    if String.starts_with?(String.downcase(to_string(Map.get(iface, :name) || "")), ["vmbr", "br"]) do
+      score + 5
+    else
+      score
+    end
+  end
+
+  defp private_management_ip?(value) when is_binary(value) do
+    String.starts_with?(value, ["10.", "192.168."]) or private_172_ip?(value)
+  end
+
+  defp private_management_ip?(_value), do: false
+
+  defp private_172_ip?("172." <> rest) do
+    case rest |> String.split(".", parts: 2) |> List.first() |> Integer.parse() do
+      {octet, _} -> octet in 16..31
+      _ -> false
+    end
+  end
+
+  defp private_172_ip?(_value), do: false
+
+  defp routable_management_ip?(value) when is_binary(value) do
+    not String.starts_with?(value, ["0.", "127.", "169.254."])
+  end
+
+  defp routable_management_ip?(_value), do: false
 
   defp metadata_ip(record) do
     metadata = Map.get(record, :metadata) || %{}

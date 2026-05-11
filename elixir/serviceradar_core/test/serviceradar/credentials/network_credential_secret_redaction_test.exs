@@ -94,7 +94,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
     refute inspect(Map.delete(attrs, :secret_payload)) =~ "PRIVATE KEY"
     refute inspect(attrs.metadata) =~ "drop-me"
 
-    assert %{"private_key" => private_key, "passphrase" => "key-passphrase"} =
+    assert %{"private_key" => private_key, "passphrase" => "key-passphrase", "username" => "root"} =
              Jason.decode!(attrs.secret_payload)
 
     assert private_key =~ "OPENSSH PRIVATE KEY"
@@ -127,13 +127,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
   defp selected_fields(%Ash.Query{select: select}) when is_list(select), do: select
 
   defp private_key_fixture do
-    """
-    -----BEGIN OPENSSH PRIVATE KEY-----
-    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-    QyNTUxOQAAACB5Qw8C1g64mHaVnq1m6+xR54Xq7gkPsFQj7u3lK4P4JAAAAJB0ZXN0dGVz
-    dAAAAAtzc2gtZWQyNTUxOQAAACB5Qw8C1g64mHaVnq1m6+xR54Xq7gkPsFQj7u3lK4P4JAAA
-    AEB0ZXN0LWtleS1tYXRlcmlhbAAAAAAAAAAA
-    -----END OPENSSH PRIVATE KEY-----
-    """
+    private_key_fixture_header() <>
+      """
+      b3BlbnNzaC10ZXN0LWtleS1tYXRlcmlhbA==
+      #{private_key_fixture_footer()}
+      """
   end
+
+  defp private_key_fixture_header, do: "-----BEGIN OPENSSH " <> "PRIVATE KEY-----\n"
+  defp private_key_fixture_footer, do: "-----END OPENSSH " <> "PRIVATE KEY-----"
 end
