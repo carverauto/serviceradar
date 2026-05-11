@@ -10,8 +10,10 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
   alias ServiceRadar.Plugins.Validations.AssignmentParams
+  alias ServiceRadar.Plugins.Validations.PackageApproved
 
   @mutable_fields [
+    :plugin_package_id,
     :source,
     :source_key,
     :policy_id,
@@ -55,7 +57,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       accept @create_fields
 
       change ApplyConfigDefaults
-      validate ServiceRadar.Plugins.Validations.PackageApproved
+      validate PackageApproved
       validate ServiceRadar.Plugins.Validations.NoShadowedManualAssignment
       validate AssignmentParams
     end
@@ -64,6 +66,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       accept @mutable_fields
 
       change ApplyConfigDefaults
+      validate PackageApproved
       validate AssignmentParams
     end
   end

@@ -17,8 +17,10 @@
 package mtr
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -36,9 +38,9 @@ type Enricher struct {
 	db *maxminddb.Reader
 }
 
-// NewEnricher opens the MMDB file at the given path. Returns a no-op
-// enricher (with nil db) if the file cannot be opened, enabling
-// graceful degradation.
+// NewEnricher opens the MMDB file at the given path. A missing database
+// returns a no-op enricher without error so edge agents do not warn on every
+// MTR run when central GeoIP enrichment is handling ASN data.
 func NewEnricher(dbPath string) (*Enricher, error) {
 	if dbPath == "" {
 		return &Enricher{}, nil
@@ -46,6 +48,10 @@ func NewEnricher(dbPath string) (*Enricher, error) {
 
 	db, err := maxminddb.Open(dbPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &Enricher{}, nil
+		}
+
 		return &Enricher{}, fmt.Errorf("open MMDB %s: %w", dbPath, err)
 	}
 

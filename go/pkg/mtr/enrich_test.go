@@ -37,16 +37,15 @@ func TestNewEnricher_EmptyPath(t *testing.T) {
 
 func TestNewEnricher_MissingFile(t *testing.T) {
 	e, err := NewEnricher("/nonexistent/path/to/GeoLite2-ASN.mmdb")
-	if err == nil {
-		t.Fatal("expected error for missing MMDB file")
+	if err != nil {
+		t.Fatalf("NewEnricher returned error for missing optional MMDB file: %v", err)
 	}
-	// Should still return a usable (no-op) enricher
 	if e == nil {
-		t.Fatal("expected non-nil enricher even on error")
+		t.Fatal("expected non-nil no-op enricher for missing optional MMDB file")
 		return
 	}
 	if e.db != nil {
-		t.Fatal("expected nil db for failed open")
+		t.Fatal("expected nil db for missing optional MMDB file")
 	}
 }
 
