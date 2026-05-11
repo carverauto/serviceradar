@@ -56,6 +56,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
       change ApplyConfigDefaults
       validate ServiceRadar.Plugins.Validations.PackageApproved
+      validate ServiceRadar.Plugins.Validations.NoShadowedManualAssignment
       validate AssignmentParams
     end
 
