@@ -98,7 +98,8 @@ config :serviceradar_core,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
-    ServiceRadar.WifiMap
+    ServiceRadar.WifiMap,
+    ServiceRadar.Automation.Ansible
   ]
 
 config :serviceradar_core,

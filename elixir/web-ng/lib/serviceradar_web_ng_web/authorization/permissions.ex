@@ -3,6 +3,11 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
 
   use Permit.Permissions, actions_module: ServiceRadarWebNGWeb.Authorization.Actions
 
+  alias ServiceRadar.Automation.Ansible.Controller, as: AnsibleController
+  alias ServiceRadar.Automation.Ansible.Playbook, as: AnsiblePlaybook
+  alias ServiceRadar.Automation.Ansible.PlaybookRepository, as: AnsibleRepository
+  alias ServiceRadar.Automation.Ansible.PlaybookRun, as: AnsibleRun
+  alias ServiceRadar.Automation.Ansible.PlaybookSchedule, as: AnsibleSchedule
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RBAC, as: RBACCore
@@ -28,6 +33,36 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
 
       "settings.rbac.manage" ->
         all(permissions, RoleProfile)
+
+      "ansible.controllers.manage" ->
+        all(permissions, AnsibleController)
+
+      "ansible.repositories.manage" ->
+        all(permissions, AnsibleRepository)
+
+      "ansible.catalog.view" ->
+        permissions
+        |> read(AnsiblePlaybook)
+        |> read(AnsibleController)
+        |> read(AnsibleRepository)
+
+      "ansible.runs.view" ->
+        permissions
+        |> read(AnsibleRun)
+        |> read(AnsiblePlaybook)
+        |> read(AnsibleController)
+
+      "ansible.runs.launch" ->
+        create(permissions, AnsibleRun)
+
+      "ansible.runs.cancel" ->
+        update(permissions, AnsibleRun)
+
+      "ansible.schedules.view" ->
+        read(permissions, AnsibleSchedule)
+
+      "ansible.schedules.manage" ->
+        all(permissions, AnsibleSchedule)
 
       _ ->
         permissions
