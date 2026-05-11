@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.39
+
+MTR ASN enrichment relocation, Proxmox credential/plugin packaging fixes, Ansible settings shell restoration, and AWX plugin OCI publishing follow-up.
+
+## Whats New
+
+**1.2.39**
+- Moved MTR ASN enrichment out of the agent and into the core ingestion path so MTR rows and graph projections are annotated centrally via ServiceRadar.Observability.GeoIP, removing the MaxMind Go dependency and `asn_db_path`/`ASNDBPath` agent configuration.
+- Fixed plugin assignment upgrades so version bumps replace existing manual assignments cleanly and improved ASN fallback handling for MTR enrichment when the primary lookup is unavailable.
+- Restored the app shell on the Ansible settings LiveView so the page renders with the standard navigation chrome instead of a bare layout.
+- Fixed Proxmox credential targeting, network credential rule preview scoping, plugin assignment materialization, console session credential handling, and hypervisor enrichment ingestion edges; added AWX WASM plugin build wiring so first-party AWX images are produced as part of the standard plugin packaging pass.
+- Published the missing AWX WASM plugin OCI references (`wasm-plugin-awx` and `wasm-plugin-awx-inventory-sync`) for the v1.2.38 release and refreshed the plugin index to include both AWX plugins.
+
 # ServiceRadar v1.2.38
 
 Proxmox enrichment, remote console, Ansible automation, and agent package release fixes.
