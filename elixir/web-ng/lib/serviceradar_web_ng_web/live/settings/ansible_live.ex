@@ -21,9 +21,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
+  alias ServiceRadar.Automation.Ansible.PlaybookSchedule
+  alias ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
+
+  require Ash.Query
 
   require Logger
 
@@ -45,9 +50,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "edit_repository" => :update,
       "save_repository" => :update,
       "delete_repository" => :delete,
+      "new_schedule" => :create,
+      "edit_schedule" => :update,
+      "save_schedule" => :update,
+      "delete_schedule" => :delete,
+      "toggle_schedule" => :update,
       "cancel_form" => :read,
       "validate_controller" => :read,
       "validate_repository" => :read,
+      "validate_schedule" => :read,
       "select_tab" => :read
     })
   end
@@ -63,9 +74,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     cond do
       RBAC.can?(scope, "ansible.controllers.manage") or
-          RBAC.can?(scope, "ansible.repositories.manage") ->
+        RBAC.can?(scope, "ansible.repositories.manage") or
+          RBAC.can?(scope, "ansible.schedules.manage") ->
         controllers = list_controllers()
         repositories = list_repositories()
+        schedules = list_schedules()
+        playbooks = launchable_playbooks()
 
         {:ok,
          socket
@@ -82,7 +96,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
          |> assign(:editing_repository_id, nil)
          |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
          |> stream(:repositories, repositories, reset: true)
-         |> assign(:repository_count, length(repositories))}
+         |> assign(:repository_count, length(repositories))
+         |> assign(:show_schedule_form, false)
+         |> assign(:editing_schedule_id, nil)
+         |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))
+         |> assign(:playbooks, playbooks)
+         |> stream(:schedules, schedules, reset: true)
+         |> assign(:schedule_count, length(schedules))}
 
       true ->
         {:ok,
@@ -217,6 +237,76 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
+  ## Schedule CRUD ------------------------------------------------------------
+
+  def handle_event("new_schedule", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_schedule_form, true)
+     |> assign(:editing_schedule_id, nil)
+     |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))}
+  end
+
+  def handle_event("edit_schedule", %{"id" => id}, socket) do
+    case PlaybookSchedule.get_by_id(id, actor: actor()) do
+      {:ok, sched} ->
+        {:noreply,
+         socket
+         |> assign(:show_schedule_form, true)
+         |> assign(:editing_schedule_id, sched.id)
+         |> assign(:schedule_form, to_form(schedule_form_from(sched), as: :schedule))}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Schedule not found.")}
+    end
+  end
+
+  def handle_event("validate_schedule", %{"schedule" => params}, socket) do
+    {:noreply, assign(socket, :schedule_form, to_form(params, as: :schedule))}
+  end
+
+  def handle_event("save_schedule", %{"schedule" => params}, socket) do
+    case socket.assigns.editing_schedule_id do
+      nil -> create_schedule(socket, params)
+      id -> update_schedule(socket, id, params)
+    end
+  end
+
+  def handle_event("toggle_schedule", %{"id" => id}, socket) do
+    with {:ok, sched} <- PlaybookSchedule.get_by_id(id, actor: actor()),
+         {:ok, updated} <- toggle_enabled(sched) do
+      msg = if updated.enabled, do: "enabled", else: "disabled"
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Schedule \"#{updated.name}\" #{msg}.")
+       |> stream_insert(:schedules, updated)}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Could not toggle schedule.")}
+    end
+  end
+
+  def handle_event("delete_schedule", %{"id" => id}, socket) do
+    case PlaybookSchedule.get_by_id(id, actor: actor()) do
+      {:ok, sched} ->
+        case Ash.destroy(sched, actor: actor()) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Schedule \"#{sched.name}\" deleted.")
+             |> stream_delete(:schedules, sched)
+             |> update(:schedule_count, &max(&1 - 1, 0))}
+
+          {:error, reason} ->
+            Logger.warning("delete schedule failed", reason: inspect(reason))
+            {:noreply, put_flash(socket, :error, "Could not delete schedule.")}
+        end
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Schedule not found.")}
+    end
+  end
+
   ## Render --------------------------------------------------------------------
 
   @impl true
@@ -265,8 +355,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         />
       </section>
 
+      <section :if={@active_tab == :schedules} class="space-y-4">
+        <.schedules_panel
+          schedules={@streams.schedules}
+          schedule_count={@schedule_count}
+          show_form={@show_schedule_form}
+          form={@schedule_form}
+          editing_id={@editing_schedule_id}
+          playbooks={@playbooks}
+        />
+      </section>
+
       <section
-        :if={@active_tab not in [:controllers, :repositories]}
+        :if={@active_tab not in [:controllers, :repositories, :schedules]}
         class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/70"
       >
         <p class="font-medium">{tab_label(@active_tab, @tabs)}</p>
@@ -670,6 +771,249 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
+  ## Schedule panel + form ----------------------------------------------------
+
+  attr :schedules, :any, required: true
+  attr :schedule_count, :integer, required: true
+  attr :show_form, :boolean, required: true
+  attr :form, :any, required: true
+  attr :editing_id, :string, default: nil
+  attr :playbooks, :any, required: true
+
+  defp schedules_panel(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between">
+      <p class="text-sm text-base-content/70">
+        <span class="font-medium">{@schedule_count}</span>
+        scheduled run{if @schedule_count == 1, do: "", else: "s"} registered.
+      </p>
+      <button type="button" phx-click="new_schedule" class="btn btn-sm btn-primary">
+        + Add schedule
+      </button>
+    </div>
+
+    <div :if={@schedule_count == 0 and !@show_form} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+      <p>No schedules registered.</p>
+      <p class="mt-2">Click <strong>Add schedule</strong> to create a cron-driven run.</p>
+    </div>
+
+    <.schedule_form :if={@show_form} form={@form} editing_id={@editing_id} playbooks={@playbooks} />
+
+    <div :if={@schedule_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      <table class="table table-zebra">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Cron</th>
+            <th>Last fire</th>
+            <th>Next run</th>
+            <th>State</th>
+            <th class="w-40">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="ansible-schedules" phx-update="stream">
+          <tr :for={{id, sched} <- @schedules} id={id}>
+            <td>
+              <div class="font-medium">{sched.name}</div>
+              <div :if={sched.description} class="text-xs text-base-content/60">{sched.description}</div>
+            </td>
+            <td>
+              <code class="text-xs">{sched.cron}</code>
+              <div class="text-xs text-base-content/60">{sched.timezone}</div>
+            </td>
+            <td>
+              <div :if={sched.last_evaluated_at} class="text-xs">
+                {Calendar.strftime(sched.last_evaluated_at, "%Y-%m-%d %H:%M:%S UTC")}
+              </div>
+              <span :if={sched.last_evaluation_outcome} class={["badge badge-xs mt-1", outcome_badge_class(sched.last_evaluation_outcome)]}>
+                {sched.last_evaluation_outcome}
+              </span>
+              <div :if={!sched.last_evaluated_at} class="text-xs text-base-content/60">never fired</div>
+            </td>
+            <td>
+              <div :if={sched.next_run_at} class="text-xs">
+                {Calendar.strftime(sched.next_run_at, "%Y-%m-%d %H:%M:%S UTC")}
+              </div>
+              <div :if={!sched.next_run_at} class="text-xs text-base-content/60">—</div>
+            </td>
+            <td>
+              <span :if={sched.enabled} class="badge badge-success">enabled</span>
+              <span :if={!sched.enabled} class="badge badge-ghost">disabled</span>
+              <span :if={sched.allow_concurrent} class="badge badge-xs badge-warning mt-1">concurrent</span>
+            </td>
+            <td>
+              <div class="flex gap-1 flex-wrap">
+                <button type="button" class="btn btn-xs" phx-click="toggle_schedule" phx-value-id={sched.id}>
+                  {if sched.enabled, do: "Disable", else: "Enable"}
+                </button>
+                <button type="button" class="btn btn-xs" phx-click="edit_schedule" phx-value-id={sched.id}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-error btn-outline"
+                  phx-click="delete_schedule"
+                  phx-value-id={sched.id}
+                  data-confirm={"Delete schedule '#{sched.name}'?"}
+                >
+                  Delete
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :editing_id, :string, default: nil
+  attr :playbooks, :any, required: true
+
+  defp schedule_form(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+      <h2 class="text-lg font-medium mb-3">
+        {if @editing_id, do: "Edit schedule", else: "Add schedule"}
+      </h2>
+
+      <.form for={@form} phx-change="validate_schedule" phx-submit="save_schedule" class="space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text">Name</span></label>
+            <input
+              type="text"
+              name="schedule[name]"
+              value={Phoenix.HTML.Form.input_value(@form, :name)}
+              required
+              class="input input-bordered input-sm"
+              placeholder="nightly-deploy"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-2">
+              <input
+                type="checkbox"
+                name="schedule[enabled]"
+                value="true"
+                checked={truthy?(Phoenix.HTML.Form.input_value(@form, :enabled))}
+                class="checkbox checkbox-sm"
+              />
+              <span class="label-text">Enabled</span>
+            </label>
+            <label class="label cursor-pointer justify-start gap-2">
+              <input
+                type="checkbox"
+                name="schedule[allow_concurrent]"
+                value="true"
+                checked={truthy?(Phoenix.HTML.Form.input_value(@form, :allow_concurrent))}
+                class="checkbox checkbox-sm"
+              />
+              <span class="label-text">Allow concurrent runs</span>
+            </label>
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label"><span class="label-text">Description</span></label>
+            <input
+              type="text"
+              name="schedule[description]"
+              value={Phoenix.HTML.Form.input_value(@form, :description)}
+              class="input input-bordered input-sm"
+            />
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label">
+              <span class="label-text">Playbook</span>
+              <span class="label-text-alt text-xs text-base-content/60">
+                {length(@playbooks)} launchable
+              </span>
+            </label>
+            <select name="schedule[playbook_id]" required class="select select-bordered select-sm">
+              <option value="" disabled selected={Phoenix.HTML.Form.input_value(@form, :playbook_id) in [nil, ""]}>
+                — pick a playbook —
+              </option>
+              <option
+                :for={pb <- @playbooks}
+                value={pb.id}
+                selected={Phoenix.HTML.Form.input_value(@form, :playbook_id) == pb.id}
+              >
+                {pb.name} ({pb.source_type})
+              </option>
+            </select>
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label">
+              <span class="label-text">Target device UIDs</span>
+              <span class="label-text-alt text-xs text-base-content/60">comma-separated</span>
+            </label>
+            <input
+              type="text"
+              name="schedule[target_device_uids]"
+              value={Phoenix.HTML.Form.input_value(@form, :target_device_uids)}
+              required
+              class="input input-bordered input-sm font-mono text-xs"
+              placeholder="sr:a,sr:b,sr:c"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Cron</span>
+              <span class="label-text-alt text-xs text-base-content/60">5-field, UTC for v1</span>
+            </label>
+            <input
+              type="text"
+              name="schedule[cron]"
+              value={Phoenix.HTML.Form.input_value(@form, :cron)}
+              required
+              class="input input-bordered input-sm font-mono"
+              placeholder="0 3 * * *"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label"><span class="label-text">Timezone</span></label>
+            <input
+              type="text"
+              name="schedule[timezone]"
+              value={Phoenix.HTML.Form.input_value(@form, :timezone) || "UTC"}
+              required
+              class="input input-bordered input-sm"
+              placeholder="UTC"
+            />
+            <p class="text-xs text-base-content/60 mt-1">Non-UTC needs the tzdata dep — v1 supports UTC / Etc/UTC.</p>
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label">
+              <span class="label-text">extra_vars (JSON)</span>
+              <span class="label-text-alt text-xs text-base-content/60">passed to AWX on each fire</span>
+            </label>
+            <textarea
+              name="schedule[requested_extra_vars]"
+              rows="3"
+              class="textarea textarea-bordered font-mono text-xs"
+              placeholder={"{\n  \"target_version\": \"1.2.3\"\n}"}
+            >{Phoenix.HTML.Form.input_value(@form, :requested_extra_vars)}</textarea>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">
+            {if @editing_id, do: "Save changes", else: "Create schedule"}
+          </button>
+        </div>
+      </.form>
+    </div>
+    """
+  end
+
   ## Helpers -------------------------------------------------------------------
 
   defp create_controller(socket, params) do
@@ -844,6 +1188,234 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp sync_badge_class(:error), do: "badge-error"
   defp sync_badge_class(:pending), do: "badge-ghost"
   defp sync_badge_class(_), do: "badge-ghost"
+
+  ## Schedule helpers ---------------------------------------------------------
+
+  defp list_schedules do
+    query =
+      PlaybookSchedule
+      |> Ash.Query.sort(name: :asc)
+
+    case Ash.read(query, actor: actor()) do
+      {:ok, rows} -> rows
+      _ -> []
+    end
+  end
+
+  defp launchable_playbooks do
+    query =
+      Playbook
+      |> Ash.Query.filter(not is_nil(awx_job_template_id))
+      |> Ash.Query.sort(name: :asc)
+      |> Ash.Query.limit(500)
+
+    case Ash.read(query, actor: actor()) do
+      {:ok, rows} -> rows
+      _ -> []
+    end
+  end
+
+  defp create_schedule(socket, params) do
+    case validate_and_normalize_schedule(params) do
+      {:ok, attrs} ->
+        case PlaybookSchedule.create_schedule(attrs, actor: actor()) do
+          {:ok, sched} ->
+            sched = compute_next_run(sched)
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "Schedule \"#{sched.name}\" created.")
+             |> assign(:show_schedule_form, false)
+             |> stream_insert(:schedules, sched)
+             |> update(:schedule_count, &(&1 + 1))}
+
+          {:error, error} ->
+            Logger.info("Schedule create failed", error: inspect(error))
+
+            {:noreply,
+             socket
+             |> assign(:schedule_form, to_form(params, as: :schedule))
+             |> put_flash(:error, format_ash_error(error))}
+        end
+
+      {:error, message} ->
+        {:noreply,
+         socket
+         |> assign(:schedule_form, to_form(params, as: :schedule))
+         |> put_flash(:error, message)}
+    end
+  end
+
+  defp update_schedule(socket, id, params) do
+    with {:ok, attrs} <- validate_and_normalize_schedule(params),
+         {:ok, sched} <- PlaybookSchedule.get_by_id(id, actor: actor()),
+         {:ok, updated} <- PlaybookSchedule.update_schedule(sched, attrs, actor: actor()) do
+      updated = compute_next_run(updated)
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Schedule \"#{updated.name}\" updated.")
+       |> assign(:show_schedule_form, false)
+       |> stream_insert(:schedules, updated)}
+    else
+      {:error, %Ash.Error.Invalid{} = err} ->
+        {:noreply,
+         socket
+         |> assign(:schedule_form, to_form(params, as: :schedule))
+         |> put_flash(:error, format_ash_error(err))}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply,
+         socket
+         |> assign(:schedule_form, to_form(params, as: :schedule))
+         |> put_flash(:error, message)}
+
+      {:error, error} ->
+        Logger.info("Schedule update failed", error: inspect(error))
+
+        {:noreply,
+         socket
+         |> assign(:schedule_form, to_form(params, as: :schedule))
+         |> put_flash(:error, format_ash_error(error))}
+    end
+  end
+
+  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched),
+    do: PlaybookSchedule.disable(sched, actor: actor())
+
+  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched),
+    do: PlaybookSchedule.enable(sched, actor: actor())
+
+  defp validate_and_normalize_schedule(params) do
+    with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
+         {:ok, extra_vars} <- parse_extra_vars(params["requested_extra_vars"]),
+         :ok <- ensure_cron(params["cron"]) do
+      attrs = %{
+        name: params["name"],
+        description: nilify_blank(params["description"]),
+        enabled: truthy?(params["enabled"]),
+        playbook_id: nilify_blank(params["playbook_id"]),
+        target_device_uids: uids,
+        requested_extra_vars: extra_vars,
+        cron: params["cron"],
+        timezone: nilify_blank(params["timezone"]) || "UTC",
+        allow_concurrent: truthy?(params["allow_concurrent"])
+      }
+
+      {:ok, attrs}
+    else
+      [] -> {:error, "At least one target device UID is required."}
+      {:error, {:bad_extra_vars, msg}} -> {:error, "extra_vars JSON invalid: #{msg}"}
+      {:error, :bad_cron} -> {:error, "cron expression is invalid."}
+      other -> other
+    end
+  end
+
+  defp parse_uids(nil), do: []
+  defp parse_uids(""), do: []
+
+  defp parse_uids(s) when is_binary(s) do
+    s
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_uids(_), do: []
+
+  defp parse_extra_vars(nil), do: {:ok, %{}}
+  defp parse_extra_vars(""), do: {:ok, %{}}
+
+  defp parse_extra_vars(s) when is_binary(s) do
+    trimmed = String.trim(s)
+
+    if trimmed == "" do
+      {:ok, %{}}
+    else
+      case Jason.decode(trimmed) do
+        {:ok, m} when is_map(m) -> {:ok, m}
+        {:ok, _} -> {:error, {:bad_extra_vars, "must be a JSON object"}}
+        {:error, %Jason.DecodeError{} = err} -> {:error, {:bad_extra_vars, Exception.message(err)}}
+      end
+    end
+  end
+
+  defp ensure_cron(nil), do: {:error, :bad_cron}
+  defp ensure_cron(""), do: {:error, :bad_cron}
+
+  defp ensure_cron(s) when is_binary(s) do
+    case Oban.Cron.Expression.parse(s) do
+      {:ok, _} -> :ok
+      _ -> {:error, :bad_cron}
+    end
+  end
+
+  defp ensure_cron(_), do: {:error, :bad_cron}
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?("on"), do: true
+  defp truthy?("yes"), do: true
+  defp truthy?(_), do: false
+
+  defp compute_next_run(%PlaybookSchedule{} = sched) do
+    now = DateTime.utc_now()
+
+    case ScheduleEvaluatorWorker.compute_next_run_at(sched, now) do
+      {:ok, next} ->
+        case PlaybookSchedule.record_evaluation(
+               sched,
+               %{
+                 last_run_id: sched.last_run_id,
+                 next_run_at: next,
+                 last_evaluation_outcome: sched.last_evaluation_outcome
+               },
+               actor: actor()
+             ) do
+          {:ok, updated} -> updated
+          _ -> sched
+        end
+
+      _ ->
+        sched
+    end
+  end
+
+  defp default_schedule_form do
+    %{
+      "name" => "",
+      "description" => "",
+      "enabled" => "true",
+      "playbook_id" => "",
+      "target_device_uids" => "",
+      "requested_extra_vars" => "{}",
+      "cron" => "0 3 * * *",
+      "timezone" => "UTC",
+      "allow_concurrent" => ""
+    }
+  end
+
+  defp schedule_form_from(%PlaybookSchedule{} = sched) do
+    %{
+      "name" => sched.name,
+      "description" => sched.description || "",
+      "enabled" => to_string(sched.enabled),
+      "playbook_id" => sched.playbook_id || "",
+      "target_device_uids" => Enum.join(sched.target_device_uids || [], ","),
+      "requested_extra_vars" => Jason.encode!(sched.requested_extra_vars || %{}, pretty: true),
+      "cron" => sched.cron,
+      "timezone" => sched.timezone || "UTC",
+      "allow_concurrent" => to_string(sched.allow_concurrent)
+    }
+  end
+
+  defp outcome_badge_class(:fired), do: "badge-success"
+  defp outcome_badge_class(:skipped_overlap), do: "badge-warning"
+  defp outcome_badge_class(:skipped_disabled), do: "badge-ghost"
+  defp outcome_badge_class(:skipped_ineligible_targets), do: "badge-warning"
+  defp outcome_badge_class(:error), do: "badge-error"
+  defp outcome_badge_class(_), do: "badge-ghost"
 
   defp actor, do: SystemActor.system(:ansible_settings_live)
 
