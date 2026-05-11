@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
   alias ServiceRadar.Automation.Ansible.PlaybookSchedule
+  alias ServiceRadar.Automation.Ansible.RetentionWorker
   alias ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
@@ -102,7 +103,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
          |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))
          |> assign(:playbooks, playbooks)
          |> stream(:schedules, schedules, reset: true)
-         |> assign(:schedule_count, length(schedules))}
+         |> assign(:schedule_count, length(schedules))
+         |> assign(:retention_config, retention_config())}
 
       true ->
         {:ok,
@@ -366,15 +368,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         />
       </section>
 
-      <section
-        :if={@active_tab not in [:controllers, :repositories, :schedules]}
-        class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/70"
-      >
-        <p class="font-medium">{tab_label(@active_tab, @tabs)}</p>
-        <p class="mt-2">
-          Coming in a follow-up commit. Until then, manage this surface via Ash code
-          interfaces from <code>iex -S mix</code>.
-        </p>
+      <section :if={@active_tab == :retention} class="space-y-4">
+        <.retention_panel config={@retention_config} />
       </section>
     </SettingsComponents.settings_shell>
     """
@@ -1014,6 +1009,115 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
+  ## Retention panel (read-only docs) -----------------------------------------
+
+  attr :config, :map, required: true
+
+  defp retention_panel(assigns) do
+    ~H"""
+    <div class="space-y-4">
+      <div class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm space-y-3">
+        <header>
+          <h2 class="text-lg font-medium">Retention</h2>
+          <p class="text-base-content/70">
+            Run-detail + run-summary retention windows are operator-tunable via
+            environment variables. Worker cadences (health check, watchdog,
+            schedule evaluator) follow the same pattern. Values shown here reflect
+            the current process; changes require a redeploy.
+          </p>
+        </header>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th class="w-1/3">Setting</th>
+                <th>Current value</th>
+                <th>Env var</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="font-medium">Run detail retention</div>
+                  <div class="text-xs text-base-content/60">
+                    Past this age, prune `PlaybookPlay` / `PlaybookTask` /
+                    `PlaybookTaskResult` rows. Run + targets stay so the run
+                    header / per-target outcomes remain queryable.
+                  </div>
+                </td>
+                <td><code>{format_days(@config.run_detail_days)}</code></td>
+                <td><code class="text-xs">ANSIBLE_RETENTION_RUN_DETAIL_DAYS</code></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="font-medium">Run summary retention</div>
+                  <div class="text-xs text-base-content/60">
+                    When set, deletes the entire `PlaybookRun` (cascading to
+                    targets / plays / tasks / results) past this age. Default
+                    `nil` keeps run summaries forever.
+                  </div>
+                </td>
+                <td><code>{format_days_optional(@config.run_summary_days)}</code></td>
+                <td><code class="text-xs">ANSIBLE_RETENTION_RUN_SUMMARY_DAYS</code></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="font-medium">Retention sweep interval</div>
+                  <div class="text-xs text-base-content/60">
+                    How often the RetentionWorker scans. Defaults to daily.
+                  </div>
+                </td>
+                <td><code>{format_seconds(@config.interval_seconds)}</code></td>
+                <td><code class="text-xs">ANSIBLE_RETENTION_INTERVAL_SECONDS</code></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="font-medium">Controller health probe interval</div>
+                </td>
+                <td><code>{format_seconds(@config.health_interval_seconds)}</code></td>
+                <td><code class="text-xs">AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS</code></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="font-medium">Run watchdog interval</div>
+                  <div class="text-xs text-base-content/60">
+                    Threshold: 2× the AWX job_template timeout, or 1 h fallback
+                    if no template timeout is known.
+                  </div>
+                </td>
+                <td><code>{format_seconds(@config.watchdog_interval_seconds)}</code></td>
+                <td><code class="text-xs">AWX_RUN_WATCHDOG_INTERVAL_SECONDS</code></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="font-medium">Schedule evaluator interval</div>
+                </td>
+                <td><code>{format_seconds(@config.scheduler_interval_seconds)}</code></td>
+                <td><code class="text-xs">AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS</code></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="font-medium">Git catalog cache directory</div>
+                </td>
+                <td><code class="text-xs">{@config.catalog_base_dir}</code></td>
+                <td><code class="text-xs">ANSIBLE_CATALOG_BASE_DIR</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="text-xs text-base-content/60">
+          Per-controller / per-repository / per-schedule overrides take precedence
+          over the global defaults above. Each `AnsibleController` carries its own
+          `run_pulse_interval_ms` (drives RunPulseWorker), `inventory_sync_interval_seconds`,
+          and `catalog_sync_interval_seconds`.
+        </p>
+      </div>
+    </div>
+    """
+  end
+
   ## Helpers -------------------------------------------------------------------
 
   defp create_controller(socket, params) do
@@ -1417,6 +1521,54 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp outcome_badge_class(:error), do: "badge-error"
   defp outcome_badge_class(_), do: "badge-ghost"
 
+  ## Retention helpers --------------------------------------------------------
+
+  defp retention_config do
+    base = RetentionWorker.read_config()
+
+    %{
+      run_detail_days: base.run_detail_days,
+      run_summary_days: base.run_summary_days,
+      interval_seconds:
+        Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
+      health_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
+      watchdog_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
+      scheduler_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
+      catalog_base_dir:
+        Application.get_env(:serviceradar_core, :ansible_catalog_base_dir,
+          Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
+        )
+    }
+  end
+
+  defp format_days(:disabled), do: "disabled"
+  defp format_days(n) when is_integer(n) and n > 0, do: "#{n} day#{if n == 1, do: "", else: "s"}"
+  defp format_days(_), do: "—"
+
+  defp format_days_optional(nil), do: "forever"
+  defp format_days_optional(other), do: format_days(other)
+
+  defp format_seconds(n) when is_integer(n) and n >= 86_400 do
+    days = div(n, 86_400)
+    "#{days} day#{if days == 1, do: "", else: "s"}"
+  end
+
+  defp format_seconds(n) when is_integer(n) and n >= 3600 do
+    hours = div(n, 3600)
+    "#{hours} hour#{if hours == 1, do: "", else: "s"}"
+  end
+
+  defp format_seconds(n) when is_integer(n) and n >= 60 do
+    minutes = div(n, 60)
+    "#{minutes} minute#{if minutes == 1, do: "", else: "s"}"
+  end
+
+  defp format_seconds(n) when is_integer(n) and n > 0, do: "#{n}s"
+  defp format_seconds(_), do: "—"
+
   defp actor, do: SystemActor.system(:ansible_settings_live)
 
   defp nilify_blank(nil), do: nil
@@ -1441,10 +1593,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp health_badge_class(:unreachable), do: "badge-error"
   defp health_badge_class(:unauthorized), do: "badge-error"
   defp health_badge_class(_), do: "badge-ghost"
-
-  defp tab_label(active, tabs) do
-    Enum.find_value(tabs, "Unknown", fn {k, label} -> if k == active, do: label end)
-  end
 
   defp to_atom_tab(tab) when is_binary(tab) do
     case tab do
