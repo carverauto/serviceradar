@@ -35,6 +35,7 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` p
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
+- **Ansible Automation**: Run AWX/AAP playbooks against devices in the inventory with live per-host run telemetry, projected to OCSF for the universal log viewer. AWX-sourced and git-sourced playbook catalogs coexist; cron-driven schedules ride the same launch pipeline. See [docs/ansible.md](./docs/docs/ansible.md).
 - **Security**: Hardened with mTLS, RBAC, and SSO integration.
 
 ## WASM-Based Extensibility
