@@ -55,4 +55,14 @@ defmodule ServiceRadar.Automation.Ansible.IngestorActions do
   """
   @callback upsert_awx_playbook(controller_id :: id, args :: map()) ::
               {:ok, map()} | {:error, term()}
+
+  @doc """
+  Project an OCSF-shaped event into the universal observability stream
+  via EventBatcher. Driven by the OCSF mapper after each task result
+  write and each run state transition.
+
+  Returns `:ok` even on failure -- OCSF projection is best-effort and
+  must never block run-detail persistence.
+  """
+  @callback emit_ocsf_event(event :: map()) :: :ok
 end

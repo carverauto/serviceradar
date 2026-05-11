@@ -93,6 +93,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       {:ok, %{id: "pb-" <> to_string(args.awx_job_template_id)}}
     end
 
+    @impl true
+    def emit_ocsf_event(event) do
+      put_call({:emit_ocsf_event, event})
+      :ok
+    end
+
     defp terminal_state_for(:record_launching), do: :launching
     defp terminal_state_for(:record_running), do: :running
     defp terminal_state_for(:record_succeeded), do: :succeeded
@@ -1040,6 +1046,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         def get_controller_by_id(_), do: raise("nope")
         def record_controller_health(_, _), do: raise("nope")
         def upsert_awx_playbook(_, _), do: raise("nope")
+        def emit_ocsf_event(_), do: raise("nope")
       end
 
       payload = %{"jobs" => [%{"job_id" => 1, "ok" => true, "events" => [], "max_counter" => 0}]}

@@ -20,6 +20,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   require Logger
 
   alias ServiceRadar.Automation.Ansible.IngestorAshActions
+  alias ServiceRadar.Automation.Ansible.OcsfMapper
   alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
 
   @type result_data :: %{
@@ -105,8 +106,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp maybe_transition_to_running(%{state: :launching} = run, events, actions)
        when is_list(events) and events != [] do
     case actions.transition_run(run, :record_running, %{}) do
-      {:ok, updated} -> updated
-      {:error, _} -> run
+      {:ok, updated} ->
+        _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, :running))
+        updated
+
+      {:error, _} ->
+        run
     end
   end
 
@@ -221,20 +226,21 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
                  metadata: %{}
                }),
              {:ok, target} <- actions.get_run_target(run.id, host_name),
-             {:ok, _} <-
-               actions.upsert_task_result(%{
-                 task_id: task.id,
-                 run_target_id: target.id,
-                 awx_event_id: counter,
-                 status: runner_status(type, event),
-                 changed: !!Map.get(event, "changed", false),
-                 ignore_errors: get_in(event, ["event_data", "ignore_errors"]) == true,
-                 delegated_to: get_in(event, ["event_data", "delegated"]),
-                 stdout_content_id: nil,
-                 stderr_content_id: nil,
-                 result_payload: result_payload_subset(event),
-                 event_at: event_created(event)
-               }) do
+             result_args = %{
+               task_id: task.id,
+               run_target_id: target.id,
+               awx_event_id: counter,
+               status: runner_status(type, event),
+               changed: !!Map.get(event, "changed", false),
+               ignore_errors: get_in(event, ["event_data", "ignore_errors"]) == true,
+               delegated_to: get_in(event, ["event_data", "delegated"]),
+               stdout_content_id: nil,
+               stderr_content_id: nil,
+               result_payload: result_payload_subset(event),
+               event_at: event_created(event)
+             },
+             {:ok, _} <- actions.upsert_task_result(result_args) do
+          _ = actions.emit_ocsf_event(OcsfMapper.task_result_event(run, task, target, result_args))
           run
         else
           {:error, :run_target_not_found} ->
@@ -279,12 +285,27 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
         end)
 
     case actions.transition_run(run, transition, %{summary: summary}) do
-      {:ok, updated} -> updated
-      _ -> run
+      {:ok, updated} ->
+        _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, terminal_state_for(transition)))
+        updated
+
+      _ ->
+        run
     end
   end
 
   defp apply_event(run, _other_event, _actions), do: run
+
+  # The set of transitions that reach this helper at runtime is the
+  # union of decide_run_transition/1's outputs (succeeded / partial /
+  # failed) and awx_status_to_transition/1's outputs (succeeded /
+  # canceled / failed). Other transitions emit OCSF directly with a
+  # hardcoded atom at their call sites.
+  defp terminal_state_for(:record_succeeded), do: :succeeded
+  defp terminal_state_for(:record_partial), do: :partial
+  defp terminal_state_for(:record_failed), do: :failed
+  defp terminal_state_for(:record_canceled), do: :canceled
+  defp terminal_state_for(_), do: :unknown
 
   defp advance_watermark_if_needed(run, max_counter, actions)
        when is_integer(max_counter) and max_counter > 0 do
@@ -314,8 +335,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
              {:ok, run} <- actions.get_run_by_id(run_id) do
           if run.state == :pending do
             case actions.transition_run(run, :record_launching, %{awx_job_id: awx_job_id}) do
-              {:ok, updated} -> AnsiblePubSub.broadcast_run_updated(updated)
-              _ -> :ok
+              {:ok, updated} ->
+                _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, :launching))
+                AnsiblePubSub.broadcast_run_updated(updated)
+
+              _ ->
+                :ok
             end
           end
 
@@ -349,8 +374,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
                summary: summary,
                diagnostics: %{awx_status: awx_status}
              }) do
-          {:ok, updated} -> AnsiblePubSub.broadcast_run_updated(updated)
-          _ -> :ok
+          {:ok, updated} ->
+            _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, terminal_state_for(transition)))
+            AnsiblePubSub.broadcast_run_updated(updated)
+
+          _ ->
+            :ok
         end
 
         :ok
@@ -376,8 +405,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
            {:ok, run} <- actions.get_run_by_id(run_id),
            true <- run.state == :running do
         case actions.transition_run(run, :record_canceled, %{summary: "operator-canceled via UI"}) do
-          {:ok, updated} -> AnsiblePubSub.broadcast_run_updated(updated)
-          _ -> :ok
+          {:ok, updated} ->
+            _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, :canceled))
+            AnsiblePubSub.broadcast_run_updated(updated)
+
+          _ ->
+            :ok
         end
 
         :ok
