@@ -186,6 +186,88 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
              ).rows
   end
 
+  test "materializes hypervisor host management IP from host network interfaces", %{
+    actor: actor
+  } do
+    suffix = System.unique_integer([:positive])
+    provider = "testhv"
+    host_ref = "#{provider}:node:pve-network-ip-#{suffix}"
+    host_uid = "sr:existing-hv-network-ip-#{suffix}"
+    host_ip = "10.55.#{rem(suffix, 200)}.11"
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: host_uid,
+          type: "Hypervisor",
+          type_id: 99,
+          name: "pve-network-ip-#{suffix}",
+          hostname: "pve-network-ip-#{suffix}",
+          discovery_sources: ["mapper"],
+          is_managed: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => provider,
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "device_uid" => host_uid,
+            "name" => "pve-network-ip-#{suffix}",
+            "status" => "online",
+            "metadata" => %{}
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "#{provider}:nic:pve-network-ip-#{suffix}:eno1",
+            "host_provider_ref" => host_ref,
+            "name" => "eno1",
+            "address" => "169.254.10.1",
+            "source" => "host_config"
+          },
+          %{
+            "provider_ref" => "#{provider}:nic:pve-network-ip-#{suffix}:vmbr0",
+            "host_provider_ref" => host_ref,
+            "name" => "vmbr0",
+            "address" => host_ip,
+            "cidr" => "#{host_ip}/24",
+            "source" => "host_config"
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+
+    assert [[^host_uid, ^host_ip]] =
+             Repo.query!(
+               """
+               SELECT uid, ip
+               FROM platform.ocsf_devices
+               WHERE uid = $1
+               """,
+               [host_uid]
+             ).rows
+
+    assert [[^host_uid, ^host_ip]] =
+             Repo.query!(
+               """
+               SELECT device_uid, metadata->>'ip'
+               FROM platform.virtualization_hosts
+               WHERE provider = $1 AND provider_ref = $2
+               """,
+               [provider, host_ref]
+             ).rows
+  end
+
   test "links guests to existing discovered devices by MAC and backfills IP evidence", %{
     actor: actor
   } do

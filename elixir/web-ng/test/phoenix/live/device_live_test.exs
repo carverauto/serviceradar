@@ -662,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "1 running"
     assert html =~ "Open PVE shell"
     assert html =~ "target_kind=pve_host"
-    assert html =~ "console_mode=ssh"
+    assert html =~ "console_mode=proxmox_termproxy"
   end
 
   test "renders provider-neutral virtualization inventory on device details", %{

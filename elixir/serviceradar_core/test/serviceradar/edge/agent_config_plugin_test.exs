@@ -136,6 +136,40 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     refute Map.has_key?(params, "_secret_material")
   end
 
+  test "plugin config resolves policy console credential secrets even when package schema is stale" do
+    payload = Jason.encode!(%{"username" => "root", "private_key" => "PRIVATE KEY"})
+
+    assignment =
+      base_plugin_assignment(%{
+        source: :policy,
+        plugin_id: "proxmox-console",
+        params: %{
+          "credential_broker" => %{
+            "schema" => "serviceradar.edge_credential_broker_grant.v1",
+            "credential_rule_id" => "console-rule"
+          },
+          "credential_secret" => "secretref:credential_secret:test",
+          "_secret_material" => %{
+            "secretref:credential_secret:test" => Crypto.encrypt(payload)
+          }
+        },
+        plugin_package: %{
+          manifest: %{},
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{}
+          }
+        }
+      })
+
+    config = AgentConfigGenerator.to_proto_plugin_config([assignment], %{})
+    [proto] = config.assignments
+    params = Jason.decode!(proto.params_json)
+
+    assert params["credential_secret"] == payload
+    refute Map.has_key?(params, "_secret_material")
+  end
+
   test "plugin config resolves policy credential broker refs inside plugin input templates" do
     assignment =
       base_plugin_assignment(%{
@@ -172,6 +206,45 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     refute Map.has_key?(params, "api_token")
     assert params["template"]["api_token"] == "root@pam!sr=token-secret"
     assert params["template"]["api_token_secret_ref"] == "secretref:api_token_secret_ref:test"
+    refute Map.has_key?(params["template"], "_secret_material")
+  end
+
+  test "plugin config resolves policy console credential secrets inside plugin input templates" do
+    payload = Jason.encode!(%{"username" => "root", "private_key" => "PRIVATE KEY"})
+
+    assignment =
+      base_plugin_assignment(%{
+        source: :policy,
+        plugin_id: "proxmox-console",
+        params: %{
+          "schema" => "serviceradar.plugin_inputs.v1",
+          "agent_id" => "agent-a",
+          "inputs" => [],
+          "template" => %{
+            "credential_broker" => %{
+              "schema" => "serviceradar.edge_credential_broker_grant.v1",
+              "credential_rule_id" => "console-rule"
+            },
+            "credential_secret" => "secretref:credential_secret:test",
+            "_secret_material" => %{
+              "secretref:credential_secret:test" => Crypto.encrypt(payload)
+            }
+          }
+        },
+        plugin_package: %{
+          manifest: %{},
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{}
+          }
+        }
+      })
+
+    config = AgentConfigGenerator.to_proto_plugin_config([assignment], %{})
+    [proto] = config.assignments
+    params = Jason.decode!(proto.params_json)
+
+    assert params["template"]["credential_secret"] == payload
     refute Map.has_key?(params["template"], "_secret_material")
   end
 

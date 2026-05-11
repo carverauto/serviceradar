@@ -16,7 +16,7 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   @proxmox_provider "proxmox"
   @proxmox_target_kinds [:pve_host, :qemu_guest, :lxc_guest]
   @proxmox_console_modes [:ssh, :proxmox_termproxy, :proxmox_vncwebsocket]
-  @proxmox_enabled_console_modes [:ssh]
+  @proxmox_enabled_console_modes [:ssh, :proxmox_termproxy, :proxmox_vncwebsocket]
 
   @type proxmox_target :: %{
           target_kind: :pve_host | :qemu_guest | :lxc_guest,
@@ -153,10 +153,21 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   defp pick_target_kind(kind, _inferred) when kind in @proxmox_target_kinds, do: {:ok, kind}
   defp pick_target_kind(_kind, _inferred), do: {:error, :unsupported_console_target}
 
-  defp pick_console_mode(nil, :pve_host), do: {:ok, :ssh}
+  defp pick_console_mode(nil, :pve_host), do: {:ok, :proxmox_termproxy}
+  defp pick_console_mode(nil, :lxc_guest), do: {:ok, :proxmox_termproxy}
+  defp pick_console_mode(nil, :qemu_guest), do: {:ok, :proxmox_vncwebsocket}
 
   defp pick_console_mode(:ssh, :pve_host) when :ssh in @proxmox_enabled_console_modes,
     do: {:ok, :ssh}
+
+  defp pick_console_mode(:proxmox_termproxy, target_kind)
+       when target_kind in [:pve_host, :lxc_guest] and
+              :proxmox_termproxy in @proxmox_enabled_console_modes,
+       do: {:ok, :proxmox_termproxy}
+
+  defp pick_console_mode(:proxmox_vncwebsocket, :qemu_guest)
+       when :proxmox_vncwebsocket in @proxmox_enabled_console_modes,
+       do: {:ok, :proxmox_vncwebsocket}
 
   defp pick_console_mode(mode, _target_kind) when mode in @proxmox_console_modes,
     do: {:error, :unsupported_console_mode}

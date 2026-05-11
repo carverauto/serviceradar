@@ -668,10 +668,40 @@ func annotateNodesWithClusterStatus(nodes []proxmoxNode, cluster []proxmoxCluste
 				node.IP = strings.TrimSpace(entry.IP)
 			}
 		}
+		if node.IP == "" {
+			node.IP = primaryNodeIP(node.Network)
+		}
 		out = append(out, node)
 	}
 
 	return out
+}
+
+func primaryNodeIP(interfaces []proxmoxNetworkInterface) string {
+	for _, iface := range interfaces {
+		if ip := normalizedNodeIP(iface.Address); ip != "" {
+			return ip
+		}
+		if ip := normalizedNodeIP(iface.CIDR); ip != "" {
+			return ip
+		}
+	}
+
+	return ""
+}
+
+func normalizedNodeIP(value string) string {
+	value = stripIPPrefix(value)
+	if value == "" {
+		return ""
+	}
+
+	lower := strings.ToLower(value)
+	if lower == "127.0.0.1" || lower == "::1" || strings.HasPrefix(lower, "169.254.") || strings.HasPrefix(lower, "fe80:") {
+		return ""
+	}
+
+	return value
 }
 
 func fetchNodeStatus(cfg Config, target Target, token, node string) (map[string]any, error) {

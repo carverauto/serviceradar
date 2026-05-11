@@ -310,7 +310,8 @@ func buildProxmoxConsolePluginConfig(baseParams []byte, spec proxmoxConsoleSessi
 }
 
 func proxmoxConsolePluginConfigWithTarget(config map[string]interface{}, spec proxmoxConsoleSessionSpec) map[string]interface{} {
-	if spec.Target.Hostname != "" || spec.Target.IP != "" || spec.Target.BaseURL != "" || spec.Target.SSHPort > 0 {
+	if spec.Target.Hostname != "" || spec.Target.IP != "" || spec.Target.BaseURL != "" ||
+		spec.Target.SSHPort > 0 || spec.Target.ProviderRef != "" || spec.Target.TargetRef != "" {
 		config["target"] = spec.Target
 	}
 	return config

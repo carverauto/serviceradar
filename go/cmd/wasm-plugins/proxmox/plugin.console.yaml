@@ -1,6 +1,6 @@
 id: proxmox-console
 name: Proxmox Console
-version: 0.1.0
+version: 0.1.2
 description: Streams Proxmox PVE, VM, and LXC console sessions through the ServiceRadar console bridge
 entrypoint: run_console
 runtime: wasi-preview1
@@ -8,6 +8,7 @@ outputs: serviceradar.proxmox_console.v1
 capabilities:
   - get_config
   - log
+  - http_request
   - proxmox_console_stream
   - tcp_connect
   - tcp_read

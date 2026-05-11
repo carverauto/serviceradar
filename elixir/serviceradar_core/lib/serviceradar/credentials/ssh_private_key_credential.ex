@@ -26,11 +26,16 @@ defmodule ServiceRadar.Credentials.SshPrivateKeyCredential do
     with {:ok, name} <- required_string(attrs, :name),
          {:ok, private_key} <- required_private_key(attrs) do
       payload =
-        put_optional(
-          %{"private_key" => private_key},
+        %{
+          "private_key" => private_key,
+          "username" => string_value(attrs, :username)
+        }
+        |> put_optional(
           "passphrase",
           string_value(attrs, :passphrase)
         )
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
 
       {:ok,
        %{

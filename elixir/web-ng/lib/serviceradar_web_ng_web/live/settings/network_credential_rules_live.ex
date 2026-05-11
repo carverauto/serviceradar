@@ -7,9 +7,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias Phoenix.HTML.Form
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SshPrivateKeyCredential
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
@@ -133,6 +135,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, assign(socket, :secret_form, secret_form(default_secret_params()))}
   end
 
+  def handle_event("new_ssh_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_ssh_secret_params()))}
+  end
+
   def handle_event("close_secret_form", _params, socket) do
     {:noreply, assign(socket, :secret_form, nil)}
   end
@@ -173,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <div>
               <h1 class="text-xl font-semibold">Credential Rules</h1>
               <p class="mt-1 text-sm text-base-content/70">
-                Proxmox inventory and console access use separate rules.
+                Proxmox inventory enrichment and native PVE console access can share one scoped API-token rule.
                 <a
                   class="link link-primary"
                   href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
@@ -225,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   <tr :for={rule <- @rules}>
                     <td class="font-medium">{rule.name}</td>
                     <td>{rule.provider}</td>
-                    <td>{format_atom(rule.purpose)}</td>
+                    <td>{format_purposes(rule)}</td>
                     <td>{format_scope(rule)}</td>
                     <td>
                       <span class={[
@@ -321,40 +327,65 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :tls_policies, :list, required: true
 
   defp secret_form_modal(assigns) do
+    assigns =
+      assigns
+      |> assign(:secret_kind, form_string(assigns.form, :kind))
+      |> assign(:secret_title, secret_form_title(form_string(assigns.form, :kind)))
+
     ~H"""
     <div class="modal modal-open">
       <div class="modal-box max-w-3xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-lg font-semibold">New Proxmox Token</h2>
+          <h2 class="text-lg font-semibold">{@secret_title}</h2>
           <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
             Close
           </button>
         </div>
 
         <.form for={@form} phx-submit="save_secret" class="space-y-4">
-          <div class="grid gap-4 md:grid-cols-2">
-            <.input field={@form[:name]} label="Name" required />
-            <.input field={@form[:user]} label="User" required />
-            <.input field={@form[:realm]} label="Realm" required />
-            <.input field={@form[:token_id]} label="Token ID" required />
-            <.input
-              field={@form[:tls_policy]}
-              type="select"
-              label="TLS Policy"
-              options={enum_options(@tls_policies)}
-              required
-            />
+          <input type="hidden" name={@form[:kind].name} value={@secret_kind} />
+
+          <div :if={@secret_kind == "proxmox_api_token"} class="space-y-4">
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+              <.input field={@form[:user]} label="User" required />
+              <.input field={@form[:realm]} label="Realm" required />
+              <.input field={@form[:token_id]} label="Token ID" required />
+              <.input
+                field={@form[:tls_policy]}
+                type="select"
+                label="TLS Policy"
+                options={enum_options(@tls_policies)}
+                required
+              />
+            </div>
+
+            <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
+            <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
-          <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
-          <.input field={@form[:description]} type="textarea" label="Description" />
+          <div :if={@secret_kind == "ssh_private_key"} class="space-y-4">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+              Store the PVE host SSH key used by console access rules. The private key is encrypted
+              with AshCloak and only injected into the scoped agent config for matching console
+              sessions.
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+              <.input field={@form[:username]} label="Username" required />
+              <.input field={@form[:passphrase]} type="password" label="Passphrase" />
+            </div>
+
+            <.input field={@form[:private_key]} type="textarea" label="Private Key" required />
+            <.input field={@form[:description]} type="textarea" label="Description" />
+          </div>
 
           <div class="modal-action">
             <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
               Cancel
             </button>
             <button type="submit" class="btn btn-primary">
-              Save Token
+              Save
             </button>
           </div>
         </.form>
@@ -506,11 +537,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
         <.form for={@form} phx-change="change_rule" phx-submit="save_rule" class="space-y-4">
           <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-            Use purpose <span class="font-mono">inventory_enrichment</span> for read-only PVE API
-            collection. Use purpose <span class="font-mono">console_access</span> for PVE host SSH
-            consoles. Runtime fields such as
-            <span class="font-mono">credential_broker</span>,
-            <span class="font-mono">credential_rule_id</span>, and
+            Select every use this scoped credential should allow. For Proxmox, the same API token
+            can safely drive read-only inventory collection and native PVE console proxy sessions;
+            no separate SSH key is required for PVE consoles. Runtime fields such as <span class="font-mono">credential_broker</span>, <span class="font-mono">credential_rule_id</span>, and
             <span class="font-mono">console</span>
             are generated by ServiceRadar when a console session starts.
             <a
@@ -542,13 +571,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               options={enum_options(@auth_methods)}
               required
             />
-            <.input
-              field={@form[:purpose]}
-              type="select"
-              label="Purpose"
-              options={enum_options(@purposes)}
-              required
-            />
+            <fieldset class="rounded-lg border border-base-300 p-3 md:col-span-2">
+              <legend class="px-1 text-sm font-medium">Purpose</legend>
+              <input type="hidden" name="credential_rule[purposes][]" value="" />
+              <div class="grid gap-2 sm:grid-cols-2">
+                <label
+                  :for={purpose <- @purposes}
+                  class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    name="credential_rule[purposes][]"
+                    value={to_string(purpose)}
+                    checked={to_string(purpose) in form_purposes(@form)}
+                    class="checkbox checkbox-sm"
+                  />
+                  <span class="font-mono">{to_string(purpose)}</span>
+                </label>
+              </div>
+            </fieldset>
             <.input
               field={@form[:scope_type]}
               type="select"
@@ -627,7 +668,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
     case socket.assigns.form_mode do
       :new ->
-        assign(socket, :rule_form, rule_form(default_rule_params()))
+        assign(socket, :rule_form, rule_form(default_rule_params(params)))
 
       :edit ->
         assign_edit_form(socket, params["id"], rules)
@@ -696,12 +737,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       {:ok, _secret} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Proxmox token saved")
+         |> put_flash(:info, "Credential secret saved")
          |> assign(:secret_form, nil)
          |> load_page(%{})}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to save token: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
     end
   end
 
@@ -772,7 +813,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp normalize_rule_params(params) do
     with {:ok, auth_method} <- enum_param(params, "auth_method", @auth_methods, "auth method"),
-         {:ok, purpose} <- enum_param(params, "purpose", @purposes, "purpose"),
+         {:ok, purposes} <- purposes_param(params),
          {:ok, scope_type} <- enum_param(params, "scope_type", @scope_types, "scope type"),
          {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy"),
          {:ok, ssh_policy} <-
@@ -785,7 +826,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          description: blank_to_nil(params["description"]),
          provider: required_string(params, "provider"),
          auth_method: auth_method,
-         purpose: purpose,
+         purpose: primary_purpose(purposes),
          target_query: required_string(params, "target_query"),
          scope_type: scope_type,
          scope_value: required_string(params, "scope_value"),
@@ -795,12 +836,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          tls_policy: tls_policy,
          ssh_host_key_policy: ssh_policy,
          metadata: %{
+           "purposes" => Enum.map(purposes, &Atom.to_string/1),
            "auto_discovery_enabled" => boolean_param(params, "auto_discovery_enabled")
          }
        }}
     end
   rescue
     ArgumentError -> {:error, "Required fields are missing"}
+  end
+
+  defp normalize_secret_params(%{"kind" => "ssh_private_key"} = params) do
+    name = required_string(params, "name")
+    username = required_string(params, "username")
+    private_key = required_string(params, "private_key")
+
+    SshPrivateKeyCredential.build_attrs(%{
+      name: name,
+      description: blank_to_nil(params["description"]),
+      provider: "proxmox",
+      username: username,
+      private_key: private_key,
+      passphrase: blank_to_nil(params["passphrase"]),
+      metadata: %{
+        "auth_method" => "ssh_private_key",
+        "usage" => "console_access"
+      }
+    })
+  rescue
+    ArgumentError -> {:error, "Required SSH key fields are missing"}
   end
 
   defp normalize_secret_params(params) do
@@ -834,13 +897,36 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required token fields are missing"}
   end
 
-  defp default_rule_params do
+  defp default_rule_params(params \\ %{})
+
+  defp default_rule_params(%{"purpose" => "console_access"}) do
+    %{
+      "name" => "",
+      "description" => "",
+      "provider" => "proxmox",
+      "auth_method" => "ssh_private_key",
+      "purpose" => "console_access",
+      "purposes" => ["console_access"],
+      "target_query" => ~s(in:devices type:"Hypervisor" vendor:"Proxmox"),
+      "scope_type" => "agent",
+      "scope_value" => "",
+      "secret_id" => "",
+      "priority" => "100",
+      "allowed_ports" => "22",
+      "tls_policy" => "verify",
+      "ssh_host_key_policy" => "known_hosts",
+      "auto_discovery_enabled" => "false"
+    }
+  end
+
+  defp default_rule_params(_params) do
     %{
       "name" => "",
       "description" => "",
       "provider" => "proxmox",
       "auth_method" => "proxmox_api_token",
       "purpose" => "inventory_enrichment",
+      "purposes" => ["inventory_enrichment", "console_access"],
       "target_query" => "in:devices metadata.proxmox_candidate:true",
       "scope_type" => "agent",
       "scope_value" => "",
@@ -855,6 +941,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp default_secret_params do
     %{
+      "kind" => "proxmox_api_token",
       "name" => "",
       "description" => "",
       "user" => "root",
@@ -865,6 +952,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     }
   end
 
+  defp default_ssh_secret_params do
+    %{
+      "kind" => "ssh_private_key",
+      "name" => "",
+      "description" => "",
+      "username" => "root",
+      "private_key" => "",
+      "passphrase" => ""
+    }
+  end
+
   defp rule_params(rule) do
     %{
       "name" => rule.name,
@@ -872,6 +970,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "provider" => rule.provider,
       "auth_method" => to_string(rule.auth_method),
       "purpose" => to_string(rule.purpose),
+      "purposes" => rule_purposes(rule),
       "target_query" => rule.target_query,
       "scope_type" => to_string(rule.scope_type),
       "scope_value" => rule.scope_value,
@@ -888,6 +987,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     params
     |> Map.put_new("scope_type", "agent")
     |> Map.put_new("scope_value", "")
+    |> Map.update("purposes", [Map.get(params, "purpose", "inventory_enrichment")], &normalize_purpose_values/1)
   end
 
   defp normalize_rule_form_params(_), do: default_rule_params()
@@ -896,10 +996,47 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp secret_form(params), do: to_form(params, as: :credential_secret)
 
+  defp secret_form_title("ssh_private_key"), do: "New Console SSH Key"
+  defp secret_form_title(_kind), do: "New Proxmox Token"
+
   defp enum_param(params, key, allowed, label) do
     value = params |> Map.get(key, "") |> to_string()
     atom = Enum.find(allowed, &(to_string(&1) == value))
     if atom, do: {:ok, atom}, else: {:error, "Invalid #{label}"}
+  end
+
+  defp purposes_param(params) do
+    purposes =
+      params
+      |> Map.get("purposes", Map.get(params, "purpose", ""))
+      |> normalize_purpose_values()
+      |> Enum.map(fn value -> Enum.find(@purposes, &(to_string(&1) == value)) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if purposes == [], do: {:error, "Select at least one purpose"}, else: {:ok, purposes}
+  end
+
+  defp normalize_purpose_values(values) when is_list(values) do
+    values
+    |> Enum.map(&(&1 |> to_string() |> String.trim()))
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_purpose_values(value) do
+    value
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp primary_purpose(purposes) do
+    cond do
+      :inventory_enrichment in purposes -> :inventory_enrichment
+      :console_access in purposes -> :console_access
+      true -> hd(purposes)
+    end
   end
 
   defp integer_param(params, key, label) do
@@ -1017,6 +1154,35 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp format_scope(rule), do: "#{format_atom(rule.scope_type)}: #{rule.scope_value}"
 
+  defp format_purposes(rule) do
+    rule
+    |> rule_purposes()
+    |> Enum.map_join(", ", &String.replace(&1, "_", " "))
+  end
+
+  defp rule_purposes(rule) do
+    metadata =
+      rule
+      |> Map.get(:metadata, %{})
+      |> normalize_metadata()
+
+    metadata
+    |> Map.get("purposes", [to_string(rule.purpose)])
+    |> normalize_purpose_values()
+    |> case do
+      [] -> implicit_rule_purposes(rule)
+      [purpose] -> implicit_rule_purposes(rule, purpose)
+      purposes -> purposes
+    end
+  end
+
+  defp implicit_rule_purposes(%{auth_method: :proxmox_api_token}, "inventory_enrichment"),
+    do: ["inventory_enrichment", "console_access"]
+
+  defp implicit_rule_purposes(_rule, purpose), do: [purpose]
+
+  defp implicit_rule_purposes(rule), do: implicit_rule_purposes(rule, to_string(rule.purpose))
+
   defp agent_options(agents) when is_list(agents) do
     Enum.map(agents, fn agent ->
       {agent_option_label(agent), agent.uid}
@@ -1047,8 +1213,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp form_string(form, field) do
     form
-    |> Phoenix.HTML.Form.input_value(field)
+    |> Form.input_value(field)
     |> to_string()
+  end
+
+  defp form_purposes(form) do
+    form
+    |> Form.input_value(:purposes)
+    |> normalize_purpose_values()
   end
 
   defp device_label(device) when is_map(device) do

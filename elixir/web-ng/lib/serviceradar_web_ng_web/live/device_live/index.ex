@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   def handle_info({:DOWN, ref, :process, _pid, reason}, socket) do
     cond do
       task_ref(socket.assigns[:device_stats_task]) == ref ->
-        Logger.warning("Device stats task failed: #{inspect(reason)}")
+        log_device_task_exit(:stats, reason)
 
         {:noreply,
          socket
@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
          |> assign(:device_stats_loading, false)}
 
       task_ref(socket.assigns[:device_enrichment_task]) == ref ->
-        Logger.warning("Device enrichment task failed: #{inspect(reason)}")
+        log_device_task_exit(:enrichment, reason)
         {:noreply, assign(socket, :device_enrichment_task, nil)}
 
       true ->
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_async({:device_enrichment, token}, {:exit, reason}, socket) do
-    Logger.warning("Device enrichment task failed: #{inspect(reason)}")
+    log_device_task_exit(:enrichment, reason)
 
     socket = clear_task_ref(socket, :device_enrichment_task, {:device_enrichment, token})
 
@@ -171,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_async({:device_stats, token}, {:exit, reason}, socket) do
-    Logger.warning("Device stats task failed: #{inspect(reason)}")
+    log_device_task_exit(:stats, reason)
 
     socket =
       socket
@@ -494,9 +494,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     token = System.unique_integer([:positive])
 
     socket =
-      socket
-      |> cancel_inflight_device_tasks()
-      |> assign(
+      assign(socket,
         device_enrichment_token: token,
         icmp_sparklines: %{},
         icmp_error: nil,
@@ -517,6 +515,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     else
       socket
     end
+  end
+
+  defp log_device_task_exit(kind, {:shutdown, :cancel}) do
+    Logger.debug("Device #{kind} task canceled")
+  end
+
+  defp log_device_task_exit(kind, :shutdown) do
+    Logger.debug("Device #{kind} task shut down")
+  end
+
+  defp log_device_task_exit(kind, reason) do
+    Logger.warning("Device #{kind} task failed: #{inspect(reason)}")
   end
 
   defp assign_managed_device_limit_advisory(socket) do
@@ -554,29 +564,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       srql = srql_module()
       load_device_stats(srql, scope)
     end)
-  end
-
-  defp cancel_inflight_device_tasks(socket) do
-    socket
-    |> cancel_task(:device_enrichment_task)
-    |> cancel_task(:device_stats_task)
-  end
-
-  defp cancel_task(socket, key) do
-    case Map.get(socket.assigns, key) do
-      {task_type, _token} = task when task_type in [:device_enrichment, :device_stats] ->
-        socket
-        |> cancel_async(task)
-        |> assign(key, nil)
-
-      %Task{pid: pid} = task when is_pid(pid) ->
-        Process.demonitor(task.ref, [:flush])
-        Process.exit(pid, :kill)
-        assign(socket, key, nil)
-
-      _ ->
-        assign(socket, key, nil)
-    end
   end
 
   defp clear_task_ref(socket, key, ref) do

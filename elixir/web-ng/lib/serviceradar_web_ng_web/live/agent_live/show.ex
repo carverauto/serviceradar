@@ -11,8 +11,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadarWebNG.RBAC
 
+  require Ash.Query
   require Logger
 
   # Check types available for configuration
@@ -34,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:error, nil)
      |> assign(:srql, %{enabled: false, page_path: "/agents"})
      |> assign(:checks, [])
+     |> assign(:plugin_assignments, [])
      |> assign(:release_targets, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
@@ -110,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       end
 
     checks = load_checks_for_agent(uid, scope)
+    plugin_assignments = load_plugin_assignments_for_agent(uid, scope)
     release_targets = load_release_targets_for_agent(uid, scope)
     agent = hydrate_agent_release_fields(agent, release_targets)
 
@@ -119,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent, agent)
      |> assign(:error, error)
      |> assign(:checks, checks)
+     |> assign(:plugin_assignments, plugin_assignments)
      |> assign(:release_targets, release_targets)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
@@ -198,6 +203,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
          |> Ash.read(scope: scope) do
       {:ok, checks} -> checks
       {:error, _} -> []
+    end
+  end
+
+  defp load_plugin_assignments_for_agent(agent_uid, scope) do
+    PluginAssignment
+    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
+    |> Ash.Query.load(:plugin_package)
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, assignments} ->
+        assignments
+
+      {:error, reason} ->
+        Logger.warning("Failed to load plugin assignments for #{agent_uid}: #{inspect(reason)}")
+        []
     end
   end
 
@@ -299,13 +320,17 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             release_targets={@release_targets}
             current_scope={@current_scope}
           />
-          <.capabilities_card capabilities={Map.get(@agent, "capabilities", [])} />
+          <.capabilities_card
+            capabilities={Map.get(@agent, "capabilities", [])}
+            plugin_assignments={@plugin_assignments}
+          />
           <.gateway_node_info
             :if={@gateway_node_info}
             node_info={@gateway_node_info}
             node={Map.get(@agent, "gateway_node")}
           />
           <.registration_info agent={@agent} />
+          <.plugin_assignments_card assignments={@plugin_assignments} />
           <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
         </div>
       </div>
@@ -511,6 +536,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   attr :capabilities, :list, required: true
+  attr :plugin_assignments, :list, default: []
 
   defp capabilities_card(assigns) do
     # Capability info accepts binary names and internally uses an existing-atom lookup.
@@ -521,16 +547,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         {cap_name, info}
       end)
 
-    assigns = assign(assigns, :caps_with_info, caps_with_info)
+    plugin_caps = plugin_capability_rows(assigns.plugin_assignments)
+
+    assigns =
+      assigns
+      |> assign(:caps_with_info, caps_with_info)
+      |> assign(:plugin_caps, plugin_caps)
+      |> assign(:capability_count, length(caps_with_info) + length(plugin_caps))
 
     ~H"""
-    <div :if={@capabilities != []} class="rounded-xl border border-base-200 bg-base-100">
+    <div :if={@capability_count > 0} class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Capabilities</span>
-        <span class="ml-2 badge badge-ghost badge-sm">{length(@capabilities)}</span>
+        <span class="ml-2 badge badge-ghost badge-sm">{@capability_count}</span>
       </div>
-      <div class="p-4">
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div class="p-4 space-y-4">
+        <div :if={@caps_with_info != []} class="grid grid-cols-2 md:grid-cols-3 gap-3">
           <%= for {cap, info} <- @caps_with_info do %>
             <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
               <span class={"badge badge-#{info.color} badge-sm gap-1"}>
@@ -539,6 +571,23 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               <span class="text-xs text-base-content/60">{info.description}</span>
             </div>
           <% end %>
+        </div>
+
+        <div :if={@plugin_caps != []}>
+          <div class="mb-2 text-xs font-semibold uppercase tracking-wider text-base-content/50">
+            Plugin-provided
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <%= for cap <- @plugin_caps do %>
+              <div class="rounded-lg bg-base-200/50 p-2">
+                <div class="flex items-center gap-2">
+                  <span class="badge badge-primary badge-sm font-mono">{cap.name}</span>
+                  <span :if={cap.enabled == false} class="badge badge-ghost badge-xs">disabled</span>
+                </div>
+                <div class="mt-1 text-xs text-base-content/60">{cap.description}</div>
+              </div>
+            <% end %>
+          </div>
         </div>
       </div>
     </div>
@@ -671,6 +720,81 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             </span>
           </div>
         </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :assignments, :list, required: true
+
+  defp plugin_assignments_card(assigns) do
+    ~H"""
+    <div id="plugins" class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div>
+          <span class="text-sm font-semibold">Plugin Assignments</span>
+          <span :if={@assignments != []} class="ml-2 badge badge-ghost badge-sm">
+            {length(@assignments)}
+          </span>
+        </div>
+        <.link navigate={~p"/settings/agents/plugins"} class="btn btn-xs btn-ghost">
+          Manage Plugins
+        </.link>
+      </div>
+
+      <div :if={@assignments == []} class="p-4">
+        <p class="text-sm text-base-content/60">No plugins assigned to this agent.</p>
+      </div>
+
+      <div :if={@assignments != []} class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>Plugin</th>
+              <th>Version</th>
+              <th>Source</th>
+              <th>Schedule</th>
+              <th>Status</th>
+              <th>Capabilities</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for assignment <- @assignments do %>
+              <% package = assignment_package(assignment) %>
+              <tr>
+                <td>
+                  <div class="font-medium">{plugin_package_name(package)}</div>
+                  <div class="text-xs font-mono text-base-content/60">
+                    {plugin_package_id(package)}
+                  </div>
+                </td>
+                <td class="text-xs font-mono">{plugin_package_version(package)}</td>
+                <td class="text-xs">{format_assignment_source(assignment.source)}</td>
+                <td class="text-xs">
+                  every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
+                </td>
+                <td>
+                  <.ui_badge variant={if assignment.enabled, do: "success", else: "ghost"} size="xs">
+                    {if assignment.enabled, do: "enabled", else: "disabled"}
+                  </.ui_badge>
+                </td>
+                <td>
+                  <div class="flex max-w-md flex-wrap gap-1">
+                    <%= for cap <- plugin_requested_capabilities(package) do %>
+                      <span class="badge badge-ghost badge-xs font-mono">{cap}</span>
+                    <% end %>
+                    <span
+                      :if={plugin_requested_capabilities(package) == []}
+                      class="text-xs text-base-content/50"
+                    >
+                      —
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
       </div>
     </div>
     """
@@ -935,6 +1059,76 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp normalize_release_state_value("rolled_back"), do: :rolled_back
   defp normalize_release_state_value("canceled"), do: :canceled
   defp normalize_release_state_value(_), do: :unknown
+
+  defp plugin_capability_rows(assignments) when is_list(assignments) do
+    assignments
+    |> Enum.map(fn assignment ->
+      package = assignment_package(assignment)
+      plugin_id = plugin_package_id(package)
+
+      if plugin_id == "unknown" do
+        nil
+      else
+        %{
+          name: "plugin:#{plugin_id}",
+          description: plugin_capability_description(package),
+          enabled: assignment.enabled
+        }
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1.name)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  defp plugin_capability_rows(_assignments), do: []
+
+  defp plugin_capability_description(package) do
+    version = plugin_package_version(package)
+    name = plugin_package_name(package)
+
+    if version == "—" do
+      "#{name} plugin assignment"
+    else
+      "#{name} plugin assignment, version #{version}"
+    end
+  end
+
+  defp assignment_package(%{plugin_package: %Ash.NotLoaded{}}), do: nil
+  defp assignment_package(%{plugin_package: package}) when is_map(package), do: package
+  defp assignment_package(_assignment), do: nil
+
+  defp plugin_package_name(nil), do: "Unknown plugin"
+  defp plugin_package_name(package), do: Map.get(package, :name) || Map.get(package, "name") || "Unknown plugin"
+
+  defp plugin_package_id(nil), do: "unknown"
+  defp plugin_package_id(package), do: Map.get(package, :plugin_id) || Map.get(package, "plugin_id") || "unknown"
+
+  defp plugin_package_version(nil), do: "—"
+  defp plugin_package_version(package), do: Map.get(package, :version) || Map.get(package, "version") || "—"
+
+  defp plugin_requested_capabilities(nil), do: []
+
+  defp plugin_requested_capabilities(package) do
+    approved = Map.get(package, :approved_capabilities) || Map.get(package, "approved_capabilities") || []
+
+    capabilities =
+      if approved == [] do
+        manifest = Map.get(package, :manifest) || Map.get(package, "manifest") || %{}
+        Map.get(manifest, "capabilities") || Map.get(manifest, :capabilities) || []
+      else
+        approved
+      end
+
+    capabilities
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp format_assignment_source(nil), do: "manual"
+  defp format_assignment_source(source) when is_atom(source), do: Atom.to_string(source)
+  defp format_assignment_source(source), do: to_string(source)
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
