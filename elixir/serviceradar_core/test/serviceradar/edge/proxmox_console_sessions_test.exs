@@ -103,6 +103,31 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              )
   end
 
+  test "console rule can use Proxmox discovery agent metadata when agent_id is not populated" do
+    uid = unique_uid("metadata-agent")
+
+    insert_device!(uid,
+      agent_id: nil,
+      gateway_id: "gateway-metadata",
+      metadata: %{"sync_service_id" => "agent-from-proxmox-discovery"}
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+    secret = create_secret!("metadata-agent")
+    _rule = create_rule!(secret, scope_value: "agent-from-proxmox-discovery")
+
+    assert {:ok, %{session: session}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               actor: @system_actor
+             )
+
+    assert session.agent_id == "agent-from-proxmox-discovery"
+    assert session.metadata["remote_console"]["agent_id"] == "agent-from-proxmox-discovery"
+  end
+
   defp insert_device!(uid, opts) do
     now = DateTime.utc_now()
 
@@ -115,7 +140,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
         agent_id: Keyword.get(opts, :agent_id),
         gateway_id: Keyword.get(opts, :gateway_id),
         is_available: true,
-        metadata: %{},
+        metadata: Keyword.get(opts, :metadata, %{}),
         first_seen_time: now,
         last_seen_time: now
       }

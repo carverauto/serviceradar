@@ -335,7 +335,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp resolve_agent_id(device, rule) do
     case rule_scope_type(rule) do
       :agent -> {:ok, value_string(rule, [:scope_value, "scope_value"])}
-      _ -> required_string(device, [:agent_id, "agent_id"], :missing_agent_scope)
+      _ -> required_agent_id(device)
     end
   end
 
@@ -499,14 +499,27 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp rule_scopes(device) do
-    Enum.reject(
-      [
-        {:agent, value_string(device, [:agent_id, "agent_id"])},
-        {:gateway, value_string(device, [:gateway_id, "gateway_id"])},
-        {:partition, partition_value(device)}
-      ],
-      fn {_type, value} -> is_nil(value) or value == "" end
-    )
+    [
+      {:agent, device_agent_id(device)},
+      {:gateway, value_string(device, [:gateway_id, "gateway_id"])},
+      {:partition, partition_value(device)}
+    ]
+    |> Enum.reject(fn {_type, value} -> is_nil(value) or value == "" end)
+    |> Enum.uniq()
+  end
+
+  defp device_agent_id(device) do
+    value_string(device, [:agent_id, "agent_id"]) ||
+      device_metadata_string(device, [
+        :sync_service_id,
+        "sync_service_id",
+        :agent_id,
+        "agent_id",
+        :source_agent_id,
+        "source_agent_id",
+        :discovered_by_agent_id,
+        "discovered_by_agent_id"
+      ])
   end
 
   defp partition_value(%{metadata: metadata}) when is_map(metadata) do
@@ -514,6 +527,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp partition_value(_device), do: nil
+
+  defp device_metadata_string(%{metadata: metadata}, keys) when is_map(metadata),
+    do: value_string(metadata, keys)
+
+  defp device_metadata_string(_device, _keys), do: nil
 
   defp rule_scope_type(rule) do
     case value_string(rule, [:scope_type, "scope_type"]) do
@@ -577,10 +595,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
   defp format_failure_reason(reason), do: reason |> inspect() |> format_failure_reason()
 
-  defp required_string(map, keys, error_reason) do
-    case value_string(map, keys) do
+  defp required_agent_id(device) do
+    case device_agent_id(device) do
       value when is_binary(value) and value != "" -> {:ok, value}
-      _ -> {:error, error_reason}
+      _ -> {:error, :missing_agent_scope}
     end
   end
 
