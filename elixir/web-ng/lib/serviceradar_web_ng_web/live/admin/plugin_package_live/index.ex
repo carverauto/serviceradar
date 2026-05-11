@@ -866,7 +866,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <div class="font-medium">{row.name}</div>
                         <div class="text-xs text-base-content/60 font-mono">{row.agent_uid}</div>
                       </td>
-                      <td class="text-xs">{row.assignments}</td>
+                      <td class="text-xs">
+                        <.link
+                          href={agent_plugins_path(row.agent_uid)}
+                          class="link link-primary font-semibold"
+                          title={assigned_plugins_title(row)}
+                        >
+                          {row.assignments}
+                        </.link>
+                      </td>
                       <td class="text-xs">{row.cpu_ms}</td>
                       <td class="text-xs">{row.memory_mb}</td>
                       <td class="text-xs">{row.connections}</td>
@@ -1954,6 +1962,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           agent_uid: agent.uid,
           name: agent.name || agent.host || agent.uid,
           assignments: length(enabled_assignments),
+          plugins: assignment_plugin_summaries(enabled_assignments, packages_by_id),
           cpu_ms: resources.requested_cpu_ms,
           memory_mb: resources.requested_memory_mb,
           connections: resources.max_open_connections
@@ -2044,6 +2053,40 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       end
     )
   end
+
+  defp assignment_plugin_summaries(assignments, packages_by_id) do
+    assignments
+    |> Enum.reject(&(&1.enabled == false))
+    |> Enum.map(fn assignment ->
+      package = packages_by_id[assignment.plugin_package_id]
+
+      %{
+        plugin_id: package && package.plugin_id,
+        name: package && package.name,
+        version: package && package.version,
+        interval_seconds: assignment.interval_seconds,
+        timeout_seconds: assignment.timeout_seconds
+      }
+    end)
+    |> Enum.reject(&is_nil(&1.plugin_id))
+    |> Enum.sort_by(& &1.plugin_id)
+  end
+
+  defp assigned_plugins_title(%{plugins: []}), do: "No enabled plugin assignments"
+
+  defp assigned_plugins_title(%{plugins: plugins}) do
+    Enum.map_join(plugins, "\n", fn plugin ->
+      String.trim("#{plugin.name || plugin.plugin_id} #{plugin.version || ""}")
+    end)
+  end
+
+  defp assigned_plugins_title(_row), do: "View agent plugin assignments"
+
+  defp agent_plugins_path(agent_uid) when is_binary(agent_uid) do
+    "/agents/#{URI.encode(agent_uid)}#plugins"
+  end
+
+  defp agent_plugins_path(_agent_uid), do: "/agents"
 
   defp effective_resources(assignment, packages_by_id) do
     override = normalize_map(assignment.resources_override)

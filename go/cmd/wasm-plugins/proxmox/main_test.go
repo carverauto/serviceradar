@@ -420,11 +420,13 @@ func TestAnnotateNodesWithClusterStatusCopiesNodeIPs(t *testing.T) {
 		[]proxmoxNode{
 			{Node: "pve-a", Status: "online"},
 			{Node: "pve-b", Status: "online", IP: "192.0.2.20"},
+			{Node: "pve-c", Status: "online", Network: []proxmoxNetworkInterface{{Iface: "vmbr0", Address: "192.0.2.30/24"}}},
 		},
 		[]proxmoxClusterNode{
 			{ID: "cluster/lab", Name: "lab", Type: "cluster"},
 			{ID: "node/pve-a", Type: "node", IP: "192.0.2.10"},
 			{Name: "pve-b", Type: "node", IP: "192.0.2.21"},
+			{Name: "pve-c", Type: "node"},
 		},
 	)
 
@@ -433,6 +435,9 @@ func TestAnnotateNodesWithClusterStatusCopiesNodeIPs(t *testing.T) {
 	}
 	if nodes[1].IP != "192.0.2.20" {
 		t.Fatalf("expected existing pve-b IP to be preserved, got %#v", nodes[1])
+	}
+	if nodes[2].IP != "192.0.2.30" {
+		t.Fatalf("expected pve-c IP from node network config, got %#v", nodes[2])
 	}
 }
 
