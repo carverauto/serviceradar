@@ -1,8 +1,8 @@
 ## 1. Shared rate limiter (core)
-- [ ] 1.1 Add `ServiceRadar.Security.RateLimiter` GenServer + ETS table with named buckets, tenant-aware keys, sliding window, sweep loop.
+- [ ] 1.1 Add `ServiceRadar.Security.RateLimiter` GenServer + ETS table with named buckets, sliding window, sweep loop. Bucket keys are `{bucket_name, subject_key}`; no app-level tenant scoping.
 - [ ] 1.2 Wire the limiter into `ServiceRadar.Application` supervision tree before any web app.
 - [ ] 1.3 Add bucket configuration in `config/config.exs` and runtime overrides in `config/runtime.exs` for: `:auth_local`, `:auth_oidc_callback`, `:auth_saml_callback`, `:cli_device_auth`, `:dashboard_publish`, `:plugin_upload`, `:webhook_ingest`, `:api_default`.
-- [ ] 1.4 Unit tests: sliding window correctness, sweep, concurrent writers, tenant key isolation, retry-after math, named bucket lookup.
+- [ ] 1.4 Unit tests: sliding window correctness, sweep, concurrent writers, retry-after math, named bucket lookup.
 
 ## 2. Rate-limit plug + shim
 - [ ] 2.1 Add `ServiceRadarWebNGWeb.Plugs.RateLimit` plug that resolves bucket by name, derives subject key (IP or {IP, actor_id}), and halts with 429 + `retry-after` / `x-ratelimit-*` headers on denial.
@@ -23,14 +23,14 @@
 - [ ] 4.3 Plug tests: accept on magic-match, reject on mismatched extension vs magic, reject over-size, sanitize control chars in filenames, randomized storage name format.
 
 ## 5. Webhook signature plug + secret resource
-- [ ] 5.1 Add `ServiceRadar.Security.WebhookSecret` Ash resource (tenant_id, source_name, encrypted_value, superseded_by_id, last_used_at) with AshPaperTrail enabled via `PaperTrailMixin`.
+- [ ] 5.1 Add `ServiceRadar.Security.WebhookSecret` Ash resource (`source_name` primary key, `encrypted_value` via Vault cloak, `superseded_by_id`, `last_used_at`) with AshPaperTrail enabled via `PaperTrailMixin`.
 - [ ] 5.2 Generate Ash migration via `mix ash.codegen add_webhook_secret` and run.
 - [ ] 5.3 Add `ServiceRadarWebNGWeb.Plugs.WebhookSignature` performing HMAC-SHA256 verification with two-secret grace window.
 - [ ] 5.4 Migrate Falco webhook controllers (and any other inbound webhook endpoints) to use the plug; remove inline verification.
 - [ ] 5.5 Tests: valid sig, invalid sig, expired secret, grace-window acceptance of superseded secret, missing secret yields 401.
 
 ## 6. Security event stream
-- [ ] 6.1 Add `ServiceRadar.Security.SecurityEvent` Ash resource (occurred_at, kind, severity, actor_id, tenant_id, ip, route, details jsonb, correlation_id). Append-only `:create` action; index `(tenant_id, occurred_at desc)` and `(kind, occurred_at desc)`.
+- [ ] 6.1 Add `ServiceRadar.Security.SecurityEvent` Ash resource (occurred_at, kind, severity, actor_id, ip, route, details jsonb, correlation_id). Append-only `:create` action; index `(occurred_at desc)` and `(kind, occurred_at desc)`.
 - [ ] 6.2 Generate Ash migration via `mix ash.codegen add_security_event` and run.
 - [ ] 6.3 Add `ServiceRadar.Security.Events.record/1` recorder with bounded queue + writer process; drop-on-overflow with telemetry counter.
 - [ ] 6.4 Emit events from: `RateLimit` plug denials, `WebhookSignature` failures, Ash policy denials (via global policy bypass logger), failed login attempts in `auth_controller` and OIDC/SAML controllers, lockout triggers/clears, CSP violation reports.
@@ -54,7 +54,7 @@
 ## 9. Settings → Audit operator surfaces
 - [ ] 9.1 Add Settings → Audit top-level nav entry (gated by `:audit_viewer`) and route group in `router.ex`.
 - [ ] 9.2 `AuditLive.History` — unified AshPaperTrail timeline across enabled resources with resource-type, actor, action, time-range filters; diff view for selected version.
-- [ ] 9.3 `AuditLive.Events` — `SecurityEvent` table with filters (kind, severity, actor, tenant, ip, route, time range), CSV export, live tail via Phoenix.PubSub.
+- [ ] 9.3 `AuditLive.Events` — `SecurityEvent` table with filters (kind, severity, actor, ip, route, time range), CSV export, live tail via Phoenix.PubSub.
 - [ ] 9.4 `AuditLive.Lockouts` — list locked accounts; unlock action gated by `:security_admin`.
 - [ ] 9.5 `AuditLive.WebhookSecrets` — per-source secret list with rotate action and last-used timestamp.
 - [ ] 9.6 `AuditLive.RateLimits` — read-only top-bucket pressure view and recent denials list.

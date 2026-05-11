@@ -2,15 +2,11 @@
 
 ### Requirement: Shared rate-limit substrate
 
-The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by ETS and supervised in the core application. Named buckets MUST be configurable per-route with independent window and limit values, and bucket keys MUST be tenant-aware so traffic in one tenant cannot exhaust another tenant's allowance.
+The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by ETS and supervised in the core application. Named buckets MUST be configurable per-route with independent window and limit values. Buckets are deployment-wide; tenant isolation is provided by the platform (per-tenant Kubernetes namespace, CNPG schema, and NATS account), so the limiter MUST NOT carry an app-level tenant key.
 
 #### Scenario: Independent buckets are tracked separately
 - **WHEN** two routes are configured with distinct bucket names and both receive traffic from the same client IP
 - **THEN** each bucket tracks its own counter and denials in one do not affect the other
-
-#### Scenario: Per-tenant isolation
-- **WHEN** the same bucket name is used by two tenants and tenant A exhausts its allowance
-- **THEN** tenant B's allowance for the same bucket is unaffected
 
 #### Scenario: Retry-after is accurate
 - **WHEN** a key is denied
@@ -88,7 +84,7 @@ The system SHALL provide `ServiceRadarWebNGWeb.Plugs.WebhookSignature` that veri
 
 ### Requirement: Security event stream
 
-The system SHALL provide a `ServiceRadar.Security.SecurityEvent` Ash resource that captures stateless security events. Events MUST include `occurred_at`, `kind`, `severity`, `actor_id` (nullable), `tenant_id` (nullable), `ip`, `route`, structured `details`, and `correlation_id`. The recorder MUST be non-blocking; under sustained overflow it MUST drop events rather than block the request path and MUST increment a telemetry counter. The system SHALL apply a configurable retention TTL (default 90 days) enforced by a scheduled job.
+The system SHALL provide a `ServiceRadar.Security.SecurityEvent` Ash resource that captures stateless security events. Events MUST include `occurred_at`, `kind`, `severity`, `actor_id` (nullable), `ip`, `route`, structured `details`, and `correlation_id`. The recorder MUST be non-blocking; under sustained overflow it MUST drop events rather than block the request path and MUST increment a telemetry counter. The system SHALL apply a configurable retention TTL (default 90 days) enforced by a scheduled job. Events are deployment-wide; the resource does not carry an app-level tenant key.
 
 #### Scenario: Recording an event is non-blocking
 - **WHEN** the recorder is called from a request hot path
@@ -134,7 +130,7 @@ The system SHALL define two capabilities for audit and security surfaces: `:audi
 
 ### Requirement: Settings → Audit operator surface
 
-The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes four sub-pages: **History** (unified AshPaperTrail version timeline across enabled resources with resource-type, actor, action, and time-range filters and a diff view); **Events** (filterable, live-tailable `SecurityEvent` table with CSV export); **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`); and **Webhook Secrets** (per-source secret list with a rotate action and last-used timestamp). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
+The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes four sub-pages: **History** (unified AshPaperTrail version timeline across enabled resources with resource-type, actor, action, and time-range filters and a diff view); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`); and **Webhook Secrets** (per-source secret list with a rotate action and last-used timestamp). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
 
 #### Scenario: History page joins paper trail versions across resources
 - **WHEN** an operator opens Settings → Audit → History
@@ -142,7 +138,7 @@ The system SHALL provide a Settings → Audit section in the web-ng UI gated by 
 
 #### Scenario: Events page supports filters and live tail
 - **WHEN** an operator opens Settings → Audit → Events
-- **THEN** the page renders the most recent events with active filters and subscribes to Phoenix.PubSub so newly recorded events appear at the top without a page refresh
+- **THEN** the page renders the most recent events with active filters (kind, severity, actor, ip, route, time range) and subscribes to Phoenix.PubSub so newly recorded events appear at the top without a page refresh
 
 #### Scenario: Unlock is gated by security_admin
 - **WHEN** an operator with only `:audit_viewer` opens Settings → Audit → Lockouts

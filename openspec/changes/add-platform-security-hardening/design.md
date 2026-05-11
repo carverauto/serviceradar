@@ -24,7 +24,7 @@ The sibling project `inkit` recently consolidated equivalent concerns into ~4 re
 - Replacing AshPaperTrail. Resource version history continues to live there.
 - WAF-class protections (SQLi, XSS scanning of request bodies) — out of scope; assume Phoenix's encoder + Ash's parameterized queries.
 - DDoS protection at the edge. Rate limits are app-tier; volumetric DDoS is a deployment concern.
-- Cross-tenant rate-limit sharing. Buckets are per-tenant by default; global buckets only for unauthenticated routes.
+- App-layer multi-tenant scoping. ServiceRadar isolates tenants at the platform layer (per-tenant k8s namespace + CNPG schema + NATS account); each deployment is effectively single-tenant from the app's perspective, so rate-limit buckets, audit logs, and webhook secrets are deployment-wide.
 - Replacing existing auth flows. We extend, not rewrite.
 
 ## Decisions
@@ -33,7 +33,7 @@ The sibling project `inkit` recently consolidated equivalent concerns into ~4 re
 
 Keep the ETS+GenServer pattern already in use. The existing limiter handles ~production traffic, and `hammer` would introduce a runtime dependency for marginal benefit. Move the implementation into `ServiceRadar.Security.RateLimiter` (core app) so non-web callers (NATS ingest, etc) can use the same buckets if needed later.
 
-Bucket keys: `{bucket_name, tenant_id, subject_key}` where `subject_key` is typically the client IP, but auth-related buckets can use `{ip, actor_id}` to prevent password spraying. ETS table is a `:set` with `read_concurrency: true, write_concurrency: true`, owned by a supervised GenServer that handles sweeping.
+Bucket keys: `{bucket_name, subject_key}` where `subject_key` is typically the client IP, but auth-related buckets can use `{ip, actor_id}` to prevent password spraying. ETS table is a `:set` with `read_concurrency: true, write_concurrency: true`, owned by a supervised GenServer that handles sweeping. Buckets are deployment-wide — tenancy in ServiceRadar is infrastructure-level (per-tenant k8s namespace + CNPG schema + NATS account), so app-layer per-tenant scoping is unnecessary.
 
 **Alternatives considered**: `hammer` (extra dep, less control), Redis-backed limiter (extra infra, network hop per request). Rejected — ETS is sufficient for current scale (one app node typical; multi-node uses sticky-IP load balancing already).
 
@@ -81,7 +81,7 @@ report-uri /api/security/csp-report;
 Two stores, different shapes:
 
 - **AshPaperTrail** (already deployed): row-level version history for mutable resources. Keep using and extend the existing `PaperTrailMixin` pattern when adding new sensitive resources (e.g., `AuthLockout`, `WebhookSecret`).
-- **SecurityEvent** (new): append-only event log for things that don't map to a row mutation: `:login_failed`, `:rate_limit_denied`, `:policy_denied`, `:signature_invalid`, `:lockout_triggered`, `:lockout_cleared`, `:csp_violation`. Each row carries `occurred_at`, `kind`, `severity`, `actor_id` (nullable), `tenant_id` (nullable), `ip`, `route`, `details` (jsonb), `correlation_id`. Indexed by `(tenant_id, occurred_at desc)` and `(kind, occurred_at desc)`. Retention: 90d default, configurable, enforced by a daily Oban job (or scheduled task — see open questions).
+- **SecurityEvent** (new): append-only event log for things that don't map to a row mutation: `:login_failed`, `:rate_limit_denied`, `:policy_denied`, `:signature_invalid`, `:lockout_triggered`, `:lockout_cleared`, `:csp_violation`. Each row carries `occurred_at`, `kind`, `severity`, `actor_id` (nullable), `ip`, `route`, `details` (jsonb), `correlation_id`. Indexed by `(occurred_at desc)` and `(kind, occurred_at desc)`. Retention: 90d default, configurable, enforced by a daily Oban job (or scheduled task — see open questions).
 
 The recorder (`ServiceRadar.Security.Events.record/1`) is a fire-and-forget cast that fans out to a queue-backed writer to avoid taking the hot path latency hit. On overflow, events are dropped with a counter increment rather than blocking the request.
 
@@ -96,7 +96,7 @@ Lockouts are checked at the start of any auth attempt; locked accounts get a gen
 
 ### D6. Webhook secret storage
 
-`WebhookSecret` is an Ash resource keyed by `(tenant_id, source_name)`. Secret stored as `encrypted_value` using the existing `ServiceRadar.Vault` cloak. Rotation: create a new secret with `superseded_by_id` chain so verification can accept both old + new during a grace window (default 5 min). AshPaperTrail enabled so rotations are auditable.
+`WebhookSecret` is an Ash resource keyed by `source_name` (e.g., `falco`, `partner_x`). Secret stored as `encrypted_value` using the existing `ServiceRadar.Vault` cloak. Rotation: create a new secret with `superseded_by_id` chain so verification can accept both old + new during a grace window (default 5 min). AshPaperTrail enabled so rotations are auditable.
 
 ### D7. Audit surface lives under Settings → Audit (new top-level section)
 
@@ -137,7 +137,7 @@ Per-route config supplied via plug opts: `bucket`, `max_bytes`, `allowed_mime`, 
 | False positives on `WebhookSignature` during rotation | Two-key acceptance window during rotation; grace period configurable. |
 | Generic auth rate limit blocks legitimate burst (e.g., CI device-flow) | Bucket config per route, with explicit higher limits for CI device flow. Document defaults in `config/config.exs`. |
 | Lockout creates support burden | Operator UI surfaces unlock; lockouts auto-expire after `expires_at`; emit metric/alert when lockout count crosses threshold. |
-| Multi-node deployments diverge on rate-limit state | Out of scope for v1; document as known limitation. Most deployments are single-node web tier; multi-node uses sticky-IP load balancing. |
+| Multi-node deployments diverge on rate-limit state | Out of scope for v1; document as known limitation. Most deployments are single-node web tier; multi-node uses sticky-IP load balancing. SaaS rollout will run one web pod per tenant namespace, which sidesteps this for the SaaS path. |
 
 ## Migration Plan
 
@@ -156,7 +156,6 @@ Rollback: each step is independently revertible. CSP can be set to report-only v
 
 1. Should `SecurityEvent` retention be driven by an Oban job (consistent with existing retention jobs) or a dedicated GenServer? Leaning Oban for consistency.
 2. CSP `style-src 'unsafe-inline'` for LiveView — is there a current path to nonce-based styles in the version we're on? If yes, prefer nonce.
-3. CSP `connect-src` for the LiveView WebSocket — should we enumerate explicit hosts in multi-tenant deployments, or accept `wss:` broadly?
+3. CSP `connect-src` for the LiveView WebSocket — should we enumerate explicit hosts, or accept `wss:` broadly?
 4. Should `WebhookSignature` support signature schemes beyond HMAC-SHA256 (e.g., Ed25519 for inbound from partner systems)? Defer until needed.
-5. Multi-tenant rate limit isolation — do unauthenticated routes get per-IP buckets only, or per-IP-per-tenant once tenant is known from the route prefix?
-6. Account-level lockout for CLI device-flow actors vs interactive users — should we treat them as a single actor or split keys? Leaning split.
+5. Account-level lockout for CLI device-flow actors vs interactive users — should we treat them as a single actor or split keys? Leaning split.
