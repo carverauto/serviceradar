@@ -2,7 +2,7 @@
 
 ### Requirement: Shared rate-limit substrate
 
-The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by ETS and supervised in the core application. Named buckets MUST be configurable per-route with independent window and limit values. Buckets are deployment-wide; tenant isolation is provided by the platform (per-tenant Kubernetes namespace, CNPG schema, and NATS account), so the limiter MUST NOT carry an app-level tenant key.
+The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by per-node ETS and coordinated across the BEAM cluster via `:pg` broadcasts (or an equivalent libcluster-aware mechanism). Named buckets MUST be configurable per-route with independent window and limit values. Buckets are deployment-wide; tenant isolation is provided by the platform (per-tenant Kubernetes namespace, CNPG schema, and NATS account), so the limiter MUST NOT carry an app-level tenant key. Bucket counters MUST converge across cluster nodes (eventual consistency is acceptable, strict consistency is not required).
 
 #### Scenario: Independent buckets are tracked separately
 - **WHEN** two routes are configured with distinct bucket names and both receive traffic from the same client IP
@@ -11,6 +11,14 @@ The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Secu
 #### Scenario: Retry-after is accurate
 - **WHEN** a key is denied
 - **THEN** the limiter returns the number of seconds until the next slot opens, rounded up to the nearest second
+
+#### Scenario: Counters converge across cluster nodes
+- **WHEN** requests for the same bucket+subject key arrive at different web-ng pods in a multi-replica deployment
+- **THEN** within the broadcast window the per-pod counters reflect the combined hit rate, and the bucket's limit is enforced cluster-wide rather than per-pod
+
+#### Scenario: A joining node bootstraps state from a peer
+- **WHEN** a new web-ng pod joins the cluster
+- **THEN** its local ETS table is populated from a peer snapshot so it does not enforce against a cold counter while peers are at-limit
 
 ### Requirement: Rate-limit plug for web pipelines
 

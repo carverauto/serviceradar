@@ -29,13 +29,21 @@ The sibling project `inkit` recently consolidated equivalent concerns into ~4 re
 
 ## Decisions
 
-### D1. Rate-limiter substrate: ETS GenServer (not `hammer`/`plug_attack`)
+### D1. Rate-limiter substrate: cluster-aware ETS via Horde + `:pg`
 
-Keep the ETS+GenServer pattern already in use. The existing limiter handles ~production traffic, and `hammer` would introduce a runtime dependency for marginal benefit. Move the implementation into `ServiceRadar.Security.RateLimiter` (core app) so non-web callers (NATS ingest, etc) can use the same buckets if needed later.
+Keep the ETS+GenServer pattern already in use, and make it correct for multi-replica deployments — which is the norm, not the exception. The current `ServiceRadarWebNGWeb.Auth.RateLimiter` uses single-node ETS with no broadcasting, so on the 3-replica demo a client effectively gets 3× the documented allowance by hitting different pods. Fixing this is part of the proposal, not a future concern.
 
-Bucket keys: `{bucket_name, subject_key}` where `subject_key` is typically the client IP, but auth-related buckets can use `{ip, actor_id}` to prevent password spraying. ETS table is a `:set` with `read_concurrency: true, write_concurrency: true`, owned by a supervised GenServer that handles sweeping. Buckets are deployment-wide — tenancy in ServiceRadar is infrastructure-level (per-tenant k8s namespace + CNPG schema + NATS account), so app-layer per-tenant scoping is unnecessary.
+Approach: every node keeps its own local ETS table for fast reads, and writes (increments and resets) are fanned out to peers via `:pg` group broadcasts so all nodes converge on the same counters. The owning GenServer subscribes to `:pg` on startup, registers itself in the rate-limiter group, and handles peer cast messages. ServiceRadar already runs **libcluster + Horde** across web-ng replicas (see `elixir/web-ng/config/runtime.exs:614` for the libcluster topologies and `elixir/serviceradar_core/lib/serviceradar/cluster/gateway_supervisor.ex` for the Horde usage), so the BEAM cluster substrate is in place and we are not introducing a new clustering mechanism — we're using what's already there.
 
-**Alternatives considered**: `hammer` (extra dep, less control), Redis-backed limiter (extra infra, network hop per request). Rejected — ETS is sufficient for current scale (one app node typical; multi-node uses sticky-IP load balancing already).
+Bucket keys: `{bucket_name, subject_key}` where `subject_key` is typically the client IP, but auth-related buckets can use `{ip, actor_id}` to prevent password spraying. ETS table is a `:set` with `read_concurrency: true, write_concurrency: true`. Buckets are deployment-wide — tenancy in ServiceRadar is infrastructure-level (per-tenant k8s namespace + CNPG schema + NATS account), so app-layer per-tenant scoping is unnecessary.
+
+Consistency model: eventually consistent. A burst that races the broadcast window can slip at most `N - 1` extra requests through, where `N` is the cluster size. For rate-limit and lockout purposes this is acceptable — the worst-case allowance with 3 replicas and a 5/min limit is 7/min, not 15/min like the current broken state. If stronger consistency is ever needed for a specific bucket, that bucket can route through a Horde-registered singleton GenServer (the cluster already supports this pattern) at the cost of an extra hop.
+
+**Alternatives considered**:
+- `hammer` (extra dep, less control)
+- Mnesia with `ram_copies` across nodes (works, but heavier and slower than ETS + `:pg`; we use Mnesia nowhere else)
+- Horde-supervised singleton owner (single point of contention; fine as an escape hatch for strict-consistency buckets but overkill as the default)
+- Redis-backed limiter (net-new infra dependency; rejected — BEAM clustering already gives us what we need)
 
 ### D2. Plug stack ordering
 
@@ -83,7 +91,7 @@ Two stores, different shapes:
 - **AshPaperTrail** (already deployed): row-level version history for mutable resources. Keep using and extend the existing `PaperTrailMixin` pattern when adding new sensitive resources (e.g., `AuthLockout`, `WebhookSecret`).
 - **SecurityEvent** (new): append-only event log for things that don't map to a row mutation: `:login_failed`, `:rate_limit_denied`, `:policy_denied`, `:signature_invalid`, `:lockout_triggered`, `:lockout_cleared`, `:csp_violation`. Each row carries `occurred_at`, `kind`, `severity`, `actor_id` (nullable), `ip`, `route`, `details` (jsonb), `correlation_id`. Indexed by `(occurred_at desc)` and `(kind, occurred_at desc)`. Retention: 90d default, configurable, enforced by a daily Oban job (or scheduled task — see open questions).
 
-The recorder (`ServiceRadar.Security.Events.record/1`) is a fire-and-forget cast that fans out to a queue-backed writer to avoid taking the hot path latency hit. On overflow, events are dropped with a counter increment rather than blocking the request.
+The recorder (`ServiceRadar.Security.Events.record/1`) is a fire-and-forget cast that fans out to a per-node, queue-backed writer to avoid taking the hot path latency hit. On overflow, events are dropped with a counter increment rather than blocking the request. Per-node queues are acceptable here because the durable store is shared (CNPG), so no cross-node coordination is required for write durability — events written from any pod end up in the same `security_events` table.
 
 ### D5. Lockout model
 
@@ -108,7 +116,7 @@ AshPaperTrail versions and the new `SecurityEvent` rows are written today but no
 The surface has four sub-pages:
 
 1. **History** — unified AshPaperTrail version timeline across enabled resources, with resource-type, actor, action, and time-range filters. Each row deep-links to a diff view that renders the change set.
-2. **Events** — `SecurityEvent` stream with the same filter set plus kind/severity. Supports CSV export. Live tail via Phoenix.PubSub for the most recent 100 events.
+2. **Events** — `SecurityEvent` stream with the same filter set plus kind/severity. Supports CSV export. Live tail via Phoenix.PubSub for the most recent 100 events; PubSub runs over the BEAM cluster (`Phoenix.PubSub.PG2`) so an event recorded on any pod is broadcast to LiveView subscribers on any other pod without an extra round-trip.
 3. **Lockouts** — current and recent `AuthLockout` rows; unlock action available to `:security_admin`.
 4. **Webhook Secrets** — per-source secret list with last-used timestamp and a rotate action that establishes a grace window.
 
@@ -132,12 +140,12 @@ Per-route config supplied via plug opts: `bucket`, `max_bytes`, `allowed_mime`, 
 | Risk | Mitigation |
 |---|---|
 | CSP breaks LiveView assets or third-party embeds | Ship report-only first; collect reports for ≥7 days before enforcing; document escape hatch (per-route `disable_csp`). |
-| ETS limiter becomes hot under spray | Single-table `:set` with `write_concurrency: true`; if contention shows, shard by `:erlang.phash2(key, N)` across N tables. |
-| SecurityEvent write rate during attack overwhelms DB | Bounded queue with drop counter; sample CSP reports (1-in-100) under load. |
+| ETS limiter becomes hot under spray | Single-table `:set` with `write_concurrency: true`; if contention shows, shard by `:erlang.phash2(key, N)` across N tables. Writes are fanned to peers via `:pg` cast — the broadcast cost is `O(cluster_size)` per increment, acceptable at the cluster sizes we run. |
+| SecurityEvent write rate during attack overwhelms DB | Bounded per-node queue with drop counter; sample CSP reports (1-in-100) under load. Postgres is the durable store and is shared across the cluster, so per-node queues do not affect consistency. |
 | False positives on `WebhookSignature` during rotation | Two-key acceptance window during rotation; grace period configurable. |
 | Generic auth rate limit blocks legitimate burst (e.g., CI device-flow) | Bucket config per route, with explicit higher limits for CI device flow. Document defaults in `config/config.exs`. |
 | Lockout creates support burden | Operator UI surfaces unlock; lockouts auto-expire after `expires_at`; emit metric/alert when lockout count crosses threshold. |
-| Multi-node deployments diverge on rate-limit state | Out of scope for v1; document as known limitation. Most deployments are single-node web tier; multi-node uses sticky-IP load balancing. SaaS rollout will run one web pod per tenant namespace, which sidesteps this for the SaaS path. |
+| Cluster-wide rate-limit convergence under partition / netsplit | Buckets are local-first ETS with `:pg` cast fan-out; during a netsplit each partition continues to enforce locally and reconciles when the cluster reforms (last-writer-wins on counters is the BEAM cluster norm and is acceptable here). For lockouts and other state where stronger consistency is desired, the resource is persisted in CNPG via Ash so the durable record survives the partition. |
 
 ## Migration Plan
 
