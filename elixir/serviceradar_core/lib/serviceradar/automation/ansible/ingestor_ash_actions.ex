@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   alias ServiceRadar.Automation.Ansible.PlaybookTask
   alias ServiceRadar.Automation.Ansible.PlaybookTaskResult
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Infrastructure.EventBatcher
 
   defp actor, do: [actor: SystemActor.system(:awx_event_ingestor)]
 
@@ -122,4 +123,16 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   def upsert_awx_playbook(controller_id, args) do
     Playbook.upsert_awx(Map.put(args, :controller_id, controller_id), actor())
   end
+
+  @impl true
+  def emit_ocsf_event(event) when is_map(event) do
+    _ = EventBatcher.queue_event(:ansible_ocsf, event)
+    :ok
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  def emit_ocsf_event(_), do: :ok
 end

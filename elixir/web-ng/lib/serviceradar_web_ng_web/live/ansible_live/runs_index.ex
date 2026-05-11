@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.PlaybookRun
+  alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -42,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "ansible.runs.view") do
+      if connected?(socket), do: AnsiblePubSub.subscribe_runs()
       runs = list_runs("all")
 
       {:ok,
@@ -78,6 +80,22 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
      |> assign(:run_count, length(runs))
      |> stream(:runs, runs, reset: true)}
   end
+
+  @impl true
+  def handle_info({:ansible_run_updated, run}, socket) do
+    if matches_filter?(run, socket.assigns.state_filter) do
+      {:noreply, stream_insert(socket, :runs, run, at: 0)}
+    else
+      # Run moved out of the current filter; remove from the visible stream.
+      {:noreply, stream_delete(socket, :runs, run)}
+    end
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp matches_filter?(_run, "all"), do: true
+  defp matches_filter?(%{state: state}, filter) when is_binary(filter), do: to_string(state) == filter
+  defp matches_filter?(_, _), do: false
 
   @impl true
   def render(assigns) do
@@ -140,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
                 <span :if={!run.schedule_id} class="badge badge-ghost">ad-hoc</span>
               </td>
               <td>
-                <span class="text-xs text-base-content/50">detail page wip</span>
+                <.link navigate={~p"/ansible/runs/#{run.id}"} class="btn btn-xs">View</.link>
               </td>
             </tr>
           </tbody>

@@ -360,6 +360,15 @@ services:
       - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-false}
       - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-false}
       - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
+      # Ansible integration. RetentionWorker treats 0 for run_detail_days
+      # as "disabled"; unset / 0 for run_summary_days means "keep forever".
+      - ANSIBLE_RETENTION_RUN_DETAIL_DAYS=${ANSIBLE_RETENTION_RUN_DETAIL_DAYS:-90}
+      - ANSIBLE_RETENTION_RUN_SUMMARY_DAYS=${ANSIBLE_RETENTION_RUN_SUMMARY_DAYS:-}
+      - ANSIBLE_RETENTION_INTERVAL_SECONDS=${ANSIBLE_RETENTION_INTERVAL_SECONDS:-86400}
+      - AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS=${AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS:-30}
+      - AWX_RUN_WATCHDOG_INTERVAL_SECONDS=${AWX_RUN_WATCHDOG_INTERVAL_SECONDS:-60}
+      - AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS=${AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS:-60}
+      - ANSIBLE_CATALOG_BASE_DIR=${ANSIBLE_CATALOG_BASE_DIR:-/var/lib/serviceradar/ansible_catalog}
       # NetFlow/IP enrichment maintenance jobs are intentionally opt-in for the
       # default Docker stack. They are useful in full telemetry deployments but
       # expensive on a single embedded Postgres instance, especially with no flow

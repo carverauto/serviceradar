@@ -384,6 +384,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, assign(socket, :selected_devices, MapSet.new())}
   end
 
+  def handle_event("run_task_for_selection", _params, socket) do
+    cond do
+      not RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to launch Ansible runs.")}
+
+      MapSet.size(socket.assigns.selected_devices) == 0 ->
+        {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
+
+      true ->
+        uids =
+          socket.assigns.selected_devices
+          |> MapSet.to_list()
+          |> Enum.uniq()
+          |> Enum.join(",")
+
+        {:noreply, push_navigate(socket, to: ~p"/ansible/launch?devices=#{uids}")}
+    end
+  end
+
   def handle_event("open_bulk_edit_modal", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
       {:noreply, assign(socket, :show_bulk_edit_modal, true)}
@@ -1029,6 +1048,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </button>
           </div>
           <div class="flex items-center gap-2">
+            <.ui_button
+              :if={RBAC.can?(@current_scope, "ansible.runs.launch")}
+              variant="primary"
+              size="sm"
+              phx-click="run_task_for_selection"
+            >
+              <.icon name="hero-play" class="size-4" /> Run Task
+            </.ui_button>
             <.ui_button
               :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
               variant="primary"

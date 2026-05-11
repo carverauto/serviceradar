@@ -38,13 +38,9 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
     unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Automation.Ansible.AwxClient
-  alias ServiceRadar.Automation.Ansible.Controller
-  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRun
-  alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
   alias ServiceRadar.Automation.Ansible.PlaybookSchedule
-  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Automation.Ansible.RunLauncher
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -217,99 +213,16 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   end
 
   defp fire_schedule(schedule, actor) do
-    with {:ok, playbook} <- Playbook.get_by_id(schedule.playbook_id, actor: actor),
-         {:ok, controller_id} <- resolve_controller_id(playbook),
-         {:ok, controller} <- Controller.get_by_id(controller_id, actor: actor),
-         {:ok, devices} <- load_devices(schedule, actor),
-         {:ok, run} <- create_run(schedule, playbook, controller, actor),
-         :ok <- create_targets(run, devices, actor),
-         :ok <- dispatch_launch(controller, playbook, run, devices, schedule) do
-      {:ok, run}
-    end
-  end
-
-  defp resolve_controller_id(%{source_type: :awx, controller_id: id}) when is_binary(id),
-    do: {:ok, id}
-
-  defp resolve_controller_id(%{source_type: :git}),
-    do: {:error, :git_sourced_schedule_not_supported_v1}
-
-  defp resolve_controller_id(_), do: {:error, :playbook_unbound}
-
-  defp load_devices(%{target_device_uids: []}, _actor), do: {:ok, []}
-
-  defp load_devices(%{target_device_uids: uids}, actor) do
-    devices =
-      uids
-      |> Enum.map(fn uid ->
-        case Device.get_by_uid(uid, false, actor: actor) do
-          {:ok, device} -> device
-          _ -> nil
-        end
-      end)
-      |> Enum.reject(&is_nil/1)
-
-    {:ok, devices}
-  end
-
-  defp create_run(schedule, playbook, controller, actor) do
-    PlaybookRun.create_run(
+    RunLauncher.launch(
       %{
-        playbook_id: playbook.id,
-        controller_id: controller.id,
+        playbook_id: schedule.playbook_id,
+        device_uids: schedule.target_device_uids,
+        extra_vars: schedule.requested_extra_vars,
         schedule_id: schedule.id,
-        requested_extra_vars: schedule.requested_extra_vars || %{},
-        requested_by_actor_id: schedule.owner_id,
-        host_limit: nil,
-        metadata: %{}
+        requested_by_actor_id: schedule.owner_id
       },
       actor: actor
     )
-  end
-
-  defp create_targets(run, devices, actor) do
-    Enum.each(devices, fn device ->
-      ref = device.ansible_inventory_ref || %{}
-
-      _ =
-        PlaybookRunTarget.create_target(
-          %{
-            run_id: run.id,
-            device_uid: device.uid,
-            awx_host_id: integer_value(ref["host_id"] || ref[:host_id]),
-            awx_host_name:
-              host_name_string(ref["host_name"] || ref[:host_name]) || device.hostname || "",
-            metadata: %{}
-          },
-          actor: actor
-        )
-    end)
-
-    :ok
-  end
-
-  defp dispatch_launch(controller, playbook, run, devices, schedule) do
-    host_limit = build_host_limit(devices)
-
-    AwxClient.launch_job(
-      controller,
-      playbook.awx_job_template_id,
-      %{
-        extra_vars: schedule.requested_extra_vars || %{},
-        host_limit: host_limit
-      },
-      source: :automation,
-      context: %{
-        "playbook_run_id" => run.id,
-        "schedule_id" => schedule.id,
-        "controller_id" => controller.id,
-        "verb" => "awx.launch_job"
-      }
-    )
-    |> case do
-      {:ok, _command} -> :ok
-      {:error, _} = err -> err
-    end
   end
 
   defp record_evaluation(schedule, last_run, now, outcome, actor) do
@@ -365,11 +278,4 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
     ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
-  defp host_name_string(nil), do: nil
-  defp host_name_string(""), do: nil
-  defp host_name_string(s) when is_binary(s), do: s
-  defp host_name_string(_), do: nil
-
-  defp integer_value(v) when is_integer(v), do: v
-  defp integer_value(_), do: nil
 end
