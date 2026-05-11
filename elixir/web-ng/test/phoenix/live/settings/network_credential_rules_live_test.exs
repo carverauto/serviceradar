@@ -43,8 +43,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     assert html =~ "Credential Rules"
     assert html =~ "Read the Proxmox setup guide"
-    assert html =~ "New Console SSH Key"
-    assert html =~ "New Console Rule"
+    refute html =~ "New Console SSH Key"
+    refute html =~ "New Console Rule"
     assert html =~ "No credential rules found"
   end
 
@@ -227,15 +227,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["tls_policy"] == "verify"
   end
 
-  test "creates an SSH console credential secret from the settings preset", %{
+  test "creates an SSH console credential secret when the advanced preset event is invoked", %{
     conn: conn,
     scope: scope
   } do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
-    assert lv
-           |> element("button[phx-click='new_ssh_secret']")
-           |> render_click() =~ "New Console SSH Key"
+    html = render_hook(lv, "new_ssh_secret")
+    assert html =~ "New Console SSH Key"
 
     html =
       lv

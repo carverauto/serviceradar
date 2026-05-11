@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -36,6 +37,11 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"node":"pve-a","status":"online","cpu":0.25,"maxcpu":16,"mem":1024,"maxmem":4096,"uptime":3600}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/termproxy"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"port":5901,"ticket":"PVEVNC:ticket","user":"root@pam"}}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/status"):
 		return &sdk.HTTPResponse{
@@ -658,6 +664,64 @@ func TestRunConsoleWithDepsStreamsSSHSession(t *testing.T) {
 	}
 }
 
+func TestRunConsoleWithDepsStreamsNativeProxmoxConsole(t *testing.T) {
+	client := &fakeHTTPClient{}
+	oldHTTP := proxmoxHTTP
+	proxmoxHTTP = client
+	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+
+	bridge := newFakeConsoleBridge(consoleInputFrame{FrameType: "close"})
+	ws := &fakeWebSocketConn{}
+	cfg := consoleConfig{
+		CredentialRuleID:   "rule-1",
+		CredentialBroker:   map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+		APIToken:           "root@pam!sr=test-token",
+		Console:            consoleContext{SessionID: "session-1", ConsoleMode: "proxmox_termproxy", TargetKind: "pve_host"},
+		Target:             consoleTarget{BaseURL: "https://pve.example:8006", ProviderRef: "proxmox:node:pve-a"},
+		TimeoutMS:          defaultTimeoutMS,
+		InsecureSkipVerify: true,
+	}
+
+	err := runConsoleWithDeps(cfg, consoleDeps{
+		openBridge: func(req consoleOpenRequest) (proxmoxConsoleBridge, error) {
+			if req.TerminalType != "xterm-256color" {
+				t.Fatalf("unexpected terminal type %q", req.TerminalType)
+			}
+			return bridge, nil
+		},
+		dialWS: func(_ context.Context, req sdk.WebSocketDialRequest, _ time.Duration) (websocketConsoleConn, error) {
+			ws.url = req.URL
+			ws.headers = req.Headers
+			ws.insecureSkipVerify = req.InsecureSkipVerify
+			return ws, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runConsoleWithDeps returned error: %v", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("expected one Proxmox proxy request, got %d", len(client.requests))
+	}
+	if client.requests[0].Method != http.MethodPost {
+		t.Fatalf("expected POST proxy request, got %s", client.requests[0].Method)
+	}
+	if got := client.requests[0].Headers["Authorization"]; got != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("unexpected Authorization header %q", got)
+	}
+	if !strings.HasPrefix(ws.url, "wss://pve.example:8006/api2/json/nodes/pve-a/vncwebsocket?") {
+		t.Fatalf("unexpected websocket URL %q", ws.url)
+	}
+	if ws.headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("unexpected websocket Authorization header %q", ws.headers["Authorization"])
+	}
+	if !ws.insecureSkipVerify {
+		t.Fatal("expected websocket to inherit insecure_skip_verify")
+	}
+	if !ws.closed {
+		t.Fatal("expected websocket to close")
+	}
+}
+
 type fakeConsoleBridge struct {
 	mu          sync.Mutex
 	writes      bytes.Buffer
@@ -721,6 +785,26 @@ type fakeSSHSession struct {
 	closed        bool
 	waitCh        chan struct{}
 	waitOnce      sync.Once
+}
+
+type fakeWebSocketConn struct {
+	url                string
+	headers            map[string]string
+	insecureSkipVerify bool
+	closed             bool
+}
+
+func (f *fakeWebSocketConn) SendContext(_ context.Context, _ []byte, _ time.Duration) error {
+	return nil
+}
+
+func (f *fakeWebSocketConn) RecvContext(_ context.Context, _ []byte, _ time.Duration) (int, error) {
+	return 0, sdk.HostError{Code: -6, Op: "websocket_recv"}
+}
+
+func (f *fakeWebSocketConn) Close() error {
+	f.closed = true
+	return nil
 }
 
 func (f *fakeSSHSession) StdinPipe() (io.WriteCloser, error) {

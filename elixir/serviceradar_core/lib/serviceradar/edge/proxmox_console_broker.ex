@@ -117,6 +117,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   defp positive_or(_value, fallback), do: fallback
 
   defp open_frame_data(session, cols, rows) do
+    metadata = metadata_map(session)
+
     %{
       session_id: session.id,
       agent_id: session.agent_id,
@@ -125,8 +127,12 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
       target_kind: format_atom(session.target_kind),
       console_mode: format_atom(session.console_mode),
       credential_rule_id: to_string(session.credential_rule_id),
-      plugin_assignment_id: metadata_string(session, "plugin_assignment_id"),
-      target: session |> metadata_map() |> Map.get("target", %{}) |> normalize_target(),
+      plugin_assignment_id: metadata_string(metadata, "plugin_assignment_id"),
+      target:
+        metadata
+        |> Map.get("target", %{})
+        |> enrich_target(metadata)
+        |> normalize_target(),
       cols: positive_or(uint32(cols), terminal_int(session, "cols")),
       rows: positive_or(uint32(rows), terminal_int(session, "rows"))
     }
@@ -145,14 +151,40 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
     end
   end
 
-  defp metadata_string(session, key) do
-    case Map.get(metadata_map(session), key) do
+  defp metadata_string(metadata, key) when is_map(metadata) do
+    case Map.get(metadata, key) do
       value when is_binary(value) -> String.trim(value)
       value when is_atom(value) -> Atom.to_string(value)
       value when is_integer(value) -> Integer.to_string(value)
       _value -> nil
     end
   end
+
+  defp enrich_target(target, metadata) when is_map(target) and is_map(metadata) do
+    remote_console =
+      case Map.get(metadata, "remote_console") do
+        value when is_map(value) -> value
+        _value -> %{}
+      end
+
+    remote_metadata =
+      case Map.get(remote_console, "metadata") do
+        value when is_map(value) -> value
+        _value -> %{}
+      end
+
+    target
+    |> put_if_present("provider_ref", Map.get(remote_console, "target_ref"))
+    |> put_if_present("target_ref", Map.get(remote_console, "target_ref"))
+    |> put_if_present("target_type", Map.get(remote_console, "target_type"))
+    |> put_if_present("target_kind", Map.get(remote_metadata, "target_kind"))
+    |> put_if_present("console_mode", Map.get(remote_metadata, "console_mode"))
+  end
+
+  defp enrich_target(target, _metadata), do: target
+
+  defp put_if_present(map, _key, value) when value in [nil, ""], do: map
+  defp put_if_present(map, key, value), do: Map.put_new(map, key, value)
 
   defp normalize_target(target) when is_map(target) do
     target

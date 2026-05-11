@@ -151,7 +151,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert summary.rules == 1
     assert_receive {:reconcile, policy, input_defs, opts}
 
-    assert policy.policy_id == "network-credential-rule:console-rule"
+    assert policy.policy_id == "network-credential-rule:console-rule:console_access"
     assert policy.plugin_package_id == "pkg-proxmox-console"
     assert policy.interval_seconds == 900
     assert policy.timeout_seconds == 20
@@ -174,6 +174,47 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert ref == "credentialref:network-credential-secret:018f3f56-5555-7666-8777-123456789abc"
     refute Map.has_key?(policy.params_template, "include_guests")
     refute Map.has_key?(policy.params_template, "auto_discovery_enabled")
+  end
+
+  test "reconcile_rules can build Proxmox console policies from API-token inventory rules" do
+    rules = [
+      credential_rule(%{
+        id: "shared-proxmox-api-rule",
+        purpose: :inventory_enrichment,
+        auth_method: :proxmox_api_token,
+        target_query: "in:devices metadata.proxmox_candidate:true",
+        secret_id: "secret-proxmox-api-shared"
+      })
+    ]
+
+    assert {:ok, summary} =
+             PluginAssignmentMaterializer.reconcile_rules(
+               rules,
+               "agent-a",
+               %{id: "pkg-proxmox-console"},
+               purpose: :console_access,
+               reconciler: FakeReconciler,
+               actor: %{id: "system"},
+               test_pid: self()
+             )
+
+    assert summary.rules == 1
+    assert_receive {:reconcile, policy, _input_defs, _opts}
+
+    assert policy.policy_id == "network-credential-rule:shared-proxmox-api-rule:console_access"
+
+    assert %{
+             "credential_broker" => %{
+               "credential_rule_id" => "shared-proxmox-api-rule",
+               "grant_type" => "proxmox_console",
+               "auth_method" => "proxmox_api_token"
+             },
+             "api_token_secret_ref" => ref,
+             "credential_rule_id" => "shared-proxmox-api-rule"
+           } = policy.params_template
+
+    assert ref == "credentialref:network-credential-secret:secret-proxmox-api-shared"
+    refute Map.has_key?(policy.params_template, "credential_secret")
   end
 
   test "materialized policy output is compatible with plugin inputs planner payloads" do

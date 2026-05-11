@@ -24,6 +24,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   @default_ticket_ttl_seconds 60
   @default_idle_timeout_seconds 900
   @default_absolute_timeout_seconds 3600
+  @native_console_modes [:proxmox_termproxy, :proxmox_vncwebsocket]
 
   @type create_request :: %{
           optional(:target_kind) => atom() | String.t(),
@@ -45,7 +46,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
     with {:ok, %Device{} = device} <- Device.get_by_uid(device_uid, false, ash_opts),
          {:ok, target} <- resolve_target(device, request, system_opts),
-         {:ok, rule} <- resolve_credential_rule(device, request, opts),
+         {:ok, rule} <- resolve_credential_rule(device, target, request, opts),
          {:ok, agent_id} <- resolve_agent_id(device, rule),
          {:ok, ticket, ticket_hash} <- new_ticket(),
          attrs = session_attrs(device, target, rule, agent_id, ticket_hash, request, opts),
@@ -252,17 +253,17 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     RemoteConsoleTargetResolver.resolve_proxmox(device, request, ash_opts: system_opts)
   end
 
-  defp resolve_credential_rule(device, request, opts) do
+  defp resolve_credential_rule(device, target, request, opts) do
     system_actor = SystemActor.system(:proxmox_console_rule_resolver)
 
     case request_credential_rule_id(request) do
       nil ->
-        resolve_first_matching_rule(device, system_actor, opts)
+        resolve_first_matching_rule(device, target, system_actor, opts)
 
       rule_id ->
         with {:ok, %NetworkCredentialRule{} = rule} <-
                NetworkCredentialRule.get_by_id(rule_id, actor: system_actor),
-             :ok <- ensure_console_rule(rule),
+             :ok <- ensure_console_rule(rule, target),
              :ok <- ensure_rule_scope_allows_device(rule, device),
              :ok <- ensure_rule_targets_device(rule, device, opts) do
           {:ok, rule}
@@ -270,7 +271,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     end
   end
 
-  defp resolve_first_matching_rule(device, system_actor, opts) do
+  defp resolve_first_matching_rule(device, target, system_actor, opts) do
     device
     |> rule_scopes()
     |> Enum.reduce_while({:error, :no_console_credential_rule}, fn {scope_type, scope_value},
@@ -279,7 +280,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
              actor: system_actor
            ) do
         {:ok, rules} ->
-          case Enum.find(rules, &matching_console_rule?(&1, device, opts)) do
+          case Enum.find(rules, &matching_console_rule?(&1, target, device, opts)) do
             nil -> {:cont, {:error, :no_console_credential_rule}}
             rule -> {:halt, {:ok, rule}}
           end
@@ -290,15 +291,63 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     end)
   end
 
-  defp matching_console_rule?(rule, device, opts) do
-    ensure_console_rule(rule) == :ok and
+  defp matching_console_rule?(rule, target, device, opts) do
+    ensure_console_rule(rule, target) == :ok and
       ensure_rule_scope_allows_device(rule, device) == :ok and
       ensure_rule_targets_device(rule, device, opts) == :ok
   end
 
-  defp ensure_console_rule(%{provider: @provider, purpose: :console_access}), do: :ok
-  defp ensure_console_rule(%{provider: @provider, purpose: "console_access"}), do: :ok
-  defp ensure_console_rule(_rule), do: {:error, :not_console_credential_rule}
+  defp ensure_console_rule(%{provider: @provider} = rule, %{console_mode: mode})
+       when mode in @native_console_modes do
+    if proxmox_api_token_rule?(rule) and rule_has_purpose?(rule, :inventory_enrichment),
+      do: :ok,
+      else: ensure_explicit_console_rule(rule)
+  end
+
+  defp ensure_console_rule(rule, _target), do: ensure_explicit_console_rule(rule)
+
+  defp ensure_explicit_console_rule(%{provider: @provider} = rule) do
+    if rule_has_purpose?(rule, :console_access),
+      do: :ok,
+      else: {:error, :not_console_credential_rule}
+  end
+
+  defp ensure_explicit_console_rule(_rule), do: {:error, :not_console_credential_rule}
+
+  defp proxmox_api_token_rule?(rule) do
+    value_string(rule, [:auth_method, "auth_method"]) in ["proxmox_api_token", nil]
+  end
+
+  defp rule_has_purpose?(rule, purpose) do
+    rule
+    |> rule_purposes()
+    |> Enum.member?(Atom.to_string(purpose))
+  end
+
+  defp rule_purposes(rule) do
+    metadata_purposes =
+      rule
+      |> ValueUtils.raw_value([:metadata, "metadata"])
+      |> case do
+        metadata when is_map(metadata) ->
+          ValueUtils.list_value(metadata, [:purposes, "purposes"])
+
+        _metadata ->
+          []
+      end
+      |> nil_to_empty_list()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if metadata_purposes == [] do
+      [value_string(rule, [:purpose, "purpose"]) || "inventory_enrichment"]
+    else
+      metadata_purposes
+    end
+  end
+
+  defp nil_to_empty_list(nil), do: []
+  defp nil_to_empty_list(value), do: value
 
   defp ensure_rule_scope_allows_device(rule, device) do
     if {rule_scope_type(rule), value_string(rule, [:scope_value, "scope_value"])} in rule_scopes(

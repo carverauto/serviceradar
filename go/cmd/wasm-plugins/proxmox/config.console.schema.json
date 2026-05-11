@@ -14,9 +14,16 @@
       "description": "Network credential rule that authorized this console plugin assignment.",
       "x-serviceradar-ui-hidden": true
     },
+    "api_token_secret_ref": {
+      "type": "string",
+      "description": "Internal Proxmox API token reference resolved into api_token only in scoped agent runtime config.",
+      "secretRef": true,
+      "x-internal": true,
+      "x-serviceradar-ui-hidden": true
+    },
     "credential_secret": {
       "type": "string",
-      "description": "Injected decrypted console credential payload resolved from the scoped credential rule.",
+      "description": "Injected decrypted SSH console credential payload resolved from the scoped credential rule.",
       "secretRef": true,
       "x-internal": true,
       "x-serviceradar-ui-hidden": true

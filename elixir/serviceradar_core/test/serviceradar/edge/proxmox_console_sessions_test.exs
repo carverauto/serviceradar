@@ -45,7 +45,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     assert session.metadata["remote_console"]["schema"] == "serviceradar.remote_console_target.v1"
     assert session.metadata["remote_console"]["provider"] == "proxmox"
     assert session.metadata["remote_console"]["target_type"] == "host"
-    assert session.metadata["remote_console"]["protocol"] == "ssh"
+    assert session.metadata["remote_console"]["protocol"] == "proxmox-termproxy"
     assert session.metadata["remote_console"]["transport"] == "pty"
     assert session.metadata["remote_console"]["agent_id"] == "agent-ticket"
     refute inspect(session.metadata) =~ "PRIVATE KEY"
@@ -73,18 +73,23 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              )
   end
 
-  test "guest console modes are rejected until a native Proxmox console connector is enabled" do
+  test "native guest console modes can use scoped Proxmox API token rules" do
     uid = unique_uid("guest-mode")
     insert_device!(uid, agent_id: "agent-guest", gateway_id: "gateway-guest")
     Process.put(:proxmox_console_test_device_uid, uid)
+    secret = create_secret!("guest-mode")
+    _rule = create_rule!(secret, scope_value: "agent-guest")
 
-    assert {:error, :unsupported_console_mode} =
+    assert {:ok, %{session: session}} =
              ProxmoxConsoleSessions.request_open(
                uid,
                %{target_kind: "lxc_guest", console_mode: "proxmox_termproxy"},
                previewer: Previewer,
                actor: @system_actor
              )
+
+    assert session.console_mode == :proxmox_termproxy
+    assert session.metadata["remote_console"]["target_type"] == "guest"
   end
 
   test "console rule using gateway scope still requires an agent route for the target device" do
@@ -153,10 +158,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
       |> Ash.Changeset.for_create(:create, %{
         name: "pve-console-#{suffix}-#{System.unique_integer([:positive])}",
         provider: "proxmox",
-        credential_kind: :ssh_private_key,
-        username: "root",
-        secret_payload: Jason.encode!(%{"private_key" => private_key_fixture()}),
-        metadata: %{"secret_payload_format" => "ssh_private_key.v1"}
+        credential_kind: :api_token,
+        username: "root@pam!sr",
+        secret_payload: "root@pam!sr=test-token",
+        metadata: %{"auth_method" => "proxmox_api_token"}
       })
       |> Ash.create(actor: @system_actor)
 
@@ -171,8 +176,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
         %{
           name: "pve-console-rule-#{System.unique_integer([:positive])}",
           provider: "proxmox",
-          auth_method: :ssh_private_key,
-          purpose: :console_access,
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
           target_query: "in:devices",
           scope_type: Keyword.get(attrs, :scope_type, :agent),
           scope_value: Keyword.fetch!(attrs, :scope_value),

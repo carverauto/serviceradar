@@ -9744,7 +9744,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp proxmox_console_action_label(_summary), do: "Open console"
 
   defp proxmox_console_path(device_uid, %{kind: :host}) do
-    ~p"/devices/#{device_uid}/proxmox-console?#{[target_kind: "pve_host", console_mode: "ssh"]}"
+    ~p"/devices/#{device_uid}/proxmox-console?#{[target_kind: "pve_host", console_mode: "proxmox_termproxy"]}"
   end
 
   defp proxmox_console_path(device_uid, _summary), do: ~p"/devices/#{device_uid}/proxmox-console"
