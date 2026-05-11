@@ -1,0 +1,56 @@
+# Change: Platform security hardening (rate limiting, headers, input hardening, audit)
+
+## Why
+
+ServiceRadar's web-facing Phoenix surface (`elixir/web-ng`) currently relies on Phoenix defaults plus a narrow ETS-backed auth rate limiter (`ServiceRadarWebNGWeb.Auth.RateLimiter`). Several gaps surfaced while bringing the AWX/Ansible, Proxmox console, and dashboard publish flows online:
+
+- Non-auth endpoints (CLI device-auth, OAuth/OIDC callbacks, SAML callbacks, dashboard package publish, plugin upload, webhook ingest) have no per-IP throttling — they're trivially brute-forceable or fillable.
+- Response headers are Phoenix defaults only. No CSP, HSTS, Referrer-Policy, or Permissions-Policy, which leaves XSS / clickjacking / referrer-leak defenses partial.
+- Inbound binary uploads (plugin packages, dashboard assets) lack magic-number content-type detection, size caps, and filename sanitization beyond what individual controllers re-implement.
+- Inbound webhooks (Falco alerts, datasource pushes) verify signatures in-controller with ad-hoc code; there's no shared HMAC verification plug.
+- Failed-auth and policy-denial events are not captured in a queryable audit stream. AshPaperTrail covers resource versioning on a growing set of resources, but stateless security events (failed logins, rate-limit hits, policy denials, signature failures) have no persistent home.
+- Sustained brute-force against the auth rate limiter results in a 429 storm with no escalation (no progressive backoff, no account-level lockout, no operator alert).
+
+A sibling project (`inkit`) recently shipped a coherent set of plugs for the same gaps; we want to port the patterns, adapt them to ServiceRadar's Ash + multi-tenant model, and consolidate the existing ad-hoc auth limiter into the new shared surface.
+
+## What Changes
+
+- **ADD** a generic `ServiceRadarWebNGWeb.Plugs.RateLimit` plug backed by a tenant-aware ETS limiter (`ServiceRadar.Security.RateLimiter`) so non-auth pipelines (CLI auth, OAuth/OIDC, SAML, dashboard publish, plugin upload, webhook ingest) can opt in by name with per-bucket config from `config.exs`. The existing `ServiceRadarWebNGWeb.Auth.RateLimiter` becomes a thin shim that delegates to the shared limiter.
+- **ADD** `ServiceRadarWebNGWeb.Plugs.SecurityHeaders` that issues a baseline CSP (default-src 'self', no inline scripts outside the LiveView client manifest, frame-ancestors 'none'), HSTS (when scheme is `https`), Referrer-Policy `strict-origin-when-cross-origin`, Permissions-Policy locking down camera/microphone/geolocation/payment, and `X-Permitted-Cross-Domain-Policies: none`. Wired into the `:browser` and `:api` pipelines via `endpoint.ex`.
+- **ADD** `ServiceRadarWebNGWeb.Plugs.UploadGuard` with magic-number content-type detection, configurable size caps per route, filename sanitization (strip control chars, truncate to 120 chars), and randomized storage names. Applied to plugin/dashboard upload paths; controllers stop reimplementing it.
+- **ADD** `ServiceRadarWebNGWeb.Plugs.WebhookSignature` providing HMAC-SHA256 signature verification against a per-source shared secret stored in `ServiceRadar.Security.WebhookSecret` (Ash resource, encrypted_value). Falco and any future webhook ingest routes use the plug instead of inline verification.
+- **ADD** `ServiceRadar.Security.SecurityEvent` Ash resource (append-only, partitioned by month) and `ServiceRadar.Security.Events` recorder for the stateless event stream: failed login, rate-limit denial, policy denial, signature failure, lockout trigger. Resources that already use AshPaperTrail (credentials, ansible, console sessions) continue to do so for "who changed what record" — this resource is for "what happened" events that have no row to version.
+- **ADD** brute-force lockout on top of the rate limiter: progressive backoff (1m → 5m → 30m → 24h) per IP+actor key, and an admin-unlockable account-level lockout after sustained failures across multiple IPs. Lockout state lives in `ServiceRadar.Security.AuthLockout` (Ash resource with AshPaperTrail) so unlocks are auditable.
+- **ADD** operator surfaces in web-ng under a net-new **Settings → Audit** section, gated by a new `:audit_viewer` (read) and `:security_admin` (write/unlock) capability:
+  - **Resource version history**: unified view across all AshPaperTrail-enabled resources (credentials, ansible playbooks/runs, console sessions, plus the new `WebhookSecret` and `AuthLockout`) with per-resource filters, diff view, and actor attribution. Today these versions exist in the DB but are not surfaced anywhere.
+  - **Security event stream**: live + historical view of `SecurityEvent` rows with filters (kind, severity, actor, tenant, IP, route, time range) and CSV export.
+  - **Lockouts**: list locked accounts, unlock action (requires `:security_admin`), shows lockout reason and history.
+  - **Webhook secrets**: list per-source secrets, rotate action, last-used timestamp.
+  - **Rate-limit inspection**: read-only view of current bucket pressure (top keys by hits, recent denials).
+  Settings → Audit is a new top-level section. We considered placing it under Observability but kept Observability for runtime system signals (metrics/logs/traces) and reserved Audit for administrative who-did-what concerns.
+- **MODIFY** `ServiceRadarWebNGWeb.Auth.RateLimiter` to delegate to the shared limiter and emit `SecurityEvent` rows for every denial. **BREAKING** for any test that stubs the old module directly — call sites should keep working without changes.
+- **MODIFY** the `:api` and `:browser` router pipelines to add `SecurityHeaders` and (where appropriate) named rate-limit buckets.
+
+## Impact
+
+- Affected specs:
+  - **NEW** capability: `platform-security`
+- Affected code:
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/auth/rate_limiter.ex` (becomes a delegate)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/endpoint.ex` (plug stack)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex` (pipelines + bucket assignments)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/{cli_auth,saml,oauth,oidc,auth,dashboard_package_publish}_controller.ex` (drop inline rate-limit code, use named pipeline)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/falco_*` (use `WebhookSignature` plug)
+  - `elixir/serviceradar_core/lib/serviceradar/security/` (new modules: `RateLimiter`, `Events`, `SecurityEvent`, `WebhookSecret`, `AuthLockout`)
+  - `elixir/serviceradar_core/lib/serviceradar/application.ex` (supervise the new ETS owner)
+  - `config/config.exs`, `config/runtime.exs` (bucket config, CSP toggles, lockout thresholds)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/audit_live/` (new Settings → Audit LiveViews for version history, security events, lockouts, webhook secrets, rate-limit inspection)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/components/navigation.ex` or equivalent (add Settings → Audit nav entry, gated by `:audit_viewer`)
+  - `elixir/web-ng/test/...` + `elixir/serviceradar_core/test/...` (plug + resource tests)
+- Operational impact:
+  - CSP will need a short bake-in period under report-only before enforcement; design.md captures the rollout.
+  - `SecurityEvent` retention defaults to 90 days (configurable); writes are append-only and indexed by `(occurred_at, kind, subject_key)`.
+  - No new external dependencies. Reuses existing `ash`, `ash_paper_trail`, `plug`, and ETS.
+- Backwards compatibility:
+  - `ServiceRadarWebNGWeb.Auth.RateLimiter.check_rate_limit/2` and `record_attempt/2` signatures are preserved; behavior is unchanged from a caller's perspective.
+  - No schema migration on existing tables; only new tables for `security_events`, `auth_lockouts`, `webhook_secrets`, and the corresponding `*_versions` paper-trail tables.
