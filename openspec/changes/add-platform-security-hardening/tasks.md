@@ -69,7 +69,15 @@
 - [ ] 10.5 Land steps 8–9 (RBAC + UI).
 - [ ] 10.6 Flip CSP to enforce via runtime config; keep report-uri for visibility.
 
-## 11. Docs
+## 11. Session cookie hardening
+- [ ] 11.1 In `elixir/web-ng/lib/serviceradar_web_ng_web/endpoint.ex`, add `:encryption_salt`, `secure: true` (driven by runtime config in prod), `http_only: true` (defensive — Plug defaults this on already), and switch `same_site` from `"Lax"` to `"Strict"`.
+- [ ] 11.2 In `elixir/web-ng/config/runtime.exs`, source the encryption salt and the `secure` flag from environment variables and document them in the deployment runbook.
+- [ ] 11.3 Confirm `protect_from_forgery` remains on every browser pipeline (already true at 4 sites in `router.ex`).
+- [ ] 11.4 Add a controller-test that asserts every authenticated endpoint sets a cookie with `Secure; HttpOnly; SameSite=Strict` and that the cookie value is not Base64-decodable into the session map without the encryption secret.
+- [ ] 11.5 Add a graceful-decode-failure test: a request carrying a sign-only cookie issued before this change is treated as anonymous (redirected to sign-in) rather than crashing.
+- [ ] 11.6 Release-note the one-time forced sign-out at the rollout that enables encryption.
+
+## 12. Docs
 - [ ] 11.1 Update `openspec/project.md` with the security-plug pipeline convention.
 - [ ] 11.2 Add operator runbook section under `docs/` for unlock procedure and webhook secret rotation.
 - [ ] 11.3 Note CSP escape hatch and reporting endpoint in developer docs.

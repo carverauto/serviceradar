@@ -158,6 +158,26 @@ The system SHALL provide a Settings → Audit section in the web-ng UI gated by 
 - **WHEN** a `:security_admin` rotates a webhook secret
 - **THEN** the new secret becomes the current secret, the previous secret is marked superseded with a grace window, and a paper-trail version captures the change
 
+### Requirement: Session cookie hardening
+
+The Phoenix session cookie issued by `ServiceRadarWebNGWeb.Endpoint` MUST be encrypted in addition to signed (i.e., `:encryption_salt` is set so the payload is not readable from the cookie value), MUST be marked `Secure` in any deployment served over HTTPS, MUST be marked `HttpOnly`, and MUST use `SameSite=Strict` for the authenticated session. The encryption secrets MUST be provided via runtime configuration (`config/runtime.exs`) and MUST NOT be hard-coded in the repo.
+
+#### Scenario: Session payload is encrypted, not just signed
+- **WHEN** an authenticated session cookie is inspected
+- **THEN** the payload is not decodable without the encryption secret (i.e., `Plug.Conn.Cookies.decode/1` plus base64 does not yield the session map)
+
+#### Scenario: HTTPS deployment marks cookie Secure
+- **WHEN** the endpoint is served over HTTPS in production
+- **THEN** the session cookie carries the `Secure` flag
+
+#### Scenario: Cookie is HttpOnly and Strict SameSite
+- **WHEN** the session cookie is set on a response
+- **THEN** it carries `HttpOnly` and `SameSite=Strict` attributes
+
+#### Scenario: Existing sessions invalidate cleanly at rollout
+- **WHEN** the deployment that enables encryption rolls out
+- **THEN** previously issued sign-only cookies fail to decode and the user is redirected to sign in again without crashing the request
+
 ### Requirement: Plug pipeline ordering
 
 The web-ng router and endpoint pipelines SHALL apply security plugs in the following order so that subject attribution and short-circuiting work correctly: `accepts` → `fetch_session` (browser) → `protect_from_forgery` (browser) → `SecurityHeaders` → `RateLimit` → route-specific plugs (`UploadGuard`, `WebhookSignature`, `LockoutCheck`). New web routes that accept user-supplied payloads MUST opt into a named rate-limit bucket; routes that accept binary uploads MUST opt into `UploadGuard`; inbound webhook routes MUST opt into `WebhookSignature`.
