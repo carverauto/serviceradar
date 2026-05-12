@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.WebhookSignature do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.WebhookSecret
 
   @impl true
@@ -157,9 +158,36 @@ defmodule ServiceRadarWebNGWeb.Plugs.WebhookSignature do
   end
 
   defp reject(conn) do
+    emit_signature_invalid(conn)
+
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(401, ~s({"error":"invalid_webhook_signature"}))
     |> halt()
+  end
+
+  defp emit_signature_invalid(conn) do
+    Events.record(%{
+      kind: :signature_invalid,
+      severity: :warning,
+      ip: client_ip(conn),
+      route: conn.request_path,
+      details: %{
+        "source_name" => conn.assigns[:webhook_source_name] || "unknown",
+        "method" => conn.method
+      }
+    })
+  rescue
+    _ -> :ok
+  end
+
+  defp client_ip(conn) do
+    case get_req_header(conn, "x-forwarded-for") do
+      [forwarded | _] ->
+        forwarded |> String.split(",", parts: 2) |> List.first() |> String.trim()
+
+      [] ->
+        conn.remote_ip |> :inet.ntoa() |> List.to_string()
+    end
   end
 end

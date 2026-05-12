@@ -1,0 +1,163 @@
+defmodule ServiceRadar.Security.SecurityEvent do
+  @moduledoc """
+  Append-only event log for stateless security signals that have no
+  natural resource version: failed logins, rate-limit denials, policy
+  denials, signature failures, lockout triggers/clears, CSP violation
+  reports.
+
+  Resources that already use AshPaperTrail (credentials, ansible
+  playbooks, console sessions, the new `WebhookSecret`) continue to
+  carry their own version history. This resource is for events that
+  don't map to a row mutation.
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Security,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  @kinds [
+    :login_failed,
+    :rate_limit_denied,
+    :policy_denied,
+    :signature_invalid,
+    :lockout_triggered,
+    :lockout_cleared,
+    :csp_violation,
+    :webhook_secret_rotated,
+    :other
+  ]
+
+  @severities [:info, :warning, :critical]
+
+  def kinds, do: @kinds
+  def severities, do: @severities
+
+  postgres do
+    table "security_events"
+    repo ServiceRadar.Repo
+    schema "platform"
+
+    custom_indexes do
+      index [:occurred_at], using: "BRIN"
+      index [:kind, :occurred_at]
+    end
+  end
+
+  code_interface do
+    define :list, action: :read
+    define :record, action: :create
+    define :delete_older_than, action: :delete_older_than, args: [:cutoff]
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      primary? true
+
+      accept [
+        :occurred_at,
+        :kind,
+        :severity,
+        :actor_id,
+        :ip,
+        :route,
+        :details,
+        :correlation_id
+      ]
+
+      change fn changeset, _ctx ->
+        if Ash.Changeset.get_attribute(changeset, :occurred_at) do
+          changeset
+        else
+          Ash.Changeset.force_change_attribute(
+            changeset,
+            :occurred_at,
+            DateTime.utc_now()
+          )
+        end
+      end
+    end
+
+    action :delete_older_than, :map do
+      argument :cutoff, :utc_datetime_usec, allow_nil?: false
+
+      run fn input, _ctx ->
+        ServiceRadar.Security.SecurityEvent.Retention.run(input.arguments.cutoff)
+      end
+    end
+  end
+
+  policies do
+    bypass actor_attribute_equals(:role, :system) do
+      authorize_if always()
+    end
+
+    policy action_type(:read) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :owner)
+      authorize_if actor_attribute_equals(:role, :operator)
+    end
+
+    policy action_type(:create) do
+      # SystemActor (recorded asynchronously by the platform) is the only
+      # writer in practice; the bypass above handles that path.
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :owner)
+    end
+  end
+
+  attributes do
+    uuid_v7_primary_key :id
+
+    attribute :occurred_at, :utc_datetime_usec do
+      allow_nil? false
+      public? true
+    end
+
+    attribute :kind, :atom do
+      allow_nil? false
+      public? true
+      constraints one_of: @kinds
+    end
+
+    attribute :severity, :atom do
+      allow_nil? false
+      default :info
+      public? true
+      constraints one_of: @severities
+    end
+
+    attribute :actor_id, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :ip, :string do
+      allow_nil? true
+      public? true
+      constraints max_length: 64
+    end
+
+    attribute :route, :string do
+      allow_nil? true
+      public? true
+      constraints max_length: 256
+    end
+
+    attribute :details, :map do
+      allow_nil? true
+      default %{}
+      public? true
+    end
+
+    attribute :correlation_id, :string do
+      allow_nil? true
+      public? true
+      constraints max_length: 128
+    end
+
+    timestamps()
+  end
+end

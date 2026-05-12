@@ -20,6 +20,7 @@ defmodule ServiceRadar.Security do
 
   resources do
     resource ServiceRadar.Security.WebhookSecret
+    resource ServiceRadar.Security.SecurityEvent
   end
 
   authorization do

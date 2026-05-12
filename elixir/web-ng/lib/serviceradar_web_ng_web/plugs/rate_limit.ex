@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
 
   import Plug.Conn
 
+  alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.RateLimiter
 
   @impl true
@@ -46,12 +47,41 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
         put_rate_limit_headers(conn, limit, remaining(bucket, subject_key, limit, window), window)
 
       {:error, retry_after} ->
+        emit_denied(conn, bucket, subject_key, retry_after)
+
         conn
         |> put_rate_limit_headers(limit, 0, window)
         |> put_resp_header("retry-after", Integer.to_string(retry_after))
         |> put_resp_content_type("application/json")
         |> send_resp(429, ~s({"error":"rate_limited","retry_after":#{retry_after}}))
         |> halt()
+    end
+  end
+
+  defp emit_denied(conn, bucket, subject_key, retry_after) do
+    Events.record(%{
+      kind: :rate_limit_denied,
+      severity: :warning,
+      ip: client_ip(conn),
+      route: conn.request_path,
+      actor_id: current_actor_id_for_event(conn),
+      details: %{
+        "bucket" => to_string(bucket),
+        "subject_key" => inspect(subject_key),
+        "retry_after_seconds" => retry_after,
+        "method" => conn.method
+      }
+    })
+  rescue
+    # Never let event recording break the request path.
+    _ -> :ok
+  end
+
+  defp current_actor_id_for_event(conn) do
+    case current_actor_id(conn) do
+      nil -> nil
+      id when is_binary(id) -> id
+      other -> inspect(other)
     end
   end
 

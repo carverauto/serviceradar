@@ -2,29 +2,29 @@ defmodule ServiceRadarWebNGWeb.CspReportController do
   @moduledoc """
   Receives browser-generated Content Security Policy violation reports.
 
-  Until `ServiceRadar.Security.SecurityEvent` (added in section 6 of the
-  platform-security-hardening change) lands, reports are logged at
-  `info` level with a `csp_violation` tag so they can be aggregated in
-  the log pipeline. Once `SecurityEvent` exists, the body of this
-  controller swaps to `ServiceRadar.Security.Events.record/1` so reports
-  show up in Settings → Audit → Events alongside the rest of the
-  stateless security stream.
+  Reports are recorded into the SecurityEvent stream via
+  `ServiceRadar.Security.Events.record/1` so they show up in
+  Settings → Audit → Events alongside the rest of the stateless
+  security signals.
   """
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Logger
+  alias ServiceRadar.Security.Events
 
-  @max_log_bytes 2_048
+  @max_detail_bytes 4_096
 
   def create(conn, params) do
-    report = extract_report(params)
-
-    Logger.info("csp_violation",
+    Events.record(%{
+      kind: :csp_violation,
+      severity: :info,
       ip: client_ip(conn),
-      user_agent: user_agent(conn),
-      report: truncate(inspect(report), @max_log_bytes)
-    )
+      route: conn.request_path,
+      details: %{
+        "user_agent" => user_agent(conn),
+        "report" => truncate(extract_report(params), @max_detail_bytes)
+      }
+    })
 
     send_resp(conn, 204, "")
   end
@@ -50,6 +50,16 @@ defmodule ServiceRadarWebNGWeb.CspReportController do
     end
   end
 
-  defp truncate(string, max) when byte_size(string) <= max, do: string
-  defp truncate(string, max), do: binary_part(string, 0, max) <> "…"
+  defp truncate(report, max) when is_binary(report) do
+    if byte_size(report) <= max, do: report, else: binary_part(report, 0, max) <> "…"
+  end
+
+  defp truncate(report, max) when is_map(report) do
+    json = Jason.encode!(report)
+    if byte_size(json) <= max, do: report, else: %{"truncated" => binary_part(json, 0, max)}
+  rescue
+    _ -> %{"unencodable" => inspect(report)}
+  end
+
+  defp truncate(report, max), do: report |> inspect() |> truncate(max)
 end

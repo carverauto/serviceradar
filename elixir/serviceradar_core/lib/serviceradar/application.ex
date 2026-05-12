@@ -115,6 +115,9 @@ defmodule ServiceRadar.Application do
         # register {:rate_limiter, node()} on init.
         ServiceRadar.Security.RateLimiter,
 
+        # Non-blocking SecurityEvent recorder (per-node bounded queue).
+        ServiceRadar.Security.Events,
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 

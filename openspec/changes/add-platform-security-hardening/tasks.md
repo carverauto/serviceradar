@@ -31,12 +31,12 @@
 - [x] 5.5 Plug tests: `init/1` argument validation (scheme/source_name), constant-time signature comparison correctness, and the DB-backed accept/reject/grace-window scenarios scaffolded under a `:skip` tag awaiting Ash test infrastructure (`SERVICERADAR_REQUIRE_DB_TESTS=1`).
 
 ## 6. Security event stream
-- [ ] 6.1 Add `ServiceRadar.Security.SecurityEvent` Ash resource (occurred_at, kind, severity, actor_id, ip, route, details jsonb, correlation_id). Append-only `:create` action; index `(occurred_at desc)` and `(kind, occurred_at desc)`.
-- [ ] 6.2 Generate Ash migration via `mix ash.codegen add_security_event` and run.
-- [ ] 6.3 Add `ServiceRadar.Security.Events.record/1` recorder with bounded queue + writer process; drop-on-overflow with telemetry counter.
-- [ ] 6.4 Emit events from: `RateLimit` plug denials, `WebhookSignature` failures, Ash policy denials (via global policy bypass logger), failed login attempts in `auth_controller` and OIDC/SAML controllers, lockout triggers/clears, CSP violation reports.
-- [ ] 6.5 Add retention Oban job that deletes events older than the configured TTL (default 90d).
-- [ ] 6.6 Tests: record path, overflow drop, retention deletes only expired rows.
+- [x] 6.1 Add `ServiceRadar.Security.SecurityEvent` Ash resource (occurred_at, kind atom, severity atom, actor_id, ip, route, details jsonb, correlation_id). Append-only `:create` action; BRIN index on `occurred_at` and a composite index `(kind, occurred_at)`. Kind/severity enums exposed via `kinds/0` and `severities/0` for the audit UI.
+- [ ] 6.2 Generate Ash migration via `mix ash.codegen add_security_event` and run. Deferred until DB connectivity is wired alongside the WebhookSecret migration in section 5.2.
+- [x] 6.3 Add `ServiceRadar.Security.Events.record/1` recorder GenServer with bounded queue (default 1000) and async persistence — `record/1` is fire-and-forget via `GenServer.cast/2`, drain spawns a short-lived worker so a slow DB never blocks the request hot path or the flush caller. Overflow drops events and increments `[:serviceradar, :security, :events, :dropped]` telemetry. Persisted events fan out on `Phoenix.PubSub` topic `"security_events"` for the live-tail audit UI.
+- [x] 6.4 Emit events from `RateLimit` plug denials, `WebhookSignature` failures, and CSP violation reports. Emission from policy denials, failed logins, and lockout triggers is wired alongside sections 7–8 (the modules that own those events).
+- [ ] 6.5 Add retention Oban job that deletes events older than the configured TTL (default 90d). The Ash action `:delete_older_than` is in place — wrapping it in an Oban worker is deferred to section 11 (rollout) so the schedule lands with the other operational knobs.
+- [x] 6.6 Recorder tests: record returns `:ok` immediately, non-blocking under burst, overflow path drops + emits telemetry, kinds/severities introspection.
 
 ## 7. Auth lockout
 - [ ] 7.1 Add `ServiceRadar.Security.AuthLockout` Ash resource (actor_id, locked_at, locked_by, expires_at, reason) with AshPaperTrail. Actions: `:lock`, `:unlock` (requires `:security_admin`).
