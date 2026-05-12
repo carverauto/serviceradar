@@ -8,14 +8,18 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNotifier do
 
   use Ash.Notifier
 
+  alias Ash.Notifier.Notification
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Events.AuditNotifier
 
   @impl Ash.Notifier
   def notify(
-        %Ash.Notifier.Notification{
+        %Notification{
           resource: ServiceRadar.Integrations.IntegrationSource,
+          action: %{type: action_type},
           data: record
-        } = notification
+        } =
+          notification
       ) do
     AuditNotifier.write_async(notification,
       resource_type: "integration_source",
@@ -29,6 +33,10 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNotifier do
         partition: record.partition
       }
     )
+
+    if action_type in [:create, :update, :destroy] do
+      Task.start(fn -> AgentCommandBus.push_config_for_type(:sync) end)
+    end
 
     :ok
   end

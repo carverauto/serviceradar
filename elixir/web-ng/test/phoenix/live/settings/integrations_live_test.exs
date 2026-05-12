@@ -59,7 +59,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         agent_id: agent.uid
       })
 
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
+
+    assert has_element?(lv, "input[name='cred_api_key'][value='key']")
+    assert html =~ "API secret:"
+    assert html =~ "saved"
 
     lv
     |> form("#edit_source_form", %{
@@ -81,6 +85,44 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     assert updated_source.credentials == %{
              "api_key" => "updated-api-key",
              "api_secret" => "updated-secret"
+           }
+  end
+
+  test "edit form preserves existing armis secret when secret field is blank", %{
+    conn: conn,
+    scope: scope
+  } do
+    agent = create_connected_agent!()
+
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Credential Preserve #{System.unique_integer([:positive])}",
+        agent_id: agent.uid,
+        credentials: %{api_key: "existing-api-key", api_secret: "existing-secret"}
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
+
+    lv
+    |> form("#edit_source_form", %{
+      "form" => %{
+        "name" => source.name,
+        "endpoint" => source.endpoint,
+        "agent_id" => agent.uid,
+        "poll_interval_seconds" => "300",
+        "discovery_interval_seconds" => "3600",
+        "sweep_interval_seconds" => "3600"
+      },
+      "cred_api_key" => "updated-api-key",
+      "cred_api_secret" => ""
+    })
+    |> render_submit()
+
+    updated_source = get_source_by_name!(source.name, scope)
+
+    assert updated_source.credentials == %{
+             "api_key" => "updated-api-key",
+             "api_secret" => "existing-secret"
            }
   end
 
@@ -153,6 +195,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     assert html =~ "9"
   end
 
+  test "details modal shows armis credential presence without revealing the secret", %{
+    conn: conn,
+    scope: scope
+  } do
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Credential Detail",
+        credentials: %{api_key: "visible-armis-api-key", api_secret: "hidden-armis-secret"}
+      })
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+    assert html =~ "Credentials"
+    assert html =~ "visible-armis-api-key"
+    assert html =~ "Saved"
+    refute html =~ "hidden-armis-secret"
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
@@ -181,6 +241,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
   end
 
   defp create_armis_source!(scope, attrs) do
+    credentials = Map.get(attrs, :credentials, %{api_key: "key", api_secret: "secret"})
+    attrs = Map.delete(attrs, :credentials)
+
     defaults = %{
       name: "Armis Source #{System.unique_integer([:positive])}",
       source_type: :armis,
@@ -191,9 +254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     }
 
     IntegrationSource
-    |> Ash.Changeset.new()
-    |> Ash.Changeset.set_argument(:credentials, %{api_key: "key", api_secret: "secret"})
-    |> Ash.Changeset.for_create(:create, Map.merge(defaults, attrs))
+    |> Ash.Changeset.for_create(:create, defaults |> Map.merge(attrs) |> Map.put(:credentials, credentials))
     |> Ash.create!(scope: scope)
   end
 

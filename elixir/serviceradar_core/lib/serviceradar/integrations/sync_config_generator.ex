@@ -77,7 +77,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   end
 
   defp source_payload(source) do
-    credentials = normalize_credentials(source.credentials || %{})
+    credentials = normalize_credentials(source.credentials || %{}, source.source_type)
     credentials = put_optional(credentials, "page_size", source.page_size)
     source_type = source.source_type && Atom.to_string(source.source_type)
     prefix = if source_type, do: "#{source_type}/"
@@ -111,6 +111,14 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
 
   defp first_custom_field(_), do: nil
 
+  defp normalize_credentials(credentials, :armis) when is_map(credentials) do
+    credentials
+    |> normalize_credentials()
+    |> normalize_armis_credentials()
+  end
+
+  defp normalize_credentials(credentials, _source_type), do: normalize_credentials(credentials)
+
   defp normalize_credentials(credentials) when is_map(credentials) do
     credentials
     |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
@@ -120,6 +128,26 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   end
 
   defp normalize_credentials(_), do: %{}
+
+  defp normalize_armis_credentials(credentials) do
+    case first_present(credentials, ["secret_key", "api_secret"]) do
+      nil -> credentials
+      secret_key -> Map.put(credentials, "secret_key", secret_key)
+    end
+  end
+
+  defp first_present(credentials, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(credentials, key) do
+        value when is_binary(value) ->
+          value = String.trim(value)
+          if value == "", do: nil, else: value
+
+        _ ->
+          nil
+      end
+    end)
+  end
 
   defp put_optional(map, _key, nil), do: map
   defp put_optional(map, _key, ""), do: map
