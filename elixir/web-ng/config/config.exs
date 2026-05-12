@@ -269,4 +269,15 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
+# Security headers plug. The CSP body is set by the router's
+# `put_secure_browser_headers/2` call (already covers script-src,
+# style-src, mapbox tile hosts, etc.); this plug appends a
+# `report-uri` and optionally rewrites the header to
+# `content-security-policy-report-only` during the rollout window.
+# Flip `csp_mode` to `:enforce` once reports have been observed for
+# at least a week.
+config :serviceradar_web_ng, ServiceRadarWebNGWeb.Plugs.SecurityHeaders,
+  csp_mode: :report_only,
+  csp_report_uri: "/api/security/csp-report"
+
 import_config "#{config_env()}.exs"

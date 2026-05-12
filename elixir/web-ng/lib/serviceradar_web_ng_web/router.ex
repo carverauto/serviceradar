@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     # Passive proxy mode: allow an upstream gateway to authenticate users by
     # injecting a JWT on each request. This plug is a no-op unless
     # auth_settings.mode == passive_proxy.
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_session)
     plug(:fetch_live_flash)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -65,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
   end
 
   pipeline :api_docs_ui do
@@ -74,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @api_docs_csp})
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -81,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api_auth do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
     plug(:protect_from_forgery)
@@ -92,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API authentication for CLI/external tools (API key or bearer token)
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(ServiceRadarWebNGWeb.Plugs.ApiAuth)
   end
 
@@ -110,6 +116,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
   end
 
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
@@ -163,11 +170,27 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :api_default, subject: :ip)
   end
 
+  # CSP violation reports are sent by the browser as
+  # `application/csp-report` (or `application/reports+json`). The standard
+  # `:api` pipeline calls `:accepts ["json"]`, which would reject those
+  # content types, so we give the report endpoint its own minimal
+  # pipeline. The endpoint itself is intentionally unauthenticated.
+  pipeline :csp_report do
+    plug(:accepts, ["json", "csp-report", "reports+json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     get("/health", HealthController, :ready)
     get("/health/live", HealthController, :live)
     get("/health/ready", HealthController, :ready)
     get("/metrics", MetricsController, :index)
+  end
+
+  scope "/api/security", ServiceRadarWebNGWeb do
+    pipe_through([:csp_report, :rate_limit_api_default])
+
+    post("/csp-report", CspReportController, :create)
   end
 
   scope "/api/docs", ServiceRadarWebNGWeb.Api do
@@ -179,6 +202,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # JSON:API pipeline for Ash resources (v2 API)
   pipeline :ash_json_api do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
     plug(:protect_from_forgery)

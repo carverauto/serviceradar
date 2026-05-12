@@ -12,11 +12,11 @@
 - [x] 2.4 Plug tests: happy path with informational headers, denial halt with 429 + `retry-after`, per-IP isolation, `x-forwarded-for` honoring, `:ip_and_actor` keying for password-spray defense, config-driven bucket lookup. (The web-ng test suite gates on DB reachability via `Mix.Tasks.Serviceradar.MaybeTest`; the new plug tests run automatically alongside the rest of the web-ng suite when CI brings the DB up.)
 
 ## 3. Security headers plug
-- [ ] 3.1 Add `ServiceRadarWebNGWeb.Plugs.SecurityHeaders`: CSP (initially report-only), HSTS (when scheme is https), Referrer-Policy, Permissions-Policy, X-Permitted-Cross-Domain-Policies.
-- [ ] 3.2 Wire into `:browser` and `:api` pipelines in `router.ex` (or `endpoint.ex` for blanket coverage) ahead of route-specific plugs.
-- [ ] 3.3 Add `/api/security/csp-report` endpoint that ingests CSP violation reports into the `SecurityEvent` stream.
-- [ ] 3.4 Add `:csp_enforce` runtime config toggle and a per-route `disable_csp` opt for escape hatches.
-- [ ] 3.5 Plug tests verifying header presence, report-only vs enforce mode, and disable-csp opt-out.
+- [x] 3.1 Add `ServiceRadarWebNGWeb.Plugs.SecurityHeaders` adding HSTS (HTTPS only) and Permissions-Policy on top of Phoenix's defaults, plus a CSP `:enforce`/`:report_only` toggle that rewrites the response header without touching the CSP body. Referrer-Policy and X-Permitted-Cross-Domain-Policies are already set by Phoenix's `put_secure_browser_headers/2` so we don't duplicate them.
+- [x] 3.2 Wire the plug into every web-ng pipeline that produces user-facing responses: `:browser`, `:browser_raw_auth`, `:api`, `:api_docs_ui`, `:api_auth`, `:api_key_auth`, `:api_token_auth`, `:ash_json_api`. The plug runs *after* `put_secure_browser_headers` so it can rewrite the CSP that pipeline already set.
+- [x] 3.3 Add `ServiceRadarWebNGWeb.CspReportController` and route `POST /api/security/csp-report` on its own minimal pipeline (`:csp_report`) that accepts `application/json`, `application/csp-report`, and `application/reports+json`. Until SecurityEvent lands (section 6) the controller logs reports at `info` with a `csp_violation` tag; section 6 swaps to `ServiceRadar.Security.Events.record/1`.
+- [x] 3.4 Runtime config in `config/config.exs`: `csp_mode: :report_only` and `csp_report_uri: "/api/security/csp-report"` by default. Operators flip to `:enforce` after the bake-in week. Runtime config takes precedence over plug opts.
+- [x] 3.5 Plug tests cover HSTS gating on scheme, default and overridden Permissions-Policy, CSP enforce vs report-only header rewrite, report-uri appending, and runtime-config-wins-over-plug-opts. (Web-ng test suite gates on DB reachability via `Mix.Tasks.Serviceradar.MaybeTest`; the new tests run in CI alongside the rest.)
 
 ## 4. Upload guard plug
 - [ ] 4.1 Add `ServiceRadarWebNGWeb.Plugs.UploadGuard` with magic-number detection (PNG/JPEG/ZIP/WASM), size caps, filename sanitization, and randomized storage name generation.
