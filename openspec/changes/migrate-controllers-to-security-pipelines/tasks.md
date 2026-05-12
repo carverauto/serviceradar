@@ -1,7 +1,7 @@
 ## 1. Plug response-mode work
-- [ ] 1.1 Extend `ServiceRadarWebNGWeb.Plugs.RateLimit` with Accept-aware response: `:html_redirect_to`, `:html_flash_template`, `:response_mode` (`:auto | :json | :html`) opts. Default `:auto`. Existing JSON path unchanged; HTML path emits a 303 + flash.
-- [ ] 1.2 Extend `ServiceRadarWebNGWeb.Plugs.LockoutCheck` with the same Accept-aware response, default redirect to a configurable sign-in path; JSON keeps HTTP 423 `{error: "account_locked"}`.
-- [ ] 1.3 Plug tests: `:json` mode returns 429/423 + JSON; `:html` mode emits 303 + flash; `:auto` mode sniffs `accept: text/html` correctly.
+- [x] 1.1 Extend `ServiceRadarWebNGWeb.Plugs.RateLimit` with Accept-aware response: `:html_redirect_to`, `:html_flash_template` (with `{retry_after}` placeholder), `:response_mode` (`:auto | :json | :html`) opts. Default `:auto`. Existing JSON path unchanged; HTML path emits a 303 + flash.
+- [x] 1.2 Extend `ServiceRadarWebNGWeb.Plugs.LockoutCheck` with the same Accept-aware response (`:response_mode`, `:html_redirect_to`, `:html_flash`); JSON path keeps HTTP 423 `{"error":"account_temporarily_locked"}`.
+- [x] 1.3 Plug tests: `:json` mode returns 429 + JSON; `:html` mode emits 303 + flash with `{retry_after}` interpolation; `:auto` mode sniffs `accept: text/html` correctly; init validation rejects unknown `:response_mode`. Redirect target may also be a 0-arity function.
 
 ## 2. Config + router scaffolding
 - [ ] 2.1 Add three new buckets to `config :serviceradar_core, ServiceRadar.Security.RateLimiter`:

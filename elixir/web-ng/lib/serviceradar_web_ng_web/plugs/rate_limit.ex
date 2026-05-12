@@ -4,8 +4,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
 
   Pipelines opt in by specifying a named bucket; the bucket's `limit`
   and `window_seconds` come from the core config (`ServiceRadar.Security.RateLimiter`).
-  On denial the plug halts the connection with HTTP 429 and sets
-  `retry-after` and `x-ratelimit-{limit,remaining,reset}` headers.
+  On denial the plug halts the connection with either an HTTP 303
+  redirect + flash (HTML clients) or an HTTP 429 JSON body
+  (programmatic clients). The `x-ratelimit-{limit,remaining,reset}`
+  headers are set on every response; denials also carry `retry-after`.
 
   ## Options
 
@@ -14,10 +16,21 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
       `{ip, current_actor_id || :anonymous}` for password-spray defense.
     * `:limit`, `:window_seconds` — explicit overrides; usually unset so
       the bucket config wins.
+    * `:response_mode` — `:auto` (default; sniffs the `accept` header
+      for `text/html`), `:json`, or `:html`. Pipelines that are
+      JSON-only should pin to `:json` so a malformed `Accept` header
+      doesn't accidentally redirect a browser-shaped request.
+    * `:html_redirect_to` — string path or 0-arity function returning a
+      path. Used when `:response_mode` resolves to `:html`. Default
+      `"/users/log-in"`.
+    * `:html_flash_template` — string with optional `{retry_after}`
+      placeholder. Default "Too many attempts. Please try again in
+      {retry_after} seconds."
 
-  Place this plug after `:fetch_session` and any auth plug that puts
-  the current user/actor into the conn assigns; otherwise the
-  `:ip_and_actor` subject collapses to `{ip, :anonymous}`.
+  Place this plug after `:fetch_session` (and `:fetch_live_flash` for
+  HTML pipelines) and any auth plug that puts the current user/actor
+  into the conn assigns; otherwise the `:ip_and_actor` subject
+  collapses to `{ip, :anonymous}`.
   """
 
   @behaviour Plug
@@ -27,13 +40,33 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.RateLimiter
 
+  @default_html_redirect "/users/log-in"
+  # The template uses a literal `{retry_after}` placeholder (no `\#`) —
+  # `render_flash/2` swaps it for the integer at call time.
+  @default_html_flash "Too many attempts. Please try again in {retry_after} seconds."
+
   @impl true
   def init(opts) do
     bucket = Keyword.fetch!(opts, :bucket)
     subject = Keyword.get(opts, :subject, :ip)
     limit = Keyword.get(opts, :limit)
     window = Keyword.get(opts, :window_seconds)
-    %{bucket: bucket, subject: subject, limit: limit, window: window}
+    response_mode = Keyword.get(opts, :response_mode, :auto)
+
+    unless response_mode in [:auto, :json, :html] do
+      raise ArgumentError,
+            "RateLimit :response_mode must be :auto, :json, or :html (got #{inspect(response_mode)})"
+    end
+
+    %{
+      bucket: bucket,
+      subject: subject,
+      limit: limit,
+      window: window,
+      response_mode: response_mode,
+      html_redirect_to: Keyword.get(opts, :html_redirect_to, @default_html_redirect),
+      html_flash_template: Keyword.get(opts, :html_flash_template, @default_html_flash)
+    }
   end
 
   @impl true
@@ -52,9 +85,61 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
         conn
         |> put_rate_limit_headers(limit, 0, window)
         |> put_resp_header("retry-after", Integer.to_string(retry_after))
+        |> respond_denied(retry_after, config)
+        |> halt()
+    end
+  end
+
+  ## Response builders
+
+  defp respond_denied(conn, retry_after, config) do
+    case resolve_mode(conn, config.response_mode) do
+      :html ->
+        message = render_flash(config.html_flash_template, retry_after)
+        target = resolve_redirect(config.html_redirect_to)
+
+        conn
+        |> maybe_put_flash(:error, message)
+        |> put_resp_header("location", target)
+        |> send_resp(303, "")
+
+      :json ->
+        conn
         |> put_resp_content_type("application/json")
         |> send_resp(429, ~s({"error":"rate_limited","retry_after":#{retry_after}}))
-        |> halt()
+    end
+  end
+
+  defp resolve_mode(_conn, :json), do: :json
+  defp resolve_mode(_conn, :html), do: :html
+
+  defp resolve_mode(conn, :auto) do
+    if html_preferred?(conn), do: :html, else: :json
+  end
+
+  defp html_preferred?(conn) do
+    case get_req_header(conn, "accept") do
+      [accept | _] -> String.contains?(accept, "text/html")
+      [] -> false
+    end
+  end
+
+  defp render_flash(template, retry_after) do
+    String.replace(template, "{retry_after}", Integer.to_string(retry_after))
+  end
+
+  defp resolve_redirect(fun) when is_function(fun, 0), do: fun.()
+  defp resolve_redirect(path) when is_binary(path), do: path
+
+  defp maybe_put_flash(conn, key, message) do
+    # Phoenix.Controller.put_flash/3 requires the flash to be fetched
+    # (it lives in conn.private[:phoenix_flash]). For pipelines that
+    # set up flash we put it; otherwise we no-op so the plug doesn't
+    # crash on JSON-shape conns lacking flash.
+    if Map.has_key?(conn.private, :phoenix_flash) do
+      Phoenix.Controller.put_flash(conn, key, message)
+    else
+      conn
     end
   end
 
