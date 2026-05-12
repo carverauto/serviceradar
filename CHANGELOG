@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.42
+
+Armis integration credential delivery fix, audit history visibility, Palisade trust-boundary extraction, and demo release automation updates.
+
+## Whats New
+
+**1.2.42**
+- Fixed Armis integration source create/update handling in web-ng so API key and API secret fields submitted by the settings UI are persisted into encrypted IntegrationSource credentials and included in agent config generation.
+- Added regression coverage for Armis credential persistence through the rendered integrations LiveView create and edit forms.
+- Added Settings -> Audit -> History with cross-resource AshPaperTrail timeline support, including backend audit history querying and settings navigation wiring.
+- Extracted Palisade into a standalone Elixir package for shared outbound URL/network trust-boundary policy enforcement and added a Forgejo publish workflow.
+- Migrated dashboard package publishing and CLI device-auth flows off the legacy Auth.RateLimiter shim and onto explicit plugs/security pipelines.
+- Updated demo release automation to use semver-aware ArgoCD Image Updater behavior and documented the formal release/demo-roll workflow.
+
 # ServiceRadar v1.2.41
 
 Release packaging fixes for Elixir Ash domain, web-ng asset lockfile, and web-ng session configuration.
