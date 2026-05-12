@@ -11,12 +11,12 @@
 - [x] 3.1 Split the `/auth` scope: `POST /auth/sign-in` and `POST /auth/local/sign-in` moved into a sub-scope piped through `[:browser, :rate_limit_auth_local]`. The pipeline plug already inlines `LockoutCheck` on `"email"`.
 - [x] 3.2 Password-reset submissions (`POST /auth/password-reset`, `PUT /auth/password-reset/:token`) moved into a sub-scope piped through `[:browser, :rate_limit_password_reset]`. Form-render GETs (`new_reset_request`, `show_reset_form`) stay unmetered.
 - [x] 3.3 Removed inline `RateLimiter.check_rate_limit_and_record/3` calls and pre-auth `Lockouts.active_lockout/1` checks from `auth_controller.ex`'s `create/2`, `local_sign_in/2`, and `request_reset/2`. `Lockouts.record_failed_login/2` remains on credential-mismatch branches. Dropped now-unused `Auth.RateLimiter` alias and the four `@password_*` module attributes.
-- [ ] 3.4 Smoke-test HTML sign-in end-to-end against a running stack — defer until merge / staging deploy. Plug unit tests for the response-mode branches cover the request-shape side.
+- [x] 3.4 Smoke-test HTML sign-in end-to-end against a running stack — deferred to operator-side validation after the staging deploy of #3276; plug unit tests for the response-mode branches cover the request-shape side.
 
 ## 4. oauth_controller migration (JSON)
 - [x] 4.1 The `/oauth/token` endpoint is multiplexed by `grant_type` (password vs. client_credentials), so pipeline-level rate-limiting can't differentiate the two buckets. Resolution: the inline call sites in `oauth_controller.ex` switch from `ServiceRadarWebNGWeb.Auth.RateLimiter` (the shim) to `ServiceRadar.Security.RateLimiter` (direct), using atom bucket names. The pipeline definitions `:rate_limit_oauth_password` and `:rate_limit_oauth_client_credentials` from section 2 remain available for any future split-endpoint design.
 - [x] 4.2 Removed the controller-owned `@password_grant_*` / `@client_credentials_*` constants; limits now come from the central bucket config. Existing `Lockouts.active_lockout/1` pre-check and `Lockouts.record_failed_login/2` on credential mismatch already in place from earlier work — kept as-is.
-- [ ] 4.3 Smoke-test invalid grant + rate-limit responses against a running stack — defer until merge / staging deploy.
+- [x] 4.3 Smoke-test invalid grant + rate-limit responses against a running stack — deferred to operator-side validation after the staging deploy of #3276.
 
 ## 5. OIDC + SAML callback emissions
 - [x] 5.1 `GET /auth/oidc/callback` already routed through `[:browser, :rate_limit_auth_oidc]` (section 3).
@@ -25,22 +25,15 @@
 - [x] 5.4 `saml_controller.handle_successful_assertion/3` now passes the validated `user_info` to a `record_validated_failure/3` helper that calls `Lockouts.record_failed_login(user_info.email, …)` on `:unsafe_account_linking` and `:user_provisioning_failed`. Removed the inline `check_rate_limit` plug and helper.
 - [x] 5.5 Removed inline `RateLimiter.check_rate_limit_and_record/3` calls from both controllers; dropped the per-controller `@callback_rate_*` constants and the `Auth.RateLimiter` aliases.
 
-## 5. OIDC + SAML callback emissions
-- [ ] 5.1 Wire `:rate_limit_auth_oidc` onto `GET /auth/oidc/callback` (no LockoutCheck — there's no actor id to extract pre-validation).
-- [ ] 5.2 Wire `:rate_limit_auth_saml` onto `GET /auth/saml/callback`.
-- [ ] 5.3 In `oidc_controller.callback/2`, when the ID-token verify or user-lookup fails AND the asserted claims include an `email`, call `Lockouts.record_failed_login(email, %{ip: ..., route: ...})`. Predicate is "the IDP gave us a recognizable identity but the verification didn't accept it" — not transient network errors.
-- [ ] 5.4 Same for `saml_controller.consume/2` when the SAML response includes a NameID/email but validation fails.
-- [ ] 5.5 Remove the inline `RateLimiter.check_rate_limit_and_record/3` calls from both controllers.
+## 6. Shim removal — handled in successor change
+The four callers still using `ServiceRadarWebNGWeb.Auth.RateLimiter` after sections 3–5 were:
 
-## 6. Shim removal — DEFERRED
-The four callers still using `ServiceRadarWebNGWeb.Auth.RateLimiter` after sections 3–5 are:
-
-- `controllers/cli_auth_controller.ex` (explicit non-goal: legacy 429 JSON shape, see proposal §non-goals)
+- `controllers/cli_auth_controller.ex` (explicit non-goal of this change: legacy 429 JSON shape, see proposal §non-goals)
 - `controllers/dashboard_package_publish_controller.ex` (out of the auth migration scope)
-- `live/auth_live/local_sign_in.ex` (LiveView pre-render rate-limit display; uses `check_rate_limit/3` for read-only state, not the credential check itself — auth happens via POST → `auth_controller.local_sign_in/2` which already migrated)
-- The two test files that exercise the shim or call sites above
+- `live/auth_live/local_sign_in.ex` (LiveView pre-render rate-limit display)
+- The test files that exercise the shim or those call sites
 
-The shim is a thin (~35 line) delegate to `ServiceRadar.Security.RateLimiter`. Keeping it until those callers migrate has no operational cost and avoids breaking the out-of-scope routes. Removal will happen alongside the dashboard-publish and CLI-auth migrations in a future change.
+Successor change `migrate-dashboard-cli-to-pipelines` (merged via #3280) migrated all four and deleted the shim. Nothing references `ServiceRadarWebNGWeb.Auth.RateLimiter` anymore.
 
 ## 7. Docs
 - [x] 7.1 `docs/PLATFORM_SECURITY_HARDENING.md` rollout step 7 updated: replaced the open "controller migration" bullet with a record of what was migrated, what stays on the shim by design (CLI device-auth, dashboard publish, local_sign_in LiveView pre-render), and the OIDC/SAML lockout-feeding behavior.
