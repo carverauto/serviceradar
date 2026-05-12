@@ -358,7 +358,7 @@ The SSH adapter must:
 - Gateway routing must bind frames to the authenticated agent that owns the session.
 - Agent adapters must enforce target host/port/protocol from the signed session grant and reject arbitrary retargeting.
 - Credential broker grants must be one-time or short-lived and scoped to one session.
-- Agent-routed SSH host-key verification uses the shared `remoteaccess.SSHHostKeyCallback` path. Both generic SSH and the legacy Proxmox SSH console path support `known_hosts`, `trust_on_first_use`, and explicit `skip_verify`, with TOFU pinning unknown hosts and rejecting changed keys. Operator-facing host-key review, rotation, and audit remain a follow-up management surface.
+- Agent-routed SSH host-key verification uses the shared `remoteaccess.SSHHostKeyCallback` path. Both generic SSH and the legacy Proxmox SSH console path support `known_hosts`, `trust_on_first_use`, and explicit `skip_verify`, with TOFU pinning unknown hosts and rejecting changed keys. The control plane now has persistent host-key trust state for known-host collection, TOFU lifecycle review, conflict detection, trust, revocation, and rotation audit; the remaining follow-up is the operator UI that sits on top of those API primitives.
 - Audit must record actor, target, protocol, selected agent, credential rule, approval, timestamps, terminal outcome, and policy decisions.
 - Session byte recording must be optional and policy-controlled. If enabled, secrets should be redacted where feasible, but recording must be treated as sensitive data.
 - Enhanced BPF recording must be policy-controlled, session-correlated, and treated as sensitive telemetry with explicit retention and access policy.

@@ -64,6 +64,28 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** it SHALL reject invalid target ports and oversized target, username, private key, password, or passphrase fields before dialing
 - **AND** rejected compatibility input SHALL NOT invoke the dialer.
 
+### Requirement: Remote access manages SSH host-key trust
+The system SHALL maintain auditable SSH host-key trust state for agent-routed remote access without storing reusable login credentials.
+
+#### Scenario: Trust-on-first-use host key is collected
+- **GIVEN** the selected agent observes an unknown SSH host key for a remote-access target
+- **WHEN** the session uses trust-on-first-use policy and no trusted key exists for the same agent-scoped target
+- **THEN** the control plane SHALL record the key fingerprint, target, selected agent, lifecycle status, first seen time, and last seen time
+- **AND** the record SHALL be trusted without storing user credentials or target login secrets.
+
+#### Scenario: Host-key conflict is detected
+- **GIVEN** a remote-access target already has a trusted SSH host key
+- **WHEN** the selected agent observes a different key for the same agent-scoped target
+- **THEN** the control plane SHALL record the new key as a conflict
+- **AND** the conflict SHALL be auditable before an operator trusts, revokes, or rotates the key.
+
+#### Scenario: Host-key rotation is audited
+- **GIVEN** an operator approves a replacement key for the same agent-scoped target
+- **WHEN** the host-key management API rotates the trusted key
+- **THEN** the prior key SHALL be marked rotated with a replacement reference
+- **AND** the replacement key SHALL be trusted
+- **AND** trust and rotation audit events SHALL include actor, target, agent, key type, fingerprint, and lifecycle decision.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 

@@ -25,6 +25,7 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.AgentReleaseTarget` - Per-agent rollout state
   - `ServiceRadar.Edge.RemoteAccessSession` - Generic remote-access session lifecycle
   - `ServiceRadar.Edge.RemoteAccessRecording` - Remote-access recording manifests
+  - `ServiceRadar.Edge.RemoteAccessHostKey` - Remote-access SSH host-key trust state
   - `ServiceRadar.Edge.ProxmoxConsoleSession` - Proxmox console session tickets and lifecycle
 
   ## Package State Machine
@@ -65,6 +66,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.AgentReleaseTarget
     resource ServiceRadar.Edge.RemoteAccessSession
     resource ServiceRadar.Edge.RemoteAccessRecording
+    resource ServiceRadar.Edge.RemoteAccessHostKey
     resource ServiceRadar.Edge.ProxmoxConsoleSession
   end
 

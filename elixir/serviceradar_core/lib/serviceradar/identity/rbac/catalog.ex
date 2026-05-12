@@ -259,6 +259,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "settings.remote_access_host_keys.manage",
+          label: "Manage remote-access host keys",
+          description: "Review, trust, rotate, and revoke SSH host keys for remote access",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.snmp_profiles.manage",
           label: "Manage SNMP profiles",
           description: "Manage SNMP profiles",
