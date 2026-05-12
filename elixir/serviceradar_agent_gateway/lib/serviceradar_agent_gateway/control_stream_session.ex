@@ -291,7 +291,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp broadcast_console_frame(%Monitoring.ConsoleFrame{} = frame, state) do
     session_id = to_string(frame.session_id || "")
 
-    if session_id != "" do
+    if session_id != "" and registered_agent?(state) do
       frame_payload = %{
         session_id: session_id,
         frame_type: frame.frame_type,
@@ -308,6 +308,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       ProxmoxConsolePubSub.broadcast_frame(session_id, frame_payload)
       RemoteAccessPubSub.broadcast_frame(session_id, frame_payload)
     end
+  end
+
+  defp registered_agent?(state) do
+    is_binary(state.agent_id) and String.trim(state.agent_id) != ""
   end
 
   defp normalize_console_frame(%Monitoring.ConsoleFrame{} = frame), do: {:ok, frame}
