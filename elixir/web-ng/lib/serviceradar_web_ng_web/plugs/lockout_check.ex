@@ -32,6 +32,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
       `"/users/log-in"`.
     * `:html_flash` — flash message for HTML responses. Default
       "Account temporarily locked. Try again later."
+    * `:json_body_builder` — optional 0-arity function returning
+      iodata. When set and the resolved response mode is `:json`,
+      the plug uses the function's return value as the 423 body
+      verbatim instead of the default
+      `{"error":"account_temporarily_locked"}`. Builder failures
+      fall back to the default body and emit a logger warning.
 
   At least one of `:actor_id_param` / `:actor_id_assign` is required.
   """
@@ -52,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
     assign = Keyword.get(opts, :actor_id_assign)
     id_field = Keyword.get(opts, :assign_id_field, :id)
     response_mode = Keyword.get(opts, :response_mode, :auto)
+    body_builder = Keyword.get(opts, :json_body_builder)
 
     if is_nil(param) and is_nil(assign) do
       raise ArgumentError,
@@ -63,13 +70,19 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
             "LockoutCheck :response_mode must be :auto, :json, or :html (got #{inspect(response_mode)})"
     end
 
+    unless is_nil(body_builder) or is_function(body_builder, 0) do
+      raise ArgumentError,
+            "LockoutCheck :json_body_builder must be a 0-arity function or nil (got #{inspect(body_builder)})"
+    end
+
     %{
       param: param,
       assign: assign,
       id_field: id_field,
       response_mode: response_mode,
       html_redirect_to: Keyword.get(opts, :html_redirect_to, @default_html_redirect),
-      html_flash: Keyword.get(opts, :html_flash, @default_html_flash)
+      html_flash: Keyword.get(opts, :html_flash, @default_html_flash),
+      json_body_builder: body_builder
     }
   end
 
@@ -107,9 +120,24 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
       :json ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(423, ~s({"error":"account_temporarily_locked"}))
+        |> send_resp(423, json_body(config.json_body_builder))
     end
   end
+
+  defp json_body(nil), do: default_json_body()
+
+  defp json_body(builder) when is_function(builder, 0) do
+    try do
+      builder.()
+    rescue
+      e ->
+        require Logger
+        Logger.warning("LockoutCheck :json_body_builder raised: #{Exception.message(e)}")
+        default_json_body()
+    end
+  end
+
+  defp default_json_body, do: ~s({"error":"account_temporarily_locked"})
 
   defp resolve_mode(_conn, :json), do: :json
   defp resolve_mode(_conn, :html), do: :html

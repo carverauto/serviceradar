@@ -181,11 +181,20 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   pipeline :rate_limit_cli_device_auth do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :cli_device_auth, subject: :ip)
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :cli_device_auth,
+      subject: :ip,
+      response_mode: :json,
+      json_body_builder: &ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies.cli_device_auth/1
+    )
   end
 
   pipeline :rate_limit_dashboard_publish do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :dashboard_publish, subject: :ip_and_actor)
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :dashboard_publish,
+      subject: :ip_and_actor,
+      response_mode: :json
+    )
   end
 
   pipeline :rate_limit_plugin_upload do
@@ -535,7 +544,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # browser scope below.
 
   scope "/api/v1/cli/auth", ServiceRadarWebNGWeb do
-    pipe_through(:api_token_auth)
+    pipe_through([:api_token_auth, :rate_limit_cli_device_auth])
 
     post("/device", CliAuthController, :device)
     post("/token", CliAuthController, :token)

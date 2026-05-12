@@ -18,20 +18,19 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadar.Security.RateLimiter
 
   @moduletag :integration
 
-  @device_action "cli_auth_device"
-  @token_action "cli_auth_token"
+  @device_action :cli_device_auth
   @client_id "serviceradar-cli"
   @ip "127.0.0.1"
 
   setup do
-    RateLimiter.clear_rate_limit(@device_action, @ip)
+    RateLimiter.clear(@device_action, @ip)
 
     on_exit(fn ->
-      RateLimiter.clear_rate_limit(@device_action, @ip)
+      RateLimiter.clear(@device_action, @ip)
     end)
 
     :ok
@@ -100,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
 
     test "rate-limits at the 11th request in the same window", %{conn: conn} do
       # Fill the bucket; 11th call should 429.
-      Enum.each(1..10, fn _ -> RateLimiter.record_attempt(@device_action, @ip) end)
+      Enum.each(1..10, fn _ -> RateLimiter.record(@device_action, @ip) end)
 
       conn =
         post_with_ip(conn, ~p"/api/v1/cli/auth/device", %{

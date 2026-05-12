@@ -1,26 +1,26 @@
 defmodule ServiceRadarWebNGWeb.OAuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadar.Security.RateLimiter
 
-  @password_action "oauth_password_grant"
-  @client_credentials_action "oauth_client_credentials"
+  @password_action :oauth_password_grant
+  @client_credentials_action :oauth_client_credentials
   @ip "127.0.0.1"
 
   setup do
-    RateLimiter.clear_rate_limit(@password_action, @ip)
-    RateLimiter.clear_rate_limit(@client_credentials_action, @ip)
+    RateLimiter.clear(@password_action, @ip)
+    RateLimiter.clear(@client_credentials_action, @ip)
 
     on_exit(fn ->
-      RateLimiter.clear_rate_limit(@password_action, @ip)
-      RateLimiter.clear_rate_limit(@client_credentials_action, @ip)
+      RateLimiter.clear(@password_action, @ip)
+      RateLimiter.clear(@client_credentials_action, @ip)
     end)
 
     :ok
   end
 
   test "password grant is rate limited", %{conn: conn} do
-    Enum.each(1..10, fn _ -> RateLimiter.record_attempt(@password_action, @ip) end)
+    Enum.each(1..10, fn _ -> RateLimiter.record(@password_action, @ip) end)
 
     conn =
       conn
@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.OAuthControllerTest do
   end
 
   test "client credentials grant is rate limited", %{conn: conn} do
-    Enum.each(1..20, fn _ -> RateLimiter.record_attempt(@client_credentials_action, @ip) end)
+    Enum.each(1..20, fn _ -> RateLimiter.record(@client_credentials_action, @ip) end)
 
     conn =
       conn
