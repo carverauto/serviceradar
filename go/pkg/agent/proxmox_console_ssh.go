@@ -34,10 +34,20 @@ import (
 
 var (
 	errMissingProxmoxSSHTargetHost                   = errors.New("missing SSH target host")
+	errInvalidProxmoxSSHTargetPort                   = errors.New("invalid SSH target port")
+	errInvalidProxmoxSSHFieldSize                    = errors.New("invalid SSH field size")
 	errProxmoxSSHUsernameRequired                    = errors.New("ssh username is required")
 	errProxmoxSSHCredentialRequired                  = errors.New("ssh private key or password is required")
 	errProxmoxSSHHostKeyVerificationStoreUnavailable = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
 	errUnsupportedProxmoxSSHHostKeyPolicy            = errors.New("unsupported ssh_host_key_policy")
+)
+
+const (
+	maxProxmoxSSHTargetHostBytes = 255
+	maxProxmoxSSHUsernameBytes   = 128
+	maxProxmoxSSHPrivateKeyBytes = 65_536
+	maxProxmoxSSHPasswordBytes   = 4_096
+	maxProxmoxSSHPassphraseBytes = 4_096
 )
 
 type proxmoxConsoleSSHConfig struct {
@@ -89,6 +99,9 @@ func runProxmoxConsoleSSH(
 	}
 	if dial == nil {
 		dial = dialProxmoxConsoleSSH
+	}
+	if err := validateProxmoxConsoleSSHConfig(cfg); err != nil {
+		return err
 	}
 
 	handle, err := bridge.activeHandle()
@@ -261,9 +274,20 @@ func (c *proxmoxConsoleSSHClient) Close() error {
 	return c.client.Close()
 }
 
+func validateProxmoxConsoleSSHConfig(cfg proxmoxConsoleSSHConfig) error {
+	if _, _, err := proxmoxConsoleSSHTargetAddress(cfg.Target); err != nil {
+		return err
+	}
+	_, err := validateProxmoxConsoleSSHCredential(cfg.SSH)
+	return err
+}
+
 func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int, error) {
 	host := strings.TrimSpace(firstNonEmpty(target.Hostname, target.IP))
 	if host == "" && strings.TrimSpace(target.BaseURL) != "" {
+		if len(strings.TrimSpace(target.BaseURL)) > maxProxmoxSSHTargetHostBytes*2 {
+			return "", 0, errInvalidProxmoxSSHFieldSize
+		}
 		parsed, err := url.Parse(strings.TrimSpace(target.BaseURL))
 		if err != nil {
 			return "", 0, err
@@ -273,9 +297,15 @@ func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int
 	if host == "" {
 		return "", 0, errMissingProxmoxSSHTargetHost
 	}
+	if len(host) > maxProxmoxSSHTargetHostBytes {
+		return "", 0, errInvalidProxmoxSSHFieldSize
+	}
 	port := target.SSHPort
 	if port <= 0 {
 		port = 22
+	}
+	if port > 65_535 {
+		return "", 0, errInvalidProxmoxSSHTargetPort
 	}
 	return host, port, nil
 }
@@ -294,6 +324,12 @@ func proxmoxConsoleSSHCredential(cfg proxmoxConsoleSSHConfig) (proxmoxConsoleSSH
 func validateProxmoxConsoleSSHCredential(cred proxmoxConsoleSSHAuth) (proxmoxConsoleSSHAuth, error) {
 	if strings.TrimSpace(cred.Username) == "" {
 		return proxmoxConsoleSSHAuth{}, errProxmoxSSHUsernameRequired
+	}
+	if len(strings.TrimSpace(cred.Username)) > maxProxmoxSSHUsernameBytes ||
+		len(strings.TrimSpace(cred.PrivateKey)) > maxProxmoxSSHPrivateKeyBytes ||
+		len(cred.Password) > maxProxmoxSSHPasswordBytes ||
+		len(cred.Passphrase) > maxProxmoxSSHPassphraseBytes {
+		return proxmoxConsoleSSHAuth{}, errInvalidProxmoxSSHFieldSize
 	}
 	if strings.TrimSpace(cred.PrivateKey) == "" && strings.TrimSpace(cred.Password) == "" {
 		return proxmoxConsoleSSHAuth{}, errProxmoxSSHCredentialRequired

@@ -19,6 +19,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -89,6 +90,75 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	}
 	if !session.isClosed() {
 		t.Fatal("expected SSH session to close")
+	}
+}
+
+func TestRunProxmoxConsoleSSHRejectsInvalidConfigBeforeDial(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  proxmoxConsoleSSHConfig
+		want error
+	}{
+		{
+			name: "invalid target port",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example", SSHPort: 70_000},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			},
+			want: errInvalidProxmoxSSHTargetPort,
+		},
+		{
+			name: "oversized host",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: strings.Repeat("a", maxProxmoxSSHTargetHostBytes+1)},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			},
+			want: errInvalidProxmoxSSHFieldSize,
+		},
+		{
+			name: "oversized private key",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+				SSH: proxmoxConsoleSSHAuth{
+					Username:   "root",
+					PrivateKey: strings.Repeat("k", maxProxmoxSSHPrivateKeyBytes+1),
+				},
+			},
+			want: errInvalidProxmoxSSHFieldSize,
+		},
+		{
+			name: "missing credential",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root"},
+			},
+			want: errProxmoxSSHCredentialRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bridge := newPluginProxmoxConsoleBridge(nil)
+			if _, err := bridge.Open(t.Context(), pluginProxmoxConsoleOpenRequest{}); err != nil {
+				t.Fatalf("open bridge: %v", err)
+			}
+
+			dialCalled := false
+			err := runProxmoxConsoleSSH(t.Context(), tt.cfg, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
+				dialCalled = true
+				return nil, nil
+			})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, tt.want)
+			}
+			if dialCalled {
+				t.Fatal("dialer was called for invalid config")
+			}
+		})
 	}
 }
 

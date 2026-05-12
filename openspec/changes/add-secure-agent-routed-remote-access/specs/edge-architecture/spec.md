@@ -59,6 +59,11 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** it SHALL reject invalid target ports and oversized target, terminal, username, credential, certificate, password, or passphrase fields before dialing
 - **AND** rejected SSH adapter input SHALL NOT invoke the dialer.
 
+#### Scenario: Proxmox SSH compatibility inputs are bounded
+- **WHEN** the legacy Proxmox SSH compatibility connector receives SSH target or credential config
+- **THEN** it SHALL reject invalid target ports and oversized target, username, private key, password, or passphrase fields before dialing
+- **AND** rejected compatibility input SHALL NOT invoke the dialer.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 
