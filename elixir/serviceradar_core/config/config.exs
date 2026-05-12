@@ -165,11 +165,14 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
   default_bucket: [limit: 60, window_seconds: 60],
   buckets: %{
     auth_local: [limit: 5, window_seconds: 60],
+    auth_password_reset: [limit: 5, window_seconds: 300],
     auth_oidc_callback: [limit: 30, window_seconds: 60],
     auth_saml_callback: [limit: 30, window_seconds: 60],
     cli_device_auth: [limit: 30, window_seconds: 60],
     dashboard_publish: [limit: 10, window_seconds: 60],
     plugin_upload: [limit: 10, window_seconds: 60],
+    oauth_password_grant: [limit: 10, window_seconds: 60],
+    oauth_client_credentials: [limit: 20, window_seconds: 60],
     api_default: [limit: 120, window_seconds: 60]
   }
 

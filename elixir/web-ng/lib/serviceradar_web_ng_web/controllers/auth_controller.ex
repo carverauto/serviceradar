@@ -25,7 +25,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.Hooks
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.AuthURL
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
@@ -33,11 +32,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   require Logger
 
   plug :fetch_session
-
-  @password_auth_rate_limit 10
-  @password_auth_window 60
-  @password_reset_rate_limit 5
-  @password_reset_window 300
 
   @doc """
   Shows the password reset request form.
@@ -55,54 +49,30 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Authenticates the user with email and password, then creates a Guardian JWT token.
   """
   def create(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    client_ip = ClientIP.get(conn)
+    # Rate limiting + lockout short-circuit happen at the
+    # `:rate_limit_auth_local` pipeline (router.ex). By the time we
+    # reach the controller the actor is unlocked and the IP is under
+    # its window — we only need to do the credential check.
+    actor = SystemActor.system(:auth_controller)
 
-    cond do
-      Lockouts.active_lockout(email) ->
-        Logger.warning("Sign-in attempt against locked account: #{email}")
+    case User.authenticate(email, password, actor: actor) do
+      {:ok, user} ->
+        record_successful_auth_async(conn, user, :password)
 
         conn
-        |> put_flash(:error, "Account temporarily locked. Try again later.")
+        |> put_flash(:info, "Signed in successfully.")
+        |> UserAuth.log_in_user(user)
+
+      {:error, _} ->
+        Lockouts.record_failed_login(email, %{
+          ip: ClientIP.get(conn),
+          route: conn.request_path,
+          method: "password"
+        })
+
+        conn
+        |> put_flash(:error, "Invalid email or password.")
         |> redirect(to: ~p"/users/log-in")
-
-      true ->
-        case RateLimiter.check_rate_limit_and_record("password_auth", client_ip,
-               limit: @password_auth_rate_limit,
-               window_seconds: @password_auth_window
-             ) do
-          {:error, retry_after} ->
-            Logger.warning("Password auth rate limited for IP: #{client_ip}")
-
-            conn
-            |> put_flash(
-              :error,
-              "Too many login attempts. Please try again in #{retry_after} seconds."
-            )
-            |> redirect(to: ~p"/users/log-in")
-
-          :ok ->
-            actor = SystemActor.system(:auth_controller)
-
-            case User.authenticate(email, password, actor: actor) do
-              {:ok, user} ->
-                record_successful_auth_async(conn, user, :password)
-
-                conn
-                |> put_flash(:info, "Signed in successfully.")
-                |> UserAuth.log_in_user(user)
-
-              {:error, _} ->
-                Lockouts.record_failed_login(email, %{
-                  ip: client_ip,
-                  route: conn.request_path,
-                  method: "password"
-                })
-
-                conn
-                |> put_flash(:error, "Invalid email or password.")
-                |> redirect(to: ~p"/users/log-in")
-            end
-        end
     end
   end
 
@@ -124,62 +94,33 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Rate limited to 5 attempts per minute per IP.
   """
   def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
+    # Rate limiting + lockout short-circuit happen at the
+    # `:rate_limit_auth_local` pipeline (router.ex).
     client_ip = ClientIP.get(conn)
+    actor = SystemActor.system(:auth_controller)
 
-    cond do
-      Lockouts.active_lockout(email) ->
-        Logger.warning("Local sign-in attempt against locked account: #{email}")
+    case User.authenticate(email, password, actor: actor) do
+      {:ok, user} ->
+        Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
+
+        record_successful_auth_async(conn, user, :password, hook_method: "local_password")
 
         conn
-        |> put_flash(:error, "Account temporarily locked. Try again later.")
+        |> put_flash(:info, "Signed in successfully.")
+        |> UserAuth.log_in_user(user)
+
+      {:error, _} ->
+        Logger.warning("Failed local admin login attempt for #{email} from IP: #{client_ip}")
+
+        Lockouts.record_failed_login(email, %{
+          ip: client_ip,
+          route: conn.request_path,
+          method: "local_password"
+        })
+
+        conn
+        |> put_flash(:error, "Invalid email or password.")
         |> redirect(to: ~p"/auth/local")
-
-      true ->
-        case RateLimiter.check_rate_limit_and_record("local_auth", client_ip,
-               limit: 5,
-               window_seconds: 60
-             ) do
-          {:error, retry_after} ->
-            Logger.warning("Local auth rate limited for IP: #{client_ip}")
-
-            conn
-            |> put_flash(
-              :error,
-              "Too many login attempts. Please try again in #{retry_after} seconds."
-            )
-            |> redirect(to: ~p"/auth/local")
-
-          :ok ->
-            actor = SystemActor.system(:auth_controller)
-
-            case User.authenticate(email, password, actor: actor) do
-              {:ok, user} ->
-                Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
-
-                record_successful_auth_async(conn, user, :password,
-                  hook_method: "local_password"
-                )
-
-                conn
-                |> put_flash(:info, "Signed in successfully.")
-                |> UserAuth.log_in_user(user)
-
-              {:error, _} ->
-                Logger.warning(
-                  "Failed local admin login attempt for #{email} from IP: #{client_ip}"
-                )
-
-                Lockouts.record_failed_login(email, %{
-                  ip: client_ip,
-                  route: conn.request_path,
-                  method: "local_password"
-                })
-
-                conn
-                |> put_flash(:error, "Invalid email or password.")
-                |> redirect(to: ~p"/auth/local")
-            end
-        end
     end
   end
 
@@ -189,35 +130,19 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   Sends a password reset email with a Guardian token.
   """
   def request_reset(conn, %{"user" => %{"email" => email}}) do
-    client_ip = ClientIP.get(conn)
+    # Rate limiting happens at the `:rate_limit_password_reset`
+    # pipeline (router.ex).
+    actor = SystemActor.system(:auth_controller)
 
-    case RateLimiter.check_rate_limit_and_record("password_reset", client_ip,
-           limit: @password_reset_rate_limit,
-           window_seconds: @password_reset_window
-         ) do
-      {:error, retry_after} ->
-        Logger.warning("Password reset rate limited for IP: #{client_ip}")
+    # Always show the same message to prevent email enumeration.
+    :ok = maybe_send_password_reset(email, actor)
 
-        conn
-        |> put_flash(
-          :error,
-          "Too many password reset requests. Please try again in #{retry_after} seconds."
-        )
-        |> redirect(to: ~p"/users/log-in")
-
-      :ok ->
-        actor = SystemActor.system(:auth_controller)
-
-        # Always show the same message to prevent email enumeration
-        :ok = maybe_send_password_reset(email, actor)
-
-        conn
-        |> put_flash(
-          :info,
-          "If your email is in our system, you will receive instructions to reset your password."
-        )
-        |> redirect(to: ~p"/users/log-in")
-    end
+    conn
+    |> put_flash(
+      :info,
+      "If your email is in our system, you will receive instructions to reset your password."
+    )
+    |> redirect(to: ~p"/users/log-in")
   end
 
   defp maybe_send_password_reset(email, actor) do

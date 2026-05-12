@@ -19,9 +19,9 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
@@ -29,35 +29,9 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   require Logger
 
   plug :fetch_session
-  plug :check_rate_limit when action == :callback
 
-  # Rate limit: 20 attempts per minute per IP for callbacks
-  @callback_rate_limit 20
-  @callback_rate_window 60
-
-  defp check_rate_limit(conn, _opts) do
-    client_ip = get_client_ip(conn)
-
-    case RateLimiter.check_rate_limit_and_record("oidc_callback", client_ip,
-           limit: @callback_rate_limit,
-           window_seconds: @callback_rate_window
-         ) do
-      :ok ->
-        conn
-
-      {:error, retry_after} ->
-        Logger.warning("OIDC callback rate limited for IP: #{client_ip}")
-
-        conn
-        |> put_resp_header("retry-after", to_string(retry_after))
-        |> put_flash(
-          :error,
-          "Too many authentication attempts. Please wait #{retry_after} seconds."
-        )
-        |> redirect(to: ~p"/users/log-in")
-        |> halt()
-    end
-  end
+  # Rate limiting for the callback happens at the
+  # `:rate_limit_auth_oidc` pipeline (router.ex).
 
   defp get_client_ip(conn) do
     ClientIP.get(conn)
@@ -167,9 +141,36 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   defp valid_oidc_callback_session?(_state, _stored_state, _stored_nonce), do: false
 
   defp handle_code_exchange(conn, code, nonce) do
-    with {:ok, tokens} <- OIDCClient.exchange_code(code),
-         {:ok, claims} <- OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce),
-         {:ok, user_info} <- OIDCClient.extract_user_info(claims),
+    case exchange_and_verify(code, nonce) do
+      {:ok, claims} -> complete_oidc_login(conn, claims)
+      {:error, reason} -> reject_oidc_pre_verify(conn, reason)
+    end
+  end
+
+  defp exchange_and_verify(code, nonce) do
+    with {:ok, tokens} <- OIDCClient.exchange_code(code) do
+      OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce)
+    end
+  end
+
+  # Failures before the ID token verifies — we don't have a
+  # trusted actor identifier yet, so do not feed lockouts.
+  defp reject_oidc_pre_verify(conn, reason) do
+    Logger.error("OIDC authentication failed: #{inspect(reason)}")
+
+    Hooks.on_auth_failed(reason, %{method: :oidc, ip: get_client_ip(conn)})
+
+    conn
+    |> put_flash(:error, "Authentication failed. Please try again.")
+    |> redirect(to: ~p"/users/log-in")
+  end
+
+  defp complete_oidc_login(conn, claims) do
+    # We have verified claims; any failure from here is a
+    # validated-identity failure that should feed lockouts.
+    email = claims["email"]
+
+    with {:ok, user_info} <- OIDCClient.extract_user_info(claims),
          {:ok, user} <- find_or_create_user(user_info, claims) do
       # Record authentication timestamp
       actor = SystemActor.system(:oidc_auth)
@@ -186,11 +187,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     else
       {:error, :unsafe_account_linking} ->
         Logger.warning("OIDC authentication rejected implicit email-based account linking")
-
-        Hooks.on_auth_failed(:unsafe_account_linking, %{
-          method: :oidc,
-          ip: get_client_ip(conn)
-        })
+        record_validated_failure(conn, email, :unsafe_account_linking)
 
         conn
         |> put_flash(
@@ -201,11 +198,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
       {:error, :user_creation_failed} ->
         Logger.error("Failed to create/update user from OIDC")
-
-        Hooks.on_auth_failed(:user_creation_failed, %{
-          method: :oidc,
-          ip: get_client_ip(conn)
-        })
+        record_validated_failure(conn, email, :user_creation_failed)
 
         conn
         |> put_flash(:error, "Failed to create user account. Please contact your administrator.")
@@ -213,15 +206,24 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
       {:error, reason} ->
         Logger.error("OIDC authentication failed: #{inspect(reason)}")
-
-        Hooks.on_auth_failed(reason, %{
-          method: :oidc,
-          ip: get_client_ip(conn)
-        })
+        record_validated_failure(conn, email, reason)
 
         conn
         |> put_flash(:error, "Authentication failed. Please try again.")
         |> redirect(to: ~p"/users/log-in")
+    end
+  end
+
+  defp record_validated_failure(conn, email, reason) do
+    Hooks.on_auth_failed(reason, %{method: :oidc, ip: get_client_ip(conn)})
+
+    if is_binary(email) and email != "" do
+      Lockouts.record_failed_login(email, %{
+        ip: get_client_ip(conn),
+        route: conn.request_path,
+        method: "oidc",
+        reason: to_string(reason)
+      })
     end
   end
 

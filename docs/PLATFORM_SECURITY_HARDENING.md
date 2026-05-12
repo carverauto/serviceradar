@@ -34,15 +34,23 @@ Land + observe in this order. Each step is independently revertible.
    with `settings.audit.view`.
 6. **Section 10: session cookie hardening.** **One-time forced
    sign-out at the deploy.** Communicate ahead of time.
-7. **Section 11 (this step): controller migration.** Per controller,
-   in this order:
-   - Move the inline `Auth.RateLimiter.check_rate_limit_and_record`
-     call to the appropriate `:rate_limit_*` pipeline in `router.ex`,
-     remove the inline call. Different bucket key → no double-count
-     during the transition.
-   - Add a `record_failed_login/2` call after credential mismatch.
-   - For binary upload routes: pipe the `UploadGuard` plug, drop the
-     inline content-type/size checks.
+7. **Controller migration to pipelines** (done for the in-scope
+   credential paths in the `migrate-controllers-to-security-pipelines`
+   change). The HTML auth routes (`POST /auth/sign-in`,
+   `POST /auth/local/sign-in`, password reset), the OIDC and SAML
+   callbacks, and the OAuth `/token` inline calls all route through
+   the central `ServiceRadar.Security.RateLimiter` now; the HTML
+   pipelines also include `LockoutCheck` and emit a flash + 303
+   redirect on denial. OIDC and SAML feed
+   `Lockouts.record_failed_login/2` on validated-identity failures
+   so cross-IP failed-SSO attempts trip the same lockout threshold
+   as local password failures.
+
+   Still on the `Auth.RateLimiter` shim by design:
+   `cli_auth_controller` (legacy 429 JSON shape consumed by parsed
+   CLI clients), `dashboard_package_publish_controller`,
+   and the `local_sign_in` LiveView's pre-render rate-limit
+   display.
 8. **Flip CSP to enforce.** `config :serviceradar_web_ng,
    ServiceRadarWebNGWeb.Plugs.SecurityHeaders, csp_mode: :enforce`
    once report-only has been clean for ≥ 7 days. Keep the report URI
