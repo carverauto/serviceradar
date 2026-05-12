@@ -10,6 +10,7 @@ config :libcluster, topologies: []
 config :logger, level: :warning
 
 config :serviceradar_agent_gateway,
+  edge_listeners_enabled: false,
   gateway_cert_dir: Path.expand("../test/support/certs", __DIR__),
   gateway_grpc_port: 58_052,
   gateway_artifact_port: 58_053
