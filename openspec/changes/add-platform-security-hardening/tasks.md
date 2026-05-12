@@ -47,10 +47,10 @@
 - [x] 7.6 Plug + helper tests: `init/1` validation, no-actor pass-through, unlock action authorization is gated through Ash policies (`:admin`/`:owner` for create+update, `:operator` for read). End-to-end accept/halt paths are scaffolded for the DB-backed integration suite.
 
 ## 8. RBAC capabilities
-- [ ] 8.1 Add `:audit_viewer` and `:security_admin` capabilities to the RBAC catalog.
-- [ ] 8.2 Default role mappings: `:owner` and `:admin` get `:security_admin`; `:operator` gets `:audit_viewer`.
-- [ ] 8.3 Ash policies on `SecurityEvent`, `AuthLockout`, `WebhookSecret` require the appropriate capability for read/write.
-- [ ] 8.4 Tests: viewer can read events, only admin can unlock/rotate, denials emit a SecurityEvent.
+- [x] 8.1 Add `settings.audit.view` and `settings.audit.manage` permission keys to `ServiceRadar.Identity.RBAC.Catalog`. The existing string-keyed permission catalog is the project's idiom (vs. the proposal's earlier `:audit_viewer`/`:security_admin` atoms); the keys read the same in role-profile UIs.
+- [x] 8.2 Default role mappings: `settings.audit.view` is granted to `@operator_roles` (operators see history/events/lockouts); `settings.audit.manage` is granted to `@admin_roles` (admins/owners do unlock/rotate).
+- [x] 8.3 Convert the `WebhookSecret`, `SecurityEvent`, and `AuthLockout` policies to the standard `ServiceRadar.Policies` helpers (`system_bypass()` + `action_type_with_permission`) gated on the new permission keys.
+- [ ] 8.4 End-to-end policy tests (viewer can read, only admin can unlock/rotate, denials emit a SecurityEvent) live in the DB-backed integration suite alongside the other Ash policy tests; the unit suite covers the configuration shape.
 
 ## 9. Settings → Audit operator surfaces
 - [ ] 9.1 Add Settings → Audit top-level nav entry (gated by `:audit_viewer`) and route group in `router.ex`.

@@ -280,6 +280,24 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Manage edge packages",
           description: "Manage edge onboarding packages",
           default_roles: @admin_roles
+        },
+        %{
+          key: "settings.audit.view",
+          label: "View audit & security events",
+          description:
+            "Open Settings → Audit and view AshPaperTrail version history, the " <>
+              "SecurityEvent stream (rate-limit denials, signature failures, " <>
+              "policy denials, CSP violations, lockouts), and current rate-limit " <>
+              "pressure.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "settings.audit.manage",
+          label: "Manage audit & security state",
+          description:
+            "Clear an AuthLockout, rotate a WebhookSecret, and perform other " <>
+              "mutating actions on Settings → Audit.",
+          default_roles: @admin_roles
         }
       ]
     },

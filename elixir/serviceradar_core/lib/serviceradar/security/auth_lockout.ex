@@ -73,20 +73,17 @@ defmodule ServiceRadar.Security.AuthLockout do
   end
 
   policies do
-    bypass actor_attribute_equals(:role, :system) do
-      authorize_if always()
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :owner)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-    policy action_type([:create, :update]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :owner)
-    end
+    @audit_view {ActorHasPermission, permission: "settings.audit.view"}
+    @audit_manage {ActorHasPermission, permission: "settings.audit.manage"}
+
+    system_bypass()
+
+    action_type_with_permission(:read, @audit_view)
+    action_type_with_permission([:create, :update, :destroy], @audit_manage)
   end
 
   attributes do
