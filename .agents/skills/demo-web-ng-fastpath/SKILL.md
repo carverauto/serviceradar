@@ -9,6 +9,8 @@ description: Refresh the Kubernetes `demo` namespace with a web-ng-only change u
 
 Use this skill when a change is isolated to `elixir/web-ng/**` and the goal is to test it in `demo` quickly. Rebuild only `serviceradar-web-ng`, copy the other `demo` images forward to the new immutable tag, sign the new web-ng image, patch Argo, and verify the rollout.
 
+Formal releases use semver tags, such as `v1.2.41`, and ArgoCD Image Updater. This skill is only for temporary unpublished `sha-...` demo testing.
+
 ## Workflow
 
 1. Work from the repo root.
@@ -26,6 +28,7 @@ Use this skill when a change is isolated to `elixir/web-ng/**` and the goal is t
 
 - Use this only when the diff is actually `web-ng`-only. If anything outside `elixir/web-ng/**` changed, fall back to `$demo-local-rollout`.
 - Do not use this for release cuts or any namespace other than `demo` unless the user explicitly redirects you.
+- Do not leave a formal release rollout on a `sha-...` tag. After testing is complete, use `$release-cut-and-demo-roll` to return `demo` to the published semver/Image Updater path.
 - Do not skip signing. `demo` admission is Kyverno-enforced.
 - Sign by digest, not by tag, whenever possible.
 - Keep the other demo images identical by copying them forward from the currently deployed tag.

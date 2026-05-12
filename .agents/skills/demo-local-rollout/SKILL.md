@@ -9,6 +9,8 @@ description: Build, sign, and roll ServiceRadar changes into the Kubernetes `dem
 
 Use this skill to refresh the `demo` namespace with a locally built test tag before any formal release. Prefer the smallest safe rollout: rebuild only the images affected by the current diff, copy unchanged images forward to the new `sha-<git-sha>` tag, sign the changed digests with the OpenBao release signer, patch the Argo app, and verify that `demo` reaches `Synced|Healthy|Succeeded`.
 
+Formal releases use semver tags, such as `v1.2.41`, and ArgoCD Image Updater. This skill is only for temporary unpublished `sha-...` demo testing.
+
 ## Workflow
 
 1. Work from the repo root.
@@ -26,6 +28,7 @@ Use this skill to refresh the `demo` namespace with a locally built test tag bef
 
 - Use this skill for `demo` only. Do not roll `demo-staging`, production, or Docker Compose stacks unless the user explicitly changes scope.
 - Do not cut a release, update `VERSION`, or create tags here. This path is for local test rollout only.
+- Do not leave a formal release rollout on a `sha-...` tag. After testing is complete, use `$release-cut-and-demo-roll` to return `demo` to the published semver/Image Updater path.
 - Prefer the smallest rebuild set that is actually safe.
 - If only `elixir/web-ng/**` changed, prefer the repo's documented `web-ng` fast path in [AGENTS.md](/home/mfreeman/src/serviceradar/AGENTS.md:70) instead of rebuilding everything.
 - If shared files changed, widen the rebuild set conservatively. Examples: `proto/**` changes can affect multiple consumers; Go agent/MTR changes affect `serviceradar-agent` and often `serviceradar-agent-gateway`; Elixir core changes affect `serviceradar-core-elx`; `elixir/web-ng/**` affects `serviceradar-web-ng`.

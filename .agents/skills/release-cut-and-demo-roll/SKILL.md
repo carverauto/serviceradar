@@ -1,13 +1,13 @@
 ---
 name: release-cut-and-demo-roll
-description: Cut a ServiceRadar release and roll the Kubernetes `demo` namespace to the resulting published immutable tag. Use when the user asks to update `VERSION` and `CHANGELOG`, run `scripts/cut-release.sh`, push the release refs, wait for published release artifacts, and then refresh `demo` to that released tag. Do not use for pre-release local testing with unpublished images; use `$demo-local-rollout` or `$demo-web-ng-fastpath` for that.
+description: Cut a ServiceRadar release and roll the Kubernetes `demo` namespace to the resulting published semver image tag through ArgoCD Image Updater. Use when the user asks to update `VERSION` and `CHANGELOG`, run `scripts/cut-release.sh`, push the release refs, wait for published release artifacts, and then refresh `demo` to that released version. Do not use for pre-release local testing with unpublished images; use `$demo-local-rollout` or `$demo-web-ng-fastpath` for that.
 ---
 
 # Release Cut And Demo Roll
 
 ## Overview
 
-Use this skill for the formal release path: update release metadata, cut the release commit and tag, publish the refs, confirm that the release artifacts exist, and then roll `demo` to the released immutable `sha-<commit>` tag. Prefer the repo’s existing release script and published artifact path over ad hoc local image pushes.
+Use this skill for the formal release path: update release metadata, cut the release commit and tag, publish the refs, confirm that the release artifacts exist, and then roll `demo` to the released semver image tag, such as `v1.2.41`. Prefer the repo's existing release script, CI publish path, and ArgoCD Image Updater over ad hoc local image pushes.
 
 ## Workflow
 
@@ -16,18 +16,19 @@ Use this skill for the formal release path: update release metadata, cut the rel
 3. Dry-run the release cut to verify the changelog entry is wired correctly.
 4. Run `scripts/cut-release.sh --version <version>` and append `--push` when ready to publish refs.
 5. Confirm the release commit and tag landed where expected.
-6. Wait for the published release artifacts to exist for the target commit/tag.
-7. Roll `demo` to `sha-<release-commit>` using the published immutable tag.
+6. Wait for the published release artifacts to exist for the target semver tag.
+7. Let ArgoCD Image Updater advance `demo` to `v<version>`, or patch the Argo app to `v<version>` if an immediate manual reconcile is required.
 8. Watch Argo until `demo` reaches `Synced|Healthy|Succeeded`.
-9. Report the release version, release commit, release tag, and final demo rollout status.
+9. Report the release version, release commit, release tag, Image Updater status, and final demo rollout status.
 
 ## Guardrails
 
 - Use this only for actual release cuts. Do not use it for one-off local testing or unpublished commits.
 - Do not bypass `scripts/cut-release.sh` unless the user explicitly asks for a different path.
-- Do not treat the release as deployable until the published artifacts for the release commit actually exist.
+- Do not treat the release as deployable until the published artifacts for the release version actually exist.
 - Prefer published release artifacts over rebuilding images locally in this workflow.
-- Roll `demo` with the immutable `sha-<commit>` image tag, not a floating version tag.
+- Roll formal releases with the semver image tag, for example `v1.2.41`. The `sha-<commit>` path is for unpublished local demo testing only.
+- Do not switch ArgoCD Image Updater back to `newest-build` over `sha-*` tags. Harbor tag timestamps can point demo at an older release; semver policy avoids that failure mode.
 
 ## Update Release Metadata
 
@@ -65,11 +66,11 @@ git rev-parse HEAD
 git describe --tags --exact-match
 ```
 
-Use the resulting commit SHA as the immutable image tag source: `sha-<commit>`.
+Keep the release commit SHA for reporting and traceability. Use the release version as the demo image tag source: `v<version>`.
 
 ## Published Artifact Expectations
 
-Do not roll `demo` until the release artifacts for the target commit exist.
+Do not roll `demo` until the release artifacts for the target semver tag exist.
 
 Typical release build path from this repo:
 
@@ -79,27 +80,38 @@ bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')
 make push_all_release
 ```
 
-In practice, this may run in CI instead of locally. The important requirement is that the release images for the target commit are published and signed before the `demo` rollout starts.
+In practice, this usually runs in CI instead of locally. The important requirement is that the release images for the target version are published and signed before the `demo` rollout starts.
 
 If only a single release image must be republished, use the matching Bazel push target. If only Wasm plugins are relevant, use `make push_wasm_plugins`.
 
 ## Roll Demo To The Release Tag
 
-Use the published release commit SHA as the demo image tag:
+The steady-state `demo` path is ArgoCD Image Updater with a semver strategy. After the release images are published, force a reconcile if needed:
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar \
-  -n demo \
-  -f helm/serviceradar/values-demo.yaml \
-  --set global.imageTag="sha-<release-commit>" \
-  --rollback-on-failure
+kubectl annotate imageupdater -n argocd serviceradar-demo-image-updater \
+  force-reconcile="$(date +%s)" \
+  --overwrite
 ```
 
-If the local helper exists and the user wants the shortcut, this is equivalent:
+Then check the Image Updater status:
 
 ```bash
-sr_demo_deploy <sha-...|git-sha>
+kubectl get imageupdater -n argocd serviceradar-demo-image-updater \
+  -o jsonpath='{.status.applicationsMatched}{"|"}{.status.imagesManaged}{"|"}{range .status.conditions[?(@.type=="Error")]}{.reason}{":"}{.status}{":"}{.message}{end}{"\n"}'
 ```
+
+Expect one matched application, one managed image, and an `Error` condition with reason `NoErrors` and status `False`.
+
+If an immediate manual override is required, patch the Argo application to the semver tag:
+
+```bash
+kubectl patch application -n argocd serviceradar-demo-prod \
+  --type merge \
+  -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"v<version>"}]}}}}'
+```
+
+Do not use `sr_demo_deploy` for formal releases; that helper rolls `demo` to a `sha-...` tag and is only appropriate for local unpublished test builds.
 
 ## Verify Demo Rollout
 
@@ -122,7 +134,7 @@ kubectl get deploy -n demo \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
 ```
 
-Do not report the rollout finished until the key workloads are running the new `sha-<release-commit>` tag and the environment is healthy.
+Do not report the rollout finished until the key workloads are running the new `v<version>` tag and the environment is healthy.
 
 ## Report Back
 
@@ -133,5 +145,6 @@ Close with:
 - release tag
 - whether refs were pushed
 - whether release artifacts were confirmed published
+- Image Updater status
 - final `demo` rollout status
 - any residual risk or follow-up needed
