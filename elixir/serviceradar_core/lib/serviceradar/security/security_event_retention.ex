@@ -6,11 +6,17 @@ defmodule ServiceRadar.Security.SecurityEvent.Retention do
 
   alias ServiceRadar.Security.SecurityEvent
 
-  @spec run(DateTime.t()) :: {:ok, map()}
-  def run(%DateTime{} = cutoff) do
+  @spec run(DateTime.t(), keyword()) :: {:ok, map()}
+  def run(%DateTime{} = cutoff, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+
     SecurityEvent
     |> Ash.Query.filter(expr(occurred_at < ^cutoff))
-    |> Ash.bulk_destroy!(:destroy, %{}, return_records?: false)
+    |> Ash.bulk_destroy!(:destroy, %{},
+      actor: actor,
+      return_records?: false,
+      return_errors?: true
+    )
 
     {:ok, %{deleted_at: DateTime.utc_now(), cutoff: cutoff}}
   end

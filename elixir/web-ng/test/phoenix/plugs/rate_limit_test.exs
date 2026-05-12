@@ -72,7 +72,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       opts = RateLimit.init(bucket: :plug_test_xff, limit: 1, window_seconds: 60)
 
       first =
-        build_conn(:remote_ip, {10, 0, 0, 1})
+        :remote_ip
+        |> build_conn({10, 0, 0, 1})
         |> put_req_header("x-forwarded-for", "203.0.113.10, 10.0.0.1")
         |> RateLimit.call(opts)
 
@@ -81,7 +82,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       # A request from the SAME upstream IP (`x-forwarded-for`) should now
       # be denied even though the remote_ip differs.
       second =
-        build_conn(:remote_ip, {10, 0, 0, 99})
+        :remote_ip
+        |> build_conn({10, 0, 0, 99})
         |> put_req_header("x-forwarded-for", "203.0.113.10, 10.0.0.99")
         |> RateLimit.call(opts)
 
@@ -98,11 +100,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
         )
 
       alice =
-        build_conn(:remote_ip, {198, 51, 100, 5})
+        :remote_ip
+        |> build_conn({198, 51, 100, 5})
         |> assign(:current_user, %{id: "alice"})
 
       bob =
-        build_conn(:remote_ip, {198, 51, 100, 5})
+        :remote_ip
+        |> build_conn({198, 51, 100, 5})
         |> assign(:current_user, %{id: "bob"})
 
       refute RateLimit.call(alice, opts).halted
@@ -129,9 +133,199 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
     end
   end
 
+  describe "response_mode: :html" do
+    test "halts with a 303 redirect when over the limit" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_html,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :html,
+          html_redirect_to: "/auth/local"
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {198, 51, 100, 50}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {198, 51, 100, 50}), opts)
+
+      assert denied.halted
+      assert denied.status == 303
+      assert get_resp_header(denied, "location") == ["/auth/local"]
+      assert get_resp_header(denied, "retry-after") != []
+    end
+
+    test "renders {retry_after} in the configured flash template" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_html_flash,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :html,
+          html_redirect_to: "/auth/local",
+          html_flash_template: "Hold up — wait {retry_after}s."
+        )
+
+      _ = RateLimit.call(build_conn_with_flash({203, 0, 113, 90}), opts)
+      denied = RateLimit.call(build_conn_with_flash({203, 0, 113, 90}), opts)
+
+      assert denied.halted
+      flash = Phoenix.Flash.get(denied.assigns.flash, :error)
+      assert flash =~ ~r/Hold up — wait \d+s\./
+    end
+
+    test "redirect target may be a 0-arity function" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_html_fun,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :html,
+          html_redirect_to: fn -> "/auth/sign-in" end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {10, 10, 10, 10}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {10, 10, 10, 10}), opts)
+
+      assert denied.status == 303
+      assert get_resp_header(denied, "location") == ["/auth/sign-in"]
+    end
+  end
+
+  describe "response_mode: :auto" do
+    test "JSON 429 when accept does not prefer html" do
+      opts =
+        RateLimit.init(bucket: :plug_test_auto_json, limit: 1, window_seconds: 60)
+
+      _ = RateLimit.call(build_conn(:remote_ip, {192, 0, 2, 11}), opts)
+
+      denied =
+        :remote_ip
+        |> build_conn({192, 0, 2, 11})
+        |> put_req_header("accept", "application/json")
+        |> RateLimit.call(opts)
+
+      assert denied.status == 429
+      assert denied.resp_body =~ "rate_limited"
+    end
+
+    test "HTML 303 when accept prefers text/html" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_auto_html,
+          limit: 1,
+          window_seconds: 60,
+          html_redirect_to: "/users/log-in"
+        )
+
+      _ =
+        :remote_ip
+        |> build_conn({192, 0, 2, 22})
+        |> put_req_header("accept", "text/html,application/xhtml+xml")
+        |> RateLimit.call(opts)
+
+      denied =
+        :remote_ip
+        |> build_conn({192, 0, 2, 22})
+        |> put_req_header("accept", "text/html,application/xhtml+xml")
+        |> RateLimit.call(opts)
+
+      assert denied.status == 303
+      assert get_resp_header(denied, "location") == ["/users/log-in"]
+    end
+  end
+
+  describe "init/1 validation" do
+    test "rejects unknown response_mode" do
+      assert_raise ArgumentError, ~r/:response_mode must be/, fn ->
+        RateLimit.init(bucket: :anything, response_mode: :wat)
+      end
+    end
+
+    test "rejects a non-function json_body_builder" do
+      assert_raise ArgumentError, ~r/:json_body_builder must be/, fn ->
+        RateLimit.init(bucket: :anything, json_body_builder: "not a fn")
+      end
+    end
+  end
+
+  describe "json_body_builder" do
+    test "supplied body is used verbatim on denial" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_builder,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :json,
+          json_body_builder: fn ra ->
+            ~s({"code":429,"retry":#{ra},"err":"rl"})
+          end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 1, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 1, 1}), opts)
+
+      assert denied.status == 429
+      assert denied.resp_body =~ ~r/^\{"code":429,"retry":\d+,"err":"rl"\}$/
+    end
+
+    test "unset builder keeps the default body" do
+      opts =
+        RateLimit.init(bucket: :plug_test_no_builder, limit: 1, window_seconds: 60)
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 2, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 2, 1}), opts)
+
+      assert denied.resp_body =~ ~r/"error":"rate_limited"/
+      assert denied.resp_body =~ ~r/"retry_after":\d+/
+    end
+
+    test "HTML mode ignores the builder" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_html_ignores_builder,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :html,
+          html_redirect_to: "/users/log-in",
+          json_body_builder: fn _ -> ~s({"never":"used"}) end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 3, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 3, 1}), opts)
+
+      assert denied.status == 303
+      refute denied.resp_body =~ "never"
+    end
+
+    @tag :capture_log
+    test "builder that raises falls back to the default body" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_builder_raises,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :json,
+          json_body_builder: fn _ -> raise "boom" end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 4, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 4, 1}), opts)
+
+      assert denied.status == 429
+      assert denied.resp_body =~ ~r/"error":"rate_limited"/
+    end
+  end
+
   ## Helpers
 
   defp build_conn(:remote_ip, remote_ip) do
     %{Plug.Test.conn(:post, "/test") | remote_ip: remote_ip}
+  end
+
+  # Sets up the same `:phoenix_flash` private key Phoenix's `fetch_flash`
+  # plug would install, so `Phoenix.Controller.put_flash/3` works.
+  defp build_conn_with_flash(remote_ip) do
+    %{Plug.Test.conn(:post, "/test") | remote_ip: remote_ip}
+    |> Phoenix.ConnTest.init_test_session(%{})
+    |> Phoenix.Controller.fetch_flash([])
   end
 end

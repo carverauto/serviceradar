@@ -27,10 +27,10 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
@@ -40,35 +40,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   require Logger
 
   plug :fetch_session
-  plug :check_rate_limit when action == :consume
 
-  # Rate limit: 20 attempts per minute per IP for ACS callbacks
-  @callback_rate_limit 20
-  @callback_rate_window 60
-
-  defp check_rate_limit(conn, _opts) do
-    client_ip = get_client_ip(conn)
-
-    case RateLimiter.check_rate_limit_and_record("saml_consume", client_ip,
-           limit: @callback_rate_limit,
-           window_seconds: @callback_rate_window
-         ) do
-      :ok ->
-        conn
-
-      {:error, retry_after} ->
-        Logger.warning("SAML ACS rate limited for IP: #{client_ip}")
-
-        conn
-        |> put_resp_header("retry-after", to_string(retry_after))
-        |> put_flash(
-          :error,
-          "Too many authentication attempts. Please wait #{retry_after} seconds."
-        )
-        |> redirect(to: ~p"/users/log-in")
-        |> halt()
-    end
-  end
+  # Rate limiting for `consume` happens at the
+  # `:rate_limit_auth_saml` pipeline (router.ex).
 
   defp get_client_ip(conn) do
     ClientIP.get(conn)
@@ -696,11 +670,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       {:error, :unsafe_account_linking} ->
         Logger.warning("SAML authentication rejected implicit email-based account linking")
-
-        Hooks.on_auth_failed(:unsafe_account_linking, %{
-          method: :saml,
-          ip: get_client_ip(conn)
-        })
+        record_validated_failure(conn, user_info, :unsafe_account_linking)
 
         conn
         |> put_flash(
@@ -711,6 +681,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       {:error, reason} ->
         Logger.error("Failed to provision SAML user: #{inspect(reason)}")
+        record_validated_failure(conn, user_info, reason)
 
         Hooks.on_auth_failed(:user_provisioning_failed, %{
           method: :saml,
@@ -721,6 +692,30 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         conn
         |> put_flash(:error, "Failed to complete authentication.")
         |> redirect(to: ~p"/users/log-in")
+    end
+  end
+
+  # The assertion has already been signature/audience-validated by
+  # SAMLAssertionValidator; failures from here represent a validated
+  # identity that we couldn't map to a local user. Feed those into
+  # the lockout trigger like a failed password.
+  defp record_validated_failure(conn, user_info, reason) do
+    if reason == :unsafe_account_linking do
+      Hooks.on_auth_failed(:unsafe_account_linking, %{
+        method: :saml,
+        ip: get_client_ip(conn)
+      })
+    end
+
+    email = Map.get(user_info || %{}, :email)
+
+    if is_binary(email) and email != "" do
+      Lockouts.record_failed_login(email, %{
+        ip: get_client_ip(conn),
+        route: conn.request_path,
+        method: "saml",
+        reason: to_string(reason)
+      })
     end
   end
 

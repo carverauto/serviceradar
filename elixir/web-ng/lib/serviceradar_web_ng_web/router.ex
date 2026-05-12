@@ -8,6 +8,9 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
+  alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
+  alias ServiceRadarWebNGWeb.Plugs.RateLimit
+  alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
 
   @frame_src if Mix.env() == :dev, do: "'self'", else: "'none'"
   @csp "default-src 'self'; " <>
@@ -43,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
     # Passive proxy mode: allow an upstream gateway to authenticate users by
     # injecting a JWT on each request. This plug is a no-op unless
     # auth_settings.mode == passive_proxy.
@@ -58,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_session)
     plug(:fetch_live_flash)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -67,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api do
     plug(:accepts, ["json"])
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
   end
 
   pipeline :api_docs_ui do
@@ -77,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @api_docs_csp})
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -85,7 +88,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api_auth do
     plug(:accepts, ["json"])
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
     plug(:protect_from_forgery)
@@ -97,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API authentication for CLI/external tools (API key or bearer token)
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
     plug(ServiceRadarWebNGWeb.Plugs.ApiAuth)
   end
 
@@ -116,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug(:accepts, ["json"])
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
   end
 
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
@@ -139,31 +142,91 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Wiring onto specific routes happens alongside the per-controller
   # migration that removes inline RateLimiter checks (rollout step).
   pipeline :rate_limit_auth_local do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_local, subject: :ip)
+    plug(RateLimit,
+      bucket: :auth_local,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
+
+    plug(LockoutCheck,
+      actor_id_param: "email",
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
+  end
+
+  pipeline :rate_limit_password_reset do
+    plug(RateLimit,
+      bucket: :auth_password_reset,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/auth/password-reset"
+    )
   end
 
   pipeline :rate_limit_auth_oidc do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_oidc_callback, subject: :ip)
+    plug(RateLimit,
+      bucket: :auth_oidc_callback,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
   end
 
   pipeline :rate_limit_auth_saml do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_saml_callback, subject: :ip)
+    plug(RateLimit,
+      bucket: :auth_saml_callback,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
   end
 
   pipeline :rate_limit_cli_device_auth do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :cli_device_auth, subject: :ip)
+    plug(RateLimit,
+      bucket: :cli_device_auth,
+      subject: :ip,
+      response_mode: :json,
+      json_body_builder: &ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies.cli_device_auth/1
+    )
   end
 
   pipeline :rate_limit_dashboard_publish do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :dashboard_publish, subject: :ip_and_actor)
+    plug(RateLimit,
+      bucket: :dashboard_publish,
+      subject: :ip_and_actor,
+      response_mode: :json
+    )
   end
 
   pipeline :rate_limit_plugin_upload do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :plugin_upload, subject: :ip_and_actor)
+    plug(RateLimit, bucket: :plugin_upload, subject: :ip_and_actor)
+  end
+
+  pipeline :rate_limit_oauth_password do
+    plug(RateLimit,
+      bucket: :oauth_password_grant,
+      subject: :ip,
+      response_mode: :json
+    )
+
+    plug(LockoutCheck,
+      actor_id_param: "username",
+      response_mode: :json
+    )
+  end
+
+  pipeline :rate_limit_oauth_client_credentials do
+    plug(RateLimit,
+      bucket: :oauth_client_credentials,
+      subject: :ip,
+      response_mode: :json
+    )
   end
 
   pipeline :rate_limit_api_default do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :api_default, subject: :ip)
+    plug(RateLimit, bucket: :api_default, subject: :ip)
   end
 
   # CSP violation reports are sent by the browser as
@@ -173,7 +236,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # pipeline. The endpoint itself is intentionally unauthenticated.
   pipeline :csp_report do
     plug(:accepts, ["json", "csp-report", "reports+json"])
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -198,7 +261,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # JSON:API pipeline for Ash resources (v2 API)
   pipeline :ash_json_api do
     plug(:accepts, ["json"])
-    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+    plug(SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
     plug(:protect_from_forgery)
@@ -496,7 +559,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # browser scope below.
 
   scope "/api/v1/cli/auth", ServiceRadarWebNGWeb do
-    pipe_through(:api_token_auth)
+    pipe_through([:api_token_auth, :rate_limit_cli_device_auth])
 
     post("/device", CliAuthController, :device)
     post("/token", CliAuthController, :token)
@@ -515,37 +578,59 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   ## Authentication routes
-  # Password login, logout, and password reset
+  # Password login, logout, and password reset. Credential-bearing
+  # POSTs are split into their own sub-scopes so they get the
+  # appropriate rate-limit + lockout pipelines layered on top of
+  # `:browser`. The form-render GETs and sign-out / registration
+  # routes stay in the unmetered `:browser` scope.
 
   scope "/auth", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
-    # Password login
-    post("/sign-in", AuthController, :create)
-
     # Sign out
     delete("/sign-out", AuthController, :delete)
 
-    # Password reset
+    # Password reset (form renders, no credential check)
     get("/password-reset", AuthController, :new_reset_request)
-    post("/password-reset", AuthController, :request_reset)
     get("/password-reset/:token", AuthController, :show_reset_form)
-    put("/password-reset/:token", AuthController, :reset_password)
 
     # Registration (if enabled)
     post("/register", AuthController, :register)
 
-    # OIDC SSO
+    # SSO initiation + non-callback metadata
     get("/oidc", OIDCController, :request)
-    get("/oidc/callback", OIDCController, :callback)
-
-    # Local admin backdoor (for use when proxy/SSO auth is primary)
-    post("/local/sign-in", AuthController, :local_sign_in)
-
-    # SAML SSO
     get("/saml", SAMLController, :request)
-    post("/saml/consume", SAMLController, :consume)
     get("/saml/metadata", SAMLController, :metadata)
+  end
+
+  # Local password sign-in — rate limited + lockout-gated.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_local])
+
+    post("/sign-in", AuthController, :create)
+    post("/local/sign-in", AuthController, :local_sign_in)
+  end
+
+  # Password reset submissions — rate limited, no lockout check.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_password_reset])
+
+    post("/password-reset", AuthController, :request_reset)
+    put("/password-reset/:token", AuthController, :reset_password)
+  end
+
+  # OIDC callback — rate limited.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_oidc])
+
+    get("/oidc/callback", OIDCController, :callback)
+  end
+
+  # SAML callback — rate limited.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_saml])
+
+    post("/saml/consume", SAMLController, :consume)
   end
 
   ## Authenticated routes
@@ -624,6 +709,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       live("/settings/audit/events", Settings.AuditLive.Events, :index)
       live("/settings/audit/lockouts", Settings.AuditLive.Lockouts, :index)
+      live("/settings/audit/history", Settings.AuditLive.History, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users

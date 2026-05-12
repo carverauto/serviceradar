@@ -572,4 +572,45 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       &Map.get(&1, :show, true)
     )
   end
+
+  # Audit section sub-navigation (Events / Lockouts / History)
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
+
+  def audit_nav(assigns) do
+    assigns = assign(assigns, :tabs, audit_tabs(assigns.current_path, assigns[:current_scope]))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def audit_tabs(current_path, current_scope \\ nil) do
+    path = current_path || ""
+    show = RBAC.can?(current_scope, "settings.audit.view")
+
+    [
+      %{
+        label: "Events",
+        navigate: ~p"/settings/audit/events",
+        active: String.starts_with?(path, "/settings/audit/events"),
+        show: show
+      },
+      %{
+        label: "Lockouts",
+        navigate: ~p"/settings/audit/lockouts",
+        active: String.starts_with?(path, "/settings/audit/lockouts"),
+        show: show
+      },
+      %{
+        label: "History",
+        navigate: ~p"/settings/audit/history",
+        active: String.starts_with?(path, "/settings/audit/history"),
+        show: show
+      }
+    ]
+  end
 end

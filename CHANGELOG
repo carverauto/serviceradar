@@ -1,3 +1,52 @@
+# ServiceRadar v1.2.43
+
+Armis credential encryption hotfix and web-ng release formatting cleanup.
+
+## Whats New
+
+**1.2.43**
+- Fixed Armis integration credential writes so create/update actions use AshCloak encryption directly instead of attempting to write the generated plaintext attribute, resolving the production `Ash.Error.Changes.NoSuchAttribute` failure for `credentials_encrypted`.
+- Re-applied web-ng formatter output required by the Elixir precommit/Credo checks after the v1.2.42 release.
+
+# ServiceRadar v1.2.42
+
+Armis integration credential delivery fix, audit history visibility, Palisade trust-boundary extraction, and demo release automation updates.
+
+## Whats New
+
+**1.2.42**
+- Fixed Armis integration source create/update handling in web-ng so API key and API secret fields submitted by the settings UI are persisted into encrypted IntegrationSource credentials and included in agent config generation.
+- Added regression coverage for Armis credential persistence through the rendered integrations LiveView create and edit forms.
+- Added Settings -> Audit -> History with cross-resource AshPaperTrail timeline support, including backend audit history querying and settings navigation wiring.
+- Extracted Palisade into a standalone Elixir package for shared outbound URL/network trust-boundary policy enforcement and added a Forgejo publish workflow.
+- Migrated dashboard package publishing and CLI device-auth flows off the legacy Auth.RateLimiter shim and onto explicit plugs/security pipelines.
+- Updated demo release automation to use semver-aware ArgoCD Image Updater behavior and documented the formal release/demo-roll workflow.
+
+# ServiceRadar v1.2.41
+
+Release packaging fixes for Elixir Ash domain, web-ng asset lockfile, and web-ng session configuration.
+
+## Whats New
+
+**1.2.41**
+- Fixed Elixir application-level Ash domain configuration so web-ng, core-elx, agent-gateway, and tests register the Credentials, Ansible automation, and Security domains consistently during release builds.
+- Fixed web-ng production session salt defaults so release packaging no longer depends on CI-only session salt environment variables; operators can still override salts at release build time when intentionally rotating active sessions.
+- Refreshed the web-ng Bun asset lockfile so release packaging can use the deterministic frozen install path instead of falling back to non-frozen dependency resolution.
+- Re-cut the release after v1.2.40 package publishing failed during the web-ng release target.
+
+# ServiceRadar v1.2.40
+
+Platform security hardening, SecurityEvent retention, and Ansible documentation follow-up.
+
+## Whats New
+
+**1.2.40**
+- Added platform security hardening across core and web-ng, including cluster-aware rate limiting, upload guards, security headers, CSP report handling, webhook signature verification, authentication lockouts, audit-facing settings, and hardened session cookie configuration.
+- Added SecurityEvent recording and retention support so security-relevant events can be captured without blocking request paths and pruned by a supervised Oban worker.
+- Wired password-grant and web authentication flows through lockout checks, with fixes for lockout trigger behavior and SecurityEvent test coverage after webhook scope cleanup.
+- Landed the Ansible integration documentation and README entry on `staging`, covering operator setup and expected AWX/Ansible workflows alongside the already-merged integration stack.
+- Archived the completed platform security OpenSpec work after the implementation landed.
+
 # ServiceRadar v1.2.39
 
 MTR ASN enrichment relocation, Proxmox credential/plugin packaging fixes, Ansible settings shell restoration, and AWX plugin OCI publishing follow-up.

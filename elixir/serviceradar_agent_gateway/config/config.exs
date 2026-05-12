@@ -31,6 +31,9 @@ config :serviceradar_core,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
+    ServiceRadar.Credentials,
+    ServiceRadar.Automation.Ansible,
+    ServiceRadar.Security,
     # Import environment specific config (if present)
     ServiceRadar.Spatial
   ]

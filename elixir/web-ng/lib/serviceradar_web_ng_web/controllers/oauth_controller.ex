@@ -56,18 +56,21 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Security.Lockouts
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Logger
 
   # Default token TTL: 1 hour
   @default_ttl_seconds 3600
-  @password_grant_rate_limit 10
-  @password_grant_window 60
-  @client_credentials_rate_limit 20
-  @client_credentials_window 60
+  # Per-grant rate limits live in
+  # `config :serviceradar_core, ServiceRadar.Security.RateLimiter`
+  # as the `:oauth_password_grant` and `:oauth_client_credentials`
+  # buckets. The OAuth `/token` endpoint is multiplexed by
+  # `grant_type`, so the rate-limit check stays inline here rather
+  # than at the pipeline level.
 
   @doc """
   OAuth2 token endpoint.
@@ -99,67 +102,83 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     username = params["username"]
     password = params["password"]
 
-    if is_nil(username) or is_nil(password) do
-      error_response(conn, 400, "invalid_request", "Missing username or password")
-    else
-      client_ip = get_client_ip(conn)
+    cond do
+      is_nil(username) or is_nil(password) ->
+        error_response(conn, 400, "invalid_request", "Missing username or password")
 
-      case RateLimiter.check_rate_limit_and_record("oauth_password_grant", client_ip,
-             limit: @password_grant_rate_limit,
-             window_seconds: @password_grant_window
-           ) do
-        {:error, retry_after} ->
-          rate_limited_response(conn, retry_after)
+      Lockouts.active_lockout(username) ->
+        Logger.warning("OAuth password grant against locked account: #{username}")
+        error_response(conn, 423, "account_locked", "Account temporarily locked")
 
-        :ok ->
-          actor = SystemActor.system(:oauth_token)
-          scopes = parse_scopes(params["scope"] || "read write")
-          scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
-          extra_claims = %{"scope" => Enum.join(scopes, " ")}
+      true ->
+        do_handle_password(conn, params, username, password)
+    end
+  end
 
-          with {:ok, user} <-
-                 User.authenticate(username, password, actor: actor),
-               {:ok, token, _full_claims} <-
-                 Guardian.create_api_token(user,
-                   scopes: scopes_atoms,
-                   claims: extra_claims,
-                   ttl: {@default_ttl_seconds, :second}
-                 ) do
-            conn
-            |> put_resp_content_type("application/json")
-            |> put_resp_header("cache-control", "no-store")
-            |> put_resp_header("pragma", "no-cache")
-            |> send_resp(
-              200,
-              Jason.encode!(%{
-                access_token: token,
-                token_type: "Bearer",
-                expires_in: @default_ttl_seconds,
-                scope: Enum.join(scopes, " ")
-              })
-            )
-          else
-            {:error, reason} when reason in [:invalid_credentials, :authentication_failed] ->
-              error_response(conn, 401, "invalid_grant", "Invalid username or password")
+  defp do_handle_password(conn, params, username, password) do
+    client_ip = get_client_ip(conn)
 
-            {:error, %Ash.Error.Invalid{}} ->
-              error_response(conn, 401, "invalid_grant", "Invalid username or password")
+    case RateLimiter.check_and_record(:oauth_password_grant, client_ip) do
+      {:error, retry_after} ->
+        rate_limited_response(conn, retry_after)
 
-            {:error, reason} ->
-              Logger.error("Failed to create password grant token: #{inspect(reason)}")
-              error_response(conn, 500, "server_error", "Failed to generate access token")
-          end
-      end
+      :ok ->
+        actor = SystemActor.system(:oauth_token)
+        scopes = parse_scopes(params["scope"] || "read write")
+        scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
+        extra_claims = %{"scope" => Enum.join(scopes, " ")}
+
+        with {:ok, user} <-
+               User.authenticate(username, password, actor: actor),
+             {:ok, token, _full_claims} <-
+               Guardian.create_api_token(user,
+                 scopes: scopes_atoms,
+                 claims: extra_claims,
+                 ttl: {@default_ttl_seconds, :second}
+               ) do
+          conn
+          |> put_resp_content_type("application/json")
+          |> put_resp_header("cache-control", "no-store")
+          |> put_resp_header("pragma", "no-cache")
+          |> send_resp(
+            200,
+            Jason.encode!(%{
+              access_token: token,
+              token_type: "Bearer",
+              expires_in: @default_ttl_seconds,
+              scope: Enum.join(scopes, " ")
+            })
+          )
+        else
+          {:error, reason} when reason in [:invalid_credentials, :authentication_failed] ->
+            Lockouts.record_failed_login(username, %{
+              ip: client_ip,
+              route: conn.request_path,
+              method: "oauth_password_grant"
+            })
+
+            error_response(conn, 401, "invalid_grant", "Invalid username or password")
+
+          {:error, %Ash.Error.Invalid{}} ->
+            Lockouts.record_failed_login(username, %{
+              ip: client_ip,
+              route: conn.request_path,
+              method: "oauth_password_grant"
+            })
+
+            error_response(conn, 401, "invalid_grant", "Invalid username or password")
+
+          {:error, reason} ->
+            Logger.error("Failed to create password grant token: #{inspect(reason)}")
+            error_response(conn, 500, "server_error", "Failed to generate access token")
+        end
     end
   end
 
   defp handle_client_credentials(conn, params) do
     client_ip = get_client_ip(conn)
 
-    case RateLimiter.check_rate_limit_and_record("oauth_client_credentials", client_ip,
-           limit: @client_credentials_rate_limit,
-           window_seconds: @client_credentials_window
-         ) do
+    case RateLimiter.check_and_record(:oauth_client_credentials, client_ip) do
       {:error, retry_after} ->
         rate_limited_response(conn, retry_after)
 

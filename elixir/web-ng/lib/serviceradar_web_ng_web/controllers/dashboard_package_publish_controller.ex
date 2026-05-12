@@ -30,11 +30,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Audit.DashboardPublishEvents
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Logger
@@ -44,10 +44,13 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishController do
   @allowed_renderer_types ~w(application/javascript text/javascript application/wasm)
   @allowed_manifest_types ~w(application/json text/json)
 
-  @publish_rate_limit 10
-  @publish_rate_window 60
-  @admin_rate_limit 30
-  @admin_rate_window 60
+  # Per-grant rate limits live in
+  # `config :serviceradar_core, ServiceRadar.Security.RateLimiter`
+  # as the `:dashboard_publish` (create) and
+  # `:dashboard_publish_admin` (lifecycle) buckets. This endpoint
+  # is multiplexed across two action shapes with different
+  # acceptable rates, so the limit check stays inline rather than
+  # at a single pipeline level.
 
   @doc """
   POST /api/v1/dashboard-packages — publish a dashboard package version.
@@ -213,23 +216,15 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishController do
   end
 
   defp enforce_publish_rate_limit(conn) do
-    enforce_rate_limit(conn, "dashboard_publish_create",
-      limit: @publish_rate_limit,
-      window_seconds: @publish_rate_window
-    )
+    enforce_rate_limit(conn, :dashboard_publish)
   end
 
   defp enforce_admin_rate_limit(conn) do
-    enforce_rate_limit(conn, "dashboard_publish_admin",
-      limit: @admin_rate_limit,
-      window_seconds: @admin_rate_window
-    )
+    enforce_rate_limit(conn, :dashboard_publish_admin)
   end
 
-  defp enforce_rate_limit(conn, action, opts) do
-    key = rate_limit_key(conn)
-
-    case RateLimiter.check_rate_limit_and_record(action, key, opts) do
+  defp enforce_rate_limit(conn, bucket) do
+    case RateLimiter.check_and_record(bucket, rate_limit_key(conn)) do
       :ok -> :ok
       {:error, retry_after} -> {:error, :rate_limited, retry_after}
     end

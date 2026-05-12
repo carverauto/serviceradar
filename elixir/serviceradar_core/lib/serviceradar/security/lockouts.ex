@@ -107,7 +107,12 @@ defmodule ServiceRadar.Security.Lockouts do
     window_seconds = Keyword.get(config, :window_seconds, @default_window_seconds)
     lock_seconds = Keyword.get(config, :lock_seconds, @default_lock_seconds)
 
-    if recent_failed_login_count(actor_id, window_seconds) >= threshold do
+    # The Events.record/1 call above is fire-and-forget — the
+    # SecurityEvent we just recorded isn't visible to the query below
+    # yet. Counting prior persisted events and adding 1 for the
+    # current attempt gives the correct trip threshold without
+    # waiting on the async recorder.
+    if recent_failed_login_count(actor_id, window_seconds) + 1 >= threshold do
       lock_if_not_already_locked(actor_id, lock_seconds, metadata)
     else
       :ok

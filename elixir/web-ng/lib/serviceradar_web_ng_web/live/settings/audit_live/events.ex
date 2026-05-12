@@ -11,11 +11,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ash.Expr
-  require Ash.Query
 
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Security.SecurityEvent
   alias ServiceRadarWebNGWeb.SettingsComponents
+
+  require Ash.Query
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
@@ -46,11 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   end
 
   @impl true
-  def handle_event(
-        "filter",
-        %{"kind" => kind, "severity" => severity},
-        socket
-      ) do
+  def handle_event("filter", %{"kind" => kind, "severity" => severity}, socket) do
     {:noreply,
      socket
      |> assign(:kind_filter, blank_to_nil(kind))
@@ -69,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   @impl true
   def handle_info({:security_event, event}, socket) do
     if event_matches?(event, socket.assigns) do
-      events = [event | socket.assigns.events] |> Enum.take(@page_size)
+      events = Enum.take([event | socket.assigns.events], @page_size)
       {:noreply, assign(socket, :events, events)}
     else
       {:noreply, socket}

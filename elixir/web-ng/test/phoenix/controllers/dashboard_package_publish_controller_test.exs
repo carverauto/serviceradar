@@ -21,11 +21,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
 
   @moduletag :integration
 
@@ -50,8 +50,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
     )
 
     on_exit(fn ->
-      RateLimiter.clear_rate_limit("dashboard_publish_create", "*")
-      RateLimiter.clear_rate_limit("dashboard_publish_admin", "*")
+      RateLimiter.clear(:dashboard_publish, "*")
+      RateLimiter.clear(:dashboard_publish_admin, "*")
       File.rm_rf(tmp)
 
       if original_storage do
@@ -347,7 +347,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
 
       # Seed the per-jti window with the limit so the next request trips it.
       Enum.each(1..10, fn _ ->
-        RateLimiter.record_attempt("dashboard_publish_create", "jti:#{jti}")
+        RateLimiter.record(:dashboard_publish, "jti:#{jti}")
       end)
 
       conn =
@@ -360,7 +360,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       assert is_integer(body["retry_after"])
       assert ["" <> _] = Plug.Conn.get_resp_header(conn, "retry-after")
 
-      RateLimiter.clear_rate_limit("dashboard_publish_create", "jti:#{jti}")
+      RateLimiter.clear(:dashboard_publish, "jti:#{jti}")
     end
   end
 

@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
     require_magic = Keyword.get(opts, :require_magic_match, true)
 
     Enum.each(allowed, fn kind ->
-      unless Map.has_key?(@magic, kind) do
+      if !Map.has_key?(@magic, kind) do
         raise ArgumentError,
               "UploadGuard: unknown kind #{inspect(kind)}, expected one of #{inspect(kinds())}"
       end
@@ -105,8 +105,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
           end
 
         _other ->
-          {:halt,
-           halt_with_error(conn, 400, ~s({"error":"invalid_upload","param":"#{param}"}))}
+          {:halt, halt_with_error(conn, 400, ~s({"error":"invalid_upload","param":"#{param}"}))}
       end
     end)
   end
@@ -137,8 +136,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
         {:ok, size}
 
       {:ok, %File.Stat{size: size}} ->
-        {:error, 413,
-         ~s({"error":"upload_too_large","byte_size":#{size},"max_bytes":#{max_bytes}})}
+        {:error, 413, ~s({"error":"upload_too_large","byte_size":#{size},"max_bytes":#{max_bytes}})}
 
       {:error, reason} ->
         Logger.warning("UploadGuard: could not stat #{inspect(path)}: #{inspect(reason)}")
@@ -153,14 +151,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
       detected =
         Enum.find_value(@magic, fn {kind, prefixes} ->
           if kind in allowed and Enum.any?(prefixes, &String.starts_with?(header, &1)),
-            do: kind,
-            else: nil
+            do: kind
         end)
 
       case detected do
         nil ->
-          {:error, 415,
-           ~s({"error":"unsupported_media_type","allowed_kinds":#{inspect(allowed)}})}
+          {:error, 415, ~s({"error":"unsupported_media_type","allowed_kinds":#{inspect(allowed)}})}
 
         kind ->
           {:ok, kind}
@@ -170,8 +166,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
 
   defp read_header(path) do
     case File.open(path, [:read, :binary], fn io -> IO.binread(io, 16) end) do
-      {:ok, header} when is_binary(header) -> {:ok, header}
-      {:ok, _eof} -> {:error, 415, ~s({"error":"empty_upload"})}
+      {:ok, header} when is_binary(header) ->
+        {:ok, header}
+
+      {:ok, _eof} ->
+        {:error, 415, ~s({"error":"empty_upload"})}
+
       {:error, reason} ->
         Logger.warning("UploadGuard: could not read #{inspect(path)}: #{inspect(reason)}")
         {:error, 400, ~s({"error":"invalid_upload"})}
@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
   defp generate_storage_filename(sanitized) do
     ext = Path.extname(sanitized)
     millis = System.system_time(:millisecond)
-    random = :crypto.strong_rand_bytes(12) |> Base.url_encode64(padding: false)
+    random = 12 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
     "#{millis}-#{random}#{ext}"
   end
 

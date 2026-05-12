@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadar.Security.RateLimiter
 
   require Logger
 
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
   end
 
   defp check_rate_limit(ip) do
-    case RateLimiter.check_rate_limit("local_auth", ip, limit: 5, window_seconds: 60) do
+    case RateLimiter.check(:auth_local, ip, limit: 5, window_seconds: 60) do
       :ok -> {false, 0}
       {:error, retry_after} -> {true, retry_after}
     end

@@ -10,10 +10,10 @@ operators need to know to roll it out, monitor it, and tune it.
 
 Land + observe in this order. Each step is independently revertible.
 
-1. **Section 1–2: shared rate limiter + plug + auth shim.** Behavior-
-   neutral — the existing `Auth.RateLimiter` now delegates to the new
-   cluster-aware `ServiceRadar.Security.RateLimiter` with the same
-   per-call opts. Watch for the
+1. **Section 1–2: shared rate limiter + plug.** Cluster-aware
+   `ServiceRadar.Security.RateLimiter` is the only limiter in the
+   tree; the transitional `ServiceRadarWebNGWeb.Auth.RateLimiter`
+   shim that delegated to it has been removed. Watch for the
    `[:serviceradar, :security, :events, :dropped]` telemetry counter
    to confirm the event recorder is happy.
 2. **Section 3: security headers in CSP report-only mode.** Already
@@ -34,15 +34,24 @@ Land + observe in this order. Each step is independently revertible.
    with `settings.audit.view`.
 6. **Section 10: session cookie hardening.** **One-time forced
    sign-out at the deploy.** Communicate ahead of time.
-7. **Section 11 (this step): controller migration.** Per controller,
-   in this order:
-   - Move the inline `Auth.RateLimiter.check_rate_limit_and_record`
-     call to the appropriate `:rate_limit_*` pipeline in `router.ex`,
-     remove the inline call. Different bucket key → no double-count
-     during the transition.
-   - Add a `record_failed_login/2` call after credential mismatch.
-   - For binary upload routes: pipe the `UploadGuard` plug, drop the
-     inline content-type/size checks.
+7. **Controller migration to pipelines** (done for the in-scope
+   credential paths in `migrate-controllers-to-security-pipelines`
+   and finished in `migrate-dashboard-cli-to-pipelines`). The HTML
+   auth routes (`POST /auth/sign-in`, `POST /auth/local/sign-in`,
+   password reset), the OIDC and SAML callbacks, the OAuth `/token`
+   inline calls, the CLI device-auth `POST /api/v1/cli/auth/device`
+   endpoint, and the dashboard publish routes all route through the
+   central `ServiceRadar.Security.RateLimiter`; the HTML pipelines
+   also include `LockoutCheck` and emit a flash + 303 redirect on
+   denial. OIDC and SAML feed `Lockouts.record_failed_login/2` on
+   validated-identity failures so cross-IP failed-SSO attempts trip
+   the same lockout threshold as local password failures. The CLI
+   `POST /api/v1/cli/auth/token` endpoint still calls the limiter
+   inline because it must drive the RFC 8628 `slow_down`
+   side-effect on the device row; that's a protocol requirement,
+   not a shim holdover. The `local_sign_in` LiveView's pre-render
+   display calls `ServiceRadar.Security.RateLimiter.check/3`
+   directly.
 8. **Flip CSP to enforce.** `config :serviceradar_web_ng,
    ServiceRadarWebNGWeb.Plugs.SecurityHeaders, csp_mode: :enforce`
    once report-only has been clean for ≥ 7 days. Keep the report URI
@@ -117,9 +126,6 @@ If a specific route serves third-party content that violates CSP:
 - **Per-IP progressive backoff inside the limiter.** Cross-IP account
   lockout (section 7.4) is in place; the `[1m, 5m, 30m, 24h]`
   escalation inside the sliding-window math is a separate change.
-- **Retention Oban job.** `SecurityEvent.delete_older_than/1` exists;
-  wrapping it in an Oban worker on a schedule (default 90d) is
-  pending.
 - **`mix ash.codegen` workflow rework.** The migration file
   (`20260512040000_add_security_resources.exs`) was hand-written
   with `use Ecto.Migration` to match every other migration in

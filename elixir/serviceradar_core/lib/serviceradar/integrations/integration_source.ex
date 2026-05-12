@@ -120,9 +120,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
             changeset
 
           credentials when is_map(credentials) ->
-            # Serialize to JSON for encrypted storage
-            json = Jason.encode!(credentials)
-            Ash.Changeset.change_attribute(changeset, :credentials_encrypted, json)
+            encrypt_credentials(changeset, credentials)
         end
       end
 
@@ -146,8 +144,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
             changeset
 
           credentials when is_map(credentials) ->
-            json = Jason.encode!(credentials)
-            Ash.Changeset.change_attribute(changeset, :credentials_encrypted, json)
+            encrypt_credentials(changeset, credentials)
         end
       end
 
@@ -656,5 +653,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         field: :agent_id,
         message: "install and register an agent before adding integrations"
       )
+  end
+
+  defp encrypt_credentials(changeset, credentials) do
+    AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
   end
 end

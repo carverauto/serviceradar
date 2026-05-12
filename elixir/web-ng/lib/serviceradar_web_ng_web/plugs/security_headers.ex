@@ -56,8 +56,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
     runtime = Application.get_env(:serviceradar_web_ng, __MODULE__, [])
     opts = Keyword.merge(opts, runtime)
 
-    conn
-    |> register_before_send(&apply_headers(&1, opts))
+    register_before_send(conn, &apply_headers(&1, opts))
   end
 
   defp apply_headers(conn, opts) do
