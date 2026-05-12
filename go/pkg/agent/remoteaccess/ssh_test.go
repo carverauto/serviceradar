@@ -131,6 +131,42 @@ func TestOpenSSHPTYValidatesConfig(t *testing.T) {
 			},
 			want: ErrSSHCertificateRequiresKey,
 		},
+		{
+			name: "invalid target port",
+			cfg: SSHConfig{
+				Target: SSHTarget{Host: "router.example", Port: 70_000},
+				Auth:   SSHAuth{Username: "admin", Password: "secret"},
+			},
+			want: ErrInvalidSSHTargetPort,
+		},
+		{
+			name: "oversized host",
+			cfg: SSHConfig{
+				Target: SSHTarget{Host: strings.Repeat("a", maxSSHTargetHostBytes+1)},
+				Auth:   SSHAuth{Username: "admin", Password: "secret"},
+			},
+			want: ErrInvalidSSHFieldSize,
+		},
+		{
+			name: "oversized terminal type",
+			cfg: SSHConfig{
+				Target:       SSHTarget{Host: "router.example"},
+				Auth:         SSHAuth{Username: "admin", Password: "secret"},
+				TerminalType: strings.Repeat("x", maxSSHTerminalTypeBytes+1),
+			},
+			want: ErrInvalidSSHFieldSize,
+		},
+		{
+			name: "oversized private key",
+			cfg: SSHConfig{
+				Target: SSHTarget{Host: "router.example"},
+				Auth: SSHAuth{
+					Username:   "admin",
+					PrivateKey: strings.Repeat("k", maxSSHPrivateKeyBytes+1),
+				},
+			},
+			want: ErrInvalidSSHFieldSize,
+		},
 	}
 
 	for _, tt := range tests {

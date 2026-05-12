@@ -41,10 +41,20 @@ const (
 	defaultSSHTimeout      = 30 * time.Second
 	maxSSHTimeout          = 5 * time.Minute
 	defaultKnownHostsPath  = "/var/lib/serviceradar/checkers/remote-access-known_hosts"
+
+	maxSSHTargetHostBytes   = 255
+	maxSSHTerminalTypeBytes = 64
+	maxSSHUsernameBytes     = 128
+	maxSSHPrivateKeyBytes   = 65_536
+	maxSSHCertificateBytes  = 65_536
+	maxSSHPasswordBytes     = 4_096
+	maxSSHPassphraseBytes   = 4_096
 )
 
 var (
 	ErrMissingSSHTargetHost            = errors.New("missing SSH target host")
+	ErrInvalidSSHTargetPort            = errors.New("invalid SSH target port")
+	ErrInvalidSSHFieldSize             = errors.New("invalid SSH field size")
 	ErrSSHUsernameRequired             = errors.New("ssh username is required")
 	ErrSSHCredentialRequired           = errors.New("ssh private key or password is required")
 	ErrSSHCertificateRequiresKey       = errors.New("ssh certificate requires matching private key")
@@ -328,8 +338,24 @@ func validateSSHConfig(cfg SSHConfig) error {
 	if strings.TrimSpace(cfg.Target.Host) == "" {
 		return ErrMissingSSHTargetHost
 	}
+	if len(strings.TrimSpace(cfg.Target.Host)) > maxSSHTargetHostBytes {
+		return ErrInvalidSSHFieldSize
+	}
+	if cfg.Target.Port < 0 || cfg.Target.Port > 65_535 {
+		return ErrInvalidSSHTargetPort
+	}
+	if len(strings.TrimSpace(cfg.TerminalType)) > maxSSHTerminalTypeBytes {
+		return ErrInvalidSSHFieldSize
+	}
 	if strings.TrimSpace(cfg.Auth.Username) == "" {
 		return ErrSSHUsernameRequired
+	}
+	if len(strings.TrimSpace(cfg.Auth.Username)) > maxSSHUsernameBytes ||
+		len(strings.TrimSpace(cfg.Auth.PrivateKey)) > maxSSHPrivateKeyBytes ||
+		len(strings.TrimSpace(cfg.Auth.Certificate)) > maxSSHCertificateBytes ||
+		len(cfg.Auth.Password) > maxSSHPasswordBytes ||
+		len(cfg.Auth.Passphrase) > maxSSHPassphraseBytes {
+		return ErrInvalidSSHFieldSize
 	}
 	if strings.TrimSpace(cfg.Auth.Certificate) != "" && strings.TrimSpace(cfg.Auth.PrivateKey) == "" {
 		return ErrSSHCertificateRequiresKey
@@ -348,6 +374,9 @@ func sshTargetAddress(target SSHTarget) (string, int, error) {
 	port := target.Port
 	if port <= 0 {
 		port = 22
+	}
+	if port > 65_535 {
+		return "", 0, ErrInvalidSSHTargetPort
 	}
 	return host, port, nil
 }

@@ -54,6 +54,11 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the agent-side session manager SHALL split the output into bounded data frames before forwarding it to the control stream
 - **AND** the split output SHALL preserve byte order.
 
+#### Scenario: SSH adapter inputs are bounded
+- **WHEN** the SSH adapter decodes an open frame
+- **THEN** it SHALL reject invalid target ports and oversized target, terminal, username, credential, certificate, password, or passphrase fields before dialing
+- **AND** rejected SSH adapter input SHALL NOT invoke the dialer.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 
