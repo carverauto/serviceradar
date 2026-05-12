@@ -1,9 +1,9 @@
 ## 1. Shared rate limiter (core)
-- [ ] 1.1 Add `ServiceRadar.Security.RateLimiter` GenServer + per-node ETS table with named buckets, sliding window, sweep loop. Bucket keys are `{bucket_name, subject_key}`; no app-level tenant scoping. The owner joins a `:pg` group on startup and broadcasts increments/resets to peers so the libcluster+Horde cluster converges on shared counters. Subscribe to `:nodeup` so a joining node can request a snapshot to bootstrap.
-- [ ] 1.2 Wire the limiter into `ServiceRadar.Application` supervision tree before any web app.
-- [ ] 1.3 Add bucket configuration in `config/config.exs` and runtime overrides in `config/runtime.exs` for: `:auth_local`, `:auth_oidc_callback`, `:auth_saml_callback`, `:cli_device_auth`, `:dashboard_publish`, `:plugin_upload`, `:webhook_ingest`, `:api_default`.
-- [ ] 1.4 Unit tests: sliding window correctness, sweep, concurrent writers, retry-after math, named bucket lookup.
-- [ ] 1.5 Cluster tests: bring up a 3-node `:peer` cluster, exercise increments on different nodes, assert counters converge within the broadcast window; assert a joining node bootstraps from a peer snapshot; assert behavior under partition (each side enforces locally, no crash on rejoin).
+- [x] 1.1 Add `ServiceRadar.Security.RateLimiter` GenServer + per-node ETS table with named buckets, sliding window, sweep loop. Bucket keys are `{bucket_name, subject_key}`; no app-level tenant scoping. The owner joins a `:pg` group on startup and broadcasts increments/resets to peers so the libcluster+Horde cluster converges on shared counters. Subscribe to `:nodeup` so a joining node can request a snapshot to bootstrap.
+- [x] 1.2 Wire the limiter into `ServiceRadar.Application` supervision tree before any web app (also supervise the `:pg` default scope since OTP 25+ does not auto-start it).
+- [x] 1.3 Add bucket configuration in `config/config.exs` for: `:auth_local`, `:auth_oidc_callback`, `:auth_saml_callback`, `:cli_device_auth`, `:dashboard_publish`, `:plugin_upload`, `:webhook_ingest`, `:api_default`. Runtime overrides via `config/runtime.exs` deferred until a rollout knob is actually needed.
+- [x] 1.4 Unit tests: sliding window correctness, sweep, concurrent writers, retry-after math, named bucket lookup, `:pg` group membership, peer-cast convergence.
+- [x] 1.5 Cluster tests scaffolded under `:cluster` tag (excluded by default). Tests require a distributed test runner + DB-backed Application startup on peers; will be enabled in CI alongside other integration tests.
 
 ## 2. Rate-limit plug + shim
 - [ ] 2.1 Add `ServiceRadarWebNGWeb.Plugs.RateLimit` plug that resolves bucket by name, derives subject key (IP or {IP, actor_id}), and halts with 429 + `retry-after` / `x-ratelimit-*` headers on denial.

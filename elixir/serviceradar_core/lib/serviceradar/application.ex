@@ -76,6 +76,13 @@ defmodule ServiceRadar.Application do
         # RBAC permission cache (shared ETS, must start after PubSub)
         ServiceRadar.Identity.RBAC.Cache,
 
+        # :pg default scope (OTP 25+ does not auto-start it). Must come
+        # before any process that joins :pg groups (e.g., RateLimiter).
+        %{id: :pg, start: {:pg, :start_link, []}, restart: :permanent, type: :worker},
+
+        # Cluster-aware rate limiter (per-node ETS + :pg broadcast)
+        ServiceRadar.Security.RateLimiter,
+
         # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
         as_lookup_child(),
 

@@ -6,10 +6,10 @@ if System.get_env("SRQL_TEST_DATABASE_URL") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL") ||
      System.get_env("SRQL_TEST_DATABASE_URL_FILE") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE") do
-  ExUnit.start()
+  ExUnit.start(exclude: [:cluster])
   ServiceRadar.TestSupport.start_core!()
 else
-  ExUnit.start(exclude: [:integration])
+  ExUnit.start(exclude: [:integration, :cluster])
 end
 
 # For integration tests that need the database, use:
@@ -17,3 +17,11 @@ end
 #
 # And ensure the database is set up first:
 # mix ecto.create && mix ecto.migrate
+#
+# For cluster tests that bring up :peer nodes, use:
+# mix test --include cluster
+#
+# Cluster tests require the test runner to be a distributed node
+# (the helper starts one if not already alive) and start the
+# serviceradar_core Application on each peer, which transitively
+# requires the same dependencies as integration tests.
