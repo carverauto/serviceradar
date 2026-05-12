@@ -139,15 +139,45 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Wiring onto specific routes happens alongside the per-controller
   # migration that removes inline RateLimiter checks (rollout step).
   pipeline :rate_limit_auth_local do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_local, subject: :ip)
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :auth_local,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
+
+    plug(ServiceRadarWebNGWeb.Plugs.LockoutCheck,
+      actor_id_param: "email",
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
+  end
+
+  pipeline :rate_limit_password_reset do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :auth_password_reset,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/auth/password-reset"
+    )
   end
 
   pipeline :rate_limit_auth_oidc do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_oidc_callback, subject: :ip)
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :auth_oidc_callback,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
   end
 
   pipeline :rate_limit_auth_saml do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_saml_callback, subject: :ip)
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :auth_saml_callback,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
   end
 
   pipeline :rate_limit_cli_device_auth do
@@ -160,6 +190,27 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :rate_limit_plugin_upload do
     plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :plugin_upload, subject: :ip_and_actor)
+  end
+
+  pipeline :rate_limit_oauth_password do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :oauth_password_grant,
+      subject: :ip,
+      response_mode: :json
+    )
+
+    plug(ServiceRadarWebNGWeb.Plugs.LockoutCheck,
+      actor_id_param: "username",
+      response_mode: :json
+    )
+  end
+
+  pipeline :rate_limit_oauth_client_credentials do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit,
+      bucket: :oauth_client_credentials,
+      subject: :ip,
+      response_mode: :json
+    )
   end
 
   pipeline :rate_limit_api_default do

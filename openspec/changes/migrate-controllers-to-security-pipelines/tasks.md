@@ -4,11 +4,8 @@
 - [x] 1.3 Plug tests: `:json` mode returns 429 + JSON; `:html` mode emits 303 + flash with `{retry_after}` interpolation; `:auto` mode sniffs `accept: text/html` correctly; init validation rejects unknown `:response_mode`. Redirect target may also be a 0-arity function.
 
 ## 2. Config + router scaffolding
-- [ ] 2.1 Add three new buckets to `config :serviceradar_core, ServiceRadar.Security.RateLimiter`:
-  - `:auth_password_reset` (limit: 5, window_seconds: 300)
-  - `:oauth_password_grant` (limit: 10, window_seconds: 60)
-  - `:oauth_client_credentials` (limit: 20, window_seconds: 60)
-- [ ] 2.2 Add three new pipelines in `router.ex` (`:rate_limit_password_reset`, `:rate_limit_oauth_password`, `:rate_limit_oauth_client_credentials`). For HTML pipelines set `response_mode: :html` with the right redirect target.
+- [x] 2.1 Added `:auth_password_reset` (5/300s), `:oauth_password_grant` (10/60s), and `:oauth_client_credentials` (20/60s) to `config :serviceradar_core, ServiceRadar.Security.RateLimiter`.
+- [x] 2.2 Added `:rate_limit_password_reset`, `:rate_limit_oauth_password`, and `:rate_limit_oauth_client_credentials` pipelines in `router.ex`. Updated `:rate_limit_auth_local`, `:rate_limit_auth_oidc`, `:rate_limit_auth_saml`, and `:rate_limit_password_reset` to set `response_mode: :auto` with the appropriate `html_redirect_to`. Inlined `LockoutCheck` (actor_id_param `"email"`) into `:rate_limit_auth_local`, and `LockoutCheck` (actor_id_param `"username"`, JSON mode) into `:rate_limit_oauth_password`.
 
 ## 3. auth_controller migration (HTML)
 - [ ] 3.1 Wire `:rate_limit_auth_local` and the `LockoutCheck` plug (`actor_id_param: "email"`) onto `POST /auth/sign-in` and `POST /auth/local` route scopes.
