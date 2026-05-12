@@ -277,6 +277,114 @@ func TestManagerRejectsDuplicateOpen(t *testing.T) {
 	}
 }
 
+func TestManagerRejectsInvalidOpenTerminalSize(t *testing.T) {
+	t.Parallel()
+
+	openerCalled := false
+	manager := NewManager(func(context.Context, Frame) (PTY, error) {
+		openerCalled = true
+		return newFakePTY(), nil
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeOpen,
+		Cols:      MaxTerminalCols + 1,
+		Rows:      40,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrInvalidFrameSize.Error() {
+		t.Fatalf("invalid open size reason = %q", errorFrame.Reason)
+	}
+	if openerCalled {
+		t.Fatal("opener was called for invalid open terminal size")
+	}
+}
+
+func TestManagerRejectsOversizedDataFrameBeforePTYWrite(t *testing.T) {
+	t.Parallel()
+
+	pty := newFakePTY()
+	manager := NewManager(func(context.Context, Frame) (PTY, error) {
+		return pty, nil
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeOpen,
+	}, sender)
+	_ = sender.nextFrame(t, FrameTypeReady)
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeData,
+		Data:      make([]byte, MaxTerminalFrameData+1),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrInvalidFrameSize.Error() {
+		t.Fatalf("oversized data reason = %q", errorFrame.Reason)
+	}
+	closeFrame := sender.nextFrame(t, FrameTypeClose)
+	if closeFrame.Reason != "remote access invalid frame size" {
+		t.Fatalf("close reason = %q", closeFrame.Reason)
+	}
+
+	select {
+	case got := <-pty.writes:
+		t.Fatalf("oversized data reached PTY write: %d bytes", len(got))
+	default:
+	}
+	select {
+	case <-pty.closed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for PTY close after oversized data")
+	}
+}
+
+func TestManagerRejectsInvalidResizeBeforePTYResize(t *testing.T) {
+	t.Parallel()
+
+	pty := newFakePTY()
+	manager := NewManager(func(context.Context, Frame) (PTY, error) {
+		return pty, nil
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeOpen,
+	}, sender)
+	_ = sender.nextFrame(t, FrameTypeReady)
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeResize,
+		Cols:      MaxTerminalCols + 1,
+		Rows:      30,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrInvalidFrameSize.Error() {
+		t.Fatalf("invalid resize reason = %q", errorFrame.Reason)
+	}
+	_ = sender.nextFrame(t, FrameTypeClose)
+
+	select {
+	case got := <-pty.resizes:
+		t.Fatalf("invalid resize reached PTY resize: %v", got)
+	default:
+	}
+}
+
 func TestManagerReportsReadFailure(t *testing.T) {
 	t.Parallel()
 

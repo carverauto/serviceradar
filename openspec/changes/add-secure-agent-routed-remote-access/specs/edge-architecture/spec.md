@@ -44,6 +44,11 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the browser-facing stream SHALL reject frames above the deployment-safe payload size before forwarding to the broker
 - **AND** oversized data frames SHALL fail the session with a sanitized error.
 
+#### Scenario: Agent control frames are independently bounded
+- **WHEN** the selected agent receives remote-access data or resize frames from the control stream
+- **THEN** the agent-side session manager SHALL reject oversized terminal data and invalid terminal dimensions before writing to the target PTY
+- **AND** invalid active-session frames SHALL close the session with a sanitized error frame.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 

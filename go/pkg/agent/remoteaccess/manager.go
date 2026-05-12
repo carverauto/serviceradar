@@ -36,6 +36,10 @@ const (
 	FrameTypeClose     = "close"
 	FrameTypeError     = "error"
 	FrameTypeOutcome   = "outcome"
+
+	MaxTerminalCols      = 500
+	MaxTerminalRows      = 200
+	MaxTerminalFrameData = 65_536
 )
 
 var (
@@ -43,6 +47,7 @@ var (
 	ErrSessionExists      = errors.New("remote access session is already active")
 	ErrSessionNotActive   = errors.New("remote access session is not active")
 	ErrUnsupportedFrame   = errors.New("unsupported remote access frame type")
+	ErrInvalidFrameSize   = errors.New("invalid remote access frame size")
 )
 
 // Frame is the agent-local representation of a remote-access control frame.
@@ -148,6 +153,14 @@ func (m *Manager) HandleFrame(ctx context.Context, frame Frame, sender Sender) {
 		return
 	}
 
+	if err := validateInboundFrame(frame); err != nil {
+		m.sendError(sender, frame.SessionID, err)
+		if frame.FrameType == FrameTypeData || frame.FrameType == FrameTypeResize {
+			m.closeSession(frame.SessionID, "remote access invalid frame size", sender)
+		}
+		return
+	}
+
 	switch frame.FrameType {
 	case FrameTypeOpen:
 		m.open(ctx, frame, sender)
@@ -162,6 +175,35 @@ func (m *Manager) HandleFrame(ctx context.Context, frame Frame, sender Sender) {
 	default:
 		m.sendError(sender, frame.SessionID, ErrUnsupportedFrame)
 	}
+}
+
+func validateInboundFrame(frame Frame) error {
+	switch frame.FrameType {
+	case FrameTypeOpen:
+		if !validOptionalTerminalDimension(frame.Cols, MaxTerminalCols) ||
+			!validOptionalTerminalDimension(frame.Rows, MaxTerminalRows) {
+			return ErrInvalidFrameSize
+		}
+	case FrameTypeData:
+		if len(frame.Data) > MaxTerminalFrameData {
+			return ErrInvalidFrameSize
+		}
+	case FrameTypeResize:
+		if !validTerminalDimension(frame.Cols, MaxTerminalCols) ||
+			!validTerminalDimension(frame.Rows, MaxTerminalRows) {
+			return ErrInvalidFrameSize
+		}
+	}
+
+	return nil
+}
+
+func validOptionalTerminalDimension(value uint32, max uint32) bool {
+	return value == 0 || validTerminalDimension(value, max)
+}
+
+func validTerminalDimension(value uint32, max uint32) bool {
+	return value > 0 && value <= max
 }
 
 func (m *Manager) open(ctx context.Context, frame Frame, sender Sender) {
