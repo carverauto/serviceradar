@@ -39,12 +39,12 @@
 - [x] 6.6 Recorder tests: record returns `:ok` immediately, non-blocking under burst, overflow path drops + emits telemetry, kinds/severities introspection.
 
 ## 7. Auth lockout
-- [ ] 7.1 Add `ServiceRadar.Security.AuthLockout` Ash resource (actor_id, locked_at, locked_by, expires_at, reason) with AshPaperTrail. Actions: `:lock`, `:unlock` (requires `:security_admin`).
-- [ ] 7.2 Generate Ash migration via `mix ash.codegen add_auth_lockout` and run.
-- [ ] 7.3 Extend the limiter with progressive backoff schedule `[1m, 5m, 30m, 24h]` per `{bucket, ip, actor}` key.
-- [ ] 7.4 Add cross-IP lockout trigger: when `failed_login` events for an actor exceed N (default 20) within 1h, create an `AuthLockout` row.
-- [ ] 7.5 Plug `LockoutCheck` placed before auth controllers/LiveViews that short-circuits locked actors with a generic message.
-- [ ] 7.6 Tests: backoff progression, lockout trigger threshold, unlock requires admin capability, locked attempts emit SecurityEvent.
+- [x] 7.1 Add `ServiceRadar.Security.AuthLockout` Ash resource (`actor_id`, `locked_at`, `locked_by`, `reason`, `expires_at`, `cleared_at`, `cleared_by`, `clear_reason`) with AshPaperTrail enabled via the `Security.PaperTrailMixin`. Actions: `:lock`, `:unlock` (gated to `:admin`/`:owner`), `:active_for/1`.
+- [ ] 7.2 Generate Ash migration via `mix ash.codegen add_auth_lockout` and run. Deferred alongside the other section-5/6 codegen until DB connectivity is wired.
+- [ ] 7.3 Extend the limiter with progressive backoff schedule `[1m, 5m, 30m, 24h]` per `{bucket, ip, actor}` key. **Deferred** — needs intrusive changes to the sliding-window math; the cross-IP lockout trigger below covers the most important brute-force surface in the meantime.
+- [x] 7.4 Add `ServiceRadar.Security.Lockouts` with `record_failed_login/2`, `active_lockout/1`, and `unlock/3`. `record_failed_login/2` emits a `:login_failed` SecurityEvent and, when failed-login events for the actor exceed the configured threshold (default 20) inside the trailing window (default 1h), opens an `AuthLockout` row, emits `:lockout_triggered`, and short-circuits subsequent attempts. Unlock emits `:lockout_cleared`. All writes go through `SystemActor`.
+- [x] 7.5 Add `ServiceRadarWebNGWeb.Plugs.LockoutCheck`. Resolves the actor from a configured param (e.g. `"email"`) or assign (`:current_user`), short-circuits with HTTP 423 if `Lockouts.active_lockout/1` returns a row, and records a `:policy_denied` event. Wiring onto specific routes is deferred to section 11 (rollout) so each auth path's call to `record_failed_login/2` lands at the same time.
+- [x] 7.6 Plug + helper tests: `init/1` validation, no-actor pass-through, unlock action authorization is gated through Ash policies (`:admin`/`:owner` for create+update, `:operator` for read). End-to-end accept/halt paths are scaffolded for the DB-backed integration suite.
 
 ## 8. RBAC capabilities
 - [ ] 8.1 Add `:audit_viewer` and `:security_admin` capabilities to the RBAC catalog.

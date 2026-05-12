@@ -79,7 +79,7 @@ defmodule ServiceRadar.Security.Events do
   end
 
   @impl true
-  def handle_cast({:record, payload}, %{queue_size: size, max_queue: max} = state)
+  def handle_cast({:record, _payload}, %{queue_size: size, max_queue: max} = state)
       when size >= max do
     :telemetry.execute([:serviceradar, :security, :events, :dropped], %{count: 1}, %{})
     {:noreply, %{state | dropped: state.dropped + 1}}
