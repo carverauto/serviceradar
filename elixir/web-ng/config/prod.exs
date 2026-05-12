@@ -25,26 +25,27 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 # Configure Swoosh API Client
 config :swoosh, api_client: Swoosh.ApiClient.Req
 
-# Production session cookie configuration. The salts and the `secure`
-# flag are sourced from build-time environment variables so the
-# compiled release carries deployment-specific values rather than the
-# dev placeholders shipped in `config/config.exs`.
+# Production session cookie configuration. The salts are compile-time
+# Endpoint config because Plug.Session options are embedded in the
+# endpoint module. They are intentionally stable release defaults, with
+# environment overrides for operators who need to force session
+# invalidation. Cookie confidentiality still depends on `SECRET_KEY_BASE`,
+# which is runtime secret material.
 #
-# Required at `mix release` time:
-#   SESSION_SIGNING_SALT      — opaque string, 16+ random bytes
-#   SESSION_ENCRYPTION_SALT   — opaque string, 16+ random bytes
+# Optional at `mix release` time:
+#   SESSION_SIGNING_SALT      — override to rotate signed session cookies
+#   SESSION_ENCRYPTION_SALT   — override to rotate encrypted session cookies
 #   SESSION_COOKIE_SECURE     — "true" (default) or "false"
 #
-# Generate fresh values with `mix phx.gen.secret 32 | head -c 24`.
-# Rotating either salt forces every active session to re-authenticate
-# on the next request.
+# Rotating either salt forces every active session to re-authenticate on
+# the next request.
 config :serviceradar_web_ng, :session,
   signing_salt:
     System.get_env("SESSION_SIGNING_SALT") ||
-      raise("SESSION_SIGNING_SALT must be set at release-build time for prod"),
+      "serviceradar-web-ng-prod-session-signing-v1",
   encryption_salt:
     System.get_env("SESSION_ENCRYPTION_SALT") ||
-      raise("SESSION_ENCRYPTION_SALT must be set at release-build time for prod"),
+      "serviceradar-web-ng-prod-session-encryption-v1",
   secure: System.get_env("SESSION_COOKIE_SECURE", "true") in ~w(true 1 yes)
 
 # Runtime production configuration, including reading

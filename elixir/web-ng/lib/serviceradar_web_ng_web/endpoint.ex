@@ -9,10 +9,11 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
   # the new hardening for the first time will sign every active
   # session out once; subsequent deploys are seamless.
   #
-  # The salt itself is *not* hardcoded — `config/runtime.exs` sources
-  # it from `SESSION_ENCRYPTION_SALT` (or `SECRET_KEY_BASE` as a
-  # derived fallback) so each deployment has its own. The dev/test
-  # config supplies a non-secret placeholder.
+  # The salts have stable production defaults in `config/prod.exs` and
+  # can be overridden at release-build time with `SESSION_SIGNING_SALT`
+  # and `SESSION_ENCRYPTION_SALT` when operators intentionally need to
+  # invalidate active sessions. `SECRET_KEY_BASE` remains the runtime
+  # secret that protects cookie signing/encryption keys.
   #
   # `Secure` is gated by `SESSION_COOKIE_SECURE` (default true in prod
   # builds) so the cookie is only sent over HTTPS; dev keeps
