@@ -32,11 +32,16 @@
 - [ ] 5.4 Same for `saml_controller.consume/2` when the SAML response includes a NameID/email but validation fails.
 - [ ] 5.5 Remove the inline `RateLimiter.check_rate_limit_and_record/3` calls from both controllers.
 
-## 6. Shim removal
-- [ ] 6.1 `grep -r "Auth.RateLimiter" elixir/web-ng/lib elixir/web-ng/test` returns no hits.
-- [ ] 6.2 Delete `elixir/web-ng/lib/serviceradar_web_ng_web/auth/rate_limiter.ex`.
-- [ ] 6.3 Remove any aliases / lingering imports.
+## 6. Shim removal — DEFERRED
+The four callers still using `ServiceRadarWebNGWeb.Auth.RateLimiter` after sections 3–5 are:
+
+- `controllers/cli_auth_controller.ex` (explicit non-goal: legacy 429 JSON shape, see proposal §non-goals)
+- `controllers/dashboard_package_publish_controller.ex` (out of the auth migration scope)
+- `live/auth_live/local_sign_in.ex` (LiveView pre-render rate-limit display; uses `check_rate_limit/3` for read-only state, not the credential check itself — auth happens via POST → `auth_controller.local_sign_in/2` which already migrated)
+- The two test files that exercise the shim or call sites above
+
+The shim is a thin (~35 line) delegate to `ServiceRadar.Security.RateLimiter`. Keeping it until those callers migrate has no operational cost and avoids breaking the out-of-scope routes. Removal will happen alongside the dashboard-publish and CLI-auth migrations in a future change.
 
 ## 7. Docs
-- [ ] 7.1 Update `docs/PLATFORM_SECURITY_HARDENING.md`: drop the "controller migration" step from the rollout list (now complete); replace with a note that all auth routes are pipeline-gated.
-- [ ] 7.2 Archive the predecessor change once this lands (`openspec archive add-platform-security-hardening`).
+- [x] 7.1 `docs/PLATFORM_SECURITY_HARDENING.md` rollout step 7 updated: replaced the open "controller migration" bullet with a record of what was migrated, what stays on the shim by design (CLI device-auth, dashboard publish, local_sign_in LiveView pre-render), and the OIDC/SAML lockout-feeding behavior.
+- [x] 7.2 Predecessor change `add-platform-security-hardening` already archived to `openspec/changes/archive/2026-05-12-add-platform-security-hardening/` and its capability materialized into `openspec/specs/platform-security/spec.md` (done at branch creation).
