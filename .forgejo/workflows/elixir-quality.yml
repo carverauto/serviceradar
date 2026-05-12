@@ -60,6 +60,12 @@ jobs:
             credo: true
             dialyzer: false
             warnings_as_errors: true
+          - name: palisade
+            project: elixir/palisade
+            phoenix: false
+            credo: true
+            dialyzer: false
+            warnings_as_errors: true
           - name: serviceradar_agent_gateway
             project: elixir/serviceradar_agent_gateway
             phoenix: false
