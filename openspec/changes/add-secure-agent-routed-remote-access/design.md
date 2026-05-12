@@ -58,6 +58,41 @@ Session recording starts as manifest and retention plumbing, not unconditional t
 
 Replay event persistence uses `remote_access_recording_events` under the platform schema. Events inherit the parent recording retention expiry and store sequence, stream, event type, byte count, payload hash, optional payload text, redaction state, and structured metadata. Terminal input/output payload text remains empty unless trusted policy explicitly enables terminal payload persistence; input payload text additionally requires an explicit input-recording flag. Enhanced-recording frames are stored as structured metadata rather than raw payload text. Replay reads require the base remote-access permission, while export requires `devices.remote_access.recordings.export`.
 
+## File Transfer Parity Plan
+File transfer is part of the remote-access plane, not a separate credential or routing bypass. The first implementation should prefer structured SFTP operations over raw SCP because SFTP gives ServiceRadar clear request boundaries for authorization, quota, recording, and audit. SCP compatibility can be added later as a wrapper or adapter only if it maps each operation into the same policy and audit model before any target file handle is opened.
+
+The browser/API request should be intentionally narrow: target/session reference, direction, operation, optional path, and transfer intent. It must not accept client-supplied route, agent, target host, credential rule, recording policy, content-audit policy, quota, approval, or custody overrides. Those values come from trusted remote-access policy and the already selected session route.
+
+Planned RBAC permissions:
+- `devices.remote_access.files.list` for directory listing and metadata reads.
+- `devices.remote_access.files.download` for file reads from the target.
+- `devices.remote_access.files.upload` for writes to the target.
+- `devices.remote_access.files.manage` for mkdir, rename, remove, chmod, chown, and similar mutating operations.
+- `devices.remote_access.files.approve` for reviewer workflows when policy requires just-in-time approval for risky transfers.
+
+Planned policy gates:
+- Path allow/deny rules, optional path redaction policy, symlink behavior, and realpath validation before opening file handles.
+- Direction and operation allowlists per actor, target, agent, protocol, and session.
+- Quotas for bytes, files, single-file size, recursive depth, concurrent transfers, and transfer rate.
+- Optional approval for upload, download, recursive copy, manage operations, sensitive paths, or content-audit exceptions.
+- Optional content audit hooks for malware/DLP scanning, file hashing, and artifact retention.
+
+The durable model should capture transfer lifecycle without storing file contents by default. A `remote_access_file_transfers` record, or an equivalent typed recording event stream, should include transfer ID, session ID, actor ID, device/target, selected agent, target path or path hash according to policy, direction, operation, byte count, file count, SHA-256 when enabled, decision, policy snapshot, quota counters, status, failure reason, timestamps, and retention expiry. Replay should show transfer lifecycle events such as `transfer_request`, `transfer_started`, `transfer_progress`, `transfer_completed`, and `transfer_failed` alongside terminal events, but the transcript must not include raw file contents unless an explicit content-audit policy enables a separate sensitive artifact path with retention and export controls.
+
+Threats to account for before implementation:
+- Data exfiltration by download, recursive copy, or quota evasion.
+- Unauthorized overwrite, chmod/chown, rename, or delete operations.
+- Path traversal, symlink escape, relative-path ambiguity, and time-of-check/time-of-use races.
+- Sensitive filename disclosure in audit and replay views.
+- Malware or policy-violating uploads into managed hosts.
+- Partial transfer and resume semantics that bypass byte, file, or approval limits.
+
+Implementation guidance:
+- Reuse the existing session, approval, credential-custody, recording, and agent-routing model. File transfer does not get reusable agent-local secrets.
+- Add agent capability advertisements such as `remote_access.file_transfer`, `remote_access.sftp`, and `remote_access.scp` only when the agent can enforce the required policy locally.
+- Consider `github.com/pkg/sftp` as the first SFTP implementation dependency after direct license review and Bazel/Go module review. Current Teleport server-side SFTP/SCP code remains architecture reference only unless its exact source path and transitive dependency path are proven Apache-2.0 compatible or explicitly approved.
+- Keep any future SCP support subordinate to the same file-transfer manager; do not create a second transfer runtime with separate policy, quota, or audit behavior.
+
 ## Current Hardening Track
 The initial substrate is in place, so active work is now a Teleport-parity hardening track. The ordering is deliberate:
 

@@ -53,7 +53,7 @@
   - [x] 4.10.1 Add policy-gated transcript/event storage with retention inheritance and redaction boundaries.
   - [x] 4.10.2 Add authenticated replay/export API primitives with a dedicated export permission.
   - [x] 4.10.3 Add an operator replay UI backed by the replay API.
-- [ ] 4.11 Add file-transfer parity planning for SFTP/SCP-style access with RBAC, recording, quota, and content-audit policy.
+- [x] 4.11 Add file-transfer parity planning for SFTP/SCP-style access with RBAC, recording, quota, and content-audit policy.
 - [ ] 4.12 Add app/database/Kubernetes/desktop/RDP adapter proposals with per-protocol threat models before implementation.
 - [ ] 4.13 Add enhanced-recording production gate: ServiceRadar-owned cilium/ebpf probes, kernel compatibility matrix, capability advertisement, and fail-closed tests for required BPF policies.
 - [ ] 4.14 Keep Teleport source reuse notes current for each imported or copied area, including exact tag/commit, file paths, headers, and transitive license scan output.

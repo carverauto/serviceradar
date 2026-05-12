@@ -175,6 +175,38 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **THEN** the system SHALL persist a recording manifest with storage pointer, retention expiry, lifecycle status, and aggregate input/output byte counters
 - **AND** raw terminal byte contents SHALL NOT be persisted unless a separate explicit content-recording policy permits it.
 
+### Requirement: Remote access file transfer is policy controlled
+The system SHALL plan SFTP/SCP-style file transfer as a remote-access capability that inherits session identity, RBAC, approval, credential custody, recording, quota, and target routing gates.
+
+#### Scenario: Browser cannot choose file-transfer policy
+- **WHEN** the browser requests a file-transfer operation
+- **THEN** the browser-facing API SHALL accept only bounded operation, direction, and path intent fields
+- **AND** it SHALL reject client-supplied route, selected agent, target host, credential rule, custody, recording policy, content-audit policy, approval, or quota fields
+- **AND** trusted remote-access policy SHALL select the final route, credential mode, recording behavior, and quota before target access starts.
+
+#### Scenario: File transfer requires scoped RBAC and approval
+- **GIVEN** an operator requests list, download, upload, or file-management access
+- **WHEN** the operator lacks the required file-transfer permission or a required approval is missing, expired, or mismatched
+- **THEN** the system SHALL deny the transfer before the selected agent opens a target file handle
+- **AND** the denial SHALL be audited without exposing credentials or file contents.
+
+#### Scenario: Path and quota policy are enforced before access
+- **GIVEN** a file-transfer policy defines path rules, symlink behavior, byte limits, file-count limits, recursive-depth limits, or concurrent-transfer limits
+- **WHEN** a transfer is requested
+- **THEN** the selected agent SHALL enforce those policy gates before opening or mutating target files
+- **AND** relative paths, symlinks, and realpaths SHALL be validated according to policy
+- **AND** unclear or unverifiable paths SHALL fail closed.
+
+#### Scenario: Content audit stores metadata by default
+- **WHEN** a file transfer starts, progresses, completes, or fails
+- **THEN** the system SHALL record transfer lifecycle metadata, byte counts, status, policy decision, and hashes when enabled
+- **AND** file contents SHALL NOT be persisted in recordings, replay events, audit events, or exports unless an explicit content-audit policy enables a sensitive artifact retention path.
+
+#### Scenario: SFTP is the first-class transfer model
+- **WHEN** ServiceRadar adds file-transfer support
+- **THEN** SFTP SHALL be the preferred first implementation because it exposes structured operations for policy, quota, and audit
+- **AND** SCP compatibility SHALL NOT be added unless it maps to the same transfer manager, authorization checks, quota enforcement, recording events, and content-audit controls.
+
 ### Requirement: Generic SSH uses certificate-first enterprise identity
 Generic SSH remote access SHALL support an enterprise certificate flow where ServiceRadar exchanges an authenticated SSO identity and ServiceRadar RBAC decision for a short-lived OpenSSH user certificate.
 
