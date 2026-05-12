@@ -2,8 +2,8 @@ defmodule ServiceRadar.Security do
   @moduledoc """
   Ash domain for platform-security resources.
 
-  Contains operator-managed records that back the webhook signature plug,
-  brute-force lockouts, and the security event stream introduced by the
+  Contains operator-managed records that back the brute-force
+  account lockouts and the security event stream introduced by the
   platform-security-hardening change.
   """
 
@@ -19,7 +19,6 @@ defmodule ServiceRadar.Security do
   end
 
   resources do
-    resource ServiceRadar.Security.WebhookSecret
     resource ServiceRadar.Security.SecurityEvent
     resource ServiceRadar.Security.AuthLockout
   end

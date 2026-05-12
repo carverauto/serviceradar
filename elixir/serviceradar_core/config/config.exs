@@ -169,7 +169,6 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     cli_device_auth: [limit: 30, window_seconds: 60],
     dashboard_publish: [limit: 10, window_seconds: 60],
     plugin_upload: [limit: 10, window_seconds: 60],
-    webhook_ingest: [limit: 120, window_seconds: 60],
     api_default: [limit: 120, window_seconds: 60]
   }
 

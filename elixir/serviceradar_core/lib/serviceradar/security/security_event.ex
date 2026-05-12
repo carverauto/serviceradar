@@ -20,11 +20,9 @@ defmodule ServiceRadar.Security.SecurityEvent do
     :login_failed,
     :rate_limit_denied,
     :policy_denied,
-    :signature_invalid,
     :lockout_triggered,
     :lockout_cleared,
     :csp_violation,
-    :webhook_secret_rotated,
     :other
   ]
 

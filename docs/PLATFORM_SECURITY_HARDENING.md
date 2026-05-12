@@ -2,8 +2,8 @@
 
 This document covers the operator-facing surface added by the
 `add-platform-security-hardening` OpenSpec change. The bulk of the
-change is invisible (plugs that enforce rate limits, verify webhook
-signatures, sanitize uploads, and so on). What follows is the part
+change is invisible (plugs that enforce rate limits, sanitize
+uploads, hardened response headers, etc.). What follows is the part
 operators need to know to roll it out, monitor it, and tune it.
 
 ## 1. Rollout order
@@ -21,9 +21,11 @@ Land + observe in this order. Each step is independently revertible.
    `/api/security/csp-report` reception, audit
    `Settings → Audit → Events` filtered to `kind = csp_violation` and
    resolve any genuine violations.
-3. **Section 4–6: upload guard, webhook signature, event stream.**
-   Plugs exist; wiring onto specific routes happens during the
-   per-controller migration (below).
+3. **Section 4 + 6: upload guard + event stream.** Plug exists;
+   wiring onto specific routes happens during the per-controller
+   migration (below). Section 5 (webhook signature plug) was dropped
+   from scope — serviceradar has no inbound HTTP webhook routes;
+   Falco / datasource events flow over NATS.
 4. **Section 7–8: lockout machinery + RBAC capabilities.** Lockout
    triggers only fire when controllers call
    `ServiceRadar.Security.Lockouts.record_failed_login/2`, so the
@@ -41,10 +43,6 @@ Land + observe in this order. Each step is independently revertible.
    - Add a `record_failed_login/2` call after credential mismatch.
    - For binary upload routes: pipe the `UploadGuard` plug, drop the
      inline content-type/size checks.
-   - For webhook ingest routes: pipe `WebhookSignature` with the
-     source name, drop the inline HMAC code. Rotate the secret
-     through `Settings → Audit → Webhook Secrets` before flipping the
-     plug on.
 8. **Flip CSP to enforce.** `config :serviceradar_web_ng,
    ServiceRadarWebNGWeb.Plugs.SecurityHeaders, csp_mode: :enforce`
    once report-only has been clean for ≥ 7 days. Keep the report URI
@@ -80,19 +78,7 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
 
 `config.exs` ships sensible defaults for all named buckets.
 
-## 4. Webhook secret rotation
-
-1. `Settings → Audit → Webhook Secrets`.
-2. Click **Rotate** on the row for the source you want to rotate.
-3. Enter the new shared secret + grace seconds (default 300).
-4. Update the upstream service's config to send the new secret.
-5. After the grace window expires, the superseded record is no
-   longer accepted; old callers will start getting 401s.
-
-The rotation lands in `webhook_secret_versions` (AshPaperTrail) and
-emits a `:webhook_secret_rotated` SecurityEvent.
-
-## 5. Unlocking an account
+## 4. Unlocking an account
 
 1. `Settings → Audit → Lockouts`.
 2. Confirm the actor in the table (a lockout row also lists the
@@ -107,7 +93,7 @@ want a tenant-wide permanent lockout, drop a row directly via
 `ServiceRadar.Security.AuthLockout.lock_actor/2` with
 `expires_at: nil`.
 
-## 6. CSP escape hatch
+## 5. CSP escape hatch
 
 If a specific route serves third-party content that violates CSP:
 
@@ -118,12 +104,12 @@ If a specific route serves third-party content that violates CSP:
 - Long-term: extend `@csp` in `router.ex` with the specific
   directive (`script-src 'self' https://trusted.example`).
 
-## 7. Known follow-ups
+## 6. Known follow-ups
 
 - **AshPaperTrail unified history page.** The Audit UI lists the
-  event stream and current state of lockouts / webhook secrets but
-  does not yet surface cross-resource version history. Each resource
-  already writes to its own `*_versions` table; the cross-cutting
+  event stream and current state of lockouts but does not yet
+  surface cross-resource version history. Each resource already
+  writes to its own `*_versions` table; the cross-cutting
   query + diff view is tracked separately.
 - **Cluster-aggregated rate-limit inspection.** The
   `Settings → Audit → Rate Limits` panel is not built yet — bucket
@@ -134,6 +120,11 @@ If a specific route serves third-party content that violates CSP:
 - **Retention Oban job.** `SecurityEvent.delete_older_than/1` exists;
   wrapping it in an Oban worker on a schedule (default 90d) is
   pending.
-- **Migrations.** `mix ash.codegen add_webhook_secret` /
-  `add_security_event` / `add_auth_lockout` need to run once with DB
-  connectivity. They have not been run from this branch.
+- **`mix ash.codegen` workflow rework.** The migration file
+  (`20260512040000_add_security_resources.exs`) was hand-written
+  with `use Ecto.Migration` to match every other migration in
+  `priv/repo/migrations/`. The Ash codegen workflow described in
+  `elixir/serviceradar_core/CLAUDE.md` is currently unusable
+  because `priv/resource_snapshots/` was gitignored in the January
+  cleanup PR — settling that convention is tracked in Forgejo
+  issue #3269.

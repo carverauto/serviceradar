@@ -162,10 +162,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :plugin_upload, subject: :ip_and_actor)
   end
 
-  pipeline :rate_limit_webhook_ingest do
-    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :webhook_ingest, subject: :ip)
-  end
-
   pipeline :rate_limit_api_default do
     plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :api_default, subject: :ip)
   end
@@ -615,7 +611,6 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       live("/settings/audit/events", Settings.AuditLive.Events, :index)
       live("/settings/audit/lockouts", Settings.AuditLive.Lockouts, :index)
-      live("/settings/audit/webhook-secrets", Settings.AuditLive.WebhookSecrets, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users

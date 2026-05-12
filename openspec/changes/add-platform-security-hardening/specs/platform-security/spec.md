@@ -74,22 +74,6 @@ The system SHALL provide `ServiceRadarWebNGWeb.Plugs.UploadGuard` that validates
 - **WHEN** an upload arrives with a filename containing control characters or longer than 120 characters
 - **THEN** the sanitized filename presented to the controller has control characters replaced and the length truncated to 120 characters
 
-### Requirement: Webhook signature verification
-
-The system SHALL provide `ServiceRadarWebNGWeb.Plugs.WebhookSignature` that verifies HMAC-SHA256 signatures on inbound webhook requests using a per-source secret stored in `ServiceRadar.Security.WebhookSecret`. The plug MUST support a rotation grace window during which both the current and the immediately superseded secret are accepted. Verification failures MUST emit a `SecurityEvent` of kind `:signature_invalid` and return HTTP 401.
-
-#### Scenario: Valid signature is accepted
-- **WHEN** a request arrives with a signature that matches the current secret for the configured source
-- **THEN** the plug passes through and updates `last_used_at` on the secret
-
-#### Scenario: Grace window accepts the previous secret
-- **WHEN** a request arrives with a signature that matches a recently superseded secret and the rotation grace window has not expired
-- **THEN** the plug passes through
-
-#### Scenario: Invalid signature is rejected and audited
-- **WHEN** a request arrives with no signature or an incorrect signature
-- **THEN** the plug responds with HTTP 401 and records a `SecurityEvent` of kind `:signature_invalid`
-
 ### Requirement: Security event stream
 
 The system SHALL provide a `ServiceRadar.Security.SecurityEvent` Ash resource that captures stateless security events. Events MUST include `occurred_at`, `kind`, `severity`, `actor_id` (nullable), `ip`, `route`, structured `details`, and `correlation_id`. The recorder MUST be non-blocking; under sustained overflow it MUST drop events rather than block the request path and MUST increment a telemetry counter. The system SHALL apply a configurable retention TTL (default 90 days) enforced by a scheduled job. Events are deployment-wide; the resource does not carry an app-level tenant key.
@@ -126,19 +110,19 @@ The system SHALL provide brute-force lockout on top of the rate limiter. Per-IP 
 
 ### Requirement: Audit RBAC capabilities
 
-The system SHALL define two capabilities for audit and security surfaces: `:audit_viewer` (read access to history, events, lockouts, webhook secrets, and rate-limit inspection) and `:security_admin` (mutating actions such as unlock and webhook secret rotation). `:security_admin` MUST imply `:audit_viewer`. Default role mappings SHALL grant `:security_admin` to `:owner` and `:admin`, and `:audit_viewer` to `:operator`.
+The system SHALL define two capabilities for audit and security surfaces: `:audit_viewer` (read access to history, events, and lockouts) and `:security_admin` (mutating actions such as unlock). `:security_admin` MUST imply `:audit_viewer`. Default role mappings SHALL grant `:security_admin` to `:owner` and `:admin`, and `:audit_viewer` to `:operator`.
 
 #### Scenario: Read access is gated by audit_viewer
 - **WHEN** a user without `:audit_viewer` requests an audit page
 - **THEN** access is denied and a `SecurityEvent` of kind `:policy_denied` is recorded
 
 #### Scenario: Mutating actions require security_admin
-- **WHEN** a user with only `:audit_viewer` invokes a mutating action such as unlock or webhook secret rotation
+- **WHEN** a user with only `:audit_viewer` invokes a mutating action such as unlock
 - **THEN** the action is denied and a `SecurityEvent` of kind `:policy_denied` is recorded
 
 ### Requirement: Settings → Audit operator surface
 
-The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes four sub-pages: **History** (unified AshPaperTrail version timeline across enabled resources with resource-type, actor, action, and time-range filters and a diff view); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`); and **Webhook Secrets** (per-source secret list with a rotate action and last-used timestamp). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
+The system SHALL provide a Settings → Audit section in the web-ng UI gated by `:audit_viewer` that exposes three sub-pages: **History** (unified AshPaperTrail version timeline across enabled resources with resource-type, actor, action, and time-range filters and a diff view); **Events** (filterable, live-tailable `SecurityEvent` table with filters for kind, severity, actor, ip, route, and time range and CSV export); and **Lockouts** (list of locked accounts with an unlock action gated by `:security_admin`). The system MAY additionally expose a read-only **Rate Limits** panel showing current top-bucket pressure and recent denials.
 
 #### Scenario: History page joins paper trail versions across resources
 - **WHEN** an operator opens Settings → Audit → History
@@ -153,10 +137,6 @@ The system SHALL provide a Settings → Audit section in the web-ng UI gated by 
 - **THEN** the Unlock control is disabled or hidden
 - **AND WHEN** an operator with `:security_admin` clicks Unlock
 - **THEN** the lockout is cleared and the operator's user_id is recorded on the AshPaperTrail version
-
-#### Scenario: Webhook secret rotation establishes a grace window
-- **WHEN** a `:security_admin` rotates a webhook secret
-- **THEN** the new secret becomes the current secret, the previous secret is marked superseded with a grace window, and a paper-trail version captures the change
 
 ### Requirement: Session cookie hardening
 
@@ -180,7 +160,7 @@ The Phoenix session cookie issued by `ServiceRadarWebNGWeb.Endpoint` MUST be enc
 
 ### Requirement: Plug pipeline ordering
 
-The web-ng router and endpoint pipelines SHALL apply security plugs in the following order so that subject attribution and short-circuiting work correctly: `accepts` → `fetch_session` (browser) → `protect_from_forgery` (browser) → `SecurityHeaders` → `RateLimit` → route-specific plugs (`UploadGuard`, `WebhookSignature`, `LockoutCheck`). New web routes that accept user-supplied payloads MUST opt into a named rate-limit bucket; routes that accept binary uploads MUST opt into `UploadGuard`; inbound webhook routes MUST opt into `WebhookSignature`.
+The web-ng router and endpoint pipelines SHALL apply security plugs in the following order so that subject attribution and short-circuiting work correctly: `accepts` → `fetch_session` (browser) → `protect_from_forgery` (browser) → `SecurityHeaders` → `RateLimit` → route-specific plugs (`UploadGuard`, `LockoutCheck`). New web routes that accept user-supplied payloads MUST opt into a named rate-limit bucket; routes that accept binary uploads MUST opt into `UploadGuard`.
 
 #### Scenario: SecurityHeaders runs before any controller writes a response
 - **WHEN** a controller writes a response on any pipeline that includes SecurityHeaders
