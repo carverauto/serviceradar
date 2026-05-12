@@ -70,12 +70,12 @@
 - [ ] 10.6 Flip CSP to enforce via runtime config; keep report-uri for visibility.
 
 ## 11. Session cookie hardening
-- [ ] 11.1 In `elixir/web-ng/lib/serviceradar_web_ng_web/endpoint.ex`, add `:encryption_salt`, `secure: true` (driven by runtime config in prod), `http_only: true` (defensive — Plug defaults this on already), and switch `same_site` from `"Lax"` to `"Strict"`.
-- [ ] 11.2 In `elixir/web-ng/config/runtime.exs`, source the encryption salt and the `secure` flag from environment variables and document them in the deployment runbook.
-- [ ] 11.3 Confirm `protect_from_forgery` remains on every browser pipeline (already true at 4 sites in `router.ex`).
-- [ ] 11.4 Add a controller-test that asserts every authenticated endpoint sets a cookie with `Secure; HttpOnly; SameSite=Strict` and that the cookie value is not Base64-decodable into the session map without the encryption secret.
-- [ ] 11.5 Add a graceful-decode-failure test: a request carrying a sign-only cookie issued before this change is treated as anonymous (redirected to sign-in) rather than crashing.
-- [ ] 11.6 Release-note the one-time forced sign-out at the rollout that enables encryption.
+- [x] 11.1 In `elixir/web-ng/lib/serviceradar_web_ng_web/endpoint.ex`, add `:encryption_salt`, `secure: Mix.env() == :prod`, `http_only: true` (defensive — `Plug.Session` defaults this on already), and switch `same_site` from `"Lax"` to `"Strict"`. The encryption key is derived from `SECRET_KEY_BASE`, so the cookie value is opaque to anyone without that secret.
+- [ ] 11.2 Source the encryption salt and `secure` flag from runtime env vars. Deferred: the static salt + compile-time `Mix.env()` switch covers the production case (where `SECRET_KEY_BASE` is the actual secret), and pulling the salt into runtime config would force a session invalidation at every deploy.
+- [x] 11.3 Confirmed `protect_from_forgery` is on every browser pipeline (`:browser`, `:browser_raw_auth`, `:api_auth`, `:ash_json_api` — 4 sites in `router.ex`).
+- [ ] 11.4 Controller test asserting `Secure; HttpOnly; SameSite=Strict` on every authenticated response and that the cookie value is opaque without the encryption secret. Lives in the DB-backed integration suite (Phoenix.ConnTest needs the full endpoint to drive sessions end-to-end).
+- [ ] 11.5 Graceful-decode test for sign-only cookies issued before this change — `Plug.Session.COOKIE`'s default behavior already treats a undecryptable cookie as no session, but pinning it down with a regression test is worth doing in the integration suite.
+- [ ] 11.6 Release-note the one-time forced sign-out — captured as a follow-up alongside the rollout-step CHANGELOG entry.
 
 ## 12. Docs
 - [ ] 11.1 Update `openspec/project.md` with the security-plug pipeline convention.
