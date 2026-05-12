@@ -54,10 +54,20 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         edge_ops_tab(path, current_scope),
         ansible_tab(path, current_scope),
         jobs_tab(path, current_scope),
-        auth_tab(path, current_scope)
+        auth_tab(path, current_scope),
+        audit_tab(path, current_scope)
       ],
       &Map.get(&1, :show, true)
     )
+  end
+
+  defp audit_tab(path, current_scope) do
+    %{
+      label: "Audit",
+      navigate: ~p"/settings/audit/events",
+      active: String.starts_with?(path, "/settings/audit"),
+      show: RBAC.can?(current_scope, "settings.audit.view")
+    }
   end
 
   defp ansible_tab(path, current_scope) do

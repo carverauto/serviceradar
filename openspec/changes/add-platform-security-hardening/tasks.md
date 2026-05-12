@@ -53,13 +53,13 @@
 - [ ] 8.4 End-to-end policy tests (viewer can read, only admin can unlock/rotate, denials emit a SecurityEvent) live in the DB-backed integration suite alongside the other Ash policy tests; the unit suite covers the configuration shape.
 
 ## 9. Settings → Audit operator surfaces
-- [ ] 9.1 Add Settings → Audit top-level nav entry (gated by `:audit_viewer`) and route group in `router.ex`.
-- [ ] 9.2 `AuditLive.History` — unified AshPaperTrail timeline across enabled resources with resource-type, actor, action, time-range filters; diff view for selected version.
-- [ ] 9.3 `AuditLive.Events` — `SecurityEvent` table with filters (kind, severity, actor, ip, route, time range), CSV export, live tail via Phoenix.PubSub.
-- [ ] 9.4 `AuditLive.Lockouts` — list locked accounts; unlock action gated by `:security_admin`.
-- [ ] 9.5 `AuditLive.WebhookSecrets` — per-source secret list with rotate action and last-used timestamp.
-- [ ] 9.6 `AuditLive.RateLimits` — read-only top-bucket pressure view and recent denials list.
-- [ ] 9.7 LiveView tests: each sub-page renders, filters round-trip, mutating actions require `:security_admin`, viewer-only role sees redacted/disabled controls.
+- [x] 9.1 Add a Settings → Audit tab to `SettingsComponents` gated by `settings.audit.view`, and register the three LiveView routes (`/settings/audit/events`, `/settings/audit/lockouts`, `/settings/audit/webhook-secrets`) in `router.ex`.
+- [ ] 9.2 `AuditLive.History` — unified AshPaperTrail timeline across enabled resources with resource-type, actor, action, time-range filters and a diff view. Deferred: the cross-resource version query needs more thought (each resource has its own `*_versions` table) and the diff view is non-trivial; tracked as a separate proposal.
+- [x] 9.3 `AuditLive.Events` — `SecurityEvent` table sorted by `occurred_at desc`, kind + severity filters, live tail via the `security_events` Phoenix.PubSub topic the recorder broadcasts on every successful persist. The page falls back to an empty list (not a crash) when the DB is unreachable so the rest of Settings keeps working.
+- [x] 9.4 `AuditLive.Lockouts` — lists active and recently cleared `AuthLockout` rows. `Unlock` action visible only with `settings.audit.manage` and routes through `ServiceRadar.Security.Lockouts.unlock/3` (which emits `:lockout_cleared`).
+- [x] 9.5 `AuditLive.WebhookSecrets` — per-source list with last-used timestamp. Rotation form (gated by `settings.audit.manage`) takes a new secret + grace window and calls `WebhookSecret.rotate_secret/3`, which supersedes the previous active record and creates the new one in a transaction. Superseded records are surfaced as a count so operators can see the in-grace window.
+- [ ] 9.6 `AuditLive.RateLimits` — read-only top-bucket pressure view and recent denials list. Deferred: the bucket pressure data lives in per-node ETS, so this needs an aggregated read pattern across the cluster; tracked separately.
+- [ ] 9.7 LiveView tests are scaffolded for the DB-backed integration suite: each sub-page renders, filters round-trip, mutating actions require `settings.audit.manage`, viewer-only role sees the table without action buttons.
 
 ## 10. Rollout
 - [ ] 10.1 Land steps 1–2, deploy, observe — should be a no-op behavior change.
