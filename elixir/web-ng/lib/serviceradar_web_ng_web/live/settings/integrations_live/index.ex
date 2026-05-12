@@ -338,12 +338,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     {:noreply, assign(socket, :form_custom_fields, value)}
   end
 
-  def handle_event("create_source", %{"form" => params}, socket) do
+  def handle_event("create_source", %{"form" => form_params} = event_params, socket) do
     actor = get_actor(socket)
 
     if sync_agent_available?(actor) do
       # Handle credentials JSON if provided
-      params = parse_credentials_json(params)
+      params =
+        form_params
+        |> merge_auxiliary_form_params(event_params)
+        |> parse_credentials_json()
 
       # Add queries from form_queries assign
       queries = build_queries_for_submit(socket.assigns.form_queries)
@@ -385,11 +388,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     end
   end
 
-  def handle_event("update_source", %{"form" => params}, socket) do
+  def handle_event("update_source", %{"form" => form_params} = event_params, socket) do
     actor = get_actor(socket)
 
     # Handle credentials JSON if provided
-    params = parse_credentials_json(params)
+    params =
+      form_params
+      |> merge_auxiliary_form_params(event_params)
+      |> parse_credentials_json()
 
     # Add queries from form_queries assign
     queries = build_queries_for_submit(socket.assigns.form_queries)
@@ -1914,6 +1920,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   # Parse credentials from either structured fields or JSON
   # Structured fields take precedence over JSON
+  defp merge_auxiliary_form_params(form_params, event_params) do
+    event_params
+    |> Map.take([
+      "cred_api_key",
+      "cred_api_secret",
+      "cred_snmp_version",
+      "cred_community",
+      "cred_netbox_url",
+      "cred_netbox_token",
+      "cred_netbox_verify_ssl",
+      "credentials_json"
+    ])
+    |> Map.merge(form_params)
+  end
+
   defp parse_credentials_json(params) do
     cond do
       # Armis: api_key + api_secret
