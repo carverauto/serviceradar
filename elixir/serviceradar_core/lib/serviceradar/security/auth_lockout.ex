@@ -95,7 +95,12 @@ defmodule ServiceRadar.Security.AuthLockout do
       constraints max_length: 128
     end
 
-    attribute :locked_at, :utc_datetime_usec do
+    # Note: :utc_datetime (seconds precision), not :utc_datetime_usec.
+    # AshPaperTrail 0.5.7's notification-build path crashes when version
+    # records carry microsecond-precision datetime attributes ("expects
+    # microseconds to be empty"). Seconds precision is sufficient for
+    # lockout timestamps. The DB column accepts timestamptz either way.
+    attribute :locked_at, :utc_datetime do
       allow_nil? false
       public? true
     end
@@ -112,12 +117,12 @@ defmodule ServiceRadar.Security.AuthLockout do
       constraints max_length: 256
     end
 
-    attribute :expires_at, :utc_datetime_usec do
+    attribute :expires_at, :utc_datetime do
       allow_nil? true
       public? true
     end
 
-    attribute :cleared_at, :utc_datetime_usec do
+    attribute :cleared_at, :utc_datetime do
       allow_nil? true
       public? true
     end
