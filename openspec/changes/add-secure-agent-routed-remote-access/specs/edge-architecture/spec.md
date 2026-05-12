@@ -135,6 +135,43 @@ The remote-access tunnel SHALL separate session lifecycle and routing from proto
 - **THEN** the adapter SHALL be limited to passive capture parsing or read-only diagnostics by default
 - **AND** active packet crafting, reboot/configuration operations, or credential/key changes SHALL require a separate approved proposal, lab validation, explicit policy enablement, and audit coverage.
 
+### Requirement: Future protocol adapters require approved proposals
+Future app, database, Kubernetes, desktop/RDP, vSphere console, and OT adapters SHALL require per-protocol OpenSpec proposals and threat models before implementation.
+
+#### Scenario: Adapter proposal defines the security contract
+- **WHEN** ServiceRadar adds a new remote-access protocol adapter
+- **THEN** the adapter proposal SHALL define protocol name, target resource type, agent capability flag, RBAC permissions, approval triggers, credential custody mode, recording policy, quota behavior, validation tests, demo proof path, and Teleport/source reuse license notes
+- **AND** implementation SHALL NOT start until the proposal is approved.
+
+#### Scenario: App access is not an open proxy
+- **WHEN** ServiceRadar adds HTTP or HTTPS application access
+- **THEN** the adapter SHALL route only to registered targets selected by trusted policy
+- **AND** it SHALL reject arbitrary browser-supplied upstream hosts, routes, credentials, or CONNECT tunnel behavior unless a dedicated approved policy enables that behavior
+- **AND** it SHALL define Host/SNI, header, origin-isolation, upstream TLS, request audit, and upload/download content boundaries.
+
+#### Scenario: Database access protects query and result data
+- **WHEN** ServiceRadar adds database access
+- **THEN** the adapter SHALL avoid broad shared database credentials by preferring short-lived credentials, mTLS, or one-session broker grants
+- **AND** it SHALL define read-only policy, query/result-size quotas, metadata recording, query redaction, and destructive-operation controls before target access opens.
+
+#### Scenario: Kubernetes access preserves actor identity
+- **WHEN** ServiceRadar adds Kubernetes API, exec, logs, or port-forward access
+- **THEN** the adapter SHALL preserve the ServiceRadar actor through impersonation or short-lived client identity
+- **AND** namespace, resource, verb, exec, and port-forward permissions SHALL be policy scoped
+- **AND** bearer tokens, kubeconfigs, and client private keys SHALL NOT be persisted in recordings, audit events, or browser-visible metadata.
+
+#### Scenario: Desktop and RDP access gates redirection features
+- **WHEN** ServiceRadar adds graphical desktop or RDP access
+- **THEN** clipboard, drive, printer, audio, smart-card, and file redirection SHALL be disabled by default
+- **AND** each redirection feature SHALL require explicit RBAC and policy enablement
+- **AND** screen recording, screenshot, frame-rate, bitrate, and credential-prompt handling SHALL be defined before production access.
+
+#### Scenario: Provider console adapters use provider tickets
+- **WHEN** ServiceRadar adds vSphere or similar provider-console access
+- **THEN** the adapter SHALL use short-lived provider-issued console tickets or one-session provider grants
+- **AND** provider API credentials and console tickets SHALL NOT be stored in browser request bodies, session metadata, recordings, or replay events
+- **AND** power or configuration operations SHALL require a separate approved proposal.
+
 ### Requirement: Remote access auditability
 The system SHALL record audit events for remote-access session lifecycle and policy decisions without storing plaintext credentials or terminal byte contents by default.
 
