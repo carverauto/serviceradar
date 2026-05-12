@@ -67,7 +67,8 @@ defmodule ServiceRadar.Security.EventsTest do
 
       assert :rate_limit_denied in kinds
       assert :csp_violation in kinds
-      assert :signature_invalid in kinds
+      assert :policy_denied in kinds
+      assert :lockout_triggered in kinds
       assert severities == [:info, :warning, :critical]
     end
   end

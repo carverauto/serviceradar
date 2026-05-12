@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.Hooks
@@ -56,35 +57,51 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   def create(conn, %{"user" => %{"email" => email, "password" => password}}) do
     client_ip = ClientIP.get(conn)
 
-    case RateLimiter.check_rate_limit_and_record("password_auth", client_ip,
-           limit: @password_auth_rate_limit,
-           window_seconds: @password_auth_window
-         ) do
-      {:error, retry_after} ->
-        Logger.warning("Password auth rate limited for IP: #{client_ip}")
+    cond do
+      Lockouts.active_lockout(email) ->
+        Logger.warning("Sign-in attempt against locked account: #{email}")
 
         conn
-        |> put_flash(
-          :error,
-          "Too many login attempts. Please try again in #{retry_after} seconds."
-        )
+        |> put_flash(:error, "Account temporarily locked. Try again later.")
         |> redirect(to: ~p"/users/log-in")
 
-      :ok ->
-        actor = SystemActor.system(:auth_controller)
-
-        case User.authenticate(email, password, actor: actor) do
-          {:ok, user} ->
-            record_successful_auth_async(conn, user, :password)
+      true ->
+        case RateLimiter.check_rate_limit_and_record("password_auth", client_ip,
+               limit: @password_auth_rate_limit,
+               window_seconds: @password_auth_window
+             ) do
+          {:error, retry_after} ->
+            Logger.warning("Password auth rate limited for IP: #{client_ip}")
 
             conn
-            |> put_flash(:info, "Signed in successfully.")
-            |> UserAuth.log_in_user(user)
-
-          {:error, _} ->
-            conn
-            |> put_flash(:error, "Invalid email or password.")
+            |> put_flash(
+              :error,
+              "Too many login attempts. Please try again in #{retry_after} seconds."
+            )
             |> redirect(to: ~p"/users/log-in")
+
+          :ok ->
+            actor = SystemActor.system(:auth_controller)
+
+            case User.authenticate(email, password, actor: actor) do
+              {:ok, user} ->
+                record_successful_auth_async(conn, user, :password)
+
+                conn
+                |> put_flash(:info, "Signed in successfully.")
+                |> UserAuth.log_in_user(user)
+
+              {:error, _} ->
+                Lockouts.record_failed_login(email, %{
+                  ip: client_ip,
+                  route: conn.request_path,
+                  method: "password"
+                })
+
+                conn
+                |> put_flash(:error, "Invalid email or password.")
+                |> redirect(to: ~p"/users/log-in")
+            end
         end
     end
   end
@@ -109,40 +126,59 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
     client_ip = ClientIP.get(conn)
 
-    # Check rate limit
-    case RateLimiter.check_rate_limit_and_record("local_auth", client_ip,
-           limit: 5,
-           window_seconds: 60
-         ) do
-      {:error, retry_after} ->
-        Logger.warning("Local auth rate limited for IP: #{client_ip}")
+    cond do
+      Lockouts.active_lockout(email) ->
+        Logger.warning("Local sign-in attempt against locked account: #{email}")
 
         conn
-        |> put_flash(
-          :error,
-          "Too many login attempts. Please try again in #{retry_after} seconds."
-        )
+        |> put_flash(:error, "Account temporarily locked. Try again later.")
         |> redirect(to: ~p"/auth/local")
 
-      :ok ->
-        actor = SystemActor.system(:auth_controller)
-
-        case User.authenticate(email, password, actor: actor) do
-          {:ok, user} ->
-            Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
-
-            record_successful_auth_async(conn, user, :password, hook_method: "local_password")
-
-            conn
-            |> put_flash(:info, "Signed in successfully.")
-            |> UserAuth.log_in_user(user)
-
-          {:error, _} ->
-            Logger.warning("Failed local admin login attempt for #{email} from IP: #{client_ip}")
+      true ->
+        case RateLimiter.check_rate_limit_and_record("local_auth", client_ip,
+               limit: 5,
+               window_seconds: 60
+             ) do
+          {:error, retry_after} ->
+            Logger.warning("Local auth rate limited for IP: #{client_ip}")
 
             conn
-            |> put_flash(:error, "Invalid email or password.")
+            |> put_flash(
+              :error,
+              "Too many login attempts. Please try again in #{retry_after} seconds."
+            )
             |> redirect(to: ~p"/auth/local")
+
+          :ok ->
+            actor = SystemActor.system(:auth_controller)
+
+            case User.authenticate(email, password, actor: actor) do
+              {:ok, user} ->
+                Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
+
+                record_successful_auth_async(conn, user, :password,
+                  hook_method: "local_password"
+                )
+
+                conn
+                |> put_flash(:info, "Signed in successfully.")
+                |> UserAuth.log_in_user(user)
+
+              {:error, _} ->
+                Logger.warning(
+                  "Failed local admin login attempt for #{email} from IP: #{client_ip}"
+                )
+
+                Lockouts.record_failed_login(email, %{
+                  ip: client_ip,
+                  route: conn.request_path,
+                  method: "local_password"
+                })
+
+                conn
+                |> put_flash(:error, "Invalid email or password.")
+                |> redirect(to: ~p"/auth/local")
+            end
         end
     end
   end

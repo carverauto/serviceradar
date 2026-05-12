@@ -117,9 +117,6 @@ If a specific route serves third-party content that violates CSP:
 - **Per-IP progressive backoff inside the limiter.** Cross-IP account
   lockout (section 7.4) is in place; the `[1m, 5m, 30m, 24h]`
   escalation inside the sliding-window math is a separate change.
-- **Retention Oban job.** `SecurityEvent.delete_older_than/1` exists;
-  wrapping it in an Oban worker on a schedule (default 90d) is
-  pending.
 - **`mix ash.codegen` workflow rework.** The migration file
   (`20260512040000_add_security_resources.exs`) was hand-written
   with `use Ecto.Migration` to match every other migration in
