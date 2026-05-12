@@ -44,7 +44,8 @@ config :serviceradar_core, Oban,
         ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
        {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
        {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
-       {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
+       {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+       {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance}
      ]}
   ],
   peer: Oban.Peers.Database
