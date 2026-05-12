@@ -16,13 +16,13 @@
 - [ ] 3.1 Route resource create/update/destroy notifications through the catalog dispatcher.
 - [x] 3.2 Resolve affected agents through catalog resolvers rather than hard-coded notifier logic.
 - [x] 3.3 Trigger the configured invalidation and connected-agent push behavior for each affected config type.
-- [ ] 3.4 Preserve current behavior for resources not yet migrated until all entries are covered.
+- [x] 3.4 Preserve current behavior for resources not yet migrated until all entries are covered.
 
 ## 4. Diagnostics
 
-- [ ] 4.1 Record or expose recent config-affecting resource changes with resource, config type, affected agent count, and resulting config version/hash.
-- [ ] 4.2 Redact secret values while showing secret presence/fingerprint where useful.
-- [ ] 4.3 Add web-ng or CLI diagnostics for why a saved resource did or did not trigger an agent config update.
+- [x] 4.1 Record or expose recent config-affecting resource changes with resource, config type, affected agent count, and resulting config version/hash.
+- [x] 4.2 Redact secret values while showing secret presence/fingerprint where useful.
+- [x] 4.3 Add web-ng or CLI diagnostics for why a saved resource did or did not trigger an agent config update.
 
 ## 5. Tests
 

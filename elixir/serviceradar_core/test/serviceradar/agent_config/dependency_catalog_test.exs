@@ -3,6 +3,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
 
   alias ServiceRadar.AgentConfig.DependencyCatalog
   alias ServiceRadar.AgentConfig.DependencyCatalog.Entry
+  alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.AgentConfig.DependencyDispatcher
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -24,6 +25,14 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
     @moduledoc false
     def invalidate(config_type) do
       send(self(), {:invalidate, config_type})
+      :ok
+    end
+  end
+
+  defmodule Diagnostics do
+    @moduledoc false
+    def record(diagnostic) do
+      send(self(), {:diagnostic, diagnostic})
       :ok
     end
   end
@@ -89,16 +98,24 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
         data: %{agent_id: "agent-a"}
       }
 
-      assert :ok =
+      assert {:ok, [diagnostic]} =
                DependencyDispatcher.dispatch(notification,
                  command_bus: CommandBus,
-                 config_server: ConfigServer
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
                )
 
       assert_received {:push_config, "agent-a"}
+      assert_received {:diagnostic, ^diagnostic}
       refute_received {:push_config, "agent-b"}
       refute_received {:push_config_for_type, :sync}
       refute_received {:invalidate, :sync}
+
+      assert diagnostic.config_type == :sync
+      assert diagnostic.action_type == :update
+      assert diagnostic.affected_agents == ["agent-a"]
+      assert diagnostic.affected_agent_count == 1
+      assert diagnostic.result == :ok
     end
   end
 
@@ -116,6 +133,25 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
 
       assert {:error, errors} = DependencyCatalog.validate([entry])
       assert Enum.any?(errors, &String.contains?(&1, "invalid affected-agent resolver"))
+    end
+  end
+
+  describe "dependency diagnostics recorder" do
+    test "records recent redacted diagnostics newest first" do
+      DependencyDiagnostics.clear()
+
+      assert :ok = DependencyDiagnostics.record(%{dependency_id: :older, secrets: %{}})
+
+      assert :ok =
+               DependencyDiagnostics.record(%{
+                 dependency_id: :newer,
+                 secrets: %{"api_secret" => true}
+               })
+
+      assert [
+               %{dependency_id: :newer, secrets: %{"api_secret" => true}},
+               %{dependency_id: :older}
+             ] = DependencyDiagnostics.recent(2)
     end
   end
 end

@@ -219,6 +219,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
     %{
       dependency_id: entry.id,
       resource: inspect(entry.resource),
+      resource_id: resource_value(record, [:id, "id"]),
+      resource_name: resource_value(record, [:name, "name", :uid, "uid"]),
       config_type: entry.config_type,
       generator: inspect(entry.generator),
       dispatch: entry.dispatch,
@@ -334,7 +336,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
     |> Enum.reject(fn %Entry{affected_agents: resolver} ->
       case resolver do
         {module, function, args} when is_atom(function) and is_list(args) ->
-          function_exported?(module, function, length(args) + 1)
+          Code.ensure_loaded?(module) and function_exported?(module, function, length(args) + 1)
 
         _ ->
           false
@@ -366,6 +368,10 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(value) when is_nil(value), do: false
   defp present?(_value), do: true
+
+  defp resource_value(record, keys) do
+    Enum.find_value(keys, &value(record, &1))
+  end
 
   defp value(record, key) when is_atom(key) do
     Map.get(record, key) || if(is_struct(record), do: Map.get(record, key))
