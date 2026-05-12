@@ -460,14 +460,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     end
   end
 
-  defp ssh_certificate_envelope(session, opts, opts_metadata, session_metadata) do
+  defp ssh_certificate_envelope(_session, opts, opts_metadata, _session_metadata) do
     opts
     |> Keyword.get(:ssh_certificate)
     |> fallback(map_value(opts_metadata, "ssh_certificate"))
     |> fallback(map_value(opts_metadata, "certificate_envelope"))
-    |> fallback(map_value(session_metadata, "ssh_certificate"))
-    |> fallback(map_value(session_metadata, "certificate_envelope"))
-    |> fallback(value(session, "ssh_certificate"))
     |> normalize_metadata()
   end
 
@@ -588,12 +585,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp normalize_target(_target), do: %{}
 
-  defp ssh_auth(session, opts_metadata, session_metadata, ssh_certificate) do
+  defp ssh_auth(_session, opts_metadata, _session_metadata, ssh_certificate) do
     session_auth =
       opts_metadata
       |> map_value("ssh")
-      |> fallback(map_value(session_metadata, "ssh"))
-      |> fallback(value(session, "ssh"))
       |> normalize_ssh_auth()
 
     certificate_auth =

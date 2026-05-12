@@ -127,6 +127,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           audit_writer: AuditWriterStub,
           audit_actor: audit_actor(),
           required_gateway_node: self(),
+          metadata: session_ssh_grant(),
           cols: 132,
           rows: 43}}
       )
@@ -606,14 +607,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute inspect(grant.audit) =~ "session-passphrase"
   end
 
-  test "merges issued SSH certificate envelopes with user-present session keys" do
-    session =
-      put_in(session_fixture(), [:metadata, "ssh"], %{
-        "username" => "stale-login",
-        "private_key" => "session-private-key",
-        "passphrase" => "session-passphrase",
-        "certificate" => "stale-certificate"
-      })
+  test "merges issued SSH certificate envelopes with in-memory user-present session keys" do
+    session = session_fixture()
 
     issued_certificate = %{
       session_id: "session-1",
@@ -632,6 +627,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
         audit_writer: AuditWriterStub,
         audit_actor: audit_actor(),
         required_gateway_node: self(),
+        metadata: %{
+          "ssh" => %{
+            "username" => "stale-login",
+            "private_key" => "session-private-key",
+            "passphrase" => "session-passphrase",
+            "certificate" => "stale-certificate"
+          }
+        },
         ssh_certificate: issued_certificate}}
     )
 
@@ -649,6 +652,34 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
                "certificate" => "issued-certificate"
              }
            } = Jason.decode!(frame.data)
+  end
+
+  test "does not use persisted session metadata as SSH credential material" do
+    session =
+      put_in(session_fixture(), [:metadata, "ssh"], %{
+        "username" => "persisted-login",
+        "private_key" => "persisted-private-key",
+        "password" => "persisted-password",
+        "certificate" => "persisted-certificate"
+      })
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    payload = Jason.decode!(frame.data)
+
+    refute Map.has_key?(payload, "ssh")
+    refute inspect(payload) =~ "persisted-private-key"
+    refute inspect(payload) =~ "persisted-password"
+    refute inspect(payload) =~ "persisted-certificate"
   end
 
   test "durable session target wins over caller metadata" do
@@ -755,13 +786,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       id: "session-1",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
-      metadata: %{
-        "target" => %{"host" => "10.0.0.10", "port" => 22},
-        "ssh" => %{
-          "username" => "root",
-          "private_key" => "session-key",
-          "certificate" => "session-cert"
-        }
+      metadata: %{"target" => %{"host" => "10.0.0.10", "port" => 22}}
+    }
+  end
+
+  defp session_ssh_grant do
+    %{
+      "ssh" => %{
+        "username" => "root",
+        "private_key" => "session-key",
+        "certificate" => "session-cert"
       }
     }
   end
