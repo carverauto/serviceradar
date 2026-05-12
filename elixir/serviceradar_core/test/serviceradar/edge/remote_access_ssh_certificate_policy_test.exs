@@ -161,6 +161,42 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicyTest do
              })
   end
 
+  test "rejects oversized certificate request fields" do
+    actor = %{id: "user-1", permissions: MapSet.new([@permission])}
+
+    base = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      public_key: "ssh-ed25519 AAAATEST",
+      target: %{device_uid: "device-1"},
+      allowed_principals: ["root"]
+    }
+
+    assert {:error, :invalid_size} =
+             RemoteAccessSSHCertificatePolicy.authorize(
+               actor,
+               Map.put(base, :public_key, String.duplicate("k", 16_385))
+             )
+
+    assert {:error, :invalid_size} =
+             RemoteAccessSSHCertificatePolicy.authorize(
+               actor,
+               Map.put(base, :target, %{host: String.duplicate("h", 513)})
+             )
+
+    assert {:error, :invalid_size} =
+             RemoteAccessSSHCertificatePolicy.authorize(
+               actor,
+               Map.put(base, :target, %{host: "router.example", port: 70_000})
+             )
+
+    assert {:error, :invalid_size} =
+             RemoteAccessSSHCertificatePolicy.authorize(
+               actor,
+               Map.put(base, :allowed_principals, Enum.map(1..17, &"user#{&1}"))
+             )
+  end
+
   test "catalog exposes SSH remote access as an admin-only permission" do
     assert @permission in Catalog.permission_keys()
     assert MapSet.member?(Catalog.permissions_for_role(:admin), @permission)

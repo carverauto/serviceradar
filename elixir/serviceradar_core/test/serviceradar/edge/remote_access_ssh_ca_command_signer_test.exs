@@ -109,6 +109,28 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
              )
   end
 
+  test "rejects oversized signer response fields" do
+    dir = tmp_dir()
+
+    command =
+      executable_script(
+        dir,
+        "signer-oversized-certificate",
+        """
+        #!/bin/sh
+        cat >/dev/null
+        printf '{"certificate":"'
+        head -c 65537 /dev/zero | tr '\\0' 'x'
+        printf '"}'
+        """
+      )
+
+    assert {:error, :ssh_certificate_signer_invalid_response} =
+             RemoteAccessSSHCACommandSigner.sign_user_certificate(request_fixture(),
+               command: command
+             )
+  end
+
   defp request_fixture do
     %{
       public_key: "ssh-ed25519 AAAATEST user@workstation",

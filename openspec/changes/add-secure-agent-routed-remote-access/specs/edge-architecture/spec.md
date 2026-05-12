@@ -171,6 +171,11 @@ Generic SSH remote access SHALL support an enterprise certificate flow where Ser
 - **THEN** ServiceRadar SHALL deny certificate issuance before the selected agent dials the target
 - **AND** the denial SHALL be audited without exposing credential material.
 
+#### Scenario: SSH certificate request and signer response fields are bounded
+- **WHEN** ServiceRadar authorizes or signs an SSH certificate request
+- **THEN** session, agent, public-key, target, principal, and signer-response certificate fields SHALL be bounded before issuance succeeds
+- **AND** oversized certificate request or signer response fields SHALL be rejected without invoking target access.
+
 ### Requirement: Enhanced host-event tracing
 The system SHALL support policy-controlled enhanced tracing for remote-access sessions on capable Linux agents.
 

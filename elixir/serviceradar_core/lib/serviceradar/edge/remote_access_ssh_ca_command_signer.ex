@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSigner do
   @default_command "serviceradar-sshca-signer"
   @request_file_env "SERVICERADAR_SSHCA_SIGN_REQUEST_FILE"
   @max_error_bytes 2_000
+  @max_certificate_bytes 65_536
+  @max_fingerprint_bytes 256
 
   @impl true
   def sign_user_certificate(request, opts) when is_map(request) do
@@ -125,23 +127,34 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSigner do
   end
 
   defp normalize_response(decoded, opts) do
-    with {:ok, certificate} <- required_string(decoded, "certificate"),
+    with {:ok, certificate} <- required_string(decoded, "certificate", @max_certificate_bytes),
+         {:ok, fingerprint} <-
+           optional_string(Map.get(decoded, "fingerprint"), @max_fingerprint_bytes),
          {:ok, expires_at} <- optional_datetime(Map.get(decoded, "expires_at")) do
       {:ok,
        %{
          certificate: certificate,
          expires_at: expires_at,
-         fingerprint: string_or_nil(Map.get(decoded, "fingerprint")),
+         fingerprint: fingerprint,
          serial: Map.get(decoded, "serial"),
          ca_key_id: option(opts, :ca_key_id)
        }}
     end
   end
 
-  defp required_string(map, key) do
+  defp required_string(map, key, max_bytes) do
     case string_or_nil(Map.get(map, key)) do
       nil -> {:error, :ssh_certificate_signer_invalid_response}
-      value -> {:ok, value}
+      value when byte_size(value) <= max_bytes -> {:ok, value}
+      _value -> {:error, :ssh_certificate_signer_invalid_response}
+    end
+  end
+
+  defp optional_string(value, max_bytes) do
+    case string_or_nil(value) do
+      nil -> {:ok, nil}
+      value when byte_size(value) <= max_bytes -> {:ok, value}
+      _value -> {:error, :ssh_certificate_signer_invalid_response}
     end
   end
 

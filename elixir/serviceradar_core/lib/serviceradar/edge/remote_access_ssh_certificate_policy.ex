@@ -14,6 +14,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   @default_ttl_seconds 3_600
   @max_ttl_seconds 8 * 3_600
   @principal_max_length 128
+  @max_principals 16
+  @id_max_bytes 128
+  @public_key_max_bytes 16_384
+  @target_value_max_bytes 512
 
   @type request :: %{
           session_id: String.t(),
@@ -38,10 +42,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
 
   def authorize(actor, attrs, opts) when is_map(attrs) do
     with :ok <- authorize_actor(actor),
-         {:ok, session_id} <- required_string(attrs, "session_id"),
-         {:ok, agent_id} <- required_string(attrs, "agent_id"),
+         {:ok, session_id} <- required_string(attrs, "session_id", @id_max_bytes),
+         {:ok, agent_id} <- required_string(attrs, "agent_id", @id_max_bytes),
          {:ok, protocol} <- resolve_protocol(attrs),
-         {:ok, public_key} <- required_string(attrs, "public_key"),
+         {:ok, public_key} <- required_string(attrs, "public_key", @public_key_max_bytes),
          {:ok, target} <- normalize_target(value(attrs, "target")),
          {:ok, principals} <- resolve_principals(attrs),
          {:ok, ttl_seconds} <- resolve_ttl(attrs, opts) do
@@ -91,10 +95,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
 
   defp authorize_actor(_actor), do: {:error, :unauthenticated}
 
-  defp required_string(attrs, key) do
+  defp required_string(attrs, key, max_bytes) do
     case string_value(value(attrs, key)) do
       nil -> {:error, required_error(key)}
-      value -> {:ok, value}
+      value when byte_size(value) <= max_bytes -> {:ok, value}
+      _value -> {:error, :invalid_size}
     end
   end
 
@@ -111,27 +116,41 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   end
 
   defp normalize_target(target) when is_map(target) do
-    target =
-      target
-      |> stringify_keys()
-      |> Enum.reduce(%{}, fn {key, value}, acc ->
-        case normalize_target_value(key, value) do
-          nil -> acc
-          normalized -> Map.put(acc, key, normalized)
-        end
-      end)
-
-    if target_ref(target) do
-      {:ok, target}
-    else
-      {:error, :target_required}
+    with {:ok, target} <-
+           target
+           |> stringify_keys()
+           |> Enum.reduce_while({:ok, %{}}, fn {key, value}, {:ok, acc} ->
+             case normalize_target_value(key, value) do
+               :invalid_size -> {:halt, {:error, :invalid_size}}
+               nil -> {:cont, {:ok, acc}}
+               normalized -> {:cont, {:ok, Map.put(acc, key, normalized)}}
+             end
+           end) do
+      if target_ref(target) do
+        {:ok, target}
+      else
+        {:error, :target_required}
+      end
     end
   end
 
   defp normalize_target(_target), do: {:error, :target_required}
 
-  defp normalize_target_value("port", value), do: positive_int(value)
-  defp normalize_target_value(_key, value), do: string_value(value)
+  defp normalize_target_value("port", value) do
+    case positive_int(value) do
+      port when is_integer(port) and port <= 65_535 -> port
+      nil -> nil
+      _port -> :invalid_size
+    end
+  end
+
+  defp normalize_target_value(_key, value) do
+    case string_value(value) do
+      nil -> nil
+      string when byte_size(string) <= @target_value_max_bytes -> string
+      _string -> :invalid_size
+    end
+  end
 
   defp resolve_principals(attrs) do
     allowed =
@@ -146,6 +165,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
     cond do
       allowed == [] ->
         {:error, :ssh_principal_policy_required}
+
+      length(allowed) > @max_principals or length(requested) > @max_principals ->
+        {:error, :invalid_size}
 
       requested == [] ->
         {:ok, allowed}
