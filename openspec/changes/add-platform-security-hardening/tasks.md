@@ -6,10 +6,10 @@
 - [x] 1.5 Cluster tests scaffolded under `:cluster` tag (excluded by default). Tests require a distributed test runner + DB-backed Application startup on peers; will be enabled in CI alongside other integration tests.
 
 ## 2. Rate-limit plug + shim
-- [ ] 2.1 Add `ServiceRadarWebNGWeb.Plugs.RateLimit` plug that resolves bucket by name, derives subject key (IP or {IP, actor_id}), and halts with 429 + `retry-after` / `x-ratelimit-*` headers on denial.
-- [ ] 2.2 Rewrite `ServiceRadarWebNGWeb.Auth.RateLimiter` to delegate `check_rate_limit/2` and `record_attempt/2` to the shared limiter; preserve public signature so existing call sites compile unchanged.
-- [ ] 2.3 Add named rate-limit pipelines in `router.ex` and wire them onto: `/api/cli-auth/*`, `/auth/oidc/callback`, `/auth/saml/callback`, `/auth/local`, `/api/dashboards/publish`, `/api/plugins/upload`, `/api/webhooks/*`.
-- [ ] 2.4 Plug tests: happy path, denial, retry-after header presence, header values, halts before controller.
+- [x] 2.1 Add `ServiceRadarWebNGWeb.Plugs.RateLimit` plug that resolves bucket by name, derives subject key (IP or {IP, actor_id}), and halts with 429 + `retry-after` / `x-ratelimit-*` headers on denial. Honors `x-forwarded-for` for the client IP.
+- [x] 2.2 Rewrite `ServiceRadarWebNGWeb.Auth.RateLimiter` as a thin delegate to `ServiceRadar.Security.RateLimiter`; preserve the public surface (`check_rate_limit/3`, `record_attempt/2`, `check_rate_limit_and_record/3`, `clear_rate_limit/2`) so existing call sites compile unchanged. Remove the now-redundant supervisor entry from `serviceradar_web_ng_web/runtime.ex`.
+- [x] 2.3 Add named rate-limit pipelines in `router.ex` (`:rate_limit_auth_local`, `:rate_limit_auth_oidc`, `:rate_limit_auth_saml`, `:rate_limit_cli_device_auth`, `:rate_limit_dashboard_publish`, `:rate_limit_plugin_upload`, `:rate_limit_webhook_ingest`, `:rate_limit_api_default`). Wiring onto specific routes is deferred to section 10 (rollout) and happens alongside removal of the inline `Auth.RateLimiter` calls in each controller, so a route never goes through both checks simultaneously.
+- [x] 2.4 Plug tests: happy path with informational headers, denial halt with 429 + `retry-after`, per-IP isolation, `x-forwarded-for` honoring, `:ip_and_actor` keying for password-spray defense, config-driven bucket lookup. (The web-ng test suite gates on DB reachability via `Mix.Tasks.Serviceradar.MaybeTest`; the new plug tests run automatically alongside the rest of the web-ng suite when CI brings the DB up.)
 
 ## 3. Security headers plug
 - [ ] 3.1 Add `ServiceRadarWebNGWeb.Plugs.SecurityHeaders`: CSP (initially report-only), HSTS (when scheme is https), Referrer-Policy, Permissions-Policy, X-Permitted-Cross-Domain-Policies.

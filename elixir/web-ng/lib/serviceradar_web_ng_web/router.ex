@@ -125,6 +125,44 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
   end
 
+  # Named rate-limit pipelines backed by ServiceRadar.Security.RateLimiter
+  # (cluster-aware ETS with :pg broadcast). Scopes opt in by piping through
+  # the appropriate pipeline; limits and windows come from
+  # `config :serviceradar_core, ServiceRadar.Security.RateLimiter`.
+  # Wiring onto specific routes happens alongside the per-controller
+  # migration that removes inline RateLimiter checks (rollout step).
+  pipeline :rate_limit_auth_local do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_local, subject: :ip)
+  end
+
+  pipeline :rate_limit_auth_oidc do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_oidc_callback, subject: :ip)
+  end
+
+  pipeline :rate_limit_auth_saml do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_saml_callback, subject: :ip)
+  end
+
+  pipeline :rate_limit_cli_device_auth do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :cli_device_auth, subject: :ip)
+  end
+
+  pipeline :rate_limit_dashboard_publish do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :dashboard_publish, subject: :ip_and_actor)
+  end
+
+  pipeline :rate_limit_plugin_upload do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :plugin_upload, subject: :ip_and_actor)
+  end
+
+  pipeline :rate_limit_webhook_ingest do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :webhook_ingest, subject: :ip)
+  end
+
+  pipeline :rate_limit_api_default do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :api_default, subject: :ip)
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     get("/health", HealthController, :ready)
     get("/health/live", HealthController, :live)
