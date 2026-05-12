@@ -2,6 +2,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
@@ -218,10 +220,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     uid = unique_uid("approval-required")
     insert_device!(uid, agent_id: "agent-approval", gateway_id: "gateway-approval")
 
+    credential_rule_id =
+      create_credential_rule!("approval-required", scope_value: "agent-approval").id
+
     assert {:error, :approval_required} =
              RemoteAccessSessions.request_open(
                uid,
-               %{protocol: :ssh, credential_custody_mode: :centrally_brokered},
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id
+               },
                actor: @system_actor,
                audit_writer: AuditSink
              )
@@ -232,12 +241,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:details][:failure_reason] == "approval_required"
   end
 
-  test "approval policy stores only the approval id after the gate passes" do
-    uid = unique_uid("approved")
-    insert_device!(uid, agent_id: "agent-approved", gateway_id: "gateway-approved")
+  test "centrally brokered SSH custody requires a credential rule id" do
+    uid = unique_uid("credential-rule-required")
+    insert_device!(uid, agent_id: "agent-rule-required", gateway_id: "gateway-rule-required")
     approval_id = Ecto.UUID.generate()
 
-    assert {:ok, %{session: session}} =
+    assert {:error, :credential_rule_required} =
              RemoteAccessSessions.request_open(
                uid,
                %{
@@ -250,12 +259,68 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                approval_checker: ApprovalApprover
              )
 
+    refute_receive {:approval_checked, _context}, 50
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "denied"
+    assert denial_audit[:details][:failure_reason] == "credential_rule_required"
+  end
+
+  test "centrally brokered SSH custody requires a scoped credential rule" do
+    uid = unique_uid("credential-rule-scope")
+    insert_device!(uid, agent_id: "agent-rule-scope", gateway_id: "gateway-rule-scope")
+    approval_id = Ecto.UUID.generate()
+    credential_rule_id = create_credential_rule!("scope-mismatch", scope_value: "other-agent").id
+
+    assert {:error, :credential_rule_scope_mismatch} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approval_id,
+                 credential_rule_id: credential_rule_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               approval_checker: ApprovalApprover
+             )
+
+    refute_receive {:approval_checked, _context}, 50
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "denied"
+    assert denial_audit[:details][:failure_reason] == "credential_rule_scope_mismatch"
+  end
+
+  test "approval policy stores only the approval id after the gate passes" do
+    uid = unique_uid("approved")
+    insert_device!(uid, agent_id: "agent-approved", gateway_id: "gateway-approved")
+    approval_id = Ecto.UUID.generate()
+    credential_rule_id = create_credential_rule!("approved", scope_value: "agent-approved").id
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approval_id,
+                 credential_rule_id: credential_rule_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               approval_checker: ApprovalApprover
+             )
+
     assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
     assert session.approval_id == approval_id
+    assert session.credential_rule_id == credential_rule_id
     assert session.rbac_decision == :allowed
 
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:details][:approval_id] == approval_id
+    assert create_audit[:details][:credential_rule_id] == credential_rule_id
     assert create_audit[:details][:rbac_decision] == "allowed"
   end
 
@@ -269,13 +334,19 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     approval_id = Ecto.UUID.generate()
 
+    credential_rule_id =
+      create_credential_rule!("approval-checker-required",
+        scope_value: "agent-checker-required"
+      ).id
+
     assert {:error, :approval_checker_required} =
              RemoteAccessSessions.request_open(
                uid,
                %{
                  protocol: :ssh,
                  credential_custody_mode: :centrally_brokered,
-                 approval_id: approval_id
+                 approval_id: approval_id,
+                 credential_rule_id: credential_rule_id
                },
                actor: @system_actor,
                audit_writer: AuditSink
@@ -292,13 +363,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     insert_device!(uid, agent_id: "agent-denied", gateway_id: "gateway-denied")
     approval_id = Ecto.UUID.generate()
 
+    credential_rule_id =
+      create_credential_rule!("approval-denied", scope_value: "agent-denied").id
+
     assert {:error, :approval_denied} =
              RemoteAccessSessions.request_open(
                uid,
                %{
                  protocol: :ssh,
                  credential_custody_mode: :centrally_brokered,
-                 approval_id: approval_id
+                 approval_id: approval_id,
+                 credential_rule_id: credential_rule_id
                },
                actor: @system_actor,
                audit_writer: AuditSink,
@@ -526,6 +601,40 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
         last_seen_time: now
       }
     ])
+  end
+
+  defp create_credential_rule!(suffix, attrs) do
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(:create, %{
+        name: "remote-access-ssh-#{suffix}-#{System.unique_integer([:positive])}",
+        provider: "ssh",
+        credential_kind: :ssh_private_key,
+        username: "root",
+        secret_payload: private_key_fixture(),
+        metadata: %{"auth_method" => "ssh_private_key"}
+      })
+      |> Ash.create(actor: @system_actor)
+
+    {:ok, rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(:create, %{
+        name: "remote-access-ssh-rule-#{System.unique_integer([:positive])}",
+        provider: "ssh",
+        auth_method: :ssh_private_key,
+        purpose: :console_access,
+        target_query: "in:devices",
+        enabled: Keyword.get(attrs, :enabled, true),
+        scope_type: Keyword.get(attrs, :scope_type, :agent),
+        scope_value: Keyword.fetch!(attrs, :scope_value),
+        secret_id: secret.id,
+        allowed_ports: [22],
+        ssh_host_key_policy: :known_hosts,
+        metadata: %{}
+      })
+      |> Ash.create(actor: @system_actor)
+
+    rule
   end
 
   defp unique_uid(label), do: "remote-access-#{label}-#{System.unique_integer([:positive])}"

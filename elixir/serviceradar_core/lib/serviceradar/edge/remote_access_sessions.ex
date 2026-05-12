@@ -10,6 +10,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
@@ -261,6 +262,16 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            normalize_custody_mode(value(request, :credential_custody_mode), protocol),
          {:ok, agent_id} <- resolve_agent_id(device, request),
          {:ok, target_host} <- resolve_target_host(device, request),
+         credential_rule_id = blank_to_nil(value(request, :credential_rule_id)),
+         :ok <-
+           ensure_central_credential_rule(
+             custody_mode,
+             credential_rule_id,
+             protocol,
+             agent_id,
+             request,
+             device
+           ),
          {:ok, approval} <- authorize_approval(request, protocol, custody_mode, opts),
          metadata = session_metadata(device, request, protocol, custody_mode),
          :ok <- ensure_ssh_certificate_principal_policy(protocol, custody_mode, metadata),
@@ -287,7 +298,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
             gateway_id:
               value(request, :gateway_id) || value_string(device, [:gateway_id, "gateway_id"]),
             credential_custody_mode: custody_mode,
-            credential_rule_id: blank_to_nil(value(request, :credential_rule_id)),
+            credential_rule_id: credential_rule_id,
             requested_by: requested_by(opts),
             approval_id: approval.approval_id,
             rbac_decision: approval.rbac_decision,
@@ -306,6 +317,92 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       {:ok, attrs}
     end
   end
+
+  defp ensure_central_credential_rule(
+         :centrally_brokered,
+         nil,
+         _protocol,
+         _agent_id,
+         _request,
+         _device
+       ),
+       do: {:error, :credential_rule_required}
+
+  defp ensure_central_credential_rule(
+         :centrally_brokered,
+         credential_rule_id,
+         protocol,
+         agent_id,
+         request,
+         device
+       ) do
+    with {:ok, %NetworkCredentialRule{} = rule} <-
+           NetworkCredentialRule.get_by_id(credential_rule_id,
+             actor: SystemActor.system(:remote_access_credential_rule)
+           ),
+         :ok <- ensure_rule_enabled(rule),
+         :ok <- ensure_rule_protocol(rule, protocol),
+         :ok <- ensure_rule_purpose(rule),
+         :ok <- ensure_rule_scope(rule, agent_id, request, device) do
+      :ok
+    else
+      {:ok, nil} -> {:error, :credential_rule_not_found}
+      {:error, %NotFound{}} -> {:error, :credential_rule_not_found}
+      {:error, error} -> {:error, error}
+      error -> error
+    end
+  end
+
+  defp ensure_central_credential_rule(
+         _custody_mode,
+         _credential_rule_id,
+         _protocol,
+         _agent_id,
+         _request,
+         _device
+       ),
+       do: :ok
+
+  defp ensure_rule_enabled(%NetworkCredentialRule{enabled: true}), do: :ok
+  defp ensure_rule_enabled(_rule), do: {:error, :credential_rule_disabled}
+
+  defp ensure_rule_protocol(%NetworkCredentialRule{provider: provider}, protocol) do
+    if provider == Atom.to_string(protocol),
+      do: :ok,
+      else: {:error, :credential_rule_protocol_mismatch}
+  end
+
+  defp ensure_rule_purpose(%NetworkCredentialRule{purpose: purpose})
+       when purpose in [:console_access, :generic], do: :ok
+
+  defp ensure_rule_purpose(_rule), do: {:error, :credential_rule_purpose_mismatch}
+
+  defp ensure_rule_scope(
+         %NetworkCredentialRule{scope_type: :agent, scope_value: scope_value},
+         agent_id,
+         _request,
+         _device
+       ) do
+    if scope_value == agent_id,
+      do: :ok,
+      else: {:error, :credential_rule_scope_mismatch}
+  end
+
+  defp ensure_rule_scope(
+         %NetworkCredentialRule{scope_type: :gateway, scope_value: scope_value},
+         _agent_id,
+         request,
+         device
+       ) do
+    gateway_id = value(request, :gateway_id) || value_string(device, [:gateway_id, "gateway_id"])
+
+    if scope_value == gateway_id,
+      do: :ok,
+      else: {:error, :credential_rule_scope_mismatch}
+  end
+
+  defp ensure_rule_scope(_rule, _agent_id, _request, _device),
+    do: {:error, :credential_rule_scope_mismatch}
 
   defp normalize_request(request) when is_map(request), do: {:ok, request}
   defp normalize_request(_request), do: {:error, :invalid_remote_access_request}

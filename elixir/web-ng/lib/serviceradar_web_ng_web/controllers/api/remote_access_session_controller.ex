@@ -94,7 +94,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
              :unsupported_remote_access_adapter,
              :unsupported_remote_access_target,
              :unsupported_credential_custody_mode,
-             :ssh_principal_policy_required
+             :ssh_principal_policy_required,
+             :credential_rule_required,
+             :credential_rule_not_found,
+             :credential_rule_disabled,
+             :credential_rule_protocol_mismatch,
+             :credential_rule_purpose_mismatch,
+             :credential_rule_scope_mismatch
            ] ->
         conn
         |> put_status(:unprocessable_entity)
@@ -526,6 +532,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   defp format_reason(:ssh_principal_policy_required),
     do: "SSH certificate access requires trusted principal policy for the target"
+
+  defp format_reason(:credential_rule_required), do: "centrally brokered remote access requires a trusted credential rule"
+
+  defp format_reason(:credential_rule_not_found), do: "trusted credential rule was not found"
+  defp format_reason(:credential_rule_disabled), do: "trusted credential rule is disabled"
+  defp format_reason(:credential_rule_protocol_mismatch), do: "trusted credential rule does not match the protocol"
+  defp format_reason(:credential_rule_purpose_mismatch), do: "trusted credential rule is not valid for remote access"
+  defp format_reason(:credential_rule_scope_mismatch), do: "trusted credential rule does not match the selected route"
 
   defp format_reason(reason), do: Atom.to_string(reason)
 
