@@ -554,37 +554,59 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   ## Authentication routes
-  # Password login, logout, and password reset
+  # Password login, logout, and password reset. Credential-bearing
+  # POSTs are split into their own sub-scopes so they get the
+  # appropriate rate-limit + lockout pipelines layered on top of
+  # `:browser`. The form-render GETs and sign-out / registration
+  # routes stay in the unmetered `:browser` scope.
 
   scope "/auth", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
-    # Password login
-    post("/sign-in", AuthController, :create)
-
     # Sign out
     delete("/sign-out", AuthController, :delete)
 
-    # Password reset
+    # Password reset (form renders, no credential check)
     get("/password-reset", AuthController, :new_reset_request)
-    post("/password-reset", AuthController, :request_reset)
     get("/password-reset/:token", AuthController, :show_reset_form)
-    put("/password-reset/:token", AuthController, :reset_password)
 
     # Registration (if enabled)
     post("/register", AuthController, :register)
 
-    # OIDC SSO
+    # SSO initiation + non-callback metadata
     get("/oidc", OIDCController, :request)
-    get("/oidc/callback", OIDCController, :callback)
-
-    # Local admin backdoor (for use when proxy/SSO auth is primary)
-    post("/local/sign-in", AuthController, :local_sign_in)
-
-    # SAML SSO
     get("/saml", SAMLController, :request)
-    post("/saml/consume", SAMLController, :consume)
     get("/saml/metadata", SAMLController, :metadata)
+  end
+
+  # Local password sign-in — rate limited + lockout-gated.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_local])
+
+    post("/sign-in", AuthController, :create)
+    post("/local/sign-in", AuthController, :local_sign_in)
+  end
+
+  # Password reset submissions — rate limited, no lockout check.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_password_reset])
+
+    post("/password-reset", AuthController, :request_reset)
+    put("/password-reset/:token", AuthController, :reset_password)
+  end
+
+  # OIDC callback — rate limited.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_oidc])
+
+    get("/oidc/callback", OIDCController, :callback)
+  end
+
+  # SAML callback — rate limited.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_saml])
+
+    post("/saml/consume", SAMLController, :consume)
   end
 
   ## Authenticated routes

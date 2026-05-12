@@ -8,10 +8,10 @@
 - [x] 2.2 Added `:rate_limit_password_reset`, `:rate_limit_oauth_password`, and `:rate_limit_oauth_client_credentials` pipelines in `router.ex`. Updated `:rate_limit_auth_local`, `:rate_limit_auth_oidc`, `:rate_limit_auth_saml`, and `:rate_limit_password_reset` to set `response_mode: :auto` with the appropriate `html_redirect_to`. Inlined `LockoutCheck` (actor_id_param `"email"`) into `:rate_limit_auth_local`, and `LockoutCheck` (actor_id_param `"username"`, JSON mode) into `:rate_limit_oauth_password`.
 
 ## 3. auth_controller migration (HTML)
-- [ ] 3.1 Wire `:rate_limit_auth_local` and the `LockoutCheck` plug (`actor_id_param: "email"`) onto `POST /auth/sign-in` and `POST /auth/local` route scopes.
-- [ ] 3.2 Wire `:rate_limit_password_reset` onto the password-reset routes.
-- [ ] 3.3 Remove the inline `RateLimiter.check_rate_limit_and_record/3` calls from `auth_controller.ex`'s `create/2`, `local_sign_in/2`, and `request_reset/2`. Remove the pre-auth `Lockouts.active_lockout/1` checks (now handled by `LockoutCheck`). Keep the `Lockouts.record_failed_login/2` calls on credential mismatch.
-- [ ] 3.4 Smoke-test: HTML sign-in, rate-limit hit redirects with flash; lockout halts at pipeline level.
+- [x] 3.1 Split the `/auth` scope: `POST /auth/sign-in` and `POST /auth/local/sign-in` moved into a sub-scope piped through `[:browser, :rate_limit_auth_local]`. The pipeline plug already inlines `LockoutCheck` on `"email"`.
+- [x] 3.2 Password-reset submissions (`POST /auth/password-reset`, `PUT /auth/password-reset/:token`) moved into a sub-scope piped through `[:browser, :rate_limit_password_reset]`. Form-render GETs (`new_reset_request`, `show_reset_form`) stay unmetered.
+- [x] 3.3 Removed inline `RateLimiter.check_rate_limit_and_record/3` calls and pre-auth `Lockouts.active_lockout/1` checks from `auth_controller.ex`'s `create/2`, `local_sign_in/2`, and `request_reset/2`. `Lockouts.record_failed_login/2` remains on credential-mismatch branches. Dropped now-unused `Auth.RateLimiter` alias and the four `@password_*` module attributes.
+- [ ] 3.4 Smoke-test HTML sign-in end-to-end against a running stack — defer until merge / staging deploy. Plug unit tests for the response-mode branches cover the request-shape side.
 
 ## 4. oauth_controller migration (JSON)
 - [ ] 4.1 Wire `:rate_limit_oauth_password` + `LockoutCheck` (`actor_id_param: "username"`, `response_mode: :json`) onto the `POST /oauth/token` route's password-grant branch. Wire `:rate_limit_oauth_client_credentials` onto the client_credentials branch.
