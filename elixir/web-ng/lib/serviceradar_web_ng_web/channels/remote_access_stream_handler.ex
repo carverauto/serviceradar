@@ -20,6 +20,27 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_terminal_cols 500
   @min_terminal_rows 1
   @max_terminal_rows 200
+  @max_username_bytes 128
+  @max_private_key_bytes 65_536
+  @max_public_key_bytes 16_384
+  @max_password_bytes 4_096
+  @max_passphrase_bytes 4_096
+  @max_principal_bytes 128
+  @max_requested_principals 16
+  @credential_controlled_keys ~w(
+    agent_id
+    allowed_principals
+    claims
+    credential_mode
+    gateway_id
+    idp_claims
+    principal_mappings
+    session_id
+    ssh_allowed_principals
+    ssh_principal_mappings
+    target
+    ttl_seconds
+  )
 
   @impl true
   def init(options) do
@@ -191,9 +212,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
     case {custody_mode(session), credential} do
       {"ssh_certificate", credential} when map_size(credential) > 0 ->
-        attrs = certificate_request_attrs(credential, session)
-
-        with {:ok, grant} <-
+        with :ok <- reject_controlled_credential_fields(credential),
+             {:ok, credential} <- normalize_certificate_credential(credential),
+             attrs = certificate_request_attrs(credential, session),
+             {:ok, grant} <-
                RemoteAccessSSHSessionCredentials.build_identity_certificate_grant(
                  scope_actor(scope),
                  attrs,
@@ -206,13 +228,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         {:error, :session_credential_required}
 
       {"user_present", credential} when map_size(credential) > 0 ->
-        attrs =
-          credential
-          |> Map.put("session_id", session.id)
-          |> Map.put("agent_id", session.agent_id)
-          |> Map.put("target", session_target(session))
-
-        with {:ok, grant} <- RemoteAccessSSHSessionCredentials.build_user_present_grant(attrs) do
+        with :ok <- reject_controlled_credential_fields(credential),
+             {:ok, credential} <- normalize_user_present_credential(credential),
+             attrs =
+               credential
+               |> Map.put("session_id", session.id)
+               |> Map.put("agent_id", session.agent_id)
+               |> Map.put("target", session_target(session)),
+             {:ok, grant} <- RemoteAccessSSHSessionCredentials.build_user_present_grant(attrs) do
           {:ok, grant.broker_opts}
         end
 
@@ -225,6 +248,116 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {_mode, _credential} ->
         {:ok, []}
     end
+  end
+
+  defp normalize_certificate_credential(credential) do
+    with {:ok, private_key} <- bounded_string(credential, "private_key", @max_private_key_bytes),
+         {:ok, public_key} <- bounded_string(credential, "public_key", @max_public_key_bytes),
+         {:ok, passphrase} <- optional_bounded_string(credential, "passphrase", @max_passphrase_bytes),
+         {:ok, username} <- optional_bounded_string(credential, "username", @max_username_bytes),
+         {:ok, requested_principals} <- normalize_requested_principals(credential) do
+      {:ok,
+       drop_nil_values(%{
+         "private_key" => private_key,
+         "public_key" => public_key,
+         "passphrase" => passphrase,
+         "username" => username,
+         "requested_principals" => requested_principals
+       })}
+    end
+  end
+
+  defp normalize_user_present_credential(credential) do
+    with {:ok, username} <- bounded_string(credential, "username", @max_username_bytes),
+         {:ok, private_key} <- optional_bounded_string(credential, "private_key", @max_private_key_bytes),
+         {:ok, password} <- optional_bounded_string(credential, "password", @max_password_bytes),
+         {:ok, passphrase} <- optional_bounded_string(credential, "passphrase", @max_passphrase_bytes),
+         :ok <- require_one_session_secret(private_key, password) do
+      {:ok,
+       drop_nil_values(%{
+         "username" => username,
+         "private_key" => private_key,
+         "password" => password,
+         "passphrase" => passphrase
+       })}
+    end
+  end
+
+  defp reject_controlled_credential_fields(credential) do
+    if Enum.any?(@credential_controlled_keys, &credential_key_present?(credential, &1)) do
+      {:error, :credential_policy_denied}
+    else
+      :ok
+    end
+  end
+
+  defp credential_key_present?(credential, key) do
+    Map.has_key?(credential, key) or
+      case safe_existing_atom(key) do
+        nil -> false
+        atom_key -> Map.has_key?(credential, atom_key)
+      end
+  end
+
+  defp bounded_string(credential, key, max_bytes) do
+    case optional_bounded_string(credential, key, max_bytes) do
+      {:ok, nil} -> {:error, :session_credential_required}
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp optional_bounded_string(credential, key, max_bytes) do
+    case string_value(credential, key) do
+      nil ->
+        {:ok, nil}
+
+      value ->
+        if byte_size(value) <= max_bytes do
+          {:ok, value}
+        else
+          {:error, :credential_policy_denied}
+        end
+    end
+  end
+
+  defp normalize_requested_principals(credential) do
+    principals =
+      list_value(credential, "requested_principals") ||
+        list_value(credential, "principals") ||
+        username_as_principal(credential) ||
+        []
+
+    principals =
+      principals
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    cond do
+      length(principals) > @max_requested_principals ->
+        {:error, :credential_policy_denied}
+
+      Enum.any?(principals, &(byte_size(&1) > @max_principal_bytes)) ->
+        {:error, :credential_policy_denied}
+
+      true ->
+        {:ok, principals}
+    end
+  end
+
+  defp require_one_session_secret(private_key, password) do
+    if is_nil(private_key) and is_nil(password) do
+      {:error, :session_credential_required}
+    else
+      :ok
+    end
+  end
+
+  defp drop_nil_values(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == [] end)
+    |> Map.new()
   end
 
   defp certificate_request_attrs(credential, session) do

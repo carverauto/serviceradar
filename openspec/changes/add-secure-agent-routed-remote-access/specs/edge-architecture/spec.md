@@ -101,6 +101,11 @@ The system SHALL record audit events for remote-access session lifecycle and pol
 - **THEN** the public API SHALL remove those fields before requesting a session
 - **AND** only non-sensitive metadata SHALL be forwarded to the session lifecycle.
 
+#### Scenario: Attach credential envelope is bounded
+- **WHEN** the browser attach frame supplies SSH credential material
+- **THEN** the browser-facing boundary SHALL reject oversized credential fields before starting the broker
+- **AND** client-supplied identity claims, principal mappings, target routing fields, or credential-policy fields SHALL NOT be accepted from the credential envelope.
+
 #### Scenario: Session recording is policy controlled
 - **GIVEN** session recording is disabled by policy
 - **WHEN** operators use a remote shell

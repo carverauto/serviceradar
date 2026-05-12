@@ -222,11 +222,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
           public_key: "ssh-ed25519 AAAATEST user@workstation",
           private_key: "session-private-key",
           passphrase: "session-passphrase",
-          requested_principals: ["ubuntu"],
-          claims: %{"groups" => ["browser-admins"]},
-          principal_mappings: [
-            %{"source" => "groups", "value" => "browser-admins", "principals" => ["root"]}
-          ]
+          requested_principals: ["ubuntu"]
         }
       })
 
@@ -255,6 +251,41 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, attached)
   end
 
+  test "ssh certificate attach rejects browser-supplied identity policy fields" do
+    {:ok, state} =
+      init_state("session-cert-policy-fields",
+        credential_custody_mode: :ssh_certificate,
+        identity_claims: %{"groups" => ["linux-admins"]},
+        session_metadata: %{
+          "ssh_principal_mappings" => [
+            %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+          ]
+        }
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-cert-policy-fields",
+        credential: %{
+          public_key: "ssh-ed25519 AAAATEST user@workstation",
+          private_key: "session-private-key",
+          requested_principals: ["ubuntu"],
+          claims: %{"groups" => ["browser-admins"]}
+        }
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
+             Jason.decode!(response)
+
+    assert_receive {:fail_session, "session-cert-policy-fields", :credential_policy_denied, _opts}
+    refute response =~ "browser-admins"
+  end
+
   test "ssh certificate attach requires a session key" do
     {:ok, state} =
       init_state("session-cert-missing-key", credential_custody_mode: :ssh_certificate)
@@ -271,6 +302,30 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
 
     assert %{"type" => "error", "message" => "A per-session SSH credential is required."} =
              Jason.decode!(response)
+  end
+
+  test "user-present attach rejects oversized credential fields" do
+    {:ok, state} = init_state("session-user-present-large-key", credential_custody_mode: :user_present)
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-user-present-large-key",
+        credential: %{
+          username: "alice",
+          private_key: String.duplicate("k", 65_537)
+        }
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
+             Jason.decode!(response)
+
+    assert_receive {:fail_session, "session-user-present-large-key", :credential_policy_denied, _opts}
+    refute_receive {:broker_started, "session-user-present-large-key", _opts}
   end
 
   test "attach rejects oversized terminal dimensions before broker start" do
