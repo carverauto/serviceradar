@@ -49,7 +49,7 @@ defmodule ServiceRadar.Security.SecurityEvent do
   end
 
   actions do
-    defaults [:read]
+    defaults [:read, :destroy]
 
     create :create do
       primary? true
@@ -82,7 +82,10 @@ defmodule ServiceRadar.Security.SecurityEvent do
       argument :cutoff, :utc_datetime_usec, allow_nil?: false
 
       run fn input, _ctx ->
-        ServiceRadar.Security.SecurityEvent.Retention.run(input.arguments.cutoff)
+        ServiceRadar.Security.SecurityEvent.Retention.run(
+          input.arguments.cutoff,
+          actor: input.context[:private][:actor]
+        )
       end
     end
   end
