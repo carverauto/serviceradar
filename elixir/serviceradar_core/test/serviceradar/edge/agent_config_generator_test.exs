@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -82,6 +83,44 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert check.interval_sec == 60
       assert check.timeout_sec == 10
       assert check.enabled == true
+    end
+
+    test "includes armis credentials in config_json served to agents", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+      source_name = "Armis Agent Config #{unique_id}"
+
+      {:ok, _source} =
+        IntegrationSource
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: source_name,
+            source_type: :armis,
+            endpoint: "https://armis.example.test",
+            agent_id: agent_uid,
+            credentials: %{
+              api_key: "agent-config-api-key",
+              api_secret: "agent-config-api-secret"
+            }
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      credentials =
+        config.config_json
+        |> Jason.decode!()
+        |> get_in(["sources", source_name, "credentials"])
+
+      assert credentials["api_key"] == "agent-config-api-key"
+      assert credentials["api_secret"] == "agent-config-api-secret"
+      assert credentials["secret_key"] == "agent-config-api-secret"
     end
 
     test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do

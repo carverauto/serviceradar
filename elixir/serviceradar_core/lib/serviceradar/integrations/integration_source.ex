@@ -112,6 +112,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :credentials, :map do
         description "Credentials map (will be encrypted)"
         allow_nil? true
+        public? true
       end
 
       change fn changeset, _context ->
@@ -136,6 +137,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :credentials, :map do
         description "New credentials (will be encrypted)"
         allow_nil? true
+        public? true
       end
 
       change fn changeset, _context ->
@@ -571,6 +573,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
           _ -> nil
         end
       end)
+    end do
+      load [:credentials_encrypted]
     end
 
     calculate :poll_interval_display,

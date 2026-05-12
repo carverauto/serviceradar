@@ -390,12 +390,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   def handle_event("update_source", %{"form" => form_params} = event_params, socket) do
     actor = get_actor(socket)
+    existing_credentials = source_credentials(socket.assigns.selected_source)
 
     # Handle credentials JSON if provided
     params =
       form_params
       |> merge_auxiliary_form_params(event_params)
-      |> parse_credentials_json()
+      |> parse_credentials_json(existing_credentials)
 
     # Add queries from form_queries assign
     queries = build_queries_for_submit(socket.assigns.form_queries)
@@ -1078,6 +1079,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             form={@form}
             source_type={@form[:source_type].value || :armis}
             mode={:create}
+            credentials={%{}}
           />
 
           <.armis_northbound_fields
@@ -1275,6 +1277,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             form={@form}
             source_type={(@source && @source.source_type) || :armis}
             mode={:edit}
+            credentials={source_credentials(@source)}
           />
 
           <.armis_northbound_fields
@@ -1420,6 +1423,36 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Source ID</div>
             <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.id}</code>
           </div>
+
+          <%= if armis_source?(@source) do %>
+            <div class="divider">Credentials</div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">API Key</div>
+                <code class="mt-1 block rounded bg-base-200 p-2 font-mono text-sm">
+                  {credential_display_value(source_credentials(@source), "api_key")}
+                </code>
+              </div>
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">API Secret</div>
+                <div class="mt-2">
+                  <.ui_badge
+                    variant={
+                      if credential_present?(source_credentials(@source), ["api_secret", "secret_key"]),
+                         do: "success",
+                         else: "ghost"
+                    }
+                    size="xs"
+                  >
+                    {if credential_present?(source_credentials(@source), ["api_secret", "secret_key"]),
+                        do: "Saved",
+                        else: "Not saved"}
+                  </.ui_badge>
+                </div>
+              </div>
+            </div>
+          <% end %>
 
           <%= if @source.partition do %>
             <div>
@@ -1855,7 +1888,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp maybe_filter_enabled(query, _), do: query
 
   defp get_source(id, actor) do
-    IntegrationSource.get_by_id(id, actor: actor)
+    query =
+      IntegrationSource
+      |> Ash.Query.for_read(:by_id, %{id: id})
+      |> Ash.Query.load([:credentials_encrypted, :credentials])
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, nil} -> {:error, :not_found}
+      result -> result
+    end
   end
 
   defp list_recent_update_runs(source_id, actor) do
@@ -1935,11 +1976,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> Map.merge(form_params)
   end
 
-  defp parse_credentials_json(params) do
+  defp parse_credentials_json(params, existing_credentials \\ %{}) do
+    existing_credentials = stringify_credentials(existing_credentials)
+
     cond do
       # Armis: api_key + api_secret
       has_cred_field?(params, "cred_api_key") or has_cred_field?(params, "cred_api_secret") ->
-        creds = %{}
+        creds = existing_credentials
         creds = maybe_add_cred(creds, "api_key", params["cred_api_key"])
         creds = maybe_add_cred(creds, "api_secret", params["cred_api_secret"])
 
@@ -1991,6 +2034,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp maybe_add_cred(creds, _key, nil), do: creds
   defp maybe_add_cred(creds, _key, ""), do: creds
   defp maybe_add_cred(creds, key, value), do: Map.put(creds, key, value)
+
+  defp stringify_credentials(credentials) when is_map(credentials) do
+    Map.new(credentials, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp stringify_credentials(_), do: %{}
 
   defp parse_json_field(params, json_key, target_key) do
     case Map.get(params, json_key) do
@@ -2100,8 +2149,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   attr(:form, :any, required: true)
   attr(:source_type, :atom, required: true)
   attr(:mode, :atom, default: :create)
+  attr(:credentials, :map, default: %{})
 
   defp dynamic_credentials_fields(assigns) do
+    assigns =
+      assigns
+      |> assign(:api_key_value, credential_value(assigns.credentials, "api_key"))
+      |> assign(
+        :api_secret_present?,
+        credential_present?(assigns.credentials, ["api_secret", "secret_key"])
+      )
+
     ~H"""
     <%= case @source_type do %>
       <% :armis -> %>
@@ -2113,8 +2171,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <input
               type="text"
               name="cred_api_key"
+              value={@api_key_value}
               class="input input-bordered w-full font-mono text-sm"
               placeholder="Enter your Armis API key"
+              autocomplete="off"
             />
           </div>
           <div class="form-control">
@@ -2126,11 +2186,29 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               name="cred_api_secret"
               class="input input-bordered w-full font-mono text-sm"
               placeholder={
-                if @mode == :edit,
-                  do: "Leave empty to keep existing",
-                  else: "Enter your Armis API secret"
+                cond do
+                  @mode == :edit and @api_secret_present? ->
+                    "Saved secret; leave empty to keep existing"
+
+                  @mode == :edit ->
+                    "Enter your Armis API secret"
+
+                  true ->
+                    "Enter your Armis API secret"
+                end
               }
+              autocomplete="off"
             />
+            <%= if @mode == :edit do %>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  API secret:
+                  <span class={["badge badge-xs", @api_secret_present? && "badge-success"]}>
+                    {if @api_secret_present?, do: "saved", else: "not saved"}
+                  </span>
+                </span>
+              </label>
+            <% end %>
           </div>
           <label class="label">
             <span class="label-text-alt text-base-content/60">
@@ -2317,4 +2395,44 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})
+
+  defp source_credentials(%{credentials: credentials}) when is_map(credentials), do: credentials
+  defp source_credentials(_), do: %{}
+
+  defp credential_value(credentials, key) when is_map(credentials) do
+    value = Map.get(credentials, key) || Map.get(credentials, credential_atom_key(key))
+
+    case value do
+      value when is_binary(value) -> value
+      nil -> nil
+      value -> to_string(value)
+    end
+  end
+
+  defp credential_value(_, _), do: nil
+
+  defp credential_atom_key("api_key"), do: :api_key
+  defp credential_atom_key("api_secret"), do: :api_secret
+  defp credential_atom_key("secret_key"), do: :secret_key
+  defp credential_atom_key(_), do: nil
+
+  defp credential_display_value(credentials, key) do
+    case credential_value(credentials, key) do
+      nil -> "-"
+      "" -> "-"
+      value -> value
+    end
+  end
+
+  defp credential_present?(credentials, keys) when is_map(credentials) and is_list(keys) do
+    Enum.any?(keys, fn key ->
+      case credential_value(credentials, key) do
+        nil -> false
+        "" -> false
+        value -> String.trim(value) != ""
+      end
+    end)
+  end
+
+  defp credential_present?(_, _), do: false
 end
