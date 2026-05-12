@@ -383,7 +383,7 @@ func proxmoxConsoleSSHSigner(privateKey, passphrase string) (ssh.Signer, error) 
 func proxmoxConsoleSSHHostKeyCallback(policy string) (ssh.HostKeyCallback, error) {
 	switch strings.TrimSpace(policy) {
 	case "skip_verify":
-		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for agent-local SSH console config
+		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for temporary console testing
 	case "trust_on_first_use", "known_hosts", "":
 		return nil, errProxmoxSSHHostKeyVerificationStoreUnavailable
 	default:

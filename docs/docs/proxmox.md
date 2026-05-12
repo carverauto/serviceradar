@@ -27,33 +27,11 @@ This is the default mode for centrally managed deployments.
 
 Credential-rule assignments deliver a broker grant to the edge path. The central plugin assignment does not store or display a raw Proxmox token, and the Wasm plugin should not receive decrypted credential material as a normal plugin parameter.
 
-### Agent-Local Credentials
+### Credential Custody
 
-Use this mode for self-hosted or high-sensitivity customers that do not want Proxmox credentials stored in the ServiceRadar control plane.
+ServiceRadar does not support reusable agent-local Proxmox console credential files. SSH console credentials must come from one of the approved session-scoped custody paths: centrally brokered encrypted credential rules for legacy PVE host SSH, user-present credentials for generic SSH, or ServiceRadar-issued short-lived SSH certificates for the enterprise remote-access path.
 
-In this mode, the token is configured only on the edge agent host or in agent-local plugin configuration. Keep the token out of central plugin assignments, issue tracking, logs, and screenshots. This mode trades central rotation and audit controls for reduced SaaS/control-plane credential exposure.
-
-Agent-local mode should still use a narrow target set. Do not pair a broad scan range with a powerful local token.
-
-For SSH-backed PVE host consoles, the agent can load a local credential file configured with `proxmox_console_credentials_file` in `agent.json`, the `SERVICERADAR_PROXMOX_CONSOLE_CREDENTIALS_FILE` environment variable, or the default `proxmox-console-credentials.json` next to the agent config when that file exists. The file must be readable only by the agent user, for example mode `0600`.
-
-Example:
-
-```json
-{
-  "version": 1,
-  "credentials": [
-    {
-      "auth_method": "ssh_private_key",
-      "username": "serviceradar-console",
-      "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
-      "passphrase": "optional-passphrase"
-    }
-  ]
-}
-```
-
-The central console assignment still carries only the credential broker grant and target metadata. The Wasm console plugin delegates SSH to the agent host connector, and only the agent host process reads this local file.
+Avoid placing Proxmox API tokens, SSH private keys, passwords, or passphrases in agent JSON, local plugin assignments, issue tracking, logs, or screenshots. Central assignments carry broker grants and target metadata; decrypted reusable secrets are resolved only inside the approved broker flow and only for the active session.
 
 ## Proxmox API Token Format
 
@@ -221,40 +199,6 @@ Use this mode when storing the console key in the ServiceRadar control plane is 
 
 Console rules and inventory rules should not be reused. A read-only PVE API token should stay attached to an `inventory_enrichment` rule. SSH shell access should use a separate `console_access` rule and separate secret.
 
-### Agent-Local Console Credentials
-
-Use this mode when the SSH private key must remain on the edge host and must not be stored in the ServiceRadar database.
-
-Create an agent-local credential file and point the agent at it with `proxmox_console_credentials_file` in `agent.json`, `SERVICERADAR_PROXMOX_CONSOLE_CREDENTIALS_FILE`, or the default `proxmox-console-credentials.json` next to the agent config.
-
-Example:
-
-```json
-{
-  "version": 1,
-  "credentials": [
-    {
-      "auth_method": "ssh_private_key",
-      "username": "serviceradar-console",
-      "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
-      "passphrase": "optional-passphrase"
-    }
-  ]
-}
-```
-
-Each credential entry must also include the matching console rule identifier and credential secret reference from the ServiceRadar credential rule. Keep those IDs out of tickets, logs, and screenshots.
-
-Set file ownership and permissions so only the agent service account can read it:
-
-```bash
-sudo chown serviceradar:serviceradar /etc/serviceradar/proxmox-console-credentials.json
-sudo chmod 0600 /etc/serviceradar/proxmox-console-credentials.json
-sudo systemctl restart serviceradar-agent
-```
-
-The matching central credential rule still needs provider `proxmox`, auth method `ssh_private_key`, purpose `console_access`, a narrow target query, and an edge scope. In agent-local mode, the central rule authorizes and scopes the session, while the private key is resolved only on the agent host.
-
 ### Opening A Console
 
 From a PVE host device details page, click **Open Console**. ServiceRadar will:
@@ -275,7 +219,7 @@ Inventory collection does not require SSH keys. Console access is a separately a
 
 When SSH-backed console access is enabled, use a dedicated key and a dedicated operating-system account or narrowly scoped Proxmox access path. Do not reuse a personal administrator key, a shared break-glass key, or the root key used for host administration. Prefer per-site or per-cluster keys so rotation and incident response can be limited to the affected scope.
 
-Store SSH private keys through encrypted credential rules when central management is acceptable. For high-sensitivity deployments, store the key only in agent-local configuration and restrict the rule to the local agent or gateway that brokers the console session. In both modes, display only the public fingerprint, track rotation metadata, and never render the private key or passphrase back in the UI.
+Store reusable SSH private keys only through encrypted credential rules when this legacy custody mode is acceptable. High-sensitivity deployments should prefer ServiceRadar-issued short-lived SSH certificates backed by SSO/LDAP identity and RBAC rather than agent-local reusable private keys. Display only the public fingerprint, track rotation metadata, and never render the private key or passphrase back in the UI.
 
 Console credentials should be separate from Proxmox API tokens. API tokens remain read-only for inventory; SSH keys are only released to the console broker after RBAC approval, short-lived session ticket issuance, and agent-scope checks.
 
@@ -323,7 +267,7 @@ Close events must include a sanitized reason in the terminal UI and an audit eve
 
 Use separate credential rules for console access and inventory enrichment. Inventory API tokens should remain read-only. Console credentials should use dedicated operating-system users, dedicated SSH keys, and the narrowest SRQL target query and agent/gateway scope that matches the environment.
 
-For centrally managed deployments, store console private keys through encrypted credential rules and display only the public fingerprint and rotation metadata. For deployments that do not want console keys in the control plane, keep console keys in agent-local configuration and scope the rule to that local edge path. In either mode, a hacked or rogue agent should only be able to request credentials for targets explicitly assigned to that agent, and broker grants should expire with the session.
+For centrally managed deployments, store legacy console private keys through encrypted credential rules and display only the public fingerprint and rotation metadata. Deployments that do not want reusable console keys in the control plane should use ServiceRadar-issued short-lived SSH certificates or native Proxmox console tickets instead of agent-local key files. A hacked or rogue agent should only be able to request credentials for targets explicitly assigned to that agent, and broker grants should expire with the session.
 
 TPM-backed or enclave-backed credential brokers would provide stronger protection for high-assurance deployments, but they are not required for the first implementation.
 

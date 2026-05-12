@@ -278,30 +278,10 @@ func (s *Server) initPluginManager(ctx context.Context) {
 
 	cacheDir := filepath.Join(s.configDir, "plugins")
 	s.pluginManager = NewPluginManager(ctx, PluginManagerConfig{
-		CacheDir:                      cacheDir,
-		LocalStoreDir:                 s.configDir,
-		ProxmoxConsoleCredentialsFile: s.proxmoxConsoleCredentialsFile(),
-		Logger:                        s.logger,
+		CacheDir:      cacheDir,
+		LocalStoreDir: s.configDir,
+		Logger:        s.logger,
 	})
-}
-
-func (s *Server) proxmoxConsoleCredentialsFile() string {
-	if s == nil {
-		return ""
-	}
-	if s.config != nil {
-		if value := strings.TrimSpace(s.config.ProxmoxConsoleCredentialsFile); value != "" {
-			return value
-		}
-	}
-	if value := strings.TrimSpace(os.Getenv("SERVICERADAR_PROXMOX_CONSOLE_CREDENTIALS_FILE")); value != "" {
-		return value
-	}
-	candidate := filepath.Join(s.configDir, "proxmox-console-credentials.json")
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
-	}
-	return ""
 }
 
 // Start initializes and starts all agent services.

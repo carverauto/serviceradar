@@ -86,9 +86,10 @@ The system SHALL provide a first-party Proxmox console plugin package that uses 
 - **AND** the agent-hosted connector SHALL stream stdout, stderr, stdin, resize, and close frames over the existing console bridge
 - **AND** the browser-to-core-to-gateway path SHALL remain ERTS/PubSub based after the agent gateway receives control-stream frames
 
-#### Scenario: Agent-local console credential resolution
-- **GIVEN** a Proxmox console assignment carries a scoped credential broker grant without decrypted SSH material
-- **AND** the agent is configured with a local Proxmox console credential file readable only by the agent user
+#### Scenario: Brokered console credential resolution
+- **GIVEN** a Proxmox console assignment carries a scoped credential broker grant
+- **AND** the broker grant resolves to one-session SSH credential material or a native provider console ticket
 - **WHEN** an authorized PVE SSH console session starts
-- **THEN** the agent-hosted connector SHALL resolve only the matching local credential for that credential rule or secret ref
-- **AND** the Wasm plugin, browser, gateway metadata, and audit payload SHALL NOT receive the SSH private key, passphrase, or password
+- **THEN** the agent-hosted connector SHALL use only that session-scoped broker result
+- **AND** reusable agent-local SSH private keys, passwords, and passphrases SHALL NOT be supported
+- **AND** the browser, gateway metadata, and audit payload SHALL NOT receive the SSH private key, passphrase, password, Proxmox ticket, CSRF token, or cookie
