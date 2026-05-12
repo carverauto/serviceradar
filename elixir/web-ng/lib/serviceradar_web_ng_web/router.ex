@@ -684,6 +684,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       live("/settings/audit/events", Settings.AuditLive.Events, :index)
       live("/settings/audit/lockouts", Settings.AuditLive.Lockouts, :index)
+      live("/settings/audit/history", Settings.AuditLive.History, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users
