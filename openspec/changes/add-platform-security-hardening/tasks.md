@@ -19,9 +19,9 @@
 - [x] 3.5 Plug tests cover HSTS gating on scheme, default and overridden Permissions-Policy, CSP enforce vs report-only header rewrite, report-uri appending, and runtime-config-wins-over-plug-opts. (Web-ng test suite gates on DB reachability via `Mix.Tasks.Serviceradar.MaybeTest`; the new tests run in CI alongside the rest.)
 
 ## 4. Upload guard plug
-- [ ] 4.1 Add `ServiceRadarWebNGWeb.Plugs.UploadGuard` with magic-number detection (PNG/JPEG/ZIP/WASM), size caps, filename sanitization, and randomized storage name generation.
-- [ ] 4.2 Apply guard to plugin upload (`/api/plugins/upload`) and dashboard package publish (`/api/dashboards/publish`); remove the inline checks from those controllers.
-- [ ] 4.3 Plug tests: accept on magic-match, reject on mismatched extension vs magic, reject over-size, sanitize control chars in filenames, randomized storage name format.
+- [x] 4.1 Add `ServiceRadarWebNGWeb.Plugs.UploadGuard` with magic-number detection (PNG/JPEG/GIF/ZIP/WASM/PDF), size cap, filename sanitization (strips control chars and path separators, truncates to 120 bytes preserving extension), and randomized storage-name generation (`<millis>-<base64url(12 bytes)><ext>`). Metadata attached to `conn.assigns.upload_guard` per param.
+- [ ] 4.2 Apply guard to plugin upload (`/api/plugins/upload`) and dashboard package publish (`/api/v1/dashboard-packages`); remove the inline checks from those controllers. Deferred to section 11 (rollout) so each controller is migrated alongside its existing checks, not in parallel.
+- [x] 4.3 Plug tests: happy path PNG accept, multi-param accept, missing-param no-op, magic mismatch 415, oversized 413, non-upload param 400, `sanitize_filename/1` control-char + path-separator + truncation + empty fallback, `init/1` validation of allowed kinds.
 
 ## 5. Webhook signature plug + secret resource
 - [ ] 5.1 Add `ServiceRadar.Security.WebhookSecret` Ash resource (`source_name` primary key, `encrypted_value` via Vault cloak, `superseded_by_id`, `last_used_at`) with AshPaperTrail enabled via `PaperTrailMixin`.
