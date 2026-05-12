@@ -304,6 +304,32 @@ func TestManagerRejectsInvalidOpenTerminalSize(t *testing.T) {
 	}
 }
 
+func TestManagerRejectsOversizedOpenPayloadBeforeOpener(t *testing.T) {
+	t.Parallel()
+
+	openerCalled := false
+	manager := NewManager(func(context.Context, Frame) (PTY, error) {
+		openerCalled = true
+		return newFakePTY(), nil
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeOpen,
+		Data:      make([]byte, MaxOpenFrameData+1),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, FrameTypeError)
+	if errorFrame.Reason != ErrInvalidFrameSize.Error() {
+		t.Fatalf("oversized open payload reason = %q", errorFrame.Reason)
+	}
+	if openerCalled {
+		t.Fatal("opener was called for oversized open payload")
+	}
+}
+
 func TestManagerRejectsOversizedDataFrameBeforePTYWrite(t *testing.T) {
 	t.Parallel()
 
@@ -345,6 +371,42 @@ func TestManagerRejectsOversizedDataFrameBeforePTYWrite(t *testing.T) {
 	case <-pty.closed:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for PTY close after oversized data")
+	}
+}
+
+func TestManagerChunksOversizedPTYOutput(t *testing.T) {
+	t.Parallel()
+
+	pty := newFakePTY()
+	manager := NewManager(func(context.Context, Frame) (PTY, error) {
+		return pty, nil
+	})
+	sender := newFakeSender()
+
+	manager.HandleFrame(context.Background(), Frame{
+		SessionID: "remote-session-1",
+		Protocol:  "ssh",
+		FrameType: FrameTypeOpen,
+	}, sender)
+	_ = sender.nextFrame(t, FrameTypeReady)
+
+	output := make([]byte, MaxTerminalFrameData+7)
+	for i := range output {
+		output[i] = byte(i % 251)
+	}
+	pty.reads <- fakeRead{data: output}
+
+	first := sender.nextFrame(t, FrameTypeData)
+	second := sender.nextFrame(t, FrameTypeData)
+	if len(first.Data) != MaxTerminalFrameData {
+		t.Fatalf("first output chunk size = %d", len(first.Data))
+	}
+	if len(second.Data) != 7 {
+		t.Fatalf("second output chunk size = %d", len(second.Data))
+	}
+	reassembled := append(append([]byte(nil), first.Data...), second.Data...)
+	if string(reassembled) != string(output) {
+		t.Fatal("output chunks did not preserve payload")
 	}
 }
 

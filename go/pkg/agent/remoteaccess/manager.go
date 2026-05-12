@@ -40,6 +40,7 @@ const (
 	MaxTerminalCols      = 500
 	MaxTerminalRows      = 200
 	MaxTerminalFrameData = 65_536
+	MaxOpenFrameData     = 262_144
 )
 
 var (
@@ -180,6 +181,9 @@ func (m *Manager) HandleFrame(ctx context.Context, frame Frame, sender Sender) {
 func validateInboundFrame(frame Frame) error {
 	switch frame.FrameType {
 	case FrameTypeOpen:
+		if len(frame.Data) > MaxOpenFrameData {
+			return ErrInvalidFrameSize
+		}
 		if !validOptionalTerminalDimension(frame.Cols, MaxTerminalCols) ||
 			!validOptionalTerminalDimension(frame.Rows, MaxTerminalRows) {
 			return ErrInvalidFrameSize
@@ -304,13 +308,7 @@ func (m *Manager) readLoop(ctx context.Context, sessionID string, protocol strin
 	for {
 		data, err := current.pty.Read(ctx)
 		if len(data) > 0 {
-			sendFrame(sender, Frame{
-				SessionID: sessionID,
-				Protocol:  protocol,
-				FrameType: FrameTypeData,
-				Data:      data,
-				Timestamp: nowUnix(),
-			})
+			sendDataFrames(sender, sessionID, protocol, data)
 		}
 
 		if err == nil {
@@ -335,6 +333,25 @@ func (m *Manager) readLoop(ctx context.Context, sessionID string, protocol strin
 		}
 
 		return
+	}
+}
+
+func sendDataFrames(sender Sender, sessionID string, protocol string, data []byte) {
+	for len(data) > 0 {
+		chunkSize := len(data)
+		if chunkSize > MaxTerminalFrameData {
+			chunkSize = MaxTerminalFrameData
+		}
+
+		sendFrame(sender, Frame{
+			SessionID: sessionID,
+			Protocol:  protocol,
+			FrameType: FrameTypeData,
+			Data:      data[:chunkSize],
+			Timestamp: nowUnix(),
+		})
+
+		data = data[chunkSize:]
 	}
 }
 
