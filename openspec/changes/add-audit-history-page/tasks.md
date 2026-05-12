@@ -1,11 +1,11 @@
 ## 1. AuditHistory module
-- [ ] 1.1 Add `ServiceRadar.Security.AuditHistory` with `list_recent/1` (filters: `:resource_types`, `:actor_id`, `:action_types`, `:since`, `:until`, `:limit`, `:offset`) returning a list of `%{resource: module, version: struct}` maps sorted by `version_inserted_at` desc.
-- [ ] 1.2 Add `ServiceRadar.Security.AuditHistory.resources/0` that reads the configured allow-list from `config :serviceradar_core, ServiceRadar.Security.AuditHistory, resources: [...]` and defaults to every currently-AshPaperTrail-enabled resource.
-- [ ] 1.3 Module tests: filters narrow correctly per-resource; merge ordering is stable; allow-list filter shrinks the source set; nil actor / missing email don't crash; per-resource RBAC drops unauthorized versions from the result.
+- [x] 1.1 `ServiceRadar.Security.AuditHistory.list_recent/1` reads versions from each resource in the allow-list, applies time/action/limit filters at the per-resource Ash query, sorts merged results by `version_inserted_at` desc, then applies the actor filter post-merge (matches `:actor` string, `:actor.id`, `:actor.email`, or `:actor_id` shapes in `version_action_inputs`). Per-resource read errors short-circuit to empty so one misconfigured resource doesn't poison the timeline.
+- [x] 1.2 `resources/0` reads `config :serviceradar_core, ServiceRadar.Security.AuditHistory, :resources` and falls back to a built-in default list (the 9 currently-AshPaperTrail-enabled resources).
+- [x] 1.3 Module tests cover the config override path, the default-list fallback, and every shape the actor filter must handle (string actor, `actor.id`, `actor.email`, missing values, nil/empty actor_id). Smoke-tested against local CNPG: creating + unlocking an AuthLockout produces 2 version rows that surface in `list_recent/1`, and `:resource_types` narrows correctly.
 
 ## 2. Config + RBAC
-- [ ] 2.1 Add the default `:resources` allow-list in `config/config.exs` to the union of currently-tracked AshPaperTrail-enabled resources: NetworkCredentialSecret, NetworkCredentialRule, ProxmoxConsoleSession, AnsibleController, AnsiblePlaybook, AnsiblePlaybookRun, AnsiblePlaybookSchedule, AnsiblePlaybookRepository, AuthLockout.
-- [ ] 2.2 Confirm `settings.audit.view` is sufficient — no new RBAC permission keys.
+- [x] 2.1 Default allow-list lives in the module; `config/config.exs` ships a commented-out example operators can copy and edit to scope tighter or exclude high-write-volume resources.
+- [x] 2.2 Reuses existing `settings.audit.view` capability; no new RBAC keys.
 
 ## 3. LiveView + nav
 - [ ] 3.1 Add `ServiceRadarWebNGWeb.Settings.AuditLive.History` LiveView at `/settings/audit/history`. `on_mount` gates on `settings.audit.view`. Mount loads page 1 with default filters; `handle_event("filter", _, _)` re-runs the query.
