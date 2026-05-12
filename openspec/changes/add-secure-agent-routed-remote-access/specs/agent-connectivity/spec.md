@@ -17,6 +17,31 @@ Agents SHALL advertise remote-access adapter and enhanced-recording capabilities
 - **THEN** it SHALL omit `remote_access.bpf`
 - **AND** the control plane SHALL NOT route sessions requiring enhanced BPF tracing to that agent.
 
+#### Scenario: BPF capability requires explicit production gate
+- **GIVEN** the agent has a ServiceRadar-owned BPF collector implementation
+- **WHEN** BPF runtime enablement is disabled, the kernel compatibility check fails, required BPF filesystem paths are unavailable, required eBPF features are unsupported, permissions are insufficient, or the self-test collection cannot load
+- **THEN** the agent SHALL omit `remote_access.bpf`
+- **AND** the capability report SHALL preserve sanitized disabled reasons for operator diagnosis.
+
+#### Scenario: Procfs fallback does not advertise BPF
+- **GIVEN** an agent can collect fallback host events from procfs or another non-BPF source
+- **WHEN** the agent advertises remote-access capabilities
+- **THEN** fallback collection MAY advertise generic recording capability
+- **AND** it SHALL NOT advertise `remote_access.bpf`.
+
+#### Scenario: Required BPF policy fails before target dial
+- **GIVEN** a remote-access session policy requires BPF enhanced recording
+- **AND** the selected agent cannot start the required ServiceRadar-owned BPF collector for that session
+- **WHEN** the agent receives the open frame
+- **THEN** it SHALL fail the session before opening the target connection
+- **AND** the target opener SHALL NOT be invoked.
+
+#### Scenario: Agentless target cannot satisfy required BPF
+- **GIVEN** a remote-access session targets a host where ServiceRadar cannot attach managed host probes
+- **WHEN** policy requires BPF enhanced recording
+- **THEN** the session SHALL fail closed before target access
+- **AND** fallback collectors SHALL be used only when policy explicitly allows fallback.
+
 ### Requirement: Agent enforces session grants
 Agents SHALL enforce signed or otherwise authenticated session grants that constrain protocol, target, credential reference, TTL, and session ID.
 

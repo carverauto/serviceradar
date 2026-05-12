@@ -135,6 +135,26 @@ Implementation constraints:
 
 The first agent implementation adds the clean-room `EnhancedRecorder` boundary, policy parser, fail-closed/fallback gate, normalized event frame shape, and agent capability gates. Agents may advertise `remote_access`, `remote_access.ssh`, and `remote_access.recording` once the generic adapter is present, but `remote_access.bpf` is advertised only when a ServiceRadar-owned BPF collector can satisfy required BPF policies. The Linux implementation includes a procfs fallback collector for command, open-file descriptor, and socket observations when policy allows fallback; it refuses required `mode: "bpf"` policies unless fallback is explicitly allowed. The Linux BPF loader/probes remain behind that interface and must be ServiceRadar-authored before required BPF policies can succeed on production agents.
 
+Production BPF gate:
+- `remote_access.bpf` is an advertised capability only when `SERVICERADAR_AGENT_EBPF_ENABLED` is explicitly enabled and the shared `go/pkg/agent/ebpf` runtime reports available.
+- The runtime compatibility report must include library, library version, platform, and kernel release details and must fail closed on missing bpffs, missing BTF unless policy allows it, missing cgroup v2 path unless policy allows it, unsupported hash/ringbuf/tracepoint/kprobe features, permission denial, or self-test load failure.
+- The self-test must load a ServiceRadar-owned `bpf2go` collection through `github.com/cilium/ebpf`; procfs fallback collectors and non-BPF host-event collectors must not cause `remote_access.bpf` advertisement.
+- Required BPF policies must start the enhanced recorder before the SSH/provider adapter dials the target. If recorder startup fails, the target opener is not invoked and the session fails with a sanitized policy error.
+- Agentless targets cannot satisfy required BPF policies because there is no managed host boundary where ServiceRadar can attach command/file/network probes. Those sessions fail before target access unless policy explicitly allows non-BPF fallback.
+- Loss counters for kernel drops, parser failures, and user-space backpressure are part of the event stream. Required policies can later be tightened to fail closed when loss exceeds a configured threshold.
+
+Initial compatibility matrix:
+
+| Gate | Required for `remote_access.bpf` | Failure behavior |
+| --- | --- | --- |
+| Explicit enablement | `SERVICERADAR_AGENT_EBPF_ENABLED=true` | Omit capability with `config_disabled` |
+| bpffs | `/sys/fs/bpf` or configured path exists | Omit capability with `missing_bpffs` |
+| BTF | `/sys/kernel/btf/vmlinux` or configured path exists unless explicitly allowed missing | Omit capability with `missing_btf` |
+| cgroup v2 path | `/sys/fs/cgroup` or configured path exists unless explicitly allowed missing | Omit capability with `missing_cgroup` |
+| Kernel features | cilium/ebpf detects hash maps, ring buffers, tracepoints, and kprobes | Omit capability with `feature_unsupported`, `permission_denied`, or `self_test_failed` |
+| Self-test | ServiceRadar self-test collection loads and closes successfully | Omit capability with `self_test_failed` |
+| Source ownership | Probes and loader are ServiceRadar-authored under the shared runtime | Do not ship required-BPF support for that probe family |
+
 ## Generic Resource and Frame Model
 Use `remote_access` as the generic capability name in new code. Keep Proxmox-specific modules and routes as wrappers until the UI and API callers are migrated.
 

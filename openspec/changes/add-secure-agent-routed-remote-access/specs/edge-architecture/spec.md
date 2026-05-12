@@ -288,3 +288,15 @@ The system SHALL support policy-controlled enhanced tracing for remote-access se
 - **THEN** the agent SHALL emit normalized events correlated to the remote-access session
 - **AND** the events SHALL include dropped-event counters when kernel or user-space buffers lose data
 - **AND** the events SHALL NOT include plaintext credentials, terminal input bytes, or file contents.
+
+#### Scenario: Required BPF uses ServiceRadar-owned cilium runtime
+- **GIVEN** a remote-access policy requires BPF enhanced recording
+- **WHEN** the selected agent evaluates whether it can satisfy the policy
+- **THEN** the agent SHALL use the shared ServiceRadar `go/pkg/agent/ebpf` runtime backed by `github.com/cilium/ebpf`
+- **AND** it SHALL NOT use Teleport BPF implementation source unless the exact source path and transitive dependency path have been cleared for Apache-2.0 reuse.
+
+#### Scenario: BPF loss counters are auditable
+- **GIVEN** BPF enhanced recording is active
+- **WHEN** kernel buffers, parser logic, or user-space backpressure drop events
+- **THEN** the agent SHALL emit loss-counter events correlated to the remote-access session
+- **AND** policy MAY later fail closed when loss exceeds a configured threshold.
