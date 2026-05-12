@@ -9,7 +9,7 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNotifier do
   use Ash.Notifier
 
   alias Ash.Notifier.Notification
-  alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.AgentConfig.DependencyDispatcher
   alias ServiceRadar.Events.AuditNotifier
 
   @impl Ash.Notifier
@@ -35,7 +35,7 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNotifier do
     )
 
     if action_type in [:create, :update, :destroy] do
-      Task.start(fn -> AgentCommandBus.push_config_for_type(:sync) end)
+      DependencyDispatcher.dispatch_async(notification)
     end
 
     :ok
