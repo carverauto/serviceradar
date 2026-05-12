@@ -78,6 +78,5 @@
 - [ ] 11.6 Release-note the one-time forced sign-out — captured as a follow-up alongside the rollout-step CHANGELOG entry.
 
 ## 12. Docs
-- [ ] 11.1 Update `openspec/project.md` with the security-plug pipeline convention.
-- [ ] 11.2 Add operator runbook section under `docs/` for unlock procedure and webhook secret rotation.
-- [ ] 11.3 Note CSP escape hatch and reporting endpoint in developer docs.
+- [x] 12.1 Add an operator runbook for the rollout order, env-var requirements, bucket tuning, webhook secret rotation, lockout clearing, CSP escape hatch, and known follow-ups: `docs/PLATFORM_SECURITY_HARDENING.md`.
+- [ ] 12.2 Cross-link from `openspec/project.md` once the rollout completes. Deferred — `project.md` is rewritten when `archive`-ing the change, so the link lands then.

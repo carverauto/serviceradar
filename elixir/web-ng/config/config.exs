@@ -269,6 +269,22 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
+# Session cookie configuration. These values are *defaults for
+# development* — they're shipped in source so the dev build works
+# out of the box. Production deployments MUST override them via
+# `config/prod.exs` (or a release config) sourced from environment
+# variables (SESSION_SIGNING_SALT, SESSION_ENCRYPTION_SALT,
+# SESSION_COOKIE_SECURE). The cookie's confidentiality also depends
+# on SECRET_KEY_BASE, which is already required from the environment
+# in `config/runtime.exs`.
+#
+# DO NOT TREAT THESE STRINGS AS SECRETS. They are public placeholders;
+# any deployment that wants real isolation must override them.
+config :serviceradar_web_ng, :session,
+  signing_salt: "dev-signing-salt-replace-in-prod",
+  encryption_salt: "dev-encryption-salt-replace-in-prod",
+  secure: false
+
 # Security headers plug. The CSP body is set by the router's
 # `put_secure_browser_headers/2` call (already covers script-src,
 # style-src, mapbox tile hosts, etc.); this plug appends a
