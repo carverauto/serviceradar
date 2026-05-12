@@ -8,6 +8,7 @@ go_library(
     srcs = [
         "collector.go",
         "hostfreq_darwin.go",
+        "hostfreq_darwin_nocgo.go",
         "hostfreq_other.go",
         "perf_linux.go",
         "perf_other.go",
