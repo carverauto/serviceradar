@@ -434,6 +434,12 @@ func sshSigner(privateKey, passphrase, certificate string) (ssh.Signer, error) {
 	return ssh.NewCertSigner(cert, signer)
 }
 
+// SSHHostKeyCallback returns the configured host-key verification callback for
+// agent-routed SSH sessions.
+func SSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
+	return sshHostKeyCallback(policy, knownHostsPath)
+}
+
 func sshHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
 	switch strings.TrimSpace(policy) {
 	case "skip_verify":

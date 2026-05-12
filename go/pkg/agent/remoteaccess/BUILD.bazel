@@ -21,6 +21,7 @@ go_library(
         "//go/pkg/agent/ebpf",
         "//go/pkg/agent/ebpf/probes",
         "@org_golang_x_crypto//ssh",
+        "@org_golang_x_crypto//ssh/knownhosts",
     ],
 )
 

@@ -150,6 +150,22 @@ Compatibility:
 
 Future protocol adapters for `app`, `database`, `kubernetes`, `desktop`, `rdp`, `vsphere_console`, and `ot` are registry entries, not separate privileged agent services. Each adapter must validate its open-frame payload, honor session TTL/close semantics, and inherit the same recording, approval, and credential-custody gates before any target connection is opened.
 
+## Plugin Trust Boundary
+Wasm remains the preferred extension surface for provider-specific integrations such as Proxmox, vSphere, and future inventory or console providers. Plugins may translate provider inventory into ServiceRadar target metadata, call provider APIs, request temporary provider console tickets through scoped broker grants, and stream provider-specific protocols through host functions.
+
+Security-critical remote-access controls stay in trusted ServiceRadar code, not in Wasm plugin policy:
+- Identity, Authentik/OIDC claim handling, RBAC, access requests, approval checks, session TTLs, and attach-ticket issuance stay in web-ng/core/agent-gateway.
+- SSH certificate signing and CA private-key custody stay behind the ServiceRadar signer boundary, never inside a provider plugin.
+- Durable credential decryption, credential-broker grant resolution, host-key trust stores, TOFU writes, host-key rotation/conflict handling, audit writes, and recording/enhanced-recording enforcement stay in the control plane and selected agent.
+- eBPF loaders/probes use the ServiceRadar `go/pkg/agent/ebpf` boundary backed by `cilium/ebpf`; plugins may consume normalized telemetry outcomes but must not introduce a second eBPF runtime or policy enforcement path.
+- Plugins receive only session-scoped grants, short-lived provider tickets, or non-secret target metadata. They must not receive reusable agent-local bastion credentials or long-lived target private keys.
+
+Teleport-like protocol parity can use Wasm for provider adapters and protocol-specific glue when the plugin sandbox is a good fit, but primitives that establish trust, custody, authorization, audit, or kernel visibility belong in first-party trusted packages with focused tests.
+
+The golden path is not a monolithic "Teleport plugin." It is a native ServiceRadar access plane with small, signed, permissioned provider plugins at the edge of the system. Before expanding the plugin substrate beyond Proxmox, the demo environment must prove that the Proxmox console plugin can reliably open, stream, resize, close, and audit a real session through the same signed-plugin and broker-grant path operators will use in production.
+
+Wasm improves security posture when it reduces provider-specific code running with full agent privileges, gives the agent an explicit permission manifest, and lets us publish or roll plugin fixes independently. It does not improve security when a plugin is given broad reusable credentials, becomes the source of authorization truth, or requires host functions so powerful that the sandbox is only nominal. Long-running SSH/proxy implementations also carry practical Wasm costs: TinyGo/runtime compatibility, garbage-collection pressure, copied frame buffers, harder debugging, and host-function API stability.
+
 ## Reusable Implementation Inventory
 The current Proxmox console path already proves the key routing shape, but its names and frame type are provider-specific.
 
@@ -342,6 +358,7 @@ The SSH adapter must:
 - Gateway routing must bind frames to the authenticated agent that owns the session.
 - Agent adapters must enforce target host/port/protocol from the signed session grant and reject arbitrary retargeting.
 - Credential broker grants must be one-time or short-lived and scoped to one session.
+- Agent-routed SSH host-key verification uses the shared `remoteaccess.SSHHostKeyCallback` path. Both generic SSH and the legacy Proxmox SSH console path support `known_hosts`, `trust_on_first_use`, and explicit `skip_verify`, with TOFU pinning unknown hosts and rejecting changed keys. Operator-facing host-key review, rotation, and audit remain a follow-up management surface.
 - Audit must record actor, target, protocol, selected agent, credential rule, approval, timestamps, terminal outcome, and policy decisions.
 - Session byte recording must be optional and policy-controlled. If enabled, secrets should be redacted where feasible, but recording must be treated as sensitive data.
 - Enhanced BPF recording must be policy-controlled, session-correlated, and treated as sensitive telemetry with explicit retention and access policy.

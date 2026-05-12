@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -59,6 +60,7 @@ type proxmoxConsoleSSHConfig struct {
 	CredentialSecret json.RawMessage           `json:"credential_secret,omitempty"`
 	TimeoutMS        int                       `json:"timeout_ms"`
 	SSHHostKeyPolicy string                    `json:"ssh_host_key_policy"`
+	KnownHostsPath   string                    `json:"known_hosts_path,omitempty"`
 }
 
 type proxmoxConsoleSSHTarget struct {
@@ -224,7 +226,7 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 		return nil, err
 	}
 
-	hostKeyCallback, err := proxmoxConsoleSSHHostKeyCallback(cfg.SSHHostKeyPolicy)
+	hostKeyCallback, err := proxmoxConsoleSSHHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -380,15 +382,19 @@ func proxmoxConsoleSSHSigner(privateKey, passphrase string) (ssh.Signer, error) 
 	return ssh.ParsePrivateKey(key)
 }
 
-func proxmoxConsoleSSHHostKeyCallback(policy string) (ssh.HostKeyCallback, error) {
-	switch strings.TrimSpace(policy) {
-	case "skip_verify":
-		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for temporary console testing
-	case "trust_on_first_use", "known_hosts", "":
-		return nil, errProxmoxSSHHostKeyVerificationStoreUnavailable
-	default:
+func proxmoxConsoleSSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
+	callback, err := remoteaccess.SSHHostKeyCallback(policy, knownHostsPath)
+	if err == nil {
+		return callback, nil
+	}
+	if errors.Is(err, remoteaccess.ErrUnsupportedSSHHostKeyPolicy) {
 		return nil, fmt.Errorf("%w %q", errUnsupportedProxmoxSSHHostKeyPolicy, policy)
 	}
+	if errors.Is(err, remoteaccess.ErrSSHHostKeyStoreUnavailable) {
+		return nil, fmt.Errorf("%w: %w", errProxmoxSSHHostKeyVerificationStoreUnavailable, err)
+	}
+
+	return nil, err
 }
 
 func normalizeProxmoxConsoleTimeoutMS(timeoutMS int) int {

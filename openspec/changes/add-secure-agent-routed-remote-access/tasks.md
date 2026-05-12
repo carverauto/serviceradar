@@ -7,6 +7,7 @@
 - [x] 1.6 Define future protocol-adapter requirements for graphical, app, database, Kubernetes, desktop/RDP, and OT protocols, including deferred CEA-852/CN-IP support.
 - [x] 1.7 Define the Proxmox-console versus generic-SSH credential split so PVE consoles use provider tickets and general SSH defaults to user-present or short-lived certificate credentials.
 - [x] 1.8 Define clean-room BPF/enhanced-recording event schemas, kernel attachment strategy, compatibility gates, loss counters, and fallback policy.
+- [x] 1.9 Define the Wasm provider-adapter trust boundary: provider-specific console/inventory code can live in plugins, but identity, custody, host-key trust, audit, recording, and eBPF enforcement stay in trusted ServiceRadar code.
 
 ## 2. Implementation
 - [x] 2.1 Add generic remote-access session resources and APIs with compatibility for current Proxmox console routes.
@@ -44,7 +45,8 @@
 - [x] 4.5 Ensure browser-selected central custody is rejected by the public SSH create/attach path until a trusted policy-owned broker grant resolver exists.
 - [x] 4.6 Require centrally brokered remote-access sessions to reference a trusted credential rule and approval before issuing an attach ticket.
 - [x] 4.7 Add the scoped central credential grant resolver: one session, one agent, one target, one protocol, short TTL, no browser plaintext, redacted audit.
-- [ ] 4.8 Add host key policy management parity: known-host collection, trust-on-first-use lifecycle, rotation/conflict handling, and audit.
+- [x] 4.8.1 Share the agent-side known-hosts and trust-on-first-use implementation across generic SSH and legacy Proxmox SSH console paths.
+- [ ] 4.8.2 Add host key policy management parity: known-host collection UI/API, trust-on-first-use lifecycle, rotation/conflict handling, and audit.
 - [ ] 4.9 Add access-request parity: request creation, approval lifecycle, reviewer policy, expiration, and session binding.
 - [ ] 4.10 Add session replay parity beyond metadata manifests: policy-gated transcript/event storage, redaction boundaries, retention, export controls, and replay UI/API.
 - [ ] 4.11 Add file-transfer parity planning for SFTP/SCP-style access with RBAC, recording, quota, and content-audit policy.

@@ -19,12 +19,20 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
@@ -159,6 +167,63 @@ func TestRunProxmoxConsoleSSHRejectsInvalidConfigBeforeDial(t *testing.T) {
 				t.Fatal("dialer was called for invalid config")
 			}
 		})
+	}
+}
+
+func TestProxmoxConsoleSSHHostKeyPolicyUsesSharedKnownHostsStore(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	line := knownhosts.Line([]string{knownhosts.Normalize("pve.example:2222")}, signer.PublicKey())
+	if err := os.WriteFile(knownHostsPath, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	callback, err := proxmoxConsoleSSHHostKeyCallback("known_hosts", knownHostsPath)
+	if err != nil {
+		t.Fatalf("known_hosts callback: %v", err)
+	}
+	if err := callback("pve.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.20"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("known_hosts callback rejected pinned key: %v", err)
+	}
+}
+
+func TestProxmoxConsoleSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	callback, err := proxmoxConsoleSSHHostKeyCallback("trust_on_first_use", knownHostsPath)
+	if err != nil {
+		t.Fatalf("trust_on_first_use callback: %v", err)
+	}
+	if err := callback("pve.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.20"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("first use rejected key: %v", err)
+	}
+
+	data, err := os.ReadFile(knownHostsPath)
+	if err != nil {
+		t.Fatalf("read known_hosts: %v", err)
+	}
+	if !strings.Contains(string(data), signer.PublicKey().Type()) {
+		t.Fatalf("known_hosts did not contain pinned key: %q", string(data))
 	}
 }
 
