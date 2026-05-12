@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.41
+
+Release packaging fixes for Elixir Ash domain, web-ng asset lockfile, and web-ng session configuration.
+
+## Whats New
+
+**1.2.41**
+- Fixed Elixir application-level Ash domain configuration so web-ng, core-elx, agent-gateway, and tests register the Credentials, Ansible automation, and Security domains consistently during release builds.
+- Fixed web-ng production session salt defaults so release packaging no longer depends on CI-only session salt environment variables; operators can still override salts at release build time when intentionally rotating active sessions.
+- Refreshed the web-ng Bun asset lockfile so release packaging can use the deterministic frozen install path instead of falling back to non-frozen dependency resolution.
+- Re-cut the release after v1.2.40 package publishing failed during the web-ng release target.
+
 # ServiceRadar v1.2.40
 
 Platform security hardening, SecurityEvent retention, and Ansible documentation follow-up.
