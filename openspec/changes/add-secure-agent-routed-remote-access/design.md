@@ -56,6 +56,30 @@ The first implementation should be narrow, but the architecture must preserve th
 
 Session recording starts as manifest and retention plumbing, not unconditional transcript persistence. When `recording_policy` enables recording, the platform creates a `remote_access_recordings` manifest with policy snapshot, storage backend/bucket/object key, retention expiry, lifecycle status, and aggregate input/output byte counters. Raw terminal input/output payload storage remains separately policy-gated and is not written by default.
 
+## Current Hardening Track
+The initial substrate is in place, so active work is now a Teleport-parity hardening track. The ordering is deliberate:
+
+1. Close credential-custody gaps before adding new protocol surface.
+2. Bind every frame and grant to one session, one selected agent, one target, one protocol, and one actor.
+3. Keep browser-facing APIs narrow; broader custody, route, recording, and policy choices must come from trusted inventory/policy, not client request bodies.
+4. Add Teleport-equivalent features one at a time with tests and license notes.
+
+Current hardening decisions:
+- Generic SSH MUST NOT use reusable agent-local SSH private keys, passwords, passphrases, or local credential files.
+- Persisted remote-access session metadata MUST NOT be used as SSH auth material or as a certificate envelope source. Session credentials and issued certificate envelopes are passed through in-memory broker grants only.
+- The public browser SSH create path MAY allow `ssh_certificate` and `user_present` custody selection, but MUST reject browser-selected `centrally_brokered` custody. Central custody is selected by trusted remote-access policy.
+- Centrally brokered custody MUST require an approval decision and a trusted credential rule before an attach ticket is issued. The eventual broker grant MUST be short-lived and scoped to one session, one selected agent, one target, and one protocol.
+- Agent-returned frames MUST be accepted only when both the session ID and authenticated agent ID match the session owner.
+- Gateway broadcast of remote-access frames MUST be stamped from the authenticated control-stream state and MUST NOT broadcast from unregistered streams.
+
+Remaining Teleport-parity areas after custody hardening:
+- Host key lifecycle: known-host enrollment, trust-on-first-use, rotation/conflict workflows, and audit.
+- Access requests: request creation, reviewer policy, approval/denial, expiration, and session binding.
+- Session replay: policy-gated terminal/event transcript storage, replay APIs/UI, retention, export controls, and redaction boundaries.
+- File transfer: SFTP/SCP-style access with explicit RBAC, recording, quota, and content-audit policy.
+- Protocol expansion: app, database, Kubernetes, desktop/RDP, vSphere console, and OT adapters as separate scoped proposals.
+- Enhanced recording: production ServiceRadar-owned cilium/ebpf probes, capability detection, kernel compatibility matrix, loss counters, and fail-closed behavior for required policies.
+
 ## BPF / Enhanced Recording Model
 Enhanced recording is a separate host telemetry capability from the interactive byte stream. It should emit normalized ServiceRadar audit/telemetry events that can be correlated with `remote_access_session_id`, `actor_id`, `agent_id`, `target`, and `credential_custody_mode`.
 

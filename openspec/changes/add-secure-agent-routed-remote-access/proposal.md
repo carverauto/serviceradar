@@ -14,6 +14,11 @@ The current Proxmox console work proves the route, but the console/xterm substra
 - Build clean-room ServiceRadar implementations for Teleport-equivalent features whose implementation source is AGPL or otherwise unsuitable for import, including BPF/enhanced recording if no importable path is cleared.
 - Keep browser terminal/rendering components generic, with provider/protocol-specific labels and adapters outside the core tunnel.
 
+## Current Phase
+The first SSH/proxy/recording substrate pass is implemented and the remaining work is a Teleport-parity hardening track. That track is intentionally feature-by-feature: close credential-custody gaps first, then add central grant resolution, access requests/approvals, host-key lifecycle, replay, file transfer, protocol adapters, and production BPF recording.
+
+The project remains certificate-first for enterprise SSH. Browser/user-present credentials are transitional. Centrally brokered secrets are policy-owned exceptions that require approval, a trusted credential rule, and a scoped session grant before any selected agent receives credential material.
+
 ## Impact
 - Affected specs: edge-architecture, agent-connectivity, rbac-route-protection
 - Affected code: web-ng remote access UI/API, agent-gateway control stream routing, Go agent remote access adapters, credential rules/broker, audit resources, console/xterm React components, future app/database/Kubernetes/desktop/RDP renderers or adapters, host tracing/BPF collector components

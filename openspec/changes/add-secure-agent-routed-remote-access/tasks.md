@@ -35,3 +35,20 @@
 - [x] 3.7 Add license-review tests or scripts that fail if a supposedly imported Teleport path includes AGPL-header source in its transitive Go package directories.
 - [x] 3.8 Add enhanced-recording tests for command/file/network event normalization, session correlation, dropped-event counters, and policy fallback behavior.
 - [x] 3.9 Validate Authentik OIDC login to ServiceRadar SSH certificate issuance against an OpenSSH target configured with `TrustedUserCAKeys`, proving no shared bastion credential or reusable target key is stored.
+
+## 4. Teleport-Parity Hardening and Follow-Up
+- [x] 4.1 Remove generic agent-local reusable SSH credential file support from the agent and docs.
+- [x] 4.2 Ensure browser attach grants keep SSH private keys, passwords, passphrases, and certificate envelopes in memory only; persisted session metadata must not act as a credential carrier.
+- [x] 4.3 Ensure agent-returned frames are accepted only when both session ID and authenticated agent ID match the broker session.
+- [x] 4.4 Ensure gateway console-frame broadcasts only come from registered agent control streams and are stamped with authenticated stream ownership.
+- [x] 4.5 Ensure browser-selected central custody is rejected by the public SSH create/attach path until a trusted policy-owned broker grant resolver exists.
+- [ ] 4.6 Require centrally brokered remote-access sessions to reference a trusted credential rule and approval before issuing an attach ticket.
+- [ ] 4.7 Add the scoped central credential grant resolver: one session, one agent, one target, one protocol, short TTL, no browser plaintext, redacted audit.
+- [ ] 4.8 Add host key policy management parity: known-host collection, trust-on-first-use lifecycle, rotation/conflict handling, and audit.
+- [ ] 4.9 Add access-request parity: request creation, approval lifecycle, reviewer policy, expiration, and session binding.
+- [ ] 4.10 Add session replay parity beyond metadata manifests: policy-gated transcript/event storage, redaction boundaries, retention, export controls, and replay UI/API.
+- [ ] 4.11 Add file-transfer parity planning for SFTP/SCP-style access with RBAC, recording, quota, and content-audit policy.
+- [ ] 4.12 Add app/database/Kubernetes/desktop/RDP adapter proposals with per-protocol threat models before implementation.
+- [ ] 4.13 Add enhanced-recording production gate: ServiceRadar-owned cilium/ebpf probes, kernel compatibility matrix, capability advertisement, and fail-closed tests for required BPF policies.
+- [ ] 4.14 Keep Teleport source reuse notes current for each imported or copied area, including exact tag/commit, file paths, headers, and transitive license scan output.
+- [ ] 4.15 Maintain an Authentik/OpenSSH smoke test path for SSO -> ServiceRadar SSH CA -> `TrustedUserCAKeys` target login with no shared bastion credential.
