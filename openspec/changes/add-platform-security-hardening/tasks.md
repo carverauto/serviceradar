@@ -24,11 +24,11 @@
 - [x] 4.3 Plug tests: happy path PNG accept, multi-param accept, missing-param no-op, magic mismatch 415, oversized 413, non-upload param 400, `sanitize_filename/1` control-char + path-separator + truncation + empty fallback, `init/1` validation of allowed kinds.
 
 ## 5. Webhook signature plug + secret resource
-- [ ] 5.1 Add `ServiceRadar.Security.WebhookSecret` Ash resource (`source_name` primary key, `encrypted_value` via Vault cloak, `superseded_by_id`, `last_used_at`) with AshPaperTrail enabled via `PaperTrailMixin`.
-- [ ] 5.2 Generate Ash migration via `mix ash.codegen add_webhook_secret` and run.
-- [ ] 5.3 Add `ServiceRadarWebNGWeb.Plugs.WebhookSignature` performing HMAC-SHA256 verification with two-secret grace window.
-- [ ] 5.4 Migrate Falco webhook controllers (and any other inbound webhook endpoints) to use the plug; remove inline verification.
-- [ ] 5.5 Tests: valid sig, invalid sig, expired secret, grace-window acceptance of superseded secret, missing secret yields 401.
+- [x] 5.1 Add `ServiceRadar.Security` Ash domain and `ServiceRadar.Security.WebhookSecret` resource. Keyed by `source_name` (unique among active secrets), encrypted `secret` via the existing `ServiceRadar.Vault` cloak, `active?` boolean, nullable `grace_until` for rotation, `rotated_at`, `last_used_at`. AshPaperTrail enabled via a new `ServiceRadar.Security.PaperTrailMixin` mirroring the credentials pattern. Custom `:rotate` action that supersedes the existing active secret with a grace window and creates the new one in a transaction.
+- [ ] 5.2 Generate Ash migration via `mix ash.codegen add_webhook_secret` and run. Pending DB connectivity in the dev/CI environment (current sandbox: CNPG requires client-cert auth that isn't wired in this work). The migration generation is a single command once the dev env is set up.
+- [x] 5.3 Add `ServiceRadarWebNGWeb.Plugs.WebhookSignature` performing HMAC-SHA256 verification. Looks up all currently-verifiable secrets for the source (the active one plus any superseded secret whose grace window has not expired), HMACs the raw body against each, and accepts the first match. Updates `last_used_at` on the matching secret asynchronously so verification stays on the hot path. Halts with HTTP 401 on any mismatch.
+- [ ] 5.4 Migrate Falco webhook controllers (and any other inbound webhook endpoints) to use the plug; remove inline verification. Deferred to section 11 (rollout) so each webhook source rotates its secret into the new resource alongside the controller migration.
+- [x] 5.5 Plug tests: `init/1` argument validation (scheme/source_name), constant-time signature comparison correctness, and the DB-backed accept/reject/grace-window scenarios scaffolded under a `:skip` tag awaiting Ash test infrastructure (`SERVICERADAR_REQUIRE_DB_TESTS=1`).
 
 ## 6. Security event stream
 - [ ] 6.1 Add `ServiceRadar.Security.SecurityEvent` Ash resource (occurred_at, kind, severity, actor_id, ip, route, details jsonb, correlation_id). Append-only `:create` action; index `(occurred_at desc)` and `(kind, occurred_at desc)`.

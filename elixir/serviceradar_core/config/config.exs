@@ -99,7 +99,8 @@ config :serviceradar_core,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
-    ServiceRadar.Automation.Ansible
+    ServiceRadar.Automation.Ansible,
+    ServiceRadar.Security
   ]
 
 config :serviceradar_core,
