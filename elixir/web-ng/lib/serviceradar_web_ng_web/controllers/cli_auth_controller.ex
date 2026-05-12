@@ -482,5 +482,4 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
       })
     )
   end
-
 end

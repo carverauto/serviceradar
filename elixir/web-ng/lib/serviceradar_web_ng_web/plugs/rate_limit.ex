@@ -62,12 +62,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
     response_mode = Keyword.get(opts, :response_mode, :auto)
     body_builder = Keyword.get(opts, :json_body_builder)
 
-    unless response_mode in [:auto, :json, :html] do
+    if response_mode not in [:auto, :json, :html] do
       raise ArgumentError,
             "RateLimit :response_mode must be :auto, :json, or :html (got #{inspect(response_mode)})"
     end
 
-    unless is_nil(body_builder) or (is_function(body_builder, 1)) do
+    if !(is_nil(body_builder) or is_function(body_builder, 1)) do
       raise ArgumentError,
             "RateLimit :json_body_builder must be a 1-arity function or nil (got #{inspect(body_builder)})"
     end
@@ -128,18 +128,16 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
   defp json_body(nil, retry_after), do: default_json_body(retry_after)
 
   defp json_body(builder, retry_after) when is_function(builder, 1) do
-    try do
-      builder.(retry_after)
-    rescue
-      e ->
-        require Logger
-        Logger.warning("RateLimit :json_body_builder raised: #{Exception.message(e)}")
-        default_json_body(retry_after)
-    end
+    builder.(retry_after)
+  rescue
+    e ->
+      require Logger
+
+      Logger.warning("RateLimit :json_body_builder raised: #{Exception.message(e)}")
+      default_json_body(retry_after)
   end
 
-  defp default_json_body(retry_after),
-    do: ~s({"error":"rate_limited","retry_after":#{retry_after}})
+  defp default_json_body(retry_after), do: ~s({"error":"rate_limited","retry_after":#{retry_after}})
 
   defp resolve_mode(_conn, :json), do: :json
   defp resolve_mode(_conn, :html), do: :html

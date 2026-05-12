@@ -53,30 +53,28 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
   def mount(params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    cond do
-      not RBAC.can?(scope, "ansible.runs.launch") ->
-        {:ok,
-         socket
-         |> put_flash(:error, "You don't have permission to launch Ansible runs.")
-         |> push_navigate(to: ~p"/dashboard")}
+    if RBAC.can?(scope, "ansible.runs.launch") do
+      uids = parse_device_uids(params["devices"])
+      devices = load_devices(uids)
+      playbooks = launchable_playbooks()
 
-      true ->
-        uids = parse_device_uids(params["devices"])
-        devices = load_devices(uids)
-        playbooks = launchable_playbooks()
-
-        {:ok,
-         socket
-         |> assign(:page_title, "Launch Ansible playbook")
-         |> assign(:requested_uids, uids)
-         |> assign(:devices, devices)
-         |> assign(:playbooks, playbooks)
-         |> assign(:selected_playbook_id, nil)
-         |> assign(:vars, [])
-         |> assign(:var_values, %{})
-         |> assign(:extra_vars_text, "{}")
-         |> assign(:show_raw_override, false)
-         |> assign(:launch_in_progress, false)}
+      {:ok,
+       socket
+       |> assign(:page_title, "Launch Ansible playbook")
+       |> assign(:requested_uids, uids)
+       |> assign(:devices, devices)
+       |> assign(:playbooks, playbooks)
+       |> assign(:selected_playbook_id, nil)
+       |> assign(:vars, [])
+       |> assign(:var_values, %{})
+       |> assign(:extra_vars_text, "{}")
+       |> assign(:show_raw_override, false)
+       |> assign(:launch_in_progress, false)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to launch Ansible runs.")
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 
@@ -91,7 +89,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
       |> assign(:var_values, Map.merge(socket.assigns.var_values, var_values_from_params(socket.assigns.vars, params)))
 
     socket =
-      if playbook_id != socket.assigns.selected_playbook_id do
+      if playbook_id == socket.assigns.selected_playbook_id do
+        socket
+      else
         playbook = Enum.find(socket.assigns.playbooks, &(&1.id == playbook_id))
         vars = if playbook, do: VariableSchema.from_playbook(playbook), else: []
 
@@ -99,8 +99,6 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         |> assign(:selected_playbook_id, playbook_id)
         |> assign(:vars, vars)
         |> assign(:var_values, defaults_for(vars))
-      else
-        socket
       end
 
     {:noreply, socket}
@@ -159,8 +157,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
       <header class="space-y-1">
         <h1 class="text-2xl font-semibold">Launch Ansible playbook</h1>
         <p class="text-sm text-base-content/70">
-          {length(@requested_uids)} device{if length(@requested_uids) == 1, do: "", else: "s"}
-          selected. Resolved {length(@devices)} from inventory.
+          {length(@requested_uids)} device{if length(@requested_uids) == 1, do: "", else: "s"} selected. Resolved {length(
+            @devices
+          )} from inventory.
         </p>
       </header>
 
@@ -174,7 +173,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
           Device Actions modal from the inventory list (coming soon).
         </div>
 
-        <div :if={@devices != []} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+        <div
+          :if={@devices != []}
+          class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+        >
           <table class="table table-zebra table-sm">
             <thead>
               <tr>
@@ -385,7 +387,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
       </label>
       <select name={@var.name} class="select select-bordered select-sm">
         <option value="" selected={is_nil(@value) or @value == ""}>—</option>
-        <option :for={choice <- @var.choices} value={choice} selected={@value == choice}>{choice}</option>
+        <option :for={choice <- @var.choices} value={choice} selected={@value == choice}>
+          {choice}
+        </option>
       </select>
     </div>
     """
@@ -537,7 +541,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
   defp launch_error_message(:git_sourced_not_supported_v1),
     do: "Git-sourced playbooks need an AWX template binding before they're launchable."
 
-  defp launch_error_message(other), do: "Launch failed: #{inspect(other)}" |> String.slice(0, 240)
+  defp launch_error_message(other), do: String.slice("Launch failed: #{inspect(other)}", 0, 240)
 
   defp ref_field(device, key) do
     ref = Map.get(device, :ansible_inventory_ref) || %{}

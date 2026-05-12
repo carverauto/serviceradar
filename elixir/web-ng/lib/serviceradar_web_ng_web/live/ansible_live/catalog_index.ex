@@ -151,7 +151,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
         </form>
       </div>
 
-      <div :if={@playbook_count == 0} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+      <div
+        :if={@playbook_count == 0}
+        class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      >
         No playbooks match the current filters.
         <p class="mt-2">
           New AWX controllers and git repositories sync in the background;
@@ -159,7 +162,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
         </p>
       </div>
 
-      <div :if={@playbook_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      <div
+        :if={@playbook_count > 0}
+        class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      >
         <table class="table table-zebra table-sm">
           <thead>
             <tr>
@@ -179,14 +185,20 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
                 <div :if={pb.path} class="text-xs text-base-content/60 font-mono mt-1">{pb.path}</div>
               </td>
               <td>
-                <span class={["badge badge-sm", source_badge_class(pb.source_type)]}>{pb.source_type}</span>
+                <span class={["badge badge-sm", source_badge_class(pb.source_type)]}>
+                  {pb.source_type}
+                </span>
               </td>
               <td>
                 <code class="text-xs">{shorten(pb.repository_id || pb.controller_id)}</code>
               </td>
               <td>
-                <span :if={pb.awx_job_template_id} class="badge badge-sm badge-success">{pb.awx_job_template_id}</span>
-                <span :if={!pb.awx_job_template_id} class="badge badge-sm badge-warning">unbound</span>
+                <span :if={pb.awx_job_template_id} class="badge badge-sm badge-success">
+                  {pb.awx_job_template_id}
+                </span>
+                <span :if={!pb.awx_job_template_id} class="badge badge-sm badge-warning">
+                  unbound
+                </span>
               </td>
               <td>
                 <div class="flex flex-wrap gap-1">
@@ -195,7 +207,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
                 </div>
               </td>
               <td>
-                <span class={["badge badge-sm", parse_badge_class(pb.parse_status)]}>{pb.parse_status}</span>
+                <span class={["badge badge-sm", parse_badge_class(pb.parse_status)]}>
+                  {pb.parse_status}
+                </span>
               </td>
             </tr>
           </tbody>
@@ -226,11 +240,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
   defp apply_source_filter(query, "awx"), do: Ash.Query.filter(query, source_type == :awx)
   defp apply_source_filter(query, _), do: query
 
-  defp apply_binding_filter(query, "launchable"),
-    do: Ash.Query.filter(query, not is_nil(awx_job_template_id))
+  defp apply_binding_filter(query, "launchable"), do: Ash.Query.filter(query, not is_nil(awx_job_template_id))
 
-  defp apply_binding_filter(query, "unbound"),
-    do: Ash.Query.filter(query, is_nil(awx_job_template_id))
+  defp apply_binding_filter(query, "unbound"), do: Ash.Query.filter(query, is_nil(awx_job_template_id))
 
   defp apply_binding_filter(query, _), do: query
 

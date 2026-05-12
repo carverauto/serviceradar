@@ -21,11 +21,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
-  alias ServiceRadar.Security.RateLimiter
 
   @moduletag :integration
 

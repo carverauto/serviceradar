@@ -30,11 +30,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Audit.DashboardPublishEvents
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Logger

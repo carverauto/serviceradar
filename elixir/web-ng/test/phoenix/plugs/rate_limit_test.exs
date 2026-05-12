@@ -72,7 +72,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       opts = RateLimit.init(bucket: :plug_test_xff, limit: 1, window_seconds: 60)
 
       first =
-        build_conn(:remote_ip, {10, 0, 0, 1})
+        :remote_ip
+        |> build_conn({10, 0, 0, 1})
         |> put_req_header("x-forwarded-for", "203.0.113.10, 10.0.0.1")
         |> RateLimit.call(opts)
 
@@ -81,7 +82,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       # A request from the SAME upstream IP (`x-forwarded-for`) should now
       # be denied even though the remote_ip differs.
       second =
-        build_conn(:remote_ip, {10, 0, 0, 99})
+        :remote_ip
+        |> build_conn({10, 0, 0, 99})
         |> put_req_header("x-forwarded-for", "203.0.113.10, 10.0.0.99")
         |> RateLimit.call(opts)
 
@@ -98,11 +100,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
         )
 
       alice =
-        build_conn(:remote_ip, {198, 51, 100, 5})
+        :remote_ip
+        |> build_conn({198, 51, 100, 5})
         |> assign(:current_user, %{id: "alice"})
 
       bob =
-        build_conn(:remote_ip, {198, 51, 100, 5})
+        :remote_ip
+        |> build_conn({198, 51, 100, 5})
         |> assign(:current_user, %{id: "bob"})
 
       refute RateLimit.call(alice, opts).halted
@@ -194,7 +198,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       _ = RateLimit.call(build_conn(:remote_ip, {192, 0, 2, 11}), opts)
 
       denied =
-        build_conn(:remote_ip, {192, 0, 2, 11})
+        :remote_ip
+        |> build_conn({192, 0, 2, 11})
         |> put_req_header("accept", "application/json")
         |> RateLimit.call(opts)
 
@@ -212,12 +217,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
         )
 
       _ =
-        build_conn(:remote_ip, {192, 0, 2, 22})
+        :remote_ip
+        |> build_conn({192, 0, 2, 22})
         |> put_req_header("accept", "text/html,application/xhtml+xml")
         |> RateLimit.call(opts)
 
       denied =
-        build_conn(:remote_ip, {192, 0, 2, 22})
+        :remote_ip
+        |> build_conn({192, 0, 2, 22})
         |> put_req_header("accept", "text/html,application/xhtml+xml")
         |> RateLimit.call(opts)
 

@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+alias ServiceRadar.Automation.Ansible
+
 config :adbc, :drivers, [:postgresql]
 
 # Ash configuration
@@ -129,7 +131,7 @@ config :serviceradar_core,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
-    ServiceRadar.Automation.Ansible,
+    Ansible,
     ServiceRadar.Security
   ]
 
@@ -169,6 +171,17 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   ],
   pubsub_server: ServiceRadarWebNG.PubSub,
   live_view: [signing_salt: "3bWAu579"]
+
+# Security headers plug. The CSP body is set by the router's
+# `put_secure_browser_headers/2` call (already covers script-src,
+# style-src, mapbox tile hosts, etc.); this plug appends a
+# `report-uri` and optionally rewrites the header to
+# `content-security-policy-report-only` during the rollout window.
+# Flip `csp_mode` to `:enforce` once reports have been observed for
+# at least a week.
+config :serviceradar_web_ng, ServiceRadarWebNGWeb.Plugs.SecurityHeaders,
+  csp_mode: :report_only,
+  csp_report_uri: "/api/security/csp-report"
 
 config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
 
@@ -225,6 +238,22 @@ config :serviceradar_web_ng, :session,
   idle_timeout_seconds: 60 * 60,
   absolute_timeout_seconds: 30 * 24 * 60 * 60
 
+# Session cookie configuration. These values are *defaults for
+# development* — they're shipped in source so the dev build works
+# out of the box. Production deployments MUST override them via
+# `config/prod.exs` (or a release config) sourced from environment
+# variables (SESSION_SIGNING_SALT, SESSION_ENCRYPTION_SALT,
+# SESSION_COOKIE_SECURE). The cookie's confidentiality also depends
+# on SECRET_KEY_BASE, which is already required from the environment
+# in `config/runtime.exs`.
+#
+# DO NOT TREAT THESE STRINGS AS SECRETS. They are public placeholders;
+# any deployment that wants real isolation must override them.
+config :serviceradar_web_ng, :session,
+  signing_salt: "dev-signing-salt-replace-in-prod",
+  encryption_salt: "dev-encryption-salt-replace-in-prod",
+  secure: false
+
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
 # Ash Framework Configuration
@@ -249,7 +278,7 @@ config :serviceradar_web_ng,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
-    ServiceRadar.Automation.Ansible,
+    Ansible,
     ServiceRadar.Security
   ]
 
@@ -272,32 +301,5 @@ config :tailwind,
     ),
     cd: Path.expand("..", __DIR__)
   ]
-
-# Session cookie configuration. These values are *defaults for
-# development* — they're shipped in source so the dev build works
-# out of the box. Production deployments MUST override them via
-# `config/prod.exs` (or a release config) sourced from environment
-# variables (SESSION_SIGNING_SALT, SESSION_ENCRYPTION_SALT,
-# SESSION_COOKIE_SECURE). The cookie's confidentiality also depends
-# on SECRET_KEY_BASE, which is already required from the environment
-# in `config/runtime.exs`.
-#
-# DO NOT TREAT THESE STRINGS AS SECRETS. They are public placeholders;
-# any deployment that wants real isolation must override them.
-config :serviceradar_web_ng, :session,
-  signing_salt: "dev-signing-salt-replace-in-prod",
-  encryption_salt: "dev-encryption-salt-replace-in-prod",
-  secure: false
-
-# Security headers plug. The CSP body is set by the router's
-# `put_secure_browser_headers/2` call (already covers script-src,
-# style-src, mapbox tile hosts, etc.); this plug appends a
-# `report-uri` and optionally rewrites the header to
-# `content-security-policy-report-only` during the rollout window.
-# Flip `csp_mode` to `:enforce` once reports have been observed for
-# at least a week.
-config :serviceradar_web_ng, ServiceRadarWebNGWeb.Plugs.SecurityHeaders,
-  csp_mode: :report_only,
-  csp_report_uri: "/api/security/csp-report"
 
 import_config "#{config_env()}.exs"

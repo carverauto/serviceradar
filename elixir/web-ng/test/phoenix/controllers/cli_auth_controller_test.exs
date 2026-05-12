@@ -17,8 +17,8 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.DeviceAuthorization
-  alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadar.Security.RateLimiter
+  alias ServiceRadarWebNG.AccountsFixtures
 
   @moduletag :integration
 
