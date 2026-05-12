@@ -3,6 +3,14 @@ kind: Application
 metadata:
   name: serviceradar-demo-prod
   namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/git-branch: staging
+    argocd-image-updater.argoproj.io/image-list: webng=registry.carverauto.dev/serviceradar/serviceradar-web-ng
+    argocd-image-updater.argoproj.io/webng.allow-tags: regexp:^sha-[0-9a-f]{40}$
+    argocd-image-updater.argoproj.io/webng.helm.image-tag: global.imageTag
+    argocd-image-updater.argoproj.io/webng.pull-secret: pullsecret:demo/registry-carverauto-dev-cred
+    argocd-image-updater.argoproj.io/webng.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/serviceradar-forgejo-repo
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -18,6 +26,9 @@ spec:
       # migrating data first!
       valueFiles:
         - values-demo.yaml
+      parameters:
+        - name: global.imageTag
+          value: sha-bc3dd677bc4b85ec3132265e9570a01fca418ca1
 
   destination:
     server: https://kubernetes.default.svc
