@@ -420,6 +420,28 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, failed_state)
   end
 
+  test "oversized data frames fail the session without reaching the broker" do
+    {:ok, state} = init_state("session-data-too-large")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-data-too-large"), [opcode: :text]}, state)
+
+    payload = String.duplicate("x", 65_537)
+
+    assert {:stop, :normal, 1011, [{:text, response}], failed_state} =
+             RemoteAccessStreamHandler.handle_in(
+               {Jason.encode!(%{type: "data", data: Base.encode64(payload)}), [opcode: :text]},
+               attached
+             )
+
+    assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+    assert failed_state.closing_action == :failed
+    assert_receive {:fail_session, "session-data-too-large", :invalid_data_size, _opts}
+    refute_receive {:broker_input, _caller, _data}
+
+    RemoteAccessStreamHandler.terminate(:normal, failed_state)
+  end
+
   test "broker output frames expose only terminal data to the browser" do
     {:ok, state} = init_state("session-output")
 

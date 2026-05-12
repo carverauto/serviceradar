@@ -20,6 +20,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_terminal_cols 500
   @min_terminal_rows 1
   @max_terminal_rows 200
+  @max_browser_data_frame_bytes 65_536
+  @max_browser_data_frame_encoded_bytes div(@max_browser_data_frame_bytes + 2, 3) * 4
   @max_username_bytes 128
   @max_private_key_bytes 65_536
   @max_public_key_bytes 16_384
@@ -502,12 +504,15 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   defp decode_json(data) when is_binary(data), do: Jason.decode(data)
 
-  defp decode_base64(value) do
+  defp decode_base64(value) when byte_size(value) <= @max_browser_data_frame_encoded_bytes do
     case Base.decode64(value) do
-      {:ok, decoded} -> {:ok, decoded}
+      {:ok, decoded} when byte_size(decoded) <= @max_browser_data_frame_bytes -> {:ok, decoded}
+      {:ok, _decoded} -> {:error, :invalid_data_size}
       :error -> {:error, :invalid_data}
     end
   end
+
+  defp decode_base64(_value), do: {:error, :invalid_data_size}
 
   defp encode(payload), do: Jason.encode!(payload)
 

@@ -39,6 +39,11 @@ The system SHALL provide a generic remote-access tunnel that routes operator ses
 - **THEN** the browser-facing boundary SHALL require integer columns and rows within deployment-safe bounds
 - **AND** malformed terminal payloads SHALL be rejected before opening or resizing the agent-side adapter.
 
+#### Scenario: Browser terminal data frames are bounded
+- **WHEN** the browser sends terminal or protocol data frames
+- **THEN** the browser-facing stream SHALL reject frames above the deployment-safe payload size before forwarding to the broker
+- **AND** oversized data frames SHALL fail the session with a sanitized error.
+
 ### Requirement: Teleport-like access capability coverage
 The system SHALL evolve the remote-access tunnel into a ServiceRadar-native access plane with Teleport-like coverage while preserving ServiceRadar ownership of policy, inventory, agent routing, and audit data.
 
