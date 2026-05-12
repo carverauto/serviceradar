@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.43
+
+Armis credential encryption hotfix and web-ng release formatting cleanup.
+
+## Whats New
+
+**1.2.43**
+- Fixed Armis integration credential writes so create/update actions use AshCloak encryption directly instead of attempting to write the generated plaintext attribute, resolving the production `Ash.Error.Changes.NoSuchAttribute` failure for `credentials_encrypted`.
+- Re-applied web-ng formatter output required by the Elixir precommit/Credo checks after the v1.2.42 release.
+
 # ServiceRadar v1.2.42
 
 Armis integration credential delivery fix, audit history visibility, Palisade trust-boundary extraction, and demo release automation updates.
