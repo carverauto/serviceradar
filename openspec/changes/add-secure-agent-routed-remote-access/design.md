@@ -373,6 +373,8 @@ ServiceRadar should adapt those patterns as follows:
 Validation harness:
 - `scripts/remote-access-authentik-oidc-ssh-smoke.sh` provisions a disposable Authentik OIDC application, group, user, and post-authenticated authorization code in the Kubernetes `authentik` namespace. It then exchanges the code at Authentik's discovered token endpoint, verifies the signed ID token through ServiceRadar's OIDC client, maps the Authentik group claim to an SSH login principal, issues a ServiceRadar short-lived OpenSSH user certificate through the command signer, and authenticates to an OpenSSH target configured with `TrustedUserCAKeys`.
 - The harness generates temporary CA/user key material under `mktemp`, deletes the Authentik fixture unless `SERVICERADAR_AUTHENTIK_SMOKE_KEEP=1`, and never creates or stores a reusable target password, target private key, or shared bastion account.
+- The harness accepts external target overrides through `SERVICERADAR_REMOTE_ACCESS_SSH_TARGET_HOST` and `SERVICERADAR_REMOTE_ACCESS_SSH_TARGET_PORT`; without overrides it starts a temporary local `sshd` configured for OpenSSH certificate auth only.
+- Before changing the SSH certificate issuer, Authentik OIDC handling, principal mapping, command signer, or OpenSSH integration, run this harness when the Authentik Kubernetes namespace is reachable. Ordinary workstation validation must at least keep `bash -n scripts/remote-access-authentik-oidc-ssh-smoke.sh` and the non-integration SSH CA package tests passing.
 
 ## Credential Custody Modes
 ### Centrally Brokered Secret

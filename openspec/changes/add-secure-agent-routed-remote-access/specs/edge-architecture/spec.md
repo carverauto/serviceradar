@@ -256,6 +256,13 @@ Generic SSH remote access SHALL support an enterprise certificate flow where Ser
 - **AND** the certificate SHALL be scoped to the actor, principal set, target, selected agent, protocol, and session
 - **AND** no shared bastion account, reusable target password, generic agent-local target private key, or LDAP password pass-through secret SHALL be required.
 
+#### Scenario: Authentik smoke path proves enterprise certificate flow
+- **GIVEN** the Kubernetes Authentik namespace is reachable
+- **WHEN** the Authentik/OpenSSH smoke harness runs
+- **THEN** it SHALL provision disposable Authentik OIDC fixtures, exchange an authorization code for a signed ID token, verify the token through ServiceRadar OIDC handling, map claims to an SSH principal, issue a short-lived ServiceRadar OpenSSH certificate, and authenticate to an OpenSSH target through `TrustedUserCAKeys`
+- **AND** it SHALL clean up disposable fixtures by default
+- **AND** it SHALL NOT persist target passwords, shared bastion credentials, reusable private keys, ID tokens, or certificate envelopes.
+
 #### Scenario: Certificate issuance is denied before target dial
 - **GIVEN** the requested principal, target, agent route, approval, MFA state, or TTL violates policy
 - **WHEN** the operator attempts to open an SSH session
