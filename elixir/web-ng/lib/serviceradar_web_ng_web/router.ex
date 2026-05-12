@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     # Passive proxy mode: allow an upstream gateway to authenticate users by
     # injecting a JWT on each request. This plug is a no-op unless
     # auth_settings.mode == passive_proxy.
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_session)
     plug(:fetch_live_flash)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -65,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
   end
 
   pipeline :api_docs_ui do
@@ -74,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @api_docs_csp})
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -81,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   pipeline :api_auth do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
     plug(:protect_from_forgery)
@@ -92,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API authentication for CLI/external tools (API key or bearer token)
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(ServiceRadarWebNGWeb.Plugs.ApiAuth)
   end
 
@@ -110,6 +116,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
   end
 
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
@@ -125,11 +132,61 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
   end
 
+  # Named rate-limit pipelines backed by ServiceRadar.Security.RateLimiter
+  # (cluster-aware ETS with :pg broadcast). Scopes opt in by piping through
+  # the appropriate pipeline; limits and windows come from
+  # `config :serviceradar_core, ServiceRadar.Security.RateLimiter`.
+  # Wiring onto specific routes happens alongside the per-controller
+  # migration that removes inline RateLimiter checks (rollout step).
+  pipeline :rate_limit_auth_local do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_local, subject: :ip)
+  end
+
+  pipeline :rate_limit_auth_oidc do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_oidc_callback, subject: :ip)
+  end
+
+  pipeline :rate_limit_auth_saml do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :auth_saml_callback, subject: :ip)
+  end
+
+  pipeline :rate_limit_cli_device_auth do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :cli_device_auth, subject: :ip)
+  end
+
+  pipeline :rate_limit_dashboard_publish do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :dashboard_publish, subject: :ip_and_actor)
+  end
+
+  pipeline :rate_limit_plugin_upload do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :plugin_upload, subject: :ip_and_actor)
+  end
+
+  pipeline :rate_limit_api_default do
+    plug(ServiceRadarWebNGWeb.Plugs.RateLimit, bucket: :api_default, subject: :ip)
+  end
+
+  # CSP violation reports are sent by the browser as
+  # `application/csp-report` (or `application/reports+json`). The standard
+  # `:api` pipeline calls `:accepts ["json"]`, which would reject those
+  # content types, so we give the report endpoint its own minimal
+  # pipeline. The endpoint itself is intentionally unauthenticated.
+  pipeline :csp_report do
+    plug(:accepts, ["json", "csp-report", "reports+json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     get("/health", HealthController, :ready)
     get("/health/live", HealthController, :live)
     get("/health/ready", HealthController, :ready)
     get("/metrics", MetricsController, :index)
+  end
+
+  scope "/api/security", ServiceRadarWebNGWeb do
+    pipe_through([:csp_report, :rate_limit_api_default])
+
+    post("/csp-report", CspReportController, :create)
   end
 
   scope "/api/docs", ServiceRadarWebNGWeb.Api do
@@ -141,6 +198,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # JSON:API pipeline for Ash resources (v2 API)
   pipeline :ash_json_api do
     plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
     plug(:protect_from_forgery)
@@ -555,6 +613,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/settings/cli-sessions", Settings.CliSessionsLive, :index)
       live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
+
+      live("/settings/audit/events", Settings.AuditLive.Events, :index)
+      live("/settings/audit/lockouts", Settings.AuditLive.Lockouts, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users
@@ -635,6 +696,20 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
       live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
+
+      # Ansible settings (Controllers tab v1; Repositories / Schedules /
+      # Retention land in follow-up commits)
+      live("/settings/ansible", Settings.AnsibleLive, :index)
+
+      # Ansible runs (read-only browsing of playbook execution history)
+      live("/ansible/runs", AnsibleLive.RunsIndex, :index)
+      live("/ansible/runs/:id", AnsibleLive.RunsShow, :show)
+
+      # Ansible launch (ad-hoc playbook run dispatch, takes ?devices=uid1,uid2)
+      live("/ansible/launch", AnsibleLive.LaunchLive, :index)
+
+      # Ansible playbook catalog browser (read-only)
+      live("/ansible/catalog", AnsibleLive.CatalogIndex, :index)
     end
 
     post("/users/update-password", UserSessionController, :update_password)

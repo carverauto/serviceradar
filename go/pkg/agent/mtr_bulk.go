@@ -93,8 +93,7 @@ type mtrBulkEvent struct {
 }
 
 type bulkMtrSharedResources struct {
-	enricher *mtr.Enricher
-	dns      *mtr.DNSResolver
+	dns *mtr.DNSResolver
 }
 
 type bulkMtrTask struct {
@@ -161,7 +160,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	taskCh := make(chan bulkMtrTask, maxConcurrency*2)
 	eventCh := make(chan mtrBulkEvent, maxConcurrency*2)
 	slotFreedCh := make(chan struct{}, maxConcurrency*2)
-	sharedResources := newBulkMtrSharedResources(jobCtx, baseOpts, p.logger)
+	sharedResources := newBulkMtrSharedResources(jobCtx, baseOpts)
 	defer sharedResources.close()
 
 	controller := newBulkMtrAdaptiveController(maxConcurrency, startedAt)
@@ -889,17 +888,8 @@ func (w *bulkMtrWorker) runResolved(
 func newBulkMtrSharedResources(
 	jobCtx context.Context,
 	baseOpts mtr.Options,
-	log logger.Logger,
 ) *bulkMtrSharedResources {
 	resources := &bulkMtrSharedResources{}
-
-	sharedEnricher, err := mtr.NewEnricher(baseOpts.ASNDBPath)
-	if err != nil {
-		log.Warn().Err(err).Msg("bulk MTR ASN enrichment unavailable")
-	}
-	if err == nil {
-		resources.enricher = sharedEnricher
-	}
 
 	if baseOpts.DNSResolve {
 		resources.dns = mtr.NewDNSResolver(jobCtx)
@@ -915,10 +905,6 @@ func (r *bulkMtrSharedResources) close() {
 	if r.dns != nil {
 		r.dns.Stop()
 		r.dns = nil
-	}
-	if r.enricher != nil {
-		_ = r.enricher.Close()
-		r.enricher = nil
 	}
 }
 
@@ -962,10 +948,9 @@ func (w *bulkMtrWorker) tracerForTarget(
 	if target.IPVersion == 6 {
 		if w.ipv6Tracer == nil {
 			tracer, err := mtr.NewTracerWithResources(ctx, opts, w.log, mtr.TracerResources{
-				Target:   target,
-				Enricher: w.shared.enricher,
-				DNS:      w.shared.dns,
-				Socket:   socket,
+				Target: target,
+				DNS:    w.shared.dns,
+				Socket: socket,
 			})
 			if err != nil {
 				return nil, err
@@ -979,10 +964,9 @@ func (w *bulkMtrWorker) tracerForTarget(
 
 	if w.ipv4Tracer == nil {
 		tracer, err := mtr.NewTracerWithResources(ctx, opts, w.log, mtr.TracerResources{
-			Target:   target,
-			Enricher: w.shared.enricher,
-			DNS:      w.shared.dns,
-			Socket:   socket,
+			Target: target,
+			DNS:    w.shared.dns,
+			Socket: socket,
 		})
 		if err != nil {
 			return nil, err

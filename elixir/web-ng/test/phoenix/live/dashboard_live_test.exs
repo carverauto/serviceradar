@@ -168,9 +168,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "[data-testid='virtualization-efficiency']")
     assert html =~ "Virtualization Efficiency"
     assert html =~ "Proxmox"
-    assert html =~ "1 hosts"
     assert html =~ "Running"
     assert html =~ "Pressure"
+    assert html =~ "Pressure sources"
+    assert html =~ "dashboard-pve-#{unique}"
+    assert html =~ "local-zfs"
     assert html =~ "1 storage warnings"
   end
 

@@ -52,11 +52,37 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         events_tab(path, current_scope),
         dashboards_tab(path, current_scope),
         edge_ops_tab(path, current_scope),
+        ansible_tab(path, current_scope),
         jobs_tab(path, current_scope),
-        auth_tab(path, current_scope)
+        auth_tab(path, current_scope),
+        audit_tab(path, current_scope)
       ],
       &Map.get(&1, :show, true)
     )
+  end
+
+  defp audit_tab(path, current_scope) do
+    %{
+      label: "Audit",
+      navigate: ~p"/settings/audit/events",
+      active: String.starts_with?(path, "/settings/audit"),
+      show: RBAC.can?(current_scope, "settings.audit.view")
+    }
+  end
+
+  defp ansible_tab(path, current_scope) do
+    %{
+      label: "Ansible",
+      navigate: ~p"/settings/ansible",
+      active: String.starts_with?(path, "/settings/ansible"),
+      show: can_ansible_tab?(current_scope)
+    }
+  end
+
+  defp can_ansible_tab?(current_scope) do
+    RBAC.can?(current_scope, "ansible.controllers.manage") or
+      RBAC.can?(current_scope, "ansible.repositories.manage") or
+      RBAC.can?(current_scope, "ansible.schedules.manage")
   end
 
   defp cluster_tab(path, current_scope) do

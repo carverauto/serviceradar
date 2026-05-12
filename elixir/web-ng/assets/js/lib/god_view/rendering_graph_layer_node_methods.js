@@ -204,6 +204,23 @@ export const godViewRenderingGraphLayerNodeMethods = {
         },
       }),
       new ScatterplotLayer({
+        id: "god-view-nodes-hitbox",
+        data: nodeData,
+        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        getPosition: (d) => d.position,
+        getRadius: (d) => Math.max(16, Math.min(20 + (this.visualClusterCount(d) - 1) * 0.35, 34)),
+        radiusUnits: "pixels",
+        stroked: false,
+        filled: true,
+        pickable: true,
+        opacity: 0,
+        getFillColor: [0, 0, 0, 1],
+        parameters: {
+          depthTest: false,
+          depthWrite: false,
+        },
+      }),
+      new ScatterplotLayer({
         id: "god-view-nodes",
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,

@@ -38,6 +38,35 @@ cleanup_srql_fixture_port_forward() {
   fi
 }
 
+skip_unreachable_integration_db() {
+  if [ "${SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB:-0}" = "1" ]; then
+    echo "serviceradar_core integration database is unreachable; skipping optional integration tests" >&2
+    exit 0
+  fi
+}
+
+database_endpoint_reachable() {
+  python3 - "${1:-}" <<'PY'
+import socket
+import sys
+from urllib.parse import urlparse
+
+url = sys.argv[1]
+parsed = urlparse(url)
+host = parsed.hostname
+port = parsed.port or 5432
+
+if not host:
+    raise SystemExit(1)
+
+try:
+    with socket.create_connection((host, port), timeout=5):
+        raise SystemExit(0)
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
 start_srql_fixture_port_forward() {
   local namespace target local_host local_port log_file
 
@@ -174,6 +203,11 @@ if [ -n "${admin_url}" ]; then
     reset_cmd=("${REPO_ROOT}/scripts/reset-srql-fixture-test-db.sh")
   fi
 
+  if [ "${SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB:-0}" = "1" ] &&
+    ! database_endpoint_reachable "${admin_url}"; then
+    skip_unreachable_integration_db
+  fi
+
   if ! "${reset_cmd[@]}"; then
     if command -v kubectl >/dev/null 2>&1; then
       echo "reset-test-db failed, refreshing srql-fixture port-forward and retrying once" >&2
@@ -191,6 +225,7 @@ if [ -n "${admin_url}" ]; then
         "${REPO_ROOT}/scripts/reset-test-db.sh" "${admin_url}" "${db_url}"
       fi
     else
+      skip_unreachable_integration_db
       exit 1
     fi
   fi

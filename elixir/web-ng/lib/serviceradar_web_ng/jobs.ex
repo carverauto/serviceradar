@@ -39,8 +39,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "reap_stale_periodic_jobs" => %{
       key: "reap_stale_periodic_jobs",
       label: "Periodic job reaper",
-      description:
-        "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
+      description: "Reap stale periodic Oban jobs stuck in executing after restarts or failovers.",
       worker: ReapStalePeriodicJobsWorker,
       queue: :maintenance,
       args: %{},
@@ -50,8 +49,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "prune_stale_agents" => %{
       key: "prune_stale_agents",
       label: "Stale agent retirement",
-      description:
-        "Retire stale disconnected agent rows from active operator selection surfaces.",
+      description: "Retire stale disconnected agent rows from active operator selection surfaces.",
       worker: PruneStaleAgentsWorker,
       queue: :maintenance,
       args: %{},
@@ -61,8 +59,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "refresh_logs_severity_stats" => %{
       key: "refresh_logs_severity_stats",
       label: "Logs severity stats refresh",
-      description:
-        "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
+      description: "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
       worker: RefreshLogsSeverityStatsWorker,
       queue: :maintenance,
       args: %{},
@@ -82,8 +79,7 @@ defmodule ServiceRadarWebNG.Jobs do
     "expire_packages" => %{
       key: "expire_packages",
       label: "Expire onboarding packages",
-      description:
-        "Marks edge onboarding packages as expired when their tokens have passed expiration.",
+      description: "Marks edge onboarding packages as expired when their tokens have passed expiration.",
       worker: ExpirePackagesWorker,
       queue: :maintenance,
       args: %{},

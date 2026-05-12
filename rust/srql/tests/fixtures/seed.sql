@@ -344,6 +344,9 @@ INSERT INTO virtualization_network_interfaces (
     exists,
     address,
     bridge_ports,
+    mac_address,
+    ip_addresses,
+    source,
     observed_at,
     inserted_at,
     updated_at
@@ -360,6 +363,63 @@ SELECT
     true,
     '10.10.10.5',
     'eno1',
+    NULL,
+    '{}',
+    'host_config',
+    base.now_ts - INTERVAL '5 minutes',
+    base.now_ts,
+    base.now_ts
+FROM base, ids;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+),
+ids AS (
+    SELECT
+        'aaaaaaaa-0000-0000-0000-000000000001'::uuid AS cluster_id,
+        'aaaaaaaa-0000-0000-0000-000000000101'::uuid AS host_id,
+        'aaaaaaaa-0000-0000-0000-000000000201'::uuid AS guest_id
+)
+INSERT INTO virtualization_network_interfaces (
+    id,
+    provider,
+    provider_ref,
+    host_id,
+    guest_id,
+    guest_provider_ref,
+    device_uid,
+    name,
+    interface_type,
+    active,
+    exists,
+    address,
+    cidr,
+    bridge_ports,
+    mac_address,
+    ip_addresses,
+    source,
+    observed_at,
+    inserted_at,
+    updated_at
+)
+SELECT
+    'aaaaaaaa-0000-0000-0000-000000000502'::uuid,
+    'proxmox',
+    'proxmox:guest-nic:proxmox:guest:pve-a:qemu:100:52:54:00:aa:bb:cc',
+    ids.host_id,
+    ids.guest_id,
+    'proxmox:guest:pve-a:qemu:100',
+    'device-beta',
+    'eth0',
+    'virtio',
+    true,
+    true,
+    '10.10.10.20',
+    '10.10.10.20/24',
+    'vmbr0',
+    '52:54:00:aa:bb:cc',
+    ARRAY['10.10.10.20/24', 'fe80::5054:ff:feaa:bbcc/64'],
+    'guest_agent',
     base.now_ts - INTERVAL '5 minutes',
     base.now_ts,
     base.now_ts

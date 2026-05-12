@@ -488,21 +488,38 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         ]
       }
 
+      parent = self()
+
       assert :ok =
                InventoryIngestor.ingest(payload, %{agent_id: agent_id},
                  actor: actor,
-                 resolve_device_uid: fn _descriptor, _status, _actor -> device_uid end,
-                 source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+                 source_upsert: fn attrs, _actor ->
+                   send(parent, {:source_upsert, attrs})
+                   {:ok, %{id: Ecto.UUID.generate()}}
+                 end,
                  profile_upsert: fn attrs, _actor -> {:ok, attrs} end
                )
 
+      assert_receive {:source_upsert, source_attrs}
+      assert source_attrs.device_uid != device_uid
+      assert String.starts_with?(source_attrs.device_uid, "sr:")
+
       {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+      {:ok, camera_device} = Device.get_by_uid(source_attrs.device_uid, false, actor: actor)
 
       assert device.type == "Server"
       assert device.type_id == 1
+      assert device.name == "camera-worker-host"
+      assert device.hostname == "camera-worker-host"
+      assert is_nil(device.vendor_name)
       assert device.agent_id == agent_id
       assert device.ip == ip
       assert "camera_plugin" in device.discovery_sources
+
+      assert camera_device.type == "camera"
+      assert camera_device.type_id == 7
+      assert camera_device.name == "Agent Host Plugin Descriptor"
+      assert is_nil(camera_device.ip)
     end
 
     test "camera inventory does not claim ip from an agent-managed host", %{

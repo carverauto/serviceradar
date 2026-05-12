@@ -235,8 +235,12 @@ build_component() {
             local output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building Go binary from $src_path with version $VERSION and build $BUILD_ID..."
+            local ldflags="-X github.com/carverauto/serviceradar/go/pkg/version.version=$VERSION -X github.com/carverauto/serviceradar/go/pkg/version.buildID=$BUILD_ID"
+            if [ "$component" = "agent" ]; then
+                ldflags="$ldflags -X github.com/carverauto/serviceradar/go/cmd/agent.Version=$VERSION"
+            fi
             GOOS=linux GOARCH=amd64 go build \
-                -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=$VERSION -X github.com/carverauto/serviceradar/go/pkg/version.buildID=$BUILD_ID" \
+                -ldflags "$ldflags" \
                 -o "${pkg_root}${output_path}" \
                 "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not built"; exit 1; }
@@ -503,8 +507,12 @@ EOF
                 if [ "$build_method" = "go" ] && [ -n "$src_path" ]; then
                     echo "Building Go binary from $src_path..."
                     output_path=$(echo "$config" | jq -r '.binary.output_path')
+                    ldflags="-X github.com/carverauto/serviceradar/go/pkg/version.version=$version -X github.com/carverauto/serviceradar/go/pkg/version.buildID=$BUILD_ID"
+                    if [ "$component" = "agent" ]; then
+                        ldflags="$ldflags -X github.com/carverauto/serviceradar/go/cmd/agent.Version=$version"
+                    fi
                     GOOS=linux GOARCH=amd64 go build \
-                        -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=$version -X github.com/carverauto/serviceradar/go/pkg/version.buildID=$BUILD_ID" \
+                        -ldflags "$ldflags" \
                         -o "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" \
                         "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
                 elif [ "$build_method" = "none" ]; then

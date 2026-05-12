@@ -3,16 +3,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   Ingests Proxmox plugin enrichment into provider-neutral virtualization inventory.
   """
 
-  alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Inventory.VirtualizationCluster
-  alias ServiceRadar.Inventory.VirtualizationDatastore
-  alias ServiceRadar.Inventory.VirtualizationGuest
-  alias ServiceRadar.Inventory.VirtualizationHost
-  alias ServiceRadar.Inventory.VirtualizationHostDisk
-  alias ServiceRadar.Inventory.VirtualizationNetworkInterface
-  alias ServiceRadar.Inventory.VirtualizationStorageSystem
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.IdentityReconciler
 
-  require Ash.Query
   require Logger
 
   @provider "proxmox"
@@ -48,10 +41,12 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         records =
           entries
           |> Enum.map(&records_for_payload(&1, status, opts))
-          |> merge_records()
-          |> dedupe_records()
+          |> HypervisorEnrichmentIngestor.merge_records()
+          |> HypervisorEnrichmentIngestor.dedupe_records()
 
-        persist = Keyword.get(opts, :persist, &persist_records(&1, opts))
+        persist =
+          Keyword.get(opts, :persist, &HypervisorEnrichmentIngestor.persist_records(&1, opts))
+
         persist.(records)
     end
   end
@@ -62,9 +57,11 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         records =
           payload
           |> records_for_payload(status, opts)
-          |> dedupe_records()
+          |> HypervisorEnrichmentIngestor.dedupe_records()
 
-        persist = Keyword.get(opts, :persist, &persist_records(&1, opts))
+        persist =
+          Keyword.get(opts, :persist, &HypervisorEnrichmentIngestor.persist_records(&1, opts))
+
         persist.(records)
 
       _ ->
@@ -114,7 +111,8 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp parse_time(_value), do: nil
 
   defp build_records(details, observed_at) do
-    Enum.reduce(list(details["targets"]), empty_records(), fn target, acc ->
+    Enum.reduce(list(details["targets"]), HypervisorEnrichmentIngestor.empty_records(), fn target,
+                                                                                           acc ->
       version = get_in(target, ["version", "version"])
       cluster = cluster_record(target, version, observed_at)
       cluster_ref = cluster && cluster.provider_ref
@@ -135,52 +133,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end)
   end
 
-  defp empty_records do
-    %{
-      clusters: [],
-      hosts: [],
-      guests: [],
-      datastores: [],
-      host_disks: [],
-      network_interfaces: [],
-      storage_systems: []
-    }
-  end
-
   defp put_record(records, key, record), do: Map.update!(records, key, &[record | &1])
-
-  defp merge_records(record_sets) do
-    Enum.reduce(record_sets, empty_records(), fn records, acc ->
-      Map.new(acc, fn {key, values} -> {key, values ++ Map.fetch!(records, key)} end)
-    end)
-  end
-
-  defp dedupe_records(records) do
-    Map.new(records, fn {key, values} ->
-      {key, dedupe_provider_refs(values)}
-    end)
-  end
-
-  defp dedupe_provider_refs(records) do
-    records
-    |> Enum.reduce(%{}, fn record, acc ->
-      key = {record.provider, record.provider_ref}
-
-      Map.update(acc, key, record, fn current ->
-        if newer_record?(record, current), do: record, else: current
-      end)
-    end)
-    |> Map.values()
-  end
-
-  defp newer_record?(candidate, current) do
-    case {candidate[:observed_at], current[:observed_at]} do
-      {%DateTime{} = left, %DateTime{} = right} -> DateTime.compare(left, right) != :lt
-      {%DateTime{}, _} -> true
-      {_, nil} -> true
-      _ -> true
-    end
-  end
 
   defp cluster_record(target, version, observed_at) do
     cluster =
@@ -211,6 +164,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     else
       host_ref = "proxmox:node:#{node_name}"
       device_uid = device_uid_for_node(target, node_name)
+      cluster_node = cluster_node_for(target, node_name)
 
       host = %{
         provider: @provider,
@@ -224,7 +178,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         memory_used_bytes: integer_value(node, "mem"),
         memory_total_bytes: integer_value(node, "maxmem"),
         uptime_seconds: integer_value(node, "uptime"),
-        metadata: sanitize_metadata(Map.take(node, ["runtime_status"])),
+        metadata: node_metadata(node, cluster_node),
         observed_at: observed_at
       }
 
@@ -265,11 +219,64 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
           disk_used_bytes: integer_value(guest, "disk"),
           disk_total_bytes: integer_value(guest, "maxdisk"),
           uptime_seconds: integer_value(guest, "uptime"),
-          metadata: sanitize_metadata(Map.take(guest, ["id", "config", "runtime_status"])),
+          metadata: sanitize_metadata(Map.take(guest, ["id", "config", "runtime_status", "filesystems"])),
           observed_at: observed_at
         }
 
-        put_record(acc, :guests, record)
+        acc
+        |> put_record(:guests, record)
+        |> add_guest_network_interface_records(
+          guest,
+          provider_ref,
+          "proxmox:node:#{node}",
+          target_partition(target),
+          observed_at
+        )
+      end
+    end)
+  end
+
+  defp add_guest_network_interface_records(
+         records,
+         guest,
+         guest_ref,
+         host_ref,
+         partition,
+         observed_at
+       ) do
+    guest
+    |> list_value("interfaces")
+    |> Enum.with_index()
+    |> Enum.reduce(records, fn {iface, index}, acc ->
+      name = string_value(iface, "name") || string_value(iface, "config_key") || "net#{index}"
+      mac_address = normalize_mac_display(string_value(iface, "mac_address"))
+      ip_addresses = normalized_ip_addresses(iface)
+
+      if blank?(name) and blank?(mac_address) and ip_addresses == [] do
+        acc
+      else
+        key = mac_address || name || Integer.to_string(index)
+
+        record = %{
+          provider: @provider,
+          provider_ref: "proxmox:guest-nic:#{guest_ref}:#{key}",
+          host_provider_ref: host_ref,
+          guest_provider_ref: guest_ref,
+          device_uid: proxmox_guest_device_uid(guest),
+          name: name,
+          interface_type: string_value(iface, "model"),
+          address: List.first(Enum.map(ip_addresses, &strip_cidr/1)),
+          cidr: List.first(ip_addresses),
+          bridge_ports: string_value(iface, "bridge"),
+          vlan_id: integer_value(iface, "vlan_id"),
+          mac_address: mac_address,
+          ip_addresses: ip_addresses,
+          source: string_value(iface, "source"),
+          metadata: iface |> sanitize_metadata() |> maybe_put_metadata("partition", partition),
+          observed_at: observed_at
+        }
+
+        put_record(acc, :network_interfaces, record)
       end
     end)
   end
@@ -397,304 +404,30 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end
   end
 
-  defp persist_records(records, opts) do
-    actor = Keyword.fetch!(opts, :actor)
-    records = resolve_existing_device_uids(records, actor)
-
-    with {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
-         host_rows = link_refs(records.hosts, cluster_ids, %{}),
-         {:ok, host_ids} <- upsert_group(VirtualizationHost, host_rows, actor),
-         datastores = link_refs(records.datastores, cluster_ids, host_ids),
-         disks = link_refs(records.host_disks, %{}, host_ids),
-         nics = link_refs(records.network_interfaces, %{}, host_ids),
-         guests = link_refs(records.guests, %{}, host_ids),
-         storage_systems = link_refs(records.storage_systems, cluster_ids, host_ids),
-         {:ok, _} <- upsert_group(VirtualizationDatastore, datastores, actor),
-         {:ok, _} <- upsert_group(VirtualizationHostDisk, disks, actor),
-         {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
-         {:ok, _} <- upsert_group(VirtualizationGuest, guests, actor),
-         {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor) do
-      :ok
-    end
+  defp node_metadata(node, cluster_node) do
+    %{}
+    |> maybe_put_metadata("runtime_status", map_value(node, "runtime_status"))
+    |> maybe_put_metadata("ip", string_value(node, "ip") || string_value(cluster_node, "ip"))
+    |> maybe_put_metadata("cluster_node", cluster_node)
+    |> sanitize_metadata()
   end
 
-  defp resolve_existing_device_uids(records, actor) do
-    candidates =
-      records.hosts ++ records.guests ++ records.host_disks ++ records.network_interfaces
-
-    current_uids =
-      candidates
-      |> Enum.map(&Map.get(&1, :device_uid))
-      |> Enum.filter(&present?/1)
-
-    names =
-      candidates
-      |> Enum.flat_map(fn record ->
-        [Map.get(record, :name), node_name_from_provider_ref(Map.get(record, :provider_ref))]
-      end)
-      |> Enum.filter(&present?/1)
-
-    devices = lookup_devices(current_uids, names, actor)
-
-    Map.merge(records, %{
-      hosts: Enum.map(records.hosts, &resolve_record_device_uid(&1, devices)),
-      guests: Enum.map(records.guests, &resolve_record_device_uid(&1, devices)),
-      host_disks: Enum.map(records.host_disks, &resolve_record_device_uid(&1, devices)),
-      network_interfaces:
-        Enum.map(records.network_interfaces, &resolve_record_device_uid(&1, devices))
-    })
-  end
-
-  defp lookup_devices([], [], _actor), do: %{by_uid: %{}, by_name: %{}}
-
-  defp lookup_devices(uids, names, actor) do
-    uids = Enum.uniq(uids)
-    names = Enum.uniq(names)
-    names_downcase = Enum.map(names, &String.downcase/1)
-
-    Device
-    |> Ash.Query.for_read(:read, %{include_deleted: false})
-    |> Ash.Query.filter(
-      uid in ^uids or fragment("lower(?)", name) in ^names_downcase or
-        fragment("lower(?)", hostname) in ^names_downcase
-    )
-    |> Ash.read(actor: actor)
-    |> unwrap_page()
-    |> case do
-      {:ok, devices} ->
-        %{
-          by_uid: Map.new(devices, &{&1.uid, &1.uid}),
-          by_name:
-            devices
-            |> Enum.flat_map(fn device ->
-              [
-                {normalize_lookup_key(device.name), device.uid},
-                {normalize_lookup_key(device.hostname), device.uid}
-              ]
-            end)
-            |> Enum.reject(fn {key, _uid} -> is_nil(key) end)
-            |> Map.new()
-        }
-
-      {:error, reason} ->
-        Logger.warning("Proxmox enrichment device lookup failed: #{inspect(reason)}")
-        %{by_uid: %{}, by_name: %{}}
-    end
-  end
-
-  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: {:ok, results}
-  defp unwrap_page({:ok, %Ash.Page.Offset{results: results}}), do: {:ok, results}
-  defp unwrap_page({:ok, results}) when is_list(results), do: {:ok, results}
-  defp unwrap_page(other), do: other
-
-  defp resolve_record_device_uid(record, devices) do
-    current_uid = Map.get(record, :device_uid)
-
-    resolved =
-      Map.get(devices.by_uid, current_uid) ||
-        lookup_device_by_record_name(record, devices) ||
-        existing_sr_uid(current_uid)
-
-    Map.put(record, :device_uid, resolved)
-  end
-
-  defp lookup_device_by_record_name(record, devices) do
-    Enum.find_value(
-      [
-        Map.get(record, :name),
-        node_name_from_provider_ref(Map.get(record, :provider_ref))
-      ],
-      fn value ->
-        Map.get(devices.by_name, normalize_lookup_key(value))
-      end
-    )
-  end
-
-  defp existing_sr_uid(value) when is_binary(value) do
-    if String.starts_with?(value, "sr:"), do: value
-  end
-
-  defp existing_sr_uid(_value), do: nil
-
-  defp node_name_from_provider_ref("proxmox:node:" <> node), do: node
-
-  defp node_name_from_provider_ref("proxmox:disk:" <> rest),
-    do: rest |> String.split(":") |> List.first()
-
-  defp node_name_from_provider_ref("proxmox:nic:" <> rest),
-    do: rest |> String.split(":") |> List.first()
-
-  defp node_name_from_provider_ref("proxmox:guest:" <> rest),
-    do: rest |> String.split(":") |> List.first()
-
-  defp node_name_from_provider_ref(_value), do: nil
-
-  defp normalize_lookup_key(value) when is_binary(value) do
-    value
-    |> String.downcase()
-    |> String.trim()
-    |> blank_to_nil()
-  end
-
-  defp normalize_lookup_key(_value), do: nil
-
-  defp upsert_group(_resource, [], _actor), do: {:ok, %{}}
-
-  defp upsert_group(resource, rows, actor) do
-    rows =
-      rows
-      |> Enum.map(&strip_ref_helpers/1)
-      |> Enum.uniq_by(&{&1.provider, &1.provider_ref})
-
-    case Ash.bulk_create(rows, resource, :create,
-           actor: actor,
-           domain: ServiceRadar.Inventory,
-           return_records?: true,
-           return_errors?: true,
-           stop_on_error?: false,
-           upsert?: true,
-           upsert_identity: :unique_provider_ref,
-           upsert_fields: upsert_fields(resource)
-         ) do
-      %Ash.BulkResult{status: :success, records: records} ->
-        {:ok, Map.new(records, &{&1.provider_ref, &1.id})}
-
-      %Ash.BulkResult{errors: errors} = result ->
-        {:error, errors || result}
-    end
-  end
-
-  defp upsert_fields(VirtualizationCluster),
-    do: [:name, :status, :version, :metadata, :observed_at, :updated_at]
-
-  defp upsert_fields(VirtualizationHost) do
-    [
-      :cluster_id,
-      :device_uid,
-      :name,
-      :status,
-      :version,
-      :cpu_ratio,
-      :memory_used_bytes,
-      :memory_total_bytes,
-      :uptime_seconds,
-      :metadata,
-      :observed_at,
-      :updated_at
-    ]
-  end
-
-  defp upsert_fields(VirtualizationGuest) do
-    [
-      :host_id,
-      :device_uid,
-      :name,
-      :guest_type,
-      :vmid,
-      :status,
-      :cpu_ratio,
-      :memory_used_bytes,
-      :memory_total_bytes,
-      :disk_used_bytes,
-      :disk_total_bytes,
-      :uptime_seconds,
-      :metadata,
-      :observed_at,
-      :updated_at
-    ]
-  end
-
-  defp upsert_fields(VirtualizationDatastore) do
-    [
-      :cluster_id,
-      :host_id,
-      :name,
-      :storage_type,
-      :content,
-      :active,
-      :enabled,
-      :shared,
-      :used_bytes,
-      :available_bytes,
-      :total_bytes,
-      :metadata,
-      :observed_at,
-      :updated_at
-    ]
-  end
-
-  defp upsert_fields(VirtualizationHostDisk) do
-    [
-      :host_id,
-      :device_uid,
-      :path,
-      :by_id,
-      :disk_type,
-      :vendor,
-      :model,
-      :health,
-      :size_bytes,
-      :wearout,
-      :usage,
-      :metadata,
-      :observed_at,
-      :updated_at
-    ]
-  end
-
-  defp upsert_fields(VirtualizationNetworkInterface) do
-    [
-      :host_id,
-      :device_uid,
-      :name,
-      :interface_type,
-      :active,
-      :exists,
-      :method,
-      :method6,
-      :address,
-      :cidr,
-      :gateway,
-      :bridge_ports,
-      :vlan_id,
-      :metadata,
-      :observed_at,
-      :updated_at
-    ]
-  end
-
-  defp upsert_fields(VirtualizationStorageSystem) do
-    [
-      :cluster_id,
-      :host_id,
-      :name,
-      :storage_system_type,
-      :health,
-      :status,
-      :metadata,
-      :observed_at,
-      :updated_at
-    ]
-  end
-
-  defp link_refs(rows, cluster_ids, host_ids) do
-    Enum.map(rows, fn row ->
-      row
-      |> maybe_link_ref(:cluster_provider_ref, :cluster_id, cluster_ids)
-      |> maybe_link_ref(:host_provider_ref, :host_id, host_ids)
+  defp cluster_node_for(target, node_name) do
+    target
+    |> list_value("cluster")
+    |> Enum.find(fn entry ->
+      string_value(entry, "type") == "node" and
+        same_host_or_node?(cluster_node_name(entry), node_name)
     end)
   end
 
-  defp maybe_link_ref(row, ref_key, id_key, id_map) do
-    case Map.get(row, ref_key) do
-      ref when is_binary(ref) -> Map.put(row, id_key, Map.get(id_map, ref))
-      _ -> row
-    end
+  defp cluster_node_name(entry) do
+    string_value(entry, "name") ||
+      entry |> string_value("id") |> strip_cluster_node_prefix()
   end
 
-  defp strip_ref_helpers(row) do
-    Map.drop(row, [:cluster_provider_ref, :host_provider_ref])
-  end
+  defp strip_cluster_node_prefix("node/" <> name), do: name
+  defp strip_cluster_node_prefix(value), do: value
 
   defp device_uid_for_node(target, node_name) do
     meta = map_value(target, "metadata") || %{}
@@ -708,6 +441,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     else
       "proxmox:pve:#{node_name}"
     end
+  end
+
+  defp target_partition(target) do
+    target
+    |> map_value("metadata")
+    |> string_value("partition")
+    |> Kernel.||("default")
   end
 
   defp proxmox_guest_device_uid(guest) do
@@ -813,6 +553,85 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   defp bool_value(_map, _key), do: nil
 
+  defp normalized_ip_addresses(iface) do
+    iface
+    |> list_string_value("ip_addresses")
+    |> Enum.map(&normalize_ip_cidr/1)
+    |> Enum.filter(&present?/1)
+    |> Enum.uniq()
+  end
+
+  defp list_string_value(map, key) when is_map(map) do
+    case field_value(map, key) do
+      value when is_list(value) ->
+        value
+        |> Enum.map(&stringify_scalar/1)
+        |> Enum.map(&String.trim/1)
+        |> Enum.filter(&present?/1)
+
+      value when is_binary(value) ->
+        value
+        |> String.split([",", " "], trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.filter(&present?/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp list_string_value(_map, _key), do: []
+
+  defp stringify_scalar(value) when is_binary(value), do: value
+  defp stringify_scalar(value) when is_integer(value), do: Integer.to_string(value)
+  defp stringify_scalar(value) when is_float(value), do: Float.to_string(value)
+  defp stringify_scalar(_value), do: ""
+
+  defp normalize_mac_display(value) do
+    case normalize_mac_identifier(value) do
+      <<a::binary-size(2), b::binary-size(2), c::binary-size(2), d::binary-size(2),
+        e::binary-size(2), f::binary-size(2)>> ->
+        Enum.join([a, b, c, d, e, f], ":")
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_mac_identifier(value) when is_binary(value) do
+    case IdentityReconciler.normalize_mac(value) do
+      normalized when is_binary(normalized) and byte_size(normalized) == 12 -> normalized
+      _ -> nil
+    end
+  end
+
+  defp normalize_mac_identifier(_value), do: nil
+
+  defp normalize_ip_cidr(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case String.downcase(value) do
+      "" -> nil
+      "dhcp" -> nil
+      "auto" -> nil
+      "manual" -> nil
+      "none" -> nil
+      _ -> value
+    end
+  end
+
+  defp normalize_ip_cidr(_value), do: nil
+
+  defp strip_cidr(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.split("/", parts: 2)
+    |> List.first()
+    |> blank_to_nil()
+  end
+
+  defp strip_cidr(_value), do: nil
+
   defp field_value(map, key) do
     string_key = to_string(key)
 
@@ -849,6 +668,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   end
 
   defp sanitize_metadata(value), do: value
+
+  defp maybe_put_metadata(metadata, _key, value) when value in [nil, ""], do: metadata
+
+  defp maybe_put_metadata(metadata, key, value) when is_map(metadata),
+    do: Map.put(metadata, key, value)
+
+  defp maybe_put_metadata(_metadata, key, value), do: %{key => value}
 
   defp sensitive_key?(key) do
     normalized = String.downcase(String.trim(key))

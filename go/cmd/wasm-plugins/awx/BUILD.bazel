@@ -1,0 +1,18 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "main.go",
+    "plugin.inventory_sync.yaml",
+    "plugin.yaml",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "dist/**",
+            "manifest.json",
+        ],
+    ),
+)

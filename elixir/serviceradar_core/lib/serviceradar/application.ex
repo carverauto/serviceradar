@@ -110,6 +110,14 @@ defmodule ServiceRadar.Application do
         # Horde registries (always started for registration support)
         registry_children(),
 
+        # Cluster-aware rate limiter (per-node ETS + Horde-discovered
+        # peer broadcast). Must start after ProcessRegistry so it can
+        # register {:rate_limiter, node()} on init.
+        ServiceRadar.Security.RateLimiter,
+
+        # Non-blocking SecurityEvent recorder (per-node bounded queue).
+        ServiceRadar.Security.Events,
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 

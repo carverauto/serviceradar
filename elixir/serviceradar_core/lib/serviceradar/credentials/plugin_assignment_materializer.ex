@@ -109,7 +109,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          {:ok, package_id} <- required_string(package, [:id, "id"], "plugin package id") do
       {:ok,
        %{
-         policy_id: "network-credential-rule:#{rule_id}",
+         policy_id: policy_id_for_rule(rule_id, purpose),
          policy_version: rule_version(rule),
          plugin_package_id: package_id,
          params_template: proxmox_params_template(rule, secret_id, purpose),
@@ -139,13 +139,19 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp proxmox_params_template(rule, secret_id, @console_purpose) do
-    %{
+    params = %{
       "credential_broker" => proxmox_console_credential_broker_grant(rule, secret_id),
       "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
       "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
       "ssh_host_key_policy" => ssh_host_key_policy(rule),
       "credential_rule_id" => value_string(rule, [:id, "id"])
     }
+
+    if auth_method(rule) == "proxmox_api_token" do
+      Map.put(params, "api_token_secret_ref", SecretRefs.network_credential_ref(secret_id))
+    else
+      Map.put(params, "credential_secret", SecretRefs.network_credential_ref(secret_id))
+    end
   end
 
   defp proxmox_params_template(rule, secret_id, _purpose),
@@ -189,7 +195,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp rules_for_agent_scope(agent_id, purpose, actor, opts) do
     case Keyword.fetch(opts, :rules) do
       {:ok, rules} ->
-        {:ok, Enum.filter(rules, &(rule_purpose(&1) == purpose))}
+        {:ok, Enum.filter(rules, &rule_has_purpose?(&1, purpose))}
 
       :error ->
         scopes = agent_scopes(agent_id, actor)
@@ -203,7 +209,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
                  actor: actor
                ) do
             {:ok, rules} ->
-              {:cont, {:ok, acc ++ Enum.filter(rules, &(rule_purpose(&1) == purpose))}}
+              {:cont, {:ok, acc ++ Enum.filter(rules, &rule_has_purpose?(&1, purpose))}}
 
             {:error, reason} ->
               {:halt, {:error, reason}}
@@ -219,7 +225,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp selected_rules_for_agent(rules, agent_id, purpose) do
     rules
     |> Enum.filter(
-      &(rule_purpose(&1) == purpose and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
+      &(rule_has_purpose?(&1, purpose) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
     )
     |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
     |> collapse_by_target_query()
@@ -260,14 +266,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         PluginPackage
         |> Ash.Query.for_read(:approved, %{}, actor: actor)
         |> Ash.Query.filter(plugin_id == ^plugin_id)
-        |> Ash.Query.sort(approved_at: :desc, inserted_at: :desc)
-        |> Ash.Query.limit(1)
-        |> Ash.read_one(actor: actor)
+        |> Ash.read(actor: actor)
         |> case do
-          {:ok, %PluginPackage{} = package} ->
+          {:ok, packages} when is_list(packages) and packages != [] ->
+            package = Enum.max_by(packages, &package_sort_key/1)
             {:ok, package}
 
-          {:ok, nil} ->
+          {:ok, []} ->
             {:error, {:plugin_package_not_found, plugin_id}}
 
           {:error, reason} ->
@@ -275,6 +280,39 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         end
     end
   end
+
+  defp package_sort_key(package) do
+    {
+      semver_sort_key(value_string(package, [:version, "version"])),
+      timestamp_sort_key(ValueUtils.raw_value(package, [:imported_at, "imported_at"])),
+      timestamp_sort_key(ValueUtils.raw_value(package, [:approved_at, "approved_at"])),
+      timestamp_sort_key(ValueUtils.raw_value(package, [:inserted_at, "inserted_at"]))
+    }
+  end
+
+  defp semver_sort_key(version) when is_binary(version) do
+    case Regex.run(~r/^v?(\d+)\.(\d+)\.(\d+)/, version) do
+      [_match, major, minor, patch] ->
+        {String.to_integer(major), String.to_integer(minor), String.to_integer(patch), version}
+
+      _ ->
+        {-1, -1, -1, version}
+    end
+  end
+
+  defp semver_sort_key(_version), do: {-1, -1, -1, ""}
+
+  defp timestamp_sort_key(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
+  defp timestamp_sort_key(%NaiveDateTime{} = timestamp), do: NaiveDateTime.to_gregorian_seconds(timestamp)
+
+  defp timestamp_sort_key(timestamp) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, datetime, _offset} -> timestamp_sort_key(datetime)
+      _ -> 0
+    end
+  end
+
+  defp timestamp_sort_key(_timestamp), do: 0
 
   defp agent_scopes(agent_id, actor) do
     agent = load_agent(agent_id, actor)
@@ -314,6 +352,44 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       _ -> @inventory_purpose
     end
   end
+
+  defp rule_has_purpose?(rule, purpose) do
+    purpose_string = Atom.to_string(purpose)
+
+    rule
+    |> rule_purposes()
+    |> Enum.member?(purpose_string)
+    |> case do
+      true ->
+        true
+
+      false ->
+        purpose == @console_purpose and rule_purpose(rule) == @inventory_purpose and
+          auth_method(rule) == "proxmox_api_token"
+    end
+  end
+
+  defp rule_purposes(rule) do
+    metadata_purposes =
+      rule
+      |> metadata()
+      |> ValueUtils.list_value(["purposes", :purposes])
+      |> nil_to_empty_list()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if metadata_purposes == [] do
+      [Atom.to_string(rule_purpose(rule))]
+    else
+      metadata_purposes
+    end
+  end
+
+  defp nil_to_empty_list(nil), do: []
+  defp nil_to_empty_list(value), do: value
+
+  defp policy_id_for_rule(rule_id, @inventory_purpose), do: "network-credential-rule:#{rule_id}"
+  defp policy_id_for_rule(rule_id, purpose), do: "network-credential-rule:#{rule_id}:#{purpose}"
 
   defp auth_method(rule) do
     case value_string(rule, [:auth_method, "auth_method"]) do

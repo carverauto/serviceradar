@@ -172,6 +172,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       PluginAssignment
       |> Ash.Changeset.for_create(:create, params)
       |> Ash.create(actor: actor, authorize?: true)
+      |> disable_manual_duplicate(spec, actor)
     end
 
     @impl true
@@ -180,6 +181,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         source: :policy,
         source_key: spec.assignment_key,
         policy_id: spec.metadata["policy_id"],
+        plugin_package_id: spec.plugin_package_id,
         enabled: spec.enabled,
         interval_seconds: spec.interval_seconds,
         timeout_seconds: spec.timeout_seconds,
@@ -189,6 +191,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       existing
       |> Ash.Changeset.for_update(:update, params)
       |> Ash.update(actor: actor, authorize?: true)
+      |> disable_manual_duplicate(spec, actor)
     end
 
     @impl true
@@ -197,5 +200,29 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       |> Ash.Changeset.for_update(:update, %{enabled: false})
       |> Ash.update(actor: actor, authorize?: true)
     end
+
+    defp disable_manual_duplicate({:ok, assignment}, spec, actor) do
+      _ =
+        PluginAssignment
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(
+          source == :manual and enabled == true and agent_uid == ^spec.agent_uid and
+            plugin_package_id == ^spec.plugin_package_id
+        )
+        |> Ash.read(actor: actor)
+        |> case do
+          {:ok, manual_assignments} ->
+            Enum.each(manual_assignments, fn manual_assignment ->
+              _ = disable_assignment(manual_assignment, actor)
+            end)
+
+          {:error, _reason} ->
+            :ok
+        end
+
+      {:ok, assignment}
+    end
+
+    defp disable_manual_duplicate(result, _spec, _actor), do: result
   end
 end

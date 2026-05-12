@@ -9,6 +9,7 @@ import OperationsTrafficMap from "./OperationsTrafficMap"
 import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
 import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
 import RemoteAccessTerminal from "./RemoteAccessTerminal"
+import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
@@ -40,6 +41,7 @@ export default {
   ProxmoxConsoleTerminal,
   RemoteAccessSSHConsole,
   RemoteAccessTerminal,
+  RemoteConsoleTerminal,
   SRQLTimeCookie,
   SpatialSurveyMap,
   NetflowSankeyChart,

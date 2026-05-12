@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -30,12 +31,17 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/cluster/status"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":[{"id":"cluster/lab","name":"lab","type":"cluster","nodes":1,"quorate":1},{"id":"node/pve-a","name":"pve-a","type":"node","online":1}]}`),
+			Body:   []byte(`{"data":[{"id":"cluster/lab","name":"lab","type":"cluster","nodes":1,"quorate":1},{"id":"node/pve-a","name":"pve-a","type":"node","online":1,"ip":"10.10.0.11"}]}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"node":"pve-a","status":"online","cpu":0.25,"maxcpu":16,"mem":1024,"maxmem":4096,"uptime":3600}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/termproxy"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"port":5901,"ticket":"PVEVNC:ticket","user":"root@pam"}}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/status"):
 		return &sdk.HTTPResponse{
@@ -90,11 +96,29 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/config"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55"}}`),
+			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55,bridge=vmbr0"}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/agent/network-get-interfaces"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"result":[{"name":"eth0","hardware-address":"00:11:22:33:44:55","ip-addresses":[{"ip-address":"192.168.2.50","ip-address-type":"ipv4","prefix":24},{"ip-address":"fe80::1","ip-address-type":"ipv6","prefix":64}]}]}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/agent/get-fsinfo"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"result":[{"name":"sda1","mountpoint":"/","type":"ext4","total-bytes":8192,"used-bytes":6144},{"name":"tmpfs","mountpoint":"/run","type":"tmpfs","total-bytes":2048,"used-bytes":128}]}}`),
 		}, nil
 	default:
 		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{}`)}, nil
 	}
+}
+
+type staticHTTPClient struct {
+	response *sdk.HTTPResponse
+}
+
+func (s staticHTTPClient) Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	return s.response, nil
 }
 
 func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
@@ -124,11 +148,17 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if result.DeviceDiscovery[0].Devices[0].DeviceID != "proxmox:pve:pve-a" {
 		t.Fatalf("unexpected node device id: %s", result.DeviceDiscovery[0].Devices[0].DeviceID)
 	}
+	if result.DeviceDiscovery[0].Devices[0].IP != "10.10.0.11" {
+		t.Fatalf("expected node discovery IP from cluster status, got %#v", result.DeviceDiscovery[0].Devices[0])
+	}
 	if result.DeviceDiscovery[0].Devices[1].DeviceID != "proxmox:qemu:100" {
 		t.Fatalf("unexpected guest device id: %s", result.DeviceDiscovery[0].Devices[1].DeviceID)
 	}
-	if len(client.requests) != 14 {
-		t.Fatalf("expected fourteen Proxmox API requests, got %d", len(client.requests))
+	if result.DeviceDiscovery[0].Devices[1].IP != "192.168.2.50" || result.DeviceDiscovery[0].Devices[1].MAC != "00:11:22:33:44:55" {
+		t.Fatalf("expected guest discovery IP/MAC, got %#v", result.DeviceDiscovery[0].Devices[1])
+	}
+	if len(client.requests) != 16 {
+		t.Fatalf("expected sixteen Proxmox API requests, got %d", len(client.requests))
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -146,6 +176,9 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if len(details.Targets[0].Cluster) != 2 {
 		t.Fatalf("expected cluster status details, got %#v", details.Targets[0].Cluster)
+	}
+	if details.Targets[0].Nodes[0].IP != "10.10.0.11" {
+		t.Fatalf("expected node details IP from cluster status, got %#v", details.Targets[0].Nodes[0])
 	}
 	if details.Targets[0].Nodes[0].RuntimeState["wait"] != 0.01 {
 		t.Fatalf("expected node runtime status, got %#v", details.Targets[0].Nodes[0].RuntimeState)
@@ -171,11 +204,61 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if details.Targets[0].Guests[0].Config["api_token"] != "REDACTED" {
 		t.Fatalf("expected guest config token redaction, got %#v", details.Targets[0].Guests[0].Config)
 	}
+	if len(details.Targets[0].Guests[0].Interfaces) != 1 {
+		t.Fatalf("expected guest interface details, got %#v", details.Targets[0].Guests[0].Interfaces)
+	}
+	if got := details.Targets[0].Guests[0].Interfaces[0].IPAddresses; len(got) != 1 || got[0] != "192.168.2.50/24" {
+		t.Fatalf("expected guest agent IP address, got %#v", got)
+	}
+	if details.Targets[0].Guests[0].Disk != 6144 || details.Targets[0].Guests[0].MaxDisk != 8192 {
+		t.Fatalf("expected guest agent filesystem usage, got disk=%v maxdisk=%v", details.Targets[0].Guests[0].Disk, details.Targets[0].Guests[0].MaxDisk)
+	}
 	if len(result.Metrics) < 14 {
 		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
 	}
 	if len(result.Events) < 1 {
 		t.Fatalf("expected Ceph warning event, got %#v", result.Events)
+	}
+}
+
+func TestInterfacesFromLXCInterfacesIncludesRuntimeDHCPAddress(t *testing.T) {
+	interfaces := interfacesFromLXCInterfaces([]proxmoxLXCInterface{
+		{Name: "lo", Inet: "127.0.0.1/8"},
+		{Name: "eth0", MACAddress: "bc:24:11:53:84:67", Inet: "192.168.2.73/24", Inet6: "fe80::1/64"},
+	})
+
+	if len(interfaces) != 1 {
+		t.Fatalf("expected only the routable eth0 interface record, got %#v", interfaces)
+	}
+	got := interfaces[0]
+	if got.MACAddress != "BC:24:11:53:84:67" || got.Source != "lxc_interfaces" {
+		t.Fatalf("expected normalized LXC interface identity, got %#v", got)
+	}
+	if len(got.IPAddresses) != 1 || got.IPAddresses[0] != "192.168.2.73/24" {
+		t.Fatalf("expected non-link-local LXC address, got %#v", got.IPAddresses)
+	}
+}
+
+func TestGetJSONIncludesSanitizedHTTPErrorBody(t *testing.T) {
+	oldHTTP := proxmoxHTTP
+	proxmoxHTTP = staticHTTPClient{response: &sdk.HTTPResponse{
+		Status: http.StatusInternalServerError,
+		Body:   []byte(`{"data":"QEMU guest agent is not running","token":"PVEAPIToken=root@pam!sr=super-secret"}`),
+	}}
+	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+
+	var out map[string]any
+	err := getJSON(Config{TimeoutMS: defaultTimeoutMS}, Target{BaseURL: "https://pve.example:8006"}, "PVEAPIToken=root@pam!sr=test", "/api2/json/test", &out)
+	if err == nil {
+		t.Fatal("expected HTTP error")
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, "HTTP 500") || !strings.Contains(got, "QEMU guest agent is not running") {
+		t.Fatalf("expected status and response body in error, got %q", got)
+	}
+	if strings.Contains(got, "super-secret") {
+		t.Fatalf("expected PVE token to be redacted, got %q", got)
 	}
 }
 
@@ -323,8 +406,8 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 		DeviceID: "sr:device:pve-a",
 		Hostname: "pve-a.example",
 	}, []proxmoxNode{
-		{Node: "pve-a", Status: "online"},
-		{Node: "pve-b", Status: "online"},
+		{Node: "pve-a", Status: "online", IP: "192.0.2.10/24"},
+		{Node: "pve-b", Status: "online", IP: "192.0.2.11/24"},
 	})
 
 	if got := discovery.Devices[0].DeviceID; got != "sr:device:pve-a" {
@@ -332,6 +415,52 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 	}
 	if got := discovery.Devices[1].DeviceID; got != "proxmox:pve:pve-b" {
 		t.Fatalf("expected non-target cluster node to get stable Proxmox ID, got %s", got)
+	}
+	if got := discovery.Devices[1].IP; got != "192.0.2.11" {
+		t.Fatalf("expected non-target cluster node discovery IP, got %s", got)
+	}
+}
+
+func TestAnnotateNodesWithClusterStatusCopiesNodeIPs(t *testing.T) {
+	nodes := annotateNodesWithClusterStatus(
+		[]proxmoxNode{
+			{Node: "pve-a", Status: "online"},
+			{Node: "pve-b", Status: "online", IP: "192.0.2.20"},
+			{Node: "pve-c", Status: "online", Network: []proxmoxNetworkInterface{{Iface: "vmbr0", Address: "192.0.2.30/24"}}},
+		},
+		[]proxmoxClusterNode{
+			{ID: "cluster/lab", Name: "lab", Type: "cluster"},
+			{ID: "node/pve-a", Type: "node", IP: "192.0.2.10"},
+			{Name: "pve-b", Type: "node", IP: "192.0.2.21"},
+			{Name: "pve-c", Type: "node"},
+		},
+	)
+
+	if nodes[0].IP != "192.0.2.10" {
+		t.Fatalf("expected pve-a IP from cluster status, got %#v", nodes[0])
+	}
+	if nodes[1].IP != "192.0.2.20" {
+		t.Fatalf("expected existing pve-b IP to be preserved, got %#v", nodes[1])
+	}
+	if nodes[2].IP != "192.0.2.30" {
+		t.Fatalf("expected pve-c IP from node network config, got %#v", nodes[2])
+	}
+}
+
+func TestInterfacesFromGuestConfigParsesLXCAndQEMU(t *testing.T) {
+	interfaces := interfacesFromGuestConfig(map[string]any{
+		"net0": "name=eth0,bridge=vmbr0,gw=192.168.2.1,hwaddr=bc:24:11:76:df:7e,ip=192.168.2.15/24,type=veth",
+		"net1": "virtio=00-11-22-33-44-55,bridge=vmbr1,tag=20",
+	})
+
+	if len(interfaces) != 2 {
+		t.Fatalf("expected two interfaces, got %#v", interfaces)
+	}
+	if interfaces[0].MACAddress != "BC:24:11:76:DF:7E" || interfaces[0].IPAddresses[0] != "192.168.2.15/24" {
+		t.Fatalf("unexpected LXC interface: %#v", interfaces[0])
+	}
+	if interfaces[1].MACAddress != "00:11:22:33:44:55" || interfaces[1].Model != "virtio" || interfaces[1].VLANID != 20 {
+		t.Fatalf("unexpected QEMU interface: %#v", interfaces[1])
 	}
 }
 
@@ -535,6 +664,64 @@ func TestRunConsoleWithDepsStreamsSSHSession(t *testing.T) {
 	}
 }
 
+func TestRunConsoleWithDepsStreamsNativeProxmoxConsole(t *testing.T) {
+	client := &fakeHTTPClient{}
+	oldHTTP := proxmoxHTTP
+	proxmoxHTTP = client
+	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+
+	bridge := newFakeConsoleBridge(consoleInputFrame{FrameType: "close"})
+	ws := &fakeWebSocketConn{}
+	cfg := consoleConfig{
+		CredentialRuleID:   "rule-1",
+		CredentialBroker:   map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
+		APIToken:           "root@pam!sr=test-token",
+		Console:            consoleContext{SessionID: "session-1", ConsoleMode: "proxmox_termproxy", TargetKind: "pve_host"},
+		Target:             consoleTarget{BaseURL: "https://pve.example:8006", ProviderRef: "proxmox:node:pve-a"},
+		TimeoutMS:          defaultTimeoutMS,
+		InsecureSkipVerify: true,
+	}
+
+	err := runConsoleWithDeps(cfg, consoleDeps{
+		openBridge: func(req consoleOpenRequest) (proxmoxConsoleBridge, error) {
+			if req.TerminalType != "xterm-256color" {
+				t.Fatalf("unexpected terminal type %q", req.TerminalType)
+			}
+			return bridge, nil
+		},
+		dialWS: func(_ context.Context, req sdk.WebSocketDialRequest, _ time.Duration) (websocketConsoleConn, error) {
+			ws.url = req.URL
+			ws.headers = req.Headers
+			ws.insecureSkipVerify = req.InsecureSkipVerify
+			return ws, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runConsoleWithDeps returned error: %v", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("expected one Proxmox proxy request, got %d", len(client.requests))
+	}
+	if client.requests[0].Method != http.MethodPost {
+		t.Fatalf("expected POST proxy request, got %s", client.requests[0].Method)
+	}
+	if got := client.requests[0].Headers["Authorization"]; got != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("unexpected Authorization header %q", got)
+	}
+	if !strings.HasPrefix(ws.url, "wss://pve.example:8006/api2/json/nodes/pve-a/vncwebsocket?") {
+		t.Fatalf("unexpected websocket URL %q", ws.url)
+	}
+	if ws.headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("unexpected websocket Authorization header %q", ws.headers["Authorization"])
+	}
+	if !ws.insecureSkipVerify {
+		t.Fatal("expected websocket to inherit insecure_skip_verify")
+	}
+	if !ws.closed {
+		t.Fatal("expected websocket to close")
+	}
+}
+
 type fakeConsoleBridge struct {
 	mu          sync.Mutex
 	writes      bytes.Buffer
@@ -598,6 +785,26 @@ type fakeSSHSession struct {
 	closed        bool
 	waitCh        chan struct{}
 	waitOnce      sync.Once
+}
+
+type fakeWebSocketConn struct {
+	url                string
+	headers            map[string]string
+	insecureSkipVerify bool
+	closed             bool
+}
+
+func (f *fakeWebSocketConn) SendContext(_ context.Context, _ []byte, _ time.Duration) error {
+	return nil
+}
+
+func (f *fakeWebSocketConn) RecvContext(_ context.Context, _ []byte, _ time.Duration) (int, error) {
+	return 0, sdk.HostError{Code: -6, Op: "websocket_recv"}
+}
+
+func (f *fakeWebSocketConn) Close() error {
+	f.closed = true
+	return nil
 }
 
 func (f *fakeSSHSession) StdinPipe() (io.WriteCloser, error) {

@@ -65,7 +65,6 @@ const (
 	DefaultTraceInterval   = 5 * time.Minute
 	DefaultMaxUnknownHops  = 10
 	DefaultUDPBasePort     = 33434
-	DefaultASNDBPath       = "/usr/share/GeoIP/GeoLite2-ASN.mmdb"
 	DefaultRingBufferSize  = 200
 
 	// MinPort is the minimum port used for probe sequence encoding.
@@ -100,9 +99,6 @@ type Options struct {
 	// DNSResolve enables async reverse DNS resolution for hop IPs.
 	DNSResolve bool
 
-	// ASNDBPath is the path to GeoLite2-ASN.mmdb for ASN enrichment.
-	ASNDBPath string
-
 	// MaxUnknownHops is the number of consecutive non-responding hops
 	// before the trace terminates.
 	MaxUnknownHops int
@@ -126,7 +122,6 @@ func DefaultOptions(target string) Options {
 		ProbeInterval:  time.Duration(DefaultProbeIntervalMs) * time.Millisecond,
 		PacketSize:     DefaultPacketSize,
 		DNSResolve:     true,
-		ASNDBPath:      DefaultASNDBPath,
 		MaxUnknownHops: DefaultMaxUnknownHops,
 		RingBufferSize: DefaultRingBufferSize,
 	}

@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStatus
@@ -370,6 +371,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp platform_contract_handlers do
     [
       DeviceDiscoveryIngestor,
+      HypervisorEnrichmentIngestor,
       ProxmoxEnrichmentIngestor,
       BatchIngestor,
       ThreatIntelPluginIngestor,

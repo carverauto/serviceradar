@@ -80,7 +80,7 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
         )
 
       {:error, reason} ->
-        Mix.shell().info("Skipping ecto.migrate; probe failed: #{inspect(reason)}")
+        Mix.raise("Unable to probe test database before migrate: #{inspect(reason)}")
     end
   end
 

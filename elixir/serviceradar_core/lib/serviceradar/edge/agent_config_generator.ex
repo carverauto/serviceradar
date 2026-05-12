@@ -352,7 +352,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       runtime: package.runtime,
       outputs: package.outputs,
       capabilities: effective_capabilities(package, manifest),
-      params: resolve_plugin_params(config_schema, assignment.params, assignment.id),
+      params: resolve_plugin_params(config_schema, assignment.params, assignment),
       permissions: effective_permissions(assignment, package, manifest),
       resources: effective_resources(assignment, package, manifest),
       enabled: assignment.enabled,
@@ -366,8 +366,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
   end
 
-  defp resolve_plugin_params(config_schema, params, assignment_id) do
+  defp resolve_plugin_params(config_schema, params, %PluginAssignment{} = assignment) do
     params = normalize_map(params)
+    config_schema = maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
 
     case SecretRefs.resolve_runtime_params(config_schema, params) do
       {:ok, resolved} ->
@@ -375,11 +376,100 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
       {:error, errors} ->
         Logger.warning(
-          "Failed to resolve plugin secret refs for assignment #{assignment_id}: #{Enum.join(errors, "; ")}"
+          "Failed to resolve plugin secret refs for assignment #{assignment.id}: #{Enum.join(errors, "; ")}"
         )
 
         SecretRefs.public_params(params)
     end
+  end
+
+  defp maybe_add_policy_credential_secret_fields(config_schema, params, %PluginAssignment{
+         source: :policy
+       }) do
+    maybe_add_policy_credential_secret_fields(config_schema, params, :policy)
+  end
+
+  defp maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
+       when is_map(assignment) do
+    maybe_add_policy_credential_secret_fields(
+      config_schema,
+      params,
+      Map.get(assignment, :source) || Map.get(assignment, "source")
+    )
+  end
+
+  defp maybe_add_policy_credential_secret_fields(config_schema, params, :policy) do
+    maybe_add_policy_secret_field_from_params(config_schema, params)
+  end
+
+  defp maybe_add_policy_credential_secret_fields(config_schema, params, "policy") do
+    maybe_add_policy_secret_field_from_params(config_schema, params)
+  end
+
+  defp maybe_add_policy_credential_secret_fields(config_schema, _params, _assignment),
+    do: config_schema
+
+  defp maybe_add_policy_secret_field_from_params(config_schema, params) do
+    params = normalize_map(params)
+
+    if policy_credential_broker_assignment?(params) do
+      config_schema
+      |> maybe_add_secret_ref_property(params, "api_token_secret_ref")
+      |> maybe_add_secret_ref_property(params, "credential_secret")
+    else
+      config_schema
+    end
+  end
+
+  defp policy_credential_broker_assignment?(params) do
+    params = normalize_map(params)
+    broker = fetch_map_value(params, :credential_broker, %{})
+    template = normalize_map(fetch_map_value(params, :template, %{}))
+
+    credential_broker_params?(params, broker) or
+      (map_present?(template) and
+         credential_broker_params?(template, fetch_map_value(template, :credential_broker, %{})))
+  end
+
+  defp credential_broker_params?(params, broker) do
+    fetch_map_value(broker, :schema) == "serviceradar.edge_credential_broker_grant.v1" and
+      (SecretRefs.secret_ref?(fetch_map_value(params, :api_token_secret_ref)) or
+         SecretRefs.secret_ref?(fetch_map_value(params, :credential_secret)))
+  end
+
+  defp maybe_add_secret_ref_property(config_schema, params, field) do
+    if secret_ref_in_params_or_template?(params, field) do
+      add_secret_ref_property(config_schema, field)
+    else
+      config_schema
+    end
+  end
+
+  defp secret_ref_in_params_or_template?(params, field) do
+    params = normalize_map(params)
+    template = normalize_map(fetch_map_value(params, :template, %{}))
+
+    SecretRefs.secret_ref?(fetch_map_value(params, field)) or
+      SecretRefs.secret_ref?(fetch_map_value(template, field))
+  end
+
+  defp add_secret_ref_property(config_schema, field) do
+    config_schema = normalize_map(config_schema)
+    properties = normalize_map(fetch_map_value(config_schema, :properties, %{}))
+
+    if SecretRefs.secret_ref_property?(Map.get(properties, field)) do
+      config_schema
+    else
+      Map.put(config_schema, "properties", Map.put(properties, field, secret_ref_property()))
+    end
+  end
+
+  defp secret_ref_property do
+    %{
+      "type" => "string",
+      "secretRef" => true,
+      "x-internal" => true
+    }
   end
 
   defp effective_capabilities(%PluginPackage{} = package, manifest) do
@@ -860,7 +950,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp resolved_assignment_params(assignment) do
     params = normalize_map(assignment.params)
 
-    case SecretRefs.resolve_runtime_params(proto_assignment_config_schema(assignment), params) do
+    schema =
+      assignment
+      |> proto_assignment_config_schema()
+      |> maybe_add_policy_credential_secret_fields(params, assignment)
+
+    case SecretRefs.resolve_runtime_params(schema, params) do
       {:ok, resolved} -> resolved
       {:error, _} -> params
     end

@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   def mount(%{"uid" => device_uid} = params, _session, socket) do
     socket =
       socket
-      |> assign(:page_title, "Proxmox Console")
+      |> assign(:page_title, "Remote Console")
       |> assign(:device_uid, device_uid)
       |> assign(:console_request, console_request_from_params(params))
       |> assign(:session, nil)
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
             <.icon name="hero-arrow-left" class="size-4" /> Device
           </.link>
           <div class="min-w-0 flex-1">
-            <h1 class="truncate text-sm font-semibold">Proxmox console</h1>
+            <h1 class="truncate text-sm font-semibold">Remote console</h1>
             <p class="truncate text-xs text-base-content/60">{@device_uid}</p>
           </div>
           <button
@@ -83,9 +83,9 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
           </div>
         </div>
 
-        <.proxmox_console_terminal
+        <.remote_console_terminal
           :if={@session && @ticket && @websocket_path}
-          id={"proxmox-console-terminal-#{@session.id}"}
+          id={"remote-console-terminal-#{@session.id}"}
           class="min-h-0 flex-1"
           session_id={@session.id}
           ticket={@ticket}
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
     else
       socket
       |> assign(:loading, false)
-      |> assign(:console_error, "You do not have permission to open Proxmox consoles.")
+      |> assign(:console_error, "You do not have permission to open remote consoles.")
     end
   end
 
@@ -163,8 +163,8 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   defp format_error(:unsupported_console_target),
     do: "This device is not currently recognized as a Proxmox host, VM, or LXC target."
 
-  defp format_error(:unsupported_console_mode), do: "The requested Proxmox console mode is not supported for this target."
-  defp format_error(:no_console_credential_rule), do: "No scoped Proxmox console credential rule matched this device."
+  defp format_error(:unsupported_console_mode), do: "The requested console mode is not supported for this target."
+  defp format_error(:no_console_credential_rule), do: "No scoped console credential rule matched this device."
 
   defp format_error(:credential_rule_scope_denied),
     do: "The selected Proxmox credential rule does not allow this device scope."
@@ -172,8 +172,8 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   defp format_error(:credential_rule_target_denied),
     do: "The selected Proxmox credential rule SRQL does not match this device."
 
-  defp format_error(:missing_agent_scope), do: "The Proxmox console credential rule must be scoped to an agent."
+  defp format_error(:missing_agent_scope), do: "The console credential rule must be scoped to an agent."
   defp format_error(:device_not_found), do: "The console target device was not found."
-  defp format_error(%Ash.Error.Forbidden{}), do: "You do not have permission to open this Proxmox console."
-  defp format_error(_reason), do: "Unable to prepare the Proxmox console session."
+  defp format_error(%Ash.Error.Forbidden{}), do: "You do not have permission to open this remote console."
+  defp format_error(_reason), do: "Unable to prepare the remote console session."
 end

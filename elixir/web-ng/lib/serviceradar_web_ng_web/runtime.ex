@@ -6,7 +6,9 @@ defmodule ServiceRadarWebNGWeb.Runtime do
     [
       ServiceRadarWebNGWeb.Telemetry,
       ServiceRadarWebNGWeb.Auth.ConfigCache,
-      ServiceRadarWebNGWeb.Auth.RateLimiter,
+      # ServiceRadarWebNGWeb.Auth.RateLimiter — replaced by the supervised
+      # ServiceRadar.Security.RateLimiter in serviceradar_core. The web
+      # shim no longer needs a supervised process.
       ServiceRadarWebNG.Auth.TokenRevocation,
       ServiceRadarWebNGWeb.Endpoint
     ]

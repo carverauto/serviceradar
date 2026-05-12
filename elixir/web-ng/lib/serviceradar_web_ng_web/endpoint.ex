@@ -1,14 +1,35 @@
 defmodule ServiceRadarWebNGWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :serviceradar_web_ng
 
-  # The session will be stored in the cookie and signed,
-  # this means its contents can be read but not tampered with.
-  # Set :encryption_salt if you would also like to encrypt it.
+  # The session is stored in the cookie and both signed AND encrypted.
+  # `:encryption_salt` was added during the platform-security-hardening
+  # change so the cookie value is no longer plaintext-readable. The
+  # encryption secret is derived from `SECRET_KEY_BASE`, so the cookie
+  # is opaque to anyone without that secret. Deployments that flip on
+  # the new hardening for the first time will sign every active
+  # session out once; subsequent deploys are seamless.
+  #
+  # The salt itself is *not* hardcoded — `config/runtime.exs` sources
+  # it from `SESSION_ENCRYPTION_SALT` (or `SECRET_KEY_BASE` as a
+  # derived fallback) so each deployment has its own. The dev/test
+  # config supplies a non-secret placeholder.
+  #
+  # `Secure` is gated by `SESSION_COOKIE_SECURE` (default true in prod
+  # builds) so the cookie is only sent over HTTPS; dev keeps
+  # `secure: false` so login works against `http://localhost`.
+  # `SameSite=Strict` matches the ops-console threat model — the only
+  # thing we lose vs Lax is "click a link in email and land already
+  # logged in," which we don't want for a security tool anyway.
   @session_options [
     store: :cookie,
     key: "_serviceradar_web_ng_key",
-    signing_salt: "fttoLWPw",
-    same_site: "Lax"
+    same_site: "Strict",
+    http_only: true,
+    signing_salt:
+      Application.compile_env!(:serviceradar_web_ng, [:session, :signing_salt]),
+    encryption_salt:
+      Application.compile_env!(:serviceradar_web_ng, [:session, :encryption_salt]),
+    secure: Application.compile_env(:serviceradar_web_ng, [:session, :secure], false)
   ]
 
   socket "/live", Phoenix.LiveView.Socket,

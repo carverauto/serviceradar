@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   def handle_info({:DOWN, ref, :process, _pid, reason}, socket) do
     cond do
       task_ref(socket.assigns[:device_stats_task]) == ref ->
-        Logger.warning("Device stats task failed: #{inspect(reason)}")
+        log_device_task_exit(:stats, reason)
 
         {:noreply,
          socket
@@ -143,12 +143,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
          |> assign(:device_stats_loading, false)}
 
       task_ref(socket.assigns[:device_enrichment_task]) == ref ->
-        Logger.warning("Device enrichment task failed: #{inspect(reason)}")
+        log_device_task_exit(:enrichment, reason)
         {:noreply, assign(socket, :device_enrichment_task, nil)}
 
       true ->
         {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_async({:device_enrichment, token}, {:ok, enrichments}, socket) do
+    socket = clear_task_ref(socket, :device_enrichment_task, {:device_enrichment, token})
+    apply_device_enrichments(socket, token, enrichments)
+  end
+
+  def handle_async({:device_enrichment, token}, {:exit, reason}, socket) do
+    log_device_task_exit(:enrichment, reason)
+
+    socket = clear_task_ref(socket, :device_enrichment_task, {:device_enrichment, token})
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:device_stats, token}, {:ok, stats}, socket) do
+    socket = clear_task_ref(socket, :device_stats_task, {:device_stats, token})
+    apply_device_stats(socket, token, stats)
+  end
+
+  def handle_async({:device_stats, token}, {:exit, reason}, socket) do
+    log_device_task_exit(:stats, reason)
+
+    socket =
+      socket
+      |> clear_task_ref(:device_stats_task, {:device_stats, token})
+      |> assign(:device_stats_loading, false)
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -354,6 +384,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, assign(socket, :selected_devices, MapSet.new())}
   end
 
+  def handle_event("run_task_for_selection", _params, socket) do
+    cond do
+      not RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to launch Ansible runs.")}
+
+      MapSet.size(socket.assigns.selected_devices) == 0 ->
+        {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
+
+      true ->
+        uids =
+          socket.assigns.selected_devices
+          |> MapSet.to_list()
+          |> Enum.uniq()
+          |> Enum.join(",")
+
+        {:noreply, push_navigate(socket, to: ~p"/ansible/launch?devices=#{uids}")}
+    end
+  end
+
   def handle_event("open_bulk_edit_modal", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
       {:noreply, assign(socket, :show_bulk_edit_modal, true)}
@@ -464,9 +513,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     token = System.unique_integer([:positive])
 
     socket =
-      socket
-      |> cancel_inflight_device_tasks()
-      |> assign(
+      assign(socket,
         device_enrichment_token: token,
         icmp_sparklines: %{},
         icmp_error: nil,
@@ -489,6 +536,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
+  defp log_device_task_exit(kind, {:shutdown, :cancel}) do
+    Logger.debug("Device #{kind} task canceled")
+  end
+
+  defp log_device_task_exit(kind, :shutdown) do
+    Logger.debug("Device #{kind} task shut down")
+  end
+
+  defp log_device_task_exit(kind, reason) do
+    Logger.warning("Device #{kind} task failed: #{inspect(reason)}")
+  end
+
   defp assign_managed_device_limit_advisory(socket) do
     case RuntimeLimits.managed_device_limit() do
       limit when is_integer(limit) ->
@@ -508,47 +567,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp start_device_enrichment_task(socket, token, scope, query, devices) do
-    task =
-      Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-        enrichments = build_device_enrichments(scope, query, devices)
-        {:device_enrichments_loaded, token, enrichments}
-      end)
+    task = {:device_enrichment, token}
 
-    assign(socket, :device_enrichment_task, task)
+    socket
+    |> assign(:device_enrichment_task, task)
+    |> start_async(task, fn -> build_device_enrichments(scope, query, devices) end)
   end
 
   defp start_device_stats_task(socket, token, scope) do
-    task =
-      Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-        srql = srql_module()
-        stats = load_device_stats(srql, scope)
-        {:device_stats_loaded, token, stats}
-      end)
+    task = {:device_stats, token}
 
-    assign(socket, :device_stats_task, task)
-  end
-
-  defp cancel_inflight_device_tasks(socket) do
     socket
-    |> cancel_task(:device_enrichment_task)
-    |> cancel_task(:device_stats_task)
-  end
-
-  defp cancel_task(socket, key) do
-    case Map.get(socket.assigns, key) do
-      %Task{pid: pid} = task when is_pid(pid) ->
-        Process.demonitor(task.ref, [:flush])
-        Process.exit(pid, :kill)
-        assign(socket, key, nil)
-
-      _ ->
-        assign(socket, key, nil)
-    end
+    |> assign(:device_stats_task, task)
+    |> start_async(task, fn ->
+      srql = srql_module()
+      load_device_stats(srql, scope)
+    end)
   end
 
   defp clear_task_ref(socket, key, ref) do
     case Map.get(socket.assigns, key) do
       %Task{ref: ^ref} -> assign(socket, key, nil)
+      ^ref -> assign(socket, key, nil)
       _ -> socket
     end
   end
@@ -1008,6 +1048,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </button>
           </div>
           <div class="flex items-center gap-2">
+            <.ui_button
+              :if={RBAC.can?(@current_scope, "ansible.runs.launch")}
+              variant="primary"
+              size="sm"
+              phx-click="run_task_for_selection"
+            >
+              <.icon name="hero-play" class="size-4" /> Run Task
+            </.ui_button>
             <.ui_button
               :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
               variant="primary"
@@ -2452,23 +2500,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           " "
         )
 
-      {snmp_presence, sysmon_presence} =
-        [snmp: snmp_query, sysmon: sysmon_query]
-        |> Task.async_stream(
-          fn {key, query} -> {key, srql_module.query(query, %{scope: scope})} end,
-          ordered: false,
-          timeout: 30_000
-        )
-        |> Enum.reduce({%{}, %{}}, fn
-          {:ok, {:snmp, {:ok, %{"results" => rows}}}}, {_snmp, sysmon} ->
-            {presence_from_downsample(rows), sysmon}
+      snmp_presence =
+        case srql_module.query(snmp_query, %{scope: scope}) do
+          {:ok, %{"results" => rows}} -> presence_from_downsample(rows)
+          _ -> %{}
+        end
 
-          {:ok, {:sysmon, {:ok, %{"results" => rows}}}}, {snmp, _sysmon} ->
-            {snmp, presence_from_downsample(rows)}
-
-          _, acc ->
-            acc
-        end)
+      sysmon_presence =
+        case srql_module.query(sysmon_query, %{scope: scope}) do
+          {:ok, %{"results" => rows}} -> presence_from_downsample(rows)
+          _ -> %{}
+        end
 
       {snmp_presence, sysmon_presence}
     end

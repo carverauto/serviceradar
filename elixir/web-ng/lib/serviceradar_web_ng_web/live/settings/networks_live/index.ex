@@ -2899,7 +2899,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       case result do
         {:ok, agents} ->
           Logger.debug("load_agents: loaded #{length(agents)} agents")
-          agents
+          Enum.filter(agents, &active_agent?/1)
 
         {:error, reason} ->
           Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
@@ -2913,6 +2913,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp can_manage_networks?(scope) do
     RBAC.can?(scope, "settings.networks.manage")
   end
+
+  defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
+       when status in [:connected, :degraded, :connecting] do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(_agent), do: false
 
   defp can_run_sweeps?(scope), do: RBAC.can?(scope, "networks.sweeps.run")
   defp can_run_discovery?(scope), do: RBAC.can?(scope, "networks.discovery.run")

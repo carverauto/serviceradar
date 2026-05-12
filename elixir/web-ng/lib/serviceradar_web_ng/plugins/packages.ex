@@ -220,6 +220,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         plugins
         |> maybe_filter_release_tag(release_tag)
         |> Enum.filter(&Map.get(&1, :import_ready?))
+        |> dedupe_first_party_plugin_versions()
         |> Enum.map(fn plugin ->
           import_attrs = %{
             source_type: :first_party,
@@ -257,12 +258,26 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp maybe_filter_release_tag(plugins, release_tag)
-       when is_binary(release_tag) and release_tag != "" do
+  defp maybe_filter_release_tag(plugins, release_tag) when is_binary(release_tag) and release_tag != "" do
     Enum.filter(plugins, &(&1.release_tag == release_tag))
   end
 
   defp maybe_filter_release_tag(plugins, _release_tag), do: plugins
+
+  defp dedupe_first_party_plugin_versions(plugins) do
+    plugins
+    |> Enum.reduce({MapSet.new(), []}, fn plugin, {seen, acc} ->
+      key = {Map.get(plugin, :plugin_id), Map.get(plugin, :version)}
+
+      if MapSet.member?(seen, key) do
+        {seen, acc}
+      else
+        {MapSet.put(seen, key), [plugin | acc]}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
 
   @spec upload_blob_file(PluginPackage.t(), String.t(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, term()}
@@ -531,23 +546,31 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp create_resource(changeset, []), do: Ash.create(changeset)
   defp create_resource(changeset, ash_opts), do: Ash.create(changeset, ash_opts)
 
-  defp ash_opts(scope, _actor) when not is_nil(scope), do: [scope: scope]
+  defp ash_opts(scope, actor) when not is_nil(scope) do
+    maybe_put_actor([scope: scope], actor || scope_actor(scope))
+  end
+
   defp ash_opts(_scope, actor) when not is_nil(actor), do: [actor: actor]
   defp ash_opts(_scope, _actor), do: []
 
   defp update_resource_with_opts(changeset, opts) do
-    scope = Keyword.get(opts, :scope)
-    actor = Keyword.get(opts, :actor)
-
-    cond do
-      not is_nil(scope) -> Ash.update(changeset, scope: scope)
-      not is_nil(actor) -> Ash.update(changeset, actor: actor)
-      true -> Ash.update(changeset)
-    end
+    Ash.update(changeset, opts)
   end
 
   defp destroy_resource(changeset, nil), do: Ash.destroy(changeset)
-  defp destroy_resource(changeset, scope), do: Ash.destroy(changeset, scope: scope)
+  defp destroy_resource(changeset, scope), do: Ash.destroy(changeset, ash_opts(scope, nil))
+
+  defp maybe_put_actor(opts, nil), do: opts
+  defp maybe_put_actor(opts, actor), do: Keyword.put(opts, :actor, actor)
+
+  defp scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    user
+    |> Map.take([:id, :email, :role, :role_profile_id])
+    |> Map.put(:permissions, permissions)
+  end
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
 
   defp maybe_filter_plugin_id(query, filters) do
     plugin_id = Map.get(filters, :plugin_id) || Map.get(filters, "plugin_id")

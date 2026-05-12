@@ -68,34 +68,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     total_batches = ceil(total_count / @batch_size)
 
-    result =
-      batches
-      |> Task.async_stream(
-        fn {batch, batch_num} ->
-          batch_start = System.monotonic_time(:millisecond)
-          ingest_batch(batch, actor)
-          batch_elapsed = System.monotonic_time(:millisecond) - batch_start
-
-          Logger.debug(
-            "SyncIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} devices) completed in #{batch_elapsed}ms"
-          )
-
-          :ok
-        end,
-        max_concurrency: batch_concurrency,
-        timeout: :infinity,
-        ordered: false
-      )
-      |> Enum.reduce_while(:ok, fn
-        {:ok, :ok}, _acc ->
-          {:cont, :ok}
-
-        {:ok, {:error, reason}}, _acc ->
-          {:halt, {:error, reason}}
-
-        {:exit, reason}, _acc ->
-          {:halt, {:error, reason}}
-      end)
+    result = process_batches(batches, actor, total_batches, batch_concurrency)
 
     elapsed = System.monotonic_time(:millisecond) - start_time
     rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
@@ -105,6 +78,44 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     )
 
     maybe_refresh_inventory_rollups(result, total_count)
+  end
+
+  defp process_batches([{batch, batch_num}], actor, total_batches, _batch_concurrency) do
+    process_batch(batch, batch_num, total_batches, actor)
+  end
+
+  defp process_batches(batches, actor, total_batches, batch_concurrency) do
+    batches
+    |> Task.async_stream(
+      fn {batch, batch_num} ->
+        process_batch(batch, batch_num, total_batches, actor)
+      end,
+      max_concurrency: batch_concurrency,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Enum.reduce_while(:ok, fn
+      {:ok, :ok}, _acc ->
+        {:cont, :ok}
+
+      {:ok, {:error, reason}}, _acc ->
+        {:halt, {:error, reason}}
+
+      {:exit, reason}, _acc ->
+        {:halt, {:error, reason}}
+    end)
+  end
+
+  defp process_batch(batch, batch_num, total_batches, actor) do
+    batch_start = System.monotonic_time(:millisecond)
+    result = ingest_batch(batch, actor)
+    batch_elapsed = System.monotonic_time(:millisecond) - batch_start
+
+    Logger.debug(
+      "SyncIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} devices) completed in #{batch_elapsed}ms"
+    )
+
+    result
   end
 
   defp ingest_batch(updates, actor) do

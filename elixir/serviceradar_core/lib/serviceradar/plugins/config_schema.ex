@@ -39,7 +39,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   @spec normalize_params(map(), map()) :: map()
   def normalize_params(schema, params) when is_map(schema) do
-    schema = stringify_keys(schema)
+    schema = schema |> stringify_keys() |> assignment_schema()
     params = stringify_keys(params || %{})
     {normalized, _} = normalize_for_schema(schema, params)
     normalized
@@ -50,7 +50,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   @spec validate_params(map(), map()) :: :ok | {:error, [String.t()]}
   def validate_params(schema, params) when is_map(schema) and is_map(params) do
-    schema = stringify_keys(schema)
+    schema = schema |> stringify_keys() |> assignment_schema()
 
     if map_size(schema) == 0 do
       :ok
@@ -65,6 +65,40 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   def validate_params(_schema, _params), do: :ok
+
+  defp assignment_schema(%{} = schema) do
+    required = Map.get(schema, "required")
+    properties = Map.get(schema, "properties")
+
+    cond do
+      not is_list(required) ->
+        schema
+
+      not is_map(properties) ->
+        schema
+
+      true ->
+        required =
+          Enum.reject(required, fn field ->
+            field
+            |> then(&Map.get(properties, &1, %{}))
+            |> runtime_injected_property?()
+          end)
+
+        if required == [] do
+          Map.delete(schema, "required")
+        else
+          Map.put(schema, "required", required)
+        end
+    end
+  end
+
+  defp runtime_injected_property?(%{} = property) do
+    Map.get(property, "x-serviceradar-ui-hidden") == true and
+      Map.get(property, "default") in [nil, ""]
+  end
+
+  defp runtime_injected_property?(_property), do: false
 
   defp ensure_root_object(schema, errors) do
     case Map.get(schema, "type") do

@@ -287,6 +287,24 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Manage edge packages",
           description: "Manage edge onboarding packages",
           default_roles: @admin_roles
+        },
+        %{
+          key: "settings.audit.view",
+          label: "View audit & security events",
+          description:
+            "Open Settings → Audit and view AshPaperTrail version history, the " <>
+              "SecurityEvent stream (rate-limit denials, signature failures, " <>
+              "policy denials, CSP violations, lockouts), and current rate-limit " <>
+              "pressure.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "settings.audit.manage",
+          label: "Manage audit & security state",
+          description:
+            "Clear an AuthLockout, rotate a WebhookSecret, and perform other " <>
+              "mutating actions on Settings → Audit.",
+          default_roles: @admin_roles
         }
       ]
     },
@@ -317,6 +335,62 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Assign plugins",
           description: "Assign plugins to agents and resources",
           default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
+      section: "ansible",
+      label: "Ansible",
+      permissions: [
+        %{
+          key: "ansible.controllers.manage",
+          label: "Manage AWX controllers",
+          description:
+            "Register, edit, and remove AWX/AAP controllers and the credential broker " <>
+              "entries that ServiceRadar uses to authenticate to them.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "ansible.repositories.manage",
+          label: "Manage playbook repositories",
+          description: "Register and configure git repositories used as Ansible playbook catalog sources.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "ansible.catalog.view",
+          label: "View playbook catalog",
+          description: "Browse the Ansible playbook catalog (git-sourced and AWX-sourced).",
+          default_roles: @all_roles
+        },
+        %{
+          key: "ansible.runs.view",
+          label: "View Ansible runs",
+          description: "View Ansible playbook runs, per-target results, and run history.",
+          default_roles: @all_roles
+        },
+        %{
+          key: "ansible.runs.launch",
+          label: "Launch Ansible runs",
+          description: "Launch Ansible playbooks against one or more Ansible-managed devices.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "ansible.runs.cancel",
+          label: "Cancel Ansible runs",
+          description: "Cancel an in-progress Ansible playbook run.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "ansible.schedules.view",
+          label: "View Ansible schedules",
+          description: "View scheduled / recurring Ansible playbook runs.",
+          default_roles: @all_roles
+        },
+        %{
+          key: "ansible.schedules.manage",
+          label: "Manage Ansible schedules",
+          description: "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
+          default_roles: @operator_roles
         }
       ]
     },

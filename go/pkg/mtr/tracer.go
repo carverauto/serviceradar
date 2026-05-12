@@ -45,10 +45,9 @@ type TargetInfo struct {
 
 // TracerResources allows callers to inject reusable tracer dependencies.
 type TracerResources struct {
-	Target   *TargetInfo
-	Enricher *Enricher
-	DNS      *DNSResolver
-	Socket   RawSocket
+	Target *TargetInfo
+	DNS    *DNSResolver
+	Socket RawSocket
 }
 
 // probeRecord tracks an in-flight probe.
@@ -61,30 +60,27 @@ type probeRecord struct {
 // Tracer executes MTR traces — sending probes with incrementing TTL
 // and collecting ICMP responses to build hop-by-hop path statistics.
 type Tracer struct {
-	opts         Options
-	logger       logger.Logger
-	enricher     *Enricher
-	dns          *DNSResolver
-	sock         RawSocket
-	ownsEnricher bool
-	ownsDNS      bool
-	ownsSocket   bool
+	opts       Options
+	logger     logger.Logger
+	dns        *DNSResolver
+	sock       RawSocket
+	ownsDNS    bool
+	ownsSocket bool
 
 	// resolved target address
 	targetIP  net.IP
 	ipVersion int
 
 	// probe state
-	hops              []*HopResult
-	probes            map[int]probeRecord // seq -> probe
-	probesMu          sync.Mutex
-	pendingProbes     atomic.Int32
-	probeUpdateCh     chan struct{}
-	nextSeq           int
-	icmpID            int
-	payload           []byte
-	activeHopsScratch []*HopResult
-	expiredScratch    []probeRecord
+	hops           []*HopResult
+	probes         map[int]probeRecord // seq -> probe
+	probesMu       sync.Mutex
+	pendingProbes  atomic.Int32
+	probeUpdateCh  chan struct{}
+	nextSeq        int
+	icmpID         int
+	payload        []byte
+	expiredScratch []probeRecord
 
 	// target reached flag
 	targetReached atomic.Bool
@@ -166,24 +162,11 @@ func NewTracerWithResources(
 		target = resolved
 	}
 
-	enricher := resources.Enricher
-	ownsEnricher := false
-	if enricher == nil {
-		var enrichErr error
-		enricher, enrichErr = NewEnricher(opts.ASNDBPath)
-		if enrichErr != nil {
-			log.Warn().Err(enrichErr).Msg("ASN enrichment unavailable")
-		}
-		ownsEnricher = true
-	}
-
 	return &Tracer{
 		opts:          opts,
 		logger:        log,
-		enricher:      enricher,
 		dns:           resources.DNS,
 		sock:          resources.Socket,
-		ownsEnricher:  ownsEnricher,
 		targetIP:      append(net.IP(nil), target.IP...),
 		ipVersion:     target.IPVersion,
 		hops:          make([]*HopResult, opts.MaxHops),
@@ -212,7 +195,7 @@ func (t *Tracer) ResetForTarget(opts Options, target *TargetInfo) error {
 	return nil
 }
 
-// Run executes a complete MTR trace and returns the enriched result.
+// Run executes a complete MTR trace and returns the result.
 func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	isIPv6 := t.ipVersion == 6
 
@@ -277,9 +260,6 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 
 	// Mark unanswered probes as timed out before computing loss snapshots.
 	t.finalizeTimeouts()
-
-	// Enrich results.
-	t.enrichResults()
 
 	return t.buildResult(), nil
 }
@@ -552,24 +532,6 @@ func (t *Tracer) matchTargetAddr(addr net.IP) bool {
 	return addr.Equal(t.targetIP)
 }
 
-// enrichResults adds ASN data to all hops.
-func (t *Tracer) enrichResults() {
-	if t.enricher == nil {
-		return
-	}
-
-	activeHops := t.activeHopsScratch[:0]
-	for _, hop := range t.hops {
-		if hop == nil || hop.Addr == nil {
-			continue
-		}
-
-		activeHops = append(activeHops, hop)
-	}
-	t.activeHopsScratch = activeHops
-	t.enricher.EnrichHops(activeHops)
-}
-
 // buildResult constructs the final TraceResult from accumulated hop data.
 func (t *Tracer) buildResult() *TraceResult {
 	hops := make([]HopSnapshot, 0, len(t.hops))
@@ -729,10 +691,6 @@ func (t *Tracer) Close() error {
 			return err
 		}
 		t.sock = nil
-	}
-
-	if t.ownsEnricher && t.enricher != nil {
-		return t.enricher.Close()
 	}
 
 	return nil

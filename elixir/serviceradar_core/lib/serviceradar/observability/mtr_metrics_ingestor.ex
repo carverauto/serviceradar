@@ -29,6 +29,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.MtrGraph
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrTrace
@@ -44,7 +45,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     gateway_id = status[:gateway_id]
     partition = status[:partition]
 
-    results = normalize_results(payload)
+    results =
+      payload
+      |> normalize_results()
+      |> enrich_results_asn()
 
     if Enum.empty?(results) do
       :ok
@@ -71,6 +75,90 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp normalize_results(results) when is_list(results), do: results
   defp normalize_results(result) when is_map(result), do: [result]
   defp normalize_results(_), do: []
+
+  defp enrich_results_asn(results) when is_list(results),
+    do: Enum.map(results, &enrich_result_asn/1)
+
+  defp enrich_results_asn(results), do: results
+
+  defp enrich_result_asn(result) when is_map(result) do
+    trace_key = trace_key(result)
+    trace = Map.get(result, trace_key)
+
+    case trace do
+      %{} = trace_map ->
+        Map.put(result, trace_key, enrich_trace_asn(trace_map))
+
+      _ ->
+        result
+    end
+  end
+
+  defp enrich_result_asn(result), do: result
+
+  defp enrich_trace_asn(trace) when is_map(trace) do
+    hops_key = hops_key(trace)
+
+    case Map.get(trace, hops_key) do
+      hops when is_list(hops) ->
+        Map.put(trace, hops_key, Enum.map(hops, &enrich_hop_asn/1))
+
+      _ ->
+        trace
+    end
+  end
+
+  defp enrich_hop_asn(hop) when is_map(hop) do
+    if hop_has_asn?(hop) do
+      hop
+    else
+      case lookup_hop_asn(map_get_any(hop, ["addr", :addr], nil)) do
+        nil -> hop
+        asn_info -> Map.put(hop, "asn", asn_info)
+      end
+    end
+  end
+
+  defp enrich_hop_asn(hop), do: hop
+
+  defp hop_has_asn?(hop) when is_map(hop) do
+    asn_info = map_get_any(hop, ["asn", :asn], %{})
+    is_map(asn_info) and parse_asn(map_get_any(asn_info, ["asn", :asn], nil)) != nil
+  end
+
+  defp lookup_hop_asn(addr) when is_binary(addr) do
+    addr = String.trim(addr)
+
+    with true <- addr != "",
+         {:ok, geo} when is_map(geo) <- GeoIP.lookup(addr),
+         asn when not is_nil(asn) <- parse_asn(map_get_any(geo, [:asn, "asn"], nil)) do
+      org = map_get_any(geo, [:as_org, "as_org", :org, "org"], nil)
+
+      %{}
+      |> maybe_put_string("asn", asn)
+      |> maybe_put_string("org", org)
+    else
+      _ -> nil
+    end
+  end
+
+  defp lookup_hop_asn(_addr), do: nil
+
+  defp trace_key(result) when is_map(result) do
+    cond do
+      Map.has_key?(result, "trace") -> "trace"
+      Map.has_key?(result, :trace) -> :trace
+      true -> "trace"
+    end
+  end
+
+  defp hops_key(trace) when is_map(trace) do
+    cond do
+      Map.has_key?(trace, "hops") -> "hops"
+      Map.has_key?(trace, :hops) -> :hops
+      true -> "hops"
+    end
+  end
 
   defp insert_results(results, agent_id, gateway_id, partition, now) do
     actor = SystemActor.system(:mtr_metrics_ingestor)
@@ -260,7 +348,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp build_hop_row(hop, trace_id, trace_time) when is_map(hop) do
     ecmp_addrs = hop["ecmp_addrs"] || []
-    asn_info = hop["asn"] || %{}
+    asn_info = map_get_any(hop, ["asn", :asn], %{})
     mpls_labels = hop["mpls_labels"]
 
     mpls_payload =
@@ -276,8 +364,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       addr: hop["addr"],
       hostname: hop["hostname"],
       ecmp_addrs: ecmp_addrs,
-      asn: parse_asn(asn_info["asn"]),
-      asn_org: asn_info["org"],
+      asn: parse_asn(map_get_any(asn_info, ["asn", :asn], nil)),
+      asn_org: map_get_any(asn_info, ["org", :org, "as_org", :as_org], nil),
       mpls_labels: mpls_payload,
       sent: hop["sent"] || 0,
       received: hop["received"] || 0,
@@ -346,4 +434,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp parse_asn(_), do: nil
+
+  defp maybe_put_string(map, _key, nil), do: map
+  defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
 end

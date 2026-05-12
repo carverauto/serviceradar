@@ -17,6 +17,11 @@ const ORGANIC_FULL_SPAN = Math.PI * 1.7
 const BACKBONE_NODE_MIN_DISTANCE = 120
 const UNPLACED_LANE_X_OFFSET = 220
 const UNPLACED_LANE_GAP_Y = 92
+const HOSTED_ISLAND_X_OFFSET = 300
+const HOSTED_ISLAND_GAP_Y = 220
+const HOSTED_ISLAND_GUEST_RING_RADIUS = 118
+const HOSTED_ISLAND_GUEST_RING_STEP = 78
+const HOSTED_ISLAND_GUESTS_PER_RING = 12
 
 const ELK_ROOT_OPTIONS = {
   "elk.algorithm": "layered",
@@ -87,6 +92,37 @@ function isEndpointAnchorNode(node) {
 function isUnplacedNode(node) {
   const details = graphNodeDetails(node)
   return details.topology_unplaced === true || String(details.topology_plane || "").trim() === "unplaced"
+}
+
+function isHypervisorNode(node) {
+  const details = graphNodeDetails(node)
+  const tokens = [
+    node?.type,
+    details.type,
+    details.device_type,
+    details.type_name,
+    details.device_role,
+    details.hypervisor_provider,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter((value) => value !== "")
+
+  return tokens.some((value) => value === "hypervisor" || value === "virtualization_host" || value === "proxmox")
+}
+
+function isHostedTopologyEdge(edge) {
+  const topologyClass = String(edge?.topologyClass || "").trim().toLowerCase()
+  const evidenceClass = String(edge?.evidenceClass || "").trim().toLowerCase()
+  const relationType = String(edge?.metadata?.relation_type || edge?.relationType || "").trim().toUpperCase()
+  const topologyPlane = String(edge?.metadata?.topology_plane || "").trim().toLowerCase()
+
+  return (
+    topologyClass === "hosted" ||
+    evidenceClass === "hosted" ||
+    evidenceClass === "hosted-virtual" ||
+    relationType === "HOSTED_ON" ||
+    topologyPlane === "hosted"
+  )
 }
 
 function nodeLayoutSize(node) {
@@ -502,17 +538,19 @@ export const godViewLayoutTopologyStateMethods = {
     }
   },
   computeBackboneLayeredPositions(graph, excludedNodeIds) {
+    const hostedLayoutNodeIds = this.hostedLayoutNodeIds(graph, excludedNodeIds)
     const backbone = this.buildBackboneAdjacency(graph, excludedNodeIds)
     const unplacedNodes = Array.isArray(graph?.nodes)
       ? graph.nodes
           .map((node, index) => ({id: graphNodeId(node, index), node}))
-          .filter(({id, node}) => !excludedNodeIds.has(id) && isUnplacedNode(node))
+          .filter(({id, node}) => !excludedNodeIds.has(id) && !hostedLayoutNodeIds.has(id) && isUnplacedNode(node))
       : []
     const residualNodes = Array.isArray(graph?.nodes)
       ? graph.nodes
           .map((node, index) => ({id: graphNodeId(node, index), node}))
           .filter(({id, node}) => {
             if (excludedNodeIds.has(id) || isUnplacedNode(node)) return false
+            if (hostedLayoutNodeIds.has(id)) return false
             return !backbone.nodeIds.includes(id)
           })
       : []
@@ -562,6 +600,32 @@ export const godViewLayoutTopologyStateMethods = {
       componentOffsetY += componentHeight
     }
 
+    const hostedIslands = this.collectHostedTopologyIslands(graph, excludedNodeIds)
+    if (hostedIslands.length > 0) {
+      const placedBeforeHosted = Array.from(positions.values())
+      const hostedAnchorX = placedBeforeHosted.length > 0
+        ? Math.max(...placedBeforeHosted.map((point) => Number(point.x || 0))) + HOSTED_ISLAND_X_OFFSET
+        : ORGANIC_ROOT_X
+      let hostedCursorY = placedBeforeHosted.length > 0
+        ? Math.min(...placedBeforeHosted.map((point) => Number(point.y || 0)))
+        : ORGANIC_ROOT_Y
+
+      for (const island of hostedIslands) {
+        const islandPositions = this.hostedIslandPositions(island, hostedAnchorX, hostedCursorY)
+        const islandPoints = Array.from(islandPositions.values())
+
+        for (const [nodeId, point] of islandPositions.entries()) positions.set(nodeId, point)
+
+        if (islandPoints.length > 0) {
+          const minY = Math.min(...islandPoints.map((point) => Number(point.y || 0)))
+          const maxY = Math.max(...islandPoints.map((point) => Number(point.y || 0)))
+          hostedCursorY += Math.max(maxY - minY, HOSTED_ISLAND_GUEST_RING_RADIUS * 2) + HOSTED_ISLAND_GAP_Y
+        } else {
+          hostedCursorY += HOSTED_ISLAND_GAP_Y
+        }
+      }
+    }
+
     const placedPoints = Array.from(positions.values())
     const laneAnchorX = placedPoints.length > 0
       ? Math.max(...placedPoints.map((point) => Number(point.x || 0))) + UNPLACED_LANE_X_OFFSET
@@ -608,6 +672,168 @@ export const godViewLayoutTopologyStateMethods = {
           y: laneCursorY + row * UNPLACED_LANE_GAP_Y,
         })
       }
+    }
+
+    return positions
+  },
+  hostedLayoutNodeIds(graph, excludedNodeIds = new Set()) {
+    const ids = new Set()
+    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ids
+
+    const nodeById = new Map()
+    for (let index = 0; index < graph.nodes.length; index += 1) {
+      const node = graph.nodes[index]
+      nodeById.set(graphNodeId(node, index), node)
+    }
+
+    for (const edge of graph.edges) {
+      if (!isHostedTopologyEdge(edge)) continue
+      const sourceId = edgeNodeId(graph, edge, "source")
+      const targetId = edgeNodeId(graph, edge, "target")
+      if (!sourceId || !targetId) continue
+      const sourceHypervisor = isHypervisorNode(nodeById.get(sourceId))
+      const targetHypervisor = isHypervisorNode(nodeById.get(targetId))
+      if (sourceHypervisor && targetHypervisor) continue
+
+      for (const nodeId of [sourceId, targetId]) {
+        if (excludedNodeIds.has(nodeId)) continue
+        const node = nodeById.get(nodeId)
+        if (isUnplacedNode(node)) continue
+        ids.add(nodeId)
+      }
+    }
+
+    return ids
+  },
+  collectHostedTopologyIslands(graph, excludedNodeIds = new Set()) {
+    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return []
+
+    const nodeById = new Map()
+    const rootGroups = new Map()
+    const fallbackAdjacency = new Map()
+
+    for (let index = 0; index < graph.nodes.length; index += 1) {
+      const node = graph.nodes[index]
+      const nodeId = graphNodeId(node, index)
+      if (excludedNodeIds.has(nodeId) || isUnplacedNode(node)) continue
+      nodeById.set(nodeId, node)
+    }
+
+    for (const edge of graph.edges) {
+      if (!isHostedTopologyEdge(edge)) continue
+      const sourceId = edgeNodeId(graph, edge, "source")
+      const targetId = edgeNodeId(graph, edge, "target")
+      if (!sourceId || !targetId || sourceId === targetId) continue
+      if (!nodeById.has(sourceId) || !nodeById.has(targetId)) continue
+
+      const sourceHypervisor = isHypervisorNode(nodeById.get(sourceId))
+      const targetHypervisor = isHypervisorNode(nodeById.get(targetId))
+
+      if (sourceHypervisor && targetHypervisor) continue
+
+      if (sourceHypervisor || targetHypervisor) {
+        const rootId = sourceHypervisor ? sourceId : targetId
+        const childId = sourceHypervisor ? targetId : sourceId
+        const group = rootGroups.get(rootId) || new Set([rootId])
+        group.add(childId)
+        rootGroups.set(rootId, group)
+        continue
+      }
+
+      if (!fallbackAdjacency.has(sourceId)) fallbackAdjacency.set(sourceId, new Set())
+      if (!fallbackAdjacency.has(targetId)) fallbackAdjacency.set(targetId, new Set())
+      fallbackAdjacency.get(sourceId).add(targetId)
+      fallbackAdjacency.get(targetId).add(sourceId)
+    }
+
+    const visited = new Set()
+    const islands = Array.from(rootGroups.entries()).map(([rootId, group]) => ({
+      rootId,
+      nodeIds: this.sortedHostedIslandNodeIds(Array.from(group), rootId, nodeById),
+      nodeById,
+    }))
+
+    for (const nodeId of Array.from(fallbackAdjacency.keys()).sort()) {
+      if (visited.has(nodeId)) continue
+      const queue = [nodeId]
+      const nodeIds = []
+      visited.add(nodeId)
+
+      while (queue.length > 0) {
+        const current = queue.shift()
+        nodeIds.push(current)
+
+        for (const neighbor of fallbackAdjacency.get(current) || []) {
+          if (visited.has(neighbor)) continue
+          visited.add(neighbor)
+          queue.push(neighbor)
+        }
+      }
+
+      const rootId = [...nodeIds].sort((leftId, rightId) => {
+        const leftNode = nodeById.get(leftId) || {}
+        const rightNode = nodeById.get(rightId) || {}
+        const leftDegree = Number((fallbackAdjacency.get(leftId) || new Set()).size)
+        const rightDegree = Number((fallbackAdjacency.get(rightId) || new Set()).size)
+
+        return (
+          Number(isHypervisorNode(rightNode)) - Number(isHypervisorNode(leftNode)) ||
+          rightDegree - leftDegree ||
+          String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
+          leftId.localeCompare(rightId)
+        )
+      })[0] || nodeId
+
+      islands.push({
+        rootId,
+        nodeIds: this.sortedHostedIslandNodeIds(nodeIds, rootId, nodeById),
+        nodeById,
+      })
+    }
+
+    return islands.sort((left, right) => {
+      const leftNode = left.nodeById.get(left.rootId) || {}
+      const rightNode = right.nodeById.get(right.rootId) || {}
+      return (
+        String(leftNode?.label || left.rootId).localeCompare(String(rightNode?.label || right.rootId)) ||
+        left.rootId.localeCompare(right.rootId)
+      )
+    })
+  },
+  sortedHostedIslandNodeIds(nodeIds, rootId, nodeById) {
+    return nodeIds.sort((leftId, rightId) => {
+      if (leftId === rootId) return -1
+      if (rightId === rootId) return 1
+      const leftNode = nodeById.get(leftId) || {}
+      const rightNode = nodeById.get(rightId) || {}
+      return (
+        String(leftNode?.label || leftId).localeCompare(String(rightNode?.label || rightId)) ||
+        leftId.localeCompare(rightId)
+      )
+    })
+  },
+  hostedIslandPositions(island, anchorX, anchorY) {
+    const positions = new Map()
+    const rootId = island?.rootId
+    const nodeIds = Array.isArray(island?.nodeIds) ? island.nodeIds : []
+    if (!rootId || nodeIds.length === 0) return positions
+
+    positions.set(rootId, {x: anchorX, y: anchorY})
+
+    const guests = nodeIds.filter((nodeId) => nodeId !== rootId)
+
+    for (let index = 0; index < guests.length; index += 1) {
+      const ring = Math.floor(index / HOSTED_ISLAND_GUESTS_PER_RING)
+      const ringStart = ring * HOSTED_ISLAND_GUESTS_PER_RING
+      const ringCount = Math.min(HOSTED_ISLAND_GUESTS_PER_RING, guests.length - ringStart)
+      const ringIndex = index - ringStart
+      const radius = HOSTED_ISLAND_GUEST_RING_RADIUS + ring * HOSTED_ISLAND_GUEST_RING_STEP
+      const angle = -Math.PI / 2 + (Math.PI * 2 * ringIndex) / Math.max(1, ringCount)
+
+      positions.set(guests[index], {
+        x: anchorX + Math.cos(angle) * radius,
+        y: anchorY + Math.sin(angle) * radius,
+      })
     }
 
     return positions
@@ -752,6 +978,7 @@ export const godViewLayoutTopologyStateMethods = {
     const adjacency = new Map()
     const depthById = new Map()
     const allNodes = new Map()
+    const hostedLayoutNodes = this.hostedLayoutNodeIds(graph, excludedNodeIds)
 
     for (let index = 0; index < graph.nodes.length; index += 1) {
       const node = graph.nodes[index]
@@ -765,6 +992,7 @@ export const godViewLayoutTopologyStateMethods = {
       if (!sourceId || !targetId) continue
       if (!this.edgeDrivesBackboneLayout(edge)) continue
       if (excludedNodeIds.has(sourceId) || excludedNodeIds.has(targetId)) continue
+      if (hostedLayoutNodes.has(sourceId) || hostedLayoutNodes.has(targetId)) continue
       if (isUnplacedNode(allNodes.get(sourceId)) || isUnplacedNode(allNodes.get(targetId))) continue
 
       if (!adjacency.has(sourceId)) {
@@ -788,6 +1016,7 @@ export const godViewLayoutTopologyStateMethods = {
     if (nodeIds.length === 0) {
       for (const [nodeId, node] of allNodes.entries()) {
         if (excludedNodeIds.has(nodeId) || isUnplacedNode(node)) continue
+        if (hostedLayoutNodes.has(nodeId)) continue
         nodeIds.push(nodeId)
         nodeById.set(nodeId, node)
         adjacency.set(nodeId, new Set())
@@ -803,7 +1032,8 @@ export const godViewLayoutTopologyStateMethods = {
 
     if (topologyClass === "endpoints" || topologyClass === "endpoint") return false
     if (topologyClass === "inferred" || topologyClass === "observed") return false
-    if (topologyClass === "backbone" || topologyClass === "logical" || topologyClass === "hosted") return true
+    if (topologyClass === "hosted") return false
+    if (topologyClass === "backbone" || topologyClass === "logical") return true
 
     if (evidenceClass === "endpoint-attachment") return false
     if (evidenceClass === "inferred" || evidenceClass === "inferred-segment") return false
@@ -814,8 +1044,6 @@ export const godViewLayoutTopologyStateMethods = {
       evidenceClass === "direct-physical" ||
       evidenceClass === "logical" ||
       evidenceClass === "direct-logical" ||
-      evidenceClass === "hosted" ||
-      evidenceClass === "hosted-virtual" ||
       topologyClass === "" ||
       topologyClass === "unknown"
     )

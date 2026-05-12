@@ -30,6 +30,12 @@ WASM_BUILD_TARGETS = [
         "tags": [],
     },
     {
+        "name": "awx",
+        "srcs": ["//go/cmd/wasm-plugins/awx:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/awx:main.go",
+        "tags": [],
+    },
+    {
         "name": "proxmox_inventory",
         "srcs": ["//go/cmd/wasm-plugins/proxmox:srcs"],
         "main_go": "//go/cmd/wasm-plugins/proxmox:main.go",
@@ -114,6 +120,26 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/alienvault-otx:plugin.yaml"),
             ("plugin.wasm", ":alienvault_otx_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/alienvault-otx:config.schema.json"),
+        ],
+    },
+    {
+        "name": "awx_bundle",
+        "plugin_id": "awx",
+        "repository_name": "wasm-plugin-awx",
+        "wasm_target": ":awx_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/awx:plugin.yaml"),
+            ("plugin.wasm", ":awx_wasm"),
+        ],
+    },
+    {
+        "name": "awx_inventory_sync_bundle",
+        "plugin_id": "awx-inventory-sync",
+        "repository_name": "wasm-plugin-awx-inventory-sync",
+        "wasm_target": ":awx_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/awx:plugin.inventory_sync.yaml"),
+            ("plugin.wasm", ":awx_wasm"),
         ],
     },
     {

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
   alias ServiceRadarWebNG.Topology.RuntimeGraph
+  alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
   alias ServiceRadarWebNGWeb.Stats
 
   @default_time_window "last_24h"
@@ -16,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @topology_sparkline_interface_limit 80
   @dashboard_sparkline_limit 48
   @virtualization_dashboard_limit 500
+  @virtualization_pressure_threshold 85.0
   @netflow_map_window_minutes 15
   @snmp_traffic_metrics ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
 
@@ -254,16 +256,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     guest_disk_ratios = Enum.map(guests, &disk_ratio/1)
     datastore_ratios = Enum.map(datastores, &datastore_ratio/1)
     ceph_health = storage_health_summary(storage_systems)
-
-    bottlenecks =
-      count_ratio_bottlenecks(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))) +
-        count_ratio_bottlenecks(host_memory_ratios) +
-        count_ratio_bottlenecks(Enum.map(guests, &ratio_percent(map_value(&1, "cpu_ratio")))) +
-        count_ratio_bottlenecks(guest_memory_ratios) +
-        count_ratio_bottlenecks(guest_disk_ratios) +
-        count_ratio_bottlenecks(datastore_ratios) +
-        ceph_health.warning_count +
-        ceph_health.error_count
+    pressure_items = virtualization_pressure_items(hosts, guests, datastores, storage_systems)
+    bottlenecks = length(pressure_items)
 
     %{
       available: hosts != [] or guests != [] or datastores != [] or storage_systems != [],
@@ -273,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       stopped_guests: Enum.count(guests, &(normalized_status(map_value(&1, "status")) == "stopped")),
       datastore_count: length(datastores),
       storage_system_count: length(storage_systems),
-      provider_label: provider_label(hosts ++ guests ++ datastores ++ storage_systems),
+      provider_label: VirtualizationLabels.provider_summary(hosts ++ guests ++ datastores ++ storage_systems),
       avg_host_cpu_pct: avg_percent(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))),
       max_host_cpu_pct: max_percent(Enum.map(hosts, &ratio_percent(map_value(&1, "cpu_ratio")))),
       max_host_memory_pct: max_percent(host_memory_ratios),
@@ -285,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       ceph_warning_count: ceph_health.warning_count,
       ceph_error_count: ceph_health.error_count,
       ceph_health_label: ceph_health.label,
+      pressure_items: Enum.take(pressure_items, 8),
       status_label: virtualization_status_label(bottlenecks, ceph_health),
       status_tone: virtualization_status_tone(bottlenecks, ceph_health)
     }
@@ -343,8 +338,108 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     |> min(100.0)
   end
 
-  defp count_ratio_bottlenecks(values) when is_list(values) do
-    Enum.count(values, &(clamp_percent(&1) >= 85.0))
+  defp virtualization_pressure_items(hosts, guests, datastores, storage_systems) do
+    host_items =
+      Enum.flat_map(hosts, fn host ->
+        label = display_name(host, "Hypervisor")
+
+        [
+          pressure_item(host, "Host CPU", label, ratio_percent(map_value(host, "cpu_ratio"))),
+          pressure_item(host, "Host Memory", label, memory_ratio(host))
+        ]
+      end)
+
+    guest_items =
+      Enum.flat_map(guests, fn guest ->
+        label = display_name(guest, "Guest")
+
+        [
+          pressure_item(guest, "Guest CPU", label, ratio_percent(map_value(guest, "cpu_ratio"))),
+          pressure_item(guest, "Guest Memory", label, memory_ratio(guest)),
+          pressure_item(guest, "Guest Disk", label, disk_ratio(guest))
+        ]
+      end)
+
+    datastore_items =
+      Enum.map(datastores, fn datastore ->
+        host = map_value(datastore, "host_name") || map_value(datastore, "node")
+        label = [display_name(datastore, "Datastore"), host] |> Enum.filter(&present?/1) |> Enum.join(" on ")
+
+        pressure_item(datastore, "Datastore", label, datastore_ratio(datastore),
+          fallback_href:
+            srql_href("in:virtualization_datastores storage:\"#{escape_query_value(map_value(datastore, "name"))}\"")
+        )
+      end)
+
+    storage_items =
+      Enum.flat_map(storage_systems, fn system ->
+        health = map_value(system, "health") || map_value(system, "status")
+
+        cond do
+          storage_health_error?(health) ->
+            [health_item(system, "Storage Health", display_name(system, "Storage"), "Critical")]
+
+          storage_health_warning?(health) ->
+            [health_item(system, "Storage Health", display_name(system, "Storage"), "Warning")]
+
+          true ->
+            []
+        end
+      end)
+
+    (host_items ++ guest_items ++ datastore_items ++ storage_items)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(& &1.sort_value, :desc)
+  end
+
+  defp pressure_item(row, metric, label, value, opts \\ []) do
+    value = clamp_percent(value)
+
+    if value >= @virtualization_pressure_threshold do
+      %{
+        metric: metric,
+        label: label,
+        value: value,
+        value_label: "#{format_float(value)}%",
+        href: device_href(row) || Keyword.get(opts, :fallback_href),
+        sort_value: value
+      }
+    end
+  end
+
+  defp health_item(row, metric, label, value_label) do
+    %{
+      metric: metric,
+      label: label,
+      value: nil,
+      value_label: value_label,
+      href: device_href(row),
+      sort_value: 100.0
+    }
+  end
+
+  defp display_name(row, fallback) do
+    map_value(row, "name") ||
+      map_value(row, "node") ||
+      map_value(row, "host_name") ||
+      map_value(row, "provider_ref") ||
+      fallback
+  end
+
+  defp device_href(row) do
+    case map_value(row, "device_uid") || map_value(row, "device_id") || map_value(row, "uid") do
+      value when is_binary(value) and value != "" -> "/devices/#{URI.encode_www_form(value)}"
+      _ -> nil
+    end
+  end
+
+  defp srql_href(query), do: "/devices?q=#{URI.encode(query)}"
+
+  defp escape_query_value(value) do
+    value
+    |> to_string()
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
   end
 
   defp storage_health_summary(storage_systems) when is_list(storage_systems) do
@@ -385,21 +480,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp normalized_status(value), do: value |> to_string() |> String.downcase()
-
-  defp provider_label(rows) when is_list(rows) do
-    providers =
-      rows
-      |> Enum.map(&map_value(&1, "provider"))
-      |> Enum.filter(&present?/1)
-      |> Enum.map(&String.capitalize/1)
-      |> Enum.uniq()
-
-    case providers do
-      [] -> "No hypervisor inventory"
-      [provider] -> provider
-      [first | rest] -> "#{first} +#{length(rest)}"
-    end
-  end
 
   defp virtualization_status_label(0, %{error_count: 0, warning_count: 0}), do: "Efficient"
   defp virtualization_status_label(_bottlenecks, %{error_count: errors}) when errors > 0, do: "Critical"
@@ -2521,6 +2601,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       ceph_warning_count: 0,
       ceph_error_count: 0,
       ceph_health_label: "No clustered storage",
+      pressure_items: [],
       status_label: "No inventory",
       status_tone: "idle"
     }

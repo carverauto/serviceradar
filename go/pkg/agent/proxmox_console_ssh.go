@@ -62,10 +62,14 @@ type proxmoxConsoleSSHConfig struct {
 }
 
 type proxmoxConsoleSSHTarget struct {
-	BaseURL  string `json:"base_url,omitempty"`
-	Hostname string `json:"hostname,omitempty"`
-	IP       string `json:"ip,omitempty"`
-	SSHPort  int    `json:"ssh_port,omitempty"`
+	BaseURL     string `json:"base_url,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	IP          string `json:"ip,omitempty"`
+	SSHPort     int    `json:"ssh_port,omitempty"`
+	ProviderRef string `json:"provider_ref,omitempty"`
+	TargetRef   string `json:"target_ref,omitempty"`
+	TargetKind  string `json:"target_kind,omitempty"`
+	ConsoleMode string `json:"console_mode,omitempty"`
 }
 
 type proxmoxConsoleSSHAuth struct {

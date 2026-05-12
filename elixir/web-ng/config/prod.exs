@@ -25,6 +25,28 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 # Configure Swoosh API Client
 config :swoosh, api_client: Swoosh.ApiClient.Req
 
+# Production session cookie configuration. The salts and the `secure`
+# flag are sourced from build-time environment variables so the
+# compiled release carries deployment-specific values rather than the
+# dev placeholders shipped in `config/config.exs`.
+#
+# Required at `mix release` time:
+#   SESSION_SIGNING_SALT      — opaque string, 16+ random bytes
+#   SESSION_ENCRYPTION_SALT   — opaque string, 16+ random bytes
+#   SESSION_COOKIE_SECURE     — "true" (default) or "false"
+#
+# Generate fresh values with `mix phx.gen.secret 32 | head -c 24`.
+# Rotating either salt forces every active session to re-authenticate
+# on the next request.
+config :serviceradar_web_ng, :session,
+  signing_salt:
+    System.get_env("SESSION_SIGNING_SALT") ||
+      raise("SESSION_SIGNING_SALT must be set at release-build time for prod"),
+  encryption_salt:
+    System.get_env("SESSION_ENCRYPTION_SALT") ||
+      raise("SESSION_ENCRYPTION_SALT must be set at release-build time for prod"),
+  secure: System.get_env("SESSION_COOKIE_SECURE", "true") in ~w(true 1 yes)
+
 # Runtime production configuration, including reading
 
 # Disable Swoosh Local Memory Storage

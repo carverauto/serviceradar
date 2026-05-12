@@ -28,7 +28,13 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     assert {:ok, %{session: session, ticket: ticket}} =
              ProxmoxConsoleSessions.request_open(
                uid,
-               %{metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}},
+               %{
+                 metadata: %{
+                   "private_key" => private_key_fixture(),
+                   "safe" => "kept",
+                   "remote_console" => %{"provider" => "caller-controlled"}
+                 }
+               },
                previewer: Previewer,
                actor: @system_actor
              )
@@ -36,6 +42,12 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     refute inspect(session) =~ ticket
     assert session.metadata["private_key"] == "REDACTED"
     assert session.metadata["safe"] == "kept"
+    assert session.metadata["remote_console"]["schema"] == "serviceradar.remote_console_target.v1"
+    assert session.metadata["remote_console"]["provider"] == "proxmox"
+    assert session.metadata["remote_console"]["target_type"] == "host"
+    assert session.metadata["remote_console"]["protocol"] == "proxmox-termproxy"
+    assert session.metadata["remote_console"]["transport"] == "pty"
+    assert session.metadata["remote_console"]["agent_id"] == "agent-ticket"
     refute inspect(session.metadata) =~ "PRIVATE KEY"
 
     assert {:ok, %ProxmoxConsoleSession{status: :attached}} =
@@ -45,34 +57,41 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              ProxmoxConsoleSessions.attach_with_ticket(ticket, session_id: session.id)
   end
 
-  test "requested console credential rule must be scoped to the target device agent" do
-    uid = unique_uid("scope-denied")
-    insert_device!(uid, agent_id: "agent-device", gateway_id: "gateway-device")
+  test "requested agent-scoped console credential rule can route unmanaged targets" do
+    uid = unique_uid("agent-scoped-route")
+    insert_device!(uid, agent_id: nil, gateway_id: nil)
     Process.put(:proxmox_console_test_device_uid, uid)
-    secret = create_secret!("scope-denied")
-    rule = create_rule!(secret, scope_value: "agent-other")
+    secret = create_secret!("agent-scoped-route")
+    rule = create_rule!(secret, scope_value: "agent-proxmox")
 
-    assert {:error, :credential_rule_scope_denied} =
+    assert {:ok, %{session: session}} =
              ProxmoxConsoleSessions.request_open(
                uid,
                %{credential_rule_id: rule.id},
                previewer: Previewer,
                actor: @system_actor
              )
+
+    assert session.agent_id == "agent-proxmox"
   end
 
-  test "guest console modes are rejected until a native Proxmox console connector is enabled" do
+  test "native guest console modes can use scoped Proxmox API token rules" do
     uid = unique_uid("guest-mode")
     insert_device!(uid, agent_id: "agent-guest", gateway_id: "gateway-guest")
     Process.put(:proxmox_console_test_device_uid, uid)
+    secret = create_secret!("guest-mode")
+    _rule = create_rule!(secret, scope_value: "agent-guest")
 
-    assert {:error, :unsupported_console_mode} =
+    assert {:ok, %{session: session}} =
              ProxmoxConsoleSessions.request_open(
                uid,
                %{target_kind: "lxc_guest", console_mode: "proxmox_termproxy"},
                previewer: Previewer,
                actor: @system_actor
              )
+
+    assert session.console_mode == :proxmox_termproxy
+    assert session.metadata["remote_console"]["target_type"] == "guest"
   end
 
   test "console rule using gateway scope still requires an agent route for the target device" do
@@ -91,6 +110,31 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              )
   end
 
+  test "console rule can use Proxmox discovery agent metadata when agent_id is not populated" do
+    uid = unique_uid("metadata-agent")
+
+    insert_device!(uid,
+      agent_id: nil,
+      gateway_id: "gateway-metadata",
+      metadata: %{"sync_service_id" => "agent-from-proxmox-discovery"}
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+    secret = create_secret!("metadata-agent")
+    _rule = create_rule!(secret, scope_value: "agent-from-proxmox-discovery")
+
+    assert {:ok, %{session: session}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               actor: @system_actor
+             )
+
+    assert session.agent_id == "agent-from-proxmox-discovery"
+    assert session.metadata["remote_console"]["agent_id"] == "agent-from-proxmox-discovery"
+  end
+
   defp insert_device!(uid, opts) do
     now = DateTime.utc_now()
 
@@ -103,7 +147,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
         agent_id: Keyword.get(opts, :agent_id),
         gateway_id: Keyword.get(opts, :gateway_id),
         is_available: true,
-        metadata: %{},
+        metadata: Keyword.get(opts, :metadata, %{}),
         first_seen_time: now,
         last_seen_time: now
       }
@@ -116,10 +160,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
       |> Ash.Changeset.for_create(:create, %{
         name: "pve-console-#{suffix}-#{System.unique_integer([:positive])}",
         provider: "proxmox",
-        credential_kind: :ssh_private_key,
-        username: "root",
-        secret_payload: Jason.encode!(%{"private_key" => private_key_fixture()}),
-        metadata: %{"secret_payload_format" => "ssh_private_key.v1"}
+        credential_kind: :api_token,
+        username: "root@pam!sr",
+        secret_payload: "root@pam!sr=test-token",
+        metadata: %{"auth_method" => "proxmox_api_token"}
       })
       |> Ash.create(actor: @system_actor)
 
@@ -134,8 +178,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
         %{
           name: "pve-console-rule-#{System.unique_integer([:positive])}",
           provider: "proxmox",
-          auth_method: :ssh_private_key,
-          purpose: :console_access,
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
           target_query: "in:devices",
           scope_type: Keyword.get(attrs, :scope_type, :agent),
           scope_value: Keyword.fetch!(attrs, :scope_value),
@@ -151,13 +195,13 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
   defp unique_uid(label), do: "pve-console-#{label}-#{System.unique_integer([:positive])}"
 
   defp private_key_fixture do
-    """
-    -----BEGIN OPENSSH PRIVATE KEY-----
-    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-    QyNTUxOQAAACB5Qw8C1g64mHaVnq1m6+xR54Xq7gkPsFQj7u3lK4P4JAAAAJB0ZXN0dGVz
-    dAAAAAtzc2gtZWQyNTUxOQAAACB5Qw8C1g64mHaVnq1m6+xR54Xq7gkPsFQj7u3lK4P4JAAA
-    AEB0ZXN0LWtleS1tYXRlcmlhbAAAAAAAAAAA
-    -----END OPENSSH PRIVATE KEY-----
-    """
+    private_key_fixture_header() <>
+      """
+      b3BlbnNzaC10ZXN0LWtleS1tYXRlcmlhbA==
+      #{private_key_fixture_footer()}
+      """
   end
+
+  defp private_key_fixture_header, do: "-----BEGIN OPENSSH " <> "PRIVATE KEY-----\n"
+  defp private_key_fixture_footer, do: "-----END OPENSSH " <> "PRIVATE KEY-----"
 end

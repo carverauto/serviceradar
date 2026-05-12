@@ -63,7 +63,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
       description "Enqueue an immediate device cleanup run"
 
       run fn _input, context ->
-        actor = context[:actor]
+        actor = context.actor
 
         case ServiceRadar.Inventory.DeviceCleanupWorker.enqueue_manual(actor) do
           {:ok, _job} -> {:ok, %{scheduled: true}}

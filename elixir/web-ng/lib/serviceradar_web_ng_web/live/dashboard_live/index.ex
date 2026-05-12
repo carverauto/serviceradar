@@ -533,7 +533,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               <div :if={!@virtualization_summary.available} class="sr-ops-virt-empty">
                 <.icon name="hero-cube-transparent" class="size-8 text-slate-500" />
                 <p>No hypervisor inventory</p>
-                <span>Proxmox and future virtualization enrichment will populate this panel.</span>
+                <span>Hypervisor enrichment will populate this panel.</span>
               </div>
 
               <div :if={@virtualization_summary.available} class="sr-ops-virt-body">
@@ -556,12 +556,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                       {format_compact_count(@virtualization_summary.running_guests)}
                     </strong>
                   </div>
-                  <div>
+                  <a
+                    href="#virtualization-pressure-details"
+                    class="sr-ops-virt-summary-link"
+                    aria-label="Show virtualization pressure sources"
+                  >
                     <span>Pressure</span>
                     <strong>
                       {format_compact_count(@virtualization_summary.bottleneck_count)}
                     </strong>
-                  </div>
+                  </a>
                 </div>
 
                 <div class="sr-ops-virt-pressure-list">
@@ -582,6 +586,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
                     value={@virtualization_summary.max_datastore_pct}
                   />
                 </div>
+
+                <details
+                  :if={@virtualization_summary.pressure_items != []}
+                  id="virtualization-pressure-details"
+                  class="sr-ops-virt-pressure-details"
+                >
+                  <summary>Pressure sources</summary>
+                  <div class="sr-ops-virt-pressure-sources">
+                    <.link
+                      :for={item <- @virtualization_summary.pressure_items}
+                      href={item.href || "#virtualization-pressure-details"}
+                      class={[
+                        "sr-ops-virt-pressure-source",
+                        !is_binary(item.href) && "is-static"
+                      ]}
+                    >
+                      <span>
+                        <em>{item.metric}</em>
+                        <strong>{item.label}</strong>
+                      </span>
+                      <b>{item.value_label}</b>
+                    </.link>
+                  </div>
+                </details>
 
                 <div class="sr-ops-virt-footer">
                   <span>

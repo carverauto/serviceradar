@@ -145,6 +145,7 @@ jobs:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
           SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB: "1"
         run: |
           set -euo pipefail
 
@@ -164,11 +165,11 @@ jobs:
           {
             echo "SRQL_TEST_DATABASE_URL=${SRQL_TEST_DATABASE_URL}"
             echo "SRQL_TEST_ADMIN_URL=${SRQL_TEST_ADMIN_URL}"
-            echo "SRQL_TEST_DATABASE_CA_CERT=${SRQL_TEST_DATABASE_CA_CERT}"
             echo "PGSSLROOTCERT=${ca_file}"
             echo "CNPG_CA_FILE=${ca_file}"
             echo "SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
             echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
+            echo "SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB=1"
           } >> "$GITHUB_ENV"
 
           parser="$(command -v python3 || command -v python || true)"
@@ -179,6 +180,7 @@ jobs:
 
           "${parser}" - <<'PY' >> "$GITHUB_ENV"
           import os
+          import socket
           from urllib.parse import urlparse, parse_qs
 
           def parse(url):
@@ -212,6 +214,15 @@ jobs:
           sslmode = db["sslmode"] or "require"
           print(f"CNPG_SSL_MODE={sslmode}")
           print(f"CNPG_TLS_SERVER_NAME={host}")
+
+          reachable = False
+          try:
+              with socket.create_connection((host, int(port)), timeout=5):
+                  reachable = True
+          except OSError:
+              reachable = False
+
+          print(f"SERVICERADAR_RUN_CORE_INTEGRATION={'1' if reachable else '0'}")
           PY
 
       - name: Configure remote cache
@@ -226,8 +237,15 @@ jobs:
 
       - name: Test
         id: bazel_tests
+        env:
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
         run: |
-          mapfile -t bazel_targets < <(bazel query 'tests(//...) except attr("tags", "manual", tests(//...)) except set(//elixir/web-ng:precommit)')
+          target_query='tests(//...) except attr("tags", "manual", tests(//...)) except set(//elixir/web-ng:precommit)'
+          if [ "${SERVICERADAR_RUN_CORE_INTEGRATION:-1}" = "0" ]; then
+            target_query="${target_query} except set(//rust/srql:srql_api_test //rust/srql:srql_comprehensive_test)"
+          fi
+
+          mapfile -t bazel_targets < <(bazel query "${target_query}")
 
           bazel test \
             --config=ci \
@@ -308,6 +326,7 @@ jobs:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
           SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB: "1"
         run: |
           set -euo pipefail
 
