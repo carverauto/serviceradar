@@ -1,8 +1,8 @@
 ## 1. Shared rate limiter (core)
-- [x] 1.1 Add `ServiceRadar.Security.RateLimiter` GenServer + per-node ETS table with named buckets, sliding window, sweep loop. Bucket keys are `{bucket_name, subject_key}`; no app-level tenant scoping. The owner joins a `:pg` group on startup and broadcasts increments/resets to peers so the libcluster+Horde cluster converges on shared counters. Subscribe to `:nodeup` so a joining node can request a snapshot to bootstrap.
-- [x] 1.2 Wire the limiter into `ServiceRadar.Application` supervision tree before any web app (also supervise the `:pg` default scope since OTP 25+ does not auto-start it).
+- [x] 1.1 Add `ServiceRadar.Security.RateLimiter` GenServer + per-node ETS table with named buckets, sliding window, sweep loop. Bucket keys are `{bucket_name, subject_key}`; no app-level tenant scoping. The owner registers `{:rate_limiter, node()}` in `ServiceRadar.ProcessRegistry` (Horde) on startup and broadcasts increments/resets to peers discovered via `select_by_type(:rate_limiter)` so the libcluster+Horde cluster converges on shared counters. Subscribe to `:nodeup` so a joining node can request a snapshot to bootstrap.
+- [x] 1.2 Wire the limiter into `ServiceRadar.Application` supervision tree after `registry_children()` so Horde is up when the limiter registers.
 - [x] 1.3 Add bucket configuration in `config/config.exs` for: `:auth_local`, `:auth_oidc_callback`, `:auth_saml_callback`, `:cli_device_auth`, `:dashboard_publish`, `:plugin_upload`, `:webhook_ingest`, `:api_default`. Runtime overrides via `config/runtime.exs` deferred until a rollout knob is actually needed.
-- [x] 1.4 Unit tests: sliding window correctness, sweep, concurrent writers, retry-after math, named bucket lookup, `:pg` group membership, peer-cast convergence.
+- [x] 1.4 Unit tests: sliding window correctness, sweep, concurrent writers, retry-after math, named bucket lookup, Horde registration, peer-cast convergence.
 - [x] 1.5 Cluster tests scaffolded under `:cluster` tag (excluded by default). Tests require a distributed test runner + DB-backed Application startup on peers; will be enabled in CI alongside other integration tests.
 
 ## 2. Rate-limit plug + shim

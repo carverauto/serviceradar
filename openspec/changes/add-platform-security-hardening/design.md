@@ -29,11 +29,11 @@ The sibling project `inkit` recently consolidated equivalent concerns into ~4 re
 
 ## Decisions
 
-### D1. Rate-limiter substrate: cluster-aware ETS via Horde + `:pg`
+### D1. Rate-limiter substrate: cluster-aware ETS via `ServiceRadar.ProcessRegistry` (Horde)
 
 Keep the ETS+GenServer pattern already in use, and make it correct for multi-replica deployments — which is the norm, not the exception. The current `ServiceRadarWebNGWeb.Auth.RateLimiter` uses single-node ETS with no broadcasting, so on the 3-replica demo a client effectively gets 3× the documented allowance by hitting different pods. Fixing this is part of the proposal, not a future concern.
 
-Approach: every node keeps its own local ETS table for fast reads, and writes (increments and resets) are fanned out to peers via `:pg` group broadcasts so all nodes converge on the same counters. The owning GenServer subscribes to `:pg` on startup, registers itself in the rate-limiter group, and handles peer cast messages. ServiceRadar already runs **libcluster + Horde** across web-ng replicas (see `elixir/web-ng/config/runtime.exs:614` for the libcluster topologies and `elixir/serviceradar_core/lib/serviceradar/cluster/gateway_supervisor.ex` for the Horde usage), so the BEAM cluster substrate is in place and we are not introducing a new clustering mechanism — we're using what's already there.
+Approach: every node keeps its own local ETS table for fast reads. The owning GenServer registers itself in the existing Horde-backed `ServiceRadar.ProcessRegistry` (see `elixir/serviceradar_core/lib/serviceradar/registry/process_registry.ex`) under the key `{:rate_limiter, node()}` on init. Writes (increments and resets) look up the cluster-wide set of registered rate-limiter PIDs via `ProcessRegistry.select_by_type(:rate_limiter)`, exclude self, and broadcast a cast to each peer so all nodes converge on the same counters. ServiceRadar already runs libcluster + Horde across web-ng replicas (see `elixir/web-ng/config/runtime.exs:631` for the libcluster topologies and `elixir/serviceradar_core/lib/serviceradar/registry/process_registry.ex` for the Horde registries), so we are not introducing a new clustering mechanism — we are using the established pattern that already powers gateway / agent process discovery.
 
 Bucket keys: `{bucket_name, subject_key}` where `subject_key` is typically the client IP, but auth-related buckets can use `{ip, actor_id}` to prevent password spraying. ETS table is a `:set` with `read_concurrency: true, write_concurrency: true`. Buckets are deployment-wide — tenancy in ServiceRadar is infrastructure-level (per-tenant k8s namespace + CNPG schema + NATS account), so app-layer per-tenant scoping is unnecessary.
 
@@ -41,7 +41,8 @@ Consistency model: eventually consistent. A burst that races the broadcast windo
 
 **Alternatives considered**:
 - `hammer` (extra dep, less control)
-- Mnesia with `ram_copies` across nodes (works, but heavier and slower than ETS + `:pg`; we use Mnesia nowhere else)
+- Mnesia with `ram_copies` across nodes (works, but heavier and slower than ETS + Horde-discovered casts; we use Mnesia nowhere else)
+- `:pg` directly (works but redundant — `ServiceRadar.ProcessRegistry` already gives us cluster-wide PID discovery; matching the codebase pattern is preferable to introducing a parallel mechanism)
 - Horde-supervised singleton owner (single point of contention; fine as an escape hatch for strict-consistency buckets but overkill as the default)
 - Redis-backed limiter (net-new infra dependency; rejected — BEAM clustering already gives us what we need)
 
@@ -140,12 +141,12 @@ Per-route config supplied via plug opts: `bucket`, `max_bytes`, `allowed_mime`, 
 | Risk | Mitigation |
 |---|---|
 | CSP breaks LiveView assets or third-party embeds | Ship report-only first; collect reports for ≥7 days before enforcing; document escape hatch (per-route `disable_csp`). |
-| ETS limiter becomes hot under spray | Single-table `:set` with `write_concurrency: true`; if contention shows, shard by `:erlang.phash2(key, N)` across N tables. Writes are fanned to peers via `:pg` cast — the broadcast cost is `O(cluster_size)` per increment, acceptable at the cluster sizes we run. |
+| ETS limiter becomes hot under spray | Single-table `:set` with `write_concurrency: true`; if contention shows, shard by `:erlang.phash2(key, N)` across N tables. Writes are fanned to peers via Horde-discovered GenServer casts — the broadcast cost is `O(cluster_size)` per increment, acceptable at the cluster sizes we run. |
 | SecurityEvent write rate during attack overwhelms DB | Bounded per-node queue with drop counter; sample CSP reports (1-in-100) under load. Postgres is the durable store and is shared across the cluster, so per-node queues do not affect consistency. |
 | False positives on `WebhookSignature` during rotation | Two-key acceptance window during rotation; grace period configurable. |
 | Generic auth rate limit blocks legitimate burst (e.g., CI device-flow) | Bucket config per route, with explicit higher limits for CI device flow. Document defaults in `config/config.exs`. |
 | Lockout creates support burden | Operator UI surfaces unlock; lockouts auto-expire after `expires_at`; emit metric/alert when lockout count crosses threshold. |
-| Cluster-wide rate-limit convergence under partition / netsplit | Buckets are local-first ETS with `:pg` cast fan-out; during a netsplit each partition continues to enforce locally and reconciles when the cluster reforms (last-writer-wins on counters is the BEAM cluster norm and is acceptable here). For lockouts and other state where stronger consistency is desired, the resource is persisted in CNPG via Ash so the durable record survives the partition. |
+| Cluster-wide rate-limit convergence under partition / netsplit | Buckets are local-first ETS with Horde-discovered cast fan-out; during a netsplit each partition continues to enforce locally and reconciles when the cluster reforms (last-writer-wins on counters is the BEAM cluster norm and is acceptable here). For lockouts and other state where stronger consistency is desired, the resource is persisted in CNPG via Ash so the durable record survives the partition. |
 
 ## Migration Plan
 

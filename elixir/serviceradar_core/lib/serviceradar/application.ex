@@ -76,13 +76,6 @@ defmodule ServiceRadar.Application do
         # RBAC permission cache (shared ETS, must start after PubSub)
         ServiceRadar.Identity.RBAC.Cache,
 
-        # :pg default scope (OTP 25+ does not auto-start it). Must come
-        # before any process that joins :pg groups (e.g., RateLimiter).
-        %{id: :pg, start: {:pg, :start_link, []}, restart: :permanent, type: :worker},
-
-        # Cluster-aware rate limiter (per-node ETS + :pg broadcast)
-        ServiceRadar.Security.RateLimiter,
-
         # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
         as_lookup_child(),
 
@@ -116,6 +109,11 @@ defmodule ServiceRadar.Application do
 
         # Horde registries (always started for registration support)
         registry_children(),
+
+        # Cluster-aware rate limiter (per-node ETS + Horde-discovered
+        # peer broadcast). Must start after ProcessRegistry so it can
+        # register {:rate_limiter, node()} on init.
+        ServiceRadar.Security.RateLimiter,
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),

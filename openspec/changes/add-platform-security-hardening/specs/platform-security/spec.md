@@ -2,7 +2,7 @@
 
 ### Requirement: Shared rate-limit substrate
 
-The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by per-node ETS and coordinated across the BEAM cluster via `:pg` broadcasts (or an equivalent libcluster-aware mechanism). Named buckets MUST be configurable per-route with independent window and limit values. Buckets are deployment-wide; tenant isolation is provided by the platform (per-tenant Kubernetes namespace, CNPG schema, and NATS account), so the limiter MUST NOT carry an app-level tenant key. Bucket counters MUST converge across cluster nodes (eventual consistency is acceptable, strict consistency is not required).
+The system SHALL provide a single shared rate-limiter module (`ServiceRadar.Security.RateLimiter`) backed by per-node ETS and coordinated across the BEAM cluster via `ServiceRadar.ProcessRegistry` (the existing Horde-backed registry). The limiter MUST register itself under a node-scoped key and discover peers via Horde rather than introducing a parallel cluster-membership mechanism. Named buckets MUST be configurable per-route with independent window and limit values. Buckets are deployment-wide; tenant isolation is provided by the platform (per-tenant Kubernetes namespace, CNPG schema, and NATS account), so the limiter MUST NOT carry an app-level tenant key. Bucket counters MUST converge across cluster nodes (eventual consistency is acceptable, strict consistency is not required).
 
 #### Scenario: Independent buckets are tracked separately
 - **WHEN** two routes are configured with distinct bucket names and both receive traffic from the same client IP

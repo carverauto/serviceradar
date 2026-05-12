@@ -149,10 +149,14 @@ defmodule ServiceRadar.Security.RateLimiterTest do
     end
   end
 
-  describe ":pg group membership" do
-    test "the limiter is joined to its own :pg group" do
-      members = :pg.get_members(RateLimiter.__pg_group__())
-      assert Process.whereis(RateLimiter) in members
+  describe "Horde registration" do
+    test "the limiter registers {:rate_limiter, node()} in ProcessRegistry" do
+      entries = ServiceRadar.ProcessRegistry.select_by_type(RateLimiter.__registry_type__())
+
+      assert Enum.any?(entries, fn
+               {{:rate_limiter, _node}, pid, _meta} -> pid == Process.whereis(RateLimiter)
+               _ -> false
+             end)
     end
   end
 

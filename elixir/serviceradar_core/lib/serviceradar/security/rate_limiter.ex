@@ -1,13 +1,14 @@
 defmodule ServiceRadar.Security.RateLimiter do
   @moduledoc """
   Cluster-aware sliding-window rate limiter backed by per-node ETS and
-  `:pg`-broadcast convergence across the libcluster+Horde BEAM cluster.
+  broadcast convergence across the libcluster+Horde BEAM cluster.
 
   Each web-ng / core node owns a local `:set` ETS table keyed by
   `{bucket, subject_key}` whose value is a list of attempt timestamps
   (`System.system_time(:second)`). Reads hit the local table for low
-  latency. Writes (records, clears) are also fanned out to peers in
-  the `#{__MODULE__}` `:pg` group so cluster nodes converge on the
+  latency. Writes (records, clears) are also fanned out to peers
+  discovered through `ServiceRadar.ProcessRegistry`
+  (`{:rate_limiter, node()}` keys) so cluster nodes converge on the
   same counters within the broadcast window. On `:nodeup` a joining
   node requests a snapshot from a peer so it does not enforce against
   a cold counter while peers are already at-limit.
@@ -32,7 +33,7 @@ defmodule ServiceRadar.Security.RateLimiter do
   require Logger
 
   @table :serviceradar_security_rate_limiter
-  @pg_group __MODULE__
+  @registry_type :rate_limiter
   @cleanup_interval :timer.minutes(5)
   @snapshot_timeout :timer.seconds(2)
 
@@ -112,18 +113,35 @@ defmodule ServiceRadar.Security.RateLimiter do
   def __table__, do: @table
 
   @doc false
-  def __pg_group__, do: @pg_group
+  def __registry_type__, do: @registry_type
 
   ## Server callbacks
 
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
-    :ok = :pg.join(@pg_group, self())
+    register_in_horde()
     :ok = :net_kernel.monitor_nodes(true)
     schedule_cleanup()
     request_snapshot_from_peer()
     {:ok, %{}}
+  end
+
+  defp register_in_horde do
+    case ServiceRadar.ProcessRegistry.register({@registry_type, node()}, %{type: @registry_type}) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_registered, _pid}} ->
+        :ok
+
+      other ->
+        Logger.warning(
+          "RateLimiter: ProcessRegistry.register failed: #{inspect(other)}; falling back to local-only enforcement"
+        )
+
+        :ok
+    end
   end
 
   @impl true
@@ -242,31 +260,30 @@ defmodule ServiceRadar.Security.RateLimiter do
     (existing ++ incoming) |> Enum.uniq() |> Enum.sort(:desc)
   end
 
-  defp broadcast(message) do
+  defp peer_pids do
     self_pid = self()
 
-    @pg_group
-    |> :pg.get_members()
+    @registry_type
+    |> ServiceRadar.ProcessRegistry.select_by_type()
+    |> Enum.map(fn {_key, pid, _meta} -> pid end)
     |> Enum.reject(&(&1 == self_pid))
-    |> Enum.each(&GenServer.cast(&1, message))
+  end
+
+  defp broadcast(message) do
+    Enum.each(peer_pids(), &GenServer.cast(&1, message))
   end
 
   defp request_snapshot_from_peer do
     self_pid = self()
 
-    peer =
-      @pg_group
-      |> :pg.get_members()
-      |> Enum.find(&(&1 != self_pid))
-
-    case peer do
-      nil ->
+    case peer_pids() do
+      [] ->
         :ok
 
-      pid ->
+      [peer | _] ->
         Task.start(fn ->
           try do
-            case GenServer.call(pid, {:snapshot_request, node(self_pid)}, @snapshot_timeout) do
+            case GenServer.call(peer, {:snapshot_request, node(self_pid)}, @snapshot_timeout) do
               {:ok, entries} ->
                 GenServer.cast(self_pid, {:snapshot_merge, entries})
 
@@ -276,7 +293,7 @@ defmodule ServiceRadar.Security.RateLimiter do
           catch
             kind, reason ->
               Logger.debug(
-                "RateLimiter: snapshot request to #{inspect(pid)} failed: #{inspect({kind, reason})}"
+                "RateLimiter: snapshot request to #{inspect(peer)} failed: #{inspect({kind, reason})}"
               )
           end
         end)

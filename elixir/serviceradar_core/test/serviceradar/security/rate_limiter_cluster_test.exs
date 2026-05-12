@@ -3,9 +3,9 @@ defmodule ServiceRadar.Security.RateLimiterClusterTest do
   Multi-node tests for `ServiceRadar.Security.RateLimiter`.
 
   Brings up a 3-node `:peer` cluster, joins them via `Node.connect/1`,
-  and exercises the `:pg`-broadcast convergence path. These tests are
-  skipped when distribution cannot be enabled (e.g., the test runner
-  is not started as a distributed node).
+  and exercises the Horde-discovered peer-broadcast convergence path.
+  These tests are skipped when distribution cannot be enabled (e.g.,
+  the test runner is not started as a distributed node).
   """
 
   use ExUnit.Case, async: false
