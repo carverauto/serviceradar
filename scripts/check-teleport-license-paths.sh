@@ -17,11 +17,34 @@
 set -euo pipefail
 
 teleport_src="${TELEPORT_SRC:-$HOME/src/teleport}"
+teleport_ref="${TELEPORT_REF:-}"
+teleport_scan_src="$teleport_src"
+teleport_worktree=""
+
+cleanup() {
+  if [[ -n "$teleport_worktree" ]]; then
+    git -C "$teleport_src" worktree remove --force "$teleport_worktree" >/dev/null 2>&1 ||
+      rm -rf "$teleport_worktree"
+  fi
+}
+trap cleanup EXIT
 
 if [[ ! -d "$teleport_src" ]]; then
   echo "Teleport source directory not found: $teleport_src" >&2
   echo "Set TELEPORT_SRC=/path/to/teleport and retry." >&2
   exit 2
+fi
+
+if [[ -n "$teleport_ref" ]]; then
+  if ! git -C "$teleport_src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Teleport source is not a git worktree: $teleport_src" >&2
+    exit 2
+  fi
+
+  teleport_worktree="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-teleport-scan.XXXXXX")"
+  rmdir "$teleport_worktree"
+  git -C "$teleport_src" worktree add --detach --quiet "$teleport_worktree" "$teleport_ref"
+  teleport_scan_src="$teleport_worktree"
 fi
 
 if ! command -v go >/dev/null 2>&1; then
@@ -54,10 +77,10 @@ module_dir_for_import() {
 
   case "$import_path" in
     github.com/gravitational/teleport/api|github.com/gravitational/teleport/api/*)
-      printf '%s/api\n' "$teleport_src"
+      printf '%s/api\n' "$teleport_scan_src"
       ;;
     github.com/gravitational/teleport|github.com/gravitational/teleport/*)
-      printf '%s\n' "$teleport_src"
+      printf '%s\n' "$teleport_scan_src"
       ;;
     *)
       printf '%s\n' "$PWD"
@@ -77,12 +100,23 @@ for import_path in "$@"; do
     continue
   fi
 
-  echo "CHECK $import_path"
+  if [[ -n "$teleport_ref" ]]; then
+    echo "CHECK $import_path @ $teleport_ref"
+  else
+    echo "CHECK $import_path"
+  fi
 
-  deps="$(
+  if ! deps="$(
     cd "$module_dir"
-    go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{"\t"}}{{.Dir}}{{end}}' "$import_path"
-  )"
+    go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{"\t"}}{{.Dir}}{{end}}' "$import_path" 2>&1
+  )"; then
+    echo "  UNKNOWN go list failed"
+    while IFS= read -r line; do
+      echo "    $line"
+    done <<<"$deps"
+    status=1
+    continue
+  fi
 
   package_status=0
 
@@ -90,7 +124,7 @@ for import_path in "$@"; do
     [[ -n "$dep" && -n "$dep_dir" ]] || continue
 
     case "$dep_dir" in
-      "$teleport_src"/*)
+      "$teleport_scan_src"/*)
         findings="$(scan_dir_for_agpl "$dep_dir")"
         if [[ -n "$findings" ]]; then
           package_status=1

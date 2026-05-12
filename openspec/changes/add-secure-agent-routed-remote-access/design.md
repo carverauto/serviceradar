@@ -193,7 +193,7 @@ Initial import classification:
 | `lib/events`, `api/types/events` | Audit and recording vocabulary | Review per subpackage before import | Mixed API/event surfaces need package-level and transitive checks before reuse. |
 | `lib/proxy`, `lib/kube`, `lib/srv/db`, `lib/srv/desktop`, `lib/srv/app` | Future app/database/Kubernetes/desktop adapters | Review per feature before import | Treat as parity reference until each path is classified. |
 
-Use `scripts/check-teleport-license-paths.sh` with `TELEPORT_SRC` pointing at a Teleport checkout before adding any Teleport Go import. A candidate import is not considered clean just because the directly imported files have Apache-2.0 headers; its transitive package directories must pass the scan or receive explicit legal approval.
+Use `scripts/check-teleport-license-paths.sh` with `TELEPORT_SRC` pointing at a Teleport checkout before adding any Teleport Go import. Use `TELEPORT_REF=<tag-or-commit>` to scan an older detached worktree, for example `TELEPORT_REF=v14.4.0`, without mutating the local Teleport checkout. A candidate import is not considered clean just because the directly imported files have Apache-2.0 headers; its transitive package directories must pass the scan or receive explicit legal approval.
 
 ## Teleport Reuse Strategy
 ServiceRadar should use a three-lane strategy for Teleport functionality:
@@ -206,8 +206,15 @@ Local checkout findings:
 - `v14.4.0` is dated May 20, 2025 and still has an Apache-2.0 repository `LICENSE` in this checkout.
 - `v14.4.0:lib/bpf/bpf.go` has an Apache-2.0 file header, while `v15.0.0:lib/bpf/bpf.go` and current `HEAD:lib/bpf/bpf.go` have AGPL headers.
 - `v14.4.0` `lib/srv/...` files sampled locally, including app and database server paths, have Apache-2.0 headers.
+- `TELEPORT_REF=v14.4.0 scripts/check-teleport-license-paths.sh github.com/gravitational/teleport/lib/bpf github.com/gravitational/teleport/lib/srv` reports no AGPL headers in those v14.4.0 transitive Teleport dependency directories, while the same package scan against current `master` reports AGPL paths.
+- `github.com/gravitational/teleport/api/ssh` is not present as an importable package at `v14.4.0`; `github.com/gravitational/teleport/api/observability/tracing/ssh` does scan clean at `v14.4.0`.
 
-Practical rule: treat Teleport v14.x as the likely Apache-2.0 source baseline, but verify each file and dependency path before copying or vendoring. Treat Teleport v15+ and current `master` server/BPF implementation paths as AGPL unless a specific file/package scan proves otherwise.
+Practical rule: treat Teleport v14.x as the likely Apache-2.0 source baseline, but verify each file and dependency path before copying or vendoring. Treat Teleport v15+ and current `master` server/BPF implementation paths as AGPL unless a specific file/package scan proves otherwise. Even when a v14 package scans clean, prefer ServiceRadar-owned implementations for large/stale subsystems unless the vendored surface is small, isolated, and maintainable.
+
+ServiceRadar eBPF strategy:
+- The agent has one shared eBPF runtime boundary in `go/pkg/agent/ebpf` backed by `github.com/cilium/ebpf` and generated with `bpf2go`.
+- Remote-access enhanced recording must reuse that runtime rather than introducing a second loader/runtime stack.
+- Teleport BPF sources, even when v14 scans clean, should be treated as behavior reference only unless a later explicit vendoring review decides the maintenance cost is worth it. The default path is ServiceRadar-authored probes and normalizers over the shared cilium/ebpf runtime.
 
 ## Teleport v14 SSH CA Architecture Findings
 The local Teleport `v14.4.0` tag has an Apache-2.0 repository license and is useful as an architectural baseline for certificate-based OpenSSH access. These findings are design constraints for ServiceRadar; they are not permission to copy later AGPL implementation code.
