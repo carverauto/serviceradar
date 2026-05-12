@@ -99,7 +99,8 @@ config :serviceradar_core,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
-    ServiceRadar.Automation.Ansible
+    ServiceRadar.Automation.Ansible,
+    ServiceRadar.Security
   ]
 
 config :serviceradar_core,
@@ -156,5 +157,19 @@ config :spark,
 
 # Disable Swoosh API client (not needed for Local adapter)
 config :swoosh, :api_client, false
+
+# Cluster-aware rate limiter buckets. Per-route configuration; the plug
+# resolves a bucket name from its opts and falls back to :default_bucket.
+config :serviceradar_core, ServiceRadar.Security.RateLimiter,
+  default_bucket: [limit: 60, window_seconds: 60],
+  buckets: %{
+    auth_local: [limit: 5, window_seconds: 60],
+    auth_oidc_callback: [limit: 30, window_seconds: 60],
+    auth_saml_callback: [limit: 30, window_seconds: 60],
+    cli_device_auth: [limit: 30, window_seconds: 60],
+    dashboard_publish: [limit: 10, window_seconds: 60],
+    plugin_upload: [limit: 10, window_seconds: 60],
+    api_default: [limit: 120, window_seconds: 60]
+  }
 
 import_config "#{config_env()}.exs"
