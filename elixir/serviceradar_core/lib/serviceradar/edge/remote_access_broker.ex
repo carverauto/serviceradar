@@ -168,7 +168,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp handle_remote_access_frame(_frame, state), do: {:noreply, state}
 
   defp owns_remote_access_frame?(session, frame) do
-    string_value(frame, "agent_id") == agent_id(session)
+    string_value(frame, "session_id") == session_id(session) and
+      string_value(frame, "agent_id") == agent_id(session)
   end
 
   @impl true

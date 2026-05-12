@@ -269,11 +269,21 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert %{"target" => %{"device_uid" => "device-1", "host" => "10.0.0.20", "port" => 2022}} =
              Jason.decode!(frame.data)
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "ready"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-struct-1", agent_id: "agent-1", frame_type: "ready"}}
+    )
+
     assert_receive {:remote_access_ready, "session-struct-1"}
     assert_receive {:lifecycle, :activate_session, "session-struct-1"}
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-struct-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
+    )
+
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:lifecycle, :close_session, "session-struct-1", close_opts}
     assert close_opts[:reason] == "done"
@@ -298,10 +308,20 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, open_audit}
     assert open_audit[:action] == :remote_access_session_opened
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "hello"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "hello"}}
+    )
+
     assert_receive {:remote_access_data, "hello"}
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
+    )
+
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:audit, closed_audit}
     assert closed_audit[:action] == :remote_access_session_closed
@@ -334,7 +354,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:recording_create, ^session, recording_opts}
     refute inspect(recording_opts) =~ "must-not-be-used"
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "ready"}})
+    send(
+      pid,
+      {:remote_access_frame, %{session_id: "session-1", agent_id: "agent-1", frame_type: "ready"}}
+    )
+
     assert_receive {:remote_access_ready, "session-1"}
     assert_receive {:recording_active, %{id: "recording-1"}, _opts}
 
@@ -346,10 +370,20 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, input_audit}
     assert input_audit[:details].input_bytes == 7
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "root\n"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "root\n"}}
+    )
+
     assert_receive {:remote_access_data, "root\n"}
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
+    )
+
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:recording_complete, %{id: "recording-1"}, stats, _opts}
 
@@ -395,7 +429,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute inspect(frame) =~ "must-not-leak"
   end
 
-  test "ignores remote-access frames from agents that do not own the session" do
+  test "ignores remote-access frames not owned by the session and agent" do
     session = session_fixture()
 
     pid =
@@ -415,23 +449,52 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
 
     send(
       pid,
-      {:remote_access_frame, %{agent_id: "agent-2", frame_type: "data", data: "intrusion"}}
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-2", frame_type: "data", data: "wrong-agent"}}
     )
 
     send(pid, {:remote_access_frame, %{frame_type: "data", data: "missing-agent-id"}})
 
     send(
       pid,
-      {:remote_access_frame, %{agent_id: "agent-2", frame_type: "close", reason: "wrong-agent"}}
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-2", frame_type: "close", reason: "wrong-agent"}}
+    )
+
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-2", agent_id: "agent-1", frame_type: "data", data: "wrong-session"}}
+    )
+
+    send(
+      pid,
+      {:remote_access_frame,
+       %{
+         session_id: "session-2",
+         agent_id: "agent-1",
+         frame_type: "close",
+         reason: "wrong-session"
+       }}
     )
 
     refute_receive {:remote_access_data, _data}, 50
     refute_receive {:remote_access_closed, _reason}, 50
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "data", data: "owned"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "owned"}}
+    )
+
     assert_receive {:remote_access_data, "owned"}
 
-    send(pid, {:remote_access_frame, %{agent_id: "agent-1", frame_type: "close", reason: "done"}})
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
+    )
+
     assert_receive {:remote_access_closed, "done"}
   end
 
