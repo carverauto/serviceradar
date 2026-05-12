@@ -73,6 +73,18 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         |> put_status(:forbidden)
         |> json(%{error: "approval_denied", message: "Remote access approval was denied"})
 
+      {:error, reason}
+      when reason in [
+             :approval_pending,
+             :approval_not_found,
+             :approval_expired,
+             :approval_consumed,
+             :approval_scope_mismatch
+           ] ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: Atom.to_string(reason), message: format_reason(reason)})
+
       {:error, :approval_checker_required} ->
         conn
         |> put_status(:forbidden)
@@ -540,6 +552,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp format_reason(:credential_rule_protocol_mismatch), do: "trusted credential rule does not match the protocol"
   defp format_reason(:credential_rule_purpose_mismatch), do: "trusted credential rule is not valid for remote access"
   defp format_reason(:credential_rule_scope_mismatch), do: "trusted credential rule does not match the selected route"
+  defp format_reason(:approval_pending), do: "remote access approval is still pending"
+  defp format_reason(:approval_not_found), do: "remote access approval was not found"
+  defp format_reason(:approval_expired), do: "remote access approval has expired"
+  defp format_reason(:approval_consumed), do: "remote access approval has already been used"
+  defp format_reason(:approval_scope_mismatch), do: "remote access approval does not match the requested session"
 
   defp format_reason(reason), do: Atom.to_string(reason)
 

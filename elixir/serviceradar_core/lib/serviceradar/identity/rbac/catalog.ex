@@ -95,6 +95,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Open SSH remote-access sessions and request short-lived SSH user certificates",
           default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.requests.review",
+          label: "Review remote-access requests",
+          description: "Approve and deny approval-gated remote-access requests",
+          default_roles: @admin_roles
         }
       ]
     },
@@ -359,7 +365,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "ansible.repositories.manage",
           label: "Manage playbook repositories",
-          description: "Register and configure git repositories used as Ansible playbook catalog sources.",
+          description:
+            "Register and configure git repositories used as Ansible playbook catalog sources.",
           default_roles: @admin_roles
         },
         %{
@@ -395,7 +402,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "ansible.schedules.manage",
           label: "Manage Ansible schedules",
-          description: "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
+          description:
+            "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
           default_roles: @operator_roles
         }
       ]

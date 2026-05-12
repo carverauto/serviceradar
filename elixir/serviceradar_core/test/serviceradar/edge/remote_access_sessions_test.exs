@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Repo
@@ -376,22 +377,22 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              RemoteAccessCentralCredentialGrants.build_broker_grant(mismatched)
   end
 
-  test "approval-required sessions fail closed without an approval checker" do
-    uid = unique_uid("approval-checker-required")
+  test "approval-required sessions fail closed without an approved access request" do
+    uid = unique_uid("approval-not-found")
 
     insert_device!(uid,
-      agent_id: "agent-checker-required",
-      gateway_id: "gateway-checker-required"
+      agent_id: "agent-approval-not-found",
+      gateway_id: "gateway-approval-not-found"
     )
 
     approval_id = Ecto.UUID.generate()
 
     credential_rule_id =
-      create_credential_rule!("approval-checker-required",
-        scope_value: "agent-checker-required"
+      create_credential_rule!("approval-not-found",
+        scope_value: "agent-approval-not-found"
       ).id
 
-    assert {:error, :approval_checker_required} =
+    assert {:error, :approval_not_found} =
              RemoteAccessSessions.request_open(
                uid,
                %{
@@ -406,8 +407,112 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert_receive {:remote_access_audit, denial_audit}
     assert denial_audit[:action] == :remote_access_session_denied
-    assert denial_audit[:details][:rbac_decision] == "denied"
-    assert denial_audit[:details][:failure_reason] == "approval_checker_required"
+    assert denial_audit[:details][:rbac_decision] == "approval_not_found"
+    assert denial_audit[:details][:failure_reason] == "approval_not_found"
+  end
+
+  test "approved access request is bound to exactly one remote-access session" do
+    uid = unique_uid("access-request")
+    insert_device!(uid, agent_id: "agent-access-request", gateway_id: "gateway-access-request")
+
+    credential_rule_id =
+      create_credential_rule!("access-request", scope_value: "agent-access-request").id
+
+    requester_id = insert_user!("requester")
+    reviewer_id = insert_user!("reviewer")
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-access-request",
+                 gateway_id: "gateway-access-request",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "break-glass maintenance",
+                 ttl_seconds: 600,
+                 metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert access_request.status == :pending
+    assert access_request.metadata["private_key"] == "REDACTED"
+
+    assert_receive {:remote_access_audit, request_audit}
+    assert request_audit[:action] == :remote_access_request_created
+    refute inspect(request_audit) =~ "OPENSSH PRIVATE KEY"
+
+    assert {:error, :approval_pending} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: access_request.id,
+                 credential_rule_id: credential_rule_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, pending_denial}
+    assert pending_denial[:details][:rbac_decision] == "approval_pending"
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "reviewer@example.test"},
+               audit_writer: AuditSink,
+               note: "approved for maintenance"
+             )
+
+    assert approved.status == :approved
+    assert approved.approved_by == reviewer_id
+    assert_receive {:remote_access_audit, approval_audit}
+    assert approval_audit[:action] == :remote_access_request_approved
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approved.id,
+                 credential_rule_id: credential_rule_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.approval_id == approved.id
+    assert_receive {:remote_access_audit, consumed_audit}
+    assert consumed_audit[:action] == :remote_access_request_consumed
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    assert {:ok, consumed} = RemoteAccessRequests.get(approved.id, actor: @system_actor)
+    assert consumed.status == :consumed
+    assert consumed.session_id == session.id
+
+    assert {:error, :approval_consumed} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approved.id,
+                 credential_rule_id: credential_rule_id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
   end
 
   test "approval checker can deny a supplied approval id" do
@@ -653,6 +758,24 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
         last_seen_time: now
       }
     ])
+  end
+
+  defp insert_user!(label) do
+    id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    Repo.insert_all("ng_users", [
+      %{
+        id: Ecto.UUID.dump!(id),
+        email: "remote-access-#{label}-#{System.unique_integer([:positive])}@example.test",
+        display_name: "Remote Access #{label}",
+        role: "admin",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    id
   end
 
   defp create_credential_rule!(suffix, attrs) do

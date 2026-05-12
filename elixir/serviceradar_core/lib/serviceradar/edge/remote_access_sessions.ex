@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
@@ -67,8 +68,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
          {:ok, %Device{} = device} <- resolve_device(device_uid),
          {:ok, attrs} <- session_attrs(device, request, opts),
          ticket = Map.fetch!(attrs, :__attach_ticket__),
-         session_attrs = Map.delete(attrs, :__attach_ticket__),
-         {:ok, session} <- RemoteAccessSession.create_session(session_attrs, ash_opts(opts)) do
+         approval = Map.fetch!(attrs, :__approval__),
+         session_attrs =
+           attrs
+           |> Map.delete(:__attach_ticket__)
+           |> Map.delete(:__approval__),
+         {:ok, session} <- RemoteAccessSession.create_session(session_attrs, ash_opts(opts)),
+         {:ok, _bound_request} <- maybe_bind_access_request(approval, session, opts) do
       write_audit(:remote_access_session_create, session, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -262,6 +268,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            normalize_custody_mode(value(request, :credential_custody_mode), protocol),
          {:ok, agent_id} <- resolve_agent_id(device, request),
          {:ok, target_host} <- resolve_target_host(device, request),
+         target_port = int_request(request, :target_port, 22),
+         gateway_id =
+           value(request, :gateway_id) || value_string(device, [:gateway_id, "gateway_id"]),
          credential_rule_id = blank_to_nil(value(request, :credential_rule_id)),
          :ok <-
            ensure_central_credential_rule(
@@ -272,7 +281,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
              request,
              device
            ),
-         {:ok, approval} <- authorize_approval(request, protocol, custody_mode, opts),
+         scoped_request =
+           Map.merge(request, %{
+             device_uid: device.uid,
+             target_kind: target_kind,
+             target_host: target_host,
+             target_port: target_port,
+             protocol: protocol,
+             adapter: adapter,
+             agent_id: agent_id,
+             gateway_id: gateway_id,
+             credential_custody_mode: custody_mode,
+             credential_rule_id: credential_rule_id
+           }),
+         {:ok, approval} <- authorize_approval(scoped_request, protocol, custody_mode, opts),
          metadata = session_metadata(device, request, protocol, custody_mode),
          :ok <- ensure_ssh_certificate_principal_policy(protocol, custody_mode, metadata),
          {:ok, ticket, ticket_hash} <- new_ticket() do
@@ -291,12 +313,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
             device_uid: device.uid,
             target_kind: target_kind,
             target_host: target_host,
-            target_port: int_request(request, :target_port, 22),
+            target_port: target_port,
             protocol: protocol,
             adapter: adapter,
             agent_id: agent_id,
-            gateway_id:
-              value(request, :gateway_id) || value_string(device, [:gateway_id, "gateway_id"]),
+            gateway_id: gateway_id,
             credential_custody_mode: custody_mode,
             credential_rule_id: credential_rule_id,
             requested_by: requested_by(opts),
@@ -308,7 +329,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
               int_request(request, :absolute_timeout_seconds, @default_absolute_timeout_seconds),
             recording_policy: sanitized_map(value(request, :recording_policy)),
             enhanced_recording_policy: sanitized_map(value(request, :enhanced_recording_policy)),
-            metadata: metadata
+            metadata: metadata,
+            __approval__: approval
           },
           :__attach_ticket__,
           ticket
@@ -486,15 +508,30 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       context = %{
         approval_id: approval_id,
         approval_required?: required?,
+        device_uid: value(request, :device_uid),
+        target_host: value(request, :target_host),
+        target_port: value(request, :target_port),
+        agent_id: value(request, :agent_id),
+        gateway_id: value(request, :gateway_id),
         protocol: protocol,
+        adapter: value(request, :adapter) || protocol,
         credential_custody_mode: custody_mode,
         target_kind: value(request, :target_kind),
-        credential_rule_id: blank_to_nil(value(request, :credential_rule_id))
+        credential_rule_id: blank_to_nil(value(request, :credential_rule_id)),
+        requested_by: requested_by(opts)
       }
 
       case run_approval_checker(context, opts) do
         :ok ->
-          {:ok, %{approval_id: approval_id, rbac_decision: :allowed}}
+          {:ok, %{approval_id: approval_id, rbac_decision: :allowed, access_request_id: nil}}
+
+        {:ok, result} when is_map(result) ->
+          {:ok,
+           %{
+             approval_id: approval_id,
+             rbac_decision: :allowed,
+             access_request_id: Map.get(result, :access_request_id)
+           }}
 
         {:error, reason} ->
           {:error, reason}
@@ -525,16 +562,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp run_approval_checker(context, opts) do
     checker =
       Keyword.get(opts, :approval_checker) ||
-        Application.get_env(:serviceradar_core, :remote_access_approval_checker)
+        Application.get_env(:serviceradar_core, :remote_access_approval_checker) ||
+        RemoteAccessRequests
 
     cond do
-      is_nil(checker) and context.approval_required? ->
-        {:error, :approval_checker_required}
-
-      is_nil(checker) ->
+      not context.approval_required? and is_nil(context.approval_id) ->
         :ok
 
-      function_exported?(checker, :authorize_remote_access_approval, 2) ->
+      Code.ensure_loaded?(checker) and
+          function_exported?(checker, :authorize_remote_access_approval, 2) ->
         checker.authorize_remote_access_approval(context, opts)
 
       true ->
@@ -710,6 +746,21 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       else: {:error, :invalid_or_expired_ticket}
   end
 
+  defp maybe_bind_access_request(%{access_request_id: nil}, _session, _opts), do: {:ok, nil}
+
+  defp maybe_bind_access_request(%{access_request_id: access_request_id}, session, opts)
+       when is_binary(access_request_id) do
+    case RemoteAccessRequests.bind_session(access_request_id, session.id,
+           audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
+           actor: audit_actor(opts)
+         ) do
+      {:ok, request} -> {:ok, request}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_bind_access_request(_approval, _session, _opts), do: {:ok, nil}
+
   defp write_audit(action, session, opts, extra_details) do
     actor = audit_actor(opts)
 
@@ -790,6 +841,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp audit_severity(_action), do: :medium
 
   defp denial_decision(:approval_required), do: "approval_required"
+  defp denial_decision(:approval_pending), do: "approval_pending"
+  defp denial_decision(:approval_not_found), do: "approval_not_found"
+  defp denial_decision(:approval_expired), do: "approval_expired"
+  defp denial_decision(:approval_consumed), do: "approval_consumed"
+  defp denial_decision(:approval_scope_mismatch), do: "approval_scope_mismatch"
   defp denial_decision(_error), do: "denied"
 
   defp action_suffix(:remote_access_session_create), do: "created"
