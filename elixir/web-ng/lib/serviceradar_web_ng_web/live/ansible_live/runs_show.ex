@@ -43,30 +43,28 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
   def mount(%{"id" => id}, _session, socket) do
     scope = socket.assigns.current_scope
 
-    cond do
-      not RBAC.can?(scope, "ansible.runs.view") ->
-        {:ok,
-         socket
-         |> put_flash(:error, "You don't have permission to view Ansible runs.")
-         |> push_navigate(to: ~p"/dashboard")}
+    if RBAC.can?(scope, "ansible.runs.view") do
+      case load_run_bundle(id) do
+        {:ok, bundle} ->
+          if connected?(socket), do: AnsiblePubSub.subscribe_run(id)
 
-      true ->
-        case load_run_bundle(id) do
-          {:ok, bundle} ->
-            if connected?(socket), do: AnsiblePubSub.subscribe_run(id)
+          {:ok,
+           socket
+           |> assign(:page_title, "Run #{shorten(id)}")
+           |> assign(:bundle, bundle)
+           |> assign(:expanded_plays, MapSet.new())}
 
-            {:ok,
-             socket
-             |> assign(:page_title, "Run #{shorten(id)}")
-             |> assign(:bundle, bundle)
-             |> assign(:expanded_plays, MapSet.new())}
-
-          {:error, :not_found} ->
-            {:ok,
-             socket
-             |> put_flash(:error, "Run not found.")
-             |> push_navigate(to: ~p"/ansible/runs")}
-        end
+        {:error, :not_found} ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Run not found.")
+           |> push_navigate(to: ~p"/ansible/runs")}
+      end
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to view Ansible runs.")
+       |> push_navigate(to: ~p"/dashboard")}
     end
   end
 
@@ -115,7 +113,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
           <h1 class="text-2xl font-semibold">Run {shorten(@bundle.run.id)}</h1>
           <p class="text-sm text-base-content/70 flex gap-3 flex-wrap">
             <span class={["badge", state_badge_class(@bundle.run.state)]}>{@bundle.run.state}</span>
-            <span :if={@bundle.run.awx_job_id}>AWX job <code class="text-xs">{@bundle.run.awx_job_id}</code></span>
+            <span :if={@bundle.run.awx_job_id}>
+              AWX job <code class="text-xs">{@bundle.run.awx_job_id}</code>
+            </span>
             <span :if={@bundle.run.schedule_id} class="badge badge-ghost">scheduled</span>
             <span :if={!@bundle.run.schedule_id} class="badge badge-ghost">ad-hoc</span>
           </p>
@@ -139,11 +139,17 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
       <section class="space-y-2">
         <h2 class="text-lg font-medium">Targets ({length(@bundle.targets)})</h2>
 
-        <div :if={@bundle.targets == []} class="rounded-lg border border-dashed border-base-300 p-6 text-sm text-base-content/70">
+        <div
+          :if={@bundle.targets == []}
+          class="rounded-lg border border-dashed border-base-300 p-6 text-sm text-base-content/70"
+        >
           No targets recorded for this run yet.
         </div>
 
-        <div :if={@bundle.targets != []} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+        <div
+          :if={@bundle.targets != []}
+          class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+        >
           <table class="table table-zebra table-sm">
             <thead>
               <tr>
@@ -161,7 +167,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
               <tr :for={target <- @bundle.targets}>
                 <td><code class="text-xs">{target.awx_host_name}</code></td>
                 <td><code class="text-xs">{shorten(target.device_uid)}</code></td>
-                <td><span class={["badge", target_badge_class(target.status)]}>{target.status}</span></td>
+                <td>
+                  <span class={["badge", target_badge_class(target.status)]}>{target.status}</span>
+                </td>
                 <td>{target.ok_count}</td>
                 <td>{target.changed_count}</td>
                 <td>{target.failed_count}</td>
@@ -176,7 +184,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
       <section class="space-y-2">
         <h2 class="text-lg font-medium">Plays ({length(@bundle.plays)})</h2>
 
-        <div :if={@bundle.plays == []} class="rounded-lg border border-dashed border-base-300 p-6 text-sm text-base-content/70">
+        <div
+          :if={@bundle.plays == []}
+          class="rounded-lg border border-dashed border-base-300 p-6 text-sm text-base-content/70"
+        >
           No plays recorded yet. Events stream in as RunPulseWorker drains AWX events.
         </div>
 
@@ -196,8 +207,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
             </div>
           </button>
 
-          <div :if={MapSet.member?(@expanded_plays, play.id)} class="border-t border-base-300 p-3 space-y-1">
-            <div :for={task <- Map.get(@bundle.tasks_by_play, play.id, [])} class="flex items-center justify-between text-xs">
+          <div
+            :if={MapSet.member?(@expanded_plays, play.id)}
+            class="border-t border-base-300 p-3 space-y-1"
+          >
+            <div
+              :for={task <- Map.get(@bundle.tasks_by_play, play.id, [])}
+              class="flex items-center justify-between text-xs"
+            >
               <div class="flex items-center gap-2">
                 <code>{task.awx_task_uuid |> String.slice(0, 8)}</code>
                 <span class="font-medium">{task.name || "(unnamed task)"}</span>
@@ -206,7 +223,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
               </div>
               <span class="text-base-content/60">{fmt_ts(task.started_at)}</span>
             </div>
-            <div :if={Map.get(@bundle.tasks_by_play, play.id, []) == []} class="text-xs text-base-content/60">
+            <div
+              :if={Map.get(@bundle.tasks_by_play, play.id, []) == []}
+              class="text-xs text-base-content/60"
+            >
               No tasks recorded in this play yet.
             </div>
           </div>
@@ -236,32 +256,32 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
   defp load_run_bundle(id) do
     actor = SystemActor.system(:ansible_runs_show)
 
-    with {:ok, run} <- PlaybookRun.get_by_id(id, actor: actor) do
-      targets =
-        case PlaybookRunTarget.list_for_run(run.id, actor: actor) do
-          {:ok, rows} -> rows
-          _ -> []
-        end
-
-      plays =
-        case PlaybookPlay.list_for_run(run.id, actor: actor) do
-          {:ok, rows} -> rows
-          _ -> []
-        end
-
-      tasks_by_play =
-        plays
-        |> Enum.map(fn play ->
-          case PlaybookTask.list_for_play(play.id, actor: actor) do
-            {:ok, rows} -> {play.id, rows}
-            _ -> {play.id, []}
+    case PlaybookRun.get_by_id(id, actor: actor) do
+      {:ok, run} ->
+        targets =
+          case PlaybookRunTarget.list_for_run(run.id, actor: actor) do
+            {:ok, rows} -> rows
+            _ -> []
           end
-        end)
-        |> Map.new()
 
-      {:ok, %{run: run, targets: targets, plays: plays, tasks_by_play: tasks_by_play}}
-    else
-      _ -> {:error, :not_found}
+        plays =
+          case PlaybookPlay.list_for_run(run.id, actor: actor) do
+            {:ok, rows} -> rows
+            _ -> []
+          end
+
+        tasks_by_play =
+          Map.new(plays, fn play ->
+            case PlaybookTask.list_for_play(play.id, actor: actor) do
+              {:ok, rows} -> {play.id, rows}
+              _ -> {play.id, []}
+            end
+          end)
+
+        {:ok, %{run: run, targets: targets, plays: plays, tasks_by_play: tasks_by_play}}
+
+      _ ->
+        {:error, :not_found}
     end
   end
 
@@ -283,7 +303,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
   end
 
   defp duration(%{started_at: %DateTime{} = s, ended_at: %DateTime{} = e}) do
-    DateTime.diff(e, s, :second) |> format_seconds()
+    e |> DateTime.diff(s, :second) |> format_seconds()
   end
 
   defp duration(_), do: "—"

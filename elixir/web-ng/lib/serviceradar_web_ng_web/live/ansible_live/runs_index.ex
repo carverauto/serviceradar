@@ -125,7 +125,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
         </button>
       </div>
 
-      <div :if={@run_count == 0} class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70">
+      <div
+        :if={@run_count == 0}
+        class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      >
         No runs match the current filter.
       </div>
 

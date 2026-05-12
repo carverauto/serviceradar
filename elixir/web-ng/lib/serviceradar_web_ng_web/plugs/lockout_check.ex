@@ -65,12 +65,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
             "LockoutCheck: requires :actor_id_param or :actor_id_assign"
     end
 
-    unless response_mode in [:auto, :json, :html] do
+    if response_mode not in [:auto, :json, :html] do
       raise ArgumentError,
             "LockoutCheck :response_mode must be :auto, :json, or :html (got #{inspect(response_mode)})"
     end
 
-    unless is_nil(body_builder) or is_function(body_builder, 0) do
+    if !(is_nil(body_builder) or is_function(body_builder, 0)) do
       raise ArgumentError,
             "LockoutCheck :json_body_builder must be a 0-arity function or nil (got #{inspect(body_builder)})"
     end
@@ -127,14 +127,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
   defp json_body(nil), do: default_json_body()
 
   defp json_body(builder) when is_function(builder, 0) do
-    try do
-      builder.()
-    rescue
-      e ->
-        require Logger
-        Logger.warning("LockoutCheck :json_body_builder raised: #{Exception.message(e)}")
-        default_json_body()
-    end
+    builder.()
+  rescue
+    e ->
+      require Logger
+
+      Logger.warning("LockoutCheck :json_body_builder raised: #{Exception.message(e)}")
+      default_json_body()
   end
 
   defp default_json_body, do: ~s({"error":"account_temporarily_locked"})

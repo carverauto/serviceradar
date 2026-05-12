@@ -37,29 +37,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
 
   @impl true
   def handle_event("unlock", %{"id" => id}, socket) do
-    cond do
-      not socket.assigns.can_manage? ->
-        {:noreply, put_flash(socket, :error, "Missing settings.audit.manage permission.")}
+    if socket.assigns.can_manage? do
+      case Enum.find(socket.assigns.lockouts, &(&1.id == id)) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Lockout not found.")}
 
-      true ->
-        case Enum.find(socket.assigns.lockouts, &(&1.id == id)) do
-          nil ->
-            {:noreply, put_flash(socket, :error, "Lockout not found.")}
+        lockout ->
+          admin_id = admin_id(socket)
 
-          lockout ->
-            admin_id = admin_id(socket)
+          case Lockouts.unlock(lockout, admin_id, "manual_unlock") do
+            {:ok, _} ->
+              {:noreply,
+               socket
+               |> put_flash(:info, "Lockout cleared for #{lockout.actor_id}.")
+               |> load_lockouts()}
 
-            case Lockouts.unlock(lockout, admin_id, "manual_unlock") do
-              {:ok, _} ->
-                {:noreply,
-                 socket
-                 |> put_flash(:info, "Lockout cleared for #{lockout.actor_id}.")
-                 |> load_lockouts()}
-
-              {:error, error} ->
-                {:noreply, put_flash(socket, :error, "Unlock failed: #{inspect(error)}")}
-            end
-        end
+            {:error, error} ->
+              {:noreply, put_flash(socket, :error, "Unlock failed: #{inspect(error)}")}
+          end
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Missing settings.audit.manage permission.")}
     end
   end
 
@@ -179,7 +177,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
   defp active?(%AuthLockout{cleared_at: nil} = lockout) do
     case lockout.expires_at do
       nil -> true
-      dt -> DateTime.compare(dt, DateTime.utc_now()) == :gt
+      dt -> DateTime.after?(dt, DateTime.utc_now())
     end
   end
 

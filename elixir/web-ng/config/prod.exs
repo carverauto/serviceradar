@@ -22,9 +22,6 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     ]
   ]
 
-# Configure Swoosh API Client
-config :swoosh, api_client: Swoosh.ApiClient.Req
-
 # Production session cookie configuration. The salts are compile-time
 # Endpoint config because Plug.Session options are embedded in the
 # endpoint module. They are intentionally stable release defaults, with
@@ -47,6 +44,9 @@ config :serviceradar_web_ng, :session,
     System.get_env("SESSION_ENCRYPTION_SALT") ||
       "serviceradar-web-ng-prod-session-encryption-v1",
   secure: System.get_env("SESSION_COOKIE_SECURE", "true") in ~w(true 1 yes)
+
+# Configure Swoosh API Client
+config :swoosh, api_client: Swoosh.ApiClient.Req
 
 # Runtime production configuration, including reading
 

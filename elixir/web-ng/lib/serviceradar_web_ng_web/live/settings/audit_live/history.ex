@@ -148,8 +148,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   end
 
   defp maybe_put_action_filter(opts, nil), do: opts
-  defp maybe_put_action_filter(opts, action) when action in @action_types,
-    do: Keyword.put(opts, :action_types, [action])
+  defp maybe_put_action_filter(opts, action) when action in @action_types, do: Keyword.put(opts, :action_types, [action])
 
   defp maybe_put_action_filter(opts, _), do: opts
 
@@ -296,7 +295,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
           <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
             <div class="flex items-center justify-between">
               <h2 class="font-semibold">
-                {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(@selected_version.version.version_inserted_at)}
+                {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(
+                  @selected_version.version.version_inserted_at
+                )}
               </h2>
               <button type="button" class="ui-button" phx-click="close-version">Close</button>
             </div>

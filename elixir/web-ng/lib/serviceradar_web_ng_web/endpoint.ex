@@ -26,10 +26,8 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     key: "_serviceradar_web_ng_key",
     same_site: "Strict",
     http_only: true,
-    signing_salt:
-      Application.compile_env!(:serviceradar_web_ng, [:session, :signing_salt]),
-    encryption_salt:
-      Application.compile_env!(:serviceradar_web_ng, [:session, :encryption_salt]),
+    signing_salt: Application.compile_env!(:serviceradar_web_ng, [:session, :signing_salt]),
+    encryption_salt: Application.compile_env!(:serviceradar_web_ng, [:session, :encryption_salt]),
     secure: Application.compile_env(:serviceradar_web_ng, [:session, :secure], false)
   ]
 
