@@ -19,6 +19,12 @@ global:
 image:
   registryPullSecret: registry-carverauto-dev-cred
 
+argocdImageUpdater:
+  pullSecretReader:
+    enabled: true
+    namespace: argocd
+    serviceAccountName: argocd-image-updater-controller
+
 tools:
   enabled: true
 
