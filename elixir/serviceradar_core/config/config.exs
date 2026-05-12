@@ -178,4 +178,18 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     api_default: [limit: 120, window_seconds: 60]
   }
 
+# Settings → Audit → History allow-list. Sets which AshPaperTrail-
+# enabled resources surface on the cross-resource history page.
+# The module defaults to the full list of AshPaperTrail-enabled
+# resources; uncomment + edit to scope tighter or to exclude a
+# high-write-volume resource (e.g. PlaybookRun during a busy
+# ansible run).
+#
+# config :serviceradar_core, ServiceRadar.Security.AuditHistory,
+#   resources: [
+#     ServiceRadar.Credentials.NetworkCredentialSecret,
+#     ServiceRadar.Credentials.NetworkCredentialRule,
+#     ServiceRadar.Security.AuthLockout
+#   ]
+
 import_config "#{config_env()}.exs"

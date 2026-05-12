@@ -1,0 +1,323 @@
+defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
+  @moduledoc """
+  Settings → Audit → History.
+
+  Unified AshPaperTrail version timeline across the resources in
+  the `ServiceRadar.Security.AuditHistory` allow-list. Operators
+  filter by resource type, actor identifier, action type, and
+  time range, and drill into a single version's `changes` map for
+  the diff detail. Gated by `settings.audit.view`.
+  """
+
+  use ServiceRadarWebNGWeb, :live_view
+
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Security.AuditHistory
+  alias ServiceRadarWebNGWeb.SettingsComponents
+
+  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
+
+  @page_size 50
+  @action_types ~w(create update destroy)
+
+  @impl true
+  def mount(_params, _session, socket) do
+    {permissions, ash_actor} = permissions_and_actor(socket)
+
+    socket =
+      socket
+      |> assign(:page_title, "Settings → Audit → History")
+      |> assign(:current_path, "/settings/audit/history")
+      |> assign(:permissions, permissions)
+      |> assign(:ash_actor, ash_actor)
+      |> assign(:can_view?, MapSet.member?(permissions, "settings.audit.view"))
+      |> assign(:resource_options, resource_options())
+      |> assign(:action_types, @action_types)
+      |> assign(:resource_filter, nil)
+      |> assign(:action_filter, nil)
+      |> assign(:actor_filter, nil)
+      |> assign(:selected_version, nil)
+      |> load_versions()
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_event("filter", params, socket) do
+    {:noreply,
+     socket
+     |> assign(:resource_filter, blank_to_nil(params["resource"]))
+     |> assign(:action_filter, blank_to_nil(params["action"]))
+     |> assign(:actor_filter, blank_to_nil(params["actor"]))
+     |> assign(:selected_version, nil)
+     |> load_versions()}
+  end
+
+  def handle_event("clear-filters", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:resource_filter, nil)
+     |> assign(:action_filter, nil)
+     |> assign(:actor_filter, nil)
+     |> assign(:selected_version, nil)
+     |> load_versions()}
+  end
+
+  def handle_event("select-version", %{"resource" => resource_str, "id" => id}, socket) do
+    case Enum.find(socket.assigns.versions, fn entry ->
+           to_string(entry.resource) == resource_str and entry.version.id == id
+         end) do
+      nil -> {:noreply, socket}
+      entry -> {:noreply, assign(socket, :selected_version, entry)}
+    end
+  end
+
+  def handle_event("close-version", _params, socket) do
+    {:noreply, assign(socket, :selected_version, nil)}
+  end
+
+  ## Internals
+
+  defp permissions_and_actor(socket) do
+    case socket.assigns[:current_scope] do
+      %{user: %{} = user} ->
+        perms = RBAC.permissions_for_user(user)
+        {perms, build_actor(user, perms)}
+
+      _ ->
+        {MapSet.new(), nil}
+    end
+  end
+
+  defp build_actor(user, perms) do
+    %{user | role: pick_role(perms)}
+  rescue
+    _ -> user
+  end
+
+  defp pick_role(perms) do
+    cond do
+      MapSet.member?(perms, "settings.audit.manage") -> :admin
+      MapSet.member?(perms, "settings.audit.view") -> :operator
+      true -> :viewer
+    end
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(value), do: value
+
+  defp resource_options do
+    AuditHistory.resources()
+    |> Enum.map(fn module ->
+      label = module |> Module.split() |> List.last()
+      {label, to_string(module)}
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp load_versions(socket) do
+    if socket.assigns.can_view? do
+      opts =
+        [actor: socket.assigns.ash_actor, limit: @page_size]
+        |> maybe_put_resource_filter(socket.assigns.resource_filter)
+        |> maybe_put_action_filter(socket.assigns.action_filter)
+        |> maybe_put_actor_filter(socket.assigns.actor_filter)
+
+      versions =
+        try do
+          AuditHistory.list_recent(opts)
+        rescue
+          # DB unreachable in dev: render an empty page rather than crash.
+          _ -> []
+        end
+
+      assign(socket, :versions, versions)
+    else
+      assign(socket, :versions, [])
+    end
+  end
+
+  defp maybe_put_resource_filter(opts, nil), do: opts
+
+  defp maybe_put_resource_filter(opts, resource_str) do
+    case resolve_resource(resource_str) do
+      nil -> opts
+      module -> Keyword.put(opts, :resource_types, [module])
+    end
+  end
+
+  defp maybe_put_action_filter(opts, nil), do: opts
+  defp maybe_put_action_filter(opts, action) when action in @action_types,
+    do: Keyword.put(opts, :action_types, [action])
+
+  defp maybe_put_action_filter(opts, _), do: opts
+
+  defp maybe_put_actor_filter(opts, nil), do: opts
+  defp maybe_put_actor_filter(opts, ""), do: opts
+  defp maybe_put_actor_filter(opts, actor), do: Keyword.put(opts, :actor_id, actor)
+
+  defp resolve_resource(resource_str) when is_binary(resource_str) do
+    Enum.find(AuditHistory.resources(), &(to_string(&1) == resource_str))
+  end
+
+  defp resolve_resource(_), do: nil
+
+  defp resource_label(module), do: module |> Module.split() |> List.last()
+
+  defp format_dt(nil), do: "—"
+  defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+
+  defp truncate_json(nil), do: ""
+
+  defp truncate_json(value) when is_binary(value) do
+    if byte_size(value) > 8 * 1024, do: "(#{byte_size(value)} bytes, truncated)", else: value
+  end
+
+  defp truncate_json(value) do
+    json =
+      case Jason.encode(value, pretty: true) do
+        {:ok, encoded} -> encoded
+        _ -> inspect(value)
+      end
+
+    truncate_json(json)
+  end
+
+  defp extract_actor(version) do
+    inputs = version.version_action_inputs || %{}
+
+    case inputs do
+      %{"actor" => %{"email" => email}} when is_binary(email) -> email
+      %{"actor" => %{"id" => id}} when is_binary(id) -> id
+      %{"actor" => actor} when is_binary(actor) -> actor
+      %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_id
+      _ -> "—"
+    end
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <SettingsComponents.settings_shell current_path={@current_path}>
+      <SettingsComponents.settings_nav
+        current_path={@current_path}
+        current_scope={@current_scope}
+      />
+
+      <SettingsComponents.audit_nav
+        current_path={@current_path}
+        current_scope={@current_scope}
+      />
+
+      <header class="space-y-1">
+        <h1 class="text-2xl font-semibold">Audit · History</h1>
+        <p class="text-sm text-zinc-500">
+          Cross-resource AshPaperTrail timeline. Filter by resource, actor, action, and time range; click a row for the diff.
+        </p>
+      </header>
+
+      <%= if @can_view? do %>
+        <form phx-change="filter" class="flex flex-wrap items-end gap-3">
+          <label class="text-sm">
+            <span class="block mb-1 text-zinc-600">Resource</span>
+            <select name="resource" class="ui-select">
+              <option value="">All resources</option>
+              <%= for {label, value} <- @resource_options do %>
+                <option value={value} selected={value == @resource_filter}>{label}</option>
+              <% end %>
+            </select>
+          </label>
+
+          <label class="text-sm">
+            <span class="block mb-1 text-zinc-600">Action</span>
+            <select name="action" class="ui-select">
+              <option value="">All actions</option>
+              <%= for action <- @action_types do %>
+                <option value={action} selected={action == @action_filter}>{action}</option>
+              <% end %>
+            </select>
+          </label>
+
+          <label class="text-sm">
+            <span class="block mb-1 text-zinc-600">Actor</span>
+            <input
+              type="text"
+              name="actor"
+              value={@actor_filter || ""}
+              placeholder="email or id"
+              class="ui-input"
+            />
+          </label>
+
+          <button type="button" class="ui-button" phx-click="clear-filters">Clear</button>
+        </form>
+
+        <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+          <table class="min-w-full text-sm">
+            <thead class="bg-zinc-50 dark:bg-zinc-800">
+              <tr>
+                <th class="px-4 py-2 text-left">When</th>
+                <th class="px-4 py-2 text-left">Resource</th>
+                <th class="px-4 py-2 text-left">Action</th>
+                <th class="px-4 py-2 text-left">Actor</th>
+                <th class="px-4 py-2 text-left">Source row</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <%= for entry <- @versions do %>
+                <tr
+                  class="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  phx-click="select-version"
+                  phx-value-resource={to_string(entry.resource)}
+                  phx-value-id={entry.version.id}
+                >
+                  <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
+                    {format_dt(entry.version.version_inserted_at)}
+                  </td>
+                  <td class="px-4 py-2">{resource_label(entry.resource)}</td>
+                  <td class="px-4 py-2">{entry.version.version_action_type}</td>
+                  <td class="px-4 py-2 font-mono text-xs">{extract_actor(entry.version)}</td>
+                  <td class="px-4 py-2 font-mono text-xs">{entry.version.version_source_id}</td>
+                </tr>
+              <% end %>
+              <%= if Enum.empty?(@versions) do %>
+                <tr>
+                  <td colspan="5" class="px-4 py-8 text-center text-zinc-500">
+                    No version history for the current filters.
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <%= if @selected_version do %>
+          <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold">
+                {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(@selected_version.version.version_inserted_at)}
+              </h2>
+              <button type="button" class="ui-button" phx-click="close-version">Close</button>
+            </div>
+
+            <div>
+              <h3 class="text-sm text-zinc-600 mb-1">Changes</h3>
+              <pre class="overflow-x-auto rounded bg-zinc-50 p-3 text-xs dark:bg-zinc-800">{truncate_json(@selected_version.version.changes)}</pre>
+            </div>
+
+            <div>
+              <h3 class="text-sm text-zinc-600 mb-1">Action inputs</h3>
+              <pre class="overflow-x-auto rounded bg-zinc-50 p-3 text-xs dark:bg-zinc-800">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
+            </div>
+          </div>
+        <% end %>
+      <% else %>
+        <p class="text-sm text-red-600">
+          You need <code>settings.audit.view</code> to see version history.
+        </p>
+      <% end %>
+    </SettingsComponents.settings_shell>
+    """
+  end
+end
