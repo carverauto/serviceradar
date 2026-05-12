@@ -3,19 +3,22 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   Policy-gated recording manifest lifecycle for remote-access sessions.
 
   This module creates storage/retention metadata and aggregate counters only.
-  Terminal input/output payload persistence is intentionally deferred to a
-  separately gated writer.
+  Terminal input/output payload persistence remains separately gated and is
+  disabled unless trusted policy explicitly enables raw content recording.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Identity.RBAC
 
   @default_storage_backend "datasvc_object_store"
   @default_storage_bucket "remote-access-recordings"
   @default_storage_prefix "remote-access"
   @default_retention_days 30
+  @export_permission "devices.remote_access.recordings.export"
 
   @spec ensure_for_session(map() | struct(), keyword()) ::
           {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
@@ -38,7 +41,9 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     with {:ok, updated} <-
            RemoteAccessRecording.mark_active(
              recording,
-             %{started_at: RemoteAccessRecording.utc_now()}, actor: system_actor(:active)) do
+             %{started_at: RemoteAccessRecording.utc_now()},
+             actor: system_actor(:active)
+           ) do
       write_audit(:remote_access_recording_active, updated, opts)
       {:ok, updated}
     end
@@ -77,6 +82,54 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
+  @spec record_event(RemoteAccessRecording.t() | nil, map(), keyword()) ::
+          {:ok, RemoteAccessRecordingEvent.t() | nil} | {:error, term()}
+  def record_event(recording, attrs, opts \\ [])
+  def record_event(nil, _attrs, _opts), do: {:ok, nil}
+
+  def record_event(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
+    attrs = event_attrs(recording, attrs, opts)
+    RemoteAccessRecordingEvent.record(attrs, actor: system_actor(:event))
+  end
+
+  @spec list_events(RemoteAccessRecording.t() | binary(), keyword()) ::
+          {:ok, [RemoteAccessRecordingEvent.t()]} | {:error, term()}
+  def list_events(recording_or_id, opts \\ [])
+
+  def list_events(%RemoteAccessRecording{id: recording_id}, opts) do
+    list_events(recording_id, opts)
+  end
+
+  def list_events(recording_id, opts) when is_binary(recording_id) do
+    RemoteAccessRecordingEvent.list_for_recording(recording_id, scope_opts(opts))
+  end
+
+  @spec export(RemoteAccessRecording.t() | binary(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def export(recording_or_id, opts \\ [])
+
+  def export(%RemoteAccessRecording{} = recording, opts) do
+    with :ok <- authorize_export(opts),
+         {:ok, events} <- list_events(recording, opts) do
+      write_audit(:remote_access_recording_exported, recording, opts)
+
+      {:ok,
+       %{
+         recording: recording,
+         manifest: export_manifest(recording, events),
+         events: events
+       }}
+    end
+  end
+
+  def export(recording_id, opts) when is_binary(recording_id) do
+    with :ok <- authorize_export(opts),
+         {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, scope_opts(opts)) do
+      export(recording, opts)
+    end
+  end
+
   defp create_manifest(session, policy, opts) do
     now = RemoteAccessRecording.utc_now()
     session_id = session_id(session)
@@ -91,8 +144,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       manifest:
         base_manifest(session, policy, storage, %{
           "created_at" => DateTime.to_iso8601(now),
-          "content_persistence" => "deferred",
-          "raw_terminal_payloads_stored" => false
+          "content_persistence" => content_persistence(policy),
+          "raw_terminal_payloads_stored" => terminal_payloads_allowed?(policy)
         }),
       retention_expires_at: retention_expires_at(policy, now)
     }
@@ -118,7 +171,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
         "input_bytes" => input_bytes,
         "output_bytes" => output_bytes,
         "event_count" => event_count,
-        "raw_terminal_payloads_stored" => false
+        "raw_terminal_payloads_stored" => terminal_payloads_allowed?(recording.policy)
       })
 
     %{
@@ -145,6 +198,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       "storage_bucket" => storage.bucket,
       "object_key" => storage.object_key,
       "recording_mode" => Map.get(policy, "mode") || "metadata",
+      "content_recording" => terminal_payloads_allowed?(policy),
       "policy" => policy
     }
     |> Map.merge(extra)
@@ -197,6 +251,294 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp enabled?(policy) do
     truthy?(value(policy, "enabled")) or
       string_value(policy, "mode") in ["metadata", "terminal_io", "enhanced", "record"]
+  end
+
+  defp event_attrs(recording, attrs, opts) do
+    policy = normalize_policy(recording.policy)
+    stream = event_stream(attrs)
+    payload = event_payload(attrs)
+    payload_hash = payload_hash(payload)
+    byte_count = event_byte_count(attrs, payload)
+    metadata = event_metadata(attrs, payload)
+    payload_decision = payload_decision(policy, stream, payload)
+
+    %{
+      recording_id: recording.id,
+      session_id: recording.session_id,
+      sequence: positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts),
+      stream: stream,
+      event_type: event_type(attrs, stream),
+      occurred_at: event_time(attrs),
+      byte_count: byte_count,
+      payload_sha256: payload_hash,
+      payload_text: payload_decision.text,
+      payload_redacted: payload_decision.redacted?,
+      redaction_reason: payload_decision.reason,
+      metadata: metadata,
+      retention_expires_at: recording.retention_expires_at
+    }
+    |> reject_nil()
+  end
+
+  defp event_stream(attrs) do
+    case string_value(attrs, "stream") || string_value(attrs, "frame_type") ||
+           string_value(attrs, "event_type") do
+      "input" -> :input
+      "stdin" -> :input
+      "data_in" -> :input
+      "output" -> :output
+      "stdout" -> :output
+      "stderr" -> :output
+      "data" -> :output
+      "resize" -> :resize
+      "enhanced_event" -> :enhanced_event
+      _ -> :event
+    end
+  end
+
+  defp event_type(attrs, stream) do
+    string_value(attrs, "event_type") ||
+      string_value(attrs, "frame_type") ||
+      Atom.to_string(stream)
+  end
+
+  defp event_payload(attrs) do
+    value(attrs, "payload_text") || value(attrs, "payload") || value(attrs, "data")
+  end
+
+  defp event_time(attrs) do
+    attrs
+    |> value("occurred_at")
+    |> fallback(value(attrs, "timestamp"))
+    |> fallback(value(attrs, "event_time"))
+    |> normalize_event_time()
+    |> fallback(RemoteAccessRecording.utc_now())
+  end
+
+  defp normalize_event_time(%DateTime{} = value), do: DateTime.truncate(value, :second)
+
+  defp normalize_event_time(%NaiveDateTime{} = value) do
+    value
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.truncate(:second)
+  end
+
+  defp normalize_event_time(value) when is_integer(value) do
+    case DateTime.from_unix(value, :second) do
+      {:ok, datetime} -> DateTime.truncate(datetime, :second)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp normalize_event_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> DateTime.truncate(datetime, :second)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp normalize_event_time(_value), do: nil
+
+  defp event_byte_count(attrs, payload) do
+    case value(attrs, "byte_count") do
+      nil -> payload_byte_size(payload)
+      value -> nonnegative_int(value)
+    end
+  end
+
+  defp payload_byte_size(payload) when is_binary(payload), do: byte_size(payload)
+  defp payload_byte_size(nil), do: 0
+
+  defp payload_byte_size(payload) do
+    payload
+    |> stringify_nested()
+    |> Jason.encode!()
+    |> byte_size()
+  rescue
+    _error -> 0
+  end
+
+  defp payload_hash(nil), do: nil
+
+  defp payload_hash(payload) do
+    payload
+    |> payload_binary()
+    |> case do
+      nil -> nil
+      binary -> :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
+    end
+  end
+
+  defp payload_binary(payload) when is_binary(payload), do: payload
+  defp payload_binary(nil), do: nil
+
+  defp payload_binary(payload) do
+    payload
+    |> stringify_nested()
+    |> Jason.encode!()
+  rescue
+    _error -> nil
+  end
+
+  defp event_metadata(attrs, payload) do
+    base =
+      attrs
+      |> value("metadata")
+      |> normalize_policy()
+
+    payload_metadata =
+      case decode_json_payload(payload) do
+        %{} = decoded -> %{"structured_payload" => CredentialRedactor.redact(decoded)}
+        _ -> %{}
+      end
+
+    base
+    |> Map.merge(payload_metadata)
+    |> CredentialRedactor.redact()
+  end
+
+  defp decode_json_payload(payload) when is_binary(payload) do
+    case Jason.decode(payload) do
+      {:ok, %{} = decoded} -> decoded
+      _ -> nil
+    end
+  end
+
+  defp decode_json_payload(%{} = payload), do: payload
+  defp decode_json_payload(_payload), do: nil
+
+  defp payload_decision(policy, :input, payload) do
+    cond do
+      !terminal_payloads_allowed?(policy) ->
+        redacted_payload(nil, true, "content_recording_disabled")
+
+      !input_payloads_allowed?(policy) ->
+        redacted_payload(nil, true, "input_recording_disabled")
+
+      true ->
+        redact_payload(payload)
+    end
+  end
+
+  defp payload_decision(policy, :output, payload) do
+    if terminal_payloads_allowed?(policy) and output_payloads_allowed?(policy) do
+      redact_payload(payload)
+    else
+      redacted_payload(nil, true, "content_recording_disabled")
+    end
+  end
+
+  defp payload_decision(_policy, stream, _payload) when stream in [:enhanced_event, :event] do
+    redacted_payload(nil, true, "structured_event_payload_not_stored")
+  end
+
+  defp payload_decision(_policy, _stream, _payload),
+    do: redacted_payload(nil, true, "not_terminal_payload")
+
+  defp redact_payload(nil), do: redacted_payload(nil, false, nil)
+
+  defp redact_payload(payload) do
+    text = payload_to_text(payload)
+    redacted = CredentialRedactor.redact(text)
+    changed? = redacted != text
+
+    redacted_payload(
+      redacted,
+      changed?,
+      if(changed?, do: "credential_redaction", else: nil)
+    )
+  end
+
+  defp payload_to_text(payload) when is_binary(payload), do: payload
+
+  defp payload_to_text(payload) do
+    payload
+    |> stringify_nested()
+    |> Jason.encode!()
+  rescue
+    _error -> inspect(payload)
+  end
+
+  defp redacted_payload(text, redacted?, reason) do
+    %{text: text, redacted?: redacted?, reason: reason}
+  end
+
+  defp next_sequence(recording_id, opts) do
+    recording_id
+    |> RemoteAccessRecordingEvent.list_for_recording(scope_opts(opts))
+    |> case do
+      {:ok, []} -> 1
+      {:ok, events} -> events |> Enum.map(& &1.sequence) |> Enum.max() |> Kernel.+(1)
+      _ -> 1
+    end
+  end
+
+  defp content_persistence(policy) do
+    if terminal_payloads_allowed?(policy), do: "terminal_payloads", else: "metadata"
+  end
+
+  defp terminal_payloads_allowed?(policy) do
+    truthy?(value(policy, "record_terminal_payloads")) or
+      truthy?(value(policy, "raw_terminal_payloads")) or
+      truthy?(value(policy, "store_terminal_payloads")) or
+      truthy?(value(policy, "content_recording_enabled")) or
+      string_value(policy, "content_persistence") in [
+        "terminal_payloads",
+        "raw_terminal_payloads"
+      ]
+  end
+
+  defp input_payloads_allowed?(policy) do
+    truthy?(value(policy, "record_input")) or
+      truthy?(value(policy, "record_inputs")) or
+      truthy?(value(policy, "store_input"))
+  end
+
+  defp output_payloads_allowed?(policy) do
+    value(policy, "record_output") not in [false, "false", "no", "0", 0] and
+      value(policy, "record_outputs") not in [false, "false", "no", "0", 0]
+  end
+
+  defp export_manifest(recording, events) do
+    recording.manifest
+    |> normalize_policy()
+    |> Map.merge(%{
+      "exported_at" => DateTime.to_iso8601(RemoteAccessRecording.utc_now()),
+      "export_event_count" => length(events),
+      "export_contains_payload_text" => Enum.any?(events, &is_binary(&1.payload_text)),
+      "export_payloads_redacted" => Enum.any?(events, & &1.payload_redacted)
+    })
+  end
+
+  defp authorize_export(opts) do
+    case export_actor(opts) do
+      %{role: :system} ->
+        :ok
+
+      %{role: "system"} ->
+        :ok
+
+      nil ->
+        {:error, :forbidden}
+
+      actor ->
+        if RBAC.has_permission?(actor, @export_permission), do: :ok, else: {:error, :forbidden}
+    end
+  end
+
+  defp export_actor(opts) do
+    Keyword.get(opts, :actor) ||
+      Keyword.get(opts, :audit_actor) ||
+      (Keyword.get(opts, :scope) && Map.get(Keyword.get(opts, :scope), :user))
+  end
+
+  defp scope_opts(opts) do
+    cond do
+      scope = Keyword.get(opts, :scope) -> [scope: scope]
+      actor = Keyword.get(opts, :actor) -> [actor: actor]
+      actor = Keyword.get(opts, :audit_actor) -> [actor: actor]
+      true -> [actor: system_actor(:read)]
+    end
   end
 
   defp normalize_policy(policy) when is_map(policy) do
@@ -295,6 +637,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   defp value(_container, _key), do: nil
 
+  defp fallback(nil, fallback), do: fallback
+  defp fallback("", fallback), do: fallback
+  defp fallback(value, _fallback), do: value
+
   defp safe_existing_atom(key) when is_binary(key) do
     String.to_existing_atom(key)
   rescue
@@ -351,6 +697,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp reject_blank(map) do
     map
     |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
+  end
+
+  defp reject_nil(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
 

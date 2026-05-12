@@ -46,6 +46,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
 
   code_interface do
     define :create_recording, action: :create
+    define :get_by_id, action: :by_id, args: [:id]
     define :get_by_session, action: :by_session, args: [:session_id]
     define :mark_active, action: :mark_active
     define :complete, action: :complete
@@ -55,6 +56,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
 
   actions do
     defaults [:read, :destroy]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
 
     read :by_session do
       argument :session_id, :uuid, allow_nil?: false

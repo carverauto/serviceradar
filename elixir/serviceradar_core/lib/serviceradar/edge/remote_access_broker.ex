@@ -156,6 +156,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:noreply, state}
   end
 
+  defp handle_remote_access_frame(%{frame_type: "enhanced_event"} = frame, state) do
+    state = count_recording_structured_event(state, frame)
+    {:noreply, state}
+  end
+
   defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
        when frame_type in ["close", "error"] do
     send(state.owner, {:remote_access_closed, reason || frame_type})
@@ -216,6 +221,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp count_recording_input(%{recording: nil} = state, _data), do: state
 
   defp count_recording_input(state, data) do
+    record_replay_event(state, %{
+      stream: :input,
+      event_type: "terminal_input",
+      data: data,
+      sequence: state.recording_stats.event_count + 1
+    })
+
     update_in(state.recording_stats, fn stats ->
       %{
         stats
@@ -228,6 +240,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp count_recording_output(%{recording: nil} = state, _data), do: state
 
   defp count_recording_output(state, data) do
+    record_replay_event(state, %{
+      stream: :output,
+      event_type: "terminal_output",
+      data: data,
+      sequence: state.recording_stats.event_count + 1
+    })
+
     update_in(state.recording_stats, fn stats ->
       %{
         stats
@@ -235,6 +254,39 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           event_count: stats.event_count + 1
       }
     end)
+  end
+
+  defp count_recording_structured_event(%{recording: nil} = state, _frame), do: state
+
+  defp count_recording_structured_event(state, frame) do
+    record_replay_event(state, %{
+      stream: :enhanced_event,
+      event_type: string_value(frame, "event_type") || "enhanced_event",
+      data: value(frame, "data"),
+      metadata:
+        %{
+          agent_id: string_value(frame, "agent_id"),
+          gateway_id: string_value(frame, "gateway_id"),
+          protocol: string_value(frame, "protocol"),
+          timestamp: value(frame, "timestamp")
+        }
+        |> Enum.reject(fn {_key, value} -> blank?(value) end)
+        |> Map.new(),
+      sequence: state.recording_stats.event_count + 1
+    })
+
+    update_in(state.recording_stats.event_count, &(&1 + 1))
+  end
+
+  defp record_replay_event(%{recording: nil}, _attrs), do: :ok
+
+  defp record_replay_event(state, attrs) do
+    _ = state.recordings.record_event(state.recording, attrs, recording_opts(state))
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp finish_recording_for_close(state, "error", reason), do: fail_recording(state, reason)

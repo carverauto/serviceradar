@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
   alias ServiceRadar.Edge.RemoteAccessRecording
+  alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
@@ -716,6 +717,138 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert {:ok, fetched} = RemoteAccessRecording.get_by_session(session.id, actor: @system_actor)
     assert fetched.id == completed.id
+  end
+
+  test "recording events keep terminal payloads metadata-only unless content policy opts in" do
+    uid = unique_uid("recording-events")
+    insert_device!(uid, agent_id: "agent-recording-events", gateway_id: "gateway-recording")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 3
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert_receive {:remote_access_audit, recording_create_audit}
+    assert recording_create_audit[:action] == :remote_access_recording_created
+
+    assert {:ok, %RemoteAccessRecordingEvent{} = input_event} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{
+                 stream: :input,
+                 event_type: "terminal_input",
+                 data: "sudo -S secret-password\n",
+                 sequence: 1
+               },
+               actor: @system_actor
+             )
+
+    assert input_event.payload_text == nil
+    assert input_event.payload_redacted == true
+    assert input_event.redaction_reason == "content_recording_disabled"
+    assert input_event.byte_count == byte_size("sudo -S secret-password\n")
+    assert is_binary(input_event.payload_sha256)
+    refute inspect(input_event) =~ "secret-password"
+
+    assert {:ok, events} = RemoteAccessRecordings.list_events(recording, actor: @system_actor)
+    assert Enum.map(events, & &1.sequence) == [1]
+  end
+
+  test "recording events store redacted output and export only with export permission" do
+    uid = unique_uid("recording-event-content")
+    insert_device!(uid, agent_id: "agent-recording-content", gateway_id: "gateway-recording")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "record_terminal_payloads" => true,
+                   "record_input" => false,
+                   "retention_days" => 5
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert_receive {:remote_access_audit, recording_create_audit}
+    assert recording_create_audit[:action] == :remote_access_recording_created
+
+    assert recording.manifest["raw_terminal_payloads_stored"] == true
+
+    assert {:ok, input_event} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :input, event_type: "terminal_input", data: "whoami\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert input_event.payload_text == nil
+    assert input_event.redaction_reason == "input_recording_disabled"
+
+    assert {:ok, output_event} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{
+                 stream: :output,
+                 event_type: "terminal_output",
+                 data: "token=PVEAPIToken=very-secret\n",
+                 sequence: 2
+               },
+               actor: @system_actor
+             )
+
+    assert output_event.payload_text == "REDACTED"
+    assert output_event.payload_redacted == true
+    assert output_event.redaction_reason == "credential_redaction"
+    refute inspect(output_event) =~ "very-secret"
+
+    assert {:error, :forbidden} =
+             RemoteAccessRecordings.export(recording, actor: %{role: :viewer})
+
+    assert {:ok, export} =
+             RemoteAccessRecordings.export(recording,
+               actor: %{role: :admin},
+               audit_writer: AuditSink
+             )
+
+    assert export.manifest["export_event_count"] == 2
+    assert export.manifest["export_contains_payload_text"] == true
+    assert Enum.map(export.events, & &1.sequence) == [1, 2]
+
+    assert_receive {:remote_access_audit, export_audit}
+    assert export_audit[:action] == :remote_access_recording_exported
   end
 
   test "recording manifests are skipped unless policy enables recording" do

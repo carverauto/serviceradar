@@ -56,6 +56,8 @@ The first implementation should be narrow, but the architecture must preserve th
 
 Session recording starts as manifest and retention plumbing, not unconditional transcript persistence. When `recording_policy` enables recording, the platform creates a `remote_access_recordings` manifest with policy snapshot, storage backend/bucket/object key, retention expiry, lifecycle status, and aggregate input/output byte counters. Raw terminal input/output payload storage remains separately policy-gated and is not written by default.
 
+Replay event persistence uses `remote_access_recording_events` under the platform schema. Events inherit the parent recording retention expiry and store sequence, stream, event type, byte count, payload hash, optional payload text, redaction state, and structured metadata. Terminal input/output payload text remains empty unless trusted policy explicitly enables terminal payload persistence; input payload text additionally requires an explicit input-recording flag. Enhanced-recording frames are stored as structured metadata rather than raw payload text. Replay reads require the base remote-access permission, while export requires `devices.remote_access.recordings.export`.
+
 ## Current Hardening Track
 The initial substrate is in place, so active work is now a Teleport-parity hardening track. The ordering is deliberate:
 

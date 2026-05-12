@@ -101,6 +101,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Review remote-access requests",
           description: "Approve and deny approval-gated remote-access requests",
           default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.recordings.export",
+          label: "Export remote-access recordings",
+          description: "Export remote-access replay manifests and transcript events",
+          default_roles: @admin_roles
         }
       ]
     },
