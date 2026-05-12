@@ -232,6 +232,80 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
         RateLimit.init(bucket: :anything, response_mode: :wat)
       end
     end
+
+    test "rejects a non-function json_body_builder" do
+      assert_raise ArgumentError, ~r/:json_body_builder must be/, fn ->
+        RateLimit.init(bucket: :anything, json_body_builder: "not a fn")
+      end
+    end
+  end
+
+  describe "json_body_builder" do
+    test "supplied body is used verbatim on denial" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_builder,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :json,
+          json_body_builder: fn ra ->
+            ~s({"code":429,"retry":#{ra},"err":"rl"})
+          end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 1, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 1, 1}), opts)
+
+      assert denied.status == 429
+      assert denied.resp_body =~ ~r/^\{"code":429,"retry":\d+,"err":"rl"\}$/
+    end
+
+    test "unset builder keeps the default body" do
+      opts =
+        RateLimit.init(bucket: :plug_test_no_builder, limit: 1, window_seconds: 60)
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 2, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 2, 1}), opts)
+
+      assert denied.resp_body =~ ~r/"error":"rate_limited"/
+      assert denied.resp_body =~ ~r/"retry_after":\d+/
+    end
+
+    test "HTML mode ignores the builder" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_html_ignores_builder,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :html,
+          html_redirect_to: "/users/log-in",
+          json_body_builder: fn _ -> ~s({"never":"used"}) end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 3, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 3, 1}), opts)
+
+      assert denied.status == 303
+      refute denied.resp_body =~ "never"
+    end
+
+    @tag :capture_log
+    test "builder that raises falls back to the default body" do
+      opts =
+        RateLimit.init(
+          bucket: :plug_test_builder_raises,
+          limit: 1,
+          window_seconds: 60,
+          response_mode: :json,
+          json_body_builder: fn _ -> raise "boom" end
+        )
+
+      _ = RateLimit.call(build_conn(:remote_ip, {172, 16, 4, 1}), opts)
+      denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 4, 1}), opts)
+
+      assert denied.status == 429
+      assert denied.resp_body =~ ~r/"error":"rate_limited"/
+    end
   end
 
   ## Helpers

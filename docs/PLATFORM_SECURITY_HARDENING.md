@@ -10,10 +10,10 @@ operators need to know to roll it out, monitor it, and tune it.
 
 Land + observe in this order. Each step is independently revertible.
 
-1. **Section 1–2: shared rate limiter + plug + auth shim.** Behavior-
-   neutral — the existing `Auth.RateLimiter` now delegates to the new
-   cluster-aware `ServiceRadar.Security.RateLimiter` with the same
-   per-call opts. Watch for the
+1. **Section 1–2: shared rate limiter + plug.** Cluster-aware
+   `ServiceRadar.Security.RateLimiter` is the only limiter in the
+   tree; the transitional `ServiceRadarWebNGWeb.Auth.RateLimiter`
+   shim that delegated to it has been removed. Watch for the
    `[:serviceradar, :security, :events, :dropped]` telemetry counter
    to confirm the event recorder is happy.
 2. **Section 3: security headers in CSP report-only mode.** Already
@@ -35,22 +35,23 @@ Land + observe in this order. Each step is independently revertible.
 6. **Section 10: session cookie hardening.** **One-time forced
    sign-out at the deploy.** Communicate ahead of time.
 7. **Controller migration to pipelines** (done for the in-scope
-   credential paths in the `migrate-controllers-to-security-pipelines`
-   change). The HTML auth routes (`POST /auth/sign-in`,
-   `POST /auth/local/sign-in`, password reset), the OIDC and SAML
-   callbacks, and the OAuth `/token` inline calls all route through
-   the central `ServiceRadar.Security.RateLimiter` now; the HTML
-   pipelines also include `LockoutCheck` and emit a flash + 303
-   redirect on denial. OIDC and SAML feed
-   `Lockouts.record_failed_login/2` on validated-identity failures
-   so cross-IP failed-SSO attempts trip the same lockout threshold
-   as local password failures.
-
-   Still on the `Auth.RateLimiter` shim by design:
-   `cli_auth_controller` (legacy 429 JSON shape consumed by parsed
-   CLI clients), `dashboard_package_publish_controller`,
-   and the `local_sign_in` LiveView's pre-render rate-limit
-   display.
+   credential paths in `migrate-controllers-to-security-pipelines`
+   and finished in `migrate-dashboard-cli-to-pipelines`). The HTML
+   auth routes (`POST /auth/sign-in`, `POST /auth/local/sign-in`,
+   password reset), the OIDC and SAML callbacks, the OAuth `/token`
+   inline calls, the CLI device-auth `POST /api/v1/cli/auth/device`
+   endpoint, and the dashboard publish routes all route through the
+   central `ServiceRadar.Security.RateLimiter`; the HTML pipelines
+   also include `LockoutCheck` and emit a flash + 303 redirect on
+   denial. OIDC and SAML feed `Lockouts.record_failed_login/2` on
+   validated-identity failures so cross-IP failed-SSO attempts trip
+   the same lockout threshold as local password failures. The CLI
+   `POST /api/v1/cli/auth/token` endpoint still calls the limiter
+   inline because it must drive the RFC 8628 `slow_down`
+   side-effect on the device row; that's a protocol requirement,
+   not a shim holdover. The `local_sign_in` LiveView's pre-render
+   display calls `ServiceRadar.Security.RateLimiter.check/3`
+   directly.
 8. **Flip CSP to enforce.** `config :serviceradar_web_ng,
    ServiceRadarWebNGWeb.Plugs.SecurityHeaders, csp_mode: :enforce`
    once report-only has been clean for ≥ 7 days. Keep the report URI

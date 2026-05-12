@@ -38,9 +38,8 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
-  alias ServiceRadarWebNGWeb.ClientIP
 
   require Logger
 
@@ -55,9 +54,11 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   @fallback_allowed_scopes ["dashboard.publish"]
   @fallback_session_ttl_days 30
 
-  # Rate-limit shape — see ServiceRadarWebNGWeb.Auth.RateLimiter.
-  @device_rate_limit 10
-  @device_rate_window 60
+  # Per-device-row token-poll rate limit: drives the OAuth `slow_down`
+  # response per RFC 8628 §3.5, so it stays inline rather than living
+  # at the pipeline (which can't issue the protocol-specific
+  # side-effect). The per-IP rate limit on the device endpoint is
+  # handled by the `:rate_limit_cli_device_auth` router pipeline.
   @token_rate_limit 60
   @token_rate_window 60
 
@@ -70,20 +71,19 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   POST /api/v1/cli/auth/device — mint a device authorization.
   """
   def device(conn, params) do
-    client_ip = ClientIP.get(conn)
+    # Per-IP rate limiting happens at the
+    # `:rate_limit_cli_device_auth` pipeline (router.ex). By the
+    # time we reach this controller the request is under the
+    # bucket's window.
     settings = load_settings()
 
     with :ok <- enforce_cli_auth_enabled(settings),
-         :ok <- enforce_device_rate_limit(client_ip),
          {:ok, client_id} <- validate_client(params["client_id"]),
          {:ok, scope} <- validate_scope(params["scope"], settings) do
       mint_device_authorization(conn, client_id, scope)
     else
       {:error, :cli_auth_disabled} ->
         error_response(conn, 503, "cli_auth_disabled", "CLI authentication is disabled on this instance")
-
-      {:error, :rate_limited, retry_after} ->
-        rate_limited_response(conn, retry_after)
 
       {:error, :invalid_client} ->
         error_response(conn, 400, "invalid_client", "Unsupported client_id")
@@ -230,8 +230,8 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   end
 
   defp enforce_token_rate_limit(conn, row, settings, actor) do
-    case RateLimiter.check_rate_limit_and_record(
-           "cli_auth_token",
+    case RateLimiter.check_and_record(
+           :cli_token_poll,
            row.id,
            limit: @token_rate_limit,
            window_seconds: @token_rate_window
@@ -439,19 +439,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   defp unix_to_dt(_), do: nil
 
-  ## Rate-limit + response helpers
-
-  defp enforce_device_rate_limit(client_ip) do
-    case RateLimiter.check_rate_limit_and_record(
-           "cli_auth_device",
-           client_ip,
-           limit: @device_rate_limit,
-           window_seconds: @device_rate_window
-         ) do
-      :ok -> :ok
-      {:error, retry_after} -> {:error, :rate_limited, retry_after}
-    end
-  end
+  ## Response helpers
 
   defp build_verification_uri(conn) do
     "#{request_origin(conn)}/cli/auth/device"
@@ -495,13 +483,4 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
     )
   end
 
-  defp rate_limited_response(conn, retry_after) do
-    conn
-    |> put_resp_header("retry-after", to_string(retry_after))
-    |> error_response(
-      429,
-      "rate_limited",
-      "Too many authentication attempts. Please try again later."
-    )
-  end
 end

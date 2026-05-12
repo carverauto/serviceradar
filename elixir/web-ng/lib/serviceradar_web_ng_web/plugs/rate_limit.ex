@@ -26,6 +26,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
     * `:html_flash_template` — string with optional `{retry_after}`
       placeholder. Default "Too many attempts. Please try again in
       {retry_after} seconds."
+    * `:json_body_builder` — optional 1-arity function
+      `(retry_after :: pos_integer) -> iodata`. When set and the
+      resolved response mode is `:json`, the plug uses the
+      function's return value as the 429 body verbatim instead of
+      the default `{"error":"rate_limited","retry_after":N}`.
+      Builder failures fall back to the default body and emit a
+      logger warning so a broken builder never breaks the request
+      path.
 
   Place this plug after `:fetch_session` (and `:fetch_live_flash` for
   HTML pipelines) and any auth plug that puts the current user/actor
@@ -52,10 +60,16 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
     limit = Keyword.get(opts, :limit)
     window = Keyword.get(opts, :window_seconds)
     response_mode = Keyword.get(opts, :response_mode, :auto)
+    body_builder = Keyword.get(opts, :json_body_builder)
 
     unless response_mode in [:auto, :json, :html] do
       raise ArgumentError,
             "RateLimit :response_mode must be :auto, :json, or :html (got #{inspect(response_mode)})"
+    end
+
+    unless is_nil(body_builder) or (is_function(body_builder, 1)) do
+      raise ArgumentError,
+            "RateLimit :json_body_builder must be a 1-arity function or nil (got #{inspect(body_builder)})"
     end
 
     %{
@@ -65,7 +79,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
       window: window,
       response_mode: response_mode,
       html_redirect_to: Keyword.get(opts, :html_redirect_to, @default_html_redirect),
-      html_flash_template: Keyword.get(opts, :html_flash_template, @default_html_flash)
+      html_flash_template: Keyword.get(opts, :html_flash_template, @default_html_flash),
+      json_body_builder: body_builder
     }
   end
 
@@ -106,9 +121,25 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
       :json ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(429, ~s({"error":"rate_limited","retry_after":#{retry_after}}))
+        |> send_resp(429, json_body(config.json_body_builder, retry_after))
     end
   end
+
+  defp json_body(nil, retry_after), do: default_json_body(retry_after)
+
+  defp json_body(builder, retry_after) when is_function(builder, 1) do
+    try do
+      builder.(retry_after)
+    rescue
+      e ->
+        require Logger
+        Logger.warning("RateLimit :json_body_builder raised: #{Exception.message(e)}")
+        default_json_body(retry_after)
+    end
+  end
+
+  defp default_json_body(retry_after),
+    do: ~s({"error":"rate_limited","retry_after":#{retry_after}})
 
   defp resolve_mode(_conn, :json), do: :json
   defp resolve_mode(_conn, :html), do: :html
