@@ -203,11 +203,11 @@ defmodule ServiceRadarGateway.RegistrationTest do
     # Note: The RegistrationWorker is started by ServiceRadarGateway.Application
     # so we test the already-running instance rather than starting new ones
 
-    test "is running after application starts" do
-      # The RegistrationWorker should be running
+    test "reports status after application starts" do
       pid = Process.whereis(RegistrationWorker)
-      assert pid
+      assert match?(pid when is_pid(pid), pid)
       assert Process.alive?(pid)
+      assert RegistrationWorker.get_status() in [:available, :busy, :unavailable, :draining]
     end
 
     test "is registered in the GatewayRegistry" do

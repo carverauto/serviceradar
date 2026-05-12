@@ -12,7 +12,13 @@ defmodule ServiceRadarAgentGateway.MetricsRouterTest do
   end
 
   test "serves prometheus metrics" do
-    start_supervised!(ServiceRadarAgentGateway.Telemetry)
+    assert Process.alive?(telemetry_pid())
+
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :push, :complete],
+      %{service_count: 1},
+      %{gateway_id: "test-gateway", domain: "test-domain"}
+    )
 
     conn =
       :get
@@ -21,7 +27,7 @@ defmodule ServiceRadarAgentGateway.MetricsRouterTest do
 
     assert conn.status == 200
     assert ["text/plain; version=0.0.4; charset=utf-8"] = get_resp_header(conn, "content-type")
-    assert is_binary(conn.resp_body)
+    assert String.contains?(conn.resp_body, "serviceradar_agent_gateway_push_complete_count")
   end
 
   test "serves health check" do
@@ -41,5 +47,10 @@ defmodule ServiceRadarAgentGateway.MetricsRouterTest do
       |> MetricsRouter.call([])
 
     assert conn.status == 404
+  end
+
+  defp telemetry_pid do
+    Process.whereis(ServiceRadarAgentGateway.Telemetry) ||
+      start_supervised!(ServiceRadarAgentGateway.Telemetry)
   end
 end
