@@ -57,18 +57,20 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.Lockouts
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Auth.Guardian
-  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
 
   require Logger
 
   # Default token TTL: 1 hour
   @default_ttl_seconds 3600
-  @password_grant_rate_limit 10
-  @password_grant_window 60
-  @client_credentials_rate_limit 20
-  @client_credentials_window 60
+  # Per-grant rate limits live in
+  # `config :serviceradar_core, ServiceRadar.Security.RateLimiter`
+  # as the `:oauth_password_grant` and `:oauth_client_credentials`
+  # buckets. The OAuth `/token` endpoint is multiplexed by
+  # `grant_type`, so the rate-limit check stays inline here rather
+  # than at the pipeline level.
 
   @doc """
   OAuth2 token endpoint.
@@ -116,10 +118,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   defp do_handle_password(conn, params, username, password) do
     client_ip = get_client_ip(conn)
 
-    case RateLimiter.check_rate_limit_and_record("oauth_password_grant", client_ip,
-           limit: @password_grant_rate_limit,
-           window_seconds: @password_grant_window
-         ) do
+    case RateLimiter.check_and_record(:oauth_password_grant, client_ip) do
       {:error, retry_after} ->
         rate_limited_response(conn, retry_after)
 
@@ -179,10 +178,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   defp handle_client_credentials(conn, params) do
     client_ip = get_client_ip(conn)
 
-    case RateLimiter.check_rate_limit_and_record("oauth_client_credentials", client_ip,
-           limit: @client_credentials_rate_limit,
-           window_seconds: @client_credentials_window
-         ) do
+    case RateLimiter.check_and_record(:oauth_client_credentials, client_ip) do
       {:error, retry_after} ->
         rate_limited_response(conn, retry_after)
 

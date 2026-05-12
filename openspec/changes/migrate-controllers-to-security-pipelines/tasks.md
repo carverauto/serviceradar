@@ -14,9 +14,16 @@
 - [ ] 3.4 Smoke-test HTML sign-in end-to-end against a running stack — defer until merge / staging deploy. Plug unit tests for the response-mode branches cover the request-shape side.
 
 ## 4. oauth_controller migration (JSON)
-- [ ] 4.1 Wire `:rate_limit_oauth_password` + `LockoutCheck` (`actor_id_param: "username"`, `response_mode: :json`) onto the `POST /oauth/token` route's password-grant branch. Wire `:rate_limit_oauth_client_credentials` onto the client_credentials branch.
-- [ ] 4.2 Remove inline `RateLimiter.check_rate_limit_and_record/3` and pre-auth lockout checks from `oauth_controller.ex`. Keep `Lockouts.record_failed_login/2` on credential mismatch.
-- [ ] 4.3 Smoke-test: invalid grant returns the same JSON shape; rate-limit returns the plug's JSON 429.
+- [x] 4.1 The `/oauth/token` endpoint is multiplexed by `grant_type` (password vs. client_credentials), so pipeline-level rate-limiting can't differentiate the two buckets. Resolution: the inline call sites in `oauth_controller.ex` switch from `ServiceRadarWebNGWeb.Auth.RateLimiter` (the shim) to `ServiceRadar.Security.RateLimiter` (direct), using atom bucket names. The pipeline definitions `:rate_limit_oauth_password` and `:rate_limit_oauth_client_credentials` from section 2 remain available for any future split-endpoint design.
+- [x] 4.2 Removed the controller-owned `@password_grant_*` / `@client_credentials_*` constants; limits now come from the central bucket config. Existing `Lockouts.active_lockout/1` pre-check and `Lockouts.record_failed_login/2` on credential mismatch already in place from earlier work — kept as-is.
+- [ ] 4.3 Smoke-test invalid grant + rate-limit responses against a running stack — defer until merge / staging deploy.
+
+## 5. OIDC + SAML callback emissions
+- [x] 5.1 `GET /auth/oidc/callback` already routed through `[:browser, :rate_limit_auth_oidc]` (section 3).
+- [x] 5.2 `POST /auth/saml/consume` already routed through `[:browser, :rate_limit_auth_saml]` (section 3).
+- [x] 5.3 `oidc_controller.handle_code_exchange/3` split into `exchange_and_verify` (failures here do NOT feed lockouts — we don't have a verified identity yet) and `complete_oidc_login` (failures here DO call `Lockouts.record_failed_login(claims["email"], …)` since the ID token verified before the failure). Removed the inline `check_rate_limit` plug and helper.
+- [x] 5.4 `saml_controller.handle_successful_assertion/3` now passes the validated `user_info` to a `record_validated_failure/3` helper that calls `Lockouts.record_failed_login(user_info.email, …)` on `:unsafe_account_linking` and `:user_provisioning_failed`. Removed the inline `check_rate_limit` plug and helper.
+- [x] 5.5 Removed inline `RateLimiter.check_rate_limit_and_record/3` calls from both controllers; dropped the per-controller `@callback_rate_*` constants and the `Auth.RateLimiter` aliases.
 
 ## 5. OIDC + SAML callback emissions
 - [ ] 5.1 Wire `:rate_limit_auth_oidc` onto `GET /auth/oidc/callback` (no LockoutCheck — there's no actor id to extract pre-validation).
