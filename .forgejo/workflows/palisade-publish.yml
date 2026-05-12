@@ -12,20 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Publishes elixir/palisade to the CarverAutomation hex registry
-# (https://hex.carverauto.dev) when a tag of the form
-# `palisade-vX.Y.Z` is pushed.
+# Publishes elixir/palisade to public hex.pm when a tag of the
+# form `palisade-vX.Y.Z` is pushed. Palisade is Apache-2.0 OSS;
+# hex.pm is the canonical Elixir package registry.
 #
 # Setup once on the runner / Forgejo Actions environment:
-#   1. Create an API key on hex.carverauto.dev with publish scope.
+#   1. Create an API key on hex.pm with publish scope (`mix hex.user key`).
 #   2. Set repository secret `HEX_API_KEY` = the key value.
 #
 # Workflow:
 #   1. Maintainer bumps version in elixir/palisade/mix.exs.
 #   2. Merges to main.
 #   3. Tags: `git tag palisade-v0.x.y && git push --tags`.
-#   4. This workflow runs, sets up Elixir, runs the standard quality
-#      gate one more time, then publishes to hex.carverauto.dev.
+#   4. This workflow runs, sets up Elixir, runs the quality gate
+#      one more time, then publishes to hex.pm.
 #
 # Consumers update their `~> 0.x` pin to pick up the new release.
 
@@ -41,7 +41,7 @@ on:
 
 jobs:
   publish:
-    name: Publish palisade to hex.carverauto.dev
+    name: Publish palisade to hex.pm
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -101,11 +101,10 @@ jobs:
       - name: mix credo --strict
         run: mix credo --strict
 
-      - name: Configure carverauto hex repo
-        # Idempotent — `hex.repo add` overwrites if present.
-        run: mix hex.repo add carverauto https://hex.carverauto.dev
-
-      - name: Publish to carverauto registry
+      - name: Publish to hex.pm
         env:
+          # API key with publish scope on hex.pm. Generate via
+          # `mix hex.user key generate --permission api:write`
+          # (or hex.pm dashboard) and set as a Forgejo secret.
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-        run: MIX_ENV=prod mix hex.publish package --repo carverauto --yes
+        run: MIX_ENV=prod mix hex.publish package --yes

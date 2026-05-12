@@ -2,12 +2,12 @@
 
 > Trust-boundary defense primitives for Elixir web apps.
 
+[![Hex.pm](https://img.shields.io/hexpm/v/palisade.svg)](https://hex.pm/packages/palisade)
+
 Apache-2.0 licensed. Originally extracted from
 CarverAutomation's CRM + ServiceRadar codebases, which kept
 drifting verbatim copies of the same SSRF / OIDC / SAML
-hardening modules. Palisade is the canonical home; both
-projects (and anyone else who wants them) consume the package
-from the public CarverAutomation hex registry.
+hardening modules. Palisade is the canonical home.
 
 ## Scope
 
@@ -24,7 +24,7 @@ Palisade currently provides:
   hostname verification + the `Host:` header stay tied to the
   original hostname.
 
-Planned for next versions (porting from ServiceRadar):
+Planned for next versions:
 
 - `Palisade.OIDC.Client` — OIDC discovery + JWKS + ID-token
   verify with proper nonce / iss / aud / exp validation.
@@ -33,44 +33,30 @@ Planned for next versions (porting from ServiceRadar):
 - `Palisade.SAML.CertTrust` / `Palisade.SAML.AssertionValidator`
   / `Palisade.SAML.XML` — SAML primitives.
 
-## Location + ownership
+## Installation
 
-Palisade lives inside ServiceRadar's monorepo at
-`elixir/palisade/`. ServiceRadar's Elixir apps consume it via
-the standard sibling-path dep:
+Add `palisade` to your list of dependencies in `mix.exs`:
+
+```elixir
+def deps do
+  [
+    {:palisade, "~> 0.1"}
+  ]
+end
+```
+
+## Where the source lives
+
+Palisade's source lives inside ServiceRadar's monorepo at
+`elixir/palisade/`. ServiceRadar's other Elixir apps consume it
+via the standard sibling-path dep:
 
 ```elixir
 # in e.g. elixir/serviceradar_core/mix.exs
 {:palisade, path: "../palisade"}
 ```
 
-CRM (and any other CarverAutomation Elixir project outside this
-monorepo) consumes it via the CarverAutomation private hex
-registry — see "Installation" below.
-
-## Installation (external consumers)
-
-The CarverAutomation private hex registry is hosted at
-`https://hex.carverauto.dev` and is publicly readable (no auth
-key needed to fetch). Add the registry once per dev machine /
-CI runner:
-
-```bash
-mix hex.repo add carverauto https://hex.carverauto.dev
-```
-
-Then declare the dep in your project's `mix.exs`:
-
-```elixir
-def deps do
-  [
-    {:palisade, "~> 0.1", repo: "carverauto"}
-  ]
-end
-```
-
-`mix deps.get` will pull the latest 0.1.x release from the
-registry.
+External consumers pull from hex.pm.
 
 ## Versioning + publishing
 
@@ -82,20 +68,9 @@ git push --tags
 ```
 
 ServiceRadar CI watches for `palisade-v*` tags and runs
-`mix hex.publish package --repo carverauto --yes` from
-`elixir/palisade/`. The publish step needs `HEX_API_KEY` set as
-a CI secret (writes only; consumers don't need it).
-
-Bump consumers' `~> 0.x` to pick up the new release.
-
-## Why a self-hosted hex registry and not hex.pm?
-
-The CarverAutomation hex registry at `hex.carverauto.dev`
-operates independently of hex.pm. Publishing here keeps
-release control inside CarverAutomation while still giving any
-downstream Elixir project (in or out of the org) a normal hex
-dep UX. The package is Apache-2.0 — anyone is welcome to use
-it; the registry is just the distribution channel.
+`mix hex.publish package --yes` from `elixir/palisade/`. The
+publish step needs `HEX_API_KEY` set as a CI secret with publish
+scope on hex.pm.
 
 ## Why not Bazel?
 
