@@ -448,22 +448,30 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["error"] == "forbidden"
     end
 
-    test "rejects agent-local custody through the generic API", %{conn: conn} do
-      Application.put_env(
-        :serviceradar_web_ng,
-        :remote_access_session_manager_open_result,
-        {:error, :unsupported_credential_custody_mode}
-      )
-
+    test "rejects browser-selected policy-owned custody modes through the generic API", %{conn: conn} do
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
           "device_uid" => "linux-1",
           "credential_custody_mode" => "agent_local"
         })
 
-      body = json_response(conn, 422)
-      assert body["error"] == "remote_access_session_unavailable"
-      assert body["message"] =~ "custody mode"
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "credential_custody_mode"
+
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "credential_custody_mode" => "centrally_brokered"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "credential_custody_mode"
+
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
     end
 
     test "rejects SSH certificate sessions when trusted principal policy is missing", %{conn: conn} do
@@ -495,7 +503,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
           "device_uid" => "linux-1",
-          "credential_custody_mode" => "centrally_brokered",
+          "credential_custody_mode" => "ssh_certificate",
           "approval_required" => true
         })
 
@@ -514,7 +522,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
           "device_uid" => "linux-1",
-          "credential_custody_mode" => "centrally_brokered",
+          "credential_custody_mode" => "ssh_certificate",
           "approval_id" => Ecto.UUID.generate()
         })
 

@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   @remote_access_permission "devices.remote_access.ssh.open"
   @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
+  @browser_selectable_ssh_custody_modes ~w(ssh_certificate user_present)
   @min_target_port 1
   @max_target_port 65_535
   @min_terminal_cols 1
@@ -167,6 +168,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          :ok <- validate_browser_route_selection(params),
          :ok <- validate_browser_policy_selection(params),
          :ok <- validate_browser_credential_rule_selection(params),
+         {:ok, credential_custody_mode} <-
+           normalize_public_ssh_custody_mode(Map.get(params, "credential_custody_mode")),
          :ok <- validate_target_host_override(Map.get(params, "target_host")),
          {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
          {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")),
@@ -188,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          target_port: target_port,
          agent_id: nil,
          gateway_id: nil,
-         credential_custody_mode: normalize_optional_string(Map.get(params, "credential_custody_mode")),
+         credential_custody_mode: credential_custody_mode,
          credential_rule_id: nil,
          approval_required: Map.get(params, "approval_required"),
          approval_id: approval_id,
@@ -247,6 +250,19 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     case normalize_optional_string(Map.get(params, "credential_rule_id")) do
       nil -> :ok
       _credential_rule_id -> {:error, :invalid_request, "credential_rule_id is selected by remote-access policy"}
+    end
+  end
+
+  defp normalize_public_ssh_custody_mode(value) do
+    case normalize_optional_string(value) do
+      nil ->
+        {:ok, nil}
+
+      mode when mode in @browser_selectable_ssh_custody_modes ->
+        {:ok, mode}
+
+      _mode ->
+        {:error, :invalid_request, "credential_custody_mode is selected by remote-access policy"}
     end
   end
 
