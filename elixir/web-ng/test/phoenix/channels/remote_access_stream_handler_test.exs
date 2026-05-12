@@ -328,6 +328,27 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     refute_receive {:broker_started, "session-user-present-large-key", _opts}
   end
 
+  test "centrally brokered custody requires a scoped broker grant before attach" do
+    {:ok, state} =
+      init_state("session-centrally-brokered", credential_custody_mode: :centrally_brokered)
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-centrally-brokered"
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
+             Jason.decode!(response)
+
+    assert_receive {:fail_session, "session-centrally-brokered", :credential_policy_denied, _opts}
+    refute_receive {:broker_started, "session-centrally-brokered", _opts}
+  end
+
   test "attach rejects oversized terminal dimensions before broker start" do
     {:ok, state} = init_state("session-oversized-attach")
 

@@ -244,6 +244,9 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {"user_present", _credential} ->
         {:error, :session_credential_required}
 
+      {"centrally_brokered", _credential} ->
+        {:error, :credential_policy_denied}
+
       {_mode, credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
 
