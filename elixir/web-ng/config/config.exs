@@ -128,7 +128,9 @@ config :serviceradar_core,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
-    ServiceRadar.WifiMap
+    ServiceRadar.WifiMap,
+    ServiceRadar.Automation.Ansible,
+    ServiceRadar.Security
   ]
 
 # Guardian JWT configuration
@@ -246,7 +248,9 @@ config :serviceradar_web_ng,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
-    ServiceRadar.WifiMap
+    ServiceRadar.WifiMap,
+    ServiceRadar.Automation.Ansible,
+    ServiceRadar.Security
   ]
 
 config :serviceradar_web_ng,

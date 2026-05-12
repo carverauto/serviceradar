@@ -39,7 +39,10 @@ config :serviceradar_core,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
-    ServiceRadar.WifiMap
+    ServiceRadar.WifiMap,
+    ServiceRadar.Credentials,
+    ServiceRadar.Automation.Ansible,
+    ServiceRadar.Security
   ]
 
 config :serviceradar_core_elx, :metrics,
