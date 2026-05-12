@@ -4,12 +4,85 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  require Ash.Query
+
   setup :register_and_log_in_admin_user
+
+  test "create form persists armis credentials from rendered credential inputs", %{
+    conn: conn,
+    scope: scope
+  } do
+    agent = create_connected_agent!()
+    source_name = "Armis Credential Source #{System.unique_integer([:positive])}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+    lv
+    |> form("#create_source_form", %{
+      "form" => %{
+        "name" => source_name,
+        "source_type" => "armis",
+        "endpoint" => "https://armis.example.test",
+        "agent_id" => agent.uid,
+        "poll_interval_seconds" => "300",
+        "discovery_interval_seconds" => "3600",
+        "sweep_interval_seconds" => "3600"
+      },
+      "cred_api_key" => "armis-api-key",
+      "cred_api_secret" => "armis-secret"
+    })
+    |> render_submit()
+
+    source = get_source_by_name!(source_name, scope)
+
+    assert source.credentials == %{
+             "api_key" => "armis-api-key",
+             "api_secret" => "armis-secret"
+           }
+  end
+
+  test "edit form updates armis credentials from rendered credential inputs", %{
+    conn: conn,
+    scope: scope
+  } do
+    agent = create_connected_agent!()
+
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Credential Edit #{System.unique_integer([:positive])}",
+        agent_id: agent.uid
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
+
+    lv
+    |> form("#edit_source_form", %{
+      "form" => %{
+        "name" => source.name,
+        "endpoint" => source.endpoint,
+        "agent_id" => agent.uid,
+        "poll_interval_seconds" => "300",
+        "discovery_interval_seconds" => "3600",
+        "sweep_interval_seconds" => "3600"
+      },
+      "cred_api_key" => "updated-api-key",
+      "cred_api_secret" => "updated-secret"
+    })
+    |> render_submit()
+
+    updated_source = get_source_by_name!(source.name, scope)
+
+    assert updated_source.credentials == %{
+             "api_key" => "updated-api-key",
+             "api_secret" => "updated-secret"
+           }
+  end
 
   test "edit modal exposes armis northbound settings", %{conn: conn, scope: scope} do
     source =
@@ -85,6 +158,26 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     scope = Scope.for_user(user)
 
     %{conn: log_in_user(conn, user), user: user, scope: scope}
+  end
+
+  defp create_connected_agent! do
+    uid = "agent-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{uid: uid, name: uid},
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp get_source_by_name!(name, scope) do
+    IntegrationSource
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(name == ^name)
+    |> Ash.Query.load([:credentials_encrypted, :credentials])
+    |> Ash.read_one!(scope: scope)
   end
 
   defp create_armis_source!(scope, attrs) do
