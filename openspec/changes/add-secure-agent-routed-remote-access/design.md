@@ -331,6 +331,23 @@ ServiceRadar eBPF strategy:
 - Remote-access enhanced recording must reuse that runtime rather than introducing a second loader/runtime stack.
 - Teleport BPF sources, even when v14 scans clean, should be treated as behavior reference only unless a later explicit vendoring review decides the maintenance cost is worth it. The default path is ServiceRadar-authored probes and normalizers over the shared cilium/ebpf runtime.
 
+Current reuse ledger:
+
+| Area | Teleport evidence | ServiceRadar decision |
+| --- | --- | --- |
+| Current Teleport checkout | `~/src/teleport` HEAD `42a4eaafeefee26e52bbd32ceec9699de1e9040c` from 2026-05-08 | No direct imports approved for remote-access server/BPF paths. Current scans of `lib/bpf`, `lib/srv`, `api/ssh`, and `api/observability/tracing/ssh` report AGPL transitive directories. |
+| Apache-era baseline | Tag `v14.4.0` commit `8113e07dc94cf2977247346d5ec28ca0d5753c54` from 2025-05-20 | Candidate reference baseline only. `TELEPORT_REF=v14.4.0 scripts/check-teleport-license-paths.sh github.com/gravitational/teleport/lib/bpf github.com/gravitational/teleport/lib/srv github.com/gravitational/teleport/api/observability/tracing/ssh` reports no AGPL headers in Teleport dependency directories. |
+| SSH certificate issuance | ServiceRadar-owned `go/pkg/remoteaccess/sshca`; no Teleport files copied or vendored | Keep owned implementation. Teleport may remain behavior reference only unless a small Apache-clean package is separately approved. |
+| SSH server, SFTP/SCP, app/database/Kubernetes/desktop adapters | Current `lib/srv` is blocked by AGPL headers and AGPL transitive directories; v14.4.0 scans clean in sampled server paths | Clean-room implementation by default. Any old-tag vendoring must record exact files, headers, ref, dependency scan output, and maintenance/security delta review. |
+| Enhanced recording/BPF | Current `lib/bpf` and related server paths are blocked; v14.4.0 `lib/bpf` scans clean | Keep ServiceRadar-owned cilium/ebpf runtime and probes. Treat Teleport BPF source as architecture reference unless a future explicit vendoring review approves a small isolated old-tag subset. |
+| SSH tracing helpers | Current `api/observability/tracing/ssh` is blocked by AGPL transitive directories; v14.4.0 scans clean | Do not import current package. Consider only if a future small dependency path can be pinned and scanned clean. |
+
+Before any future Teleport copy, vendoring, or import:
+- Record the exact Teleport tag/commit, source file paths, headers, and license scan command/output in the ServiceRadar change.
+- Scan direct and transitive Teleport package directories; direct file headers are not sufficient.
+- Verify no later AGPL implementation deltas are being mechanically copied into an Apache-era file.
+- Prefer ServiceRadar-owned code for large subsystems, stale old-tag code, BPF probes, and security-critical policy boundaries.
+
 ## Teleport v14 SSH CA Architecture Findings
 The local Teleport `v14.4.0` tag has an Apache-2.0 repository license and is useful as an architectural baseline for certificate-based OpenSSH access. These findings are design constraints for ServiceRadar; they are not permission to copy later AGPL implementation code.
 
