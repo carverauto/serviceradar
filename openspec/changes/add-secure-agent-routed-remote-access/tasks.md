@@ -47,7 +47,7 @@
 - [x] 4.7 Add the scoped central credential grant resolver: one session, one agent, one target, one protocol, short TTL, no browser plaintext, redacted audit.
 - [x] 4.8.1 Share the agent-side known-hosts and trust-on-first-use implementation across generic SSH and legacy Proxmox SSH console paths.
 - [x] 4.8.2a Add host key policy management API primitives: persistent known-host collection state, trust-on-first-use lifecycle, rotation/conflict handling, and audit.
-- [ ] 4.8.2b Add operator UI for host key review, trust, revocation, and rotation workflows.
+- [x] 4.8.2b Add operator UI for host key review, trust, revocation, and rotation workflows.
 - [ ] 4.9 Add access-request parity: request creation, approval lifecycle, reviewer policy, expiration, and session binding.
 - [ ] 4.10 Add session replay parity beyond metadata manifests: policy-gated transcript/event storage, redaction boundaries, retention, export controls, and replay UI/API.
 - [ ] 4.11 Add file-transfer parity planning for SFTP/SCP-style access with RBAC, recording, quota, and content-audit policy.

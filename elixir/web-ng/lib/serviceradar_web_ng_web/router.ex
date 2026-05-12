@@ -642,6 +642,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
       live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
       live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
+      live("/settings/networks/host-keys", Settings.RemoteAccessHostKeysLive, :index)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
       live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
