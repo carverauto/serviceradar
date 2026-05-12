@@ -426,6 +426,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
     session_target = target(session, opts_metadata, session_metadata)
+    credential_broker = credential_broker_grant(opts_metadata)
 
     with :ok <- validate_ssh_certificate_envelope(session, ssh_certificate, session_target),
          {:ok, ssh_host_key_policy} <- ssh_host_key_policy_option(session, opts) do
@@ -434,7 +435,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
         |> certificate_target()
         |> merge_certificate_target(session_target)
 
-      ssh = ssh_auth(session, opts_metadata, session_metadata, ssh_certificate)
+      ssh = ssh_auth(session, opts_metadata, session_metadata, ssh_certificate, credential_broker)
 
       data =
         %{
@@ -444,6 +445,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           gateway_id: value(session, "gateway_id"),
           target: target,
           ssh: ssh,
+          credential_broker: credential_broker,
           credential_mode:
             credential_mode(session, opts, opts_metadata, session_metadata, ssh_certificate),
           terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
@@ -466,6 +468,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> fallback(map_value(opts_metadata, "ssh_certificate"))
     |> fallback(map_value(opts_metadata, "certificate_envelope"))
     |> normalize_metadata()
+  end
+
+  defp credential_broker_grant(opts_metadata) do
+    opts_metadata
+    |> map_value("credential_broker")
+    |> normalize_metadata()
+    |> non_empty_map()
   end
 
   defp certificate_target(certificate) do
@@ -585,7 +594,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp normalize_target(_target), do: %{}
 
-  defp ssh_auth(_session, opts_metadata, _session_metadata, ssh_certificate) do
+  defp ssh_auth(_session, _opts_metadata, _session_metadata, _ssh_certificate, credential_broker)
+       when is_map(credential_broker), do: %{}
+
+  defp ssh_auth(_session, opts_metadata, _session_metadata, ssh_certificate, _credential_broker) do
     session_auth =
       opts_metadata
       |> map_value("ssh")

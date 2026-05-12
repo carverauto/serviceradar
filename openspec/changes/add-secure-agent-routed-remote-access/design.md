@@ -275,6 +275,7 @@ Constraints:
 - Grants are scoped to one agent, one target, one protocol, one session, and a short TTL.
 - The browser never receives plaintext.
 - Audit records include credential rule ID but not secret material.
+- The current resolver boundary is `ServiceRadar.Edge.RemoteAccessCentralCredentialGrants`: it resolves an enabled, remote-access-purpose credential rule, emits an in-memory `credential_broker` grant with a `credentialref:network-credential-secret:*` reference, and lets the generic broker include that grant in the one-time agent `open` frame while stripping any SSH plaintext from central-custody metadata.
 
 ### User-Present Session Credential
 The operator supplies a credential at session start. This can mean a pasted password/key that is held in memory only for the session, a browser-held non-extractable key, a local helper, or a workstation SSH agent bridge.

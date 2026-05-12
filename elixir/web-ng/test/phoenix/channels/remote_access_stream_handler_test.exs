@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
          adapter: :ssh,
          agent_id: "agent-1",
          gateway_id: "gateway-1",
+         credential_rule_id: scope_value(opts, :credential_rule_id, nil),
          credential_custody_mode: opts |> Keyword.fetch!(:scope) |> Map.get(:credential_custody_mode, :ssh_certificate),
          rbac_decision: :allowed,
          status: :attached,
@@ -105,6 +106,47 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
           send(state.session.metadata["test_pid"], {:broker_close, caller, reason})
           :ok
       end
+    end
+  end
+
+  defmodule CentralCredentialGrantResolverStub do
+    @moduledoc false
+
+    def build_broker_grant(session, opts) do
+      send(opts[:scope].test_pid, {:central_credential_grant_requested, session.id, opts})
+
+      {:ok,
+       %{
+         broker_opts: [
+           metadata: %{
+             "credential_broker" => %{
+               "schema" => "serviceradar.edge_credential_broker_grant.v1",
+               "grant_type" => "ssh_session",
+               "session_id" => session.id,
+               "agent_id" => session.agent_id,
+               "protocol" => "ssh",
+               "credential_rule_id" => session.credential_rule_id,
+               "credential_secret_ref" => "credentialref:network-credential-secret:test-secret",
+               "target" => %{
+                 "device_uid" => session.device_uid,
+                 "host" => session.target_host,
+                 "port" => session.target_port
+               },
+               "allow" => %{
+                 "protocols" => ["ssh"],
+                 "hosts" => [session.target_host],
+                 "ports" => [session.target_port]
+               },
+               "ttl_seconds" => 60
+             }
+           },
+           credential_mode: "centrally_brokered"
+         ],
+         audit: %{
+           credential_custody_mode: "centrally_brokered",
+           credential_rule_id: session.credential_rule_id
+         }
+       }}
     end
   end
 
@@ -328,9 +370,12 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     refute_receive {:broker_started, "session-user-present-large-key", _opts}
   end
 
-  test "centrally brokered custody requires a scoped broker grant before attach" do
+  test "centrally brokered custody resolves a scoped broker grant before attach" do
     {:ok, state} =
-      init_state("session-centrally-brokered", credential_custody_mode: :centrally_brokered)
+      init_state("session-centrally-brokered",
+        credential_custody_mode: :centrally_brokered,
+        credential_rule_id: "rule-1"
+      )
 
     payload =
       Jason.encode!(%{
@@ -339,14 +384,59 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
         session_id: "session-centrally-brokered"
       })
 
+    assert {:push, {:text, response}, attached} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "ready", "session_id" => "session-centrally-brokered"} = Jason.decode!(response)
+
+    assert_receive {:central_credential_grant_requested, "session-centrally-brokered", resolver_opts}
+    assert resolver_opts[:scope].test_pid == self()
+
+    assert_receive {:broker_started, "session-centrally-brokered", broker_opts}
+    assert broker_opts[:credential_mode] == "centrally_brokered"
+
+    assert broker_opts[:metadata]["credential_broker"] == %{
+             "schema" => "serviceradar.edge_credential_broker_grant.v1",
+             "grant_type" => "ssh_session",
+             "session_id" => "session-centrally-brokered",
+             "agent_id" => "agent-1",
+             "protocol" => "ssh",
+             "credential_rule_id" => "rule-1",
+             "credential_secret_ref" => "credentialref:network-credential-secret:test-secret",
+             "target" => %{"device_uid" => "linux-1", "host" => "10.0.0.10", "port" => 22},
+             "allow" => %{"protocols" => ["ssh"], "hosts" => ["10.0.0.10"], "ports" => [22]},
+             "ttl_seconds" => 60
+           }
+
+    refute response =~ "credentialref:network-credential-secret:test-secret"
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "centrally brokered attach rejects browser-supplied plaintext credentials" do
+    {:ok, state} =
+      init_state("session-centrally-brokered-browser-credential",
+        credential_custody_mode: :centrally_brokered,
+        credential_rule_id: "rule-1"
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-centrally-brokered-browser-credential",
+        credential: %{"username" => "root", "password" => "browser-secret"}
+      })
+
     assert {:stop, :normal, 1008, [{:text, response}], ^state} =
              RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
 
     assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
              Jason.decode!(response)
 
-    assert_receive {:fail_session, "session-centrally-brokered", :credential_policy_denied, _opts}
-    refute_receive {:broker_started, "session-centrally-brokered", _opts}
+    assert_receive {:fail_session, "session-centrally-brokered-browser-credential", :credential_policy_denied, _opts}
+    refute_receive {:central_credential_grant_requested, _session_id, _opts}
+    refute_receive {:broker_started, "session-centrally-brokered-browser-credential", _opts}
   end
 
   test "attach rejects oversized terminal dimensions before broker start" do
@@ -543,6 +633,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       scope: %{
         test_pid: self(),
         credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :none),
+        credential_rule_id: Keyword.get(opts, :credential_rule_id),
         identity_claims: Keyword.get(opts, :identity_claims, %{}),
         user:
           Keyword.get(opts, :user, %{
@@ -555,7 +646,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
         session_metadata: Keyword.get(opts, :session_metadata, %{})
       },
       sessions_module: SessionsStub,
-      broker_module: BrokerStub
+      broker_module: BrokerStub,
+      credential_grant_resolver: CentralCredentialGrantResolverStub
     )
   end
 

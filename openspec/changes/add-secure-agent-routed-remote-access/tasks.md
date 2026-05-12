@@ -43,7 +43,7 @@
 - [x] 4.4 Ensure gateway console-frame broadcasts only come from registered agent control streams and are stamped with authenticated stream ownership.
 - [x] 4.5 Ensure browser-selected central custody is rejected by the public SSH create/attach path until a trusted policy-owned broker grant resolver exists.
 - [x] 4.6 Require centrally brokered remote-access sessions to reference a trusted credential rule and approval before issuing an attach ticket.
-- [ ] 4.7 Add the scoped central credential grant resolver: one session, one agent, one target, one protocol, short TTL, no browser plaintext, redacted audit.
+- [x] 4.7 Add the scoped central credential grant resolver: one session, one agent, one target, one protocol, short TTL, no browser plaintext, redacted audit.
 - [ ] 4.8 Add host key policy management parity: known-host collection, trust-on-first-use lifecycle, rotation/conflict handling, and audit.
 - [ ] 4.9 Add access-request parity: request creation, approval lifecycle, reviewer policy, expiration, and session binding.
 - [ ] 4.10 Add session replay parity beyond metadata manifests: policy-gated transcript/event storage, redaction boundaries, retention, export controls, and replay UI/API.

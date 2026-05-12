@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
@@ -324,6 +325,57 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert create_audit[:details][:rbac_decision] == "allowed"
   end
 
+  test "central credential grant resolver builds one-session scoped reference grants" do
+    uid = unique_uid("central-grant")
+    insert_device!(uid, agent_id: "agent-central-grant", gateway_id: "gateway-central-grant")
+    approval_id = Ecto.UUID.generate()
+
+    rule =
+      create_credential_rule!("central-grant",
+        scope_value: "agent-central-grant",
+        metadata: %{"credential_broker_ttl_seconds" => 120}
+      )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approval_id,
+                 credential_rule_id: rule.id
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               approval_checker: ApprovalApprover
+             )
+
+    assert_receive {:approval_checked, _context}
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, grant} = RemoteAccessCentralCredentialGrants.build_broker_grant(session)
+
+    broker = grant.broker_opts[:metadata]["credential_broker"]
+    assert grant.broker_opts[:credential_mode] == "centrally_brokered"
+    assert broker["schema"] == "serviceradar.edge_credential_broker_grant.v1"
+    assert broker["grant_type"] == "ssh_session"
+    assert broker["session_id"] == session.id
+    assert broker["agent_id"] == "agent-central-grant"
+    assert broker["protocol"] == "ssh"
+    assert broker["credential_rule_id"] == rule.id
+    assert broker["credential_secret_ref"] =~ "credentialref:network-credential-secret:"
+    assert broker["target"] == %{"device_uid" => uid, "host" => uid, "port" => 22}
+    assert broker["allow"] == %{"protocols" => ["ssh"], "hosts" => [uid], "ports" => [22]}
+    assert broker["ttl_seconds"] == 120
+    refute inspect(grant.audit) =~ "credentialref:"
+    refute inspect(grant) =~ "OPENSSH PRIVATE KEY"
+
+    mismatched = %{session | agent_id: "other-agent"}
+
+    assert {:error, :credential_rule_scope_mismatch} =
+             RemoteAccessCentralCredentialGrants.build_broker_grant(mismatched)
+  end
+
   test "approval-required sessions fail closed without an approval checker" do
     uid = unique_uid("approval-checker-required")
 
@@ -630,7 +682,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
         secret_id: secret.id,
         allowed_ports: [22],
         ssh_host_key_policy: :known_hosts,
-        metadata: %{}
+        metadata: Keyword.get(attrs, :metadata, %{})
       })
       |> Ash.create(actor: @system_actor)
 

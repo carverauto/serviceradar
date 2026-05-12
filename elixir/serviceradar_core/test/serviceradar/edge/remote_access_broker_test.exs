@@ -207,6 +207,53 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert %{"ssh_host_key_policy" => "skip_verify"} = Jason.decode!(frame.data)
   end
 
+  test "central custody open frames carry only scoped credential broker grants" do
+    session =
+      session_fixture()
+      |> Map.put(:credential_custody_mode, :centrally_brokered)
+      |> Map.put(:credential_rule_id, "rule-1")
+
+    broker_grant = %{
+      "schema" => "serviceradar.edge_credential_broker_grant.v1",
+      "grant_type" => "ssh_session",
+      "session_id" => "session-1",
+      "agent_id" => "agent-1",
+      "protocol" => "ssh",
+      "credential_rule_id" => "rule-1",
+      "credential_secret_ref" => "credentialref:network-credential-secret:test-secret",
+      "target" => %{"host" => "10.0.0.10", "port" => 22},
+      "allow" => %{"protocols" => ["ssh"], "hosts" => ["10.0.0.10"], "ports" => [22]},
+      "ttl_seconds" => 60
+    }
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self(),
+        metadata: %{
+          "credential_broker" => broker_grant,
+          "ssh" => %{"password" => "must-not-be-carried"}
+        }}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    payload = Jason.decode!(frame.data)
+
+    assert payload["credential_mode"] == "centrally_brokered"
+    assert payload["credential_broker"] == broker_grant
+    refute Map.has_key?(payload, "ssh")
+    refute inspect(payload["credential_broker"]) =~ "must-not-be-carried"
+
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+    refute inspect(open_audit) =~ "credentialref:network-credential-secret:test-secret"
+    refute inspect(open_audit) =~ "must-not-be-carried"
+  end
+
   test "rejects unsupported host key policy before dispatching open frame" do
     session = put_in(session_fixture(), [:metadata, "ssh_host_key_policy"], "accept_anything")
     previous_flag = Process.flag(:trap_exit, true)

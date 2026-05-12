@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @behaviour WebSock
 
   alias ServiceRadar.Edge.RemoteAccessBroker
+  alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
@@ -52,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
        scope: Keyword.fetch!(options, :scope),
        broker_module: Keyword.get(options, :broker_module, RemoteAccessBroker),
        sessions_module: Keyword.get(options, :sessions_module, RemoteAccessSessions),
+       credential_grant_resolver: Keyword.get(options, :credential_grant_resolver, RemoteAccessCentralCredentialGrants),
        broker: nil,
        session: nil,
        attached?: false,
@@ -198,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp start_broker(session, message, state) do
     with {:ok, cols} <- optional_terminal_int(Map.get(message, "cols"), @min_terminal_cols, @max_terminal_cols),
          {:ok, rows} <- optional_terminal_int(Map.get(message, "rows"), @min_terminal_rows, @max_terminal_rows),
-         {:ok, credential_opts} <- credential_broker_opts(session, message, state.scope) do
+         {:ok, credential_opts} <- credential_broker_opts(session, message, state) do
       opts =
         [
           cols: cols,
@@ -209,7 +211,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
-  defp credential_broker_opts(session, message, scope) do
+  defp credential_broker_opts(session, message, state) do
     credential = normalize_map(Map.get(message, "credential"))
 
     case {custody_mode(session), credential} do
@@ -219,9 +221,9 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
              attrs = certificate_request_attrs(credential, session),
              {:ok, grant} <-
                RemoteAccessSSHSessionCredentials.build_identity_certificate_grant(
-                 scope_actor(scope),
+                 scope_actor(state.scope),
                  attrs,
-                 idp_claims: scope_identity_claims(scope)
+                 idp_claims: scope_identity_claims(state.scope)
                ) do
           {:ok, grant.broker_opts}
         end
@@ -244,8 +246,16 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {"user_present", _credential} ->
         {:error, :session_credential_required}
 
-      {"centrally_brokered", _credential} ->
+      {"centrally_brokered", credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
+
+      {"centrally_brokered", _credential} ->
+        with {:ok, grant} <-
+               state.credential_grant_resolver.build_broker_grant(session,
+                 scope: state.scope
+               ) do
+          {:ok, grant.broker_opts}
+        end
 
       {_mode, credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
