@@ -8,6 +8,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
   """
 
   @principal_max_length 128
+  @max_principals 16
+  @max_mappings 128
+  @max_claim_values 128
+  @value_max_bytes 512
 
   @doc """
   Returns the unique SSH principals granted by mappings that match the claims.
@@ -21,6 +25,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
   @spec resolve(map(), list()) :: [String.t()]
   def resolve(claims, mappings) when is_map(claims) and is_list(mappings) do
     mappings
+    |> Enum.take(@max_mappings)
     |> Enum.flat_map(&mapping_principals(&1, claims))
     |> normalize_principal_list()
   end
@@ -82,11 +87,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
     keys
     |> Enum.flat_map(fn key ->
       case get_key(claims, key) do
-        nil -> []
-        list when is_list(list) -> Enum.map(list, &normalize_value/1)
-        value -> split_values(value)
+        nil ->
+          []
+
+        list when is_list(list) ->
+          list |> Enum.take(@max_claim_values) |> Enum.map(&normalize_value/1)
+
+        value ->
+          split_values(value)
       end
     end)
+    |> Enum.take(@max_claim_values)
     |> Enum.reject(&is_nil/1)
   end
 
@@ -98,6 +109,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(&valid_principal?/1)
     |> Enum.uniq()
+    |> Enum.take(@max_principals)
   end
 
   defp valid_principal?(value) do
@@ -108,6 +120,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
   defp split_values(value) when is_binary(value) do
     value
     |> String.split([",", " "], trim: true)
+    |> Enum.take(@max_claim_values)
     |> Enum.map(&normalize_value/1)
   end
 
@@ -117,7 +130,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
   defp list_values(values) when is_list(values), do: values
 
   defp list_values(value) when is_binary(value) do
-    String.split(value, [",", "\n"], trim: true)
+    value
+    |> String.split([",", "\n"], trim: true)
+    |> Enum.take(@max_principals)
   end
 
   defp list_values(value), do: [value]
@@ -140,7 +155,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
 
   defp normalize_value(value) when is_binary(value) do
     value = String.trim(value)
-    if value == "", do: nil, else: value
+
+    cond do
+      value == "" -> nil
+      byte_size(value) > @value_max_bytes -> nil
+      true -> value
+    end
   end
 
   defp normalize_value(value) when is_atom(value), do: Atom.to_string(value)

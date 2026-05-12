@@ -176,6 +176,11 @@ Generic SSH remote access SHALL support an enterprise certificate flow where Ser
 - **THEN** session, agent, public-key, target, principal, and signer-response certificate fields SHALL be bounded before issuance succeeds
 - **AND** oversized certificate request or signer response fields SHALL be rejected without invoking target access.
 
+#### Scenario: Identity claim principal expansion is bounded
+- **WHEN** ServiceRadar maps OIDC/SAML identity claims to SSH principals
+- **THEN** mapping count, claim value count, individual claim value size, and selected principal count SHALL be bounded
+- **AND** oversized claim values SHALL NOT produce SSH principals.
+
 ### Requirement: Enhanced host-event tracing
 The system SHALL support policy-controlled enhanced tracing for remote-access sessions on capable Linux agents.
 

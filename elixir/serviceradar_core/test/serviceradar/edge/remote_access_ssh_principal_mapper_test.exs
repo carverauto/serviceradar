@@ -57,6 +57,26 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapperTest do
     assert RemoteAccessSSHPrincipalMapper.resolve(claims, mappings) == ["ubuntu"]
   end
 
+  test "bounds claim expansion and mapped principals" do
+    claims = %{"groups" => ["linux-admins" | Enum.map(1..200, &"group-#{&1}")]}
+
+    mappings = [
+      %{
+        "source" => "groups",
+        "value" => "linux-admins",
+        "principals" => Enum.map(1..40, &"user#{&1}")
+      },
+      %{
+        "source" => "groups",
+        "value" => String.duplicate("x", 513),
+        "principals" => ["oversized"]
+      }
+    ]
+
+    assert RemoteAccessSSHPrincipalMapper.resolve(claims, mappings) ==
+             Enum.map(1..16, &"user#{&1}")
+  end
+
   test "returns an empty list for missing claims or mappings" do
     assert RemoteAccessSSHPrincipalMapper.resolve(%{}, []) == []
     assert RemoteAccessSSHPrincipalMapper.resolve(nil, []) == []
