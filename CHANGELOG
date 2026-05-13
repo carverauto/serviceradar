@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.48
+
+Armis blacklist normalization and sweep target cleanup.
+
+## Whats New
+
+**1.2.48**
+- Fixed Armis sync network blacklist handling for comma-separated `ipAddress` values by parsing candidate IPs, dropping fully blacklisted devices, and storing only a single allowed IP for mixed-address rows.
+- Made SRQL device IP ordering and IP range/CIDR filters tolerate malformed inventory IP strings with `platform.try_inet`, preventing `in:devices` sweep target compilation from failing on stale bad rows.
+- Hardened the sweep compiler so malformed inventory IP values are skipped instead of emitted as sweep targets.
+- Added `cleanup-psql.sh`, an operator script for previewing and soft-deleting stale Armis-only inventory rows whose valid IPs are all inside configured blacklist CIDRs.
+
 # ServiceRadar v1.2.46
 
 Armis sync compatibility fix for production discovery queries.
