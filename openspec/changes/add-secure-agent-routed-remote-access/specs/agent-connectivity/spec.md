@@ -63,7 +63,7 @@ Agents SHALL support remote-access credentials supplied through explicit custody
 #### Scenario: Central credential grant is tightly scoped
 - **GIVEN** a centrally stored remote-access credential is explicitly allowed by break-glass or non-SSH-device policy
 - **WHEN** the credential broker issues a grant
-- **THEN** the grant SHALL be scoped to one session, one agent, one target, one protocol, and a short TTL
+- **THEN** the grant SHALL be scoped to one session, one selected agent/gateway route, one target, one protocol, and a short TTL
 - **AND** the browser SHALL NOT receive plaintext secret material.
 
 #### Scenario: SSO identity is exchanged for a short-lived SSH certificate

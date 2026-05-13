@@ -44,7 +44,7 @@
 - [x] 4.4 Ensure gateway console-frame broadcasts only come from registered agent control streams and are stamped with authenticated stream ownership.
 - [x] 4.5 Ensure browser-selected central custody is rejected by the public SSH create/attach path until a trusted policy-owned broker grant resolver exists.
 - [x] 4.6 Require centrally brokered remote-access sessions to reference a trusted credential rule and approval before issuing an attach ticket.
-- [x] 4.7 Add the scoped central credential grant resolver: one session, one agent, one target, one protocol, short TTL, no browser plaintext, redacted audit.
+- [x] 4.7 Add the scoped central credential grant resolver: one session, one selected agent/gateway route, one target, one protocol, short TTL, no browser plaintext, redacted audit.
 - [x] 4.8.1 Share the agent-side known-hosts and trust-on-first-use implementation across generic SSH and legacy Proxmox SSH console paths.
 - [x] 4.8.2a Add host key policy management API primitives: persistent known-host collection state, trust-on-first-use lifecycle, rotation/conflict handling, and audit.
 - [x] 4.8.2b Add operator UI for host key review, trust, revocation, and rotation workflows.

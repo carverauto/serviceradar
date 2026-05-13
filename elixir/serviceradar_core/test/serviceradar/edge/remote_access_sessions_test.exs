@@ -363,12 +363,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert broker["grant_type"] == "ssh_session"
     assert broker["session_id"] == session.id
     assert broker["agent_id"] == "agent-central-grant"
+    assert broker["gateway_id"] == "gateway-central-grant"
     assert broker["protocol"] == "ssh"
     assert broker["credential_rule_id"] == rule.id
     assert broker["credential_secret_ref"] =~ "credentialref:network-credential-secret:"
     assert broker["target"] == %{"device_uid" => uid, "host" => uid, "port" => 22}
     assert broker["allow"] == %{"protocols" => ["ssh"], "hosts" => [uid], "ports" => [22]}
     assert broker["ttl_seconds"] == 120
+    assert grant.audit.gateway_id == "gateway-central-grant"
     refute inspect(grant.audit) =~ "credentialref:"
     refute inspect(grant) =~ "OPENSSH PRIVATE KEY"
 

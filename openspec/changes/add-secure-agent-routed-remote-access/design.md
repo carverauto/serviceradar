@@ -213,7 +213,7 @@ Future Teleport-parity adapters must land as separate OpenSpec proposals before 
 Common adapter contract:
 - Route through the selected enrolled agent and bind every stream to one session, one target, one actor, one protocol, and one policy snapshot.
 - Use typed target resources from inventory or provider discovery; reject arbitrary browser-supplied upstream addresses unless a dedicated lab/break-glass policy explicitly allows them.
-- Keep reusable credentials out of browser request bodies and agent-local config. Prefer short-lived certificates/tokens or provider-issued session tickets; centrally brokered secrets require trusted policy, approval when configured, and one-session grants.
+- Keep reusable credentials out of browser request bodies and agent-local config. Prefer short-lived certificates/tokens or provider-issued session tickets; centrally brokered secrets require trusted policy, approval when configured, and one-session grants bound to the selected agent/gateway route.
 - Define recording content boundaries before shipping. Metadata recording is the default; protocol payloads, query text, screen frames, request bodies, clipboard data, and downloaded artifacts require explicit policy and retention controls.
 - Add protocol-specific quotas and backpressure before opening production access.
 
