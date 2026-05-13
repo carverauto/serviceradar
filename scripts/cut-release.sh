@@ -32,8 +32,8 @@ Examples:
   scripts/cut-release.sh --version 1.0.71 --hotfix --push
 
 The script expects the working tree to be clean aside from VERSION, CHANGELOG,
-scripts/cut-release.sh, and helm/serviceradar/Chart.yaml changes. Dry runs skip
-the clean-tree check.
+scripts/cut-release.sh, helm/serviceradar/Chart.yaml, and the demo ArgoCD source
+override changes. Dry runs skip the clean-tree check.
 USAGE
 }
 
@@ -131,6 +131,7 @@ fi
 cd "$repo_root"
 
 tag="${tag_prefix}${version}"
+demo_argocd_source_file="helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
 
 # Ensure the working tree is clean apart from allowed files.
 if [[ "$dry_run" == "false" ]]; then
@@ -138,7 +139,7 @@ if [[ "$dry_run" == "false" ]]; then
     for entry in "${dirty[@]}"; do
         file=${entry:3}
         case "$file" in
-            ""|"VERSION"|"CHANGELOG"|"scripts/cut-release.sh"|"helm/serviceradar/Chart.yaml")
+            ""|"VERSION"|"CHANGELOG"|"scripts/cut-release.sh"|"helm/serviceradar/Chart.yaml"|"$demo_argocd_source_file")
                 ;;
             *)
                 echo "Unexpected pending change: $file" >&2
@@ -171,10 +172,24 @@ else
     sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
 fi
 
+if [[ -f "$demo_argocd_source_file" ]]; then
+    if [[ "$dry_run" == "true" ]]; then
+        echo "[dry-run] Would update $demo_argocd_source_file global.imageTag to $tag"
+    else
+        sed -i "/name: global.imageTag/{n;s/value: .*/value: $tag/;}" "$demo_argocd_source_file"
+    fi
+fi
+
 if [[ "$dry_run" == "true" ]]; then
     echo "[dry-run] Would stage VERSION and $chart_file"
+    if [[ -f "$demo_argocd_source_file" ]]; then
+        echo "[dry-run] Would stage $demo_argocd_source_file"
+    fi
 else
     git add VERSION "$chart_file"
+    if [[ -f "$demo_argocd_source_file" ]]; then
+        git add "$demo_argocd_source_file"
+    fi
 fi
 
 if git status --porcelain -- CHANGELOG >/dev/null 2>&1 && git status --porcelain -- CHANGELOG | grep -q '.'; then
