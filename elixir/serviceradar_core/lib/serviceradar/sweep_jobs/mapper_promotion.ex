@@ -344,8 +344,8 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
         :ok
 
       _ ->
-        Logger.warning(
-          "Failed to persist sweep mapper promotion metadata for #{decision.device_uid}: device not loaded"
+        Logger.debug(
+          "Skipped sweep mapper promotion metadata for #{decision.device_uid}: device not loaded"
         )
 
         :ok

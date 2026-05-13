@@ -299,7 +299,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # Step 2: Batch lookup existing devices by IP (confirmed aliases only)
     # DB connection's search_path determines the schema
-    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
+    device_map =
+      DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true, use_cache: false)
 
     # Step 3: Find IPs without existing devices
     known_ips = Map.keys(device_map)
@@ -392,7 +393,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
+    device_map =
+      DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true, use_cache: false)
 
     results
     |> MapperPromotion.promote(

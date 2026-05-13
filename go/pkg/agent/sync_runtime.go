@@ -392,6 +392,15 @@ func (r *SyncRuntime) runArmisSync(
 		from := 0
 		for {
 			resp, err := client.search(ctx, token, queryString, from, pageSize)
+			if err != nil && isArmisUnauthorized(err) {
+				refreshedToken, tokenErr := client.accessToken(ctx, runner.config.Credentials)
+				if tokenErr == nil {
+					token = refreshedToken
+					resp, err = client.search(ctx, token, queryString, from, pageSize)
+				} else {
+					err = fmt.Errorf("%w; token refresh failed: %w", err, tokenErr)
+				}
+			}
 			if err != nil {
 				if totalUpdates > 0 {
 					return totalUpdates, fmt.Errorf("partial armis sync after streaming %d devices: %w", totalUpdates, err)
@@ -537,9 +546,33 @@ func armisPageSize(source models.SourceConfig) int {
 	return parsed
 }
 
+func isArmisUnauthorized(err error) bool {
+	var requestErr *armisRequestError
+	return errors.As(err, &requestErr) && requestErr.statusCode == http.StatusUnauthorized
+}
+
 type armisClient struct {
 	endpoint           string
 	insecureSkipVerify bool
+}
+
+type armisRequestError struct {
+	err        error
+	statusCode int
+	status     string
+	body       string
+}
+
+func (e *armisRequestError) Error() string {
+	if e.body != "" {
+		return fmt.Sprintf("%v: %s: %s", e.err, e.status, e.body)
+	}
+
+	return fmt.Sprintf("%v: %s", e.err, e.status)
+}
+
+func (e *armisRequestError) Unwrap() error {
+	return e.err
 }
 
 func newArmisClient(source models.SourceConfig) *armisClient {
@@ -644,11 +677,12 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if len(body) > 0 {
-			return nil, fmt.Errorf("%w: %s: %s", errArmisSearchFailed, resp.Status, strings.TrimSpace(string(body)))
+		return nil, &armisRequestError{
+			err:        errArmisSearchFailed,
+			statusCode: resp.StatusCode,
+			status:     resp.Status,
+			body:       strings.TrimSpace(string(body)),
 		}
-
-		return nil, fmt.Errorf("%w: %s", errArmisSearchFailed, resp.Status)
 	}
 
 	var result armisSearchResponse

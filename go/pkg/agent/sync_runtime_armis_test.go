@@ -249,6 +249,130 @@ func TestRunArmisSyncStreamsFetchedPagesBeforeLaterSearchError(t *testing.T) {
 	}
 }
 
+func TestRunArmisSyncRefreshesAccessTokenOnSearchUnauthorized(t *testing.T) {
+	const pageSize = 2
+
+	var (
+		mu          sync.Mutex
+		tokenCalls  int
+		searchCalls int
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case armisAccessTokenPath:
+			mu.Lock()
+			tokenCalls++
+			token := "token-" + strconv.Itoa(tokenCalls)
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"` + token + `"},"success":true}`))
+		case armisSearchPath:
+			mu.Lock()
+			searchCalls++
+			mu.Unlock()
+
+			auth := r.Header.Get("Authorization")
+			from := r.URL.Query().Get("from")
+			if from == "" {
+				if auth != "token-1" {
+					t.Fatalf("first page authorization = %q, want token-1", auth)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{
+					"data":{
+						"count":2,
+						"next":2,
+						"prev":null,
+						"results":[
+							{"id":101,"ipAddress":"10.0.0.101","name":"device-101"},
+							{"id":102,"ipAddress":"10.0.0.102","name":"device-102"}
+						],
+						"total":4
+					},
+					"success":true
+				}`))
+				return
+			}
+
+			if from != "2" {
+				t.Fatalf("from = %q, want 2", from)
+			}
+			if auth == "token-1" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"message":"Invalid access token.","success":false}`))
+				return
+			}
+			if auth != "token-2" {
+				t.Fatalf("retry authorization = %q, want token-2", auth)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"data":{
+					"count":2,
+					"next":0,
+					"prev":2,
+					"results":[
+						{"id":103,"ipAddress":"10.0.0.103","name":"device-103"},
+						{"id":104,"ipAddress":"10.0.0.104","name":"device-104"}
+					],
+					"total":4
+				},
+				"success":true
+			}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	gateway := &fakeSyncGateway{}
+	runtime := &SyncRuntime{
+		server:  &Server{config: &ServerConfig{AgentID: "agent-a", Partition: "partition-a"}},
+		gateway: gateway,
+		logger:  createTestLogger(),
+	}
+	runner := &syncSourceRunner{
+		key: "armis",
+		config: models.SourceConfig{
+			Type:        armisSourceType,
+			Endpoint:    server.URL,
+			Credentials: map[string]string{"secret_key": "secret", "page_size": strconv.Itoa(pageSize)},
+			Queries:     []models.QueryConfig{{Label: "test", Query: testArmisDeviceQuery}},
+		},
+	}
+
+	count, err := runtime.runArmisSync(context.Background(), runner, "run-123")
+	if err != nil {
+		t.Fatalf("runArmisSync returned error: %v", err)
+	}
+	if count != 4 {
+		t.Fatalf("count = %d, want 4", count)
+	}
+	if tokenCalls != 2 {
+		t.Fatalf("token calls = %d, want refresh after unauthorized search", tokenCalls)
+	}
+	if searchCalls != 3 {
+		t.Fatalf("search calls = %d, want first page, failed page, retry", searchCalls)
+	}
+
+	gotDevices := decodedSyncChunkDeviceIDs(t, gateway.chunks())
+	wantDevices := map[string]bool{
+		"partition-a:10.0.0.101": true,
+		"partition-a:10.0.0.102": true,
+		"partition-a:10.0.0.103": true,
+		"partition-a:10.0.0.104": true,
+	}
+	for _, deviceID := range gotDevices {
+		delete(wantDevices, deviceID)
+	}
+	if len(wantDevices) != 0 {
+		t.Fatalf("missing streamed devices: %v; got %v", wantDevices, gotDevices)
+	}
+}
+
 func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
 	const (
 		totalDevices = 250
