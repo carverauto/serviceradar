@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.46
+
+Armis sync compatibility fix for production discovery queries.
+
+## Whats New
+
+**1.2.46**
+- Restored Armis search request compatibility with the legacy sync client by omitting `from` on first-page searches and only sending positive `from` values on later pages.
+- Fixed generated agent sync config so configured Armis UI queries are normalized with string keys, preserved when multiple queries are configured, and blank form rows are dropped before delivery.
+- Changed agent-side Armis sync to fail fast when no valid queries are configured instead of sending a blank search to large Armis installations.
+- Added Armis search response bodies to sync errors so API rejections include actionable diagnostics in agent logs.
+- Tightened the faker Armis search contract and added regression coverage for required AQL, pagination semantics, and current agent request behavior.
+
 # ServiceRadar v1.2.45
 
 AWX controller credentials, Armis sync recovery, unified credential management, and docs publishing.
