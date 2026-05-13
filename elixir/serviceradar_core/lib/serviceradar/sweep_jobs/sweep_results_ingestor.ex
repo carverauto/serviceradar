@@ -55,6 +55,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
+  @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
 
   @doc """
   Ingest a batch of sweep results for an execution.
@@ -418,14 +419,26 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       %{}
     else
       partition = sweep_group_partition(sweep_group_id, actor)
+      available_unknown_ips = Map.keys(available_unknown_hosts)
 
-      available_unknown_hosts
+      active_existing_map =
+        DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
+          actor: actor,
+          include_deleted: false,
+          use_cache: false
+        )
+
+      hosts_to_create = Map.drop(available_unknown_hosts, Map.keys(active_existing_map))
+
+      hosts_to_create
       |> Map.values()
       |> Enum.each(&create_available_unknown_device(&1, partition, actor))
 
-      available_unknown_hosts
-      |> Map.keys()
-      |> DeviceLookup.batch_lookup_by_ip(actor: actor, include_deleted: true)
+      DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
+        actor: actor,
+        include_deleted: true,
+        use_cache: false
+      )
     end
   end
 
@@ -464,17 +477,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:ok, _device} ->
         Logger.info("SweepResultsIngestor: Created provisional sweep device #{uid} for #{ip}")
 
-      {:error, %Ash.Error.Invalid{errors: errors}} ->
-        if not duplicate_device_conflict?(errors) do
-          Logger.warning(
-            "SweepResultsIngestor: Failed to create provisional sweep device for #{ip}: #{inspect(errors)}"
-          )
-        end
-
       {:error, reason} ->
-        Logger.warning(
-          "SweepResultsIngestor: Failed to create provisional sweep device for #{ip}: #{inspect(reason)}"
-        )
+        log_provisional_create_error(ip, reason)
+    end
+  end
+
+  defp log_provisional_create_error(ip, reason) do
+    if duplicate_device_conflict?(reason) do
+      Logger.debug(
+        "SweepResultsIngestor: Provisional sweep device already exists for #{ip}, skipping duplicate create"
+      )
+    else
+      Logger.warning(
+        "SweepResultsIngestor: Failed to create provisional sweep device for #{ip}: #{inspect(reason)}"
+      )
     end
   end
 
@@ -500,13 +516,58 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp normalize_hostname(_), do: nil
 
-  defp duplicate_device_conflict?(errors) when is_list(errors) do
-    Enum.any?(errors, fn error ->
-      field = Map.get(error, :field)
-      message = Exception.message(error)
-      field == :uid or field == :ip or String.contains?(message, "has already been taken")
-    end)
+  @doc false
+  def duplicate_device_conflict?(errors) when is_list(errors) do
+    Enum.any?(errors, &duplicate_device_conflict?/1)
   end
+
+  def duplicate_device_conflict?(%Ash.Error.Invalid{errors: errors}),
+    do: duplicate_device_conflict?(errors)
+
+  def duplicate_device_conflict?(%Ash.Error.Unknown{errors: errors}),
+    do: duplicate_device_conflict?(errors)
+
+  def duplicate_device_conflict?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    postgres[:code] == :unique_violation and
+      postgres[:constraint] in [@active_ip_unique_constraint, "ocsf_devices_unique_uid_index"]
+  end
+
+  def duplicate_device_conflict?(%Ecto.ConstraintError{} = error) do
+    duplicate_device_message?(Exception.message(error))
+  end
+
+  def duplicate_device_conflict?(%{error: nested}) when not is_nil(nested),
+    do: duplicate_device_conflict?(nested)
+
+  def duplicate_device_conflict?(%{field: field} = error) do
+    field in [:uid, :ip] or duplicate_device_message?(error_message(error))
+  end
+
+  def duplicate_device_conflict?(error) do
+    duplicate_device_message?(error_message(error))
+  end
+
+  defp duplicate_device_message?(message) when is_binary(message) do
+    String.contains?(message, @active_ip_unique_constraint) or
+      String.contains?(message, "ocsf_devices_unique_uid_index") or
+      String.contains?(message, "has already been taken")
+  end
+
+  defp duplicate_device_message?(_message), do: false
+
+  defp error_message(message) when is_binary(message), do: message
+
+  defp error_message(%{__struct__: module} = error) do
+    if function_exported?(module, :exception, 1) do
+      Exception.message(error)
+    else
+      inspect(error)
+    end
+  rescue
+    _ -> inspect(error)
+  end
+
+  defp error_message(error), do: inspect(error)
 
   defp extract_ip(result) do
     result["host_ip"]

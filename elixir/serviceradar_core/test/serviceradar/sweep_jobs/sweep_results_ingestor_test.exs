@@ -3,6 +3,37 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
+  describe "duplicate_device_conflict?/1" do
+    test "recognizes active IP unique index conflicts wrapped by Ash unknown errors" do
+      reason =
+        Ash.Error.Unknown.exception(
+          errors: [
+            Ash.Error.Unknown.UnknownError.exception(
+              error: """
+              ** (Ecto.ConstraintError) constraint error when attempting to insert struct:
+
+                  * "ocsf_devices_unique_active_ip_idx" (unique_constraint)
+              """
+            )
+          ]
+        )
+
+      assert SweepResultsIngestor.duplicate_device_conflict?(reason)
+    end
+
+    test "recognizes identity uniqueness validation errors" do
+      assert SweepResultsIngestor.duplicate_device_conflict?([
+               %{field: :uid, message: "has already been taken"}
+             ])
+    end
+
+    test "does not classify unrelated provisional create failures as duplicates" do
+      refute SweepResultsIngestor.duplicate_device_conflict?([
+               %{field: :hostname, message: "is invalid"}
+             ])
+    end
+  end
+
   describe "build_host_results/3" do
     test "leaves device_id nil for unavailable unknown sweep hosts" do
       execution_id = Ash.UUID.generate()
