@@ -65,6 +65,34 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     assert credentials["secret_key"] == "api-secret"
   end
 
+  test "armis sync config emits discovery cadence without poll or sweep cadence" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-discovery-interval-#{suffix}")
+
+    source =
+      create_source!(
+        agent.uid,
+        "source-armis-discovery-interval-#{suffix}",
+        %{secret_key: "secret"},
+        %{
+          discovery_interval_seconds: 7200,
+          poll_interval_seconds: 300,
+          sweep_interval_seconds: 600
+        }
+      )
+
+    assert {:ok, payload} = SyncConfigGenerator.get_config_if_changed(agent.uid, "")
+
+    source_config =
+      payload.config_json
+      |> Jason.decode!()
+      |> get_in(["sources", source.name])
+
+    assert source_config["discovery_interval"] == "2h"
+    refute Map.has_key?(source_config, "poll_interval")
+    refute Map.has_key?(source_config, "sweep_interval")
+  end
+
   defp create_agent!(uid) do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid},
@@ -77,20 +105,26 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     end
   end
 
-  defp create_source!(agent_id, name, credentials \\ %{token: "secret"}) do
+  defp create_source!(agent_id, name, credentials \\ %{token: "secret"}, overrides \\ %{}) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
     actor = system_actor()
+
+    attrs =
+      Map.merge(
+        %{
+          name: name,
+          source_type: :armis,
+          endpoint: endpoint,
+          agent_id: agent_id,
+          credentials: credentials
+        },
+        overrides
+      )
 
     IntegrationSource
     |> Ash.Changeset.for_create(
       :create,
-      %{
-        name: name,
-        source_type: :armis,
-        endpoint: endpoint,
-        agent_id: agent_id,
-        credentials: credentials
-      },
+      attrs,
       actor: actor
     )
     |> Ash.create(actor: actor)

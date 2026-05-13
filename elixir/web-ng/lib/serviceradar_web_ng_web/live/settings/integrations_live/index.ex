@@ -1062,21 +1062,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             />
           </div>
 
-          <.input
-            field={@form[:gateway_id]}
-            type="text"
-            label="Gateway ID (Optional)"
-            placeholder="Gateway to assign this source to"
-          />
-
-          <div class="grid grid-cols-3 gap-4">
-            <.input
-              field={@form[:poll_interval_seconds]}
-              type="number"
-              label="Poll Interval (sec)"
-              placeholder="300"
-            />
-
+          <div class="grid grid-cols-2 gap-4">
             <.input
               field={@form[:discovery_interval_seconds]}
               type="number"
@@ -1085,14 +1071,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             />
 
             <.input
-              field={@form[:sweep_interval_seconds]}
+              field={@form[:page_size]}
               type="number"
-              label="Sweep Interval (sec)"
-              placeholder="3600"
+              label="Page Size"
+              placeholder="100"
             />
           </div>
           <p class="text-xs text-base-content/60 -mt-2">
-            Poll: fetch updates • Discovery: full device scan • Sweep: network scan
+            Discovery imports devices from the integration. Network sweep scheduling is configured separately.
           </p>
 
           <div class="divider text-xs text-base-content/60">Credentials</div>
@@ -1268,15 +1254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             />
           </div>
 
-          <.input field={@form[:gateway_id]} type="text" label="Gateway ID (Optional)" />
-
-          <div class="grid grid-cols-3 gap-4">
-            <.input
-              field={@form[:poll_interval_seconds]}
-              type="number"
-              label="Poll Interval (sec)"
-            />
-
+          <div class="grid grid-cols-2 gap-4">
             <.input
               field={@form[:discovery_interval_seconds]}
               type="number"
@@ -1284,13 +1262,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             />
 
             <.input
-              field={@form[:sweep_interval_seconds]}
+              field={@form[:page_size]}
               type="number"
-              label="Sweep Interval (sec)"
+              label="Page Size"
             />
           </div>
           <p class="text-xs text-base-content/60 -mt-2">
-            Poll: fetch updates • Discovery: full device scan • Sweep: network scan
+            Discovery imports devices from the integration. Network sweep scheduling is configured separately.
           </p>
 
           <div class="divider text-xs text-base-content/60">Credentials</div>
@@ -1431,8 +1409,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <.source_type_badge type={@source.source_type} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Poll Interval</div>
-              <div>{format_interval(@source.poll_interval_seconds)}</div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60">
+                Discovery Interval
+              </div>
+              <div>{format_interval(@source.discovery_interval_seconds)}</div>
             </div>
           </div>
 
@@ -1497,15 +1477,6 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   <.ui_badge variant="ghost" size="xs">Unknown</.ui_badge>
                 <% end %>
               </div>
-            </div>
-          <% end %>
-
-          <%= if @source.gateway_id do %>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Gateway ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">
-                {@source.gateway_id}
-              </code>
             </div>
           <% end %>
 

@@ -27,11 +27,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias ServiceRadar.Automation.Ansible.PlaybookSchedule
   alias ServiceRadar.Automation.Ansible.RetentionWorker
   alias ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
   require Logger
+
+  @awx_credential_provider "awx"
 
   @tabs [
     {:controllers, "Controllers"},
@@ -375,11 +378,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
-  attr :controllers, :any, required: true
-  attr :controller_count, :integer, required: true
-  attr :show_form, :boolean, required: true
-  attr :form, :any, required: true
-  attr :editing_id, :string, default: nil
+  attr(:controllers, :any, required: true)
+  attr(:controller_count, :integer, required: true)
+  attr(:show_form, :boolean, required: true)
+  attr(:form, :any, required: true)
+  attr(:editing_id, :string, default: nil)
 
   defp controllers_panel(assigns) do
     ~H"""
@@ -463,8 +466,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
-  attr :form, :any, required: true
-  attr :editing_id, :string, default: nil
+  attr(:form, :any, required: true)
+  attr(:editing_id, :string, default: nil)
 
   defp controller_form(assigns) do
     ~H"""
@@ -475,6 +478,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
       <.form
         for={@form}
+        id="ansible-controller-form"
         phx-change="validate_controller"
         phx-submit="save_controller"
         class="space-y-3"
@@ -528,16 +532,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
           <div class="form-control md:col-span-2">
             <label class="label">
-              <span class="label-text">Credential secret ID</span>
+              <span class="label-text">
+                {if @editing_id, do: "New AWX API token", else: "AWX API token"}
+              </span>
               <span class="label-text-alt text-xs text-base-content/60">
-                UUID from Settings → Credentials. v1 limitation: paste manually.
+                {if @editing_id,
+                  do: "Leave blank to keep the existing encrypted token.",
+                  else: "Stored encrypted as a network credential."}
+              </span>
+            </label>
+            <input
+              type="password"
+              name="controller[awx_api_token]"
+              value=""
+              class="input input-bordered input-sm font-mono"
+              autocomplete="off"
+              placeholder={if @editing_id, do: "Paste only to rotate", else: "Paste AWX token"}
+            />
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label">
+              <span class="label-text">Existing credential secret ID</span>
+              <span class="label-text-alt text-xs text-base-content/60">
+                Optional UUID from Settings → Credentials.
               </span>
             </label>
             <input
               type="text"
               name="controller[credential_secret_id]"
               value={Phoenix.HTML.Form.input_value(@form, :credential_secret_id)}
-              required
               class="input input-bordered input-sm font-mono"
               placeholder="018f3f56-1111-7222-8333-..."
             />
@@ -597,11 +621,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   ## Repository panel + form --------------------------------------------------
 
-  attr :repositories, :any, required: true
-  attr :repository_count, :integer, required: true
-  attr :show_form, :boolean, required: true
-  attr :form, :any, required: true
-  attr :editing_id, :string, default: nil
+  attr(:repositories, :any, required: true)
+  attr(:repository_count, :integer, required: true)
+  attr(:show_form, :boolean, required: true)
+  attr(:form, :any, required: true)
+  attr(:editing_id, :string, default: nil)
 
   defp repositories_panel(assigns) do
     ~H"""
@@ -688,8 +712,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
-  attr :form, :any, required: true
-  attr :editing_id, :string, default: nil
+  attr(:form, :any, required: true)
+  attr(:editing_id, :string, default: nil)
 
   defp repository_form(assigns) do
     ~H"""
@@ -794,12 +818,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   ## Schedule panel + form ----------------------------------------------------
 
-  attr :schedules, :any, required: true
-  attr :schedule_count, :integer, required: true
-  attr :show_form, :boolean, required: true
-  attr :form, :any, required: true
-  attr :editing_id, :string, default: nil
-  attr :playbooks, :any, required: true
+  attr(:schedules, :any, required: true)
+  attr(:schedule_count, :integer, required: true)
+  attr(:show_form, :boolean, required: true)
+  attr(:form, :any, required: true)
+  attr(:editing_id, :string, default: nil)
+  attr(:playbooks, :any, required: true)
 
   defp schedules_panel(assigns) do
     ~H"""
@@ -913,9 +937,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     """
   end
 
-  attr :form, :any, required: true
-  attr :editing_id, :string, default: nil
-  attr :playbooks, :any, required: true
+  attr(:form, :any, required: true)
+  attr(:editing_id, :string, default: nil)
+  attr(:playbooks, :any, required: true)
 
   defp schedule_form(assigns) do
     ~H"""
@@ -1070,7 +1094,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   ## Retention panel (read-only docs) -----------------------------------------
 
-  attr :config, :map, required: true
+  attr(:config, :map, required: true)
 
   defp retention_panel(assigns) do
     ~H"""
@@ -1180,9 +1204,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   ## Helpers -------------------------------------------------------------------
 
   defp create_controller(socket, params) do
-    attrs = controller_attrs(params)
-
-    case Controller.create_controller(attrs, actor: actor()) do
+    case create_controller_with_secret(params) do
       {:ok, ctrl} ->
         {:noreply,
          socket
@@ -1192,18 +1214,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
          |> update(:controller_count, &(&1 + 1))}
 
       {:error, error} ->
-        Logger.info("Controller create failed", error: inspect(error))
+        Logger.info("Controller create failed", error: format_controller_error(error))
 
         {:noreply,
          socket
-         |> assign(:controller_form, to_form(params, as: :controller))
-         |> put_flash(:error, format_ash_error(error))}
+         |> assign(
+           :controller_form,
+           to_form(sanitize_controller_form_params(params), as: :controller)
+         )
+         |> put_flash(:error, format_controller_error(error))}
     end
   end
 
   defp update_controller(socket, id, params) do
     with {:ok, ctrl} <- Controller.get_by_id(id, actor: actor()),
-         {:ok, updated} <- Controller.update_controller(ctrl, controller_attrs(params), actor: actor()) do
+         {:ok, updated} <- update_controller_with_secret(ctrl, params) do
       {:noreply,
        socket
        |> put_flash(:info, "Controller \"#{updated.name}\" updated.")
@@ -1211,22 +1236,104 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
        |> stream_insert(:controllers, updated)}
     else
       {:error, error} ->
-        Logger.info("Controller update failed", error: inspect(error))
+        Logger.info("Controller update failed", error: format_controller_error(error))
 
         {:noreply,
          socket
-         |> assign(:controller_form, to_form(params, as: :controller))
-         |> put_flash(:error, format_ash_error(error))}
+         |> assign(
+           :controller_form,
+           to_form(sanitize_controller_form_params(params), as: :controller)
+         )
+         |> put_flash(:error, format_controller_error(error))}
     end
   end
 
-  defp controller_attrs(params) do
+  defp create_controller_with_secret(params) do
+    [NetworkCredentialSecret, Controller]
+    |> Ash.transaction(fn ->
+      with {:ok, credential_secret_id} <- resolve_controller_credential_secret_id(params, nil),
+           {:ok, ctrl} <-
+             Controller.create_controller(controller_attrs(params, credential_secret_id),
+               actor: actor()
+             ) do
+        ctrl
+      else
+        {:error, reason} -> Ash.DataLayer.rollback([NetworkCredentialSecret, Controller], reason)
+      end
+    end)
+    |> normalize_transaction_result()
+  end
+
+  defp update_controller_with_secret(%Controller{} = ctrl, params) do
+    [NetworkCredentialSecret, Controller]
+    |> Ash.transaction(fn ->
+      with {:ok, credential_secret_id} <-
+             resolve_controller_credential_secret_id(params, ctrl.credential_secret_id),
+           {:ok, updated} <-
+             Controller.update_controller(ctrl, controller_attrs(params, credential_secret_id),
+               actor: actor()
+             ) do
+        updated
+      else
+        {:error, reason} -> Ash.DataLayer.rollback([NetworkCredentialSecret, Controller], reason)
+      end
+    end)
+    |> normalize_transaction_result()
+  end
+
+  defp resolve_controller_credential_secret_id(params, existing_secret_id) do
+    token = nilify_blank(params["awx_api_token"])
+    secret_id = nilify_blank(params["credential_secret_id"]) || existing_secret_id
+
+    cond do
+      token ->
+        create_awx_token_secret(params, token)
+
+      secret_id ->
+        validate_credential_secret_id(secret_id)
+
+      true ->
+        {:error, :missing_awx_credential}
+    end
+  end
+
+  defp create_awx_token_secret(params, token) do
+    case NetworkCredentialSecret.create_secret(
+           %{
+             name: awx_token_secret_name(params["name"]),
+             description:
+               "AWX OAuth2 token for Ansible controller #{nonempty_string(params["name"], "unnamed")}",
+             provider: @awx_credential_provider,
+             credential_kind: :api_token,
+             secret_payload: token,
+             last_rotated_at: DateTime.utc_now(),
+             metadata: %{
+               "source" => "ansible_controller_form",
+               "controller_name" => nonempty_string(params["name"], nil),
+               "base_url" => nonempty_string(params["base_url"], nil)
+             }
+           },
+           actor: actor()
+         ) do
+      {:ok, secret} -> {:ok, secret.id}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_credential_secret_id(secret_id) do
+    case Ecto.UUID.cast(secret_id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_credential_secret_id}
+    end
+  end
+
+  defp controller_attrs(params, credential_secret_id) do
     %{
       name: params["name"],
       description: nilify_blank(params["description"]),
       base_url: params["base_url"],
       agent_id: params["agent_id"],
-      credential_secret_id: nilify_blank(params["credential_secret_id"]),
+      credential_secret_id: credential_secret_id,
       inventory_sync_interval_seconds: to_int(params["inventory_sync_interval_seconds"]) || 300,
       catalog_sync_interval_seconds: to_int(params["catalog_sync_interval_seconds"]) || 600,
       run_pulse_interval_ms: to_int(params["run_pulse_interval_ms"]) || 2000
@@ -1239,6 +1346,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "description" => "",
       "base_url" => "",
       "agent_id" => "",
+      "awx_api_token" => "",
       "credential_secret_id" => "",
       "inventory_sync_interval_seconds" => "300",
       "catalog_sync_interval_seconds" => "600",
@@ -1252,6 +1360,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "description" => ctrl.description || "",
       "base_url" => ctrl.base_url,
       "agent_id" => ctrl.agent_id,
+      "awx_api_token" => "",
       "credential_secret_id" => ctrl.credential_secret_id,
       "inventory_sync_interval_seconds" => to_string(ctrl.inventory_sync_interval_seconds),
       "catalog_sync_interval_seconds" => to_string(ctrl.catalog_sync_interval_seconds),
@@ -1297,7 +1406,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp update_repository(socket, id, params) do
     with {:ok, repo} <- PlaybookRepository.get_by_id(id, actor: actor()),
-         {:ok, updated} <- PlaybookRepository.update_repository(repo, repository_attrs(params), actor: actor()) do
+         {:ok, updated} <-
+           PlaybookRepository.update_repository(repo, repository_attrs(params), actor: actor()) do
       {:noreply,
        socket
        |> put_flash(:info, "Repository \"#{updated.name}\" updated.")
@@ -1441,9 +1551,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched), do: PlaybookSchedule.disable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched),
+    do: PlaybookSchedule.disable(sched, actor: actor())
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched), do: PlaybookSchedule.enable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched),
+    do: PlaybookSchedule.enable(sched, actor: actor())
 
   defp validate_and_normalize_schedule(params) do
     with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
@@ -1493,9 +1605,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       {:ok, %{}}
     else
       case Jason.decode(trimmed) do
-        {:ok, m} when is_map(m) -> {:ok, m}
-        {:ok, _} -> {:error, {:bad_extra_vars, "must be a JSON object"}}
-        {:error, %Jason.DecodeError{} = err} -> {:error, {:bad_extra_vars, Exception.message(err)}}
+        {:ok, m} when is_map(m) ->
+          {:ok, m}
+
+        {:ok, _} ->
+          {:error, {:bad_extra_vars, "must be a JSON object"}}
+
+        {:error, %Jason.DecodeError{} = err} ->
+          {:error, {:bad_extra_vars, Exception.message(err)}}
       end
     end
   end
@@ -1584,10 +1701,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     %{
       run_detail_days: base.run_detail_days,
       run_summary_days: base.run_summary_days,
-      interval_seconds: Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
-      health_interval_seconds: Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
-      watchdog_interval_seconds: Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
-      scheduler_interval_seconds: Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
+      interval_seconds:
+        Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
+      health_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
+      watchdog_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
+      scheduler_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
       catalog_base_dir:
         Application.get_env(
           :serviceradar_core,
@@ -1661,9 +1782,52 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp format_ash_error(%Invalid{errors: errs}) do
     errs
-    |> Enum.map_join("; ", &inspect/1)
+    |> Enum.map_join("; ", &format_ash_error_detail/1)
     |> String.slice(0, 240)
   end
 
   defp format_ash_error(other), do: String.slice(inspect(other), 0, 240)
+
+  defp format_ash_error_detail(%{field: field, message: message})
+       when not is_nil(field) and is_binary(message) do
+    "#{field} #{message}"
+  end
+
+  defp format_ash_error_detail(%{message: message}) when is_binary(message), do: message
+  defp format_ash_error_detail(_other), do: "invalid input"
+
+  defp format_controller_error(:missing_awx_credential),
+    do: "Enter an AWX API token or an existing credential secret ID."
+
+  defp format_controller_error(:invalid_credential_secret_id),
+    do:
+      "Existing credential secret ID must be a UUID. Paste the AWX token in the AWX API token field."
+
+  defp format_controller_error(other), do: format_ash_error(other)
+
+  defp normalize_transaction_result({:ok, value}), do: {:ok, value}
+  defp normalize_transaction_result({:error, reason}), do: {:error, reason}
+  defp normalize_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
+
+  defp sanitize_controller_form_params(params) do
+    Map.put(params, "awx_api_token", "")
+  end
+
+  defp awx_token_secret_name(name) do
+    base =
+      name
+      |> nonempty_string("AWX controller")
+      |> String.slice(0, 80)
+
+    "AWX token - #{base} - #{System.unique_integer([:positive])}"
+  end
+
+  defp nonempty_string(value, fallback) when is_binary(value) do
+    case String.trim(value) do
+      "" -> fallback
+      trimmed -> trimmed
+    end
+  end
+
+  defp nonempty_string(_value, fallback), do: fallback
 end

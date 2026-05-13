@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,15 +28,15 @@ import (
 )
 
 const (
-	defaultArmisPageSize    = 100
-	defaultSyncRunTimeout   = 10 * time.Minute
-	syncServiceType         = "sync"
-	syncServiceName         = "sync"
-	syncMetaKey             = "sync_meta"
-	armisSourceType         = "armis"
-	armisAccessTokenPath    = "/api/v1/access_token/"
-	armisSearchPath         = "/api/v1/search/"
-	armisAuthHeaderTemplate = "Bearer %s"
+	defaultArmisPageSize  = 100
+	defaultSyncRunTimeout = 10 * time.Minute
+	syncServiceType       = "sync"
+	syncServiceName       = "sync"
+	syncMetaKey           = "sync_meta"
+	armisSourceType       = "armis"
+	armisAccessTokenPath  = "/api/v1/access_token/"
+	armisSearchPath       = "/api/v1/search/"
+	syncRuntimeStatePath  = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
 )
 
 var (
@@ -52,6 +54,7 @@ type SyncRuntime struct {
 	logger  logger.Logger
 
 	mu      sync.Mutex
+	stateMu sync.Mutex
 	ctx     context.Context
 	sources map[string]*syncSourceRunner
 }
@@ -104,6 +107,10 @@ type armisTokenResponse struct {
 		AccessToken string `json:"access_token"`
 	} `json:"data"`
 	Success bool `json:"success"`
+}
+
+type syncRuntimeRunState struct {
+	Runs map[string]time.Time `json:"runs"`
 }
 
 // NewSyncRuntime builds the integration sync runtime for an agent.
@@ -203,48 +210,113 @@ func (r *SyncRuntime) startSourceLocked(key string, source models.SourceConfig, 
 }
 
 func (r *SyncRuntime) runSource(ctx context.Context, runner *syncSourceRunner) {
-	pollInterval := time.Duration(runner.config.PollInterval)
-	discoveryInterval := time.Duration(runner.config.DiscoveryInterval)
-
-	if pollInterval <= 0 && discoveryInterval <= 0 {
+	interval, runKind, ok := scheduledSyncRun(runner.config)
+	if !ok {
 		r.logger.Warn().Str("source", runner.key).Msg("Sync source has no intervals configured")
 		return
 	}
 
 	// Run an initial discovery immediately.
-	r.executeRun(ctx, runner, "discovery")
-
-	if discoveryInterval > 0 {
-		ticker := time.NewTicker(discoveryInterval)
-		defer ticker.Stop()
-
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					r.executeRun(ctx, runner, "discovery")
-				}
-			}
-		}()
+	if r.claimInitialRun(runner, interval) {
+		r.executeRun(ctx, runner, "discovery")
+	} else {
+		r.logger.Info().
+			Str("source", runner.key).
+			Dur("interval", interval).
+			Msg("Skipping initial sync run; recent run marker exists")
 	}
 
-	if pollInterval > 0 && pollInterval != discoveryInterval {
-		ticker := time.NewTicker(pollInterval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				r.executeRun(ctx, runner, "poll")
-			}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.executeRun(ctx, runner, runKind)
 		}
 	}
+}
 
-	<-ctx.Done()
+func scheduledSyncRun(source models.SourceConfig) (time.Duration, string, bool) {
+	discoveryInterval := time.Duration(source.DiscoveryInterval)
+	if discoveryInterval > 0 {
+		return discoveryInterval, "discovery", true
+	}
+
+	pollInterval := time.Duration(source.PollInterval)
+	if pollInterval > 0 {
+		return pollInterval, "poll", true
+	}
+
+	return 0, "", false
+}
+
+func (r *SyncRuntime) claimInitialRun(runner *syncSourceRunner, interval time.Duration) bool {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+
+	claimed, err := claimInitialSyncRun(syncRuntimeStateFile(), initialSyncRunKey(runner), interval, time.Now())
+	if err != nil {
+		r.logger.Warn().Err(err).Str("source", runner.key).Msg("Failed to update sync runtime state")
+		return true
+	}
+
+	return claimed
+}
+
+func initialSyncRunKey(runner *syncSourceRunner) string {
+	sourceID := runner.config.SyncServiceID
+	if sourceID == "" {
+		sourceID = runner.key
+	}
+
+	return sourceID + ":" + runner.hash
+}
+
+func syncRuntimeStateFile() string {
+	if override := strings.TrimSpace(os.Getenv("SERVICERADAR_SYNC_RUNTIME_STATE_PATH")); override != "" {
+		return override
+	}
+
+	return syncRuntimeStatePath
+}
+
+func claimInitialSyncRun(path string, key string, interval time.Duration, now time.Time) (bool, error) {
+	if key == "" || interval <= 0 {
+		return true, nil
+	}
+
+	state := syncRuntimeRunState{Runs: make(map[string]time.Time)}
+	if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
+		if err := json.Unmarshal(data, &state); err != nil {
+			state = syncRuntimeRunState{Runs: make(map[string]time.Time)}
+		}
+	}
+	if state.Runs == nil {
+		state.Runs = make(map[string]time.Time)
+	}
+
+	if lastRun, ok := state.Runs[key]; ok && now.Sub(lastRun) < interval {
+		return false, nil
+	}
+
+	state.Runs[key] = now.UTC()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return true, err
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return true, err
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return true, err
+	}
+
+	return true, nil
 }
 
 func (r *SyncRuntime) executeRun(ctx context.Context, runner *syncSourceRunner, runKind string) {
@@ -549,8 +621,9 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 		return nil, err
 	}
 	if token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf(armisAuthHeaderTemplate, token))
+		req.Header.Set("Authorization", token)
 	}
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.client().Do(req)
 	if err != nil {
