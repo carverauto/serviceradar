@@ -904,6 +904,24 @@ mod tests {
     }
 
     #[test]
+    fn devices_default_order_uses_safe_ip_cast() {
+        let query = "in:devices";
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("try_inet(nullif(ip, ''))"),
+            "expected default device ordering to tolerate malformed IP strings, got: {sql}"
+        );
+        assert!(
+            !lower.contains("nullif(ip, '')::inet"),
+            "default device ordering should not cast malformed IP strings directly, got: {sql}"
+        );
+    }
+
+    #[test]
     fn devices_ip_cidr_filter_generates_inet_clause() {
         let query = "in:devices ip:10.0.0.0/8";
         let plan = plan_for(query);
@@ -912,8 +930,8 @@ mod tests {
         let lower = sql.to_lowercase();
 
         assert!(
-            lower.contains("ip::inet") && lower.contains("<<="),
-            "expected CIDR inet containment, got: {sql}"
+            lower.contains("try_inet(nullif(ip, ''))") && lower.contains("<<="),
+            "expected safe CIDR inet containment, got: {sql}"
         );
 
         assert!(params
@@ -930,8 +948,9 @@ mod tests {
         let lower = sql.to_lowercase();
 
         assert!(
-            lower.contains("ip::inet >=") && lower.contains("ip::inet <="),
-            "expected IP range inet comparison, got: {sql}"
+            lower.contains("try_inet(nullif(ip, '')) >=")
+                && lower.contains("try_inet(nullif(ip, '')) <="),
+            "expected safe IP range inet comparison, got: {sql}"
         );
 
         assert!(params

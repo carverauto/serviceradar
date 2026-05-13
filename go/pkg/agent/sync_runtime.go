@@ -703,10 +703,6 @@ func (c *armisClient) client() *http.Client {
 }
 
 func filterArmisDevices(devices []armisDevice, blacklist []string) []armisDevice {
-	if len(blacklist) == 0 {
-		return devices
-	}
-
 	cidrs := make([]*net.IPNet, 0, len(blacklist))
 	for _, raw := range blacklist {
 		_, network, err := net.ParseCIDR(strings.TrimSpace(raw))
@@ -716,32 +712,70 @@ func filterArmisDevices(devices []armisDevice, blacklist []string) []armisDevice
 		cidrs = append(cidrs, network)
 	}
 
-	if len(cidrs) == 0 {
-		return devices
-	}
-
 	filtered := make([]armisDevice, 0, len(devices))
 	for _, device := range devices {
-		ip := net.ParseIP(device.IPAddress)
-		if ip == nil {
-			filtered = append(filtered, device)
+		ips := splitArmisDeviceIPs(device.IPAddress)
+		if len(ips) == 0 {
 			continue
 		}
 
-		blocked := false
-		for _, network := range cidrs {
-			if network.Contains(ip) {
-				blocked = true
-				break
+		for _, ip := range ips {
+			if armisIPBlacklisted(ip, cidrs) {
+				continue
 			}
-		}
 
-		if !blocked {
-			filtered = append(filtered, device)
+			normalized := device
+			normalized.IPAddress = ip
+			filtered = append(filtered, normalized)
+			break
 		}
 	}
 
 	return filtered
+}
+
+func splitArmisDeviceIPs(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\t' || r == ' '
+	})
+	ips := make([]string, 0, len(fields))
+
+	for _, field := range fields {
+		candidate := strings.TrimSpace(field)
+		if candidate == "" {
+			continue
+		}
+
+		if ip := net.ParseIP(candidate); ip != nil {
+			ips = append(ips, ip.String())
+			continue
+		}
+
+		if ip, _, err := net.ParseCIDR(candidate); err == nil {
+			ips = append(ips, ip.String())
+		}
+	}
+
+	return ips
+}
+
+func armisIPBlacklisted(value string, cidrs []*net.IPNet) bool {
+	if len(cidrs) == 0 {
+		return false
+	}
+
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return false
+	}
+
+	for _, network := range cidrs {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func buildArmisUpdate(server *Server, runner *syncSourceRunner, device armisDevice, queryLabel string) map[string]interface{} {

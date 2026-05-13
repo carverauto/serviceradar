@@ -244,6 +244,57 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       # Dev device should not be in targets (different tag value)
     end
 
+    test "skips comma-separated device IP fields when compiling sweep targets", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      first_ip = unique_device_ip(unique_id, 11)
+      second_ip = unique_device_ip(unique_id, 12)
+      hostname = "multi-ip-device-#{unique_id}"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-multi-ip-#{unique_id}",
+            ip: "#{first_ip}, #{second_ip}",
+            hostname: hostname
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Multi IP Compile Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
+
+      compiled_group =
+        Enum.find(entry.config["groups"], fn g ->
+          g["name"] == "Multi IP Compile Group #{unique_id}"
+        end)
+
+      assert compiled_group
+      refute first_ip in compiled_group["targets"]
+      refute second_ip in compiled_group["targets"]
+      refute "#{first_ip}, #{second_ip}" in compiled_group["targets"]
+    end
+
     test "compiles sweep group combining SRQL with static_targets", %{
       actor: actor,
       unique_id: unique_id
