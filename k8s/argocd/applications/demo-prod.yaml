@@ -4,7 +4,7 @@ metadata:
   name: serviceradar-demo-prod
   namespace: argocd
   annotations:
-    argocd-image-updater.argoproj.io/git-branch: staging
+    argocd-image-updater.argoproj.io/git-branch: demo/prod-release
     argocd-image-updater.argoproj.io/image-list: webng=registry.carverauto.dev/serviceradar/serviceradar-web-ng
     argocd-image-updater.argoproj.io/webng.allow-tags: regexp:^v[0-9]+\.[0-9]+\.[0-9]+$
     argocd-image-updater.argoproj.io/webng.helm.image-tag: global.imageTag
@@ -17,7 +17,9 @@ spec:
   project: default
   source:
     repoURL: https://git.carverauto.dev/carverauto/serviceradar.git
-    targetRevision: staging
+    # Render demo from the latest published release source, not moving staging.
+    # The release workflow advances this branch after release artifacts publish.
+    targetRevision: demo/prod-release
     path: helm/serviceradar
     helm:
       releaseName: serviceradar
@@ -28,7 +30,7 @@ spec:
         - values-demo.yaml
       parameters:
         - name: global.imageTag
-          value: v1.2.41
+          value: v1.2.44
 
   destination:
     server: https://kubernetes.default.svc

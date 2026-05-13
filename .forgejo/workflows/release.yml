@@ -630,3 +630,32 @@ jobs:
             exit 1
           fi
           echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, ${agent_manifest_sig_count} signature, and ${wasm_plugin_index_count} Wasm plugin index assets."
+
+      - name: Advance demo release source branch
+        if: ${{ steps.release.outputs.dry_run != 'true' && steps.release.outputs.prerelease != 'true' }}
+        env:
+          DEMO_RELEASE_BRANCH: demo/prod-release
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
+          FORGEJO_REPOSITORY: carverauto/serviceradar
+        run: |
+          set -euo pipefail
+          if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
+            echo "FORGEJO_TOKEN is required to advance ${DEMO_RELEASE_BRANCH}" >&2
+            exit 1
+          fi
+
+          git config user.name "ServiceRadar Release Bot"
+          git config user.email "release-bot@serviceradar.local"
+
+          remote_url="${FORGEJO_URL}/${FORGEJO_REPOSITORY}.git"
+          git remote remove demo-release 2>/dev/null || true
+          git remote add demo-release "${remote_url}"
+
+          git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" \
+            fetch demo-release "refs/heads/${DEMO_RELEASE_BRANCH}:refs/remotes/demo-release/${DEMO_RELEASE_BRANCH}" || true
+
+          git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" \
+            push --force-with-lease demo-release "HEAD:refs/heads/${DEMO_RELEASE_BRANCH}"
+
+          echo "Advanced ${DEMO_RELEASE_BRANCH} to ${GITHUB_SHA}"
