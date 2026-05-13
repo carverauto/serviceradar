@@ -93,6 +93,53 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     refute Map.has_key?(source_config, "sweep_interval")
   end
 
+  test "armis sync config emits configured queries with normalized string keys" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-queries-#{suffix}")
+
+    source =
+      create_source!(
+        agent.uid,
+        "source-armis-queries-#{suffix}",
+        %{secret_key: "secret"},
+        %{
+          queries: [
+            %{
+              label: "network",
+              query: " in:devices and ipAddress:10.0.0.0/8 ",
+              sweep_modes: [:icmp]
+            },
+            %{
+              "label" => "ot",
+              "query" => "in:devices and category:OT",
+              "sweep_modes" => ["tcp"]
+            },
+            %{"label" => "blank", "query" => "   "}
+          ]
+        }
+      )
+
+    assert {:ok, payload} = SyncConfigGenerator.get_config_if_changed(agent.uid, "")
+
+    queries =
+      payload.config_json
+      |> Jason.decode!()
+      |> get_in(["sources", source.name, "queries"])
+
+    assert queries == [
+             %{
+               "label" => "network",
+               "query" => "in:devices and ipAddress:10.0.0.0/8",
+               "sweep_modes" => ["icmp"]
+             },
+             %{
+               "label" => "ot",
+               "query" => "in:devices and category:OT",
+               "sweep_modes" => ["tcp"]
+             }
+           ]
+  end
+
   defp create_agent!(uid) do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid},

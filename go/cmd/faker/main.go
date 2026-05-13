@@ -1097,6 +1097,10 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	lengthStr := r.URL.Query().Get("length")
 	fromStr := r.URL.Query().Get("from")
 	aql := r.URL.Query().Get("aql")
+	if strings.TrimSpace(aql) == "" {
+		http.Error(w, "missing required aql query parameter", http.StatusBadRequest)
+		return
+	}
 
 	length, _ := strconv.Atoi(lengthStr)
 	if length <= 0 || length > 1000 {
@@ -1104,6 +1108,10 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	from, _ := strconv.Atoi(fromStr)
+	if strings.TrimSpace(fromStr) != "" && from <= 0 {
+		http.Error(w, "from must be positive when supplied", http.StatusBadRequest)
+		return
+	}
 	if from < 0 {
 		from = 0
 	}

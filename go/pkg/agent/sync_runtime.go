@@ -45,6 +45,7 @@ var (
 	errArmisTokenRequestFailed      = errors.New("armis token request failed")
 	errArmisTokenMissingAccessToken = errors.New("armis token response missing access_token")
 	errArmisSearchFailed            = errors.New("armis search failed")
+	errArmisNoQueriesConfigured     = errors.New("armis source has no queries configured")
 )
 
 // SyncRuntime executes integration sources delivered via GetConfig.
@@ -369,9 +370,9 @@ func (r *SyncRuntime) runArmisSync(
 	runID string,
 ) (int, error) {
 	client := newArmisClient(runner.config)
-	queries := runner.config.Queries
+	queries := configuredArmisQueries(runner.config.Queries)
 	if len(queries) == 0 {
-		queries = []models.QueryConfig{{}}
+		return 0, errArmisNoQueriesConfigured
 	}
 
 	token, err := client.accessToken(ctx, runner.config.Credentials)
@@ -609,8 +610,10 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 	}
 
 	params := parsed.Query()
-	params.Set("from", strconv.Itoa(from))
 	params.Set("length", strconv.Itoa(length))
+	if from > 0 {
+		params.Set("from", strconv.Itoa(from))
+	}
 	if query != "" {
 		params.Set("aql", query)
 	}
@@ -634,6 +637,11 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if len(body) > 0 {
+			return nil, fmt.Errorf("%w: %s: %s", errArmisSearchFailed, resp.Status, strings.TrimSpace(string(body)))
+		}
+
 		return nil, fmt.Errorf("%w: %s", errArmisSearchFailed, resp.Status)
 	}
 
@@ -643,6 +651,19 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 	}
 
 	return &result, nil
+}
+
+func configuredArmisQueries(queries []models.QueryConfig) []models.QueryConfig {
+	configured := make([]models.QueryConfig, 0, len(queries))
+	for _, query := range queries {
+		if strings.TrimSpace(query.Query) == "" {
+			continue
+		}
+
+		configured = append(configured, query)
+	}
+
+	return configured
 }
 
 func (c *armisClient) resolveURL(path string) (string, error) {
