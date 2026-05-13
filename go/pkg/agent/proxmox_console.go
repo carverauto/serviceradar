@@ -58,15 +58,21 @@ type proxmoxConsoleManager struct {
 	manager    *remoteaccess.Manager
 	sshOptions remoteaccess.SSHOpenOptions
 	agentID    string
+	gatewayID  string
 }
 
 func newProxmoxConsoleManager(log logger.Logger) *proxmoxConsoleManager {
 	return newProxmoxConsoleManagerWithAgentID("", log)
 }
 
-func newProxmoxConsoleManagerWithAgentID(agentID string, _ logger.Logger) *proxmoxConsoleManager {
+func newProxmoxConsoleManagerWithAgentID(agentID string, log logger.Logger) *proxmoxConsoleManager {
+	return newProxmoxConsoleManagerWithRoute(agentID, "", log)
+}
+
+func newProxmoxConsoleManagerWithRoute(agentID string, gatewayID string, _ logger.Logger) *proxmoxConsoleManager {
 	manager := &proxmoxConsoleManager{
-		agentID: agentID,
+		agentID:   agentID,
+		gatewayID: gatewayID,
 		opener: func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 			return nil, errProxmoxConsoleBridgeUnavailable
 		},
@@ -133,8 +139,8 @@ func (s proxmoxConsoleRemoteSender) SendFrame(frame remoteaccess.Frame) error {
 
 func (m *proxmoxConsoleManager) proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
 	metadata := map[string]string(nil)
-	if m != nil && m.agentID != "" {
-		metadata = map[string]string{"agent_id": m.agentID}
+	if m != nil {
+		metadata = routeMetadata(m.agentID, m.gatewayID)
 	}
 
 	return remoteaccess.Frame{
@@ -148,6 +154,20 @@ func (m *proxmoxConsoleManager) proxmoxConsoleRemoteFrame(frame *proto.ConsoleFr
 		Timestamp: frame.GetTimestamp(),
 		Metadata:  metadata,
 	}
+}
+
+func routeMetadata(agentID string, gatewayID string) map[string]string {
+	metadata := make(map[string]string, 2)
+	if agentID != "" {
+		metadata["agent_id"] = agentID
+	}
+	if gatewayID != "" {
+		metadata["gateway_id"] = gatewayID
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
 }
 
 func consoleFrameProtocol(frame *proto.ConsoleFrame) string {

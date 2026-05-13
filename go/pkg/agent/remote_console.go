@@ -33,3 +33,7 @@ func newRemoteConsoleManager(log logger.Logger) *remoteConsoleManager {
 func newRemoteConsoleManagerWithAgentID(agentID string, log logger.Logger) *remoteConsoleManager {
 	return newProxmoxConsoleManagerWithAgentID(agentID, log)
 }
+
+func newRemoteConsoleManagerWithRoute(agentID string, gatewayID string, log logger.Logger) *remoteConsoleManager {
+	return newProxmoxConsoleManagerWithRoute(agentID, gatewayID, log)
+}

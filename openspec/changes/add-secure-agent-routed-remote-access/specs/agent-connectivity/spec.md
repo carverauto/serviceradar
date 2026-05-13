@@ -43,13 +43,19 @@ Agents SHALL advertise remote-access adapter and enhanced-recording capabilities
 - **AND** fallback collectors SHALL be used only when policy explicitly allows fallback.
 
 ### Requirement: Agent enforces session grants
-Agents SHALL enforce signed or otherwise authenticated session grants that constrain protocol, target, credential reference, TTL, and session ID.
+Agents SHALL enforce signed or otherwise authenticated session grants that constrain protocol, target, credential reference, TTL, session ID, and selected agent/gateway route.
 
 #### Scenario: Browser cannot retarget SSH connection
 - **GIVEN** a session grant authorizes SSH to target `10.1.2.3:22`
 - **WHEN** the browser sends terminal input frames
 - **THEN** the agent SHALL treat those frames only as terminal input
 - **AND** SHALL reject any attempt to change target host, port, protocol, or credential reference after session open.
+
+#### Scenario: SSH open payload cannot change selected route
+- **GIVEN** an SSH open frame is delivered over an authenticated route for agent `agent-a` and gateway `gateway-a`
+- **WHEN** the payload declares a different `agent_id` or `gateway_id`
+- **THEN** the agent SHALL reject the open frame before dialing the target
+- **AND** no SSH credential material SHALL be used.
 
 ### Requirement: Credential custody modes for remote access
 Agents SHALL support remote-access credentials supplied through explicit custody modes and SHALL fail closed when the required custody mode is unavailable.

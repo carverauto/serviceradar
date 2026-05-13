@@ -299,6 +299,13 @@ const (
 	defaultStatusHeartbeatInterval = 5 * time.Minute
 )
 
+func gatewayIDFromClient(gateway *agentgateway.GatewayClient) string {
+	if gateway == nil {
+		return ""
+	}
+	return gateway.GetGatewayID()
+}
+
 // NewPushLoop creates a new push loop.
 func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval time.Duration, log logger.Logger) *PushLoop {
 	if interval <= 0 {
@@ -317,7 +324,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
-	remoteConsoleManager := newRemoteConsoleManagerWithAgentID(serverAgentID(server), log)
+	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
 	remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
 	remoteConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (remoteConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)

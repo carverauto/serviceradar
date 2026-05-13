@@ -28,7 +28,7 @@
 
 ## 3. Validation
 - [x] 3.1 Add unit tests for credential custody policy and grant scoping.
-- [x] 3.2 Add gateway/agent tests proving frames are accepted only from the session-owning agent.
+- [x] 3.2 Add gateway/agent tests proving frames are accepted only from the session-owning agent and selected gateway route.
 - [x] 3.3 Add browser/channel tests proving tickets and credentials are not echoed to the client.
 - [x] 3.4 Add a demo SSH target test through an agent in a non-platform network path.
 - [x] 3.5 Add regression tests that Proxmox console still works through the generic path.
@@ -40,7 +40,7 @@
 ## 4. Teleport-Parity Hardening and Follow-Up
 - [x] 4.1 Remove generic agent-local reusable SSH credential file support from the agent and docs.
 - [x] 4.2 Ensure browser attach grants keep SSH private keys, passwords, passphrases, and certificate envelopes in memory only; persisted session metadata must not act as a credential carrier.
-- [x] 4.3 Ensure agent-returned frames are accepted only when both session ID and authenticated agent ID match the broker session.
+- [x] 4.3 Ensure agent-returned frames and SSH open payloads are accepted only when session ID plus authenticated agent/gateway route match the broker session.
 - [x] 4.4 Ensure gateway console-frame broadcasts only come from registered agent control streams and are stamped with authenticated stream ownership.
 - [x] 4.5 Ensure browser-selected central custody is rejected by the public SSH create/attach path until a trusted policy-owned broker grant resolver exists.
 - [x] 4.6 Require centrally brokered remote-access sessions to reference a trusted credential rule and approval before issuing an attach ticket.

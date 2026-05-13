@@ -113,6 +113,16 @@ func TestSSHConfigFromOpenFrameRejectsPayloadScopeMismatch(t *testing.T) {
 			},
 			want: ErrSSHOpenAgentMismatch,
 		},
+		{
+			name:    "gateway metadata",
+			payload: SSHOpenPayload{GatewayID: "gateway-2", Target: SSHTarget{Host: "router.example"}},
+			frame: Frame{
+				SessionID: "session-1",
+				Protocol:  ProtocolSSH,
+				Metadata:  map[string]string{"gateway_id": "gateway-1"},
+			},
+			want: ErrSSHOpenGatewayMismatch,
+		},
 	}
 
 	for _, tt := range tests {

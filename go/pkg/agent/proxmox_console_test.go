@@ -370,6 +370,37 @@ func TestProxmoxConsoleManagerRejectsSSHOpenForDifferentAgent(t *testing.T) {
 	}
 }
 
+func TestProxmoxConsoleManagerRejectsSSHOpenForDifferentGateway(t *testing.T) {
+	t.Parallel()
+
+	manager := newProxmoxConsoleManagerWithRoute("agent-1", "gateway-1", createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			t.Fatal("dialer should not be called for mismatched gateway_id")
+			return nil, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"session_id": "ssh-session-1",
+			"agent_id": "agent-1",
+			"gateway_id": "gateway-2",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"}
+		}`),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrSSHOpenGatewayMismatch.Error()) {
+		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrSSHOpenGatewayMismatch)
+	}
+}
+
 func TestProxmoxConsoleManagerFailsClosedWhenRequiredEnhancedRecordingUnavailable(t *testing.T) {
 	t.Parallel()
 

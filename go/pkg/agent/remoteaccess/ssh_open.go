@@ -39,6 +39,7 @@ var (
 	ErrSSHOpenSessionMismatch       = errors.New("ssh open payload session_id does not match frame")
 	ErrSSHOpenProtocolMismatch      = errors.New("ssh open payload protocol does not match frame")
 	ErrSSHOpenAgentMismatch         = errors.New("ssh open payload agent_id does not match frame metadata")
+	ErrSSHOpenGatewayMismatch       = errors.New("ssh open payload gateway_id does not match frame metadata")
 )
 
 // SSHOpenPayload is the JSON payload carried by an SSH open frame.
@@ -120,6 +121,11 @@ func validateSSHOpenPayloadScope(frame Frame, payload SSHOpenPayload) error {
 	if payload.AgentID != "" && frame.Metadata != nil {
 		if expected := frame.Metadata["agent_id"]; expected != "" && payload.AgentID != expected {
 			return fmt.Errorf("%w %q != %q", ErrSSHOpenAgentMismatch, payload.AgentID, expected)
+		}
+	}
+	if payload.GatewayID != "" && frame.Metadata != nil {
+		if expected := frame.Metadata["gateway_id"]; expected != "" && payload.GatewayID != expected {
+			return fmt.Errorf("%w %q != %q", ErrSSHOpenGatewayMismatch, payload.GatewayID, expected)
 		}
 	}
 	return nil
