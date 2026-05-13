@@ -25,7 +25,7 @@ OCI chart quick start
 
 HA profile and demo overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.
-- [values-demo.yaml](/home/mfreeman/src/serviceradar/helm/serviceradar/values-demo.yaml) is the validated HA overlay used by the Kubernetes `demo` environment.
+- `helm/serviceradar/values-demo.yaml` is the validated HA overlay used by the Kubernetes `demo` environment.
 - The current demo profile runs these at `3` replicas:
   - `core`
   - `webNg`

@@ -1,0 +1,28 @@
+---
+# Example variables for ServiceRadar SSH CA enrollment.
+# Do not put the SSH CA private key in Ansible variables.
+
+# Preferred for ServiceRadar-launched AWX jobs: pass the public key inline.
+serviceradar_ssh_ca_public_key: "ssh-ed25519 AAAA... serviceradar-remote-access-ca"
+
+# Local fallback or AWX execution environments with the file mounted:
+# serviceradar_ssh_ca_public_key_file: /secure/path/serviceradar_user_ca.pub
+
+serviceradar_ssh_ca_path: /etc/ssh/serviceradar_user_ca.pub
+serviceradar_sshd_config_path: /etc/ssh/sshd_config.d/60-serviceradar-user-ca.conf
+
+# Use "ssh" on Debian/Ubuntu when systemd exposes that service name.
+serviceradar_sshd_service: sshd
+
+# Leave this false when certificate principals directly match Linux login names.
+serviceradar_manage_authorized_principals: false
+serviceradar_authorized_principals_dir: /etc/ssh/auth_principals
+serviceradar_authorized_principals:
+  - user: ubuntu
+    principals:
+      - ubuntu
+      - linux-admins
+  - user: admin
+    principals:
+      - admin
+      - linux-admins

@@ -1,0 +1,103 @@
+---
+- name: Enroll Linux hosts for ServiceRadar SSH CA remote access
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    serviceradar_ssh_ca_public_key: ""
+    serviceradar_ssh_ca_public_key_file: ""
+    serviceradar_ssh_ca_path: /etc/ssh/serviceradar_user_ca.pub
+    serviceradar_sshd_config_path: /etc/ssh/sshd_config.d/60-serviceradar-user-ca.conf
+    serviceradar_manage_authorized_principals: false
+    serviceradar_authorized_principals_dir: /etc/ssh/auth_principals
+    serviceradar_authorized_principals: []
+    serviceradar_sshd_service: sshd
+
+  pre_tasks:
+    - name: Validate SSH CA public key input
+      ansible.builtin.assert:
+        that:
+          - (serviceradar_ssh_ca_public_key | length > 0) or (serviceradar_ssh_ca_public_key_file | length > 0)
+          - not ((serviceradar_ssh_ca_public_key | length > 0) and (serviceradar_ssh_ca_public_key_file | length > 0))
+        fail_msg: "Set exactly one of serviceradar_ssh_ca_public_key or serviceradar_ssh_ca_public_key_file."
+
+    - name: Load SSH CA public key
+      ansible.builtin.set_fact:
+        serviceradar_ssh_ca_public_key_effective: >-
+          {{
+            serviceradar_ssh_ca_public_key
+            if serviceradar_ssh_ca_public_key | length > 0
+            else lookup('ansible.builtin.file', serviceradar_ssh_ca_public_key_file)
+          }}
+
+    - name: Validate SSH CA public key format
+      ansible.builtin.assert:
+        that:
+          - serviceradar_ssh_ca_public_key_effective is match('^ssh-(ed25519|rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521) ')
+        fail_msg: "The ServiceRadar SSH CA public key must be an OpenSSH public key."
+
+  tasks:
+    - name: Install ServiceRadar SSH CA public key
+      ansible.builtin.copy:
+        dest: "{{ serviceradar_ssh_ca_path }}"
+        content: "{{ serviceradar_ssh_ca_public_key_effective | trim }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: validate and reload sshd
+
+    - name: Ensure sshd_config.d exists
+      ansible.builtin.file:
+        path: "{{ serviceradar_sshd_config_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure ServiceRadar SSH user CA
+      ansible.builtin.copy:
+        dest: "{{ serviceradar_sshd_config_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by Ansible for ServiceRadar remote access.
+          PubkeyAuthentication yes
+          TrustedUserCAKeys {{ serviceradar_ssh_ca_path }}
+          {% if serviceradar_manage_authorized_principals %}
+          AuthorizedPrincipalsFile {{ serviceradar_authorized_principals_dir }}/%u
+          {% endif %}
+      notify: validate and reload sshd
+
+    - name: Ensure authorized principals directory exists
+      ansible.builtin.file:
+        path: "{{ serviceradar_authorized_principals_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: serviceradar_manage_authorized_principals | bool
+
+    - name: Configure authorized principals
+      ansible.builtin.copy:
+        dest: "{{ serviceradar_authorized_principals_dir }}/{{ item.user }}"
+        content: "{{ item.principals | join('\n') }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ serviceradar_authorized_principals }}"
+      when: serviceradar_manage_authorized_principals | bool
+      notify: validate and reload sshd
+
+  handlers:
+    - name: Validate sshd configuration
+      ansible.builtin.command: sshd -t
+      changed_when: false
+      listen: validate and reload sshd
+
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: "{{ serviceradar_sshd_service }}"
+        state: reloaded
+      listen: validate and reload sshd

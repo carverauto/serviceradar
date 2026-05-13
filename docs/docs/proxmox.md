@@ -142,6 +142,8 @@ Unauthenticated fingerprinting can still identify likely PVE candidates without 
 
 Proxmox console access is intentionally configured separately from Proxmox inventory. Inventory uses a read-only PVE API token. Console access currently supports SSH-backed PVE host shells through the edge agent; native Proxmox VM and LXC console modes such as `termproxy` and `vncwebsocket` are reserved for a later connector and return an unsupported-console response today.
 
+For the broader SSH CA setup, Linux target enrollment, and user workflow for Proxmox VMs that are reachable over normal SSH, see [Remote Access](./remote-access).
+
 ### What The Console Plugin Fields Mean
 
 If you import or assign the `Proxmox Console` plugin, do not hand-enter these runtime fields:
@@ -162,10 +164,11 @@ The assignment fields an operator may configure are:
 
 For the current SSH-backed host console mode:
 
-1. Create a dedicated operating-system account or a dedicated SSH key on each PVE node.
-2. Add the public key to the intended account's `authorized_keys`.
-3. Grant only the shell permissions the operations team actually needs. Avoid reusing personal admin keys or shared break-glass keys.
-4. Make sure the selected edge agent can reach the PVE host on TCP `22`.
+1. Prefer enrolling the PVE node with the ServiceRadar SSH user CA so users can open short-lived certificate-backed sessions as their approved Linux account.
+2. If the deployment cannot use SSH certificates yet, create a dedicated operating-system account or dedicated SSH key on each PVE node.
+3. Add the public key to the intended account's `authorized_keys` only for the legacy key-based path.
+4. Grant only the shell permissions the operations team actually needs. Avoid reusing personal admin keys or shared break-glass keys.
+5. Make sure the selected edge agent can reach the PVE host on TCP `22`.
 
 Example key test from the edge network:
 

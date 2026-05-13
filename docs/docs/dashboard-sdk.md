@@ -41,5 +41,5 @@ against them.
 
 ## Repositories
 
-- SDK source: <https://code.carverauto.dev/carverauto/serviceradar-sdk-dashboard>
-- Developer portal: <https://developer.serviceradar.cloud>
+- SDK source: [serviceradar-sdk-dashboard](https://code.carverauto.dev/carverauto/serviceradar-sdk-dashboard)
+- Developer portal: [developer.serviceradar.cloud](https://developer.serviceradar.cloud)
