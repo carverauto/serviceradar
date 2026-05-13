@@ -415,10 +415,10 @@ func parseProcStatPPID(value string) int {
 		return 0
 	}
 	fields := strings.Fields(value[closeParen+1:])
-	if len(fields) < 3 {
+	if len(fields) < 2 {
 		return 0
 	}
-	ppid, _ := strconv.Atoi(fields[2])
+	ppid, _ := strconv.Atoi(fields[1])
 	return ppid
 }
 
