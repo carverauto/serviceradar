@@ -87,7 +87,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "endpoint" => source.endpoint,
       "prefix" => prefix,
       "credentials" => credentials,
-      "queries" => source.queries,
+      "queries" => normalize_queries(source.queries),
       "discovery_interval" => format_duration(source.discovery_interval_seconds),
       "agent_id" => source.agent_id,
       "partition" => source.partition,
@@ -130,6 +130,45 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     case first_present(credentials, ["secret_key", "api_secret"]) do
       nil -> credentials
       secret_key -> Map.put(credentials, "secret_key", secret_key)
+    end
+  end
+
+  defp normalize_queries(queries) when is_list(queries) do
+    queries
+    |> Enum.map(&normalize_query/1)
+    |> Enum.reject(fn query -> query["query"] == "" end)
+  end
+
+  defp normalize_queries(_), do: []
+
+  defp normalize_query(query) when is_map(query) do
+    %{
+      "label" => query_value(query, "label"),
+      "query" => query_value(query, "query"),
+      "sweep_modes" => query_modes(query)
+    }
+  end
+
+  defp normalize_query(_), do: %{"label" => "", "query" => "", "sweep_modes" => []}
+
+  defp query_value(query, key) do
+    atom_key =
+      case key do
+        "label" -> :label
+        "query" -> :query
+      end
+
+    value = Map.get(query, key) || Map.get(query, atom_key) || ""
+
+    value
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp query_modes(query) do
+    case Map.get(query, "sweep_modes") || Map.get(query, :sweep_modes) do
+      modes when is_list(modes) -> modes
+      _ -> []
     end
   end
 

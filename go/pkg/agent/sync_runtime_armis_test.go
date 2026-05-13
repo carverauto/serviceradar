@@ -13,6 +13,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
+const testArmisDeviceQuery = "in:devices"
+
 func TestArmisAccessTokenUsesFormEncodedSecretKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != armisAccessTokenPath {
@@ -94,7 +96,7 @@ func TestArmisSearchUsesRawAccessToken(t *testing.T) {
 		if got := r.Header.Get("Accept"); got != "application/json" {
 			t.Fatalf("accept = %q", got)
 		}
-		if got := r.URL.Query().Get("aql"); got != "in:devices" {
+		if got := r.URL.Query().Get("aql"); got != testArmisDeviceQuery {
 			t.Fatalf("aql = %q", got)
 		}
 		if got := r.URL.Query().Get("from"); got != "10" {
@@ -110,12 +112,70 @@ func TestArmisSearchUsesRawAccessToken(t *testing.T) {
 	defer server.Close()
 
 	client := &armisClient{endpoint: server.URL}
-	resp, err := client.search(context.Background(), "token-123", "in:devices", 10, 25)
+	resp, err := client.search(context.Background(), "token-123", testArmisDeviceQuery, 10, 25)
 	if err != nil {
 		t.Fatalf("search returned error: %v", err)
 	}
 	if resp == nil || !resp.Success {
 		t.Fatalf("search response = %#v", resp)
+	}
+}
+
+func TestArmisSearchOmitsFromOnFirstPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.URL.Query()["from"]; ok {
+			t.Fatalf("from query param should be omitted on first page, got %q", r.URL.RawQuery)
+		}
+		if got := r.URL.Query().Get("aql"); got != testArmisDeviceQuery {
+			t.Fatalf("aql = %q", got)
+		}
+		if got := r.URL.Query().Get("length"); got != "100" {
+			t.Fatalf("length = %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"count":0,"next":0,"prev":null,"results":[],"total":0},"success":true}`))
+	}))
+	defer server.Close()
+
+	client := &armisClient{endpoint: server.URL}
+	resp, err := client.search(context.Background(), "token-123", testArmisDeviceQuery, 0, 100)
+	if err != nil {
+		t.Fatalf("search returned error: %v", err)
+	}
+	if resp == nil || !resp.Success {
+		t.Fatalf("search response = %#v", resp)
+	}
+}
+
+func TestArmisSearchErrorIncludesBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bad aql", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	client := &armisClient{endpoint: server.URL}
+	_, err := client.search(context.Background(), "token-123", testArmisDeviceQuery, 0, 100)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "400 Bad Request") || !strings.Contains(err.Error(), "bad aql") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestConfiguredArmisQueriesDropsBlankQueries(t *testing.T) {
+	got := configuredArmisQueries([]models.QueryConfig{
+		{Label: "blank"},
+		{Label: "spaces", Query: "   "},
+		{Label: "devices", Query: testArmisDeviceQuery},
+	})
+
+	if len(got) != 1 {
+		t.Fatalf("query count = %d, want 1", len(got))
+	}
+	if got[0].Label != "devices" || got[0].Query != testArmisDeviceQuery {
+		t.Fatalf("query = %#v", got[0])
 	}
 }
 
