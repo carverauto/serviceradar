@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.44
+
+Agent config dependency catalog and Armis sync delivery hardening.
+
+## Whats New
+
+**1.2.44**
+- Fixed Armis integration credential persistence and display evidence so saved API keys/secrets are stored in encrypted IntegrationSource credentials and included in generated agent sync config without exposing secret values.
+- Added a declarative agent config dependency catalog for UI/Ash resources that affect agent-delivered config, including config type, generator/compiler, affected-agent resolver, dispatch strategy, action filtering, and secret diagnostics metadata.
+- Routed IntegrationSource updates through catalog-driven scoped config pushes so Armis credential updates notify only the assigned agent while restarted agents still receive current config from the gateway.
+- Added reusable dependency notifier coverage for service checks, plugin assignments/packages, agent admin config, sweep, mapper, SNMP, and sysmon config resources, with runtime-only actions filtered out to avoid noisy invalidations.
+- Added redacted dispatch diagnostics and web-ng integration detail visibility for recent agent config refreshes, plus regression coverage for notifier wiring, scoped pushes, action filters, and secret redaction.
+
 # ServiceRadar v1.2.43
 
 Armis credential encryption hotfix and web-ng release formatting cleanup.
