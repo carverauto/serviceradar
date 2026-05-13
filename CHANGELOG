@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.47
+
+Armis large-dataset sync streaming and config feedback-loop hardening.
+
+## Whats New
+
+**1.2.47**
+- Removed the fixed 10-minute Armis sync runtime timeout so large discovery runs are governed by the source run lifecycle instead of an arbitrary deadline.
+- Streamed Armis discovery results to the agent gateway page-by-page instead of buffering the full result set before sending, preserving already-fetched pages if a later API page fails.
+- Normalized escaped quotes in Armis AQL queries delivered to the agent so UI-entered queries such as `timeFrame:\"7 Days\"` are sent as valid Armis AQL.
+- Filtered IntegrationSource config notifications to user-facing create/update/enable/disable/delete actions so runtime sync status writes no longer trigger repeated same-version config pushes.
+- Added regression coverage for paged Armis sync streaming, gateway result chunk shape, repeated core sync result ingestion, and runtime sync status notification filtering.
+
 # ServiceRadar v1.2.46
 
 Armis sync compatibility fix for production discovery queries.
