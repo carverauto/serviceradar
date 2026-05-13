@@ -61,6 +61,15 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     end
   end
 
+  defmodule FileTransfersStub do
+    @moduledoc false
+
+    def handle_agent_frame(frame, opts) do
+      send(opts[:audit_actor].test_pid, {:file_transfer_agent_frame, frame, opts})
+      {:ok, %{id: "transfer-1"}}
+    end
+  end
+
   defmodule LifecycleStub do
     @moduledoc false
 
@@ -374,6 +383,40 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, closed_audit}
     assert closed_audit[:action] == :remote_access_session_closed
     assert closed_audit[:details].close_reason == "done"
+  end
+
+  test "forwards file-transfer frames to the owner without treating them as terminal output" do
+    session = session_fixture()
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          file_transfers: FileTransfersStub,
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    frame = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "file_transfer_outcome",
+      data: Jason.encode!(%{transfer_id: "transfer-1", status: "completed", entries: []})
+    }
+
+    send(pid, {:remote_access_frame, frame})
+
+    assert_receive {:remote_access_file_transfer_frame, ^frame}
+    assert_receive {:file_transfer_agent_frame, ^frame, frame_opts}
+    assert frame_opts[:audit_writer] == AuditWriterStub
+    refute_receive {:remote_access_data, _payload}
   end
 
   test "recording hook receives only policy-gated counters and lifecycle state" do

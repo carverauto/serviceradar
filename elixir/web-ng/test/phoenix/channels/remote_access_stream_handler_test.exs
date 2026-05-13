@@ -589,6 +589,44 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, attached)
   end
 
+  test "broker file-transfer frames are forwarded as typed websocket messages" do
+    {:ok, state} = init_state("session-transfer")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-transfer"), [opcode: :text]}, state)
+
+    frame = %{
+      session_id: "session-transfer",
+      frame_type: "file_transfer_outcome",
+      data:
+        Jason.encode!(%{
+          transfer_id: "transfer-1",
+          status: "completed",
+          entries: [%{name: "app.log", path: "/var/log/app.log", is_dir: false}]
+        })
+    }
+
+    assert {:push, {:text, response}, after_transfer} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_file_transfer_frame, frame}, attached)
+
+    assert %{
+             "type" => "file_transfer",
+             "session_id" => "session-transfer",
+             "frame_type" => "file_transfer_outcome",
+             "payload" => %{
+               "transfer_id" => "transfer-1",
+               "status" => "completed",
+               "entries" => [%{"name" => "app.log"}]
+             }
+           } = Jason.decode!(response)
+
+    assert after_transfer.attached?
+    refute response =~ "srra_test_ticket"
+    refute response =~ "credential"
+
+    RemoteAccessStreamHandler.terminate(:normal, after_transfer)
+  end
+
   test "idle timeout expires session and renders explicit browser error" do
     {:ok, state} = init_state("session-3")
 

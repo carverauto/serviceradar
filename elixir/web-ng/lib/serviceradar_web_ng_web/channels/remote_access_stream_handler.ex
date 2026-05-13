@@ -150,6 +150,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     {:push, {:text, encode(%{type: "data", data: Base.encode64(payload)})}, reset_idle_timer(state)}
   end
 
+  def handle_info({:remote_access_file_transfer_frame, frame}, state) when is_map(frame) do
+    {:push, {:text, encode(file_transfer_message(frame, state))}, reset_idle_timer(state)}
+  end
+
   def handle_info({:remote_access_closed, reason}, state) do
     _ =
       state.sessions_module.close_session(state.session.id,
@@ -208,6 +212,31 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         ] ++ credential_opts
 
       state.broker_module.start_link(session, self(), opts)
+    end
+  end
+
+  defp file_transfer_message(frame, state) do
+    %{
+      type: "file_transfer",
+      session_id: string_value(frame, :session_id) || state.session_id,
+      frame_type: string_value(frame, :frame_type),
+      payload: file_transfer_payload(frame)
+    }
+  end
+
+  defp file_transfer_payload(frame) do
+    case string_value(frame, :data) do
+      nil -> %{}
+      "" -> %{}
+      data -> decode_json_payload(data)
+    end
+  end
+
+  defp decode_json_payload(data) when is_binary(data) do
+    case Jason.decode(data) do
+      {:ok, payload} when is_map(payload) -> payload
+      {:ok, payload} -> %{"value" => payload}
+      {:error, _reason} -> %{}
     end
   end
 
@@ -457,6 +486,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   rescue
     ArgumentError -> nil
   end
+
+  defp safe_existing_atom(key) when is_atom(key), do: key
 
   defp normalize_map(value) when is_map(value), do: value
   defp normalize_map(_value), do: %{}
