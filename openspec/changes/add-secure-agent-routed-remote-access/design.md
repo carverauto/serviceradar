@@ -94,7 +94,7 @@ Implementation guidance:
 - Keep any future SCP support subordinate to the same file-transfer manager; do not create a second transfer runtime with separate policy, quota, or audit behavior.
 
 ## Current Hardening Track
-The initial substrate is in place, so active work is now a Teleport-parity hardening track. The ordering is deliberate:
+The initial substrate is in place, so active work is now a ServiceRadar remote-access hardening track. This work borrows Teleport's architectural lessons, but it is not full Teleport parity. The ordering is deliberate:
 
 1. Close credential-custody gaps before adding new protocol surface.
 2. Bind every frame and grant to one session, one selected agent, one target, one protocol, and one actor.
@@ -109,13 +109,22 @@ Current hardening decisions:
 - Agent-returned frames MUST be accepted only when both the session ID and authenticated agent ID match the session owner.
 - Gateway broadcast of remote-access frames MUST be stamped from the authenticated control-stream state and MUST NOT broadcast from unregistered streams.
 
-Remaining Teleport-parity areas after custody hardening:
-- Host key lifecycle: known-host enrollment, trust-on-first-use, rotation/conflict workflows, and audit.
-- Access requests: request creation, reviewer policy, approval/denial, expiration, and session binding.
-- Session replay: policy-gated terminal/event transcript storage, replay APIs/UI, retention, export controls, and redaction boundaries.
-- File transfer: SFTP/SCP-style access with explicit RBAC, recording, quota, and content-audit policy.
-- Protocol expansion: app, database, Kubernetes, desktop/RDP, vSphere console, and OT adapters as separate scoped proposals.
-- Enhanced recording: production ServiceRadar-owned cilium/ebpf probes, capability detection, kernel compatibility matrix, loss counters, and fail-closed behavior for required policies.
+Implemented foundation areas:
+- SSH and Proxmox-console routing over the selected agent control stream.
+- Credential custody boundaries for user-present, SSH-certificate, and scoped central grant modes.
+- Session-bound route validation across browser, gateway, and agent frame paths.
+- Host key lifecycle primitives and a first operator UI for trust, revoke, and rotation workflows.
+- Access-request records and approval/session binding primitives.
+- Policy-gated replay event storage/API/UI primitives.
+- Enhanced-recording capability boundaries and initial clean-room cilium/ebpf runtime gates.
+
+Explicit non-parity gaps remain:
+- File transfer implementation: SFTP/SCP-style access with explicit RBAC, recording, quota, and content-audit policy.
+- Protocol expansion: app, database, Kubernetes, desktop/RDP, vSphere console, cloud console/API, MCP, and OT adapters as separate scoped proposals.
+- Enterprise identity governance beyond the current Authentik/OIDC smoke path: per-session MFA, SCIM/provisioning, identity locks, device trust, and richer role/trait mapping.
+- Session collaboration: live session inventory, session sharing, moderation, forced termination, and reviewer join workflows.
+- Production recording depth: searchable recordings, summaries, SIEM/export pipelines, storage backend hardening, and redaction policy maturity.
+- Enhanced recording depth: production ServiceRadar-owned probes for command/file/network telemetry with broader kernel coverage and operational runbooks.
 
 ## BPF / Enhanced Recording Model
 Enhanced recording is a separate host telemetry capability from the interactive byte stream. It should emit normalized ServiceRadar audit/telemetry events that can be correlated with `remote_access_session_id`, `actor_id`, `agent_id`, `target`, and `credential_custody_mode`.
@@ -452,7 +461,7 @@ The SSH adapter must:
 - Gateway routing must bind frames to the authenticated agent that owns the session.
 - Agent adapters must enforce target host/port/protocol from the signed session grant and reject arbitrary retargeting.
 - Credential broker grants must be one-time or short-lived and scoped to one session.
-- Agent-routed SSH host-key verification uses the shared `remoteaccess.SSHHostKeyCallback` path. Both generic SSH and the legacy Proxmox SSH console path support `known_hosts`, `trust_on_first_use`, and explicit `skip_verify`, with TOFU pinning unknown hosts and rejecting changed keys. The control plane now has persistent host-key trust state for known-host collection, TOFU lifecycle review, conflict detection, trust, revocation, and rotation audit; the remaining follow-up is the operator UI that sits on top of those API primitives.
+- Agent-routed SSH host-key verification uses the shared `remoteaccess.SSHHostKeyCallback` path. Both generic SSH and the legacy Proxmox SSH console path support `known_hosts`, `trust_on_first_use`, and explicit `skip_verify`, with TOFU pinning unknown hosts and rejecting changed keys. The control plane now has persistent host-key trust state for known-host collection, TOFU lifecycle review, conflict detection, trust, revocation, and rotation audit, plus an initial operator UI for review, trust, revocation, and rotation.
 - Audit must record actor, target, protocol, selected agent, credential rule, approval, timestamps, terminal outcome, and policy decisions.
 - Session byte recording must be optional and policy-controlled. If enabled, secrets should be redacted where feasible, but recording must be treated as sensitive data.
 - Enhanced BPF recording must be policy-controlled, session-correlated, and treated as sensitive telemetry with explicit retention and access policy.

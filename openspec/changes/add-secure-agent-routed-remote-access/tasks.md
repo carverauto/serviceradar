@@ -58,3 +58,16 @@
 - [x] 4.13 Add enhanced-recording production gate: ServiceRadar-owned cilium/ebpf probes, kernel compatibility matrix, capability advertisement, and fail-closed tests for required BPF policies.
 - [x] 4.14 Keep Teleport source reuse notes current for each imported or copied area, including exact tag/commit, file paths, headers, and transitive license scan output.
 - [x] 4.15 Maintain an Authentik/OpenSSH smoke test path for SSO -> ServiceRadar SSH CA -> `TrustedUserCAKeys` target login with no shared bastion credential.
+
+## 5. Explicit Teleport-Parity Gap Backlog
+- [ ] 5.1 Implement SFTP/SCP-style file transfer, not just planning, with per-operation RBAC, quota, recording, and content-audit policy.
+- [ ] 5.2 Implement application/TCP access adapters with registered upstreams, origin isolation, upstream TLS policy, and SSRF/open-proxy protections.
+- [ ] 5.3 Implement database access adapters with short-lived database credentials or mTLS where possible, query/session audit, and result/byte policy controls.
+- [ ] 5.4 Implement Kubernetes access adapters for API, logs, exec, and port-forward with impersonation or short-lived client certificates, namespace/resource/verb scope, and token non-persistence.
+- [ ] 5.5 Implement desktop/RDP access with renderer support, clipboard/drive/printer/audio/smart-card controls, bitrate/frame quotas, and recording policy.
+- [ ] 5.6 Implement vSphere/cloud-console/API/MCP adapter proposals and code only after each protocol has a threat model, route model, credential-custody model, and demo proof path.
+- [ ] 5.7 Implement enterprise identity-governance parity beyond the current Authentik/OIDC SSH proof: per-session MFA, SCIM/provisioning, identity locks, device trust, richer role/trait mapping, and external approval integrations.
+- [ ] 5.8 Implement live session inventory, session sharing, reviewer join, moderation, and forced termination workflows.
+- [ ] 5.9 Implement production recording depth: searchable recordings, recording summaries, SIEM/export pipelines, backend storage hardening, and mature redaction policy.
+- [ ] 5.10 Implement production enhanced-recording probes for command/file/network telemetry with operational runbooks, kernel support matrix, and high-volume loss/backpressure tests.
+- [ ] 5.11 Add a maintained Teleport capability matrix that maps current Teleport feature areas to ServiceRadar status: implemented, planned, consciously out of scope, blocked by license, or requiring separate approval.

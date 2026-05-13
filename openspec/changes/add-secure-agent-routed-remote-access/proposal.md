@@ -15,7 +15,9 @@ The current Proxmox console work proves the route, but the console/xterm substra
 - Keep browser terminal/rendering components generic, with provider/protocol-specific labels and adapters outside the core tunnel.
 
 ## Current Phase
-The first SSH/proxy/recording substrate pass is implemented and the remaining work is a Teleport-parity hardening track. That track is intentionally feature-by-feature: close credential-custody gaps first, then add central grant resolution, access requests/approvals, host-key lifecycle, replay, file transfer, protocol adapters, and production BPF recording.
+The first SSH/proxy/recording substrate pass is implemented, along with several ServiceRadar-native hardening primitives: credential custody boundaries, route-bound grants, access-request records, host-key lifecycle primitives/UI, replay event plumbing/UI, SSH CA issuance, and an initial enhanced-recording boundary.
+
+That does not mean ServiceRadar has recreated Teleport. The completed work is a foundation for Teleport-like access, not full feature parity. Full parity remains a feature-by-feature backlog covering protocol breadth, enterprise identity governance, session collaboration/moderation, production recording depth, operational hardening, and ecosystem integrations.
 
 The project remains certificate-first for enterprise SSH. Browser/user-present credentials are transitional. Centrally brokered secrets are policy-owned exceptions that require approval, a trusted credential rule, and a scoped session grant before any selected agent receives credential material.
 
