@@ -914,11 +914,11 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
             let value = filter.value.as_scalar()?.to_string();
             if let Some(cidr) = parse_cidr(&value)? {
                 let expr = if matches!(filter.op, FilterOp::NotEq) {
-                    sql::<Bool>("(ip IS NOT NULL AND NOT (ip::inet <<= ")
+                    sql::<Bool>("(ip IS NOT NULL AND NOT (try_inet(NULLIF(ip, '')) <<= ")
                         .bind::<Text, _>(cidr)
                         .sql("::cidr))")
                 } else {
-                    sql::<Bool>("(ip IS NOT NULL AND ip::inet <<= ")
+                    sql::<Bool>("(ip IS NOT NULL AND try_inet(NULLIF(ip, '')) <<= ")
                         .bind::<Text, _>(cidr)
                         .sql("::cidr)")
                 };
@@ -927,15 +927,15 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
 
             if let Some((start, end)) = parse_ip_range(&value)? {
                 let expr = if matches!(filter.op, FilterOp::NotEq) {
-                    sql::<Bool>("(ip IS NOT NULL AND NOT (ip::inet >= ")
+                    sql::<Bool>("(ip IS NOT NULL AND NOT (try_inet(NULLIF(ip, '')) >= ")
                         .bind::<Text, _>(start)
-                        .sql("::inet AND ip::inet <= ")
+                        .sql("::inet AND try_inet(NULLIF(ip, '')) <= ")
                         .bind::<Text, _>(end)
                         .sql("::inet))")
                 } else {
-                    sql::<Bool>("(ip IS NOT NULL AND ip::inet >= ")
+                    sql::<Bool>("(ip IS NOT NULL AND try_inet(NULLIF(ip, '')) >= ")
                         .bind::<Text, _>(start)
-                        .sql("::inet AND ip::inet <= ")
+                        .sql("::inet AND try_inet(NULLIF(ip, '')) <= ")
                         .bind::<Text, _>(end)
                         .sql("::inet)")
                 };
@@ -1280,11 +1280,11 @@ fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> Devi
     if !applied {
         query = query
             .order(sql::<Bool>("coalesce(is_available, false)").desc())
-            .then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+            .then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
             .then_order_by(col_uid.asc());
     } else if saw_is_available && !saw_ip {
         query = query
-            .then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+            .then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
             .then_order_by(col_uid.asc());
     } else {
         query = query.then_order_by(col_uid.asc());
@@ -1312,10 +1312,10 @@ fn apply_primary_order<'a>(
         "ip" => (
             match clause.direction {
                 OrderDirection::Asc => {
-                    query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+                    query.order(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
                 }
                 OrderDirection::Desc => {
-                    query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").desc())
+                    query.order(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").desc())
                 }
             },
             true,
@@ -1372,10 +1372,10 @@ fn apply_secondary_order<'a>(
         "ip" => (
             match clause.direction {
                 OrderDirection::Asc => {
-                    query.then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+                    query.then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
                 }
                 OrderDirection::Desc => {
-                    query.then_order_by(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").desc())
+                    query.then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").desc())
                 }
             },
             true,

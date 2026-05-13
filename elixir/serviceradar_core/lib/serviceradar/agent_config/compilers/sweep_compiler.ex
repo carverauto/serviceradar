@@ -293,12 +293,28 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp put_ip_from_row(row, set) when is_map(row) do
     case Map.get(row, "ip") do
-      value when is_binary(value) -> MapSet.put(set, value)
-      _ -> set
+      value when is_binary(value) ->
+        case normalize_device_ip_target(value) do
+          nil -> set
+          target -> MapSet.put(set, target)
+        end
+
+      _ ->
+        set
     end
   end
 
   defp put_ip_from_row(_row, set), do: set
+
+  defp normalize_device_ip_target(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if valid_ip_address?(value), do: value
+  end
+
+  defp valid_ip_address?(value) do
+    value != "" and match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(value)))
+  end
 
   defp decode_cidr_text_param(value) when is_binary(value) do
     if String.contains?(value, "/") do
