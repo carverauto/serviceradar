@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.50
+
+Sweep mapper promotion and Armis token refresh hotfix.
+
+## Whats New
+
+**1.2.50**
+- Fixed sweep mapper promotion to bypass stale identity-cache entries when resolving devices for promotion metadata, preventing `device not loaded` warning spam after sweep-created inventory changes.
+- Downgraded missing-device promotion metadata persistence to debug logging because it represents a stale identity reference, not a sweep ingestion failure.
+- Added an Armis sync retry path that refreshes the access token and retries the same search page once after a `401 Unauthorized`, allowing large paged syncs to recover from token invalidation between pages.
+- Added regression coverage for stale identity-cache sweep promotion and Armis paginated token-refresh behavior.
+
 # ServiceRadar v1.2.49
 
 Sweep provisional device duplicate handling hotfix.
