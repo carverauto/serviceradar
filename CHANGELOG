@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.49
+
+Sweep provisional device duplicate handling hotfix.
+
+## Whats New
+
+**1.2.49**
+- Fixed sweep result ingestion so provisional device creation rechecks available unknown IPs against the database without the identity cache before inserting, preventing stale cache misses from attempting duplicate active-device rows.
+- Treated active-IP and UID uniqueness conflicts during provisional sweep device creation as expected duplicate/race outcomes instead of logging noisy `ocsf_devices_unique_active_ip_idx` warnings.
+- Kept sweep host result attachment on a no-cache post-create lookup so large sweep runs can still associate results with existing or newly created devices.
+
 # ServiceRadar v1.2.48
 
 Armis blacklist normalization and sweep target cleanup.
