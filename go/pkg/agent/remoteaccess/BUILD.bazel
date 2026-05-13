@@ -14,6 +14,7 @@ go_library(
         "file_transfer.go",
         "file_transfer_policy.go",
         "manager.go",
+        "sftp.go",
         "ssh_open.go",
         "ssh.go",
     ],
@@ -22,6 +23,7 @@ go_library(
     deps = [
         "//go/pkg/agent/ebpf",
         "//go/pkg/agent/ebpf/probes",
+        "@com_github_pkg_sftp//:sftp",
         "@org_golang_x_crypto//ssh",
         "@org_golang_x_crypto//ssh/knownhosts",
     ],
@@ -37,6 +39,7 @@ go_test(
         "file_transfer_policy_test.go",
         "file_transfer_test.go",
         "manager_test.go",
+        "sftp_test.go",
         "ssh_integration_test.go",
         "ssh_open_test.go",
         "ssh_test.go",
