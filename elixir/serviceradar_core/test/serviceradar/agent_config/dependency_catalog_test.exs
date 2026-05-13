@@ -6,11 +6,13 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   alias ServiceRadar.AgentConfig.DependencyCatalog.Entry
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.AgentConfig.DependencyDispatcher
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -166,6 +168,50 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.affected_agents == ["agent-plugin"]
       assert diagnostic.affected_agent_count == 1
       assert diagnostic.result == :ok
+    end
+
+    test "plugin package review actions dispatch fleet agent config refreshes" do
+      approve_notification = %Notification{
+        resource: PluginPackage,
+        action: %{type: :update, name: :approve},
+        data: %{}
+      }
+
+      staged_import_notification = %Notification{
+        resource: PluginPackage,
+        action: %{type: :create, name: :create},
+        data: %{}
+      }
+
+      assert [entry] = DependencyCatalog.for_notification(approve_notification)
+      assert entry.config_type == :agent
+      assert [] = DependencyCatalog.for_notification(staged_import_notification)
+    end
+
+    test "agent config dependency ignores heartbeat and gateway sync actions" do
+      update_notification = %Notification{
+        resource: Agent,
+        action: %{type: :update, name: :update},
+        data: %{uid: "agent-a"}
+      }
+
+      heartbeat_notification = %Notification{
+        resource: Agent,
+        action: %{type: :update, name: :heartbeat},
+        data: %{uid: "agent-a"}
+      }
+
+      gateway_sync_notification = %Notification{
+        resource: Agent,
+        action: %{type: :update, name: :gateway_sync},
+        data: %{uid: "agent-a"}
+      }
+
+      assert [entry] = DependencyCatalog.for_notification(update_notification)
+      assert entry.config_type == :agent
+      assert DependencyCatalog.affected_agents(entry, update_notification.data) == ["agent-a"]
+      assert [] = DependencyCatalog.for_notification(heartbeat_notification)
+      assert [] = DependencyCatalog.for_notification(gateway_sync_notification)
     end
 
     test "sweep and mapper runtime actions are excluded from config invalidation" do

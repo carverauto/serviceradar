@@ -103,6 +103,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         generator: AgentConfigGenerator,
         affected_agents: {DependencyResolvers, :all_online, []},
         dispatch: :push_config_for_type,
+        action_names: [:update, :approve, :revoke, :destroy],
         description:
           "Plugin package approval or artifact changes can alter assigned plugin payloads."
       },
@@ -113,6 +114,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         generator: AgentConfigGenerator,
         affected_agents: {DependencyResolvers, :record_uid, []},
         dispatch: :push_affected_agents,
+        action_names: [:update],
         description:
           "Agent records carry plugin engine limits and identity metadata used during config generation."
       },
