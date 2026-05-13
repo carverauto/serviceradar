@@ -25,6 +25,19 @@ Recommended order:
 5. Add desktop/RDP only after renderer, redirection controls, recording policy, and bandwidth limits are defined.
 6. Add live session collaboration/moderation and richer identity-governance controls across the implemented protocols.
 
+## Maintained Matrix
+The operator-facing parity matrix lives in `docs/docs/remote-access-teleport-parity.md`. It is the current source of truth for:
+
+- Teleport feature area to ServiceRadar status.
+- Next ServiceRadar implementation slice.
+- Source-reuse decision for each feature area.
+- Current Teleport checkout and Apache-era baseline evidence.
+- Direct/transitive license scan command summaries.
+
+Current evidence recorded there:
+- `~/src/teleport` current `master` commit `42a4eaafeefee26e52bbd32ceec9699de1e9040c` has AGPL direct or transitive package directories for the scanned remote-access server/API/BPF paths.
+- Teleport `v14.4.0` commit `8113e07dc94cf2977247346d5ec28ca0d5753c54` has an Apache-2.0 repository license and scans clean for several sampled package trees, but this is reference evidence only. It does not approve copying large stale subsystems without a future exact-file vendoring review.
+
 ## Guardrails
 - Browser APIs must not accept client-selected agent, gateway, route, target host, credential rule, recording policy, or adapter-specific upstream overrides unless a deployment explicitly enables that behavior for testing.
 - All target access remains tied to one actor, one session, one selected agent/gateway route, one protocol, one target, and one bounded credential grant.

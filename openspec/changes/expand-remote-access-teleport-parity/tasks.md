@@ -1,6 +1,6 @@
 ## 1. Capability Matrix
-- [ ] 1.1 Add a maintained Teleport capability matrix mapping current Teleport feature areas to ServiceRadar status: implemented, planned, consciously out of scope, blocked by license, or requiring separate approval.
-- [ ] 1.2 Record source-reuse decisions per feature area, including exact Teleport tag/commit and direct/transitive license scan output before any import or copy.
+- [x] 1.1 Add a maintained Teleport capability matrix mapping current Teleport feature areas to ServiceRadar status: implemented, planned, consciously out of scope, blocked by license, or requiring separate approval.
+- [x] 1.2 Record source-reuse decisions per feature area, including exact Teleport tag/commit and direct/transitive license scan output before any import or copy.
 
 ## 2. Protocol Expansion
 - [ ] 2.1 Implement SFTP/SCP-style file transfer with per-operation RBAC, quota, recording, and content-audit policy.
