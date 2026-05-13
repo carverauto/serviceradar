@@ -36,6 +36,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
   use Ash.Resource,
     domain: ServiceRadar.Infrastructure,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshJsonApi.Resource]
 

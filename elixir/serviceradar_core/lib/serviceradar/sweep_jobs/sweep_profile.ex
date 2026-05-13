@@ -33,6 +33,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   use Ash.Resource,
     domain: ServiceRadar.SweepJobs,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   @profile_fields [

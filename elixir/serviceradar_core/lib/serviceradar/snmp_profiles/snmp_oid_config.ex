@@ -45,6 +45,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
   use Ash.Resource,
     domain: ServiceRadar.SNMPProfiles,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   @oid_fields [:oid, :name, :data_type, :scale, :delta]

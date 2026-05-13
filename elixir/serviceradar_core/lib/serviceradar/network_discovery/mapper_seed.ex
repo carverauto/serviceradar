@@ -6,6 +6,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSeed do
   use Ash.Resource,
     domain: ServiceRadar.NetworkDiscovery,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do

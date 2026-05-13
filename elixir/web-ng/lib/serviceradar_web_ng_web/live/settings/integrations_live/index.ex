@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias Ash.Page.Keyset
+  alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
@@ -47,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:show_details_modal, false)
         |> assign(:selected_source, nil)
         |> assign(:selected_source_runs, [])
+        |> assign(:selected_source_config_diagnostics, [])
         |> assign(:create_form, build_create_form(actor))
         |> assign(:edit_form, nil)
         |> assign(:filter_type, nil)
@@ -134,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         socket
         |> assign(:selected_source, source)
         |> assign(:selected_source_runs, list_recent_update_runs(source.id, actor))
+        |> assign(:selected_source_config_diagnostics, list_config_diagnostics(source.id))
         |> assign(:show_details_modal, true)
 
       {:error, _} ->
@@ -203,7 +206,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:form_network_blacklist, "")
        |> assign(:form_custom_fields, "")}
     else
-      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
+      {:noreply,
+       put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -231,7 +235,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
          |> assign(:mapbox_form, mapbox_settings_to_form(updated))}
 
       {:error, err} ->
-        {:noreply, put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
     end
   end
 
@@ -263,7 +268,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
      socket
      |> assign(:show_details_modal, false)
      |> assign(:selected_source, nil)
-     |> assign(:selected_source_runs, [])}
+     |> assign(:selected_source_runs, [])
+     |> assign(:selected_source_config_diagnostics, [])}
   end
 
   def handle_event("validate_create", %{"form" => params}, socket) do
@@ -354,7 +360,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       # Add network_blacklist from textarea
       blacklist =
-        parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
+        parse_network_blacklist(
+          Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist)
+        )
 
       params = Map.put(params, "network_blacklist", blacklist)
 
@@ -362,7 +370,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         Map.put(
           params,
           "custom_fields",
-          parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
+          parse_custom_fields(
+            Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields)
+          )
         )
 
       form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
@@ -384,7 +394,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> put_flash(:error, "Failed to create integration source")}
       end
     else
-      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
+      {:noreply,
+       put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -404,7 +415,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
     # Add network_blacklist from textarea
     blacklist =
-      parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
+      parse_network_blacklist(
+        Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist)
+      )
 
     params = Map.put(params, "network_blacklist", blacklist)
 
@@ -412,7 +425,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       Map.put(
         params,
         "custom_fields",
-        parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
+        parse_custom_fields(
+          Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields)
+        )
       )
 
     form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
@@ -452,7 +467,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             {:noreply,
              socket
              |> assign(:sources, list_sources(actor, active_filters(socket)))
-             |> assign(:selected_source, refresh_selected_source(socket.assigns.selected_source, actor))
+             |> assign(
+               :selected_source,
+               refresh_selected_source(socket.assigns.selected_source, actor)
+             )
              |> put_flash(:info, "Integration source #{action}d")}
 
           {:error, _} ->
@@ -481,7 +499,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              |> push_navigate(to: ~p"/settings/networks/integrations")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
         end
 
       {:error, _} ->
@@ -506,11 +525,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              |> assign(:sources, list_sources(actor, active_filters(socket)))}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
         end
 
       {:ok, _source} ->
-        {:noreply, put_flash(socket, :error, "Northbound run is only available for Armis sources")}
+        {:noreply,
+         put_flash(socket, :error, "Northbound run is only available for Armis sources")}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Integration source not found")}
@@ -961,6 +982,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         source={@selected_source}
         agent_index={@agent_index}
         selected_source_runs={@selected_source_runs}
+        selected_source_config_diagnostics={@selected_source_config_diagnostics}
       />
     </Layouts.app>
     """
@@ -1523,6 +1545,49 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
+          <div class="divider">Agent Config Dispatch</div>
+
+          <%= if @selected_source_config_diagnostics == [] do %>
+            <div class="rounded-lg border border-dashed border-base-200 bg-base-100 p-4 text-sm text-base-content/60">
+              No recent config dispatch recorded for this source.
+            </div>
+          <% else %>
+            <div class="overflow-x-auto rounded-lg border border-base-200">
+              <table class="table table-sm">
+                <thead>
+                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                    <th>Recorded</th>
+                    <th>Config</th>
+                    <th>Action</th>
+                    <th>Agents</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for diagnostic <- @selected_source_config_diagnostics do %>
+                    <tr>
+                      <td class="text-xs text-base-content/70">
+                        {format_datetime(Map.get(diagnostic, :recorded_at))}
+                      </td>
+                      <td class="text-xs text-base-content/70">
+                        {Map.get(diagnostic, :config_type)}
+                      </td>
+                      <td class="text-xs text-base-content/70">
+                        {Map.get(diagnostic, :action_type)}
+                      </td>
+                      <td class="text-xs text-base-content/70">
+                        {format_affected_agents(Map.get(diagnostic, :affected_agents))}
+                      </td>
+                      <td class="text-xs text-base-content/70">
+                        {format_dispatch_result(Map.get(diagnostic, :result))}
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+
           <%= if @source.last_error_message do %>
             <div class="alert alert-error text-sm">
               <.icon name="hero-exclamation-circle" class="size-5" />
@@ -1780,6 +1845,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   end
 
+  defp format_affected_agents(:all_online), do: "All online"
+  defp format_affected_agents([]), do: "None"
+  defp format_affected_agents(agent_ids) when is_list(agent_ids), do: Enum.join(agent_ids, ", ")
+  defp format_affected_agents(_), do: "-"
+
+  defp format_dispatch_result(:ok), do: "Pushed"
+  defp format_dispatch_result({:error, _reason}), do: "Failed"
+  defp format_dispatch_result(_), do: "-"
+
   defp format_interval(nil), do: "5 minutes"
 
   defp format_interval(seconds) when is_integer(seconds) do
@@ -1907,6 +1981,19 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       {:ok, results} when is_list(results) -> results
       _ -> []
     end
+  rescue
+    _ -> []
+  end
+
+  defp list_config_diagnostics(source_id) do
+    source_id = to_string(source_id)
+
+    DependencyDiagnostics.recent()
+    |> Enum.filter(fn diagnostic ->
+      diagnostic[:dependency_id] == :integration_source_sync_config &&
+        to_string(diagnostic[:resource_id]) == source_id
+    end)
+    |> Enum.take(5)
   rescue
     _ -> []
   end
@@ -2391,7 +2478,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
 
-  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+  defp credential_placeholder(:netbox),
+    do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
 
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})

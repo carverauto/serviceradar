@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   use Ash.Resource,
     domain: ServiceRadar.Plugins,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 

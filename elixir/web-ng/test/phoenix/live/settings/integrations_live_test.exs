@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
@@ -213,6 +214,38 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     refute html =~ "hidden-armis-secret"
   end
 
+  test "details modal shows recent agent config dispatch diagnostics", %{
+    conn: conn,
+    scope: scope
+  } do
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Config Dispatch Detail",
+        credentials: %{api_key: "dispatch-api-key", api_secret: "dispatch-secret"}
+      })
+
+    DependencyDiagnostics.record(%{
+      dependency_id: :integration_source_sync_config,
+      resource_id: source.id,
+      resource_name: source.name,
+      config_type: :sync,
+      action_type: :update,
+      affected_agents: [source.agent_id],
+      affected_agent_count: 1,
+      result: :ok,
+      secrets: %{"api_secret" => true},
+      recorded_at: DateTime.utc_now()
+    })
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+    assert html =~ "Agent Config Dispatch"
+    assert html =~ "sync"
+    assert html =~ "Pushed"
+    assert html =~ source.agent_id
+    refute html =~ "dispatch-secret"
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
@@ -248,13 +281,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
       name: "Armis Source #{System.unique_integer([:positive])}",
       source_type: :armis,
       endpoint: "https://armis.example.test/#{System.unique_integer([:positive])}",
+      agent_id: create_connected_agent!().uid,
       custom_fields: [],
       northbound_enabled: false,
       northbound_interval_seconds: 3600
     }
 
     IntegrationSource
-    |> Ash.Changeset.for_create(:create, defaults |> Map.merge(attrs) |> Map.put(:credentials, credentials))
+    |> Ash.Changeset.for_create(
+      :create,
+      defaults |> Map.merge(attrs) |> Map.put(:credentials, credentials)
+    )
     |> Ash.create!(scope: scope)
   end
 

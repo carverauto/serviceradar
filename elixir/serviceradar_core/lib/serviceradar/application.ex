@@ -270,6 +270,8 @@ defmodule ServiceRadar.Application do
           ServiceRadar.Identity.IdentityCache,
           # Agent config cache (ETS-based)
           ServiceRadar.AgentConfig.ConfigCache,
+          # Recent catalog-driven agent config diagnostics
+          ServiceRadar.AgentConfig.DependencyDiagnostics,
           # Agent config server (compilation orchestration)
           ServiceRadar.AgentConfig.ConfigServer
         ]
