@@ -34,6 +34,8 @@ var (
 		"remote file-transfer session_id does not match frame",
 	)
 	errRemoteFileTransferSessionNotActive = errors.New("remote file-transfer SSH session is not active")
+	errRemoteFileTransferAlreadyActive    = errors.New("remote file-transfer is already active")
+	errRemoteFileTransferUploadNotActive  = errors.New("remote file-transfer upload is not active")
 )
 
 func (p *PushLoop) handleFileTransferFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
@@ -59,6 +61,11 @@ func (m *proxmoxConsoleManager) HandleFileTransferFrame(
 	sender proxmoxConsoleSender,
 ) {
 	if frame == nil || frame.GetSessionId() == "" {
+		return
+	}
+
+	if frame.GetFrameType() == remoteaccess.FrameTypeFileTransferData {
+		m.handleFileTransferDataFrame(frame, sender)
 		return
 	}
 
@@ -91,7 +98,17 @@ func (m *proxmoxConsoleManager) HandleFileTransferFrame(
 		return
 	}
 
-	_ = sendFileTransferProgress(sender, frame.GetSessionId(), request.TransferID, remoteaccess.FileTransferStatusStarted)
+	if request.Operation == remoteaccess.FileTransferOperationUpload {
+		m.startUploadFileTransfer(ctx, cfg, request, sender)
+		return
+	}
+
+	_ = sendFileTransferProgress(
+		sender,
+		frame.GetSessionId(),
+		request.TransferID,
+		remoteaccess.FileTransferStatusStarted,
+	)
 
 	result, err := m.executeFileTransfer(ctx, cfg, request, sender)
 	if err != nil {
@@ -104,6 +121,90 @@ func (m *proxmoxConsoleManager) HandleFileTransferFrame(
 	}
 
 	sendFileTransferOutcome(sender, frame.GetSessionId(), result)
+}
+
+func (m *proxmoxConsoleManager) startUploadFileTransfer(
+	ctx context.Context,
+	cfg remoteaccess.SSHConfig,
+	request remoteaccess.FileTransferRequestPayload,
+	sender proxmoxConsoleSender,
+) {
+	reader, writer := io.Pipe()
+	upload := &fileTransferUpload{writer: writer}
+	if !m.registerFileTransferUpload(request.SessionID, request.TransferID, upload) {
+		_ = reader.Close()
+		_ = writer.Close()
+		sendFileTransferError(
+			sender,
+			request.SessionID,
+			request.TransferID,
+			remoteaccess.FileTransferStatusFailed,
+			errRemoteFileTransferAlreadyActive,
+		)
+		return
+	}
+
+	_ = sendFileTransferProgress(
+		sender,
+		request.SessionID,
+		request.TransferID,
+		remoteaccess.FileTransferStatusStarted,
+	)
+
+	go func() {
+		defer m.unregisterFileTransferUpload(request.SessionID, request.TransferID)
+		defer func() { _ = reader.Close() }()
+
+		result, err := m.executeFileTransferWithInput(ctx, cfg, request, reader, sender)
+		if err != nil {
+			status := result.Outcome.Status
+			if status == "" {
+				status = remoteaccess.FileTransferStatusFailed
+			}
+			sendFileTransferError(sender, request.SessionID, request.TransferID, status, err)
+			return
+		}
+
+		sendFileTransferOutcome(sender, request.SessionID, result)
+	}()
+}
+
+func (m *proxmoxConsoleManager) handleFileTransferDataFrame(
+	frame *proto.ConsoleFrame,
+	sender proxmoxConsoleSender,
+) {
+	var payload remoteaccess.FileTransferDataPayload
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		sendFileTransferError(
+			sender,
+			frame.GetSessionId(),
+			"",
+			remoteaccess.FileTransferStatusFailed,
+			fmt.Errorf("%w: %w", errRemoteFileTransferInvalidPayload, err),
+		)
+		return
+	}
+	if err := payload.Validate(); err != nil {
+		sendFileTransferError(sender, frame.GetSessionId(), payload.TransferID, remoteaccess.FileTransferStatusFailed, err)
+		return
+	}
+
+	upload, ok := m.getFileTransferUpload(frame.GetSessionId(), payload.TransferID)
+	if !ok {
+		sendFileTransferError(
+			sender,
+			frame.GetSessionId(),
+			payload.TransferID,
+			remoteaccess.FileTransferStatusFailed,
+			errRemoteFileTransferUploadNotActive,
+		)
+		return
+	}
+
+	if err := upload.Write(payload); err != nil {
+		m.unregisterFileTransferUpload(frame.GetSessionId(), payload.TransferID)
+		sendFileTransferError(sender, frame.GetSessionId(), payload.TransferID, remoteaccess.FileTransferStatusFailed, err)
+	}
 }
 
 func decodeFileTransferRequest(frame *proto.ConsoleFrame) (remoteaccess.FileTransferRequestPayload, error) {
@@ -121,6 +222,16 @@ func (m *proxmoxConsoleManager) executeFileTransfer(
 	ctx context.Context,
 	cfg remoteaccess.SSHConfig,
 	request remoteaccess.FileTransferRequestPayload,
+	sender proxmoxConsoleSender,
+) (remoteaccess.FileTransferResult, error) {
+	return m.executeFileTransferWithInput(ctx, cfg, request, nil, sender)
+}
+
+func (m *proxmoxConsoleManager) executeFileTransferWithInput(
+	ctx context.Context,
+	cfg remoteaccess.SSHConfig,
+	request remoteaccess.FileTransferRequestPayload,
+	input io.Reader,
 	sender proxmoxConsoleSender,
 ) (remoteaccess.FileTransferResult, error) {
 	adapter := remoteaccess.SFTPAdapter{
@@ -141,7 +252,7 @@ func (m *proxmoxConsoleManager) executeFileTransfer(
 		output = streamOutput
 	}
 
-	result, err := adapter.Execute(ctx, cfg, request, nil, output)
+	result, err := adapter.Execute(ctx, cfg, request, input, output)
 	if err != nil {
 		return result, err
 	}
@@ -150,6 +261,98 @@ func (m *proxmoxConsoleManager) executeFileTransfer(
 	}
 
 	return result, nil
+}
+
+type fileTransferUpload struct {
+	writer       *io.PipeWriter
+	nextSequence uint64
+	nextOffset   int64
+}
+
+func (u *fileTransferUpload) Write(payload remoteaccess.FileTransferDataPayload) error {
+	if payload.Sequence != u.nextSequence+1 {
+		_ = u.writer.CloseWithError(remoteaccess.ErrInvalidFileTransferSequence)
+		return remoteaccess.ErrInvalidFileTransferSequence
+	}
+	if payload.Offset != u.nextOffset {
+		_ = u.writer.CloseWithError(remoteaccess.ErrInvalidFileTransferOffset)
+		return remoteaccess.ErrInvalidFileTransferOffset
+	}
+
+	u.nextSequence = payload.Sequence
+
+	if len(payload.Data) > 0 {
+		written, err := u.writer.Write(payload.Data)
+		u.nextOffset += int64(written)
+		if err != nil {
+			return err
+		}
+		if written != len(payload.Data) {
+			err := io.ErrShortWrite
+			_ = u.writer.CloseWithError(err)
+			return err
+		}
+	}
+
+	if payload.EOF {
+		return u.writer.Close()
+	}
+
+	return nil
+}
+
+func (m *proxmoxConsoleManager) registerFileTransferUpload(
+	sessionID string,
+	transferID string,
+	upload *fileTransferUpload,
+) bool {
+	if m == nil || sessionID == "" || transferID == "" || upload == nil {
+		return false
+	}
+
+	m.uploadMu.Lock()
+	defer m.uploadMu.Unlock()
+	if m.uploads == nil {
+		m.uploads = make(map[string]*fileTransferUpload)
+	}
+	key := fileTransferUploadKey(sessionID, transferID)
+	if _, exists := m.uploads[key]; exists {
+		return false
+	}
+	m.uploads[key] = upload
+	return true
+}
+
+func (m *proxmoxConsoleManager) getFileTransferUpload(sessionID string, transferID string) (*fileTransferUpload, bool) {
+	if m == nil || sessionID == "" || transferID == "" {
+		return nil, false
+	}
+
+	m.uploadMu.Lock()
+	defer m.uploadMu.Unlock()
+	upload, ok := m.uploads[fileTransferUploadKey(sessionID, transferID)]
+	return upload, ok
+}
+
+func (m *proxmoxConsoleManager) unregisterFileTransferUpload(sessionID string, transferID string) {
+	if m == nil || sessionID == "" || transferID == "" {
+		return
+	}
+
+	m.uploadMu.Lock()
+	upload, ok := m.uploads[fileTransferUploadKey(sessionID, transferID)]
+	if ok {
+		delete(m.uploads, fileTransferUploadKey(sessionID, transferID))
+	}
+	m.uploadMu.Unlock()
+
+	if ok {
+		_ = upload.writer.Close()
+	}
+}
+
+func fileTransferUploadKey(sessionID string, transferID string) string {
+	return sessionID + "\x00" + transferID
 }
 
 type fileTransferFrameWriter struct {

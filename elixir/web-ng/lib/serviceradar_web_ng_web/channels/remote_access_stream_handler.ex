@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_terminal_rows 200
   @max_browser_data_frame_bytes 65_536
   @max_browser_data_frame_encoded_bytes div(@max_browser_data_frame_bytes + 2, 3) * 4
+  @max_file_transfer_chunk_bytes 65_536
+  @max_file_transfer_chunk_encoded_bytes div(@max_file_transfer_chunk_bytes + 2, 3) * 4
   @max_username_bytes 128
   @max_private_key_bytes 65_536
   @max_public_key_bytes 16_384
@@ -126,6 +128,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         with {:ok, cols} <- terminal_int(cols, @min_terminal_cols, @max_terminal_cols),
              {:ok, rows} <- terminal_int(rows, @min_terminal_rows, @max_terminal_rows),
              :ok <- state.broker_module.resize(state.broker, cols, rows) do
+          {:ok, reset_idle_timer(state)}
+        else
+          {:error, reason} -> stop_for_broker_error(reason, state)
+        end
+
+      {:ok, %{"type" => "file_transfer_data"} = message} ->
+        with {:ok, payload} <- file_transfer_data_payload(message),
+             :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
           {:ok, reset_idle_timer(state)}
         else
           {:error, reason} -> stop_for_broker_error(reason, state)
@@ -547,6 +557,66 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp decode_json(data) when is_binary(data), do: Jason.decode(data)
+
+  defp file_transfer_data_payload(message) do
+    with {:ok, transfer_id} <- required_string(message, "transfer_id"),
+         {:ok, sequence} <- positive_integer(Map.get(message, "sequence")),
+         {:ok, offset} <- nonnegative_integer(Map.get(message, "offset")),
+         {:ok, data} <- file_transfer_chunk(Map.get(message, "data")),
+         {:ok, eof} <- boolean_value(Map.get(message, "eof", false)) do
+      {:ok,
+       %{
+         transfer_id: transfer_id,
+         sequence: sequence,
+         offset: offset,
+         data: Base.encode64(data),
+         eof: eof
+       }}
+    end
+  end
+
+  defp file_transfer_chunk(nil), do: {:ok, ""}
+
+  defp file_transfer_chunk(encoded) when is_binary(encoded) do
+    if byte_size(encoded) > @max_file_transfer_chunk_encoded_bytes do
+      {:error, :invalid_size}
+    else
+      case Base.decode64(encoded) do
+        {:ok, decoded} when byte_size(decoded) <= @max_file_transfer_chunk_bytes -> {:ok, decoded}
+        {:ok, _decoded} -> {:error, :invalid_size}
+        :error -> {:error, :invalid_request}
+      end
+    end
+  end
+
+  defp file_transfer_chunk(_value), do: {:error, :invalid_request}
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> positive_integer(int)
+      _ -> {:error, :invalid_request}
+    end
+  end
+
+  defp positive_integer(_value), do: {:error, :invalid_request}
+
+  defp nonnegative_integer(value) when is_integer(value) and value >= 0, do: {:ok, value}
+
+  defp nonnegative_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> nonnegative_integer(int)
+      _ -> {:error, :invalid_request}
+    end
+  end
+
+  defp nonnegative_integer(_value), do: {:error, :invalid_request}
+
+  defp boolean_value(value) when is_boolean(value), do: {:ok, value}
+  defp boolean_value("true"), do: {:ok, true}
+  defp boolean_value("false"), do: {:ok, false}
+  defp boolean_value(_value), do: {:error, :invalid_request}
 
   defp decode_base64(value) when byte_size(value) <= @max_browser_data_frame_encoded_bytes do
     case Base.decode64(value) do

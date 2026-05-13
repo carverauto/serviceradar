@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -102,6 +103,48 @@ func TestHandleFileTransferFrameFailsClosedWithoutActiveSSHSession(t *testing.T)
 	}
 }
 
+func TestHandleFileTransferFrameStreamsSFTPUploadForActiveSSHSession(t *testing.T) {
+	t.Parallel()
+
+	manager := newRemoteConsoleManagerWithRoute("agent-1", "gateway-1", nil)
+	manager.setSSHConfig(testRemoteFileTransferSessionID, remoteaccess.SSHConfig{
+		Target: remoteaccess.SSHTarget{Host: "host.example", Port: 22},
+		Auth:   remoteaccess.SSHAuth{Username: "alice", PrivateKey: "key"},
+	})
+
+	client := &fakeRemoteFileTransferSFTPClient{}
+	manager.sftpDialer = func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SFTPClient, error) {
+		return client, nil
+	}
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{remoteConsoleManager: manager}
+
+	loop.handleConsoleFrame(
+		fileTransferRequestFrame(t, remoteaccess.FileTransferOperationUpload, testRemoteFileTransferPath+"/upload.txt"),
+		sender,
+	)
+	loop.handleConsoleFrame(fileTransferDataFrame(t, 1, 0, []byte("hello "), false), sender)
+	loop.handleConsoleFrame(fileTransferDataFrame(t, 2, 6, []byte("world"), false), sender)
+	loop.handleConsoleFrame(fileTransferDataFrame(t, 3, 11, nil, true), sender)
+
+	outcome := waitForFileTransferFrame(t, stream, remoteaccess.FrameTypeFileTransferOutcome)
+	var payload remoteaccess.FileTransferOutcomePayload
+	if err := json.Unmarshal(outcome.GetData(), &payload); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if payload.Status != remoteaccess.FileTransferStatusCompleted {
+		t.Fatalf("status = %q", payload.Status)
+	}
+	if payload.BytesTransferred != 11 {
+		t.Fatalf("bytes_transferred = %d, want 11", payload.BytesTransferred)
+	}
+	if string(client.uploaded) != "hello world" {
+		t.Fatalf("uploaded = %q", client.uploaded)
+	}
+}
+
 func fileTransferRequestFrame(
 	t *testing.T,
 	operation remoteaccess.FileTransferOperation,
@@ -140,15 +183,70 @@ func fileTransferRequestFrame(
 	}
 }
 
+func fileTransferDataFrame(t *testing.T, sequence uint64, offset int64, data []byte, eof bool) *proto.ConsoleFrame {
+	t.Helper()
+
+	payload := remoteaccess.FileTransferDataPayload{
+		TransferID: testRemoteFileTransferTransferID,
+		Sequence:   sequence,
+		Offset:     offset,
+		Data:       data,
+		EOF:        eof,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &proto.ConsoleFrame{
+		SessionId: testRemoteFileTransferSessionID,
+		FrameType: remoteaccess.FrameTypeFileTransferData,
+		Data:      encoded,
+	}
+}
+
+func waitForFileTransferFrame(
+	t *testing.T,
+	stream *fakeControlStreamClient,
+	frameType string,
+) *proto.ConsoleFrame {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stream.mu.Lock()
+		sent := slices.Clone(stream.sent)
+		stream.mu.Unlock()
+
+		for _, req := range sent {
+			frame := req.GetConsoleFrame()
+			if frame != nil && frame.GetFrameType() == frameType {
+				return frame
+			}
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for file-transfer frame type %q", frameType)
+	return nil
+}
+
 type fakeRemoteFileTransferSFTPClient struct {
-	entries []os.FileInfo
+	entries  []os.FileInfo
+	uploaded []byte
 }
 
 func (c *fakeRemoteFileTransferSFTPClient) Chmod(string, os.FileMode) error { return nil }
 func (c *fakeRemoteFileTransferSFTPClient) Chown(string, int, int) error    { return nil }
 func (c *fakeRemoteFileTransferSFTPClient) Close() error                    { return nil }
 func (c *fakeRemoteFileTransferSFTPClient) Create(string) (remoteaccess.SFTPFile, error) {
-	return fakeRemoteFileTransferFile{Buffer: &bytes.Buffer{}}, nil
+	return fakeRemoteFileTransferFile{
+		Buffer: &bytes.Buffer{},
+		onClose: func(data []byte) {
+			c.uploaded = append(c.uploaded[:0], data...)
+		},
+	}, nil
 }
 func (c *fakeRemoteFileTransferSFTPClient) Lstat(string) (os.FileInfo, error) {
 	return fakeRemoteFileTransferInfo{name: "data", dir: true}, nil
@@ -169,9 +267,16 @@ func (c *fakeRemoteFileTransferSFTPClient) Stat(string) (os.FileInfo, error) {
 
 type fakeRemoteFileTransferFile struct {
 	*bytes.Buffer
+	onClose func([]byte)
 }
 
-func (f fakeRemoteFileTransferFile) Close() error { return nil }
+func (f fakeRemoteFileTransferFile) Close() error {
+	if f.onClose != nil {
+		f.onClose(append([]byte(nil), f.Buffer.Bytes()...))
+	}
+
+	return nil
+}
 
 type fakeRemoteFileTransferInfo struct {
 	name string

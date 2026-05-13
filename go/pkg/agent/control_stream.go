@@ -381,7 +381,8 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 		return
 	}
 
-	if frame.GetFrameType() == remoteaccess.FrameTypeFileTransferRequest {
+	switch frame.GetFrameType() {
+	case remoteaccess.FrameTypeFileTransferRequest, remoteaccess.FrameTypeFileTransferData:
 		p.handleFileTransferFrame(frame, sender)
 		return
 	}

@@ -419,6 +419,42 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute_receive {:remote_access_data, _payload}
   end
 
+  test "sends browser file-transfer data frames over the selected agent route" do
+    session = session_fixture()
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    payload = %{
+      transfer_id: "transfer-1",
+      sequence: 1,
+      offset: 0,
+      data: Base.encode64("hello"),
+      eof: false
+    }
+
+    assert :ok = RemoteAccessBroker.send_file_transfer_data(pid, payload)
+
+    assert_receive {:send_console_frame, "agent-1",
+                    %{frame_type: "file_transfer_data", data: data}, opts}
+
+    assert opts[:required_gateway_node] == self()
+    assert Jason.decode!(data)["transfer_id"] == "transfer-1"
+    assert Jason.decode!(data)["data"] == Base.encode64("hello")
+  end
+
   test "recording hook receives only policy-gated counters and lifecycle state" do
     session =
       Map.put(session_fixture(), :recording_policy, %{

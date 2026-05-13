@@ -62,6 +62,8 @@ type proxmoxConsoleManager struct {
 	sshOptions remoteaccess.SSHOpenOptions
 	sshMu      sync.Mutex
 	sshConfig  map[string]remoteaccess.SSHConfig
+	uploadMu   sync.Mutex
+	uploads    map[string]*fileTransferUpload
 	sftpDialer remoteaccess.SFTPDialer
 	agentID    string
 	gatewayID  string
@@ -80,6 +82,7 @@ func newProxmoxConsoleManagerWithRoute(agentID string, gatewayID string, _ logge
 		agentID:    agentID,
 		gatewayID:  gatewayID,
 		sshConfig:  make(map[string]remoteaccess.SSHConfig),
+		uploads:    make(map[string]*fileTransferUpload),
 		sftpDialer: nil,
 		opener: func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 			return nil, errProxmoxConsoleBridgeUnavailable

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,10 +15,13 @@ import (
 )
 
 type fakeControlStreamClient struct {
+	mu   sync.Mutex
 	sent []*proto.ControlStreamRequest
 }
 
 func (f *fakeControlStreamClient) Send(req *proto.ControlStreamRequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sent = append(f.sent, req)
 	return nil
 }

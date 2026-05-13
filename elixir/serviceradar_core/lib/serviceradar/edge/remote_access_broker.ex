@@ -20,6 +20,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
+  @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
   @callback close(pid(), term()) :: :ok
 
@@ -49,6 +50,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
     GenServer.call(pid, {:send_input, data})
+  end
+
+  def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_file_transfer_data, payload})
   end
 
   def resize(pid, cols, rows) when is_pid(pid) and is_integer(cols) and is_integer(rows) do
@@ -115,6 +120,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     result = send_frame(state, "data", data, nil, nil, nil)
     write_audit(state, :remote_access_session_input, %{input_bytes: byte_size(data)})
     state = if result == :ok, do: count_recording_input(state, data), else: state
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_file_transfer_data, payload}, _from, state) do
+    result = send_frame(state, "file_transfer_data", Jason.encode!(payload), nil, nil, nil)
     {:reply, result, state}
   end
 
