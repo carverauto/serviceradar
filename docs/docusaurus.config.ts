@@ -18,7 +18,6 @@ const config: Config = {
   projectName: 'serviceradar',
 
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
 
   i18n: {
     defaultLocale: 'en',
@@ -28,6 +27,9 @@ const config: Config = {
   // Add markdown configuration with Mermaid enabled
   markdown: {
     mermaid: true,
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
   },
 
   // Add theme-mermaid to the themes array
