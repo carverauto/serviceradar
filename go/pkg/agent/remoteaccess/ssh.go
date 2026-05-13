@@ -253,6 +253,29 @@ func (p *sshPTY) send(read sshRead) {
 
 // DialSSH opens a real SSH session using x/crypto/ssh.
 func DialSSH(ctx context.Context, cfg SSHConfig) (SSHSession, error) {
+	client, err := DialSSHClient(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+
+	return &sshClientSession{client: client, session: session}, nil
+}
+
+// DialSSHClient opens a real SSH client using the same credential custody and
+// host-key trust path as SSH PTY sessions. Non-PTY protocols such as SFTP must
+// use this instead of creating their own x/crypto/ssh client configuration.
+func DialSSHClient(ctx context.Context, cfg SSHConfig) (*ssh.Client, error) {
+	cfg = normalizeSSHConfig(cfg)
+	if err := validateSSHConfig(cfg); err != nil {
+		return nil, err
+	}
+
 	host, port, err := sshTargetAddress(cfg.Target)
 	if err != nil {
 		return nil, err
@@ -288,14 +311,7 @@ func DialSSH(ctx context.Context, cfg SSHConfig) (SSHSession, error) {
 		return nil, err
 	}
 
-	client := ssh.NewClient(conn, chans, reqs)
-	session, err := client.NewSession()
-	if err != nil {
-		_ = client.Close()
-		return nil, err
-	}
-
-	return &sshClientSession{client: client, session: session}, nil
+	return ssh.NewClient(conn, chans, reqs), nil
 }
 
 type sshClientSession struct {

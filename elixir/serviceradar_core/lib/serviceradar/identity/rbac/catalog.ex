@@ -107,6 +107,43 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Export remote-access recordings",
           description: "Export remote-access replay manifests and transcript events",
           default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.files.list",
+          label: "List remote files",
+          description: "List directories and read metadata through remote-access file transfer",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.files.download",
+          label: "Download remote files",
+          description: "Download files through policy-gated remote-access file transfer",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.files.upload",
+          label: "Upload remote files",
+          description: "Upload files through policy-gated remote-access file transfer",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.files.manage",
+          label: "Manage remote files",
+          description: "Create, rename, remove, chmod, and chown remote files when policy allows",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.files.approve",
+          label: "Approve remote file transfers",
+          description: "Approve sensitive remote-access file-transfer requests",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.files.export",
+          label: "Export retained remote file artifacts",
+          description:
+            "Export file-transfer content-audit artifacts when retention is explicitly enabled",
+          default_roles: @admin_roles
         }
       ]
     },

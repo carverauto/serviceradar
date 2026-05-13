@@ -27,6 +27,7 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.RemoteAccessRequest` - Remote-access approval requests
   - `ServiceRadar.Edge.RemoteAccessRecording` - Remote-access recording manifests
   - `ServiceRadar.Edge.RemoteAccessRecordingEvent` - Remote-access replay events
+  - `ServiceRadar.Edge.RemoteAccessFileTransfer` - Remote-access file-transfer metadata
   - `ServiceRadar.Edge.RemoteAccessHostKey` - Remote-access SSH host-key trust state
   - `ServiceRadar.Edge.ProxmoxConsoleSession` - Proxmox console session tickets and lifecycle
 
@@ -70,6 +71,7 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.RemoteAccessRequest
     resource ServiceRadar.Edge.RemoteAccessRecording
     resource ServiceRadar.Edge.RemoteAccessRecordingEvent
+    resource ServiceRadar.Edge.RemoteAccessFileTransfer
     resource ServiceRadar.Edge.RemoteAccessHostKey
     resource ServiceRadar.Edge.ProxmoxConsoleSession
   end

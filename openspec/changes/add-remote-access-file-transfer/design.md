@@ -112,7 +112,11 @@ Current Teleport SFTP/SCP implementation paths are not approved for import:
 Default implementation path:
 
 - use ServiceRadar-owned clean-room file-transfer manager and protocol frame model
-- evaluate a small Apache-compatible Go SFTP library, such as `github.com/pkg/sftp`, only after dependency and Bazel/module review
+- use `github.com/pkg/sftp` for the Go SFTP client adapter after dependency import:
+  - latest reviewed version: `v1.13.10`, published 2025-10-22
+  - license: BSD-style permissive license, compatible with Apache-2.0 distribution
+  - runtime dependency impact: `github.com/kr/fs` plus existing `golang.org/x/crypto`/`golang.org/x/sys` family; test-only deps from upstream do not need to enter ServiceRadar runtime packages
+  - Bazel impact: add `github.com/pkg/sftp` to `go.mod`, refresh `go.sum`, add `com_github_pkg_sftp` and `com_github_kr_fs` to `MODULE.bazel` after `bazel mod tidy`, and add the adapter dependency to `go/pkg/agent/remoteaccess/BUILD.bazel`
 - keep Teleport source as behavior reference only unless a future exact-file vendoring review is approved
 
 ## Validation
