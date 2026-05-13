@@ -114,6 +114,38 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
     assert IdentityCache.get(ip) == nil
   end
 
+  test "alias lifecycle invalidates IP identity cache", %{actor: actor} do
+    uid = "sr:" <> Ecto.UUID.generate()
+    alias_ip = "192.0.2.204"
+    stale_record = stale_record(uid, alias_ip)
+
+    assert {:ok, _device} =
+             Device
+             |> Ash.Changeset.for_create(:create, %{
+               uid: uid,
+               ip: "192.0.2.254",
+               hostname: "alias-cache-invalidation-test"
+             })
+             |> Ash.create(actor: actor)
+
+    IdentityCache.put(alias_ip, stale_record)
+    assert IdentityCache.get(alias_ip) == stale_record
+
+    assert {:ok, _alias_state} =
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: uid,
+                 partition: "default",
+                 alias_type: :ip,
+                 alias_value: alias_ip,
+                 metadata: %{}
+               },
+               actor: actor
+             )
+
+    assert IdentityCache.get(alias_ip) == nil
+  end
+
   defp stale_record(uid, ip) do
     %{
       canonical_device_id: uid,

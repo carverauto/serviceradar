@@ -9,7 +9,7 @@
 - [x] 2.3 Add guardrails or tests that fail when new ingestion callers rely on the cache by default.
 
 ## 3. Cache Freshness and Invalidation
-- [ ] 3.1 Add invalidation or refresh hooks for device create/update, active IP changes, soft-delete/restore, merge/unmerge, identifier assignment, and alias confirmation. Device lifecycle IP invalidation is implemented; identifier and alias transition invalidation still need audit/implementation.
+- [ ] 3.1 Add invalidation or refresh hooks for device create/update, active IP changes, soft-delete/restore, merge/unmerge, identifier assignment, and alias confirmation. Device lifecycle and IP alias lifecycle invalidation are implemented; identifier assignment still needs audit/implementation.
 - [ ] 3.2 Add invalidation or refresh hooks for sweep provisional creation, mapper promotion metadata, Armis ingestion updates, and SNMP/interface identity enrichment.
 - [ ] 3.3 Add metrics/log fields for identity cache hits, misses, stale rejects, invalidations, and authoritative fallback counts.
 

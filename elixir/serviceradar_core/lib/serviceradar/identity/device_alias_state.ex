@@ -30,6 +30,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
+    notifiers: [ServiceRadar.Identity.DeviceAliasStateNotifier],
     extensions: [AshStateMachine]
 
   @alias_fields [:device_id, :partition, :alias_type, :alias_value, :metadata]
