@@ -14,6 +14,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferControllerTest do
     previous_result =
       Application.get_env(:serviceradar_web_ng, :remote_access_file_transfer_manager_result)
 
+    previous_list_result =
+      Application.get_env(:serviceradar_web_ng, :remote_access_file_transfer_manager_list_result)
+
     previous_test_pid =
       Application.get_env(:serviceradar_web_ng, :remote_access_file_transfer_manager_test_pid)
 
@@ -32,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferControllerTest do
     on_exit(fn ->
       restore_env(:remote_access_file_transfer_manager, previous_manager)
       restore_env(:remote_access_file_transfer_manager_result, previous_result)
+      restore_env(:remote_access_file_transfer_manager_list_result, previous_list_result)
       restore_env(:remote_access_file_transfer_manager_test_pid, previous_test_pid)
     end)
 
@@ -42,6 +46,36 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferControllerTest do
     conn = Plug.Conn.put_req_header(conn, "authorization", auth_header)
 
     %{conn: conn, auth_header: auth_header}
+  end
+
+  describe "GET /api/remote-access/file-transfers" do
+    test "lists transfer history for a session", %{conn: conn} do
+      session_id = Ecto.UUID.generate()
+
+      conn = get(conn, ~p"/api/remote-access/file-transfers", %{"session_id" => session_id})
+
+      body = json_response(conn, 200)
+
+      assert [%{"session_id" => ^session_id, "operation" => "list", "status" => "completed"}] =
+               body["data"]
+
+      assert_receive {:remote_access_file_transfer_list, ^session_id, opts}
+      assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "requires list permission for transfer history" do
+      viewer = viewer_user_fixture()
+      {:ok, token, _claims} = Guardian.create_access_token(viewer)
+
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+        |> get(~p"/api/remote-access/file-transfers", %{"session_id" => Ecto.UUID.generate()})
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+      refute_receive {:remote_access_file_transfer_list, _session_id, _opts}
+    end
   end
 
   describe "POST /api/remote-access/file-transfers" do

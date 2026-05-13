@@ -76,6 +76,18 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
     end
   end
 
+  @spec list_transfers(String.t(), keyword()) :: {:ok, list()} | {:error, term()}
+  def list_transfers(session_id, opts \\ []) do
+    with {:ok, session_id} <- normalize_uuid(session_id),
+         {:ok, transfers} <- transfer_resource(opts).list_by_session(session_id, ash_opts(opts)) do
+      {:ok, page_results(transfers)}
+    else
+      {:error, :invalid_uuid} -> {:error, :not_found}
+      {:error, %NotFound{}} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec mark_started(map() | struct(), keyword()) :: {:ok, map() | struct()} | {:error, term()}
   def mark_started(transfer, opts \\ []) do
     update_transfer(:mark_started, transfer, %{}, :transfer_started, nil, opts)
@@ -521,6 +533,10 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
 
   defp safe_map(value) when is_map(value), do: value
   defp safe_map(_value), do: %{}
+
+  defp page_results(%Ash.Page.Keyset{results: results}), do: results
+  defp page_results(%Ash.Page.Offset{results: results}), do: results
+  defp page_results(results) when is_list(results), do: results
 
   defp redacted_path(path, opts) do
     if Keyword.get(opts, :redact_paths?, false) do

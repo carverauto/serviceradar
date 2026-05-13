@@ -23,6 +23,34 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferController do
   @max_path_bytes 4_096
   @max_display_name_bytes 255
 
+  def index(conn, params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @list_permission),
+         {:ok, session_id} <- normalize_uuid(Map.get(params, "session_id"), "session_id"),
+         {:ok, transfers} <-
+           remote_access_file_transfer_manager().list_transfers(session_id, scope: get_scope(conn)) do
+      json(conn, %{data: Enum.map(transfers, &transfer_json/1)})
+    else
+      {:error, :invalid_request, message} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "invalid_request", message: message})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden", message: "Remote file-transfer permission is required"})
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
          {:ok, request} <- normalize_create_request(params),

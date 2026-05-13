@@ -31,6 +31,11 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
       end
     end
 
+    def list_by_session(session_id, _opts) do
+      send(Process.get(:remote_access_file_transfer_owner), {:list_transfers, session_id})
+      {:ok, Process.get(:remote_access_file_transfer_list, [])}
+    end
+
     def mark_started(transfer, attrs, _opts), do: update_transfer(transfer, attrs, :started)
 
     def record_progress(transfer, attrs, _opts),
@@ -371,6 +376,20 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
              )
 
     refute_receive {:update_transfer, _status, _attrs}
+  end
+
+  test "lists transfer history through the Ash resource boundary" do
+    session_id = Ecto.UUID.generate()
+    transfer = transfer_fixture(session_id)
+    Process.put(:remote_access_file_transfer_list, [transfer])
+
+    assert {:ok, [^transfer]} =
+             RemoteAccessFileTransfers.list_transfers(session_id,
+               transfer_resource: TransferResourceStub,
+               scope: %{user: %{id: Ecto.UUID.generate()}}
+             )
+
+    assert_receive {:list_transfers, ^session_id}
   end
 
   defp session_fixture(session_id) do
