@@ -7,6 +7,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Edge.ProxmoxConsolePubSub
+  alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
 
@@ -307,6 +308,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       ProxmoxConsolePubSub.broadcast_frame(session_id, frame_payload)
       RemoteAccessPubSub.broadcast_frame(session_id, frame_payload)
+      _ = RemoteAccessFileTransfers.handle_agent_frame(frame_payload)
     end
   end
 

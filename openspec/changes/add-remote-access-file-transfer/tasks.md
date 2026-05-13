@@ -18,9 +18,9 @@
 
 ## 4. Recording, Audit, And Replay
 - [x] 4.1 Persist transfer lifecycle metadata without file contents by default.
-- [ ] 4.2 Emit replay events for request, start, progress, completion, denial, and failure.
-- [ ] 4.3 Add audit events for allowed, denied, canceled, failed, and quota-exhausted transfers.
-- [ ] 4.4 Add content-audit artifact references only when explicit policy enables retention.
+- [x] 4.2 Emit replay events for request, start, progress, completion, denial, and failure.
+- [x] 4.3 Add audit events for allowed, denied, canceled, failed, and quota-exhausted transfers.
+- [x] 4.4 Add content-audit artifact references only when explicit policy enables retention.
 
 ## 5. UI And Demo Proof
 - [ ] 5.1 Add operator/user UI for listing directories and launching allowed uploads/downloads.
@@ -31,6 +31,6 @@
 - [x] 6.1 Add unit tests for policy, path rules, symlink behavior, quota exhaustion, approval, and redaction.
 - [x] 6.2 Add API/channel tests proving client override fields are rejected.
 - [x] 6.3 Add gateway/agent route-binding tests for transfer frames.
-- [ ] 6.4 Add agent adapter tests for list, download, upload, mutation operations, cancellation, and partial transfer cleanup.
-- [ ] 6.5 Add recording/replay/audit tests proving file contents are not persisted by default.
-- [ ] 6.6 Run focused Go and Elixir tests for touched packages plus OpenSpec validation.
+- [x] 6.4 Add agent adapter tests for list, download, upload, mutation operations, cancellation, and partial transfer cleanup.
+- [x] 6.5 Add recording/replay/audit tests proving file contents are not persisted by default.
+- [x] 6.6 Run focused Go and Elixir tests for touched packages plus OpenSpec validation.
