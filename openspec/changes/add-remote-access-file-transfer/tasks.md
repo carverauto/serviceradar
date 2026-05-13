@@ -14,7 +14,7 @@
 - [x] 3.1 Add gateway/agent transfer routing over the selected remote-access session route.
 - [x] 3.2 Add agent-side SFTP adapter using existing SSH custody and host-key trust paths.
 - [x] 3.3 Enforce policy and quotas in the agent before and during target file operations.
-- [ ] 3.4 Advertise `remote_access.file_transfer` and `remote_access.sftp` only when policy enforcement is available.
+- [x] 3.4 Advertise `remote_access.file_transfer` and `remote_access.sftp` only when policy enforcement is available.
 
 ## 4. Recording, Audit, And Replay
 - [x] 4.1 Persist transfer lifecycle metadata without file contents by default.

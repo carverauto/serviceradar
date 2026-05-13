@@ -290,6 +290,8 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	for _, capability := range []string{
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessFile,
+		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
 	} {
 		if !slices.Contains(base, capability) {

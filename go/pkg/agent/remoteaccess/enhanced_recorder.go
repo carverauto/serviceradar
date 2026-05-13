@@ -24,6 +24,8 @@ import (
 const (
 	CapabilityRemoteAccess          = "remote_access"
 	CapabilityRemoteAccessSSH       = "remote_access.ssh"
+	CapabilityRemoteAccessFile      = "remote_access.file_transfer"
+	CapabilityRemoteAccessSFTP      = "remote_access.sftp"
 	CapabilityRemoteAccessRecording = "remote_access.recording"
 	CapabilityRemoteAccessBPF       = "remote_access.bpf"
 )
