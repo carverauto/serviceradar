@@ -160,7 +160,7 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
         [%{kind: :ip, value: host}]
       end
 
-    case DeviceLookup.get_canonical_device(keys, actor: actor, ip_hint: host) do
+    case DeviceLookup.get_canonical_device(keys, actor: actor, ip_hint: host, use_cache: false) do
       {:ok, %{record: %{canonical_device_id: device_id}}} when is_binary(device_id) -> device_id
       _ -> nil
     end

@@ -1,20 +1,20 @@
 ## 1. Caller Audit
-- [ ] 1.1 Inventory every caller of `IdentityCache`, `DeviceLookup.batch_lookup_by_ip/2`, `DeviceLookup.get_canonical_device/2`, and cache-related options.
-- [ ] 1.2 Classify each caller as read-only cache-eligible, ingestion/mutation cache-bypassing, or cache owner/invalidation producer.
-- [ ] 1.3 Document the final caller table in code comments or developer docs close to `DeviceLookup`.
+- [x] 1.1 Inventory every caller of `IdentityCache`, `DeviceLookup.batch_lookup_by_ip/2`, `DeviceLookup.get_canonical_device/2`, and cache-related options.
+- [x] 1.2 Classify each caller as read-only cache-eligible, ingestion/mutation cache-bypassing, or cache owner/invalidation producer.
+- [x] 1.3 Document the final caller table in code comments or developer docs close to `DeviceLookup`.
 
 ## 2. Identity Lookup Policy
-- [ ] 2.1 Make cache use explicit at call sites that are allowed to use it.
-- [ ] 2.2 Ensure ingestion and mutation paths use authoritative batched CNPG/DIRE lookups before creating, updating, promoting, or suppressing devices.
-- [ ] 2.3 Add guardrails or tests that fail when new ingestion callers rely on the cache by default.
+- [x] 2.1 Make cache use explicit at call sites that are allowed to use it.
+- [x] 2.2 Ensure ingestion and mutation paths use authoritative batched CNPG/DIRE lookups before creating, updating, promoting, or suppressing devices.
+- [x] 2.3 Add guardrails or tests that fail when new ingestion callers rely on the cache by default.
 
 ## 3. Cache Freshness and Invalidation
-- [ ] 3.1 Add invalidation or refresh hooks for device create/update, active IP changes, soft-delete/restore, merge/unmerge, identifier assignment, and alias confirmation.
+- [ ] 3.1 Add invalidation or refresh hooks for device create/update, active IP changes, soft-delete/restore, merge/unmerge, identifier assignment, and alias confirmation. Device lifecycle IP invalidation is implemented; identifier and alias transition invalidation still need audit/implementation.
 - [ ] 3.2 Add invalidation or refresh hooks for sweep provisional creation, mapper promotion metadata, Armis ingestion updates, and SNMP/interface identity enrichment.
 - [ ] 3.3 Add metrics/log fields for identity cache hits, misses, stale rejects, invalidations, and authoritative fallback counts.
 
 ## 4. Sweep and Mapper Regression Coverage
-- [ ] 4.1 Add DB-backed tests that seed stale cache entries and verify sweep result ingestion creates or resolves the correct device.
+- [x] 4.1 Add DB-backed tests that seed stale cache entries and verify sweep result ingestion creates or resolves the correct device.
 - [ ] 4.2 Add tests for duplicate active IP conflicts, soft-deleted devices, restored devices, and recently changed active IPs.
 - [ ] 4.3 Add mapper promotion tests that verify promotion metadata is persisted only for loaded authoritative devices.
 - [ ] 4.4 Verify sweep target compilation ignores integration-specific blacklist settings and only uses sweep group targeting inputs.
