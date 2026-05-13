@@ -9,6 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
   use Ash.Resource,
     domain: ServiceRadar.NetworkDiscovery,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.NetworkDiscovery.Validations.AgentAssignment

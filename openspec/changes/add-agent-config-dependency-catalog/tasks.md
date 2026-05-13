@@ -13,7 +13,7 @@
 
 ## 3. Dispatcher
 
-- [ ] 3.1 Route resource create/update/destroy notifications through the catalog dispatcher.
+- [x] 3.1 Route resource create/update/destroy notifications through the catalog dispatcher.
 - [x] 3.2 Resolve affected agents through catalog resolvers rather than hard-coded notifier logic.
 - [x] 3.3 Trigger the configured invalidation and connected-agent push behavior for each affected config type.
 - [x] 3.4 Preserve current behavior for resources not yet migrated until all entries are covered.

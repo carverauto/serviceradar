@@ -61,6 +61,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   use Ash.Resource,
     domain: ServiceRadar.SysmonProfiles,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery

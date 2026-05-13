@@ -59,6 +59,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   use Ash.Resource,
     domain: ServiceRadar.SNMPProfiles,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.SNMPProfiles.Changes.EncryptCredentials

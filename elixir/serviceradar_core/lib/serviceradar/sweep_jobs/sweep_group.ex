@@ -33,6 +33,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   use Ash.Resource,
     domain: ServiceRadar.SweepJobs,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor

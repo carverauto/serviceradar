@@ -120,7 +120,16 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         :sweep_group_config,
         ServiceRadar.SweepJobs.SweepGroup,
         :sweep,
-        SweepCompiler
+        SweepCompiler,
+        action_names: [
+          :create,
+          :update,
+          :destroy,
+          :enable,
+          :disable,
+          :add_targets,
+          :remove_targets
+        ]
       ),
       config_server_entry(
         :sweep_profile_config,
@@ -132,7 +141,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         :mapper_job_config,
         ServiceRadar.NetworkDiscovery.MapperJob,
         :mapper,
-        MapperCompiler
+        MapperCompiler,
+        action_names: [:create, :update, :destroy]
       ),
       config_server_entry(
         :mapper_seed_config,
@@ -159,6 +169,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         ServiceRadar.SNMPProfiles.SNMPProfile,
         :snmp,
         SNMPCompiler,
+        action_names: [:create, :update, :destroy, :set_as_default, :unset_default],
         secret_fields: [:community, :auth_password, :priv_password]
       ),
       config_server_entry(
@@ -178,7 +189,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         :snmp_oid_config,
         ServiceRadar.SNMPProfiles.SNMPOIDConfig,
         :snmp,
-        SNMPCompiler
+        SNMPCompiler,
+        action_names: [:create, :create_bulk, :update, :destroy]
       ),
       config_server_entry(
         :device_snmp_config,
@@ -296,6 +308,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       generator: compiler,
       affected_agents: {DependencyResolvers, :all_online, []},
       dispatch: :invalidate_config_type,
+      action_names: Keyword.get(opts, :action_names, []),
       secret_fields: Keyword.get(opts, :secret_fields, []),
       description:
         Keyword.get(

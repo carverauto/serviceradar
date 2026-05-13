@@ -9,7 +9,11 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepProfile
 
   defmodule CommandBus do
     @moduledoc false
@@ -162,6 +166,59 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.affected_agents == ["agent-plugin"]
       assert diagnostic.affected_agent_count == 1
       assert diagnostic.result == :ok
+    end
+
+    test "sweep and mapper runtime actions are excluded from config invalidation" do
+      sweep_runtime_notification = %Notification{
+        resource: SweepGroup,
+        action: %{type: :update, name: :record_execution},
+        data: %{}
+      }
+
+      mapper_runtime_notification = %Notification{
+        resource: MapperJob,
+        action: %{type: :update, name: :record_run},
+        data: %{}
+      }
+
+      assert [] = DependencyCatalog.for_notification(sweep_runtime_notification)
+      assert [] = DependencyCatalog.for_notification(mapper_runtime_notification)
+    end
+
+    test "compiled config resources dispatch invalidation through the catalog" do
+      notification = %Notification{
+        resource: SweepProfile,
+        action: %{type: :update, name: :update},
+        data: %{}
+      }
+
+      assert {:ok, [diagnostic]} =
+               DependencyDispatcher.dispatch(notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:invalidate, :sweep}
+      assert_received {:diagnostic, ^diagnostic}
+      refute_received {:push_config_for_type, :sweep}
+
+      assert diagnostic.dependency_id == :sweep_profile_config
+      assert diagnostic.config_type == :sweep
+      assert diagnostic.affected_agents == :all_online
+      assert diagnostic.affected_agent_count == :all_online
+      assert diagnostic.result == :ok
+    end
+
+    test "SNMP default profile actions match the catalog" do
+      notification = %Notification{
+        resource: SNMPProfile,
+        action: %{type: :update, name: :set_as_default},
+        data: %{}
+      }
+
+      assert [entry] = DependencyCatalog.for_notification(notification)
+      assert entry.config_type == :snmp
     end
   end
 
