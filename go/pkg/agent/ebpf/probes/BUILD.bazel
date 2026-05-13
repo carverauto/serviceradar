@@ -1,0 +1,39 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "probes",
+    srcs = [
+        "command.go",
+        "command_bpfeb.go",
+        "command_bpfel.go",
+        "file.go",
+        "file_bpfeb.go",
+        "file_bpfel.go",
+        "loss.go",
+        "network.go",
+        "network_bpfeb.go",
+        "network_bpfel.go",
+        "selftest.go",
+        "selftest_bpfeb.go",
+        "selftest_bpfel.go",
+    ],
+    embedsrcs = [
+        "command_bpfeb.o",
+        "command_bpfel.o",
+        "file_bpfeb.o",
+        "file_bpfel.o",
+        "network_bpfeb.o",
+        "network_bpfel.o",
+        "selftest_bpfeb.o",
+        "selftest_bpfel.o",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_cilium_ebpf//:ebpf"],
+)
+
+go_test(
+    name = "probes_test",
+    srcs = ["selftest_test.go"],
+    embed = [":probes"],
+)

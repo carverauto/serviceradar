@@ -465,6 +465,7 @@ use_repo(
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
+    "com_github_cilium_ebpf",
     "com_github_google_uuid",
     "com_github_gorilla_websocket",
     "com_github_gosnmp_gosnmp",

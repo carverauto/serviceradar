@@ -16,6 +16,13 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
 
   require Logger
 
+  @min_terminal_cols 1
+  @max_terminal_cols 500
+  @min_terminal_rows 1
+  @max_terminal_rows 200
+  @max_browser_data_frame_bytes 65_536
+  @max_browser_data_frame_encoded_bytes div(@max_browser_data_frame_bytes + 2, 3) * 4
+
   @impl true
   def init(options) do
     {:ok,
@@ -59,6 +66,12 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
          [{:text, encode(%{type: "error", message: "Proxmox console broker is not available on the edge agent yet."})}],
          state}
 
+      {:error, :invalid_size} ->
+        _ = state.sessions_module.fail_session(state.session_id, :invalid_size, scope: state.scope)
+
+        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid console terminal dimensions."})}],
+         state}
+
       {:error, reason} ->
         Logger.warning("Proxmox console websocket attach rejected",
           session_id: state.session_id,
@@ -80,8 +93,8 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
         end
 
       {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
-        with {:ok, cols} <- positive_int(cols),
-             {:ok, rows} <- positive_int(rows),
+        with {:ok, cols} <- terminal_int(cols, @min_terminal_cols, @max_terminal_cols),
+             {:ok, rows} <- terminal_int(rows, @min_terminal_rows, @max_terminal_rows),
              :ok <- state.broker_module.resize(state.broker, cols, rows) do
           {:ok, reset_idle_timer(state)}
         else
@@ -149,12 +162,15 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   end
 
   defp start_broker(session, message, state) do
-    opts = [
-      cols: message |> Map.get("cols") |> positive_int_value(),
-      rows: message |> Map.get("rows") |> positive_int_value()
-    ]
+    with {:ok, cols} <- optional_terminal_int(Map.get(message, "cols"), @min_terminal_cols, @max_terminal_cols),
+         {:ok, rows} <- optional_terminal_int(Map.get(message, "rows"), @min_terminal_rows, @max_terminal_rows) do
+      opts = [
+        cols: cols,
+        rows: rows
+      ]
 
-    state.broker_module.start_link(session, self(), opts)
+      state.broker_module.start_link(session, self(), opts)
+    end
   end
 
   defp stop_for_broker_error(reason, state) do
@@ -213,12 +229,15 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
 
   defp decode_json(data) when is_binary(data), do: Jason.decode(data)
 
-  defp decode_base64(value) do
+  defp decode_base64(value) when byte_size(value) <= @max_browser_data_frame_encoded_bytes do
     case Base.decode64(value) do
-      {:ok, decoded} -> {:ok, decoded}
+      {:ok, decoded} when byte_size(decoded) <= @max_browser_data_frame_bytes -> {:ok, decoded}
+      {:ok, _decoded} -> {:error, :invalid_data_size}
       :error -> {:error, :invalid_data}
     end
   end
+
+  defp decode_base64(_value), do: {:error, :invalid_data_size}
 
   defp encode(payload), do: Jason.encode!(payload)
 
@@ -227,21 +246,31 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   defp format_close_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp format_close_reason(reason), do: inspect(reason)
 
-  defp positive_int(value) when is_integer(value) and value > 0, do: {:ok, value}
+  defp optional_terminal_int(nil, _min, _max), do: {:ok, nil}
 
-  defp positive_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} when int > 0 -> {:ok, int}
+  defp optional_terminal_int(value, min, max) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      _present -> terminal_int(value, min, max)
+    end
+  end
+
+  defp optional_terminal_int(value, min, max), do: terminal_int(value, min, max)
+
+  defp terminal_int(value, min, max) when is_integer(value) do
+    if value >= min and value <= max do
+      {:ok, value}
+    else
+      {:error, :invalid_size}
+    end
+  end
+
+  defp terminal_int(value, min, max) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> terminal_int(int, min, max)
       _ -> {:error, :invalid_size}
     end
   end
 
-  defp positive_int(_value), do: {:error, :invalid_size}
-
-  defp positive_int_value(value) do
-    case positive_int(value) do
-      {:ok, int} -> int
-      {:error, _reason} -> nil
-    end
-  end
+  defp terminal_int(_value, _min, _max), do: {:error, :invalid_size}
 end

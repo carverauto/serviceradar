@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -298,6 +299,13 @@ const (
 	defaultStatusHeartbeatInterval = 5 * time.Minute
 )
 
+func gatewayIDFromClient(gateway *agentgateway.GatewayClient) string {
+	if gateway == nil {
+		return ""
+	}
+	return gateway.GetGatewayID()
+}
+
 // NewPushLoop creates a new push loop.
 func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval time.Duration, log logger.Logger) *PushLoop {
 	if interval <= 0 {
@@ -316,7 +324,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 
 		return pluginManager.OpenCameraRelayStream(ctx, spec.PluginAssignmentID, spec)
 	}
-	remoteConsoleManager := newRemoteConsoleManager(log)
+	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
+	remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
 	remoteConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (remoteConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {
@@ -353,6 +362,17 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		cameraRelayManager:   cameraRelayManager,
 		remoteConsoleManager: remoteConsoleManager,
 	}
+}
+
+func remoteAccessKnownHostsFile(server *Server) string {
+	if server == nil || server.config == nil {
+		return ""
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return strings.TrimSpace(server.config.RemoteAccessKnownHostsFile)
 }
 
 // Start begins the push loop. It runs until the context is cancelled or Stop is called.
@@ -3172,7 +3192,11 @@ func isDockerRuntime() bool {
 }
 
 func getAgentCapabilities() []string {
-	return []string{
+	return agentCapabilities(remoteaccess.PlatformEnhancedRecordingAvailable())
+}
+
+func agentCapabilities(enhancedBPF bool) []string {
+	capabilities := []string{
 		"icmp",
 		"mtr",
 		sweepType,
@@ -3180,5 +3204,14 @@ func getAgentCapabilities() []string {
 		"mapper",
 		"sync",
 		"sysmon",
+		remoteaccess.CapabilityRemoteAccess,
+		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessRecording,
 	}
+
+	if enhancedBPF {
+		capabilities = append(capabilities, remoteaccess.CapabilityRemoteAccessBPF)
+	}
+
+	return capabilities
 }

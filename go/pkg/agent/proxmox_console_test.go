@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -253,4 +255,180 @@ func TestProxmoxConsoleManagerReportsReadFailure(t *testing.T) {
 	}
 
 	_ = sender.nextFrame(t, consoleFrameTypeClose)
+}
+
+func TestProxmoxConsoleManagerRoutesSSHOpenPayload(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	session := &fakeProxmoxConsoleSSHSession{
+		waitCh: make(chan struct{}),
+		stdout: strings.NewReader("login: "),
+		stderr: strings.NewReader(""),
+	}
+	manager := newProxmoxConsoleManager(createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(_ context.Context, cfg remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			if cfg.Target.Host != "router.example" {
+				t.Fatalf("ssh target host = %q", cfg.Target.Host)
+			}
+			if cfg.Auth.Username != "admin" || cfg.Auth.Password != "secret" {
+				t.Fatalf("ssh auth = %#v", cfg.Auth)
+			}
+
+			return session, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(ctx, &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Cols:      100,
+		Rows:      30,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"}
+		}`),
+	}, sender)
+
+	ready := sender.nextFrame(t, consoleFrameTypeReady)
+	if ready.GetSessionId() != "ssh-session-1" {
+		t.Fatalf("ready SessionId = %q", ready.GetSessionId())
+	}
+
+	output := sender.nextFrame(t, consoleFrameTypeData)
+	if string(output.GetData()) != "login: " {
+		t.Fatalf("ssh output = %q", string(output.GetData()))
+	}
+
+	manager.HandleFrame(ctx, &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeData,
+		Data:      []byte("whoami\r"),
+	}, sender)
+	manager.HandleFrame(ctx, &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeResize,
+		Cols:      132,
+		Rows:      43,
+	}, sender)
+
+	waitFor(t, time.Second, func() bool {
+		stdin, windowChanges := session.ioState()
+		return stdin == "whoami\r" &&
+			len(windowChanges) == 1 &&
+			windowChanges[0] == [2]int{43, 132}
+	})
+
+	ptyRows, ptyCols, shellStarted := session.ptyState()
+	if ptyRows != 30 || ptyCols != 100 || !shellStarted {
+		t.Fatalf("unexpected ssh pty rows=%d cols=%d shell=%t", ptyRows, ptyCols, shellStarted)
+	}
+
+	manager.HandleFrame(ctx, &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeClose,
+	}, sender)
+	_ = sender.nextFrame(t, consoleFrameTypeClose)
+
+	if !session.isClosed() {
+		t.Fatal("expected SSH session to close")
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsSSHOpenForDifferentAgent(t *testing.T) {
+	t.Parallel()
+
+	manager := newProxmoxConsoleManagerWithAgentID("agent-1", createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			t.Fatal("dialer should not be called for mismatched agent_id")
+			return nil, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"session_id": "ssh-session-1",
+			"agent_id": "agent-2",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"}
+		}`),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrSSHOpenAgentMismatch.Error()) {
+		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrSSHOpenAgentMismatch)
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsSSHOpenForDifferentGateway(t *testing.T) {
+	t.Parallel()
+
+	manager := newProxmoxConsoleManagerWithRoute("agent-1", "gateway-1", createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			t.Fatal("dialer should not be called for mismatched gateway_id")
+			return nil, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"session_id": "ssh-session-1",
+			"agent_id": "agent-1",
+			"gateway_id": "gateway-2",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"}
+		}`),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrSSHOpenGatewayMismatch.Error()) {
+		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrSSHOpenGatewayMismatch)
+	}
+}
+
+func TestProxmoxConsoleManagerFailsClosedWhenRequiredEnhancedRecordingUnavailable(t *testing.T) {
+	t.Parallel()
+
+	manager := newProxmoxConsoleManagerWithAgentID("agent-1", createTestLogger())
+	manager.sshOptions = remoteaccess.SSHOpenOptions{
+		Dial: func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SSHSession, error) {
+			t.Fatal("dialer should not be called when required enhanced recording is unavailable")
+			return nil, nil
+		},
+	}
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: "ssh-session-1",
+		FrameType: consoleFrameTypeOpen,
+		Data: []byte(`{
+			"protocol": "ssh",
+			"session_id": "ssh-session-1",
+			"agent_id": "agent-1",
+			"target_execution_mode": "managed_target",
+			"target": {"host": "router.example"},
+			"ssh": {"username": "admin", "password": "secret"},
+			"enhanced_recording_policy": {"enabled": true, "required": true, "mode": "bpf"}
+		}`),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable.Error()) {
+		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable)
+	}
 }

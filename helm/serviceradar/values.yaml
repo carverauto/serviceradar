@@ -666,11 +666,26 @@ agent:
   agentId: "k8s-agent"
   hostNetwork: true
   allowNetRaw: true
+  ebpf:
+    # eBPF access is a separate opt-in profile. Do not infer this from
+    # allowNetRaw; NET_RAW is for ICMP/MTR-style sockets, not BPF loading.
+    enabled: false
+    privileged: false
+    capabilities:
+      - BPF
+      - PERFMON
+      - SYS_RESOURCE
+    bpffsPath: /sys/fs/bpf
+    btfMountPath: /sys/kernel/btf
+    btfPath: /sys/kernel/btf/vmlinux
+    cgroupPath: /sys/fs/cgroup
+    cgroupReadOnly: false
   gatewayAddress: ""
   partitionId: "default"
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
+  remoteAccessKnownHostsFile: "/var/lib/serviceradar/checkers/remote-access-known_hosts"
   checkersStorage:
     enabled: true
     basePath: "/var/lib/serviceradar/checkers"

@@ -4,7 +4,7 @@
     "base_url": {
       "type": "string",
       "x-serviceradar-ui-hidden": true,
-      "description": "Agent-local direct target override, for example https://pve.example.com:8006. Central assignments should use credential rules and SRQL-scoped targets."
+      "description": "Direct target override for local lab runs, for example https://pve.example.com:8006. Central assignments should use credential rules and SRQL-scoped targets."
     },
     "credential_broker": {
       "type": "object",
@@ -21,7 +21,7 @@
     "targets": {
       "type": "array",
       "x-serviceradar-ui-hidden": true,
-      "description": "Credential-rule compiled Proxmox targets. Credentials are resolved by the edge credential broker or by agent-local direct configuration.",
+      "description": "Credential-rule compiled Proxmox targets. Credentials are resolved by the edge credential broker.",
       "items": {
         "type": "object",
         "properties": {

@@ -83,9 +83,6 @@ defmodule ServiceRadarAgentGateway.Application do
 
     # Gateway gRPC server configuration
     grpc_port = get_grpc_port()
-    ssl_server_opts = edge_server_ssl_opts!()
-    grpc_ssl_opts = GRPC.Credential.new(ssl: ssl_server_opts)
-    artifact_server_opts = get_artifact_server_opts(ssl_server_opts)
 
     capabilities = parse_capabilities(System.get_env("GATEWAY_CAPABILITIES", ""))
 
@@ -100,8 +97,6 @@ defmodule ServiceRadarAgentGateway.Application do
     OtelSetup.attach_instrumentations(instrumentations: [])
 
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
-    Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
-    Logger.info("Agent Gateway artifact server listening on port #{artifact_server_opts[:port]}")
 
     # NOTE: Gateway does NOT start Repo - it has no database access.
     # All database-dependent operations are forwarded to core-elx via RPC.
@@ -141,20 +136,12 @@ defmodule ServiceRadarAgentGateway.Application do
         [
           ServiceRadarAgentGateway.AgentRegistryProxy,
           ServiceRadarAgentGateway.StatusBuffer,
-          ServiceRadarAgentGateway.CameraMediaSessionTracker,
-
-          # gRPC server that receives status pushes from Go agents
-          {GRPC.Server.Supervisor,
-           endpoint: ServiceRadarAgentGateway.Endpoint,
-           port: grpc_port,
-           start_server: true,
-           adapter_opts: build_adapter_opts(grpc_ssl_opts)},
-          ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
+          ServiceRadarAgentGateway.CameraMediaSessionTracker
 
           # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
           # In the new push-only architecture, agents push status to the gateway.
           # The gateway never initiates connections to agents.
-        ] ++ registration_children
+        ] ++ edge_listener_children(grpc_port) ++ registration_children
 
     children = core_children ++ gateway_children
 
@@ -185,6 +172,30 @@ defmodule ServiceRadarAgentGateway.Application do
       keyfile: Keyword.fetch!(ssl_opts, :keyfile),
       cacertfile: Keyword.fetch!(ssl_opts, :cacertfile)
     ]
+  end
+
+  defp edge_listener_children(grpc_port) do
+    if Application.get_env(:serviceradar_agent_gateway, :edge_listeners_enabled, true) do
+      ssl_server_opts = edge_server_ssl_opts!()
+      grpc_ssl_opts = GRPC.Credential.new(ssl: ssl_server_opts)
+      artifact_server_opts = get_artifact_server_opts(ssl_server_opts)
+
+      Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
+      Logger.info("Agent Gateway artifact server listening on port #{artifact_server_opts[:port]}")
+
+      [
+        # gRPC server that receives status pushes from Go agents
+        {GRPC.Server.Supervisor,
+         endpoint: ServiceRadarAgentGateway.Endpoint,
+         port: grpc_port,
+         start_server: true,
+         adapter_opts: build_adapter_opts(grpc_ssl_opts)},
+        ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
+      ]
+    else
+      Logger.warning("Agent Gateway edge listeners disabled by configuration")
+      []
+    end
   end
 
   defp get_artifact_port do

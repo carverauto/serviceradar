@@ -7,6 +7,8 @@ import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import OperationsTrafficMap from "./OperationsTrafficMap"
 import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
+import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
+import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
@@ -37,6 +39,8 @@ export default {
   MapboxFlowMap,
   OperationsTrafficMap,
   ProxmoxConsoleTerminal,
+  RemoteAccessSSHConsole,
+  RemoteAccessTerminal,
   RemoteConsoleTerminal,
   SRQLTimeCookie,
   SpatialSurveyMap,

@@ -111,7 +111,7 @@ Credential purpose boundaries:
 
 - `inventory_enrichment` grants read-only collection of host, guest, storage, network, and health data.
 - `console_access` grants only the material needed to open a user-initiated console session to a selected target.
-- `ssh_access` and `rdp_access` are direct device access purposes and should prefer browser-provided or agent-local keys over centrally stored private keys.
+- `ssh_access` and `rdp_access` are direct device access purposes and should prefer browser-provided session credentials or ServiceRadar-issued short-lived certificates over centrally stored private keys.
 - Future write purposes must be separate from inventory and console purposes, auditable, and disabled unless explicitly granted.
 
 Agents receive credential broker grants only for rules whose provider, purpose, target scope, and agent/site scope match the assignment being materialized.
@@ -152,7 +152,7 @@ Remote-console target metadata has these responsibilities:
 - `capabilities`: stream operations supported by the target, for example `data`, `resize`, and `close`.
 - `metadata`: non-secret display and routing hints such as hostname, IP, target kind, or console mode.
 
-Provider adapters own protocol-specific details after the target metadata is selected. For example, Proxmox can turn `proxmox-termproxy` into native PVE API calls, while a generic SSH adapter can use a browser-supplied key or an agent-local bastion key. The session lifecycle, RBAC, audit fields, credential-rule purpose, and web-ng to gateway to agent tunnel remain provider neutral.
+Provider adapters own protocol-specific details after the target metadata is selected. For example, Proxmox can turn `proxmox-termproxy` into native PVE API calls, while a generic SSH adapter can use a browser-supplied session key or a ServiceRadar-issued short-lived SSH certificate. The session lifecycle, RBAC, audit fields, credential-rule purpose, and web-ng to gateway to agent tunnel remain provider neutral.
 
 For a normal network device SSH console, `provider` can be omitted or set to `generic`, `target_type` can be `device`, and the target ref should be the canonical device UID or device identifier. For Windows hosts, the same session model should later allow an `rdp` protocol adapter, even if the browser renderer differs from xterm.
 

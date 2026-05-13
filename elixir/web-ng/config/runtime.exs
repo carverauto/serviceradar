@@ -1,6 +1,7 @@
 import Config
 
 alias Geolix.Adapter.MMDB2
+alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias Swoosh.Adapters.Local
 
 require Logger
@@ -466,6 +467,64 @@ camera_relay_browser_stream_timeout_ms =
     _other -> 86_400_000
   end
 
+remote_access_browser_key_remember_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+remote_access_ssh_host_key_skip_verify_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+remote_access_target_host_override_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+remote_access_target_port_override_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+remote_access_ssh_certificate_policy =
+  case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON") do
+    nil ->
+      case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE") do
+        nil -> %{}
+        "" -> %{}
+        path -> path |> File.read!() |> Jason.decode!()
+      end
+
+    "" ->
+      %{}
+
+    raw ->
+      Jason.decode!(raw)
+  end
+
+remote_access_ssh_ca_signer_enabled =
+  System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED", "false") in ~w(true 1 yes)
+
+remote_access_ssh_ca_signer_args =
+  case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON") do
+    nil ->
+      []
+
+    "" ->
+      []
+
+    raw ->
+      case Jason.decode!(raw) do
+        values when is_list(values) -> Enum.filter(values, &is_binary/1)
+        _other -> []
+      end
+  end
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -496,6 +555,37 @@ config :serviceradar_web_ng,
 config :serviceradar_web_ng,
   god_view_runtime_graph_refresh_ms: god_view_runtime_graph_refresh_ms,
   god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh
+
+config :serviceradar_web_ng,
+  remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
+
+config :serviceradar_web_ng,
+  remote_access_ssh_host_key_skip_verify_enabled: remote_access_ssh_host_key_skip_verify_enabled
+
+config :serviceradar_web_ng,
+  remote_access_target_host_override_enabled: remote_access_target_host_override_enabled
+
+config :serviceradar_web_ng,
+  remote_access_target_port_override_enabled: remote_access_target_port_override_enabled
+
+if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
+  config :serviceradar_core,
+    remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
+end
+
+if remote_access_ssh_ca_signer_enabled do
+  signer_command =
+    System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND", "serviceradar-sshca-signer")
+
+  signer_ca_key_id = System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID")
+
+  config :serviceradar_core, RemoteAccessSSHCACommandSigner,
+    command: signer_command,
+    args: remote_access_ssh_ca_signer_args,
+    ca_key_id: signer_ca_key_id
+
+  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates, signer: RemoteAccessSSHCACommandSigner
+end
 
 if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,

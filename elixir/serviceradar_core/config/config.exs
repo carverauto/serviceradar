@@ -113,6 +113,9 @@ config :serviceradar_core,
   mtr_consensus_cohort_retention_ms: 300_000
 
 config :serviceradar_core,
+  remote_access_ssh_certificate_policy: %{}
+
+config :serviceradar_core,
   run_startup_migrations: false
 
 # Sweep SRQL paging configuration

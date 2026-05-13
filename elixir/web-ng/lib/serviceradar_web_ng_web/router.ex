@@ -300,6 +300,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
     get("/proxmox/console-sessions/:id/stream", ProxmoxConsoleStreamController, :connect)
+    get("/remote-access/sessions/:id/stream", RemoteAccessStreamController, :connect)
   end
 
   # Other scopes may use custom stacks.
@@ -316,6 +317,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/proxmox/console-sessions", ProxmoxConsoleSessionController, :create)
     get("/proxmox/console-sessions/:id", ProxmoxConsoleSessionController, :show)
     post("/proxmox/console-sessions/:id/close", ProxmoxConsoleSessionController, :close)
+    get("/remote-access/host-keys", RemoteAccessHostKeyController, :index)
+    post("/remote-access/host-keys/observations", RemoteAccessHostKeyController, :observe)
+    post("/remote-access/host-keys/:id/trust", RemoteAccessHostKeyController, :trust)
+    post("/remote-access/host-keys/:id/revoke", RemoteAccessHostKeyController, :revoke)
+    post("/remote-access/host-keys/:id/rotate", RemoteAccessHostKeyController, :rotate)
+    post("/remote-access/sessions", RemoteAccessSessionController, :create)
+    get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
+    post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
+    get("/remote-access/recordings/:id", RemoteAccessRecordingController, :show)
+    get("/remote-access/recordings/:id/events", RemoteAccessRecordingController, :events)
+    get("/remote-access/recordings/:id/export", RemoteAccessRecordingController, :export)
     post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
 
     post(
@@ -652,6 +664,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
+      live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
       live("/interfaces", InterfaceLive.Index, :index)
 
@@ -718,6 +731,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
       live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
       live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
+      live("/settings/networks/host-keys", Settings.RemoteAccessHostKeysLive, :index)
+      live("/settings/networks/recordings", Settings.RemoteAccessRecordingsLive, :index)
+      live("/settings/networks/recordings/:id", Settings.RemoteAccessRecordingsLive, :show)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
       live("/settings/networks/field-survey", Settings.FieldSurveyLive.Index, :index)
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)

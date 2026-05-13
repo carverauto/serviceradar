@@ -23,7 +23,21 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @default_absolute_timeout_seconds 30 * 24 * 60 * 60
   @session_started_key :session_started_at
   @user_token_key "user_token"
+  @identity_claims_key "identity_claims"
   @sudo_at_key "sudo_authenticated_at"
+  @sensitive_identity_claim_keys ~w[
+    access_token
+    assertion
+    client_secret
+    credential
+    id_token
+    password
+    passphrase
+    private_key
+    refresh_token
+    secret
+    token
+  ]
 
   @doc """
   Logs the user in by creating a Guardian session token.
@@ -43,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         |> put_session(@user_token_key, token)
         |> put_session(@session_started_key, session_started_at)
         |> put_session(@sudo_at_key, session_started_at)
+        |> put_identity_claims_session(params)
         |> delete_session(:user_return_to)
         |> put_session(:live_socket_id, "users_sessions:#{user.id}")
         |> configure_session(renew: true, max_age: max_age_seconds)
@@ -291,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp authenticate_with_token(conn, token, :bearer) do
     case Guardian.verify_token(token, token_type: "access") do
       {:ok, user, _claims} ->
-        assign(conn, :current_scope, create_scope(user))
+        assign(conn, :current_scope, create_scope(user, identity_claims: %{}))
 
       {:error, reason} ->
         log_session_failure(conn, reason)
@@ -302,7 +317,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp refresh_and_assign_scope(conn, user, claims) do
     case refresh_session(conn, user, claims) do
       {:ok, refreshed_conn} ->
-        assign(refreshed_conn, :current_scope, create_scope(user))
+        assign(refreshed_conn, :current_scope, create_scope(user, refreshed_conn))
 
       {:error, refreshed_conn} ->
         assign(refreshed_conn, :current_scope, Scope.for_user(nil))
@@ -422,23 +437,80 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp mount_current_scope(socket, session) do
     Phoenix.Component.assign_new(socket, :current_scope, fn ->
-      user =
+      {user, identity_claims} =
         with token when is_binary(token) <- session[@user_token_key],
              {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do
-          user
+          {user, normalize_identity_claims(session[@identity_claims_key])}
         else
-          _ -> nil
+          _ -> {nil, %{}}
         end
 
-      create_scope(user)
+      create_scope(user, identity_claims: identity_claims)
     end)
   end
 
-  defp create_scope(nil), do: Scope.for_user(nil)
+  defp create_scope(nil, _opts), do: Scope.for_user(nil)
 
-  defp create_scope(user) do
+  defp create_scope(user, %Plug.Conn{} = conn) do
+    create_scope(user, identity_claims: get_session_identity_claims(conn))
+  end
+
+  defp create_scope(user, opts) do
     permissions = ServiceRadar.Identity.RBAC.permissions_for_user(user)
-    Scope.for_user(user, permissions: permissions)
+    Scope.for_user(user, permissions: permissions, identity_claims: Keyword.get(opts, :identity_claims, %{}))
+  end
+
+  defp put_identity_claims_session(conn, params) do
+    case params_identity_claims(params) do
+      claims when map_size(claims) > 0 -> put_session(conn, @identity_claims_key, claims)
+      _ -> delete_session(conn, @identity_claims_key)
+    end
+  end
+
+  defp params_identity_claims(params) when is_map(params) do
+    params
+    |> Map.get("identity_claims", Map.get(params, :identity_claims, %{}))
+    |> normalize_identity_claims()
+  end
+
+  defp params_identity_claims(_params), do: %{}
+
+  defp get_session_identity_claims(conn) do
+    conn
+    |> get_session(@identity_claims_key)
+    |> normalize_identity_claims()
+  end
+
+  defp normalize_identity_claims(claims) when is_map(claims) do
+    claims
+    |> Enum.reject(fn {key, _value} -> sensitive_identity_claim_key?(key) end)
+    |> Map.new(fn {key, value} -> {to_string(key), normalize_identity_claim_value(value)} end)
+  end
+
+  defp normalize_identity_claims(_claims), do: %{}
+
+  defp normalize_identity_claim_value(value) when is_map(value), do: normalize_identity_claims(value)
+
+  defp normalize_identity_claim_value(value) when is_list(value) do
+    value
+    |> Enum.take(100)
+    |> Enum.map(&normalize_identity_claim_value/1)
+  end
+
+  defp normalize_identity_claim_value(value) when is_binary(value), do: String.slice(value, 0, 1_000)
+  defp normalize_identity_claim_value(value) when is_boolean(value), do: value
+  defp normalize_identity_claim_value(value) when is_integer(value), do: value
+  defp normalize_identity_claim_value(value) when is_float(value), do: value
+  defp normalize_identity_claim_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_identity_claim_value(_value), do: nil
+
+  defp sensitive_identity_claim_key?(key) do
+    key =
+      key
+      |> to_string()
+      |> String.downcase()
+
+    Enum.any?(@sensitive_identity_claim_keys, &String.contains?(key, &1))
   end
 
   @doc "Returns the path to redirect to after log in."

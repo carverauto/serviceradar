@@ -78,6 +78,25 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
       assert conn.assigns.current_scope.user.id == user.id
     end
 
+    test "assigns sanitized session identity claims to current_scope", %{conn: conn, user: user} do
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+
+      conn =
+        conn
+        |> put_session("user_token", token)
+        |> put_session("identity_claims", %{
+          "groups" => ["linux-admins"],
+          "id_token" => "raw-id-token",
+          "nested" => %{"refresh_token" => "raw-refresh-token", "department" => "ops"}
+        })
+        |> UserAuth.fetch_current_scope_for_user([])
+
+      assert conn.assigns.current_scope.identity_claims["groups"] == ["linux-admins"]
+      assert conn.assigns.current_scope.identity_claims["nested"]["department"] == "ops"
+      refute Map.has_key?(conn.assigns.current_scope.identity_claims, "id_token")
+      refute Map.has_key?(conn.assigns.current_scope.identity_claims["nested"], "refresh_token")
+    end
+
     test "clears session when absolute timeout has elapsed", %{conn: conn, user: user} do
       original_config = Application.get_env(:serviceradar_web_ng, :session, [])
 

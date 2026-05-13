@@ -1,0 +1,584 @@
+defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
+  @moduledoc """
+  Authenticated API for issuing generic remote-access session tickets.
+  """
+
+  use ServiceRadarWebNGWeb, :controller
+
+  alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.RBAC
+
+  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+
+  @remote_access_permission "devices.remote_access.ssh.open"
+  @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
+  @browser_selectable_ssh_custody_modes ~w(ssh_certificate user_present)
+  @min_target_port 1
+  @max_target_port 65_535
+  @min_terminal_cols 1
+  @max_terminal_cols 500
+  @min_terminal_rows 1
+  @max_terminal_rows 200
+  @client_controlled_metadata_denylist ~w(
+    allowed_principals
+    certificate_envelope
+    credential
+    credential_custody_mode
+    credential_mode
+    credentials
+    passphrase
+    password
+    principal_mappings
+    private_key
+    secret
+    secret_payload
+    ssh
+    ssh_allowed_principals
+    ssh_certificate
+    ssh_certificate_ttl_seconds
+    ssh_principal_mappings
+    ticket
+    token
+  )
+  @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
+
+  def create(conn, params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @remote_access_permission),
+         {:ok, request} <- normalize_create_request(params),
+         {:ok, %{session: %RemoteAccessSession{} = session, ticket: ticket}} <-
+           remote_access_session_manager().request_open(request.device_uid, request, scope: get_scope(conn)) do
+      conn
+      |> put_status(:created)
+      |> json(%{data: session_json(session, ticket)})
+    else
+      {:error, :invalid_request, message} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "invalid_request", message: message})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden", message: "Remote access permission is required"})
+
+      {:error, :approval_required} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "approval_required", message: "Remote access approval is required"})
+
+      {:error, :approval_denied} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "approval_denied", message: "Remote access approval was denied"})
+
+      {:error, reason}
+      when reason in [
+             :approval_pending,
+             :approval_not_found,
+             :approval_expired,
+             :approval_consumed,
+             :approval_scope_mismatch
+           ] ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: Atom.to_string(reason), message: format_reason(reason)})
+
+      {:error, :approval_checker_required} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{
+          error: "approval_checker_required",
+          message: "Remote access approval must be verified before a session can start"
+        })
+
+      {:error, reason} when reason in [:device_not_found, :not_found] ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access target was not found"})
+
+      {:error, reason}
+      when reason in [
+             :missing_agent_scope,
+             :missing_remote_access_target,
+             :unsupported_remote_access_protocol,
+             :unsupported_remote_access_adapter,
+             :unsupported_remote_access_target,
+             :unsupported_credential_custody_mode,
+             :ssh_principal_policy_required,
+             :credential_rule_required,
+             :credential_rule_not_found,
+             :credential_rule_disabled,
+             :credential_rule_protocol_mismatch,
+             :credential_rule_purpose_mismatch,
+             :credential_rule_scope_mismatch
+           ] ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "remote_access_session_unavailable", message: format_reason(reason)})
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
+  def show(conn, %{"id" => id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @remote_access_permission),
+         {:ok, normalized_id} <- normalize_uuid(id, "id"),
+         {:ok, %RemoteAccessSession{} = session} <-
+           RemoteAccessSession.get_by_id(normalized_id, scope: get_scope(conn)) do
+      json(conn, %{data: session_json(session)})
+    else
+      {:error, :invalid_request, message} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "invalid_request", message: message})
+
+      {:ok, nil} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, %Ash.Error.Query.NotFound{}} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
+  def close(conn, %{"id" => id} = params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @remote_access_permission),
+         {:ok, normalized_id} <- normalize_uuid(id, "id"),
+         {:ok, %RemoteAccessSession{} = session} <-
+           remote_access_session_manager().request_close(normalized_id,
+             reason: normalize_optional_string(Map.get(params, "reason")),
+             scope: get_scope(conn)
+           ) do
+      json(conn, %{data: session_json(session)})
+    else
+      {:error, :invalid_request, message} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "invalid_request", message: message})
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
+  defp normalize_create_request(params) when is_map(params) do
+    metadata = normalize_metadata(Map.get(params, "metadata"))
+    raw_ssh_host_key_policy = Map.get(params, "ssh_host_key_policy", metadata_value(metadata, "ssh_host_key_policy"))
+
+    with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
+         :ok <- validate_public_ssh_request(params),
+         :ok <- validate_browser_route_selection(params),
+         :ok <- validate_browser_policy_selection(params),
+         :ok <- validate_browser_credential_rule_selection(params),
+         {:ok, credential_custody_mode} <-
+           normalize_public_ssh_custody_mode(Map.get(params, "credential_custody_mode")),
+         :ok <- validate_target_host_override(Map.get(params, "target_host")),
+         {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
+         {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")),
+         {:ok, approval_id} <- normalize_optional_uuid(Map.get(params, "approval_id"), "approval_id"),
+         {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
+      metadata =
+        metadata
+        |> drop_metadata_key("ssh_host_key_policy")
+        |> drop_client_controlled_metadata()
+        |> put_optional("ssh_host_key_policy", ssh_host_key_policy)
+
+      {:ok,
+       %{
+         device_uid: device_uid,
+         protocol: "ssh",
+         adapter: "ssh",
+         target_kind: "inventory_device",
+         target_host: normalize_optional_string(Map.get(params, "target_host")),
+         target_port: target_port,
+         agent_id: nil,
+         gateway_id: nil,
+         credential_custody_mode: credential_custody_mode,
+         credential_rule_id: nil,
+         approval_required: Map.get(params, "approval_required"),
+         approval_id: approval_id,
+         cols: terminal.cols,
+         rows: terminal.rows,
+         metadata: metadata,
+         recording_policy: %{},
+         enhanced_recording_policy: %{}
+       }}
+    end
+  end
+
+  defp normalize_create_request(_params), do: {:error, :invalid_request, "request body is required"}
+
+  defp validate_public_ssh_request(params) do
+    with :ok <- validate_optional_string_value(Map.get(params, "protocol"), "ssh", "protocol"),
+         :ok <- validate_optional_string_value(Map.get(params, "adapter"), "ssh", "adapter") do
+      validate_optional_string_value(Map.get(params, "target_kind"), "inventory_device", "target_kind")
+    end
+  end
+
+  defp validate_optional_string_value(value, allowed_value, field_name) do
+    case normalize_optional_string(value) do
+      nil -> :ok
+      ^allowed_value -> :ok
+      _other -> {:error, :invalid_request, "#{field_name} is not supported by this endpoint"}
+    end
+  end
+
+  defp validate_browser_route_selection(params) do
+    with :ok <- reject_browser_supplied_route_value(Map.get(params, "agent_id"), "agent_id") do
+      reject_browser_supplied_route_value(Map.get(params, "gateway_id"), "gateway_id")
+    end
+  end
+
+  defp reject_browser_supplied_route_value(value, field_name) do
+    case normalize_optional_string(value) do
+      nil -> :ok
+      _route_value -> {:error, :invalid_request, "#{field_name} is selected by inventory policy"}
+    end
+  end
+
+  defp validate_browser_policy_selection(params) do
+    with :ok <- reject_browser_supplied_policy(Map.get(params, "recording_policy"), "recording_policy") do
+      reject_browser_supplied_policy(Map.get(params, "enhanced_recording_policy"), "enhanced_recording_policy")
+    end
+  end
+
+  defp reject_browser_supplied_policy(nil, _field_name), do: :ok
+  defp reject_browser_supplied_policy(value, _field_name) when value == %{}, do: :ok
+
+  defp reject_browser_supplied_policy(_value, field_name),
+    do: {:error, :invalid_request, "#{field_name} is selected by remote-access policy"}
+
+  defp validate_browser_credential_rule_selection(params) do
+    case normalize_optional_string(Map.get(params, "credential_rule_id")) do
+      nil -> :ok
+      _credential_rule_id -> {:error, :invalid_request, "credential_rule_id is selected by remote-access policy"}
+    end
+  end
+
+  defp normalize_public_ssh_custody_mode(value) do
+    case normalize_optional_string(value) do
+      nil ->
+        {:ok, nil}
+
+      mode when mode in @browser_selectable_ssh_custody_modes ->
+        {:ok, mode}
+
+      _mode ->
+        {:error, :invalid_request, "credential_custody_mode is selected by remote-access policy"}
+    end
+  end
+
+  defp validate_target_host_override(value) do
+    case normalize_optional_string(value) do
+      nil ->
+        :ok
+
+      _target_host ->
+        if Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, false) ==
+             true do
+          :ok
+        else
+          {:error, :invalid_request, "target_host override is not enabled"}
+        end
+    end
+  end
+
+  defp normalize_target_port(nil), do: {:ok, nil}
+
+  defp normalize_target_port(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      _present -> normalize_present_target_port(value)
+    end
+  end
+
+  defp normalize_target_port(value), do: normalize_present_target_port(value)
+
+  defp normalize_present_target_port(value) do
+    if Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) ==
+         true do
+      normalize_integer(value, "target_port", @min_target_port, @max_target_port)
+    else
+      {:error, :invalid_request, "target_port override is not enabled"}
+    end
+  end
+
+  defp normalize_terminal(nil), do: {:ok, %{cols: nil, rows: nil}}
+
+  defp normalize_terminal(value) when is_map(value) do
+    with {:ok, cols} <-
+           normalize_optional_integer(
+             Map.get(value, "cols") || Map.get(value, :cols),
+             "terminal.cols",
+             @min_terminal_cols,
+             @max_terminal_cols
+           ),
+         {:ok, rows} <-
+           normalize_optional_integer(
+             Map.get(value, "rows") || Map.get(value, :rows),
+             "terminal.rows",
+             @min_terminal_rows,
+             @max_terminal_rows
+           ) do
+      {:ok, %{cols: cols, rows: rows}}
+    end
+  end
+
+  defp normalize_terminal(_value), do: {:error, :invalid_request, "terminal must be an object"}
+
+  defp normalize_uuid(value, field_name) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Ecto.UUID.cast(trimmed) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_request, "#{field_name} must be a valid UUID"}
+    end
+  end
+
+  defp normalize_uuid(_value, field_name), do: {:error, :invalid_request, "#{field_name} is required"}
+
+  defp normalize_optional_uuid(nil, _field_name), do: {:ok, nil}
+
+  defp normalize_optional_uuid(value, field_name) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      trimmed -> normalize_uuid(trimmed, field_name)
+    end
+  end
+
+  defp normalize_optional_uuid(_value, field_name), do: {:error, :invalid_request, "#{field_name} must be a valid UUID"}
+
+  defp normalize_required_string(value, field_name) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, :invalid_request, "#{field_name} is required"}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp normalize_required_string(_value, field_name), do: {:error, :invalid_request, "#{field_name} is required"}
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_optional_string(_value), do: nil
+
+  defp normalize_optional_integer(nil, _field_name, _min, _max), do: {:ok, nil}
+
+  defp normalize_optional_integer(value, field_name, min, max) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      _present -> normalize_integer(value, field_name, min, max)
+    end
+  end
+
+  defp normalize_optional_integer(value, field_name, min, max), do: normalize_integer(value, field_name, min, max)
+
+  defp normalize_integer(value, field_name, min, max) when is_integer(value) do
+    if value >= min and value <= max do
+      {:ok, value}
+    else
+      {:error, :invalid_request, "#{field_name} must be between #{min} and #{max}"}
+    end
+  end
+
+  defp normalize_integer(value, field_name, min, max) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> normalize_integer(int, field_name, min, max)
+      _error -> {:error, :invalid_request, "#{field_name} must be an integer"}
+    end
+  end
+
+  defp normalize_integer(_value, field_name, _min, _max),
+    do: {:error, :invalid_request, "#{field_name} must be an integer"}
+
+  defp normalize_ssh_host_key_policy(nil), do: {:ok, nil}
+
+  defp normalize_ssh_host_key_policy(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      policy -> validate_ssh_host_key_policy(policy)
+    end
+  end
+
+  defp normalize_ssh_host_key_policy(_value), do: {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+
+  defp validate_ssh_host_key_policy(policy) do
+    if policy in allowed_ssh_host_key_policies() do
+      {:ok, policy}
+    else
+      {:error, :invalid_request, "ssh_host_key_policy is not supported"}
+    end
+  end
+
+  defp allowed_ssh_host_key_policies do
+    if Application.get_env(
+         :serviceradar_web_ng,
+         :remote_access_ssh_host_key_skip_verify_enabled,
+         false
+       ) == true do
+      @base_ssh_host_key_policies ++ ["skip_verify"]
+    else
+      @base_ssh_host_key_policies
+    end
+  end
+
+  defp normalize_metadata(value) when is_map(value), do: value
+  defp normalize_metadata(_value), do: %{}
+
+  defp metadata_value(map, "ssh_host_key_policy") do
+    Map.get(map, "ssh_host_key_policy") || Map.get(map, :ssh_host_key_policy)
+  end
+
+  defp drop_metadata_key(map, "ssh_host_key_policy") do
+    map
+    |> Map.delete("ssh_host_key_policy")
+    |> Map.delete(:ssh_host_key_policy)
+  end
+
+  defp drop_metadata_key(map, key) when is_binary(key) do
+    map
+    |> Map.delete(key)
+    |> then(fn map ->
+      case safe_existing_atom(key) do
+        nil -> map
+        atom_key -> Map.delete(map, atom_key)
+      end
+    end)
+  end
+
+  defp drop_client_controlled_metadata(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      if client_controlled_metadata_key?(key) do
+        acc
+      else
+        Map.put(acc, key, drop_client_controlled_metadata_value(value))
+      end
+    end)
+  end
+
+  defp drop_client_controlled_metadata_value(value) when is_map(value), do: drop_client_controlled_metadata(value)
+
+  defp drop_client_controlled_metadata_value(value) when is_list(value),
+    do: Enum.map(value, &drop_client_controlled_metadata_value/1)
+
+  defp drop_client_controlled_metadata_value(value), do: value
+
+  defp client_controlled_metadata_key?(key) when is_atom(key), do: client_controlled_metadata_key?(Atom.to_string(key))
+
+  defp client_controlled_metadata_key?(key) when is_binary(key) do
+    normalized = String.downcase(key)
+
+    normalized in @client_controlled_metadata_denylist or
+      Enum.any?(@client_controlled_metadata_suffixes, &String.ends_with?(normalized, &1))
+  end
+
+  defp client_controlled_metadata_key?(_key), do: false
+
+  defp put_optional(map, _key, nil), do: map
+  defp put_optional(map, key, value), do: Map.put(map, key, value)
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp session_json(session, ticket \\ nil) do
+    data = %{
+      id: session.id,
+      device_uid: session.device_uid,
+      target_kind: format_value(session.target_kind),
+      target_host: session.target_host,
+      target_port: session.target_port,
+      protocol: format_value(session.protocol),
+      adapter: format_value(session.adapter),
+      agent_id: session.agent_id,
+      gateway_id: session.gateway_id,
+      credential_custody_mode: format_value(session.credential_custody_mode),
+      credential_rule_id: session.credential_rule_id,
+      approval_id: session.approval_id,
+      rbac_decision: format_value(session.rbac_decision),
+      status: format_value(session.status),
+      outcome: format_value(session.outcome),
+      attach_expires_at: format_value(session.attach_expires_at),
+      idle_timeout_seconds: session.idle_timeout_seconds,
+      absolute_timeout_seconds: session.absolute_timeout_seconds,
+      websocket_path: "/v1/remote-access/sessions/#{session.id}/stream",
+      close_reason: session.close_reason,
+      failure_reason: session.failure_reason,
+      inserted_at: format_value(session.inserted_at),
+      updated_at: format_value(session.updated_at)
+    }
+
+    if is_binary(ticket), do: Map.put(data, :ticket, ticket), else: data
+  end
+
+  defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp format_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp format_value(value), do: value
+
+  defp format_reason(:missing_agent_scope), do: "target has no selected edge agent for remote-access routing"
+  defp format_reason(:missing_remote_access_target), do: "target host could not be resolved for remote access"
+  defp format_reason(:unsupported_remote_access_protocol), do: "requested remote-access protocol is not supported"
+  defp format_reason(:unsupported_remote_access_adapter), do: "requested remote-access adapter is not supported"
+  defp format_reason(:unsupported_remote_access_target), do: "requested remote-access target is not supported"
+  defp format_reason(:unsupported_credential_custody_mode), do: "requested credential custody mode is not supported"
+
+  defp format_reason(:ssh_principal_policy_required),
+    do: "SSH certificate access requires trusted principal policy for the target"
+
+  defp format_reason(:credential_rule_required), do: "centrally brokered remote access requires a trusted credential rule"
+
+  defp format_reason(:credential_rule_not_found), do: "trusted credential rule was not found"
+  defp format_reason(:credential_rule_disabled), do: "trusted credential rule is disabled"
+  defp format_reason(:credential_rule_protocol_mismatch), do: "trusted credential rule does not match the protocol"
+  defp format_reason(:credential_rule_purpose_mismatch), do: "trusted credential rule is not valid for remote access"
+  defp format_reason(:credential_rule_scope_mismatch), do: "trusted credential rule does not match the selected route"
+  defp format_reason(:approval_pending), do: "remote access approval is still pending"
+  defp format_reason(:approval_not_found), do: "remote access approval was not found"
+  defp format_reason(:approval_expired), do: "remote access approval has expired"
+  defp format_reason(:approval_consumed), do: "remote access approval has already been used"
+  defp format_reason(:approval_scope_mismatch), do: "remote access approval does not match the requested session"
+
+  defp format_reason(reason), do: Atom.to_string(reason)
+
+  defp remote_access_session_manager do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :remote_access_session_manager,
+      ServiceRadar.Edge.RemoteAccessSessions
+    )
+  end
+
+  defp get_scope(conn), do: conn.assigns[:current_scope]
+
+  defp require_authenticated(conn) do
+    case conn.assigns[:current_scope] do
+      %Scope{user: user} when not is_nil(user) -> :ok
+      _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp require_permission(conn, permission) when is_binary(permission) do
+    scope = conn.assigns[:current_scope]
+    if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
+  end
+end

@@ -2982,6 +2982,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
+      |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
@@ -3063,6 +3064,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               {proxmox_console_action_label(@virtualization_summary)}
             </.ui_button>
             <.ui_button
+              :if={@can_remote_access and not @device_deleted}
+              href={~p"/devices/#{@device_uid}/remote-access/ssh"}
+              variant="outline"
+              size="sm"
+            >
+              <.icon name="hero-key" class="size-4" /> SSH
+            </.ui_button>
+            <.ui_button
               :if={@can_edit and not @editing}
               phx-click="toggle_edit"
               variant="outline"
@@ -3097,7 +3106,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-          
+
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -3204,7 +3213,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </div>
             </div>
           </div>
-          
+
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -3579,7 +3588,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </.form>
             </div>
           </div>
-          
+
     <!-- Tabs Navigation -->
           <div
             :if={is_map(@device_row)}
@@ -3648,7 +3657,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
             </button>
           </div>
-          
+
     <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
@@ -3771,12 +3780,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-          
+
     <!-- Guests Tab Content -->
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
-          
+
     <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content
@@ -9744,6 +9753,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
 
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
+
+  defp can_remote_access_device?(scope), do: RBAC.can?(scope, "devices.remote_access.ssh.open")
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
 

@@ -117,7 +117,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp can_discovery_tab?(current_scope) do
     RBAC.can?(current_scope, "settings.networks.manage") or
       RBAC.can?(current_scope, "settings.snmp_profiles.manage") or
-      RBAC.can?(current_scope, "settings.credentials.manage")
+      RBAC.can?(current_scope, "settings.credentials.manage") or
+      RBAC.can?(current_scope, "settings.remote_access_host_keys.manage") or
+      RBAC.can?(current_scope, "devices.remote_access.ssh.open")
   end
 
   defp can_networks_tab?(current_scope) do
@@ -364,6 +366,16 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             active: String.starts_with?(path, "/settings/networks/credentials")
           },
           %{
+            label: "Host Keys",
+            navigate: ~p"/settings/networks/host-keys",
+            active: String.starts_with?(path, "/settings/networks/host-keys")
+          },
+          %{
+            label: "Recordings",
+            navigate: ~p"/settings/networks/recordings",
+            active: String.starts_with?(path, "/settings/networks/recordings")
+          },
+          %{
             label: "SNMP",
             navigate: ~p"/settings/snmp",
             active: String.starts_with?(path, "/settings/snmp")
@@ -402,6 +414,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
       not String.starts_with?(path, "/settings/networks/credentials") and
+      not String.starts_with?(path, "/settings/networks/host-keys") and
+      not String.starts_with?(path, "/settings/networks/recordings") and
       not String.starts_with?(path, "/settings/snmp")
   end
 
@@ -426,6 +440,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       case label do
         "SNMP" -> "settings.snmp_profiles.manage"
         "Credential Rules" -> "settings.credentials.manage"
+        "Host Keys" -> "settings.remote_access_host_keys.manage"
+        "Recordings" -> "devices.remote_access.ssh.open"
         _ -> "settings.networks.manage"
       end
 

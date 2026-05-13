@@ -21,11 +21,12 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
 
   alias ServiceRadar.Identity.User
 
-  defstruct user: nil, permissions: nil
+  defstruct user: nil, permissions: nil, identity_claims: %{}
 
   @type t :: %__MODULE__{
           user: User.t() | map() | nil,
-          permissions: term()
+          permissions: term(),
+          identity_claims: map()
         }
 
   @doc """
@@ -38,16 +39,23 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
 
   def for_user(%User{} = user, opts) do
     permissions = Keyword.get(opts, :permissions)
-    %__MODULE__{user: user, permissions: permissions}
+    %__MODULE__{user: user, permissions: permissions, identity_claims: identity_claims(opts)}
   end
 
   # Also accept map-like users (for backwards compatibility during transition)
   def for_user(%{id: _, email: _} = user, opts) do
     permissions = Keyword.get(opts, :permissions)
-    %__MODULE__{user: user, permissions: permissions}
+    %__MODULE__{user: user, permissions: permissions, identity_claims: identity_claims(opts)}
   end
 
   def for_user(nil, _opts), do: %__MODULE__{user: nil, permissions: nil}
+
+  defp identity_claims(opts) do
+    case Keyword.get(opts, :identity_claims, %{}) do
+      claims when is_map(claims) -> claims
+      _ -> %{}
+    end
+  end
 
   @doc """
   Returns true if the user has admin role.

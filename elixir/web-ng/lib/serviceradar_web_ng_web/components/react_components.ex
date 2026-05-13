@@ -70,6 +70,94 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   end
 
   attr :id, :string, required: true
+  attr :device_uid, :string, required: true
+  attr :create_path, :string, default: "/api/remote-access/sessions"
+  attr :title, :string, default: "SSH remote access"
+  attr :allow_remembered_keys, :boolean, default: false
+  attr :allow_skip_verify_host_key_policy, :boolean, default: false
+  attr :allow_target_host_override, :boolean, default: false
+  attr :allow_target_port_override, :boolean, default: false
+  attr :class, :string, default: ""
+
+  def remote_access_ssh_console(assigns) do
+    assigns =
+      assign(assigns, :props, %{
+        deviceUid: assigns.device_uid,
+        createPath: assigns.create_path,
+        title: assigns.title,
+        allowRememberedKeys: assigns.allow_remembered_keys,
+        allowSkipVerifyHostKeyPolicy: assigns.allow_skip_verify_host_key_policy,
+        allowTargetHostOverride: assigns.allow_target_host_override,
+        allowTargetPortOverride: assigns.allow_target_port_override
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["h-full min-h-0 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="RemoteAccessSSHConsole"
+      data-props={Jason.encode!(@props)}
+    >
+      {react_component(%{
+        component: "RemoteAccessSSHConsole",
+        props: @props,
+        static: false
+      })}
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :session_id, :string, required: true
+  attr :ticket, :string, required: true
+  attr :websocket_path, :string, required: true
+  attr :title, :string, default: "Remote access"
+  attr :subtitle, :string, default: ""
+  attr :stream_label, :string, default: "Remote access"
+  attr :close_label, :string, default: "Remote access session"
+  attr :class, :string, default: ""
+
+  def remote_access_terminal(assigns) do
+    assigns =
+      assigns
+      |> assign(:props, %{
+        sessionId: assigns.session_id,
+        ticket: assigns.ticket,
+        websocketPath: assigns.websocket_path,
+        title: assigns.title,
+        subtitle: assigns.subtitle,
+        streamLabel: assigns.stream_label,
+        closeLabel: assigns.close_label
+      })
+      |> assign(:render_props, %{
+        sessionId: assigns.session_id,
+        ticket: "",
+        websocketPath: assigns.websocket_path,
+        title: assigns.title,
+        subtitle: assigns.subtitle,
+        streamLabel: assigns.stream_label,
+        closeLabel: assigns.close_label
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["h-full min-h-0 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="RemoteAccessTerminal"
+      data-props={Jason.encode!(@props)}
+    >
+      {react_component(%{
+        component: "RemoteAccessTerminal",
+        props: @render_props,
+        static: false
+      })}
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
   attr :session_id, :string, required: true
   attr :ticket, :string, required: true
   attr :websocket_path, :string, required: true

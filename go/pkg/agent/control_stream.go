@@ -381,10 +381,23 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 	}
 
 	if p.remoteConsoleManager == nil {
-		p.remoteConsoleManager = newRemoteConsoleManager(p.logger)
+		p.remoteConsoleManager = newRemoteConsoleManagerWithRoute(
+			p.agentID(),
+			gatewayIDFromClient(p.gateway),
+			p.logger,
+		)
+		p.remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(p.server)
 	}
 
 	p.remoteConsoleManager.HandleFrame(context.Background(), frame, sender)
+}
+
+func (p *PushLoop) agentID() string {
+	if p == nil {
+		return ""
+	}
+
+	return serverAgentID(p.server)
 }
 
 func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

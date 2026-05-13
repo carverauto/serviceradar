@@ -19,12 +19,23 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+const fakeProxmoxConsolePrompt = "login: "
 
 func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -37,7 +48,7 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 
 	session := &fakeProxmoxConsoleSSHSession{
 		waitCh: make(chan struct{}),
-		stdout: strings.NewReader("login: "),
+		stdout: strings.NewReader(fakeProxmoxConsolePrompt),
 		stderr: strings.NewReader(""),
 	}
 	done := make(chan error, 1)
@@ -55,11 +66,11 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bridge output: %v", err)
 	}
-	if string(output) != "login: " {
+	if string(output) != fakeProxmoxConsolePrompt {
 		t.Fatalf("unexpected bridge output %q", string(output))
 	}
 
-	if err := bridge.Write([]byte("whoami\r")); err != nil {
+	if err := bridge.Write([]byte(fakeProxmoxConsoleCommand)); err != nil {
 		t.Fatalf("write bridge input: %v", err)
 	}
 	if err := bridge.Resize(132, 43); err != nil {
@@ -68,7 +79,7 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 
 	waitFor(t, time.Second, func() bool {
 		stdin, windowChanges := session.ioState()
-		return stdin == "whoami\r" &&
+		return stdin == fakeProxmoxConsoleCommand &&
 			len(windowChanges) == 1 &&
 			windowChanges[0] == [2]int{43, 132}
 	})
@@ -89,6 +100,132 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	}
 	if !session.isClosed() {
 		t.Fatal("expected SSH session to close")
+	}
+}
+
+func TestRunProxmoxConsoleSSHRejectsInvalidConfigBeforeDial(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  proxmoxConsoleSSHConfig
+		want error
+	}{
+		{
+			name: "invalid target port",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example", SSHPort: 70_000},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			},
+			want: errInvalidProxmoxSSHTargetPort,
+		},
+		{
+			name: "oversized host",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: strings.Repeat("a", maxProxmoxSSHTargetHostBytes+1)},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			},
+			want: errInvalidProxmoxSSHFieldSize,
+		},
+		{
+			name: "oversized private key",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+				SSH: proxmoxConsoleSSHAuth{
+					Username:   "root",
+					PrivateKey: strings.Repeat("k", maxProxmoxSSHPrivateKeyBytes+1),
+				},
+			},
+			want: errInvalidProxmoxSSHFieldSize,
+		},
+		{
+			name: "missing credential",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root"},
+			},
+			want: errProxmoxSSHCredentialRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bridge := newPluginProxmoxConsoleBridge(nil)
+			if _, err := bridge.Open(t.Context(), pluginProxmoxConsoleOpenRequest{}); err != nil {
+				t.Fatalf("open bridge: %v", err)
+			}
+
+			dialCalled := false
+			err := runProxmoxConsoleSSH(t.Context(), tt.cfg, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
+				dialCalled = true
+				return nil, nil
+			})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, tt.want)
+			}
+			if dialCalled {
+				t.Fatal("dialer was called for invalid config")
+			}
+		})
+	}
+}
+
+func TestProxmoxConsoleSSHHostKeyPolicyUsesSharedKnownHostsStore(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	line := knownhosts.Line([]string{knownhosts.Normalize("pve.example:2222")}, signer.PublicKey())
+	if err := os.WriteFile(knownHostsPath, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	callback, err := proxmoxConsoleSSHHostKeyCallback("known_hosts", knownHostsPath)
+	if err != nil {
+		t.Fatalf("known_hosts callback: %v", err)
+	}
+	if err := callback("pve.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.20"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("known_hosts callback rejected pinned key: %v", err)
+	}
+}
+
+func TestProxmoxConsoleSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	callback, err := proxmoxConsoleSSHHostKeyCallback("trust_on_first_use", knownHostsPath)
+	if err != nil {
+		t.Fatalf("trust_on_first_use callback: %v", err)
+	}
+	if err := callback("pve.example:2222", &net.TCPAddr{IP: net.ParseIP("192.0.2.20"), Port: 2222}, signer.PublicKey()); err != nil {
+		t.Fatalf("first use rejected key: %v", err)
+	}
+
+	data, err := os.ReadFile(knownHostsPath)
+	if err != nil {
+		t.Fatalf("read known_hosts: %v", err)
+	}
+	if !strings.Contains(string(data), signer.PublicKey().Type()) {
+		t.Fatalf("known_hosts did not contain pinned key: %q", string(data))
 	}
 }
 

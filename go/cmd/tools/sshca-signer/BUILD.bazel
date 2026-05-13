@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "sshca_signer_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/sshca-signer",
+    visibility = ["//visibility:private"],
+    deps = ["//go/pkg/remoteaccess/sshca"],
+)
+
+go_binary(
+    name = "sshca-signer",
+    embed = [":sshca_signer_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "sshca_signer_test",
+    srcs = ["main_test.go"],
+    embed = [":sshca_signer_lib"],
+    deps = ["@org_golang_x_crypto//ssh"],
+)

@@ -34,8 +34,8 @@ defmodule ServiceRadar.Security.RateLimiter do
 
   @table :serviceradar_security_rate_limiter
   @registry_type :rate_limiter
-  @cleanup_interval :timer.minutes(5)
-  @snapshot_timeout :timer.seconds(2)
+  @cleanup_interval to_timeout(minute: 5)
+  @snapshot_timeout to_timeout(second: 2)
 
   @type bucket :: atom() | binary()
   @type subject_key :: term()
@@ -102,7 +102,7 @@ defmodule ServiceRadar.Security.RateLimiter do
   def resolve_bucket(bucket, opts \\ []) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     default = Keyword.get(config, :default_bucket, limit: 60, window_seconds: 60)
-    buckets = Keyword.get(config, :buckets, %{}) |> normalize_buckets()
+    buckets = config |> Keyword.get(:buckets, %{}) |> normalize_buckets()
     base = Map.get(buckets, bucket, default)
     limit = Keyword.get(opts, :limit, Keyword.get(base, :limit, 60))
     window = Keyword.get(opts, :window_seconds, Keyword.get(base, :window_seconds, 60))
@@ -119,7 +119,14 @@ defmodule ServiceRadar.Security.RateLimiter do
 
   @impl true
   def init(_opts) do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    :ets.new(@table, [
+      :named_table,
+      :public,
+      :set,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
+
     register_in_horde()
     :ok = :net_kernel.monitor_nodes(true)
     schedule_cleanup()
@@ -128,6 +135,15 @@ defmodule ServiceRadar.Security.RateLimiter do
   end
 
   defp register_in_horde do
+    if process_registry_available?() do
+      register_with_process_registry()
+    else
+      Logger.debug("RateLimiter: ProcessRegistry unavailable; using local-only enforcement")
+      :ok
+    end
+  end
+
+  defp register_with_process_registry do
     case ServiceRadar.ProcessRegistry.register({@registry_type, node()}, %{type: @registry_type}) do
       {:ok, _pid} ->
         :ok
@@ -142,6 +158,13 @@ defmodule ServiceRadar.Security.RateLimiter do
 
         :ok
     end
+  rescue
+    ArgumentError ->
+      Logger.warning(
+        "RateLimiter: ProcessRegistry not ready; falling back to local-only enforcement"
+      )
+
+      :ok
   end
 
   @impl true
@@ -261,12 +284,22 @@ defmodule ServiceRadar.Security.RateLimiter do
   end
 
   defp peer_pids do
-    self_pid = self()
+    if process_registry_available?() do
+      self_pid = self()
 
-    @registry_type
-    |> ServiceRadar.ProcessRegistry.select_by_type()
-    |> Enum.map(fn {_key, pid, _meta} -> pid end)
-    |> Enum.reject(&(&1 == self_pid))
+      @registry_type
+      |> ServiceRadar.ProcessRegistry.select_by_type()
+      |> Enum.map(fn {_key, pid, _meta} -> pid end)
+      |> Enum.reject(&(&1 == self_pid))
+    else
+      []
+    end
+  rescue
+    ArgumentError -> []
+  end
+
+  defp process_registry_available? do
+    Process.whereis(ServiceRadar.ProcessRegistry.registry_name()) != nil
   end
 
   defp broadcast(message) do

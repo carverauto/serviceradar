@@ -123,6 +123,14 @@ build-workspace: ## Build the full workspace with Bazel (remote)
 build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
 	@bazel build --config=remote //docker/images:web_ng_image_amd64
 
+.PHONY: generate-agent-ebpf
+generate-agent-ebpf: ## Regenerate checked-in agent eBPF probe artifacts
+	@./scripts/generate-agent-ebpf.sh
+
+.PHONY: verify-agent-ebpf
+verify-agent-ebpf: ## Verify checked-in agent eBPF probe artifacts are current
+	@./scripts/generate-agent-ebpf.sh --check
+
 .PHONY: push-web-ng
 push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI registry (remote)
 	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push

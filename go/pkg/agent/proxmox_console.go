@@ -17,12 +17,13 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
-	"io"
-	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -34,6 +35,8 @@ const (
 	consoleFrameTypeResize = "resize"
 	consoleFrameTypeClose  = "close"
 	consoleFrameTypeError  = "error"
+
+	protocolProxmoxConsole = "proxmox-console"
 )
 
 var (
@@ -47,42 +50,54 @@ type proxmoxConsoleSender interface {
 }
 
 type proxmoxConsolePTY interface {
-	Read(context.Context) ([]byte, error)
-	Write([]byte) error
-	Resize(cols, rows uint32) error
-	Close() error
+	remoteaccess.PTY
 }
 
 type proxmoxConsoleOpener func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error)
 
-type proxmoxConsoleSession struct {
-	cancel context.CancelFunc
-	pty    proxmoxConsolePTY
-	once   sync.Once
-}
-
-func (s *proxmoxConsoleSession) close() {
-	s.once.Do(func() {
-		s.cancel()
-		_ = s.pty.Close()
-	})
-}
-
 type proxmoxConsoleManager struct {
-	mu       sync.Mutex
-	sessions map[string]*proxmoxConsoleSession
-	opener   proxmoxConsoleOpener
-	logger   logger.Logger
+	opener     proxmoxConsoleOpener
+	manager    *remoteaccess.Manager
+	sshOptions remoteaccess.SSHOpenOptions
+	agentID    string
+	gatewayID  string
 }
 
 func newProxmoxConsoleManager(log logger.Logger) *proxmoxConsoleManager {
-	return &proxmoxConsoleManager{
-		sessions: make(map[string]*proxmoxConsoleSession),
+	return newProxmoxConsoleManagerWithAgentID("", log)
+}
+
+func newProxmoxConsoleManagerWithAgentID(agentID string, log logger.Logger) *proxmoxConsoleManager {
+	return newProxmoxConsoleManagerWithRoute(agentID, "", log)
+}
+
+func newProxmoxConsoleManagerWithRoute(agentID string, gatewayID string, _ logger.Logger) *proxmoxConsoleManager {
+	manager := &proxmoxConsoleManager{
+		agentID:   agentID,
+		gatewayID: gatewayID,
 		opener: func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 			return nil, errProxmoxConsoleBridgeUnavailable
 		},
-		logger: log,
 	}
+
+	manager.manager = remoteaccess.NewManagerWithConfig(remoteaccess.ManagerConfig{
+		Opener:           manager.openRemoteAccessPTY,
+		ErrorReason:      proxmoxConsoleErrorReason,
+		EnhancedRecorder: remoteaccess.NewPlatformEnhancedRecorder(),
+	})
+
+	return manager
+}
+
+func serverAgentID(server *Server) string {
+	if server == nil || server.config == nil {
+		return ""
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return server.config.AgentID
 }
 
 func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
@@ -90,175 +105,116 @@ func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.Co
 		return
 	}
 
-	switch frame.GetFrameType() {
-	case consoleFrameTypeOpen:
-		m.open(ctx, frame, sender)
-	case consoleFrameTypeData:
-		m.write(frame, sender)
-	case consoleFrameTypeResize:
-		m.resize(frame, sender)
-	case consoleFrameTypeClose:
-		m.closeSession(frame.GetSessionId(), frame.GetReason(), sender)
-	default:
-		sendProxmoxConsoleFrame(sender, frame.GetSessionId(), consoleFrameTypeError, nil, "unsupported console frame type", 0, 0)
+	var remoteSender remoteaccess.Sender
+	if sender != nil {
+		remoteSender = proxmoxConsoleRemoteSender{sender: sender}
 	}
+
+	m.manager.HandleFrame(ctx, m.proxmoxConsoleRemoteFrame(frame), remoteSender)
 }
 
-func (m *proxmoxConsoleManager) open(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
-	sessionID := frame.GetSessionId()
-
-	if m.get(sessionID) != nil {
-		sendProxmoxConsoleError(sender, sessionID, errProxmoxConsoleSessionExists)
-		return
-	}
-
-	ptySession, err := m.opener(ctx, frame)
-	if err != nil {
-		sendProxmoxConsoleError(sender, sessionID, err)
-		return
-	}
-
-	sessionCtx, cancel := context.WithCancel(ctx)
-	session := &proxmoxConsoleSession{cancel: cancel, pty: ptySession}
-
-	m.mu.Lock()
-	if _, exists := m.sessions[sessionID]; exists {
-		m.mu.Unlock()
-		session.close()
-		sendProxmoxConsoleError(sender, sessionID, errProxmoxConsoleSessionExists)
-		return
-	}
-	m.sessions[sessionID] = session
-	m.mu.Unlock()
-
-	sendProxmoxConsoleFrame(sender, sessionID, consoleFrameTypeReady, nil, "", frame.GetCols(), frame.GetRows())
-
-	go m.readLoop(sessionCtx, sessionID, session, sender)
-}
-
-func (m *proxmoxConsoleManager) write(frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
-	session := m.get(frame.GetSessionId())
-	if session == nil {
-		sendProxmoxConsoleError(sender, frame.GetSessionId(), errProxmoxConsoleSessionNotActive)
-		return
-	}
-
-	if err := session.pty.Write(frame.GetData()); err != nil {
-		sendProxmoxConsoleError(sender, frame.GetSessionId(), err)
-		m.closeSession(frame.GetSessionId(), "console write failed", sender)
-	}
-}
-
-func (m *proxmoxConsoleManager) resize(frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
-	session := m.get(frame.GetSessionId())
-	if session == nil {
-		sendProxmoxConsoleError(sender, frame.GetSessionId(), errProxmoxConsoleSessionNotActive)
-		return
-	}
-
-	if err := session.pty.Resize(frame.GetCols(), frame.GetRows()); err != nil {
-		sendProxmoxConsoleError(sender, frame.GetSessionId(), err)
-		m.closeSession(frame.GetSessionId(), "console resize failed", sender)
-	}
-}
-
-func (m *proxmoxConsoleManager) closeSession(sessionID string, reason string, sender proxmoxConsoleSender) {
-	session := m.remove(sessionID)
-	if session == nil {
-		return
-	}
-
-	session.close()
-	sendProxmoxConsoleFrame(sender, sessionID, consoleFrameTypeClose, nil, reason, 0, 0)
-}
-
-func (m *proxmoxConsoleManager) readLoop(
+func (m *proxmoxConsoleManager) openRemoteAccessPTY(
 	ctx context.Context,
-	sessionID string,
-	session *proxmoxConsoleSession,
-	sender proxmoxConsoleSender,
-) {
-	for {
-		data, err := session.pty.Read(ctx)
-		if len(data) > 0 {
-			sendProxmoxConsoleFrame(sender, sessionID, consoleFrameTypeData, data, "", 0, 0)
-		}
+	frame remoteaccess.Frame,
+) (remoteaccess.PTY, error) {
+	if frame.Protocol == remoteaccess.ProtocolSSH {
+		return remoteaccess.OpenSSHFromFrame(ctx, frame, m.sshOptions)
+	}
 
-		if err == nil {
-			continue
-		}
+	return m.opener(ctx, remoteAccessConsoleFrame(frame))
+}
 
-		if ctx.Err() != nil {
-			return
-		}
+type proxmoxConsoleRemoteSender struct {
+	sender proxmoxConsoleSender
+}
 
-		if m.removeIfSame(sessionID, session) {
-			session.close()
-			if !errors.Is(err, io.EOF) {
-				if m.logger != nil {
-					m.logger.Warn().Err(err).Str("session_id", sessionID).Msg("Proxmox console PTY read failed")
-				}
-				sendProxmoxConsoleError(sender, sessionID, err)
-			}
-			sendProxmoxConsoleFrame(sender, sessionID, consoleFrameTypeClose, nil, "", 0, 0)
-		}
+func (s proxmoxConsoleRemoteSender) SendFrame(frame remoteaccess.Frame) error {
+	return s.sender.Send(consoleControlFrame(
+		frame.SessionID,
+		frame.FrameType,
+		frame.Data,
+		frame.Reason,
+		frame.Cols,
+		frame.Rows,
+	))
+}
 
-		return
+func (m *proxmoxConsoleManager) proxmoxConsoleRemoteFrame(frame *proto.ConsoleFrame) remoteaccess.Frame {
+	metadata := map[string]string(nil)
+	if m != nil {
+		metadata = routeMetadata(m.agentID, m.gatewayID)
+	}
+
+	return remoteaccess.Frame{
+		SessionID: frame.GetSessionId(),
+		Protocol:  consoleFrameProtocol(frame),
+		FrameType: frame.GetFrameType(),
+		Data:      frame.GetData(),
+		Cols:      frame.GetCols(),
+		Rows:      frame.GetRows(),
+		Reason:    frame.GetReason(),
+		Timestamp: frame.GetTimestamp(),
+		Metadata:  metadata,
 	}
 }
 
-func (m *proxmoxConsoleManager) get(sessionID string) *proxmoxConsoleSession {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return m.sessions[sessionID]
+func routeMetadata(agentID string, gatewayID string) map[string]string {
+	metadata := make(map[string]string, 2)
+	if agentID != "" {
+		metadata["agent_id"] = agentID
+	}
+	if gatewayID != "" {
+		metadata["gateway_id"] = gatewayID
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
 }
 
-func (m *proxmoxConsoleManager) remove(sessionID string) *proxmoxConsoleSession {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	session := m.sessions[sessionID]
-	delete(m.sessions, sessionID)
-
-	return session
-}
-
-func (m *proxmoxConsoleManager) removeIfSame(sessionID string, session *proxmoxConsoleSession) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.sessions[sessionID] != session {
-		return false
+func consoleFrameProtocol(frame *proto.ConsoleFrame) string {
+	if frame.GetFrameType() != consoleFrameTypeOpen || len(bytes.TrimSpace(frame.GetData())) == 0 {
+		return protocolProxmoxConsole
 	}
 
-	delete(m.sessions, sessionID)
-
-	return true
-}
-
-func sendProxmoxConsoleError(sender proxmoxConsoleSender, sessionID string, err error) {
-	reason := "console session failed"
-	if err != nil {
-		reason = err.Error()
+	var payload struct {
+		Protocol string `json:"protocol"`
 	}
-	sendProxmoxConsoleFrame(sender, sessionID, consoleFrameTypeError, nil, reason, 0, 0)
-}
-
-func sendProxmoxConsoleFrame(
-	sender proxmoxConsoleSender,
-	sessionID string,
-	frameType string,
-	data []byte,
-	reason string,
-	cols uint32,
-	rows uint32,
-) {
-	if sender == nil {
-		return
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		return protocolProxmoxConsole
+	}
+	if payload.Protocol == remoteaccess.ProtocolSSH {
+		return remoteaccess.ProtocolSSH
 	}
 
-	_ = sender.Send(consoleControlFrame(sessionID, frameType, data, reason, cols, rows))
+	return protocolProxmoxConsole
+}
+
+func remoteAccessConsoleFrame(frame remoteaccess.Frame) *proto.ConsoleFrame {
+	return &proto.ConsoleFrame{
+		SessionId: frame.SessionID,
+		FrameType: frame.FrameType,
+		Data:      frame.Data,
+		Cols:      frame.Cols,
+		Rows:      frame.Rows,
+		Reason:    frame.Reason,
+		Timestamp: frame.Timestamp,
+	}
+}
+
+func proxmoxConsoleErrorReason(err error) string {
+	switch {
+	case errors.Is(err, remoteaccess.ErrSessionExists):
+		return errProxmoxConsoleSessionExists.Error()
+	case errors.Is(err, remoteaccess.ErrSessionNotActive):
+		return errProxmoxConsoleSessionNotActive.Error()
+	case errors.Is(err, remoteaccess.ErrUnsupportedFrame):
+		return "unsupported console frame type"
+	case err != nil:
+		return err.Error()
+	default:
+		return "console session failed"
+	}
 }
 
 func consoleControlFrame(

@@ -2,16 +2,25 @@
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 {{- $agentResources := default (dict) $agentVals.resources -}}
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
+{{- $agentEBPF := default (dict) (get $agentVals "ebpf") -}}
 {{- $agentLimits := default (dict) $agentResources.limits -}}
 {{- $agentRequests := default (dict) $agentResources.requests -}}
 {{- $agentHostNetwork := true -}}
 {{- $agentAllowNetRaw := true -}}
+{{- $agentEBPFEnabled := false -}}
+{{- $agentEBPFPrivileged := false -}}
 {{- $agentEnabled := true -}}
 {{- if hasKey $agentVals "hostNetwork" -}}
   {{- $agentHostNetwork = $agentVals.hostNetwork -}}
 {{- end -}}
 {{- if hasKey $agentVals "allowNetRaw" -}}
   {{- $agentAllowNetRaw = $agentVals.allowNetRaw -}}
+{{- end -}}
+{{- if hasKey $agentEBPF "enabled" -}}
+  {{- $agentEBPFEnabled = $agentEBPF.enabled -}}
+{{- end -}}
+{{- if hasKey $agentEBPF "privileged" -}}
+  {{- $agentEBPFPrivileged = $agentEBPF.privileged -}}
 {{- end -}}
 {{- if hasKey $agentVals "enabled" -}}
   {{- $agentEnabled = $agentVals.enabled -}}
@@ -46,7 +55,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       securityContext:
         fsGroup: 1001
-        {{- if $agentAllowNetRaw }}
+        {{- if or $agentAllowNetRaw $agentEBPFEnabled }}
         runAsNonRoot: false
         {{- else }}
         runAsNonRoot: true
@@ -69,8 +78,24 @@ spec:
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           command: ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"]
           args: ["-config", "/etc/serviceradar/agent.json"]
-          {{- if $agentAllowNetRaw }}
-          {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10 }}
+          {{- if or $agentAllowNetRaw $agentEBPFEnabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+            runAsNonRoot: false
+            {{- if $agentEBPFPrivileged }}
+            privileged: true
+            {{- end }}
+            capabilities:
+              add:
+              {{- if $agentAllowNetRaw }}
+                - NET_RAW
+              {{- end }}
+              {{- if $agentEBPFEnabled }}
+              {{- range (default (list "BPF" "PERFMON" "SYS_RESOURCE") $agentEBPF.capabilities) }}
+                - {{ . | quote }}
+              {{- end }}
+              {{- end }}
           {{- else }}
           {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           {{- end }}
@@ -83,6 +108,16 @@ spec:
             mountPath: /var/lib/serviceradar/cache
           - name: cert-data
             mountPath: /etc/serviceradar/certs
+          {{- if $agentEBPFEnabled }}
+          - name: bpffs
+            mountPath: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
+          - name: kernel-btf
+            mountPath: {{ default "/sys/kernel/btf" $agentEBPF.btfMountPath | quote }}
+            readOnly: true
+          - name: cgroup-fs
+            mountPath: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
+            readOnly: {{ default false $agentEBPF.cgroupReadOnly }}
+          {{- end }}
           {{- if .Values.spire.enabled }}
           - name: spire-agent-socket
             mountPath: /run/spire/sockets
@@ -99,6 +134,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: SERVICERADAR_AGENT_EBPF_ENABLED
+              value: {{ ternary "true" "false" $agentEBPFEnabled | quote }}
+            - name: SERVICERADAR_AGENT_EBPF_BPFFS_PATH
+              value: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
+            - name: SERVICERADAR_AGENT_EBPF_BTF_PATH
+              value: {{ default "/sys/kernel/btf/vmlinux" $agentEBPF.btfPath | quote }}
+            - name: SERVICERADAR_AGENT_EBPF_CGROUP_PATH
+              value: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
           resources:
             limits:
               cpu: {{ default "500m" $agentLimits.cpu | quote }}
@@ -122,6 +165,20 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      {{- if $agentEBPFEnabled }}
+      - name: bpffs
+        hostPath:
+          path: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
+          type: Directory
+      - name: kernel-btf
+        hostPath:
+          path: {{ default "/sys/kernel/btf" $agentEBPF.btfMountPath | quote }}
+          type: Directory
+      - name: cgroup-fs
+        hostPath:
+          path: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
+          type: Directory
+      {{- end }}
       {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:

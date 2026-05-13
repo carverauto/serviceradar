@@ -163,11 +163,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
         stream
       )
 
-    assert open_response.accepted == true
-    assert open_response.message == "core relay session accepted"
-    assert open_response.media_ingest_id == media_ingest_id
-    assert open_response.max_chunk_bytes == 1_048_576
-    assert open_response.lease_expires_at_unix == lease_expires_at_unix
+    assert %{
+             accepted: true,
+             message: "core relay session accepted",
+             media_ingest_id: ^media_ingest_id,
+             max_chunk_bytes: 1_048_576,
+             lease_expires_at_unix: ^lease_expires_at_unix
+           } = open_response
 
     assert_receive {:core_open_relay_session,
                     %Camera.OpenRelaySessionRequest{
@@ -210,9 +212,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
         stream
       )
 
-    assert upload_response.received == true
-    assert upload_response.last_sequence == 7
-    assert upload_response.message == "media chunks accepted by core-elx"
+    assert %{
+             received: true,
+             last_sequence: 7,
+             message: "media chunks accepted by core-elx"
+           } = upload_response
 
     assert_receive {:core_upload_media,
                     [
@@ -246,9 +250,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
         stream
       )
 
-    assert heartbeat_response.accepted == true
-    assert heartbeat_response.lease_expires_at_unix == heartbeat_lease_expires_at_unix
-    assert heartbeat_response.message == "core heartbeat accepted"
+    assert %{
+             accepted: true,
+             lease_expires_at_unix: ^heartbeat_lease_expires_at_unix,
+             message: "core heartbeat accepted"
+           } = heartbeat_response
 
     assert_receive {:core_heartbeat,
                     %Camera.RelayHeartbeat{
@@ -277,8 +283,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
         stream
       )
 
-    assert close_response.closed == true
-    assert close_response.message == "core relay session closed"
+    assert %{
+             closed: true,
+             message: "core relay session closed"
+           } = close_response
 
     assert_receive {:core_close_relay_session,
                     %Camera.CloseRelaySessionRequest{

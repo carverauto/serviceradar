@@ -29,15 +29,26 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"golang.org/x/crypto/ssh"
 )
 
 var (
 	errMissingProxmoxSSHTargetHost                   = errors.New("missing SSH target host")
+	errInvalidProxmoxSSHTargetPort                   = errors.New("invalid SSH target port")
+	errInvalidProxmoxSSHFieldSize                    = errors.New("invalid SSH field size")
 	errProxmoxSSHUsernameRequired                    = errors.New("ssh username is required")
 	errProxmoxSSHCredentialRequired                  = errors.New("ssh private key or password is required")
 	errProxmoxSSHHostKeyVerificationStoreUnavailable = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
 	errUnsupportedProxmoxSSHHostKeyPolicy            = errors.New("unsupported ssh_host_key_policy")
+)
+
+const (
+	maxProxmoxSSHTargetHostBytes = 255
+	maxProxmoxSSHUsernameBytes   = 128
+	maxProxmoxSSHPrivateKeyBytes = 65_536
+	maxProxmoxSSHPasswordBytes   = 4_096
+	maxProxmoxSSHPassphraseBytes = 4_096
 )
 
 type proxmoxConsoleSSHConfig struct {
@@ -49,6 +60,7 @@ type proxmoxConsoleSSHConfig struct {
 	CredentialSecret json.RawMessage           `json:"credential_secret,omitempty"`
 	TimeoutMS        int                       `json:"timeout_ms"`
 	SSHHostKeyPolicy string                    `json:"ssh_host_key_policy"`
+	KnownHostsPath   string                    `json:"known_hosts_path,omitempty"`
 }
 
 type proxmoxConsoleSSHTarget struct {
@@ -94,6 +106,9 @@ func runProxmoxConsoleSSH(
 	if dial == nil {
 		dial = dialProxmoxConsoleSSH
 	}
+	if err := validateProxmoxConsoleSSHConfig(cfg); err != nil {
+		return err
+	}
 
 	handle, err := bridge.activeHandle()
 	if err != nil {
@@ -131,41 +146,53 @@ func runProxmoxConsoleSSH(
 
 	done := make(chan error, 3)
 	var once sync.Once
-	copyOutput := func(reader io.Reader) {
-		buf := make([]byte, 16*1024)
-		for {
-			n, readErr := reader.Read(buf)
-			if n > 0 {
-				if _, err := bridge.WriteOutput(ctx, handle, buf[:n]); err != nil {
-					once.Do(func() { done <- err })
-					return
-				}
-			}
-			if readErr != nil {
-				if !errors.Is(readErr, io.EOF) {
-					once.Do(func() { done <- readErr })
-				}
-				return
-			}
-		}
-	}
-
-	go copyOutput(stdout)
-	go copyOutput(stderr)
+	go copyProxmoxConsoleSSHOutput(ctx, bridge, handle, stdout, done, &once)
+	go copyProxmoxConsoleSSHOutput(ctx, bridge, handle, stderr, done, &once)
 	go func() {
 		once.Do(func() { done <- session.Wait() })
 	}()
 
-	for {
-		select {
-		case err := <-done:
-			if err != nil && !errors.Is(err, io.EOF) {
-				return err
-			}
-			return nil
-		default:
-		}
+	return proxyProxmoxConsoleSSHInput(ctx, bridge, handle, stdin, session, done)
+}
 
+func copyProxmoxConsoleSSHOutput(
+	ctx context.Context,
+	bridge *pluginProxmoxConsoleBridge,
+	handle uint32,
+	reader io.Reader,
+	done chan<- error,
+	once *sync.Once,
+) {
+	buf := make([]byte, 16*1024)
+	for {
+		n, readErr := reader.Read(buf)
+		if n > 0 {
+			if _, err := bridge.WriteOutput(ctx, handle, buf[:n]); err != nil {
+				once.Do(func() { done <- err })
+				return
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				once.Do(func() { done <- readErr })
+			}
+			return
+		}
+	}
+}
+
+func proxyProxmoxConsoleSSHInput(
+	ctx context.Context,
+	bridge *pluginProxmoxConsoleBridge,
+	handle uint32,
+	stdin io.Writer,
+	session proxmoxConsoleSSHSession,
+	done <-chan error,
+) error {
+	for {
+		if finished, err := proxmoxConsoleSSHDone(done); finished {
+			return err
+		}
 		frame, err := bridge.ReadInput(ctx, handle, 250*time.Millisecond)
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
@@ -195,6 +222,18 @@ func runProxmoxConsoleSSH(
 	}
 }
 
+func proxmoxConsoleSSHDone(done <-chan error) (bool, error) {
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, io.EOF) {
+			return true, err
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
 	host, port, err := proxmoxConsoleSSHTargetAddress(cfg.Target)
 	if err != nil {
@@ -211,7 +250,7 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 		return nil, err
 	}
 
-	hostKeyCallback, err := proxmoxConsoleSSHHostKeyCallback(cfg.SSHHostKeyPolicy)
+	hostKeyCallback, err := proxmoxConsoleSSHHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -265,9 +304,20 @@ func (c *proxmoxConsoleSSHClient) Close() error {
 	return c.client.Close()
 }
 
+func validateProxmoxConsoleSSHConfig(cfg proxmoxConsoleSSHConfig) error {
+	if _, _, err := proxmoxConsoleSSHTargetAddress(cfg.Target); err != nil {
+		return err
+	}
+	_, err := validateProxmoxConsoleSSHCredential(cfg.SSH)
+	return err
+}
+
 func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int, error) {
 	host := strings.TrimSpace(firstNonEmpty(target.Hostname, target.IP))
 	if host == "" && strings.TrimSpace(target.BaseURL) != "" {
+		if len(strings.TrimSpace(target.BaseURL)) > maxProxmoxSSHTargetHostBytes*2 {
+			return "", 0, errInvalidProxmoxSSHFieldSize
+		}
 		parsed, err := url.Parse(strings.TrimSpace(target.BaseURL))
 		if err != nil {
 			return "", 0, err
@@ -277,9 +327,15 @@ func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int
 	if host == "" {
 		return "", 0, errMissingProxmoxSSHTargetHost
 	}
+	if len(host) > maxProxmoxSSHTargetHostBytes {
+		return "", 0, errInvalidProxmoxSSHFieldSize
+	}
 	port := target.SSHPort
 	if port <= 0 {
 		port = 22
+	}
+	if port > 65_535 {
+		return "", 0, errInvalidProxmoxSSHTargetPort
 	}
 	return host, port, nil
 }
@@ -298,6 +354,12 @@ func proxmoxConsoleSSHCredential(cfg proxmoxConsoleSSHConfig) (proxmoxConsoleSSH
 func validateProxmoxConsoleSSHCredential(cred proxmoxConsoleSSHAuth) (proxmoxConsoleSSHAuth, error) {
 	if strings.TrimSpace(cred.Username) == "" {
 		return proxmoxConsoleSSHAuth{}, errProxmoxSSHUsernameRequired
+	}
+	if len(strings.TrimSpace(cred.Username)) > maxProxmoxSSHUsernameBytes ||
+		len(strings.TrimSpace(cred.PrivateKey)) > maxProxmoxSSHPrivateKeyBytes ||
+		len(cred.Password) > maxProxmoxSSHPasswordBytes ||
+		len(cred.Passphrase) > maxProxmoxSSHPassphraseBytes {
+		return proxmoxConsoleSSHAuth{}, errInvalidProxmoxSSHFieldSize
 	}
 	if strings.TrimSpace(cred.PrivateKey) == "" && strings.TrimSpace(cred.Password) == "" {
 		return proxmoxConsoleSSHAuth{}, errProxmoxSSHCredentialRequired
@@ -344,15 +406,19 @@ func proxmoxConsoleSSHSigner(privateKey, passphrase string) (ssh.Signer, error) 
 	return ssh.ParsePrivateKey(key)
 }
 
-func proxmoxConsoleSSHHostKeyCallback(policy string) (ssh.HostKeyCallback, error) {
-	switch strings.TrimSpace(policy) {
-	case "skip_verify":
-		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for agent-local SSH console config
-	case "trust_on_first_use", "known_hosts", "":
-		return nil, errProxmoxSSHHostKeyVerificationStoreUnavailable
-	default:
+func proxmoxConsoleSSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
+	callback, err := remoteaccess.SSHHostKeyCallback(policy, knownHostsPath)
+	if err == nil {
+		return callback, nil
+	}
+	if errors.Is(err, remoteaccess.ErrUnsupportedSSHHostKeyPolicy) {
 		return nil, fmt.Errorf("%w %q", errUnsupportedProxmoxSSHHostKeyPolicy, policy)
 	}
+	if errors.Is(err, remoteaccess.ErrSSHHostKeyStoreUnavailable) {
+		return nil, fmt.Errorf("%w: %w", errProxmoxSSHHostKeyVerificationStoreUnavailable, err)
+	}
+
+	return nil, err
 }
 
 func normalizeProxmoxConsoleTimeoutMS(timeoutMS int) int {

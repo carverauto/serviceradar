@@ -88,6 +88,25 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Open device consoles",
           description: "Open browser terminal sessions to supported managed devices",
           default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.ssh.open",
+          label: "Open SSH remote access",
+          description:
+            "Open SSH remote-access sessions and request short-lived SSH user certificates",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.requests.review",
+          label: "Review remote-access requests",
+          description: "Approve and deny approval-gated remote-access requests",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.recordings.export",
+          label: "Export remote-access recordings",
+          description: "Export remote-access replay manifests and transcript events",
+          default_roles: @admin_roles
         }
       ]
     },
@@ -252,6 +271,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "settings.remote_access_host_keys.manage",
+          label: "Manage remote-access host keys",
+          description: "Review, trust, rotate, and revoke SSH host keys for remote access",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.snmp_profiles.manage",
           label: "Manage SNMP profiles",
           description: "Manage SNMP profiles",
@@ -346,7 +371,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "ansible.repositories.manage",
           label: "Manage playbook repositories",
-          description: "Register and configure git repositories used as Ansible playbook catalog sources.",
+          description:
+            "Register and configure git repositories used as Ansible playbook catalog sources.",
           default_roles: @admin_roles
         },
         %{
@@ -382,7 +408,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "ansible.schedules.manage",
           label: "Manage Ansible schedules",
-          description: "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
+          description:
+            "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
           default_roles: @operator_roles
         }
       ]
@@ -420,7 +447,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "cli.session.read_own",
           label: "View own CLI sessions",
-          description: "List your own active and historical CLI sessions in Settings → CLI sessions.",
+          description:
+            "List your own active and historical CLI sessions in Settings → CLI sessions.",
           default_roles: @all_roles
         },
         %{
