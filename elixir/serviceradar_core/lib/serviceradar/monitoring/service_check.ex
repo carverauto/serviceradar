@@ -25,6 +25,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   use Ash.Resource,
     domain: ServiceRadar.Monitoring,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshOban, AshJsonApi.Resource]
 

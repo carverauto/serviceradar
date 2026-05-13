@@ -1,12 +1,15 @@
 defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   use ExUnit.Case, async: true
 
+  alias Ash.Notifier.Notification
   alias ServiceRadar.AgentConfig.DependencyCatalog
   alias ServiceRadar.AgentConfig.DependencyCatalog.Entry
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.AgentConfig.DependencyDispatcher
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.SyncConfigGenerator
+  alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.PluginAssignment
 
   defmodule CommandBus do
     @moduledoc false
@@ -92,7 +95,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
     end
 
     test "dispatcher pushes only the affected assigned agent for IntegrationSource updates" do
-      notification = %Ash.Notifier.Notification{
+      notification = %Notification{
         resource: IntegrationSource,
         action: %{type: :update},
         data: %{agent_id: "agent-a"}
@@ -114,6 +117,49 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.config_type == :sync
       assert diagnostic.action_type == :update
       assert diagnostic.affected_agents == ["agent-a"]
+      assert diagnostic.affected_agent_count == 1
+      assert diagnostic.result == :ok
+    end
+  end
+
+  describe "low-churn resource dependencies" do
+    test "service check config dependency matches only config-changing actions" do
+      update_notification = %Notification{
+        resource: ServiceCheck,
+        action: %{type: :update, name: :update},
+        data: %{agent_uid: "agent-a"}
+      }
+
+      runtime_notification = %Notification{
+        resource: ServiceCheck,
+        action: %{type: :update, name: :record_result},
+        data: %{agent_uid: "agent-a"}
+      }
+
+      assert [_entry] = DependencyCatalog.for_notification(update_notification)
+      assert [] = DependencyCatalog.for_notification(runtime_notification)
+    end
+
+    test "plugin assignment update dispatches only its assigned agent" do
+      notification = %Notification{
+        resource: PluginAssignment,
+        action: %{type: :update, name: :update},
+        data: %{agent_uid: "agent-plugin"}
+      }
+
+      assert {:ok, [diagnostic]} =
+               DependencyDispatcher.dispatch(notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:push_config, "agent-plugin"}
+      refute_received {:push_config_for_type, :agent}
+      refute_received {:invalidate, :agent}
+
+      assert diagnostic.dependency_id == :plugin_assignment_agent_config
+      assert diagnostic.affected_agents == ["agent-plugin"]
       assert diagnostic.affected_agent_count == 1
       assert diagnostic.result == :ok
     end

@@ -39,6 +39,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       :dispatch,
       :description,
       lifecycle_actions: [:create, :update, :destroy],
+      action_names: [],
       secret_fields: []
     ]
   end
@@ -49,6 +50,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
           config_type: atom(),
           generator: module(),
           lifecycle_actions: [atom()],
+          action_names: [atom()],
           affected_agents: {module(), atom(), list()},
           dispatch: :push_affected_agents | :invalidate_config_type | :push_config_for_type,
           secret_fields: [atom() | String.t()],
@@ -80,6 +82,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         generator: AgentConfigGenerator,
         affected_agents: {DependencyResolvers, :record_agent_id, []},
         dispatch: :push_affected_agents,
+        action_names: [:create, :update, :destroy, :enable, :disable, :reassign_device],
         description: "Service checks are delivered in the unified agent check list."
       },
       %Entry{
@@ -89,6 +92,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         generator: AgentConfigGenerator,
         affected_agents: {DependencyResolvers, :record_agent_id, []},
         dispatch: :push_affected_agents,
+        action_names: [:create, :update, :destroy],
         secret_fields: [:params, "params"],
         description: "Plugin assignments are delivered in the unified plugin_config section."
       },
@@ -199,13 +203,21 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
 
   @doc "Returns entries matching an Ash notification resource and action."
   @spec for_notification(Notification.t()) :: [entry()]
-  def for_notification(%Notification{resource: resource, action: %{type: action_type}}) do
+  def for_notification(%Notification{resource: resource, action: action}) do
     resource
     |> for_resource()
-    |> Enum.filter(&(action_type in &1.lifecycle_actions))
+    |> Enum.filter(&matches_action?(&1, action))
   end
 
   def for_notification(_notification), do: []
+
+  defp matches_action?(%Entry{} = entry, action) do
+    action_type = Map.get(action, :type)
+    action_name = Map.get(action, :name)
+
+    action_type in entry.lifecycle_actions and
+      (entry.action_names == [] or action_name in entry.action_names)
+  end
 
   @doc "Resolves affected agents for a catalog entry and changed record."
   @spec affected_agents(entry(), map() | struct()) :: DependencyResolvers.affected_agents()
