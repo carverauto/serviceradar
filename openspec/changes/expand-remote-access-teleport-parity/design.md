@@ -26,7 +26,7 @@ Recommended order:
 6. Add live session collaboration/moderation and richer identity-governance controls across the implemented protocols.
 
 ## Maintained Matrix
-The operator-facing parity matrix lives in `docs/docs/remote-access-teleport-parity.md`. It is the current source of truth for:
+The internal capability matrix lives in `openspec/changes/expand-remote-access-teleport-parity/matrix.md`. It is planning context, not public product documentation, and is the current source of truth for:
 
 - Teleport feature area to ServiceRadar status.
 - Next ServiceRadar implementation slice.

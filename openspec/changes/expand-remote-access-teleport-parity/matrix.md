@@ -1,11 +1,6 @@
----
-sidebar_position: 9
-title: Remote Access Teleport Parity
----
+# Remote Access Internal Capability Matrix
 
-# Remote Access Teleport Parity
-
-ServiceRadar has an agent-routed remote access foundation. It does not yet have full Teleport feature parity. This page is the maintained capability matrix for the remaining parity work and the source-reuse decisions that govern whether Teleport code can be imported, copied from an older Apache-2.0 tag, or treated as clean-room reference only.
+ServiceRadar has an agent-routed remote access foundation. It does not yet have full remote-access product parity. This OpenSpec note is an internal capability matrix for remaining work and source-reuse decisions. It is not public product documentation.
 
 The active OpenSpec change is `expand-remote-access-teleport-parity`.
 
