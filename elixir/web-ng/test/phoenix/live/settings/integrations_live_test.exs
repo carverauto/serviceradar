@@ -31,9 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         "source_type" => "armis",
         "endpoint" => "https://armis.example.test",
         "agent_id" => agent.uid,
-        "poll_interval_seconds" => "300",
-        "discovery_interval_seconds" => "3600",
-        "sweep_interval_seconds" => "3600"
+        "discovery_interval_seconds" => "3600"
       },
       "cred_api_key" => "armis-api-key",
       "cred_api_secret" => "armis-secret"
@@ -63,6 +61,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
 
     assert has_element?(lv, "input[name='cred_api_key'][value='key']")
+    refute has_element?(lv, "input[name='form[gateway_id]']")
+    refute has_element?(lv, "input[name='form[poll_interval_seconds]']")
+    refute has_element?(lv, "input[name='form[sweep_interval_seconds]']")
     assert html =~ "API secret:"
     assert html =~ "saved"
 
@@ -72,9 +73,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         "name" => source.name,
         "endpoint" => source.endpoint,
         "agent_id" => agent.uid,
-        "poll_interval_seconds" => "300",
-        "discovery_interval_seconds" => "3600",
-        "sweep_interval_seconds" => "3600"
+        "discovery_interval_seconds" => "3600"
       },
       "cred_api_key" => "updated-api-key",
       "cred_api_secret" => "updated-secret"
@@ -110,9 +109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         "name" => source.name,
         "endpoint" => source.endpoint,
         "agent_id" => agent.uid,
-        "poll_interval_seconds" => "300",
-        "discovery_interval_seconds" => "3600",
-        "sweep_interval_seconds" => "3600"
+        "discovery_interval_seconds" => "3600"
       },
       "cred_api_key" => "updated-api-key",
       "cred_api_secret" => ""

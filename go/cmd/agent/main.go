@@ -126,7 +126,6 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
