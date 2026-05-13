@@ -257,7 +257,7 @@ func stringifyTarget(target map[string]any) map[string]string {
 			out[key] = strconv.FormatFloat(typed, 'f', -1, 64)
 		case bool:
 			if typed {
-				out[key] = "true"
+				out[key] = enhancedMetadataTrue
 			} else {
 				out[key] = "false"
 			}
@@ -273,7 +273,7 @@ func redactArgs(args []string) []string {
 	out := append([]string(nil), args...)
 	for index, arg := range out {
 		if sensitiveToken(arg) {
-			out[index] = "REDACTED"
+			out[index] = enhancedMetadataRedacted
 		}
 	}
 	return out
@@ -286,7 +286,7 @@ func redactMetadata(metadata map[string]string) map[string]string {
 	out := make(map[string]string, len(metadata))
 	for key, value := range metadata {
 		if sensitiveToken(key) || sensitiveToken(value) {
-			out[key] = "REDACTED"
+			out[key] = enhancedMetadataRedacted
 		} else {
 			out[key] = value
 		}

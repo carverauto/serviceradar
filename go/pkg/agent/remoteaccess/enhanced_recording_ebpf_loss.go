@@ -131,7 +131,7 @@ func (tracker *bpfLossTracker) drainLossEvents() []EnhancedEvent {
 
 		metadata := map[string]string{
 			"source":                       enhancedSourceLinuxEBPF,
-			"bpf":                          "true",
+			"bpf":                          enhancedMetadataTrue,
 			"collector":                    enhancedBPFCollectorName,
 			enhancedBPFLossEventFamily:     family,
 			enhancedBPFLossKernelDrops:     strconv.FormatUint(kernelDrops, 10),

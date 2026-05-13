@@ -76,16 +76,11 @@ func linuxBPFRemoteAccessRuntimeFromEnv() *agentebpf.Runtime {
 
 func envBool(name string) bool {
 	switch strings.TrimSpace(strings.ToLower(os.Getenv(name))) {
-	case "1", "true", "yes", "on":
+	case "1", enhancedMetadataTrue, "yes", "on":
 		return true
 	default:
 		return false
 	}
-}
-
-func linuxBPFSurfacesAvailable() bool {
-	return pathExists("/sys/fs/bpf") &&
-		(pathExists("/sys/kernel/tracing") || pathExists("/sys/kernel/debug/tracing"))
 }
 
 func pathExists(path string) bool {
@@ -98,13 +93,4 @@ func pathExists(path string) bool {
 // policy explicitly allows fallback.
 func NewPlatformEnhancedRecorder() EnhancedRecorder {
 	return NewSourceEnhancedRecorder(NewLinuxProcEnhancedEventSource())
-}
-
-type unavailableEnhancedEventSource struct{}
-
-func (unavailableEnhancedEventSource) Start(
-	context.Context,
-	EnhancedRecordingSession,
-) (<-chan EnhancedEvent, func(context.Context) error, error) {
-	return nil, nil, ErrEnhancedRecordingUnavailable
 }

@@ -146,41 +146,53 @@ func runProxmoxConsoleSSH(
 
 	done := make(chan error, 3)
 	var once sync.Once
-	copyOutput := func(reader io.Reader) {
-		buf := make([]byte, 16*1024)
-		for {
-			n, readErr := reader.Read(buf)
-			if n > 0 {
-				if _, err := bridge.WriteOutput(ctx, handle, buf[:n]); err != nil {
-					once.Do(func() { done <- err })
-					return
-				}
-			}
-			if readErr != nil {
-				if !errors.Is(readErr, io.EOF) {
-					once.Do(func() { done <- readErr })
-				}
-				return
-			}
-		}
-	}
-
-	go copyOutput(stdout)
-	go copyOutput(stderr)
+	go copyProxmoxConsoleSSHOutput(ctx, bridge, handle, stdout, done, &once)
+	go copyProxmoxConsoleSSHOutput(ctx, bridge, handle, stderr, done, &once)
 	go func() {
 		once.Do(func() { done <- session.Wait() })
 	}()
 
-	for {
-		select {
-		case err := <-done:
-			if err != nil && !errors.Is(err, io.EOF) {
-				return err
-			}
-			return nil
-		default:
-		}
+	return proxyProxmoxConsoleSSHInput(ctx, bridge, handle, stdin, session, done)
+}
 
+func copyProxmoxConsoleSSHOutput(
+	ctx context.Context,
+	bridge *pluginProxmoxConsoleBridge,
+	handle uint32,
+	reader io.Reader,
+	done chan<- error,
+	once *sync.Once,
+) {
+	buf := make([]byte, 16*1024)
+	for {
+		n, readErr := reader.Read(buf)
+		if n > 0 {
+			if _, err := bridge.WriteOutput(ctx, handle, buf[:n]); err != nil {
+				once.Do(func() { done <- err })
+				return
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				once.Do(func() { done <- readErr })
+			}
+			return
+		}
+	}
+}
+
+func proxyProxmoxConsoleSSHInput(
+	ctx context.Context,
+	bridge *pluginProxmoxConsoleBridge,
+	handle uint32,
+	stdin io.Writer,
+	session proxmoxConsoleSSHSession,
+	done <-chan error,
+) error {
+	for {
+		if finished, err := proxmoxConsoleSSHDone(done); finished {
+			return err
+		}
 		frame, err := bridge.ReadInput(ctx, handle, 250*time.Millisecond)
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
@@ -207,6 +219,18 @@ func runProxmoxConsoleSSH(
 		case consoleFrameTypeClose:
 			return nil
 		}
+	}
+}
+
+func proxmoxConsoleSSHDone(done <-chan error) (bool, error) {
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, io.EOF) {
+			return true, err
+		}
+		return true, nil
+	default:
+		return false, nil
 	}
 }
 

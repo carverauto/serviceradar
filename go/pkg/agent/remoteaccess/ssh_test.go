@@ -37,6 +37,13 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+const (
+	fakeSSHPrompt     = "login: "
+	fakeSSHCommand    = "whoami\r"
+	fakeSSHTargetHost = "router.example"
+	fakeSSHUsername   = "admin"
+)
+
 func TestOpenSSHPTYRoutesBytesResizeAndClose(t *testing.T) {
 	t.Parallel()
 
@@ -44,21 +51,21 @@ func TestOpenSSHPTYRoutesBytesResizeAndClose(t *testing.T) {
 	defer cancel()
 
 	session := &fakeSSHSession{
-		stdout: strings.NewReader("login: "),
+		stdout: strings.NewReader(fakeSSHPrompt),
 		stderr: strings.NewReader(""),
 		waitCh: make(chan struct{}),
 	}
 
 	pty, err := OpenSSHPTY(ctx, SSHConfig{
-		Target: SSHTarget{Host: "router.example", Port: 2222},
-		Auth:   SSHAuth{Username: "admin", Password: "secret"},
+		Target: SSHTarget{Host: fakeSSHTargetHost, Port: 2222},
+		Auth:   SSHAuth{Username: fakeSSHUsername, Password: "secret"},
 		Cols:   132,
 		Rows:   43,
 	}, func(_ context.Context, cfg SSHConfig) (SSHSession, error) {
-		if cfg.Target.Host != "router.example" || cfg.Target.Port != 2222 {
+		if cfg.Target.Host != fakeSSHTargetHost || cfg.Target.Port != 2222 {
 			t.Fatalf("target = %#v", cfg.Target)
 		}
-		if cfg.Auth.Username != "admin" || cfg.Auth.Password != "secret" {
+		if cfg.Auth.Username != fakeSSHUsername || cfg.Auth.Password != "secret" {
 			t.Fatalf("auth = %#v", cfg.Auth)
 		}
 		return session, nil
@@ -71,11 +78,11 @@ func TestOpenSSHPTYRoutesBytesResizeAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read returned error: %v", err)
 	}
-	if string(output) != "login: " {
+	if string(output) != fakeSSHPrompt {
 		t.Fatalf("output = %q", string(output))
 	}
 
-	if err := pty.Write([]byte("whoami\r")); err != nil {
+	if err := pty.Write([]byte(fakeSSHCommand)); err != nil {
 		t.Fatalf("Write returned error: %v", err)
 	}
 	if err := pty.Resize(100, 30); err != nil {
@@ -84,7 +91,7 @@ func TestOpenSSHPTYRoutesBytesResizeAndClose(t *testing.T) {
 
 	waitForSSHTest(t, time.Second, func() bool {
 		stdin, windowChanges := session.ioState()
-		return stdin == "whoami\r" && len(windowChanges) == 1 && windowChanges[0] == [2]int{30, 100}
+		return stdin == fakeSSHCommand && len(windowChanges) == 1 && windowChanges[0] == [2]int{30, 100}
 	})
 
 	rows, cols, shellStarted := session.ptyState()
@@ -110,32 +117,32 @@ func TestOpenSSHPTYValidatesConfig(t *testing.T) {
 	}{
 		{
 			name: "target",
-			cfg:  SSHConfig{Auth: SSHAuth{Username: "admin", Password: "secret"}},
+			cfg:  SSHConfig{Auth: SSHAuth{Username: fakeSSHUsername, Password: "secret"}},
 			want: ErrMissingSSHTargetHost,
 		},
 		{
 			name: "username",
-			cfg:  SSHConfig{Target: SSHTarget{Host: "router.example"}, Auth: SSHAuth{Password: "secret"}},
+			cfg:  SSHConfig{Target: SSHTarget{Host: fakeSSHTargetHost}, Auth: SSHAuth{Password: "secret"}},
 			want: ErrSSHUsernameRequired,
 		},
 		{
 			name: "credential",
-			cfg:  SSHConfig{Target: SSHTarget{Host: "router.example"}, Auth: SSHAuth{Username: "admin"}},
+			cfg:  SSHConfig{Target: SSHTarget{Host: fakeSSHTargetHost}, Auth: SSHAuth{Username: fakeSSHUsername}},
 			want: ErrSSHCredentialRequired,
 		},
 		{
 			name: "certificate requires private key",
 			cfg: SSHConfig{
-				Target: SSHTarget{Host: "router.example"},
-				Auth:   SSHAuth{Username: "admin", Certificate: "ssh-ed25519-cert-v01@openssh.com AAAA"},
+				Target: SSHTarget{Host: fakeSSHTargetHost},
+				Auth:   SSHAuth{Username: fakeSSHUsername, Certificate: "ssh-ed25519-cert-v01@openssh.com AAAA"},
 			},
 			want: ErrSSHCertificateRequiresKey,
 		},
 		{
 			name: "invalid target port",
 			cfg: SSHConfig{
-				Target: SSHTarget{Host: "router.example", Port: 70_000},
-				Auth:   SSHAuth{Username: "admin", Password: "secret"},
+				Target: SSHTarget{Host: fakeSSHTargetHost, Port: 70_000},
+				Auth:   SSHAuth{Username: fakeSSHUsername, Password: "secret"},
 			},
 			want: ErrInvalidSSHTargetPort,
 		},
@@ -143,15 +150,15 @@ func TestOpenSSHPTYValidatesConfig(t *testing.T) {
 			name: "oversized host",
 			cfg: SSHConfig{
 				Target: SSHTarget{Host: strings.Repeat("a", maxSSHTargetHostBytes+1)},
-				Auth:   SSHAuth{Username: "admin", Password: "secret"},
+				Auth:   SSHAuth{Username: fakeSSHUsername, Password: "secret"},
 			},
 			want: ErrInvalidSSHFieldSize,
 		},
 		{
 			name: "oversized terminal type",
 			cfg: SSHConfig{
-				Target:       SSHTarget{Host: "router.example"},
-				Auth:         SSHAuth{Username: "admin", Password: "secret"},
+				Target:       SSHTarget{Host: fakeSSHTargetHost},
+				Auth:         SSHAuth{Username: fakeSSHUsername, Password: "secret"},
 				TerminalType: strings.Repeat("x", maxSSHTerminalTypeBytes+1),
 			},
 			want: ErrInvalidSSHFieldSize,
@@ -159,9 +166,9 @@ func TestOpenSSHPTYValidatesConfig(t *testing.T) {
 		{
 			name: "oversized private key",
 			cfg: SSHConfig{
-				Target: SSHTarget{Host: "router.example"},
+				Target: SSHTarget{Host: fakeSSHTargetHost},
 				Auth: SSHAuth{
-					Username:   "admin",
+					Username:   fakeSSHUsername,
 					PrivateKey: strings.Repeat("k", maxSSHPrivateKeyBytes+1),
 				},
 			},
@@ -202,7 +209,7 @@ func TestSSHSignerWrapsOpenSSHCertificate(t *testing.T) {
 		Serial:          1234,
 		CertType:        ssh.UserCert,
 		KeyId:           "session-1",
-		ValidPrincipals: []string{"admin"},
+		ValidPrincipals: []string{fakeSSHUsername},
 		ValidAfter:      uint64(time.Now().Add(-time.Minute).Unix()),
 		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
 		Permissions: ssh.Permissions{
@@ -249,7 +256,7 @@ func TestSSHSignerRejectsCertificateForDifferentKey(t *testing.T) {
 		Serial:          1234,
 		CertType:        ssh.UserCert,
 		KeyId:           "session-1",
-		ValidPrincipals: []string{"admin"},
+		ValidPrincipals: []string{fakeSSHUsername},
 		ValidAfter:      uint64(time.Now().Add(-time.Minute).Unix()),
 		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
 	}
@@ -281,7 +288,7 @@ func TestSSHSignerRejectsHostCertificate(t *testing.T) {
 		Serial:          1234,
 		CertType:        ssh.HostCert,
 		KeyId:           "session-1",
-		ValidPrincipals: []string{"router.example"},
+		ValidPrincipals: []string{fakeSSHTargetHost},
 		ValidAfter:      uint64(time.Now().Add(-time.Minute).Unix()),
 		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
 	}

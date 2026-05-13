@@ -65,7 +65,7 @@ var (
 	ErrSSHSessionOutputChannelOverflow = errors.New("ssh session output channel overflow")
 )
 
-var sshKnownHostsMu sync.Mutex
+var sshKnownHostsMu sync.Mutex //nolint:gochecknoglobals // serializes known_hosts file updates across concurrent SSH sessions.
 
 // SSHTarget identifies the target host opened by the selected agent.
 type SSHTarget struct {

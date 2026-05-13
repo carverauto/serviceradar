@@ -33,6 +33,11 @@ const (
 	NetworkLossesMap = "sr_network_losses"
 )
 
+var (
+	ErrReadLossCountersNilMap  = errors.New("read loss counters: nil map")
+	ErrResetLossCountersNilMap = errors.New("reset loss counters: nil map")
+)
+
 type LossCounters struct {
 	KernelDrops    uint64
 	ParserFailures uint64
@@ -40,7 +45,7 @@ type LossCounters struct {
 
 func ReadLossCounters(losses *ebpf.Map) (LossCounters, error) {
 	if losses == nil {
-		return LossCounters{}, errors.New("read loss counters: nil map")
+		return LossCounters{}, ErrReadLossCountersNilMap
 	}
 
 	counters := LossCounters{}
@@ -56,7 +61,7 @@ func ReadLossCounters(losses *ebpf.Map) (LossCounters, error) {
 
 func ResetLossCounters(losses *ebpf.Map) error {
 	if losses == nil {
-		return errors.New("reset loss counters: nil map")
+		return ErrResetLossCountersNilMap
 	}
 
 	var zero uint64

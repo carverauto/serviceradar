@@ -26,14 +26,6 @@ type remoteConsoleManager = proxmoxConsoleManager
 
 var errRemoteConsoleBridgeUnavailable = errProxmoxConsoleBridgeUnavailable
 
-func newRemoteConsoleManager(log logger.Logger) *remoteConsoleManager {
-	return newProxmoxConsoleManager(log)
-}
-
-func newRemoteConsoleManagerWithAgentID(agentID string, log logger.Logger) *remoteConsoleManager {
-	return newProxmoxConsoleManagerWithAgentID(agentID, log)
-}
-
 func newRemoteConsoleManagerWithRoute(agentID string, gatewayID string, log logger.Logger) *remoteConsoleManager {
 	return newProxmoxConsoleManagerWithRoute(agentID, gatewayID, log)
 }

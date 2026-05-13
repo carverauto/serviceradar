@@ -26,15 +26,22 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes"
 )
 
+const (
+	enhancedTestAgentID         = "agent-1"
+	enhancedTestSessionID       = "session-1"
+	enhancedTestRouterHost      = "router.example"
+	enhancedTestTerminalCommand = "whoami\r"
+)
+
 func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) {
 	t.Parallel()
 
 	session := EnhancedRecordingSession{
-		SessionID:             "session-1",
+		SessionID:             enhancedTestSessionID,
 		Protocol:              ProtocolSSH,
-		AgentID:               "agent-1",
+		AgentID:               enhancedTestAgentID,
 		GatewayID:             "gateway-1",
-		Target:                map[string]string{"host": "router.example", "port": "22"},
+		Target:                map[string]string{"host": enhancedTestRouterHost, "port": "22"},
 		CredentialCustodyMode: SSHCredentialModeSSHCertificate,
 		Policy: EnhancedRecordingPolicy{
 			IncludeCommandArguments: true,
@@ -50,13 +57,13 @@ func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) 
 		Metadata:    map[string]string{"password": "secret-value", "safe": "kept"},
 	})
 
-	if command.SessionID != "session-1" || command.AgentID != "agent-1" {
+	if command.SessionID != enhancedTestSessionID || command.AgentID != enhancedTestAgentID {
 		t.Fatalf("command correlation = %#v", command)
 	}
-	if command.Argv[2] != "REDACTED" {
+	if command.Argv[2] != enhancedMetadataRedacted {
 		t.Fatalf("command argv = %#v", command.Argv)
 	}
-	if command.Metadata["password"] != "REDACTED" || command.Metadata["safe"] != "kept" {
+	if command.Metadata["password"] != enhancedMetadataRedacted || command.Metadata["safe"] != "kept" {
 		t.Fatalf("metadata = %#v", command.Metadata)
 	}
 
@@ -94,7 +101,7 @@ func TestEnhancedSessionCapturesManagedTargetExecutionBoundary(t *testing.T) {
 	t.Parallel()
 
 	session := enhancedSessionFromFrame(Frame{
-		SessionID: "session-1",
+		SessionID: enhancedTestSessionID,
 		Protocol:  ProtocolSSH,
 		Data: mustJSON(t, map[string]any{
 			"target": map[string]any{
@@ -107,7 +114,7 @@ func TestEnhancedSessionCapturesManagedTargetExecutionBoundary(t *testing.T) {
 	if session.TargetExecutionMode != EnhancedExecutionManagedTarget {
 		t.Fatalf("target execution mode = %q", session.TargetExecutionMode)
 	}
-	if session.Target["managed_target"] != "true" {
+	if session.Target["managed_target"] != enhancedMetadataTrue {
 		t.Fatalf("target metadata = %#v", session.Target)
 	}
 }
@@ -116,7 +123,7 @@ func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing
 	t.Parallel()
 
 	session := EnhancedRecordingSession{
-		SessionID: "session-1",
+		SessionID: enhancedTestSessionID,
 		Protocol:  ProtocolSSH,
 		Policy:    EnhancedRecordingPolicy{},
 	}
@@ -125,7 +132,7 @@ func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing
 		EventType: EnhancedEventCommand,
 		Argv:      []string{"whoami", "--password", "secret"},
 		Metadata: map[string]string{
-			"terminal_input":  "whoami\r",
+			"terminal_input":  enhancedTestTerminalCommand,
 			"api_token":       "secret-token",
 			"private_key_pem": "-----BEGIN OPENSSH PRIVATE KEY-----",
 			"file_contents":   "shadow-file-bytes",
@@ -148,7 +155,7 @@ func TestEnhancedEventFrameDoesNotSerializeCredentialsOrTerminalBytes(t *testing
 	for _, forbidden := range []string{
 		"--password",
 		"secret",
-		"whoami\r",
+		enhancedTestTerminalCommand,
 		"secret-token",
 		"BEGIN OPENSSH PRIVATE KEY",
 		"shadow-file-bytes",
@@ -194,20 +201,20 @@ func TestNormalizeBPFCommandEvent(t *testing.T) {
 	if strings.Join(event.Argv, "|") != "curl|--header|token=secret" {
 		t.Fatalf("argv = %#v", event.Argv)
 	}
-	if event.Metadata["source"] != "linux_ebpf" || event.Metadata["probe"] != "command_execve" ||
+	if event.Metadata["source"] != enhancedSourceLinuxEBPF || event.Metadata["probe"] != enhancedBPFProbeCommand ||
 		event.Metadata["kernel_timestamp_ns"] != "12345" || event.Metadata["tid"] != "4243" {
 		t.Fatalf("metadata = %#v", event.Metadata)
 	}
 
 	session := EnhancedRecordingSession{
-		SessionID: "session-1",
+		SessionID: enhancedTestSessionID,
 		Protocol:  ProtocolSSH,
 		Policy: EnhancedRecordingPolicy{
 			IncludeCommandArguments: true,
 		},
 	}
 	redacted := normalizeEnhancedEvent(session, event)
-	if redacted.Argv[2] != "REDACTED" {
+	if redacted.Argv[2] != enhancedMetadataRedacted {
 		t.Fatalf("redacted argv = %#v", redacted.Argv)
 	}
 }
@@ -241,14 +248,14 @@ func TestNormalizeBPFFileEvent(t *testing.T) {
 	if event.FilePath != "/home/alice/.ssh/config" || event.FileOperation != "open" {
 		t.Fatalf("file event = %#v", event)
 	}
-	if event.Metadata["source"] != "linux_ebpf" || event.Metadata["probe"] != "file_open_access" ||
+	if event.Metadata["source"] != enhancedSourceLinuxEBPF || event.Metadata["probe"] != "file_open_access" ||
 		event.Metadata["kernel_timestamp_ns"] != "67890" || event.Metadata["tid"] != "5253" ||
 		event.Metadata["flags"] != "64" {
 		t.Fatalf("metadata = %#v", event.Metadata)
 	}
 
 	session := EnhancedRecordingSession{
-		SessionID: "session-1",
+		SessionID: enhancedTestSessionID,
 		Protocol:  ProtocolSSH,
 		Policy: EnhancedRecordingPolicy{
 			IncludeFilePaths: false,
@@ -291,7 +298,7 @@ func TestNormalizeBPFNetworkEvent(t *testing.T) {
 		event.DestinationPort != 443 {
 		t.Fatalf("network event = %#v", event)
 	}
-	if event.Metadata["source"] != "linux_ebpf" || event.Metadata["probe"] != "network_connect" ||
+	if event.Metadata["source"] != enhancedSourceLinuxEBPF || event.Metadata["probe"] != "network_connect" ||
 		event.Metadata["kernel_timestamp_ns"] != "11111" || event.Metadata["tid"] != "6263" ||
 		event.Metadata["family"] != "2" || event.Metadata["addr_len"] != "16" ||
 		event.Metadata["syscall"] != "connect" {
@@ -299,7 +306,7 @@ func TestNormalizeBPFNetworkEvent(t *testing.T) {
 	}
 
 	session := EnhancedRecordingSession{
-		SessionID: "session-1",
+		SessionID: enhancedTestSessionID,
 		Protocol:  ProtocolSSH,
 		Policy: EnhancedRecordingPolicy{
 			IncludeNetworkAddresses: false,
@@ -353,7 +360,7 @@ func TestBPFLossTrackerEmitsCounters(t *testing.T) {
 	if loss.DroppedEvents != 7 {
 		t.Fatalf("dropped events = %d, want 7", loss.DroppedEvents)
 	}
-	if loss.Metadata["source"] != "linux_ebpf" || loss.Metadata["bpf"] != "true" ||
+	if loss.Metadata["source"] != enhancedSourceLinuxEBPF || loss.Metadata["bpf"] != enhancedMetadataTrue ||
 		loss.Metadata["collector"] != "serviceradar_agent_ebpf" ||
 		loss.Metadata["event_family"] != "command" ||
 		loss.Metadata["kernel_drops"] != "2" ||

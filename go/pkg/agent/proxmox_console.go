@@ -35,6 +35,8 @@ const (
 	consoleFrameTypeResize = "resize"
 	consoleFrameTypeClose  = "close"
 	consoleFrameTypeError  = "error"
+
+	protocolProxmoxConsole = "proxmox-console"
 )
 
 var (
@@ -172,20 +174,20 @@ func routeMetadata(agentID string, gatewayID string) map[string]string {
 
 func consoleFrameProtocol(frame *proto.ConsoleFrame) string {
 	if frame.GetFrameType() != consoleFrameTypeOpen || len(bytes.TrimSpace(frame.GetData())) == 0 {
-		return "proxmox-console"
+		return protocolProxmoxConsole
 	}
 
 	var payload struct {
 		Protocol string `json:"protocol"`
 	}
 	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
-		return "proxmox-console"
+		return protocolProxmoxConsole
 	}
 	if payload.Protocol == remoteaccess.ProtocolSSH {
 		return remoteaccess.ProtocolSSH
 	}
 
-	return "proxmox-console"
+	return protocolProxmoxConsole
 }
 
 func remoteAccessConsoleFrame(frame remoteaccess.Frame) *proto.ConsoleFrame {
@@ -213,22 +215,6 @@ func proxmoxConsoleErrorReason(err error) string {
 	default:
 		return "console session failed"
 	}
-}
-
-func sendProxmoxConsoleFrame(
-	sender proxmoxConsoleSender,
-	sessionID string,
-	frameType string,
-	data []byte,
-	reason string,
-	cols uint32,
-	rows uint32,
-) {
-	if sender == nil {
-		return
-	}
-
-	_ = sender.Send(consoleControlFrame(sessionID, frameType, data, reason, cols, rows))
 }
 
 func consoleControlFrame(

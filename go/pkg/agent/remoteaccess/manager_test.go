@@ -27,7 +27,10 @@ import (
 	"time"
 )
 
-const fakeCommand = "whoami\r"
+const (
+	fakeCommand         = "whoami\r"
+	fakeRemoteSessionID = "remote-session-1"
+)
 
 var errFakeReadFailed = errors.New("pty read failed")
 var errFakeOpenFailed = errors.New("pty open failed")
@@ -184,7 +187,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(ctx, Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 		Cols:      120,
@@ -192,7 +195,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 	}, sender)
 
 	ready := sender.nextFrame(t, FrameTypeReady)
-	if ready.SessionID != "remote-session-1" {
+	if ready.SessionID != fakeRemoteSessionID {
 		t.Fatalf("ready SessionID = %q", ready.SessionID)
 	}
 	if ready.Protocol != "ssh" {
@@ -200,7 +203,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 	}
 
 	manager.HandleFrame(ctx, Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeData,
 		Data:      []byte(fakeCommand),
@@ -216,7 +219,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 	}
 
 	manager.HandleFrame(ctx, Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeResize,
 		Cols:      100,
@@ -239,7 +242,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 	}
 
 	manager.HandleFrame(ctx, Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeClose,
 		Reason:    "operator closed session",
@@ -266,7 +269,7 @@ func TestManagerRejectsDuplicateOpen(t *testing.T) {
 	})
 	sender := newFakeSender()
 
-	frame := Frame{SessionID: "remote-session-1", Protocol: "ssh", FrameType: FrameTypeOpen}
+	frame := Frame{SessionID: fakeRemoteSessionID, Protocol: "ssh", FrameType: FrameTypeOpen}
 	manager.HandleFrame(context.Background(), frame, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
 
@@ -288,7 +291,7 @@ func TestManagerRejectsInvalidOpenTerminalSize(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 		Cols:      MaxTerminalCols + 1,
@@ -315,7 +318,7 @@ func TestManagerRejectsOversizedOpenPayloadBeforeOpener(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 		Data:      make([]byte, MaxOpenFrameData+1),
@@ -340,14 +343,14 @@ func TestManagerRejectsOversizedDataFrameBeforePTYWrite(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeData,
 		Data:      make([]byte, MaxTerminalFrameData+1),
@@ -384,7 +387,7 @@ func TestManagerChunksOversizedPTYOutput(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 	}, sender)
@@ -420,14 +423,14 @@ func TestManagerRejectsInvalidResizeBeforePTYResize(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeResize,
 		Cols:      MaxTerminalCols + 1,
@@ -457,7 +460,7 @@ func TestManagerReportsReadFailure(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeOpen,
 	}, sender)
@@ -480,7 +483,7 @@ func TestManagerEchoesHeartbeat(t *testing.T) {
 	manager := NewManager(nil)
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  "ssh",
 		FrameType: FrameTypeHeartbeat,
 		Metadata:  map[string]string{"sent_bytes": "12"},
@@ -505,12 +508,12 @@ func TestManagerFailsBeforeOpenWhenRequiredEnhancedRecordingUnavailable(t *testi
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
 			"protocol":              ProtocolSSH,
-			"session_id":            "remote-session-1",
+			"session_id":            fakeRemoteSessionID,
 			"agent_id":              "agent-1",
 			"target_execution_mode": EnhancedExecutionManagedTarget,
 			"enhanced_recording_policy": map[string]any{
@@ -546,12 +549,12 @@ func TestManagerRejectsAgentlessSSHRequiredBPF(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
 			"protocol":   ProtocolSSH,
-			"session_id": "remote-session-1",
+			"session_id": fakeRemoteSessionID,
 			"enhanced_recording_policy": map[string]any{
 				"enabled":  true,
 				"required": true,
@@ -586,12 +589,12 @@ func TestManagerAllowsOpenWhenEnhancedRecordingFallbackIsAllowed(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
 			"protocol":   ProtocolSSH,
-			"session_id": "remote-session-1",
+			"session_id": fakeRemoteSessionID,
 			"enhanced_recording_policy": map[string]any{
 				"enabled":        true,
 				"required":       true,
@@ -601,12 +604,12 @@ func TestManagerAllowsOpenWhenEnhancedRecordingFallbackIsAllowed(t *testing.T) {
 	}, sender)
 
 	ready := sender.nextFrame(t, FrameTypeReady)
-	if ready.SessionID != "remote-session-1" {
+	if ready.SessionID != fakeRemoteSessionID {
 		t.Fatalf("ready session = %q", ready.SessionID)
 	}
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		FrameType: FrameTypeClose,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeClose)
@@ -628,7 +631,7 @@ func TestManagerAllowsOpenWhenEnhancedRecordingStartFailsAndFallbackIsAllowed(t 
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
@@ -643,12 +646,12 @@ func TestManagerAllowsOpenWhenEnhancedRecordingStartFailsAndFallbackIsAllowed(t 
 
 	<-recorder.started
 	ready := sender.nextFrame(t, FrameTypeReady)
-	if ready.SessionID != "remote-session-1" {
+	if ready.SessionID != fakeRemoteSessionID {
 		t.Fatalf("ready session = %q", ready.SessionID)
 	}
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		FrameType: FrameTypeClose,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeClose)
@@ -669,12 +672,12 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
 			"protocol":        ProtocolSSH,
-			"session_id":      "remote-session-1",
+			"session_id":      fakeRemoteSessionID,
 			"agent_id":        "agent-1",
 			"gateway_id":      "gateway-1",
 			"credential_mode": "ssh_certificate",
@@ -691,10 +694,10 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 	}, sender)
 
 	started := <-recorder.started
-	if started.SessionID != "remote-session-1" || started.AgentID != "agent-1" {
+	if started.SessionID != fakeRemoteSessionID || started.AgentID != "agent-1" {
 		t.Fatalf("enhanced session = %#v", started)
 	}
-	if started.Target["host"] != "router.example" || started.Target["port"] != "22" {
+	if started.Target["host"] != enhancedTestRouterHost || started.Target["port"] != "22" {
 		t.Fatalf("enhanced target = %#v", started.Target)
 	}
 
@@ -714,7 +717,7 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 		t.Fatalf("decode enhanced event: %v", err)
 	}
 
-	if event.SessionID != "remote-session-1" || event.AgentID != "agent-1" {
+	if event.SessionID != fakeRemoteSessionID || event.AgentID != "agent-1" {
 		t.Fatalf("event identity = %#v", event)
 	}
 	if event.CredentialCustodyMode != "ssh_certificate" {
@@ -728,7 +731,7 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 	}
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		FrameType: FrameTypeClose,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeClose)
@@ -754,7 +757,7 @@ func TestManagerStopsEnhancedRecordingWhenOpenFails(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
@@ -794,7 +797,7 @@ func TestManagerStopsSessionWhenContextIsCanceled(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(ctx, Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data: mustJSON(t, map[string]any{
@@ -826,7 +829,7 @@ func TestManagerStopsSessionWhenContextIsCanceled(t *testing.T) {
 	}
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "remote-session-1",
+		SessionID: fakeRemoteSessionID,
 		FrameType: FrameTypeData,
 		Data:      []byte(fakeCommand),
 	}, sender)

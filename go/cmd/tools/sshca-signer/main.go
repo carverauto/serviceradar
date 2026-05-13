@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,6 +33,11 @@ const (
 	defaultCAKeyEnv          = "SERVICERADAR_SSH_CA_KEY"
 	defaultCAPassphraseEnv   = "SERVICERADAR_SSH_CA_PASSPHRASE"
 	defaultMaxCertificateTTL = 8 * time.Hour
+)
+
+var (
+	errCAKeySourceRequired = errors.New("CA key source is required")
+	errCAKeyRequired       = errors.New("CA key is required")
 )
 
 type signRequest struct {
@@ -133,12 +139,12 @@ func loadCAKey(path, envName string, getenv func(string) string) ([]byte, error)
 	}
 
 	if strings.TrimSpace(envName) == "" {
-		return nil, fmt.Errorf("CA key source is required")
+		return nil, errCAKeySourceRequired
 	}
 
 	key := []byte(getenv(envName))
 	if strings.TrimSpace(string(key)) == "" {
-		return nil, fmt.Errorf("CA key is required in %s or --ca-key-file", envName)
+		return nil, fmt.Errorf("%w in %s or --ca-key-file", errCAKeyRequired, envName)
 	}
 	return key, nil
 }

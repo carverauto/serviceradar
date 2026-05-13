@@ -35,6 +35,8 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+const fakeProxmoxConsolePrompt = "login: "
+
 func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -46,7 +48,7 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 
 	session := &fakeProxmoxConsoleSSHSession{
 		waitCh: make(chan struct{}),
-		stdout: strings.NewReader("login: "),
+		stdout: strings.NewReader(fakeProxmoxConsolePrompt),
 		stderr: strings.NewReader(""),
 	}
 	done := make(chan error, 1)
@@ -64,11 +66,11 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bridge output: %v", err)
 	}
-	if string(output) != "login: " {
+	if string(output) != fakeProxmoxConsolePrompt {
 		t.Fatalf("unexpected bridge output %q", string(output))
 	}
 
-	if err := bridge.Write([]byte("whoami\r")); err != nil {
+	if err := bridge.Write([]byte(fakeProxmoxConsoleCommand)); err != nil {
 		t.Fatalf("write bridge input: %v", err)
 	}
 	if err := bridge.Resize(132, 43); err != nil {
@@ -77,7 +79,7 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 
 	waitFor(t, time.Second, func() bool {
 		stdin, windowChanges := session.ioState()
-		return stdin == "whoami\r" &&
+		return stdin == fakeProxmoxConsoleCommand &&
 			len(windowChanges) == 1 &&
 			windowChanges[0] == [2]int{43, 132}
 	})

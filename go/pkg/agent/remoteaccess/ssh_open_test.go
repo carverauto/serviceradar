@@ -59,7 +59,7 @@ func TestSSHConfigFromOpenFrameUsesUserPresentCredential(t *testing.T) {
 	if cfg.Target.Host != "router.example" || cfg.Target.Port != 2222 {
 		t.Fatalf("target = %#v", cfg.Target)
 	}
-	if cfg.Auth.Username != "admin" ||
+	if cfg.Auth.Username != fakeSSHUsername ||
 		cfg.Auth.PrivateKey != "private-key" ||
 		cfg.Auth.Passphrase != "passphrase" ||
 		cfg.Auth.Certificate != "user-cert" {

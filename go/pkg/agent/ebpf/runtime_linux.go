@@ -33,6 +33,12 @@ import (
 
 const DetailKernelRelease = "kernel_release"
 
+type loadedCollection struct {
+	name   string
+	raw    *ciliumebpf.Collection
+	events chan Observation
+}
+
 func (r *Runtime) Check(ctx context.Context) CapabilityReport {
 	report := baseReport(runtime.GOOS + "/" + runtime.GOARCH)
 	if r == nil {
@@ -108,6 +114,18 @@ func (r *Runtime) LoadCollection(ctx context.Context, spec CollectionSpec) (Coll
 		raw:    raw,
 		events: make(chan Observation),
 	}, nil
+}
+
+func (c *loadedCollection) Attach(context.Context, AttachPlan) (SessionHandle, error) {
+	return nil, ErrRuntimeNotImplemented
+}
+
+func (c *loadedCollection) Close(context.Context) error {
+	if c == nil || c.raw == nil {
+		return nil
+	}
+	c.raw.Close()
+	return nil
 }
 
 func checkFeature(report *CapabilityReport, err error) {

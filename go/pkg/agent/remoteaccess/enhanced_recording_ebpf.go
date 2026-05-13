@@ -32,6 +32,8 @@ const (
 	enhancedBPFProbeFile     = "file_open_access"
 	enhancedBPFProbeNetwork  = "network_connect"
 	enhancedBPFCollectorName = "serviceradar_agent_ebpf"
+	enhancedMetadataTrue     = "true"
+	enhancedMetadataRedacted = "REDACTED"
 )
 
 func normalizeBPFCommandEvent(raw probes.CommandEvent, observedAt time.Time) EnhancedEvent {
@@ -68,7 +70,7 @@ func normalizeBPFCommandEvent(raw probes.CommandEvent, observedAt time.Time) Enh
 		Result:            result,
 		Metadata: map[string]string{
 			"source":              enhancedSourceLinuxEBPF,
-			"bpf":                 "true",
+			"bpf":                 enhancedMetadataTrue,
 			"collector":           enhancedBPFCollectorName,
 			"probe":               enhancedBPFProbeCommand,
 			"kernel_timestamp_ns": strconv.FormatUint(raw.TimestampNS, 10),
@@ -94,7 +96,7 @@ func normalizeBPFFileEvent(raw probes.FileEvent, observedAt time.Time) EnhancedE
 		Result:            result,
 		Metadata: map[string]string{
 			"source":              enhancedSourceLinuxEBPF,
-			"bpf":                 "true",
+			"bpf":                 enhancedMetadataTrue,
 			"collector":           enhancedBPFCollectorName,
 			"probe":               enhancedBPFProbeFile,
 			"kernel_timestamp_ns": strconv.FormatUint(raw.TimestampNS, 10),
@@ -122,7 +124,7 @@ func normalizeBPFNetworkEvent(raw probes.NetworkEvent, observedAt time.Time) Enh
 		Result:             result,
 		Metadata: map[string]string{
 			"source":              enhancedSourceLinuxEBPF,
-			"bpf":                 "true",
+			"bpf":                 enhancedMetadataTrue,
 			"collector":           enhancedBPFCollectorName,
 			"probe":               enhancedBPFProbeNetwork,
 			"kernel_timestamp_ns": strconv.FormatUint(raw.TimestampNS, 10),

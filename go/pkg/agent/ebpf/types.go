@@ -128,13 +128,6 @@ type Runtime struct {
 	config Config
 }
 
-type loadedCollection struct {
-	name       string
-	raw        *ciliumebpf.Collection
-	events     chan Observation
-	attachPlan AttachPlan
-}
-
 func NewRuntime(config Config) *Runtime {
 	return &Runtime{config: normalizeConfig(config)}
 }
@@ -184,18 +177,6 @@ func (s CollectionSpec) load(ctx context.Context) (*ciliumebpf.CollectionSpec, e
 		return nil, fmt.Errorf("%w: %s loader returned nil", ErrInvalidCollectionSpec, s.Name)
 	}
 	return spec, nil
-}
-
-func (c *loadedCollection) Attach(context.Context, AttachPlan) (SessionHandle, error) {
-	return nil, ErrRuntimeNotImplemented
-}
-
-func (c *loadedCollection) Close(context.Context) error {
-	if c == nil || c.raw == nil {
-		return nil
-	}
-	c.raw.Close()
-	return nil
 }
 
 func baseReport(platform string) CapabilityReport {
