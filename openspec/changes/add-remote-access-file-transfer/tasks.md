@@ -7,8 +7,8 @@
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add file-transfer RBAC permissions for list, download, upload, manage, approve, and export.
 - [x] 2.2 Add policy evaluation for operation allowlists, path rules, symlink behavior, quotas, approval, and redaction.
-- [ ] 2.3 Add browser/API endpoints that accept only bounded transfer intent fields.
-- [ ] 2.4 Reject route, agent, gateway, target host, credential rule, custody, recording, quota, and approval overrides from client requests.
+- [x] 2.3 Add browser/API endpoints that accept only bounded transfer intent fields.
+- [x] 2.4 Reject route, agent, gateway, target host, credential rule, custody, recording, quota, and approval overrides from client requests.
 
 ## 3. Routing And Agent Adapter
 - [ ] 3.1 Add gateway/agent transfer routing over the selected remote-access session route.
@@ -29,7 +29,7 @@
 
 ## 6. Validation
 - [x] 6.1 Add unit tests for policy, path rules, symlink behavior, quota exhaustion, approval, and redaction.
-- [ ] 6.2 Add API/channel tests proving client override fields are rejected.
+- [x] 6.2 Add API/channel tests proving client override fields are rejected.
 - [ ] 6.3 Add gateway/agent route-binding tests for transfer frames.
 - [ ] 6.4 Add agent adapter tests for list, download, upload, mutation operations, cancellation, and partial transfer cleanup.
 - [ ] 6.5 Add recording/replay/audit tests proving file contents are not persisted by default.

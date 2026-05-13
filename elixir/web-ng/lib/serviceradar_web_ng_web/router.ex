@@ -325,6 +325,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
+    post("/remote-access/file-transfers", RemoteAccessFileTransferController, :create)
     get("/remote-access/recordings/:id", RemoteAccessRecordingController, :show)
     get("/remote-access/recordings/:id/events", RemoteAccessRecordingController, :events)
     get("/remote-access/recordings/:id/export", RemoteAccessRecordingController, :export)
