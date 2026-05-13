@@ -494,7 +494,9 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
       direction: string_value(request, :direction),
       path: value(request, :path),
       destination_path: value(request, :destination_path),
-      display_name: value(request, :display_name)
+      display_name: value(request, :display_name),
+      policy: safe_map(value(transfer, :policy_snapshot)),
+      approved: not blank?(value(transfer, :approval_id))
     }
     |> Enum.reject(fn {_key, value} -> blank?(value) end)
     |> Map.new()

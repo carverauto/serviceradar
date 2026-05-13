@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
@@ -59,6 +60,9 @@ type proxmoxConsoleManager struct {
 	opener     proxmoxConsoleOpener
 	manager    *remoteaccess.Manager
 	sshOptions remoteaccess.SSHOpenOptions
+	sshMu      sync.Mutex
+	sshConfig  map[string]remoteaccess.SSHConfig
+	sftpDialer remoteaccess.SFTPDialer
 	agentID    string
 	gatewayID  string
 }
@@ -73,8 +77,10 @@ func newProxmoxConsoleManagerWithAgentID(agentID string, log logger.Logger) *pro
 
 func newProxmoxConsoleManagerWithRoute(agentID string, gatewayID string, _ logger.Logger) *proxmoxConsoleManager {
 	manager := &proxmoxConsoleManager{
-		agentID:   agentID,
-		gatewayID: gatewayID,
+		agentID:    agentID,
+		gatewayID:  gatewayID,
+		sshConfig:  make(map[string]remoteaccess.SSHConfig),
+		sftpDialer: nil,
 		opener: func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 			return nil, errProxmoxConsoleBridgeUnavailable
 		},
@@ -118,10 +124,82 @@ func (m *proxmoxConsoleManager) openRemoteAccessPTY(
 	frame remoteaccess.Frame,
 ) (remoteaccess.PTY, error) {
 	if frame.Protocol == remoteaccess.ProtocolSSH {
-		return remoteaccess.OpenSSHFromFrame(ctx, frame, m.sshOptions)
+		cfg, err := remoteaccess.SSHConfigFromOpenFrame(frame)
+		if err != nil {
+			return nil, err
+		}
+
+		cfg.KnownHostsPath = m.sshOptions.KnownHostsPath
+
+		pty, err := remoteaccess.OpenSSHPTY(ctx, cfg, m.sshOptions.Dial)
+		if err != nil {
+			return nil, err
+		}
+
+		m.setSSHConfig(frame.SessionID, cfg)
+
+		return &remoteAccessTrackedPTY{
+			PTY: pty,
+			onClose: func() {
+				m.deleteSSHConfig(frame.SessionID)
+			},
+		}, nil
 	}
 
 	return m.opener(ctx, remoteAccessConsoleFrame(frame))
+}
+
+func (m *proxmoxConsoleManager) setSSHConfig(sessionID string, cfg remoteaccess.SSHConfig) {
+	if m == nil || sessionID == "" {
+		return
+	}
+
+	m.sshMu.Lock()
+	defer m.sshMu.Unlock()
+	if m.sshConfig == nil {
+		m.sshConfig = make(map[string]remoteaccess.SSHConfig)
+	}
+	m.sshConfig[sessionID] = cfg
+}
+
+func (m *proxmoxConsoleManager) getSSHConfig(sessionID string) (remoteaccess.SSHConfig, bool) {
+	if m == nil || sessionID == "" {
+		return remoteaccess.SSHConfig{}, false
+	}
+
+	m.sshMu.Lock()
+	defer m.sshMu.Unlock()
+	cfg, ok := m.sshConfig[sessionID]
+	return cfg, ok
+}
+
+func (m *proxmoxConsoleManager) deleteSSHConfig(sessionID string) {
+	if m == nil || sessionID == "" {
+		return
+	}
+
+	m.sshMu.Lock()
+	defer m.sshMu.Unlock()
+	delete(m.sshConfig, sessionID)
+}
+
+type remoteAccessTrackedPTY struct {
+	remoteaccess.PTY
+	once    sync.Once
+	onClose func()
+}
+
+func (p *remoteAccessTrackedPTY) Close() error {
+	var err error
+	p.once.Do(func() {
+		if p.onClose != nil {
+			p.onClose()
+		}
+		if p.PTY != nil {
+			err = p.PTY.Close()
+		}
+	})
+	return err
 }
 
 type proxmoxConsoleRemoteSender struct {

@@ -101,7 +101,19 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     session_id = Ecto.UUID.generate()
     actor_id = Ecto.UUID.generate()
 
-    Process.put(:remote_access_file_transfer_session, session_fixture(session_id))
+    Process.put(
+      :remote_access_file_transfer_session,
+      %{
+        session_fixture(session_id)
+        | metadata: %{
+            "file_transfer_policy" => %{
+              "allowed_operations" => ["download"],
+              "allowed_path_rules" => ["/var/log"],
+              "max_bytes" => 10_000
+            }
+          }
+      }
+    )
 
     request = %{
       operation: "download",
@@ -157,7 +169,13 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
              "operation" => "download",
              "direction" => "read",
              "path" => "/var/log/syslog",
-             "display_name" => "syslog"
+             "display_name" => "syslog",
+             "policy" => %{
+               "allowed_operations" => ["download"],
+               "allowed_path_rules" => ["/var/log"],
+               "max_bytes" => 10_000
+             },
+             "approved" => false
            } = Jason.decode!(frame.data)
 
     assert transfer_id == transfer.id

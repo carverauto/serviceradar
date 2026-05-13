@@ -79,10 +79,11 @@ type FileTransferDirection string
 type FileTransferStatus string
 
 // FileTransferRequestPayload is the JSON payload carried by
-// FrameTypeFileTransferRequest. Route, agent, gateway, target host, credential,
-// custody, recording, quota, and approval decisions are intentionally absent;
-// those values are bound by trusted session policy before this payload reaches
-// the selected agent.
+// FrameTypeFileTransferRequest. Route, agent, gateway, target host,
+// credential, custody, recording, and approval override fields are
+// intentionally absent from browser intent; the trusted control plane adds the
+// policy snapshot that the selected agent must enforce before it opens target
+// file handles.
 type FileTransferRequestPayload struct {
 	Protocol        string                `json:"protocol,omitempty"`
 	TransferID      string                `json:"transfer_id"`
@@ -92,6 +93,8 @@ type FileTransferRequestPayload struct {
 	Path            string                `json:"path"`
 	DestinationPath string                `json:"destination_path,omitempty"`
 	DisplayName     string                `json:"display_name,omitempty"`
+	Policy          FileTransferPolicy    `json:"policy,omitempty"`
+	Approved        bool                  `json:"approved,omitempty"`
 }
 
 // FileTransferProgressPayload reports transfer lifecycle progress. Payloads

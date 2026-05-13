@@ -48,15 +48,15 @@ type FileTransferSymlinkMode string
 // FileTransferPolicy is the policy snapshot the selected agent must enforce
 // before and during target file operations.
 type FileTransferPolicy struct {
-	AllowedOperations  []FileTransferOperation
-	AllowedPathRules   []string
-	DeniedPathRules    []string
-	RedactedPathRules  []string
-	SymlinkMode        FileTransferSymlinkMode
-	MaxBytes           int64
-	MaxFiles           int64
-	RequiresApproval   bool
-	ContentAuditRetain bool
+	AllowedOperations  []FileTransferOperation `json:"allowed_operations,omitempty"`
+	AllowedPathRules   []string                `json:"allowed_path_rules,omitempty"`
+	DeniedPathRules    []string                `json:"denied_path_rules,omitempty"`
+	RedactedPathRules  []string                `json:"redacted_path_rules,omitempty"`
+	SymlinkMode        FileTransferSymlinkMode `json:"symlink_mode,omitempty"`
+	MaxBytes           int64                   `json:"max_bytes,omitempty"`
+	MaxFiles           int64                   `json:"max_files,omitempty"`
+	RequiresApproval   bool                    `json:"requires_approval,omitempty"`
+	ContentAuditRetain bool                    `json:"content_audit_retain,omitempty"`
 }
 
 // FileTransferPolicyInput carries the trusted transfer request plus target
