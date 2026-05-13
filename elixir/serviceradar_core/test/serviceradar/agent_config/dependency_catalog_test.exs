@@ -63,6 +63,22 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert missing == []
     end
 
+    test "cataloged resources have notifier wiring or an explicit exception" do
+      custom_notifier_resources = MapSet.new([IntegrationSource])
+      intentionally_unwired_resources = MapSet.new([ServiceRadar.Inventory.Device])
+
+      unwired_entries =
+        Enum.reject(DependencyCatalog.entries(), fn entry ->
+          notifiers = Ash.Resource.Info.notifiers(entry.resource)
+
+          ServiceRadar.AgentConfig.DependencyNotifier in notifiers or
+            entry.resource in custom_notifier_resources or
+            entry.resource in intentionally_unwired_resources
+        end)
+
+      assert unwired_entries == []
+    end
+
     test "validation rejects duplicate dependency ids" do
       [entry | _] = DependencyCatalog.entries()
 
