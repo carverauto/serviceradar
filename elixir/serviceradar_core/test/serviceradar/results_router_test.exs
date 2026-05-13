@@ -102,6 +102,74 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert Keyword.keyword?(opts)
   end
 
+  test "ingests repeated sync result pages independently" do
+    first_status = %{
+      source: "results",
+      service_type: "sync",
+      service_name: "sync",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      chunk_index: 0,
+      total_chunks: 1,
+      is_final: true,
+      message:
+        Jason.encode!([
+          %{
+            "device_id" => "default:10.0.0.1",
+            "ip" => "10.0.0.1",
+            "sync_meta" => %{
+              "sync_run_id" => "run-1",
+              "chunk_index" => 0,
+              "total_chunks" => 1,
+              "total_devices" => 2,
+              "is_final" => true
+            }
+          },
+          %{
+            "device_id" => "default:10.0.0.2",
+            "ip" => "10.0.0.2",
+            "sync_meta" => %{
+              "sync_run_id" => "run-1",
+              "chunk_index" => 0,
+              "total_chunks" => 1,
+              "total_devices" => 2,
+              "is_final" => true
+            }
+          }
+        ])
+    }
+
+    second_status = %{
+      first_status
+      | message:
+          Jason.encode!([
+            %{
+              "device_id" => "default:10.0.0.3",
+              "ip" => "10.0.0.3",
+              "sync_meta" => %{
+                "sync_run_id" => "run-1",
+                "chunk_index" => 0,
+                "total_chunks" => 1,
+                "total_devices" => 1,
+                "is_final" => true
+              }
+            }
+          ])
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, first_status}, %{})
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, second_status}, %{})
+
+    assert_receive {:ingest, first_updates, first_opts}
+    assert_receive {:ingest, second_updates, second_opts}
+
+    assert Enum.map(first_updates, & &1["device_id"]) == ["default:10.0.0.1", "default:10.0.0.2"]
+    assert Enum.map(second_updates, & &1["device_id"]) == ["default:10.0.0.3"]
+    assert Keyword.keyword?(first_opts)
+    assert Keyword.keyword?(second_opts)
+  end
+
   test "does not ingest when payload is invalid (not a list)" do
     status = %{
       source: "results",
