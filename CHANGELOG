@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.45
+
+AWX controller credentials, Armis sync recovery, unified credential management, and docs publishing.
+
+## Whats New
+
+**1.2.45**
+- Fixed AWX controller setup so admins can paste a raw AWX API token; ServiceRadar now stores it as an encrypted AWX credential secret instead of requiring an internal broker secret UUID.
+- Fixed Armis sync authentication by restoring raw access-token Authorization headers for Armis v1 search requests, matching the working legacy integration behavior.
+- Changed Armis scheduling so generated agent config uses the discovery interval only, removes poll/sweep/gateway ID coupling from the integration payload/UI, and throttles immediate startup syncs during restart loops.
+- Made agent config loading tolerant of unknown future chart fields to avoid startup failures during chart/image skew.
+- Added GitHub Pages docs publishing and a unified credential-management OpenSpec proposal to consolidate SNMP, discovery, mapper, controller, and integration credentials.
+
 # ServiceRadar v1.2.44
 
 Agent config dependency catalog and Armis sync delivery hardening.
