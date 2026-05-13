@@ -2,6 +2,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
@@ -325,6 +326,99 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "mapper_dispatched"
     assert device.metadata["sweep_mapper_promotion"]["mapper_job_id"] == mapper_job.id
     assert device.metadata["sweep_mapper_promotion"]["command_id"] == "cmd-#{unique_id}"
+  end
+
+  test "ingest results ignores stale identity cache during mapper promotion", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    new_ip = unique_ip("stale-cache-#{unique_id}")
+    mapper_job_name = "mapper-stale-cache-#{unique_id}"
+    partition = "partition-stale-cache-#{unique_id}"
+
+    IdentityCache.put(new_ip, %{
+      canonical_device_id: "sr:stale-cache-#{unique_id}",
+      partition: partition,
+      metadata_hash: nil,
+      attributes: %{"ip" => new_ip, "partition" => partition},
+      updated_at: DateTime.utc_now()
+    })
+
+    on_exit(fn -> IdentityCache.delete(new_ip) end)
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: agent_id}, actor: actor)
+      |> Ash.create(actor: actor)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Stale Cache #{unique_id}", partition: partition, agent_id: agent_id},
+        actor: actor,
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, mapper_job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: mapper_job_name,
+          partition: partition,
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    dispatcher = fn job, opts ->
+      send(
+        self(),
+        {:stale_cache_dispatch, job.id, job.name, Keyword.get(opts, :seeds)}
+      )
+
+      {:ok, "cmd-stale-cache-#{unique_id}"}
+    end
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => new_ip,
+                   "hostname" => "stale-cache-#{unique_id}",
+                   "available" => true
+                 }
+               ],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-stale-cache-#{unique_id}",
+               mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
+             )
+
+    assert stats.devices_created == 1
+    assert stats.mapper_dispatched == 1
+
+    mapper_job_id = mapper_job.id
+    assert_receive {:stale_cache_dispatch, ^mapper_job_id, ^mapper_job_name, [^new_ip]}
+
+    assert {:ok, device_page} =
+             Device
+             |> Ash.Query.filter(ip == ^new_ip)
+             |> Ash.read(actor: actor)
+
+    [device] = device_page.results
+    assert device.uid != "sr:stale-cache-#{unique_id}"
+    assert device.metadata["sweep_mapper_promotion"]["last_status"] == "dispatched"
+
+    assert device.metadata["sweep_mapper_promotion"]["command_id"] ==
+             "cmd-stale-cache-#{unique_id}"
   end
 
   test "ingest results dispatches mapper promotion once across multiple ingest batches", %{
