@@ -23,7 +23,7 @@
 - [x] 4.4 Add content-audit artifact references only when explicit policy enables retention.
 
 ## 5. UI And Demo Proof
-- [ ] 5.1 Add operator/user UI for listing directories and launching allowed uploads/downloads.
+- [x] 5.1 Add operator/user UI for listing directories and launching allowed uploads/downloads.
 - [ ] 5.2 Add approval UI hooks for sensitive transfer requests.
 - [ ] 5.3 Add demo proof against an OpenSSH target configured with `TrustedUserCAKeys`.
 

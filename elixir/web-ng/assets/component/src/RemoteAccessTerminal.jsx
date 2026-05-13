@@ -53,6 +53,8 @@ export function Component({
   closeLabel = "Remote access session",
   attachPayload = null,
   terminalModuleLoader = null,
+  onFileTransferMessage = null,
+  socketControlRef = null,
 }) {
   const containerRef = useRef(null)
   const terminalRef = useRef(null)
@@ -129,6 +131,18 @@ export function Component({
 
       socket = new WebSocket(websocketUrl(websocketPath))
       socketRef.current = socket
+      if (socketControlRef) {
+        socketControlRef.current = {
+          sendFileTransferData(payload) {
+            if (socket.readyState !== WebSocket.OPEN) {
+              return false
+            }
+
+            socket.send(JSON.stringify({type: "file_transfer_data", ...payload}))
+            return true
+          },
+        }
+      }
 
       const sendResize = () => {
         if (socket.readyState !== WebSocket.OPEN || !terminalRef.current) {
@@ -193,6 +207,8 @@ export function Component({
 
           if (message.type === "data" && typeof message.data === "string") {
             term.write(decodeBase64(message.data))
+          } else if (message.type === "file_transfer") {
+            onFileTransferMessage?.(message)
           } else if (message.type === "error") {
             setStatus("failed")
             setError(message.message || defaultErrorLabel(streamLabel))
@@ -241,8 +257,21 @@ export function Component({
       terminalRef.current?.dispose()
       terminalRef.current = null
       socketRef.current = null
+      if (socketControlRef) {
+        socketControlRef.current = null
+      }
     }
-  }, [attachPayload, closeLabel, sessionId, streamLabel, terminalModuleLoader, ticket, websocketPath])
+  }, [
+    attachPayload,
+    closeLabel,
+    onFileTransferMessage,
+    sessionId,
+    socketControlRef,
+    streamLabel,
+    terminalModuleLoader,
+    ticket,
+    websocketPath,
+  ])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100">
