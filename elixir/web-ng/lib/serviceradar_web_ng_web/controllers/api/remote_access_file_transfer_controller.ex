@@ -58,6 +58,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferController do
         |> put_status(:not_implemented)
         |> json(%{error: "remote_access_file_transfer_unavailable", message: "remote file transfer is not available"})
 
+      {:error, :remote_access_session_not_active} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "remote_access_session_not_active", message: "remote access session is not active"})
+
+      {:error, reason} when reason in [:registry_unavailable, :agent_offline] ->
+        conn
+        |> put_status(:service_unavailable)
+        |> json(%{error: "remote_access_route_unavailable", message: "remote access route is unavailable"})
+
+      {:error, {:agent_offline, _agent_id}} ->
+        conn
+        |> put_status(:service_unavailable)
+        |> json(%{error: "remote_access_route_unavailable", message: "remote access route is unavailable"})
+
       {:error, reason} when reason in [:policy_denied, :quota_exhausted] ->
         conn
         |> put_status(:forbidden)

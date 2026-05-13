@@ -11,7 +11,7 @@
 - [x] 2.4 Reject route, agent, gateway, target host, credential rule, custody, recording, quota, and approval overrides from client requests.
 
 ## 3. Routing And Agent Adapter
-- [ ] 3.1 Add gateway/agent transfer routing over the selected remote-access session route.
+- [x] 3.1 Add gateway/agent transfer routing over the selected remote-access session route.
 - [ ] 3.2 Add agent-side SFTP adapter using existing SSH custody and host-key trust paths.
 - [ ] 3.3 Enforce policy and quotas in the agent before and during target file operations.
 - [ ] 3.4 Advertise `remote_access.file_transfer` and `remote_access.sftp` only when policy enforcement is available.
@@ -30,7 +30,7 @@
 ## 6. Validation
 - [x] 6.1 Add unit tests for policy, path rules, symlink behavior, quota exhaustion, approval, and redaction.
 - [x] 6.2 Add API/channel tests proving client override fields are rejected.
-- [ ] 6.3 Add gateway/agent route-binding tests for transfer frames.
+- [x] 6.3 Add gateway/agent route-binding tests for transfer frames.
 - [ ] 6.4 Add agent adapter tests for list, download, upload, mutation operations, cancellation, and partial transfer cleanup.
 - [ ] 6.5 Add recording/replay/audit tests proving file contents are not persisted by default.
 - [ ] 6.6 Run focused Go and Elixir tests for touched packages plus OpenSpec validation.
