@@ -73,6 +73,12 @@ function errorMessage(error) {
   return "Unable to open SSH session."
 }
 
+function apiError(payload, fallback) {
+  const error = new Error(payload?.message || payload?.error || fallback)
+  error.code = payload?.error || ""
+  return error
+}
+
 function joinPath(basePath, name) {
   const base = basePath || "/"
 
@@ -134,6 +140,7 @@ export function Component({
   deviceUid = "",
   createPath = "/api/remote-access/sessions",
   fileTransferPath = "/api/remote-access/file-transfers",
+  approvalId = "",
   title = "SSH remote access",
   allowRememberedKeys = false,
   allowSkipVerifyHostKeyPolicy = false,
@@ -156,6 +163,8 @@ export function Component({
   const [credential, setCredential] = useState(null)
   const [error, setError] = useState("")
   const [opening, setOpening] = useState(false)
+  const [accessApprovalId, setAccessApprovalId] = useState(approvalId)
+  const [approvalRequired, setApprovalRequired] = useState(false)
   const [remotePath, setRemotePath] = useState("/")
   const [entries, setEntries] = useState([])
   const [fileTransferError, setFileTransferError] = useState("")
@@ -221,6 +230,10 @@ export function Component({
   }, [allowTargetPortOverride, targetPort])
 
   useEffect(() => {
+    setAccessApprovalId(approvalId)
+  }, [approvalId])
+
+  useEffect(() => {
     setUploadDestination(remotePath)
   }, [remotePath])
 
@@ -269,7 +282,7 @@ export function Component({
       const payload = await response.json()
 
       if (!response.ok) {
-        throw new Error(payload?.message || payload?.error || "Remote file transfer failed.")
+        throw apiError(payload, "Remote file transfer failed.")
       }
 
       return payload.data
@@ -463,6 +476,7 @@ export function Component({
     event.preventDefault()
     setOpening(true)
     setError("")
+    setApprovalRequired(false)
 
     const key = normalizeKey(privateKey)
     const publicKeyValue = normalizeKey(publicKey)
@@ -511,6 +525,10 @@ export function Component({
       body.target_port = parsedTargetPort
     }
 
+    if (accessApprovalId.trim()) {
+      body.approval_id = accessApprovalId.trim()
+    }
+
     try {
       const response = await fetch(createPath, {
         method: "POST",
@@ -525,7 +543,7 @@ export function Component({
       const payload = await response.json()
 
       if (!response.ok) {
-        throw new Error(payload?.message || payload?.error)
+        throw apiError(payload, "Unable to open SSH session.")
       }
 
       if (allowRememberedKeys && rememberKey && credentialMode === "user_present") {
@@ -548,6 +566,14 @@ export function Component({
       setCredential(nextCredential)
       setSession(payload.data)
     } catch (openError) {
+      if (
+        openError?.code === "approval_required" ||
+        openError?.code === "approval_pending" ||
+        openError?.code === "approval_checker_required"
+      ) {
+        setApprovalRequired(true)
+      }
+
       setError(errorMessage(openError))
     } finally {
       setOpening(false)
@@ -790,6 +816,19 @@ export function Component({
                 placeholder="Use inventory target"
                 value={targetHost}
                 onChange={(event) => setTargetHost(event.target.value)}
+              />
+            </label>
+          ) : null}
+
+          {approvalRequired || accessApprovalId ? (
+            <label className="form-control">
+              <div className="label">
+                <span className="label-text">Approval ID</span>
+              </div>
+              <input
+                className="input input-bordered"
+                value={accessApprovalId}
+                onChange={(event) => setAccessApprovalId(event.target.value)}
               />
             </label>
           ) : null}

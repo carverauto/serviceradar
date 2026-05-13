@@ -24,7 +24,7 @@
 
 ## 5. UI And Demo Proof
 - [x] 5.1 Add operator/user UI for listing directories and launching allowed uploads/downloads.
-- [ ] 5.2 Add approval UI hooks for sensitive transfer requests.
+- [x] 5.2 Add approval UI hooks for sensitive transfer requests.
 - [ ] 5.3 Add demo proof against an OpenSSH target configured with `TrustedUserCAKeys`.
 
 ## 6. Validation
