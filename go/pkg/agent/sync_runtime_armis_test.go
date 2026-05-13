@@ -2,15 +2,19 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const testArmisDeviceQuery = "in:devices"
@@ -164,6 +168,217 @@ func TestArmisSearchErrorIncludesBody(t *testing.T) {
 	}
 }
 
+func TestRunArmisSyncStreamsFetchedPagesBeforeLaterSearchError(t *testing.T) {
+	var searchCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case armisAccessTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"token-123"},"success":true}`))
+		case armisSearchPath:
+			searchCalls++
+			if got := r.URL.Query().Get("from"); got == "2" {
+				http.Error(w, "second page failed", http.StatusBadRequest)
+				return
+			}
+			if _, ok := r.URL.Query()["from"]; ok {
+				t.Fatalf("first page should omit from, got %q", r.URL.RawQuery)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"data":{
+					"count":2,
+					"next":2,
+					"prev":null,
+					"results":[
+						{"id":101,"ipAddress":"10.0.0.101","name":"device-101"},
+						{"id":102,"ipAddress":"10.0.0.102","name":"device-102"}
+					],
+					"total":4
+				},
+				"success":true
+			}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	gateway := &fakeSyncGateway{}
+	runtime := &SyncRuntime{
+		server:  &Server{config: &ServerConfig{AgentID: "agent-a", Partition: "partition-a"}},
+		gateway: gateway,
+		logger:  createTestLogger(),
+	}
+	runner := &syncSourceRunner{
+		key: "armis",
+		config: models.SourceConfig{
+			Type:        armisSourceType,
+			Endpoint:    server.URL,
+			Credentials: map[string]string{"secret_key": "secret", "page_size": "2"},
+			Queries:     []models.QueryConfig{{Label: "test", Query: testArmisDeviceQuery}},
+		},
+	}
+
+	count, err := runtime.runArmisSync(context.Background(), runner, "run-123")
+	if err == nil {
+		t.Fatal("expected second page error")
+	}
+	if !strings.Contains(err.Error(), "second page failed") {
+		t.Fatalf("error = %q", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want flushed first page count", count)
+	}
+	if searchCalls != 2 {
+		t.Fatalf("search calls = %d, want 2", searchCalls)
+	}
+
+	chunks := gateway.chunks()
+	if len(chunks) == 0 {
+		t.Fatal("expected first page to be streamed before second page error")
+	}
+
+	gotDevices := decodedSyncChunkDeviceIDs(t, chunks)
+	wantDevices := map[string]bool{"partition-a:10.0.0.101": true, "partition-a:10.0.0.102": true}
+	for _, deviceID := range gotDevices {
+		delete(wantDevices, deviceID)
+	}
+	if len(wantDevices) != 0 {
+		t.Fatalf("missing streamed devices: %v; got %v", wantDevices, gotDevices)
+	}
+}
+
+func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
+	const (
+		totalDevices = 250
+		pageSize     = 100
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case armisAccessTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"token-123"},"success":true}`))
+		case armisSearchPath:
+			from := 0
+			if rawFrom := r.URL.Query().Get("from"); rawFrom != "" {
+				parsed, err := strconv.Atoi(rawFrom)
+				if err != nil {
+					t.Fatalf("invalid from param %q: %v", rawFrom, err)
+				}
+				from = parsed
+			}
+			length, err := strconv.Atoi(r.URL.Query().Get("length"))
+			if err != nil {
+				t.Fatalf("invalid length param %q: %v", r.URL.Query().Get("length"), err)
+			}
+			if length != pageSize {
+				t.Fatalf("length = %d, want %d", length, pageSize)
+			}
+
+			end := from + length
+			if end > totalDevices {
+				end = totalDevices
+			}
+
+			results := make([]map[string]interface{}, 0, end-from)
+			for idx := from; idx < end; idx++ {
+				deviceNumber := idx + 1
+				results = append(results, map[string]interface{}{
+					"id":        deviceNumber,
+					"ipAddress": "10.10.0." + strconv.Itoa(deviceNumber),
+					"name":      "armis-device-" + strconv.Itoa(deviceNumber),
+				})
+			}
+
+			next := 0
+			if end < totalDevices {
+				next = end
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"count":   len(results),
+					"next":    next,
+					"prev":    nil,
+					"results": results,
+					"total":   totalDevices,
+				},
+				"success": true,
+			}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	gateway := &fakeSyncGateway{}
+	runtime := &SyncRuntime{
+		server:  &Server{config: &ServerConfig{AgentID: "agent-a", Partition: "partition-a"}},
+		gateway: gateway,
+		logger:  createTestLogger(),
+	}
+	runner := &syncSourceRunner{
+		key: "armis",
+		config: models.SourceConfig{
+			Type:          armisSourceType,
+			Endpoint:      server.URL,
+			SyncServiceID: "sync-source-1",
+			Credentials:   map[string]string{"secret_key": "secret", "page_size": strconv.Itoa(pageSize)},
+			Queries:       []models.QueryConfig{{Label: "test", Query: testArmisDeviceQuery}},
+		},
+	}
+
+	count, err := runtime.runArmisSync(context.Background(), runner, "run-123")
+	if err != nil {
+		t.Fatalf("runArmisSync returned error: %v", err)
+	}
+	if count != totalDevices {
+		t.Fatalf("count = %d, want %d", count, totalDevices)
+	}
+
+	streams := gateway.streamsSnapshot()
+	if len(streams) != 3 {
+		t.Fatalf("stream count = %d, want 3 pages", len(streams))
+	}
+
+	seen := make(map[string]bool, totalDevices)
+	for streamIdx, stream := range streams {
+		if len(stream) == 0 {
+			t.Fatalf("stream %d was empty", streamIdx)
+		}
+		for chunkIdx, chunk := range stream {
+			assertGatewayResultsChunk(t, streamIdx, chunkIdx, len(stream), chunk)
+			for _, deviceID := range decodedSyncChunkDeviceIDs(t, []*proto.GatewayStatusChunk{chunk}) {
+				if seen[deviceID] {
+					t.Fatalf("duplicate device id %q", deviceID)
+				}
+				seen[deviceID] = true
+			}
+		}
+		lastChunk := stream[len(stream)-1]
+		if !lastChunk.IsFinal {
+			t.Fatalf("stream %d last chunk is not final", streamIdx)
+		}
+		if lastChunk.ChunkIndex != lastChunk.TotalChunks-1 {
+			t.Fatalf(
+				"stream %d final chunk index = %d, total_chunks = %d",
+				streamIdx,
+				lastChunk.ChunkIndex,
+				lastChunk.TotalChunks,
+			)
+		}
+	}
+
+	if len(seen) != totalDevices {
+		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
+	}
+}
+
 func TestConfiguredArmisQueriesDropsBlankQueries(t *testing.T) {
 	got := configuredArmisQueries([]models.QueryConfig{
 		{Label: "blank"},
@@ -177,6 +392,142 @@ func TestConfiguredArmisQueriesDropsBlankQueries(t *testing.T) {
 	if got[0].Label != "devices" || got[0].Query != testArmisDeviceQuery {
 		t.Fatalf("query = %#v", got[0])
 	}
+}
+
+func TestConfiguredArmisQueriesNormalizesEscapedQuotes(t *testing.T) {
+	got := configuredArmisQueries([]models.QueryConfig{
+		{Label: "devices", Query: `  in:devices timeFrame:\"7 Days\" boundary:\"All OT Boundaries\"  `},
+	})
+
+	if len(got) != 1 {
+		t.Fatalf("query count = %d, want 1", len(got))
+	}
+	if want := `in:devices timeFrame:"7 Days" boundary:"All OT Boundaries"`; got[0].Query != want {
+		t.Fatalf("query = %q, want %q", got[0].Query, want)
+	}
+}
+
+type fakeSyncGateway struct {
+	mu      sync.Mutex
+	streams [][]*proto.GatewayStatusChunk
+}
+
+func (f *fakeSyncGateway) StreamStatus(
+	_ context.Context,
+	chunks []*proto.GatewayStatusChunk,
+) (*proto.GatewayStatusResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	copied := append([]*proto.GatewayStatusChunk(nil), chunks...)
+	f.streams = append(f.streams, copied)
+	return &proto.GatewayStatusResponse{Received: true}, nil
+}
+
+func (*fakeSyncGateway) GetGatewayID() string {
+	return "gateway-a"
+}
+
+func (f *fakeSyncGateway) chunks() []*proto.GatewayStatusChunk {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var chunks []*proto.GatewayStatusChunk
+	for _, stream := range f.streams {
+		chunks = append(chunks, stream...)
+	}
+	return chunks
+}
+
+func (f *fakeSyncGateway) streamsSnapshot() [][]*proto.GatewayStatusChunk {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	streams := make([][]*proto.GatewayStatusChunk, 0, len(f.streams))
+	for _, stream := range f.streams {
+		streams = append(streams, append([]*proto.GatewayStatusChunk(nil), stream...))
+	}
+
+	return streams
+}
+
+func assertGatewayResultsChunk(
+	t *testing.T,
+	streamIdx int,
+	chunkIdx int,
+	streamLen int,
+	chunk *proto.GatewayStatusChunk,
+) {
+	t.Helper()
+
+	if chunk.AgentId != "agent-a" {
+		t.Fatalf("stream %d chunk %d agent_id = %q", streamIdx, chunkIdx, chunk.AgentId)
+	}
+	if chunk.GatewayId != "gateway-a" {
+		t.Fatalf("stream %d chunk %d gateway_id = %q", streamIdx, chunkIdx, chunk.GatewayId)
+	}
+	if chunk.Partition != "partition-a" {
+		t.Fatalf("stream %d chunk %d partition = %q", streamIdx, chunkIdx, chunk.Partition)
+	}
+	if chunk.TotalChunks <= 0 {
+		t.Fatalf("stream %d chunk %d total_chunks = %d", streamIdx, chunkIdx, chunk.TotalChunks)
+	}
+	if chunk.ChunkIndex != int32(chunkIdx) {
+		t.Fatalf("stream %d chunk %d chunk_index = %d", streamIdx, chunkIdx, chunk.ChunkIndex)
+	}
+	if int(chunk.TotalChunks) != streamLen {
+		t.Fatalf("stream %d chunk %d has inconsistent total_chunks = %d", streamIdx, chunkIdx, chunk.TotalChunks)
+	}
+	if len(chunk.Services) != 1 {
+		t.Fatalf("stream %d chunk %d service count = %d, want 1", streamIdx, chunkIdx, len(chunk.Services))
+	}
+
+	service := chunk.Services[0]
+	if service.ServiceName != syncServiceName {
+		t.Fatalf("stream %d chunk %d service_name = %q", streamIdx, chunkIdx, service.ServiceName)
+	}
+	if service.ServiceType != syncServiceType {
+		t.Fatalf("stream %d chunk %d service_type = %q", streamIdx, chunkIdx, service.ServiceType)
+	}
+	if service.Source != "results" {
+		t.Fatalf("stream %d chunk %d source = %q", streamIdx, chunkIdx, service.Source)
+	}
+	if service.AgentId != chunk.AgentId {
+		t.Fatalf("stream %d chunk %d service agent_id = %q", streamIdx, chunkIdx, service.AgentId)
+	}
+	if service.GatewayId != chunk.GatewayId {
+		t.Fatalf("stream %d chunk %d service gateway_id = %q", streamIdx, chunkIdx, service.GatewayId)
+	}
+	if len(service.Message) == 0 {
+		t.Fatalf("stream %d chunk %d service message is empty", streamIdx, chunkIdx)
+	}
+}
+
+func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk) []string {
+	t.Helper()
+	var deviceIDs []string
+	for i, chunk := range chunks {
+		for j, service := range chunk.Services {
+			var updates []map[string]interface{}
+			if err := json.Unmarshal(service.Message, &updates); err != nil {
+				t.Fatalf("decode chunk %d service %d: %v", i, j, err)
+			}
+			for _, update := range updates {
+				deviceID, _ := update["device_id"].(string)
+				if deviceID == "" {
+					t.Fatalf("missing device_id in update: %#v", update)
+				}
+				deviceIDs = append(deviceIDs, deviceID)
+				metadata, ok := update["metadata"].(map[string]interface{})
+				if !ok {
+					t.Fatalf("missing metadata in update: %#v", update)
+				}
+				rawArmisID, _ := metadata["armis_device_id"].(string)
+				if _, err := strconv.Atoi(rawArmisID); err != nil {
+					t.Fatalf("invalid armis_device_id %q: %v", rawArmisID, err)
+				}
+			}
+		}
+	}
+	return deviceIDs
 }
 
 func TestScheduledSyncRunPrefersDiscoveryInterval(t *testing.T) {

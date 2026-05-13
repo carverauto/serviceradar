@@ -71,6 +71,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         generator: ServiceRadar.Integrations.SyncConfigGenerator,
         affected_agents: {DependencyResolvers, :record_agent_id, []},
         dispatch: :push_affected_agents,
+        action_names: [:create, :update, :enable, :disable, :delete],
         secret_fields: [:api_key, :api_secret, :secret_key, "api_key", "api_secret", "secret_key"],
         description:
           "Integration sources are embedded in config_json.sources for the assigned agent."

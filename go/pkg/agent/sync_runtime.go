@@ -28,15 +28,14 @@ import (
 )
 
 const (
-	defaultArmisPageSize  = 100
-	defaultSyncRunTimeout = 10 * time.Minute
-	syncServiceType       = "sync"
-	syncServiceName       = "sync"
-	syncMetaKey           = "sync_meta"
-	armisSourceType       = "armis"
-	armisAccessTokenPath  = "/api/v1/access_token/"
-	armisSearchPath       = "/api/v1/search/"
-	syncRuntimeStatePath  = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
+	defaultArmisPageSize = 100
+	syncServiceType      = "sync"
+	syncServiceName      = "sync"
+	syncMetaKey          = "sync_meta"
+	armisSourceType      = "armis"
+	armisAccessTokenPath = "/api/v1/access_token/"
+	armisSearchPath      = "/api/v1/search/"
+	syncRuntimeStatePath = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
 )
 
 var (
@@ -51,13 +50,18 @@ var (
 // SyncRuntime executes integration sources delivered via GetConfig.
 type SyncRuntime struct {
 	server  *Server
-	gateway *agentgateway.GatewayClient
+	gateway syncGateway
 	logger  logger.Logger
 
 	mu      sync.Mutex
 	stateMu sync.Mutex
 	ctx     context.Context
 	sources map[string]*syncSourceRunner
+}
+
+type syncGateway interface {
+	StreamStatus(context.Context, []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error)
+	GetGatewayID() string
 }
 
 type syncSourceRunner struct {
@@ -328,11 +332,9 @@ func (r *SyncRuntime) executeRun(ctx context.Context, runner *syncSourceRunner, 
 	defer runner.finish()
 
 	runID := uuid.NewString()
-	runCtx, cancel := context.WithTimeout(ctx, defaultSyncRunTimeout)
-	defer cancel()
 
 	start := time.Now()
-	count, err := r.runSourceOnce(runCtx, runner, runKind, runID)
+	count, err := r.runSourceOnce(ctx, runner, runKind, runID)
 	duration := time.Since(start)
 
 	logEvent := r.logger.Info()
@@ -381,7 +383,7 @@ func (r *SyncRuntime) runArmisSync(
 	}
 
 	pageSize := armisPageSize(runner.config)
-	updates := make([]map[string]interface{}, 0, pageSize*len(queries))
+	totalUpdates := 0
 
 	for _, query := range queries {
 		queryString := query.Query
@@ -391,16 +393,28 @@ func (r *SyncRuntime) runArmisSync(
 		for {
 			resp, err := client.search(ctx, token, queryString, from, pageSize)
 			if err != nil {
-				return len(updates), err
+				if totalUpdates > 0 {
+					return totalUpdates, fmt.Errorf("partial armis sync after streaming %d devices: %w", totalUpdates, err)
+				}
+
+				return totalUpdates, err
 			}
 
 			filtered := filterArmisDevices(resp.Data.Results, runner.config.NetworkBlacklist)
+			updates := make([]map[string]interface{}, 0, len(filtered))
 			for _, device := range filtered {
 				update := buildArmisUpdate(r.server, runner, device, queryLabel)
 				if update == nil {
 					continue
 				}
 				updates = append(updates, update)
+			}
+
+			if len(updates) > 0 {
+				if err := r.sendSyncUpdates(ctx, runner, updates, runID); err != nil {
+					return totalUpdates, err
+				}
+				totalUpdates += len(updates)
 			}
 
 			if resp.Data.Next <= 0 || resp.Data.Next <= from {
@@ -411,15 +425,7 @@ func (r *SyncRuntime) runArmisSync(
 		}
 	}
 
-	if len(updates) == 0 {
-		return 0, nil
-	}
-
-	if err := r.sendSyncUpdates(ctx, runner, updates, runID); err != nil {
-		return len(updates), err
-	}
-
-	return len(updates), nil
+	return totalUpdates, nil
 }
 
 func (r *SyncRuntime) sendSyncUpdates(
@@ -656,7 +662,8 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 func configuredArmisQueries(queries []models.QueryConfig) []models.QueryConfig {
 	configured := make([]models.QueryConfig, 0, len(queries))
 	for _, query := range queries {
-		if strings.TrimSpace(query.Query) == "" {
+		query.Query = normalizeArmisQuery(query.Query)
+		if query.Query == "" {
 			continue
 		}
 
@@ -664,6 +671,11 @@ func configuredArmisQueries(queries []models.QueryConfig) []models.QueryConfig {
 	}
 
 	return configured
+}
+
+func normalizeArmisQuery(query string) string {
+	query = strings.TrimSpace(query)
+	return strings.ReplaceAll(query, `\"`, `"`)
 }
 
 func (c *armisClient) resolveURL(path string) (string, error) {

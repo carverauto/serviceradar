@@ -119,7 +119,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
     test "dispatcher pushes only the affected assigned agent for IntegrationSource updates" do
       notification = %Notification{
         resource: IntegrationSource,
-        action: %{type: :update},
+        action: %{type: :update, name: :update},
         data: %{agent_id: "agent-a"}
       }
 
@@ -141,6 +141,26 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.affected_agents == ["agent-a"]
       assert diagnostic.affected_agent_count == 1
       assert diagnostic.result == :ok
+    end
+
+    test "runtime sync status updates do not trigger config pushes" do
+      for action_name <- [
+            :sync_start,
+            :sync_success,
+            :sync_failed,
+            :record_sync,
+            :northbound_start,
+            :northbound_success,
+            :northbound_failed
+          ] do
+        notification = %Notification{
+          resource: IntegrationSource,
+          action: %{type: :update, name: action_name},
+          data: %{agent_id: "agent-a"}
+        }
+
+        assert [] = DependencyCatalog.for_notification(notification)
+      end
     end
   end
 
