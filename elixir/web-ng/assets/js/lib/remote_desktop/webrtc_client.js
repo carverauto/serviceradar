@@ -2,6 +2,7 @@ import {parseDesktopMediaFrame, parseDesktopMediaMetadata} from "./media_frame"
 
 export const DESKTOP_MEDIA_CHANNEL = "desktop-media"
 export const DESKTOP_CONTROL_CHANNEL = "desktop-control"
+export const DESKTOP_MEDIA_ACK_MESSAGE = "desktop_media_ack"
 
 function csrfHeaders(documentRef = globalThis.document) {
   const csrfToken = documentRef?.querySelector?.("meta[name='csrf-token']")?.getAttribute("content")
@@ -218,7 +219,7 @@ export class RemoteDesktopWebRTCClient {
 
   sendMediaAck(frame) {
     const ack = {
-      type: "desktop_media_ack",
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
       session_binding_id: frame.sessionBindingId,
       media_session_id: frame.mediaSessionId,
       last_accepted_seq: frame.sequence,

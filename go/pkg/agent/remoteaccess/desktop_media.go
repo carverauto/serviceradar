@@ -19,6 +19,7 @@ package remoteaccess
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -41,6 +42,7 @@ const (
 	DesktopMediaPayloadTile      = "tile"
 	DesktopMediaPayloadCursor    = "cursor"
 	DesktopMediaPayloadMetadata  = "metadata"
+	DesktopMediaControlTypeAck   = "desktop_media_ack"
 
 	DesktopMediaDefaultInitialCreditBytes = 4 * 1024 * 1024
 	DesktopMediaDefaultMaxChunkBytes      = 256 * 1024
@@ -68,6 +70,19 @@ type DesktopMediaFrame struct {
 	Flags             uint8
 }
 
+// DesktopMediaFrameParts exposes the SRDP frame as ordered byte slices for
+// vectored writes. Header can be caller-owned and reused across frames;
+// Metadata and Payload alias the frame input and must remain immutable until
+// the write completes.
+type DesktopMediaFrameParts struct {
+	Header           []byte
+	SessionBindingID []byte
+	MediaSessionID   []byte
+	Encoding         []byte
+	Metadata         []byte
+	Payload          []byte
+}
+
 type DesktopMediaAck struct {
 	SessionBindingID string `json:"session_binding_id"`
 	MediaSessionID   string `json:"media_session_id"`
@@ -77,6 +92,11 @@ type DesktopMediaAck struct {
 	Pause            bool   `json:"pause,omitempty"`
 	Resume           bool   `json:"resume,omitempty"`
 	CloseReason      string `json:"close_reason,omitempty"`
+}
+
+type desktopMediaAckMessage struct {
+	Type string `json:"type"`
+	DesktopMediaAck
 }
 
 type DesktopMediaCreditWindow struct {
@@ -157,8 +177,24 @@ func (w *DesktopMediaCreditWindow) ApplyAck(ack DesktopMediaAck, sessionBindingI
 }
 
 func EncodeDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPolicy) ([]byte, error) {
-	if err := ValidateDesktopMediaFrame(frame, policy); err != nil {
+	parts, err := BuildDesktopMediaFrameParts(frame, policy, nil)
+	if err != nil {
 		return nil, err
+	}
+
+	buf := make([]byte, 0, parts.Len())
+	buf = parts.AppendTo(buf)
+
+	return buf, nil
+}
+
+func BuildDesktopMediaFrameParts(
+	frame DesktopMediaFrame,
+	policy DesktopScreenPolicy,
+	header []byte,
+) (DesktopMediaFrameParts, error) {
+	if err := ValidateDesktopMediaFrame(frame, policy); err != nil {
+		return DesktopMediaFrameParts{}, err
 	}
 
 	sessionID := []byte(frame.SessionBindingID)
@@ -168,7 +204,7 @@ func EncodeDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPolicy
 	if len(sessionID) > math.MaxUint16 ||
 		len(mediaSessionID) > math.MaxUint16 ||
 		len(encoding) > math.MaxUint16 {
-		return nil, fmt.Errorf("%w: string field too large", ErrInvalidDesktopMediaFrame)
+		return DesktopMediaFrameParts{}, fmt.Errorf("%w: string field too large", ErrInvalidDesktopMediaFrame)
 	}
 
 	totalLength := DesktopMediaHeaderSize +
@@ -178,35 +214,66 @@ func EncodeDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPolicy
 		len(frame.Metadata) +
 		len(frame.Payload)
 	if totalLength < DesktopMediaHeaderSize {
-		return nil, fmt.Errorf("%w: frame length overflow", ErrInvalidDesktopMediaFrame)
+		return DesktopMediaFrameParts{}, fmt.Errorf("%w: frame length overflow", ErrInvalidDesktopMediaFrame)
 	}
 
-	buf := make([]byte, totalLength)
-	copy(buf[0:4], DesktopMediaMagic)
-	buf[4] = DesktopMediaVersion
-	buf[5] = frame.Flags
-	buf[6] = desktopMediaPayloadFamilyID(frame.PayloadFamily)
-	binary.BigEndian.PutUint64(buf[8:16], frame.Sequence)
-	binary.BigEndian.PutUint64(buf[16:24], uint64(frame.TimestampUnixNano))
-	binary.BigEndian.PutUint32(buf[24:28], frame.Width)
-	binary.BigEndian.PutUint32(buf[28:32], frame.Height)
-	binary.BigEndian.PutUint32(buf[32:36], uint32(len(frame.Metadata)))
-	binary.BigEndian.PutUint32(buf[36:40], uint32(len(frame.Payload)))
-	binary.BigEndian.PutUint16(buf[40:42], uint16(len(encoding)))
-	binary.BigEndian.PutUint16(buf[42:44], uint16(len(sessionID)))
-	binary.BigEndian.PutUint16(buf[44:46], uint16(len(mediaSessionID)))
+	header = reusableDesktopMediaHeader(header)
+	copy(header[0:4], DesktopMediaMagic)
+	header[4] = DesktopMediaVersion
+	header[5] = frame.Flags
+	header[6] = desktopMediaPayloadFamilyID(frame.PayloadFamily)
+	binary.BigEndian.PutUint64(header[8:16], frame.Sequence)
+	binary.BigEndian.PutUint64(header[16:24], uint64(frame.TimestampUnixNano))
+	binary.BigEndian.PutUint32(header[24:28], frame.Width)
+	binary.BigEndian.PutUint32(header[28:32], frame.Height)
+	binary.BigEndian.PutUint32(header[32:36], uint32(len(frame.Metadata)))
+	binary.BigEndian.PutUint32(header[36:40], uint32(len(frame.Payload)))
+	binary.BigEndian.PutUint16(header[40:42], uint16(len(encoding)))
+	binary.BigEndian.PutUint16(header[42:44], uint16(len(sessionID)))
+	binary.BigEndian.PutUint16(header[44:46], uint16(len(mediaSessionID)))
 
-	offset := DesktopMediaHeaderSize
-	offset += copy(buf[offset:], sessionID)
-	offset += copy(buf[offset:], mediaSessionID)
-	offset += copy(buf[offset:], encoding)
-	offset += copy(buf[offset:], frame.Metadata)
-	copy(buf[offset:], frame.Payload)
+	return DesktopMediaFrameParts{
+		Header:           header,
+		SessionBindingID: sessionID,
+		MediaSessionID:   mediaSessionID,
+		Encoding:         encoding,
+		Metadata:         frame.Metadata,
+		Payload:          frame.Payload,
+	}, nil
+}
 
-	return buf, nil
+func (p DesktopMediaFrameParts) Len() int {
+	return len(p.Header) +
+		len(p.SessionBindingID) +
+		len(p.MediaSessionID) +
+		len(p.Encoding) +
+		len(p.Metadata) +
+		len(p.Payload)
+}
+
+func (p DesktopMediaFrameParts) AppendTo(dst []byte) []byte {
+	dst = append(dst, p.Header...)
+	dst = append(dst, p.SessionBindingID...)
+	dst = append(dst, p.MediaSessionID...)
+	dst = append(dst, p.Encoding...)
+	dst = append(dst, p.Metadata...)
+	dst = append(dst, p.Payload...)
+
+	return dst
 }
 
 func DecodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy) (DesktopMediaFrame, error) {
+	return decodeDesktopMediaFrame(data, policy, true)
+}
+
+// DecodeDesktopMediaFrameView decodes a frame without copying metadata or
+// payload. Callers must keep data alive and immutable for as long as the
+// returned frame is used.
+func DecodeDesktopMediaFrameView(data []byte, policy DesktopScreenPolicy) (DesktopMediaFrame, error) {
+	return decodeDesktopMediaFrame(data, policy, false)
+}
+
+func decodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy, copyPayload bool) (DesktopMediaFrame, error) {
 	var frame DesktopMediaFrame
 
 	if len(data) < DesktopMediaHeaderSize {
@@ -246,9 +313,9 @@ func DecodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy) (DesktopMe
 	offset += int(mediaSessionLength)
 	frame.Encoding = string(data[offset : offset+int(encodingLength)])
 	offset += int(encodingLength)
-	frame.Metadata = append([]byte(nil), data[offset:offset+int(metadataLength)]...)
+	frame.Metadata = data[offset : offset+int(metadataLength)]
 	offset += int(metadataLength)
-	frame.Payload = append([]byte(nil), data[offset:offset+int(payloadLength)]...)
+	frame.Payload = data[offset : offset+int(payloadLength)]
 	frame.Flags = data[5]
 	frame.PayloadFamily = payloadFamily
 	frame.Sequence = binary.BigEndian.Uint64(data[8:16])
@@ -256,11 +323,33 @@ func DecodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy) (DesktopMe
 	frame.Width = binary.BigEndian.Uint32(data[24:28])
 	frame.Height = binary.BigEndian.Uint32(data[28:32])
 
+	if copyPayload {
+		frame.Metadata = append([]byte(nil), frame.Metadata...)
+		frame.Payload = append([]byte(nil), frame.Payload...)
+	}
+
 	if err := ValidateDesktopMediaFrame(frame, policy); err != nil {
 		return frame, err
 	}
 
 	return frame, nil
+}
+
+func DecodeDesktopMediaAckMessage(data []byte, sessionBindingID, mediaSessionID string) (DesktopMediaAck, error) {
+	var message desktopMediaAckMessage
+	if err := json.Unmarshal(data, &message); err != nil {
+		return DesktopMediaAck{}, fmt.Errorf("%w: decode ack message: %w", ErrInvalidDesktopMediaAck, err)
+	}
+	if message.Type != DesktopMediaControlTypeAck {
+		return DesktopMediaAck{}, fmt.Errorf("%w: unsupported control message type", ErrInvalidDesktopMediaAck)
+	}
+
+	ack := message.DesktopMediaAck
+	if err := ValidateDesktopMediaAck(ack, sessionBindingID, mediaSessionID); err != nil {
+		return DesktopMediaAck{}, err
+	}
+
+	return ack, nil
 }
 
 func ValidateDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPolicy) error {
@@ -321,6 +410,20 @@ func ValidateDesktopMediaAck(ack DesktopMediaAck, sessionBindingID, mediaSession
 
 func mediaFrameCreditCost(frame DesktopMediaFrame) uint64 {
 	return uint64(len(frame.Metadata)) + uint64(len(frame.Payload))
+}
+
+func reusableDesktopMediaHeader(header []byte) []byte {
+	if cap(header) < DesktopMediaHeaderSize {
+		header = make([]byte, DesktopMediaHeaderSize)
+	} else {
+		header = header[:DesktopMediaHeaderSize]
+	}
+
+	for i := range header {
+		header[i] = 0
+	}
+
+	return header
 }
 
 func desktopMediaPayloadFamilyID(family string) uint8 {

@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest"
 
 import {
   DESKTOP_CONTROL_CHANNEL,
+  DESKTOP_MEDIA_ACK_MESSAGE,
   DESKTOP_MEDIA_CHANNEL,
   RemoteDesktopWebRTCClient,
 } from "./webrtc_client"
@@ -235,14 +236,14 @@ describe("RemoteDesktopWebRTCClient", () => {
 
     expect(controlChannel.sent).toHaveLength(1)
     expect(JSON.parse(controlChannel.sent[0])).toEqual({
-      type: "desktop_media_ack",
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
       session_binding_id: "session-ack",
       media_session_id: "media-ack",
       last_accepted_seq: 10,
       credit_bytes: 65_536,
     })
     expect(onAck).toHaveBeenCalledWith({
-      type: "desktop_media_ack",
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
       session_binding_id: "session-ack",
       media_session_id: "media-ack",
       last_accepted_seq: 10,

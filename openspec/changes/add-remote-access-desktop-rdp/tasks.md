@@ -22,6 +22,8 @@
 - [ ] 3.1.3 Model desktop media flow control on a channel-window pattern: initial credit, max chunk size, window adjustment, EOF, close, and stale-frame coalescing/drop behavior.
 - [x] 3.1.4 Add the Go-side SRDP binary desktop media frame envelope, ack validation, and credit-window helper that matches the browser parser contract.
 - [x] 3.1.5 Add browser-side desktop media acknowledgements over the WebRTC control DataChannel with session/media binding and fresh credit.
+- [x] 3.1.6 Add the Go-side browser control-message decoder for desktop media acknowledgements.
+- [x] 3.1.7 Add production-oriented low-copy desktop media helpers for reusable headers, vectored writes, and no-copy frame views.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -46,5 +48,7 @@
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.
+- [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
+- [x] 5.6.3 Add focused Go tests proving desktop media split-frame encoding reuses header buffers and avoids metadata/payload copies.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.

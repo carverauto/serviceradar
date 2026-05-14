@@ -171,6 +171,88 @@ func TestDesktopMediaFrameRejectsTruncatedPayload(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaFramePartsReuseHeaderAndPreservePayloadSlice(t *testing.T) {
+	t.Parallel()
+
+	header := make([]byte, DesktopMediaHeaderSize)
+	payload := []byte{1, 2, 3, 4}
+	metadata := []byte(`{"tile":1}`)
+	frame := DesktopMediaFrame{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		Width:            640,
+		Height:           480,
+		PayloadFamily:    DesktopMediaPayloadTile,
+		Encoding:         "rgba",
+		Metadata:         metadata,
+		Payload:          payload,
+	}
+
+	parts, err := BuildDesktopMediaFrameParts(frame, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480}, header)
+	if err != nil {
+		t.Fatalf("BuildDesktopMediaFrameParts returned error: %v", err)
+	}
+
+	if &parts.Header[0] != &header[0] {
+		t.Fatalf("header was not reused")
+	}
+	if &parts.Payload[0] != &payload[0] {
+		t.Fatalf("payload was copied")
+	}
+	if &parts.Metadata[0] != &metadata[0] {
+		t.Fatalf("metadata was copied")
+	}
+
+	encoded := parts.AppendTo(make([]byte, 0, parts.Len()))
+	got, err := DecodeDesktopMediaFrame(encoded, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaFrame returned error: %v", err)
+	}
+	if !bytes.Equal(got.Payload, payload) || !bytes.Equal(got.Metadata, metadata) {
+		t.Fatalf("decoded frame = %#v", got)
+	}
+}
+
+func TestDecodeDesktopMediaFrameViewAliasesPayload(t *testing.T) {
+	t.Parallel()
+
+	frame := DesktopMediaFrame{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		Width:            640,
+		Height:           480,
+		PayloadFamily:    DesktopMediaPayloadTile,
+		Payload:          []byte{1, 2, 3, 4},
+	}
+	encoded, err := EncodeDesktopMediaFrame(frame, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("EncodeDesktopMediaFrame returned error: %v", err)
+	}
+
+	view, err := DecodeDesktopMediaFrameView(encoded, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaFrameView returned error: %v", err)
+	}
+	view.Payload[0] = 9
+
+	copied, err := DecodeDesktopMediaFrame(encoded, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaFrame returned error: %v", err)
+	}
+	if copied.Payload[0] != 9 {
+		t.Fatalf("view payload did not alias encoded frame")
+	}
+
+	copied.Payload[0] = 7
+	roundTrip, err := DecodeDesktopMediaFrame(encoded, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaFrame returned error: %v", err)
+	}
+	if roundTrip.Payload[0] != 9 {
+		t.Fatalf("copying decoder aliased encoded frame")
+	}
+}
+
 func TestDesktopMediaCreditWindowConsumesAndAdjustsCredit(t *testing.T) {
 	t.Parallel()
 
@@ -256,28 +338,42 @@ func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 func TestDesktopMediaAckJSONContractUsesBrowserFieldNames(t *testing.T) {
 	t.Parallel()
 
-	data, err := json.Marshal(DesktopMediaAck{
-		SessionBindingID: desktopMediaTestSessionID,
-		MediaSessionID:   desktopMediaTestMediaSessionID,
-		LastAcceptedSeq:  42,
-		CreditBytes:      1024,
-		QualityLevel:     "low",
+	data, err := json.Marshal(map[string]any{
+		"type":               DesktopMediaControlTypeAck,
+		"session_binding_id": desktopMediaTestSessionID,
+		"media_session_id":   desktopMediaTestMediaSessionID,
+		"last_accepted_seq":  42,
+		"credit_bytes":       1024,
+		"quality_level":      "low",
 	})
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatalf("Unmarshal returned error: %v", err)
+	ack, err := DecodeDesktopMediaAckMessage(data, desktopMediaTestSessionID, desktopMediaTestMediaSessionID)
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaAckMessage returned error: %v", err)
 	}
 
-	if payload["session_binding_id"] != desktopMediaTestSessionID ||
-		payload["media_session_id"] != desktopMediaTestMediaSessionID ||
-		payload["last_accepted_seq"] != float64(42) ||
-		payload["credit_bytes"] != float64(1024) ||
-		payload["quality_level"] != "low" {
-		t.Fatalf("ack JSON payload = %#v", payload)
+	if ack.SessionBindingID != desktopMediaTestSessionID ||
+		ack.MediaSessionID != desktopMediaTestMediaSessionID ||
+		ack.LastAcceptedSeq != 42 ||
+		ack.CreditBytes != 1024 ||
+		ack.QualityLevel != "low" {
+		t.Fatalf("decoded ack = %#v", ack)
+	}
+}
+
+func TestDecodeDesktopMediaAckMessageRejectsUnsupportedType(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeDesktopMediaAckMessage(
+		[]byte(`{"type":"desktop_quality","session_binding_id":"session-1","media_session_id":"media-1"}`),
+		desktopMediaTestSessionID,
+		desktopMediaTestMediaSessionID,
+	)
+	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("DecodeDesktopMediaAckMessage error = %v, want %v", err, ErrInvalidDesktopMediaAck)
 	}
 }
 
