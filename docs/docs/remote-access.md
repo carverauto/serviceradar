@@ -66,11 +66,14 @@ Store `serviceradar_user_ca` as a private secret for the signer. Distribute only
 Configure the signer in the web-ng or core environment that approves remote access sessions:
 
 ```bash
+SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED=true
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED=true
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND=serviceradar-sshca-signer
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secrets/serviceradar_ssh_ca","--max-ttl","8h"]'
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 ```
+
+`SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED` defaults to `false`. Keep it disabled until targets, RBAC, host-key policy, and the SSH CA signer are ready; the device-details SSH action and remote-access session API are hidden or blocked while it is disabled.
 
 The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. File-backed secrets are usually easier to operate in Kubernetes.
 

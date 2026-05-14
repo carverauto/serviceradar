@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
 
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   @remote_access_permission "devices.remote_access.ssh.open"
   @default_browser_stream_timeout_ms to_timeout(hour: 1)
@@ -14,7 +15,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
   def connect(conn, %{"id" => session_id}) do
     scope = conn.assigns[:current_scope]
 
-    with :ok <- require_permission(scope),
+    with :ok <- require_remote_access_ssh_enabled(),
+         :ok <- require_permission(scope),
          {:ok, normalized_id} <- normalize_uuid(session_id, "id") do
       conn
       |> WebSockAdapter.upgrade(
@@ -24,6 +26,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
       )
       |> halt()
     else
+      {:error, :remote_access_ssh_disabled} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "not_found", message: "SSH remote access is not enabled"})
+
       {:error, :forbidden} ->
         conn
         |> put_status(:forbidden)
@@ -33,6 +40,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
         conn
         |> put_status(:bad_request)
         |> json(%{error: "invalid_request", message: message})
+    end
+  end
+
+  defp require_remote_access_ssh_enabled do
+    if FeatureFlags.remote_access_ssh_enabled?() do
+      :ok
+    else
+      {:error, :remote_access_ssh_disabled}
     end
   end
 

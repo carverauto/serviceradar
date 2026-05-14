@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
@@ -44,7 +45,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
 
   def create(conn, params) do
-    with :ok <- require_authenticated(conn),
+    with :ok <- require_remote_access_ssh_enabled(),
+         :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @remote_access_permission),
          {:ok, request} <- normalize_create_request(params),
          {:ok, %{session: %RemoteAccessSession{} = session, ticket: ticket}} <-
@@ -57,6 +59,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         conn
         |> put_status(:bad_request)
         |> json(%{error: "invalid_request", message: message})
+
+      {:error, :remote_access_ssh_disabled} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "not_found", message: "SSH remote access is not enabled"})
 
       {:error, :forbidden} ->
         conn
@@ -569,6 +576,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp get_scope(conn), do: conn.assigns[:current_scope]
+
+  defp require_remote_access_ssh_enabled do
+    if FeatureFlags.remote_access_ssh_enabled?() do
+      :ok
+    else
+      {:error, :remote_access_ssh_disabled}
+    end
+  end
 
   defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do

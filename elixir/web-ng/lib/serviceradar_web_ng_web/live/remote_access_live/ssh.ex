@@ -3,17 +3,20 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   @remote_access_permission "devices.remote_access.ssh.open"
 
   @impl true
   def mount(%{"uid" => device_uid}, _session, socket) do
-    can_open? = RBAC.can?(socket.assigns.current_scope, @remote_access_permission)
+    feature_enabled? = FeatureFlags.remote_access_ssh_enabled?()
+    can_open? = feature_enabled? and RBAC.can?(socket.assigns.current_scope, @remote_access_permission)
 
     socket =
       socket
       |> assign(:page_title, "SSH Remote Access")
       |> assign(:device_uid, device_uid)
+      |> assign(:feature_enabled?, feature_enabled?)
       |> assign(:can_open?, can_open?)
       |> assign(:allow_remembered_keys?, allow_remembered_keys?())
       |> assign(:allow_skip_verify_host_key_policy?, allow_skip_verify_host_key_policy?())
@@ -40,7 +43,11 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
 
         <div :if={!@can_open?} class="flex min-h-0 flex-1 items-center justify-center p-6">
           <div class="max-w-xl rounded border border-error/30 bg-error/10 p-4 text-sm text-error">
-            You do not have permission to open SSH remote-access sessions.
+            <%= if @feature_enabled? do %>
+              You do not have permission to open SSH remote-access sessions.
+            <% else %>
+              SSH remote access is not enabled for this deployment.
+            <% end %>
           </div>
         </div>
 

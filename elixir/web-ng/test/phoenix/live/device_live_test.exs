@@ -240,6 +240,72 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ uid
   end
 
+  test "hides SSH action when remote access SSH is disabled", %{conn: conn} do
+    with_remote_access_ssh_enabled(false)
+
+    uid = "test-device-ssh-disabled-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "linux-ssh-disabled",
+        metadata: %{"operating_system" => "Ubuntu Linux"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    refute html =~ "/devices/#{uid}/remote-access/ssh"
+  end
+
+  test "hides SSH action for Windows-family devices", %{conn: conn} do
+    with_remote_access_ssh_enabled(true)
+
+    uid = "test-device-ssh-windows-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "windows-ce-panel",
+        metadata: %{"operating_system" => "Windows CE"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    refute html =~ "/devices/#{uid}/remote-access/ssh"
+  end
+
+  test "shows SSH action for SSH-capable devices when enabled", %{conn: conn} do
+    with_remote_access_ssh_enabled(true)
+
+    uid = "test-device-ssh-linux-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "linux-ssh-enabled",
+        metadata: %{"operating_system" => "Ubuntu Linux"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    assert html =~ "/devices/#{uid}/remote-access/ssh"
+  end
+
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
@@ -1517,6 +1583,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: AshTestHelpers.system_actor())
     |> Ash.update!()
+  end
+
+  defp with_remote_access_ssh_enabled(enabled?) do
+    previous = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, enabled?)
+
+    on_exit(fn ->
+      restore_env(:remote_access_ssh_enabled, previous)
+    end)
   end
 
   defp insert_camera_source!(device_uid, attrs \\ %{}) do
