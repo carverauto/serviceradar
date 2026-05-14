@@ -175,6 +175,7 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 
 	// Enrich results.
 	t.enrichResults()
+	t.resolveHopHostnames(ctx)
 
 	return t.buildResult(), nil
 }
@@ -435,6 +436,76 @@ func (t *Tracer) enrichResults() {
 	}
 
 	t.enricher.EnrichHops(activeHops)
+}
+
+func (t *Tracer) resolveHopHostnames(ctx context.Context) {
+	if t.dns == nil {
+		return
+	}
+
+	activeHops := make([]*HopResult, 0)
+
+	for _, hop := range t.hops {
+		if hop == nil {
+			continue
+		}
+
+		hop.mu.RLock()
+		needsLookup := hop.Addr != nil && hop.Hostname == ""
+		hop.mu.RUnlock()
+
+		if needsLookup {
+			activeHops = append(activeHops, hop)
+		}
+	}
+
+	if len(activeHops) == 0 {
+		return
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, dnsTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, dnsWorkers)
+
+	for _, hop := range activeHops {
+		hop.mu.RLock()
+		ip := hop.Addr.String()
+		hop.mu.RUnlock()
+
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-resolveCtx.Done():
+				return
+			}
+
+			if hostname := t.dns.Lookup(resolveCtx, ip); hostname != "" {
+				hop.mu.Lock()
+				if hop.Hostname == "" {
+					hop.Hostname = hostname
+				}
+				hop.mu.Unlock()
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-resolveCtx.Done():
+	}
 }
 
 // buildResult constructs the final TraceResult from accumulated hop data.

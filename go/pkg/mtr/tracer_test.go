@@ -1,6 +1,7 @@
 package mtr
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -51,5 +52,27 @@ func TestNewTracer_TCPSupported(t *testing.T) {
 
 	if tracer == nil {
 		t.Fatal("expected non-nil tracer")
+	}
+}
+
+func TestResolveHopHostnamesUsesDNSCache(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewDNSResolver(t.Context())
+	defer resolver.Stop()
+	resolver.cacheResult("192.0.2.1", "router.example.net")
+
+	hop := NewHopResult(1, DefaultRingBufferSize)
+	hop.Addr = net.ParseIP("192.0.2.1")
+
+	tracer := &Tracer{
+		dns:  resolver,
+		hops: []*HopResult{hop},
+	}
+
+	tracer.resolveHopHostnames(t.Context())
+
+	if got := hop.Snapshot().Hostname; got != "router.example.net" {
+		t.Fatalf("expected hostname from reverse DNS cache, got %q", got)
 	}
 }
