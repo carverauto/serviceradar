@@ -51,6 +51,7 @@ export class RemoteDesktopWebRTCClient {
     mediaAckFrameInterval = 4,
     mediaAckMaxDelayMs = 25,
     mediaQueueState = () => ({}),
+    eagerMediaMetadata = true,
   } = {}) {
     this.signalingPath = signalingPath
     this.iceServers = iceServers
@@ -69,6 +70,7 @@ export class RemoteDesktopWebRTCClient {
     this.mediaAckFrameInterval = Math.max(1, mediaAckFrameInterval)
     this.mediaAckMaxDelayMs = Math.max(0, mediaAckMaxDelayMs)
     this.mediaQueueState = typeof mediaQueueState === "function" ? mediaQueueState : () => ({})
+    this.eagerMediaMetadata = eagerMediaMetadata !== false
     this.peerConnection = null
     this.viewerSessionId = null
     this.channels = new Map()
@@ -226,7 +228,7 @@ export class RemoteDesktopWebRTCClient {
         return
       }
 
-      this.onFrame(frame, parseDesktopMediaMetadata(frame))
+      this.onFrame(frame, this.eagerMediaMetadata ? parseDesktopMediaMetadata(frame) : null)
       this.queueMediaAck(frame)
 
       return

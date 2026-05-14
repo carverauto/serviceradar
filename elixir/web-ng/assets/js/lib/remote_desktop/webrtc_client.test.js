@@ -191,6 +191,54 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(onFrame.mock.calls[0][1]).toEqual({tileSize: 64})
   })
 
+  it("can leave media metadata unparsed for renderer-owned hot paths", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-lazy",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onFrame = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-lazy/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      eagerMediaMetadata: false,
+      onFrame,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-lazy",
+        mediaSessionId: "media-lazy",
+        sequence: 15,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        metadata: new Uint8Array([0x7b]),
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+
+    expect(onFrame).toHaveBeenCalledTimes(1)
+    expect(onFrame.mock.calls[0][0].metadata.byteLength).toBe(1)
+    expect(onFrame.mock.calls[0][1]).toBeNull()
+  })
+
   it("acknowledges media frames over the control channel with fresh credit", async () => {
     const fetchMock = vi
       .fn()
