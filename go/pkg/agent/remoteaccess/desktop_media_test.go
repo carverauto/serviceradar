@@ -418,6 +418,35 @@ func TestDesktopMediaCreditWindowRejectsReplayAcks(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaCreditWindowCapsAckCredit(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+	if window.MaxAckCreditBytes() != DesktopMediaDefaultMaxAckCreditBytes {
+		t.Fatalf("MaxAckCreditBytes = %d, want %d", window.MaxAckCreditBytes(), DesktopMediaDefaultMaxAckCreditBytes)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		CreditBytes:      DesktopMediaDefaultMaxAckCreditBytes + 1024,
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck returned error: %v", err)
+	}
+	if window.RemainingBytes() != 1+DesktopMediaDefaultMaxAckCreditBytes {
+		t.Fatalf(
+			"RemainingBytes after oversized ack = %d, want %d",
+			window.RemainingBytes(),
+			1+DesktopMediaDefaultMaxAckCreditBytes,
+		)
+	}
+}
+
 func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 	t.Parallel()
 
