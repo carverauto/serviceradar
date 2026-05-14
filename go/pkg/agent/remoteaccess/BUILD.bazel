@@ -5,9 +5,12 @@ go_library(
     srcs = [
         "adapters.go",
         "desktop_audit.go",
+        "desktop_credential.go",
+        "desktop_frame.go",
         "desktop.go",
         "desktop_media.go",
         "desktop_session_guard.go",
+        "desktop_target.go",
         "enhanced_recorder.go",
         "enhanced_recording_ebpf.go",
         "enhanced_recording_ebpf_loss.go",
