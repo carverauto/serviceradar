@@ -187,6 +187,61 @@ func TestDecodeDesktopOpenPayloadValidatesTargetAndGrantBinding(t *testing.T) {
 	}
 }
 
+func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
+	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.ApprovalRequired = true
+
+	payload := DesktopOpenPayload{
+		Target: target,
+		CredentialGrant: &DesktopCredentialGrant{
+			Mode:                DesktopCredentialModeBrokeredSecret,
+			CredentialSecretRef: "secretref:rdp/admin",
+			ActorID:             "user-1",
+			SessionID:           fakeRemoteSessionID,
+			TargetID:            desktopTestTargetID,
+			RouteID:             desktopTestAgentID,
+			ExpiresUnix:         1_778_000_000,
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+
+	frame := Frame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: FrameTypeOpen,
+		Data:      data,
+	}
+
+	got, err := DecodeDesktopOpenFrameForAgent(frame, desktopTestAgentID)
+	if err != nil {
+		t.Fatalf("DecodeDesktopOpenFrameForAgent returned error: %v", err)
+	}
+	if got.Target.Route.SelectedAgentID != desktopTestAgentID {
+		t.Fatalf("SelectedAgentID = %q, want %q", got.Target.Route.SelectedAgentID, desktopTestAgentID)
+	}
+
+	if _, err := DecodeDesktopOpenFrameForAgent(frame, "agent-2"); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("route mismatch error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+
+	payload.CredentialGrant.SessionID = "other-session"
+	data, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	frame.Data = data
+	if _, err := DecodeDesktopOpenFrameForAgent(frame, desktopTestAgentID); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("grant session mismatch error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+}
+
 func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing.T) {
 	t.Parallel()
 
@@ -385,6 +440,32 @@ func TestDesktopFramePayloadRoundTripsThroughConsoleFrameData(t *testing.T) {
 	_, err = DecodeDesktopFramePayload([]byte(`{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.resize","width":9999,"height":720}`), policy)
 	if !errors.Is(err, ErrInvalidDesktopFrame) {
 		t.Fatalf("invalid decoded frame error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
+func TestDecodeDesktopFramePayloadForSessionRejectsMismatchedSession(t *testing.T) {
+	t.Parallel()
+
+	policy := DesktopScreenPolicy{
+		MaxWidth:   1280,
+		MaxHeight:  720,
+		FrameRate:  24,
+		BitrateBPS: 4_000_000,
+	}
+	data, err := EncodeDesktopFramePayload(DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeDisconnect,
+	}, policy)
+	if err != nil {
+		t.Fatalf("EncodeDesktopFramePayload returned error: %v", err)
+	}
+
+	if _, err := DecodeDesktopFramePayloadForSession(data, policy, fakeRemoteSessionID); err != nil {
+		t.Fatalf("DecodeDesktopFramePayloadForSession returned error: %v", err)
+	}
+	if _, err := DecodeDesktopFramePayloadForSession(data, policy, "other-session"); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}
 }
 

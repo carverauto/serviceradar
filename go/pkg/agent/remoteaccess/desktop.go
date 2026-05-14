@@ -220,6 +220,42 @@ func DecodeDesktopOpenPayload(data []byte) (DesktopOpenPayload, error) {
 	return payload, nil
 }
 
+// DecodeDesktopOpenFrameForAgent decodes a trusted desktop open frame and
+// enforces that the selected route is bound to the local agent before an
+// adapter dials the target.
+func DecodeDesktopOpenFrameForAgent(frame Frame, localAgentID string) (DesktopOpenPayload, error) {
+	var payload DesktopOpenPayload
+
+	localAgentID = strings.TrimSpace(localAgentID)
+	if frame.SessionID == "" {
+		return payload, fmt.Errorf("%w: missing session binding", ErrInvalidDesktopTarget)
+	}
+	if localAgentID == "" {
+		return payload, fmt.Errorf("%w: missing local agent binding", ErrInvalidDesktopTarget)
+	}
+	if frame.FrameType != FrameTypeOpen {
+		return payload, fmt.Errorf("%w: expected open frame", ErrInvalidDesktopTarget)
+	}
+	if !validDesktopProtocol(frame.Protocol) {
+		return payload, fmt.Errorf("%w: unsupported protocol", ErrInvalidDesktopTarget)
+	}
+
+	payload, err := DecodeDesktopOpenPayload(frame.Data)
+	if err != nil {
+		return payload, err
+	}
+	if payload.Target.Route.SelectedAgentID != localAgentID {
+		return payload, fmt.Errorf("%w: selected route does not match local agent", ErrInvalidDesktopTarget)
+	}
+	if payload.CredentialGrant != nil &&
+		payload.CredentialGrant.SessionID != "" &&
+		payload.CredentialGrant.SessionID != frame.SessionID {
+		return payload, fmt.Errorf("%w: credential grant session mismatch", ErrInvalidDesktopTarget)
+	}
+
+	return payload, nil
+}
+
 // EncodeDesktopFramePayload validates and serializes a typed desktop frame for
 // transport inside the existing ConsoleFrame data field.
 func EncodeDesktopFramePayload(frame DesktopFrame, policy DesktopScreenPolicy) ([]byte, error) {
@@ -244,6 +280,29 @@ func DecodeDesktopFramePayload(data []byte, policy DesktopScreenPolicy) (Desktop
 	}
 	if err := ValidateDesktopFrame(frame, policy); err != nil {
 		return frame, err
+	}
+
+	return frame, nil
+}
+
+// DecodeDesktopFramePayloadForSession decodes a typed desktop frame and rejects
+// frames that are not bound to the expected remote-access session.
+func DecodeDesktopFramePayloadForSession(
+	data []byte,
+	policy DesktopScreenPolicy,
+	sessionID string,
+) (DesktopFrame, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return DesktopFrame{}, fmt.Errorf("%w: missing session binding", ErrInvalidDesktopFrame)
+	}
+
+	frame, err := DecodeDesktopFramePayload(data, policy)
+	if err != nil {
+		return frame, err
+	}
+	if frame.SessionID != sessionID {
+		return frame, fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopFrame)
 	}
 
 	return frame, nil
