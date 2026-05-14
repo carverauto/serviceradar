@@ -24,6 +24,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -33,6 +34,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+const maxObjectListPageSize uint32 = 1000
 
 // Server implements the KVService gRPC interface and lifecycle.Service.
 type Server struct {
@@ -441,6 +444,39 @@ func (s *Server) GetObjectInfo(ctx context.Context, req *proto.GetObjectInfoRequ
 		Info:  objectInfoToProto(info),
 		Found: true,
 	}, nil
+}
+
+// ListObjects retrieves object metadata without downloading payload data.
+func (s *Server) ListObjects(ctx context.Context, req *proto.ListObjectsRequest) (*proto.ListObjectsResponse, error) {
+	pageSize := req.GetPageSize()
+	if pageSize == 0 || pageSize > maxObjectListPageSize {
+		pageSize = maxObjectListPageSize
+	}
+
+	objects, nextToken, err := s.store.ListObjects(ctx, ObjectListOptions{
+		Domain:    req.GetDomain(),
+		Prefix:    req.GetPrefix(),
+		PageSize:  int(pageSize),
+		PageToken: req.GetPageToken(),
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid page token") {
+			return nil, status.Error(codes.InvalidArgument, "invalid page token")
+		}
+
+		return nil, status.Errorf(codes.Internal, "failed to list objects: %v", err)
+	}
+
+	resp := &proto.ListObjectsResponse{
+		Objects:       make([]*proto.ObjectInfo, 0, len(objects)),
+		NextPageToken: nextToken,
+	}
+
+	for _, info := range objects {
+		resp.Objects = append(resp.Objects, objectInfoToProto(info))
+	}
+
+	return resp, nil
 }
 
 func protoToObjectMetadata(meta *proto.ObjectMetadata) *ObjectMetadata {

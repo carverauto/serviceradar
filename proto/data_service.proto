@@ -33,6 +33,9 @@ service DataService {
 
   // GetObjectInfo retrieves metadata for an object without returning its payload.
   rpc GetObjectInfo(GetObjectInfoRequest) returns (GetObjectInfoResponse) {}
+
+  // ListObjects retrieves object metadata without returning payload bytes.
+  rpc ListObjects(ListObjectsRequest) returns (ListObjectsResponse) {}
 }
 
 // ObjectMetadata captures descriptive attributes for an object stored in JetStream.
@@ -102,4 +105,18 @@ message GetObjectInfoRequest {
 message GetObjectInfoResponse {
   ObjectInfo info = 1;
   bool found = 2;
+}
+
+// ListObjectsRequest filters object metadata listing.
+message ListObjectsRequest {
+  string prefix = 1; // Optional object key prefix.
+  string domain = 2; // Optional JetStream domain name.
+  uint32 page_size = 3; // Requested page size; the server applies a maximum.
+  string page_token = 4; // Opaque page token returned by a previous response.
+}
+
+// ListObjectsResponse returns object metadata without payload bytes.
+message ListObjectsResponse {
+  repeated ObjectInfo objects = 1;
+  string next_page_token = 2;
 }

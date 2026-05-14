@@ -45,6 +45,12 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+config :serviceradar_core, :object_store_retention,
+  enabled?: false,
+  dry_run?: true,
+  agent_release_keep_latest: 5,
+  datasvc_timeout_ms: 30_000
+
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 

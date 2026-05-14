@@ -454,11 +454,23 @@ webNg:
     serverName: "datasvc.serviceradar"
   pluginStorage:
     enabled: true
+    backend: "filesystem"
     basePath: "/var/lib/serviceradar/plugin-packages"
     existingClaim: ""
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
+    jetstreamBucket: "serviceradar_plugins"
+    jetstreamReplicas: 1
+
+objectStoreRetention:
+  enabled: false
+  dryRun: true
+  cron: "0 3 * * *"
+  agentReleaseKeepLatest: 5
+  pluginOrphanGraceSeconds: 604800
+  datasvcTimeoutMs: 30000
+  webNgMaintenanceQueueLimit: 1
 agent:
   enabled: true
   agentId: "k8s-agent"

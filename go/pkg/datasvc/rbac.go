@@ -139,6 +139,7 @@ func (*Server) authorizeMethod(method string, role Role) error {
 		"/proto.DataService/DownloadObject": {RoleReader, RoleWriter},
 		"/proto.DataService/UploadObject":   {RoleWriter},
 		"/proto.DataService/DeleteObject":   {RoleWriter},
+		"/proto.DataService/ListObjects":    {RoleReader, RoleWriter},
 	}
 
 	allowedRoles, ok := permissions[method]

@@ -239,6 +239,31 @@ defmodule ServiceRadar.Sync.Client do
   end
 
   @doc """
+  List object metadata without downloading object payloads.
+  """
+  @spec list_objects(GRPC.Channel.t(), keyword()) ::
+          {:ok, Proto.ListObjectsResponse.t()} | {:error, term()}
+  def list_objects(channel, opts \\ []) do
+    timeout = opts[:timeout] || @default_timeout
+
+    request = %Proto.ListObjectsRequest{
+      prefix: to_string(opts[:prefix] || ""),
+      domain: to_string(opts[:domain] || ""),
+      page_size: opts[:page_size] || 0,
+      page_token: to_string(opts[:page_token] || "")
+    }
+
+    case Proto.DataService.Stub.list_objects(channel, request, timeout: timeout) do
+      {:ok, response} ->
+        {:ok, response}
+
+      {:error, reason} = error ->
+        Logger.error("Error listing objects for prefix #{request.prefix}: #{inspect(reason)}")
+        error
+    end
+  end
+
+  @doc """
   Delete an object from the sync service.
   """
   @spec delete_object(GRPC.Channel.t(), String.t(), keyword()) ::
