@@ -368,6 +368,41 @@ func TestDesktopFrameAuditMetadataOmitsPayloadContents(t *testing.T) {
 	}
 }
 
+func TestDesktopTerminationAuditMetadataCapsAndNormalizesReason(t *testing.T) {
+	t.Parallel()
+
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeDisconnect,
+		Reason:    "operator\nclosed\t" + strings.Repeat("x", DesktopMaxAuditReason),
+		Timestamp: 1_778_000_000,
+		Data:      []byte("screen or clipboard payload"),
+	}
+
+	metadata := DesktopTerminationAuditMetadata(frame)
+	if metadata["session_id"] != fakeRemoteSessionID ||
+		metadata["frame_type"] != DesktopFrameTypeDisconnect ||
+		metadata["termination_reason_truncated"] != "true" {
+		t.Fatalf("termination metadata = %#v", metadata)
+	}
+	if strings.Contains(metadata["termination_reason"], "\n") ||
+		strings.Contains(metadata["termination_reason"], "\t") {
+		t.Fatalf("termination reason was not normalized: %#v", metadata)
+	}
+	if len(metadata["termination_reason"]) > DesktopMaxAuditReason {
+		t.Fatalf("termination reason length = %d, want <= %d", len(metadata["termination_reason"]), DesktopMaxAuditReason)
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	if strings.Contains(string(encoded), "screen or clipboard payload") {
+		t.Fatalf("termination metadata leaked payload: %s", string(encoded))
+	}
+}
+
 func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing.T) {
 	t.Parallel()
 

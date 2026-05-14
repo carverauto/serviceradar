@@ -49,6 +49,7 @@ const (
 	DesktopMaxBitrateBPS     = 100_000_000
 	DesktopMaxFrameData      = 1_048_576
 	DesktopMaxInputTokenSize = 128
+	DesktopMaxAuditReason    = 256
 
 	DesktopClipboardModeDisabled      = "disabled"
 	DesktopClipboardModeTextToRemote  = "text_to_remote"
@@ -360,6 +361,43 @@ func DesktopFrameAuditMetadata(frame DesktopFrame) map[string]string {
 	}
 
 	return metadata
+}
+
+// DesktopTerminationAuditMetadata returns safe metadata for desktop close/error
+// outcomes. It includes a capped, single-line reason while keeping generic frame
+// audit metadata free of close reasons by default.
+func DesktopTerminationAuditMetadata(frame DesktopFrame) map[string]string {
+	metadata := DesktopFrameAuditMetadata(frame)
+	reason, truncated := normalizeDesktopAuditReason(frame.Reason, DesktopMaxAuditReason)
+	metadata["termination_reason"] = reason
+	metadata["termination_reason_truncated"] = strconv.FormatBool(truncated)
+
+	return metadata
+}
+
+func normalizeDesktopAuditReason(reason string, maxBytes int) (string, bool) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || maxBytes <= 0 {
+		return "", len(reason) > 0
+	}
+
+	var out strings.Builder
+	truncated := false
+
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		next := string(r)
+		if out.Len()+len(next) > maxBytes {
+			truncated = true
+			break
+		}
+		out.WriteString(next)
+	}
+
+	return strings.TrimSpace(out.String()), truncated
 }
 
 // EncodeDesktopFramePayload validates and serializes a typed desktop frame for
