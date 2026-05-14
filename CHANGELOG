@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.57
+
+Bazel release dependency repair for the Alpine package layer.
+
+## Whats New
+
+**1.2.57**
+- Updated the pinned Alpine `libcap2` APK used by the Bazel-built network utility rootfs layer from the removed `2.70-r0` package to the current `2.78-r0` package in Alpine `v3.20`.
+- Verified the updated `libcap2` external repository fetches and the `apk_libcap2_rootfs_amd64` Bazel target builds successfully.
+
 # ServiceRadar v1.2.56
 
 Forgejo release and CI workflow fixes for the non-root runner image.
