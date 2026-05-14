@@ -1,4 +1,8 @@
 defmodule UUID do
+  # UUID generation examples are illustrative because v1/v4 values are
+  # time/random based; keep deterministic coverage in test/uuid_test.exs.
+  # credo:disable-for-this-file Jump.CredoChecks.DoctestIExExamples
+
   @moduledoc """
   UUID generator and utilities for [Elixir](http://elixir-lang.org/).
   See [RFC 4122](http://www.ietf.org/rfc/rfc4122.txt).
