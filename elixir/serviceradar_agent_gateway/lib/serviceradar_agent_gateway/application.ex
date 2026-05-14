@@ -136,7 +136,8 @@ defmodule ServiceRadarAgentGateway.Application do
         [
           ServiceRadarAgentGateway.AgentRegistryProxy,
           ServiceRadarAgentGateway.StatusBuffer,
-          ServiceRadarAgentGateway.CameraMediaSessionTracker
+          ServiceRadarAgentGateway.CameraMediaSessionTracker,
+          ServiceRadarAgentGateway.DesktopMediaSessionTracker
 
           # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
           # In the new push-only architecture, agents push status to the gateway.
