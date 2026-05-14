@@ -78,6 +78,7 @@
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
 - [x] 3.2.3 Gate `remote_access.desktop` and `remote_access.rdp` capability advertisement on explicit agent config plus a locally executable per-session RDP helper.
+- [x] 3.2.4 Add a bounded local IPC frame protocol for the per-session RDP helper so screen payloads use length-prefixed binary frames instead of ad hoc JSON.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -128,6 +129,7 @@
 - [x] 5.2.6 Add focused Go tests proving the RDP adapter runtime rejects invalid SRDP media frames before they reach the concrete media sender.
 - [x] 5.2.7 Add focused Go tests proving guarded RDP adapter sessions close idempotently and reject post-close input/media frames.
 - [x] 5.2.8 Add focused Go tests proving RDP capability advertisement stays disabled until config enables it and the helper binary is executable.
+- [x] 5.2.9 Add focused Go tests proving the RDP helper IPC protocol round-trips frames and rejects invalid, oversized, and truncated messages.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
