@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "camera_relay.go",
         "camera_relay_rtsp.go",
+        "desktop_media_sender.go",
         "errors.go",
         "control_stream.go",
         "icmp_checker.go",
@@ -82,6 +83,7 @@ go_test(
     srcs = [
         "camera_relay_test.go",
         "control_stream_test.go",
+        "desktop_media_sender_test.go",
         "mtr_config_test.go",
         "mtr_bulk_test.go",
         "proxmox_console_ssh_integration_test.go",

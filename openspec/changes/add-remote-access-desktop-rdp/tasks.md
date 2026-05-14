@@ -73,6 +73,7 @@
 - [x] 3.1.40 Add a supervised core-elx ExWebRTC DataChannel media provider for server-created desktop media/control channels, SRDP frame sends, and browser ack routing.
 - [x] 3.1.41 Make the supervised core-elx DataChannel provider the default desktop WebRTC offer provider so runtime sessions do not depend on an out-of-band app-env knob.
 - [x] 3.1.42 Wrap adapter-facing desktop media senders with the session guard so SRDP frames are validated before entering the dedicated media stream.
+- [x] 3.1.43 Add an agent-side desktop media gateway sender that opens the route-bound gRPC media session, maps SRDP frames to protobuf chunks, and routes gateway acknowledgements.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -170,6 +171,7 @@
 - [x] 5.6.29 Add focused Elixir tests proving the core-elx SRDP media-frame envelope encoder matches header layout, preserves payload leaves as iodata, and rejects invalid fields before binary construction.
 - [x] 5.6.30 Add focused Elixir tests proving the core-elx DataChannel provider emits offers, creates media/control DataChannels, gates frame sends on channel-open state, and routes browser acks to the signaling owner.
 - [x] 5.6.31 Add focused Elixir tests proving the desktop media manager can still fail closed when the WebRTC offer provider is explicitly disabled.
+- [x] 5.6.32 Add focused Go tests proving the agent desktop media gateway sender opens sessions, forwards chunks, handles acks, enforces chunk limits, and closes idempotently.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
