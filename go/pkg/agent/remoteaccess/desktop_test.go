@@ -730,7 +730,25 @@ func TestValidateDesktopFrameEnforcesGraphicalPolicy(t *testing.T) {
 			SessionID: "session-1",
 			Protocol:  ProtocolRDP,
 			FrameType: DesktopFrameTypeQuality,
-			Quality:   &DesktopQuality{MaxFrameRate: DesktopMaxFrameRate + 1},
+			Quality:   &DesktopQuality{MaxFrameRate: 25},
+		},
+		{
+			SessionID: "session-1",
+			Protocol:  ProtocolRDP,
+			FrameType: DesktopFrameTypeQuality,
+			Quality:   &DesktopQuality{MaxBitrate: 4_000_001},
+		},
+		{
+			SessionID: "session-1",
+			Protocol:  ProtocolRDP,
+			FrameType: DesktopFrameTypeQuality,
+			Quality:   &DesktopQuality{Width: 1281},
+		},
+		{
+			SessionID: "session-1",
+			Protocol:  ProtocolRDP,
+			FrameType: DesktopFrameTypeQuality,
+			Quality:   &DesktopQuality{Height: 721},
 		},
 		{
 			SessionID: "session-1",

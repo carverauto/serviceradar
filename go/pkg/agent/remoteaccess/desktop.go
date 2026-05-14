@@ -781,8 +781,8 @@ func validateDesktopFrame(
 		if frame.Quality == nil {
 			return fmt.Errorf("%w: missing quality request", ErrInvalidDesktopFrame)
 		}
-		if frame.Quality.MaxFrameRate > DesktopMaxFrameRate ||
-			frame.Quality.MaxBitrate > DesktopMaxBitrateBPS ||
+		if frame.Quality.MaxFrameRate > policy.FrameRate ||
+			frame.Quality.MaxBitrate > policy.BitrateBPS ||
 			frame.Quality.Width > policy.MaxWidth ||
 			frame.Quality.Height > policy.MaxHeight {
 			return fmt.Errorf("%w: quality request exceeds policy", ErrInvalidDesktopFrame)
