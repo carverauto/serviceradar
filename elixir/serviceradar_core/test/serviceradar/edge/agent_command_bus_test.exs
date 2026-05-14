@@ -42,6 +42,23 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
   end
 
+  defmodule CrashingControlSession do
+    @moduledoc false
+    use GenServer
+
+    def start(opts) do
+      GenServer.start(__MODULE__, opts, name: opts[:name])
+    end
+
+    @impl true
+    def init(_opts), do: {:ok, %{}}
+
+    @impl true
+    def handle_call({:push_config, _response}, _from, state) do
+      {:stop, :shutdown, state}
+    end
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -194,6 +211,14 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       assert_receive {:push_config, %Monitoring.AgentConfigResponse{} = response}, 1_000
       assert is_binary(response.config_version)
+    end
+
+    test "returns an error when the control session exits during push", %{agent_id: agent_id} do
+      name = ProcessRegistry.via({:agent_control, agent_id}, %{partition_id: "default"})
+      {:ok, pid} = CrashingControlSession.start(name: name)
+
+      assert {:error, {:control_session_exit, _reason}} = AgentCommandBus.push_config(agent_id)
+      refute Process.alive?(pid)
     end
   end
 

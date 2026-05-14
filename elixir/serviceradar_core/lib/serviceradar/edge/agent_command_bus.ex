@@ -113,7 +113,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     command_context =
       build_command_context(ctx.context, command, actual_partition, ctx.created_at)
 
-    case GenServer.call(pid, {:send_command, command_request, command_context}, @send_timeout) do
+    case call_control_session(
+           ctx.agent_id,
+           pid,
+           {:send_command, command_request, command_context}
+         ) do
       {:ok, _} ->
         _ = AgentCommand.mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
         {:ok, command.id}
@@ -229,7 +233,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     with {:ok, pid, _metadata} <- lookup_control_session(agent_id) do
       response = AgentConfigGenerator.generate_proto_response(agent_id)
 
-      case GenServer.call(pid, {:push_config, response}, @send_timeout) do
+      case call_control_session(agent_id, pid, {:push_config, response}) do
         :ok -> :ok
         {:error, reason} -> {:error, reason}
         other -> {:error, other}
@@ -241,6 +245,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
+
+  defp call_control_session(agent_id, pid, request) do
+    GenServer.call(pid, request, @send_timeout)
+  catch
+    :exit, {:noproc, _} ->
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      {:error, :control_session_unavailable}
+
+    :exit, {:normal, _} ->
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      {:error, :control_session_unavailable}
+
+    :exit, reason ->
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      {:error, {:control_session_exit, reason}}
+  end
 
   defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
 
@@ -364,6 +384,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if process_alive?(pid) do
       {:ok, pid, metadata}
     else
+      ProcessRegistry.unregister({:agent_control, agent_id})
       {:error, {:agent_offline, agent_id}}
     end
   end
@@ -384,6 +405,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     metadata = if(is_map(metadata), do: metadata, else: %{})
 
     %{
+      key: key,
       agent_id: agent_id,
       pid: pid,
       metadata: metadata,
@@ -392,8 +414,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     }
   end
 
-  defp valid_online_session?(%{agent_id: agent_id, pid: pid}) do
-    is_binary(agent_id) and process_alive?(pid)
+  defp valid_online_session?(%{agent_id: agent_id, pid: pid, key: key}) do
+    alive? = is_binary(agent_id) and process_alive?(pid)
+
+    if !alive? do
+      ProcessRegistry.unregister(key)
+    end
+
+    alive?
   end
 
   defp pick_online_agent(partition, capability) do
@@ -413,10 +441,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if node(pid) == node() do
       Process.alive?(pid)
     else
-      if :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
-        true
-      else
-        false
+      case :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
+        true -> true
+        _ -> false
       end
     end
   end
