@@ -180,3 +180,38 @@ func TestNetworkSweeper_UpdateConfig_IntervalPreservation(t *testing.T) {
 		assert.Equal(t, 60*time.Second, sweeper.config.Timeout, "Timeout should be updated when new config has valid timeout")
 	})
 }
+
+func TestNetworkSweeper_GetStatusDoesNotExposeInProgressLastSweep(t *testing.T) {
+	config := &models.Config{
+		SweepModes: []models.SweepMode{models.ModeTCP},
+		Ports:      []int{80},
+	}
+	log := logger.NewTestLogger()
+	processor := NewBaseProcessor(config, log)
+	store := NewInMemoryStore(processor, log, WithoutPreallocation())
+
+	sweeper, err := NewNetworkSweeper(config, store, processor, nil, log)
+	require.NoError(t, err)
+
+	result := &models.Result{
+		Target:    models.Target{Host: "192.0.2.10", Port: 80, Mode: models.ModeTCP},
+		Available: true,
+		FirstSeen: time.Now(),
+		LastSeen:  time.Now(),
+	}
+	require.NoError(t, sweeper.processBasicResult(context.Background(), result))
+
+	inProgress, err := sweeper.GetStatus(context.Background())
+	require.NoError(t, err)
+	require.Len(t, inProgress.Hosts, 1)
+	assert.Equal(t, int64(0), inProgress.LastSweep)
+
+	completedAt := time.Now().Add(time.Second).Truncate(time.Second)
+	sweeper.mu.Lock()
+	sweeper.lastSweep = completedAt
+	sweeper.mu.Unlock()
+
+	completed, err := sweeper.GetStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, completedAt.Unix(), completed.LastSweep)
+}

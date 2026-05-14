@@ -571,7 +571,12 @@ func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, e
 	lastSweep := s.lastSweep
 	s.mu.RUnlock()
 
-	if !lastSweep.IsZero() {
+	if lastSweep.IsZero() {
+		// The store summary is updated as individual scanner results arrive. Do not
+		// expose that in-progress timestamp as a completed sweep marker, or the
+		// agent push loop can stream partial ICMP/TCP snapshots as final results.
+		summary.LastSweep = 0
+	} else {
 		summary.LastSweep = lastSweep.Unix()
 	}
 
