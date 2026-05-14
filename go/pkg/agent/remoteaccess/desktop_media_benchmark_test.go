@@ -106,3 +106,33 @@ func BenchmarkDesktopMediaFrameHotPath(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkDesktopSessionGuardHotPath(b *testing.B) {
+	target := validDesktopTarget()
+	target.Screen = DesktopScreenPolicy{
+		MaxWidth:    1920,
+		MaxHeight:   1080,
+		FrameRate:   60,
+		BitrateBPS:  16_000_000,
+		IdleSeconds: DesktopDefaultIdleSec,
+		TTLSeconds:  DesktopDefaultTTLSec,
+	}
+	guard, err := NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		b.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input:     &DesktopInputEvent{Kind: DesktopInputKindFocus, Focused: true},
+	}
+
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if err := guard.ValidateFrame(frame, desktopTestAgentID, "", 101, 1); err != nil {
+			b.Fatalf("ValidateFrame returned error: %v", err)
+		}
+	}
+}

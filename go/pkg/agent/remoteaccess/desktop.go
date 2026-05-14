@@ -316,7 +316,7 @@ func (g *DesktopSessionGuard) ValidateFrame(
 	if frame.SessionID != g.sessionID {
 		return fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopFrame)
 	}
-	if err := ValidateDesktopRouteBinding(g.target, localAgentID, currentGatewayID); err != nil {
+	if err := validateDesktopRouteBindingNormalized(g.target, localAgentID, currentGatewayID); err != nil {
 		return err
 	}
 	if err := ValidateDesktopSessionLifetime(g.target.Screen, g.startUnix, g.lastActivityUnix, nowUnix); err != nil {
@@ -425,6 +425,10 @@ func ValidateDesktopRouteBinding(target DesktopTarget, localAgentID string, curr
 		return err
 	}
 
+	return validateDesktopRouteBindingNormalized(target, localAgentID, currentGatewayID)
+}
+
+func validateDesktopRouteBindingNormalized(target DesktopTarget, localAgentID string, currentGatewayID string) error {
 	localAgentID = strings.TrimSpace(localAgentID)
 	currentGatewayID = strings.TrimSpace(currentGatewayID)
 	if localAgentID == "" {

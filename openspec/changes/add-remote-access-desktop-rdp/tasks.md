@@ -68,6 +68,7 @@
 - [x] 3.4.4 Add desktop selected-route validation for adapter route-loss close behavior.
 - [x] 3.4.5 Reject desktop quality-control requests above the approved session frame rate, bitrate, or resolution.
 - [x] 3.4.6 Add an adapter-facing desktop session guard that composes route, lifetime, frame policy, and quota checks.
+- [x] 3.4.7 Avoid repeated target normalization in the adapter-facing desktop session guard hot path.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -112,6 +113,7 @@
 - [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
 - [x] 5.6.3 Add focused Go tests proving desktop media split-frame encoding reuses header buffers and avoids metadata/payload copies.
 - [x] 5.6.4 Add Go desktop media hot-path benchmarks for contiguous encoding, split-frame/static-field encoding, copying decode, and no-copy decode.
+- [x] 5.6.4.1 Add a Go desktop session-guard hot-path benchmark for per-frame adapter validation.
 - [x] 5.6.5 Add focused Go tests proving desktop media credit windows reject replayed/out-of-order acks without granting duplicate credit.
 - [x] 5.6.6 Add focused Go tests proving oversized desktop media ack credit is capped before being added to the sender credit window.
 - [x] 5.6.7 Add focused Go tests proving dirty reused desktop media headers reset reserved bytes without copying payload data.
