@@ -69,14 +69,14 @@ type DesktopMediaFrame struct {
 }
 
 type DesktopMediaAck struct {
-	SessionBindingID string
-	MediaSessionID   string
-	LastAcceptedSeq  uint64
-	CreditBytes      uint64
-	QualityLevel     string
-	Pause            bool
-	Resume           bool
-	CloseReason      string
+	SessionBindingID string `json:"session_binding_id"`
+	MediaSessionID   string `json:"media_session_id"`
+	LastAcceptedSeq  uint64 `json:"last_accepted_seq"`
+	CreditBytes      uint64 `json:"credit_bytes"`
+	QualityLevel     string `json:"quality_level,omitempty"`
+	Pause            bool   `json:"pause,omitempty"`
+	Resume           bool   `json:"resume,omitempty"`
+	CloseReason      string `json:"close_reason,omitempty"`
 }
 
 type DesktopMediaCreditWindow struct {

@@ -41,9 +41,11 @@ export class RemoteDesktopWebRTCClient {
     onStatus = () => {},
     onFrame = () => {},
     onControlMessage = () => {},
+    onAck = () => {},
     onOpen = () => {},
     onClose = () => {},
     onError = () => {},
+    mediaAckCreditBytes = 262_144,
   } = {}) {
     this.signalingPath = signalingPath
     this.iceServers = iceServers
@@ -53,9 +55,11 @@ export class RemoteDesktopWebRTCClient {
     this.onStatus = onStatus
     this.onFrame = onFrame
     this.onControlMessage = onControlMessage
+    this.onAck = onAck
     this.onOpen = onOpen
     this.onClose = onClose
     this.onError = onError
+    this.mediaAckCreditBytes = mediaAckCreditBytes
     this.peerConnection = null
     this.viewerSessionId = null
     this.channels = new Map()
@@ -197,7 +201,11 @@ export class RemoteDesktopWebRTCClient {
   handleChannelMessage(label, data) {
     if (label === DESKTOP_MEDIA_CHANNEL) {
       const frame = parseDesktopMediaFrame(data)
-      this.onFrame(frame, parseDesktopMediaMetadata(frame))
+      const metadata = parseDesktopMediaMetadata(frame)
+
+      this.onFrame(frame, metadata)
+      this.sendMediaAck(frame)
+
       return
     }
 
@@ -206,6 +214,27 @@ export class RemoteDesktopWebRTCClient {
     } else {
       this.onControlMessage(data)
     }
+  }
+
+  sendMediaAck(frame) {
+    const ack = {
+      type: "desktop_media_ack",
+      session_binding_id: frame.sessionBindingId,
+      media_session_id: frame.mediaSessionId,
+      last_accepted_seq: frame.sequence,
+      credit_bytes: this.mediaAckCreditBytes,
+    }
+
+    if (frame.endOfStream) {
+      ack.close_reason = "desktop media end of stream"
+    }
+
+    if (this.sendControl(ack)) {
+      this.onAck(ack)
+      return true
+    }
+
+    return false
   }
 
   fetchJson(url, options = {}) {

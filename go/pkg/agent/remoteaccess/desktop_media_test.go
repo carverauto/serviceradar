@@ -19,6 +19,7 @@ package remoteaccess
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -249,6 +250,34 @@ func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 	)
 	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
 		t.Fatalf("ValidateDesktopMediaAck error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
+func TestDesktopMediaAckJSONContractUsesBrowserFieldNames(t *testing.T) {
+	t.Parallel()
+
+	data, err := json.Marshal(DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  42,
+		CreditBytes:      1024,
+		QualityLevel:     "low",
+	})
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+
+	if payload["session_binding_id"] != desktopMediaTestSessionID ||
+		payload["media_session_id"] != desktopMediaTestMediaSessionID ||
+		payload["last_accepted_seq"] != float64(42) ||
+		payload["credit_bytes"] != float64(1024) ||
+		payload["quality_level"] != "low" {
+		t.Fatalf("ack JSON payload = %#v", payload)
 	}
 }
 

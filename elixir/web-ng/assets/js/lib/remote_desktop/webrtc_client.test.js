@@ -188,6 +188,68 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(onFrame.mock.calls[0][1]).toEqual({tileSize: 64})
   })
 
+  it("acknowledges media frames over the control channel with fresh credit", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-ack",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onAck = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-ack/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckCreditBytes: 65_536,
+      onAck,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-ack",
+        mediaSessionId: "media-ack",
+        sequence: 10,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+
+    expect(controlChannel.sent).toHaveLength(1)
+    expect(JSON.parse(controlChannel.sent[0])).toEqual({
+      type: "desktop_media_ack",
+      session_binding_id: "session-ack",
+      media_session_id: "media-ack",
+      last_accepted_seq: 10,
+      credit_bytes: 65_536,
+    })
+    expect(onAck).toHaveBeenCalledWith({
+      type: "desktop_media_ack",
+      session_binding_id: "session-ack",
+      media_session_id: "media-ack",
+      last_accepted_seq: 10,
+      credit_bytes: 65_536,
+    })
+  })
+
   it("sends control messages only after the control channel opens", async () => {
     const fetchMock = vi
       .fn()
