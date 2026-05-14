@@ -63,6 +63,12 @@ const (
 	DesktopFrameTypeQuality    = "desktop.quality"
 	DesktopFrameTypeDisconnect = "desktop.disconnect"
 
+	DesktopLifecycleEventOpen    = "desktop.session.open"
+	DesktopLifecycleEventReady   = "desktop.session.ready"
+	DesktopLifecycleEventClose   = "desktop.session.close"
+	DesktopLifecycleEventError   = "desktop.session.error"
+	DesktopLifecycleEventRevoked = "desktop.session.revoked"
+
 	DesktopInputKindKey     = "key"
 	DesktopInputKindPointer = "pointer"
 	DesktopInputKindFocus   = "focus"
@@ -551,6 +557,33 @@ func desktopCredentialGrantExpiresUnix(grant *DesktopCredentialGrant) string {
 	}
 
 	return strconv.FormatInt(grant.ExpiresUnix, 10)
+}
+
+// DesktopLifecycleAuditMetadata returns safe metadata for desktop session
+// lifecycle records. It includes target/policy posture plus a fixed event type
+// and capped single-line outcome, but it omits credential material and
+// caller-supplied metadata.
+func DesktopLifecycleAuditMetadata(
+	payload DesktopOpenPayload,
+	eventType string,
+	timestampUnix int64,
+	outcome string,
+) (map[string]string, error) {
+	if !validDesktopLifecycleEventType(eventType) {
+		return nil, fmt.Errorf("%w: unsupported lifecycle event type", ErrInvalidDesktopFrame)
+	}
+	if timestampUnix <= 0 {
+		return nil, fmt.Errorf("%w: missing lifecycle timestamp", ErrInvalidDesktopFrame)
+	}
+
+	metadata := DesktopAuditMetadata(payload)
+	normalizedOutcome, truncated := normalizeDesktopAuditReason(outcome, DesktopMaxAuditReason)
+	metadata["event_type"] = eventType
+	metadata["event_timestamp_unix"] = strconv.FormatInt(timestampUnix, 10)
+	metadata["event_outcome"] = normalizedOutcome
+	metadata["event_outcome_truncated"] = strconv.FormatBool(truncated)
+
+	return metadata, nil
 }
 
 // DesktopFrameAuditMetadata returns frame metadata suitable for audit and
@@ -1084,6 +1117,19 @@ func validDesktopClipboardMode(mode string) bool {
 		DesktopClipboardModeTextToRemote,
 		DesktopClipboardModeTextToBrowser,
 		DesktopClipboardModeTextBoth:
+		return true
+	default:
+		return false
+	}
+}
+
+func validDesktopLifecycleEventType(eventType string) bool {
+	switch eventType {
+	case DesktopLifecycleEventOpen,
+		DesktopLifecycleEventReady,
+		DesktopLifecycleEventClose,
+		DesktopLifecycleEventError,
+		DesktopLifecycleEventRevoked:
 		return true
 	default:
 		return false

@@ -27,6 +27,7 @@
 - [x] 2.4.1 Add safe agent-side desktop audit metadata for route, target, TLS, credential mode, policy, redirection, recording, and grant binding posture.
 - [x] 2.4.2 Add safe desktop frame audit metadata for frame statistics and redirection decisions without retaining frame payload contents.
 - [x] 2.4.3 Add capped, normalized desktop termination audit metadata without retaining frame payload contents.
+- [x] 2.4.4 Add fixed-type desktop lifecycle audit metadata for open, ready, close, error, and revocation events.
 
 ## 3. Agent Route And RDP Adapter
 - [ ] 3.1 Add typed desktop control frames to the agent-gateway control route and a dedicated desktop media stream for screen updates, without reusing terminal byte frames blindly.
@@ -91,6 +92,7 @@
 - [x] 5.1.9 Add focused Go tests proving desktop termination audit reasons are capped and sanitized.
 - [x] 5.1.10 Add focused Go tests proving desktop screen and clipboard content recording is denied by default.
 - [x] 5.1.11 Add focused Go tests proving session guard content-recording checks use the target policy snapshot.
+- [x] 5.1.12 Add focused Go tests proving desktop lifecycle audit metadata uses fixed event types and omits secrets.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

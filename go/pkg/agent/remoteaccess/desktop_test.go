@@ -512,6 +512,82 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	}
 }
 
+func TestDesktopLifecycleAuditMetadataUsesFixedEventsAndOmitsSecrets(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.DeviceUID = "device-1"
+	target.Route.SelectedGateway = "gateway-1"
+	target.TLS.Mode = DesktopTLSModePinnedCA
+	target.TLS.CABundleID = "ca-bundle-1"
+	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
+	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.ApprovalRequired = true
+	target.Metadata = map[string]string{"secret": "target-secret"}
+
+	payload := DesktopOpenPayload{
+		Target:   target,
+		Metadata: map[string]string{"secret": "payload-secret"},
+		CredentialGrant: &DesktopCredentialGrant{
+			Mode:                DesktopCredentialModeBrokeredSecret,
+			Username:            "administrator",
+			Password:            "secret-password",
+			CredentialSecretRef: "secretref:rdp/admin",
+			ActorID:             "user-1",
+			SessionID:           fakeRemoteSessionID,
+			TargetID:            desktopTestTargetID,
+			RouteID:             desktopTestAgentID,
+			ExpiresUnix:         desktopTestExpiresUnix,
+		},
+	}
+
+	metadata, err := DesktopLifecycleAuditMetadata(
+		payload,
+		DesktopLifecycleEventReady,
+		1_778_000_000,
+		"ready\nwith\t"+strings.Repeat("x", DesktopMaxAuditReason),
+	)
+	if err != nil {
+		t.Fatalf("DesktopLifecycleAuditMetadata returned error: %v", err)
+	}
+	if metadata["event_type"] != DesktopLifecycleEventReady ||
+		metadata["event_timestamp_unix"] != "1778000000" ||
+		metadata["event_outcome_truncated"] != "true" ||
+		metadata["credential_mode"] != DesktopCredentialModeBrokeredSecret ||
+		metadata["tls_mode"] != DesktopTLSModePinnedCA ||
+		metadata["selected_agent_id"] != desktopTestAgentID {
+		t.Fatalf("lifecycle metadata = %#v", metadata)
+	}
+	if strings.Contains(metadata["event_outcome"], "\n") ||
+		strings.Contains(metadata["event_outcome"], "\t") ||
+		len(metadata["event_outcome"]) > DesktopMaxAuditReason {
+		t.Fatalf("event outcome was not normalized: %#v", metadata)
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	for _, forbidden := range []string{
+		"secret-password",
+		"secretref:rdp/admin",
+		"administrator",
+		"target-secret",
+		"payload-secret",
+	} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("lifecycle metadata leaked %q: %s", forbidden, string(encoded))
+		}
+	}
+
+	if _, err := DesktopLifecycleAuditMetadata(payload, "desktop.session.custom", 1, "ok"); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("invalid event type error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+	if _, err := DesktopLifecycleAuditMetadata(payload, DesktopLifecycleEventOpen, 0, "ok"); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("invalid timestamp error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func TestDesktopFrameAuditMetadataOmitsPayloadContents(t *testing.T) {
 	t.Parallel()
 
