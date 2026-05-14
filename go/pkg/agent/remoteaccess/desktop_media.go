@@ -567,6 +567,9 @@ func ValidateDesktopMediaAck(ack DesktopMediaAck, sessionBindingID, mediaSession
 	if ack.Pause && ack.Resume {
 		return fmt.Errorf("%w: pause and resume cannot both be set", ErrInvalidDesktopMediaAck)
 	}
+	if !validDesktopMediaQualityLevel(ack.QualityLevel) {
+		return fmt.Errorf("%w: unsupported quality level", ErrInvalidDesktopMediaAck)
+	}
 
 	return nil
 }
@@ -577,6 +580,15 @@ func mediaFrameCreditCost(frame DesktopMediaFrame) uint64 {
 
 func desktopMediaAckHasControlSignal(ack DesktopMediaAck) bool {
 	return ack.Pause || ack.Resume || ack.QualityLevel != "" || ack.CloseReason != ""
+}
+
+func validDesktopMediaQualityLevel(level string) bool {
+	switch level {
+	case "", DesktopMediaQualityAuto, DesktopMediaQualityLow:
+		return true
+	default:
+		return false
+	}
 }
 
 func reusableDesktopMediaHeader(header []byte) []byte {

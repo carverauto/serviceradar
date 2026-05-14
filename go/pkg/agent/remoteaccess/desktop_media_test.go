@@ -561,6 +561,23 @@ func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 	}
 }
 
+func TestValidateDesktopMediaAckRejectsUnsupportedQualityLevel(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateDesktopMediaAck(
+		DesktopMediaAck{
+			SessionBindingID: desktopMediaTestSessionID,
+			MediaSessionID:   desktopMediaTestMediaSessionID,
+			QualityLevel:     "ultra",
+		},
+		desktopMediaTestSessionID,
+		desktopMediaTestMediaSessionID,
+	)
+	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ValidateDesktopMediaAck error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
 func TestDesktopMediaAckJSONContractUsesBrowserFieldNames(t *testing.T) {
 	t.Parallel()
 
