@@ -24,6 +24,34 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 - Sync attaches Armis risk scores and device tags; combine them with SNMP status to prioritize outages.
 - Use the [Service Port Map](./service-port-map.md) to overlay Armis risk data on topology diagrams.
 
+## Query Labels
+
+Each configured Armis search query can have a label, such as `managed` or `unmanaged`. The agent stores that value on imported inventory devices as `metadata.query_label`, alongside `metadata.integration_type:armis`.
+
+Use SRQL metadata filters to find devices imported by a specific Armis query:
+
+```srql
+in:devices metadata.integration_type:armis metadata.query_label:managed
+```
+
+```srql
+in:devices metadata.integration_type:armis metadata.query_label:unmanaged
+```
+
+To list all Armis-imported devices:
+
+```srql
+in:devices metadata.integration_type:armis
+```
+
+If a label contains spaces, quote it:
+
+```srql
+in:devices metadata.integration_type:armis metadata.query_label:"managed devices"
+```
+
+If the same device matches multiple Armis queries, `metadata.query_label` reflects the latest sync update for that device. Keep query labels mutually exclusive when you need stable segmentation.
+
 ## Troubleshooting
 
 - Authentication failures usually mean expired client secrets—rotate them in the integration config and confirm the agent is online.
