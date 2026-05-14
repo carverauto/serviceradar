@@ -18,4 +18,20 @@ defmodule ServiceRadarWebNGWeb.FeatureFlagsTest do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
     assert FeatureFlags.god_view_enabled?()
   end
+
+  test "remote_access_ssh_enabled?/0 is false by default" do
+    original = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+    on_exit(fn -> Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, original) end)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+    refute FeatureFlags.remote_access_ssh_enabled?()
+  end
+
+  test "remote_access_ssh_enabled?/0 returns true when enabled" do
+    original = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+    on_exit(fn -> Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, original) end)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, true)
+    assert FeatureFlags.remote_access_ssh_enabled?()
+  end
 end

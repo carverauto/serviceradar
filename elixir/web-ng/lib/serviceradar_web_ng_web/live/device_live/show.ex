@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
+  alias ServiceRadarWebNGWeb.FeatureFlags
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
   alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -2982,7 +2983,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
-      |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope))
+      |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
@@ -9978,9 +9979,88 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
 
-  defp can_remote_access_device?(scope), do: RBAC.can?(scope, "devices.remote_access.ssh.open")
+  defp can_remote_access_device?(scope, device_row) do
+    FeatureFlags.remote_access_ssh_enabled?() and ssh_capable_device?(device_row) and
+      RBAC.can?(scope, "devices.remote_access.ssh.open")
+  end
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
+
+  defp ssh_capable_device?(nil), do: false
+
+  defp ssh_capable_device?(device_row) when is_map(device_row) do
+    values =
+      [
+        Map.get(device_row, "type"),
+        Map.get(device_row, "device_type"),
+        Map.get(device_row, "os_info"),
+        Map.get(device_row, "os"),
+        metadata_value(device_row, "operating_system"),
+        metadata_value(device_row, "os_name"),
+        metadata_value(device_row, "os_type"),
+        metadata_value(device_row, "sys_descr"),
+        metadata_value(device_row, "snmp_description")
+      ]
+      |> Enum.flat_map(&ssh_capability_strings/1)
+      |> Enum.map(&String.downcase/1)
+
+    cond do
+      Enum.any?(values, &String.contains?(&1, "windows")) ->
+        false
+
+      Enum.any?(values, &String.contains?(&1, "linux")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "unix")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "bsd")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "routeros")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "junos")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "ios xe")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "nx-os")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "proxmox")) ->
+        true
+
+      Enum.any?(values, &String.contains?(&1, "server")) ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp ssh_capable_device?(_device_row), do: false
+
+  defp ssh_capability_strings(nil), do: []
+  defp ssh_capability_strings(""), do: []
+  defp ssh_capability_strings(value) when is_binary(value), do: [value]
+
+  defp ssh_capability_strings(value) when is_map(value) do
+    string_values =
+      value
+      |> Map.take(["name", "type", "version", "kernel_release", "edition"])
+      |> Map.values()
+
+    atom_values =
+      value
+      |> Map.take([:name, :type, :version, :kernel_release, :edition])
+      |> Map.values()
+
+    Enum.flat_map(string_values ++ atom_values, &ssh_capability_strings/1)
+  end
+
+  defp ssh_capability_strings(value), do: [to_string(value)]
 
   defp ansible_managed?(%{ansible_managed: true}), do: true
   defp ansible_managed?(%{"ansible_managed" => true}), do: true

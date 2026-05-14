@@ -99,11 +99,10 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessSSHConsole"
       data-props={Jason.encode!(@props)}
     >
-      {react_component(%{
-        component: "RemoteAccessSSHConsole",
-        props: @props,
-        static: false
-      })}
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading SSH console...</span>
+      </div>
     </div>
     """
   end

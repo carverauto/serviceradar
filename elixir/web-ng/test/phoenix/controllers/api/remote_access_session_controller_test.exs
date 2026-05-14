@@ -23,6 +23,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_skip_verify =
       Application.get_env(:serviceradar_web_ng, :remote_access_ssh_host_key_skip_verify_enabled)
 
+    previous_remote_access_ssh_enabled =
+      Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+
     previous_target_host_override =
       Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled)
 
@@ -41,11 +44,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       self()
     )
 
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, true)
+
     on_exit(fn ->
       restore_env(:remote_access_session_manager, previous_manager)
       restore_env(:remote_access_session_manager_open_result, previous_open_result)
       restore_env(:remote_access_session_manager_close_result, previous_close_result)
       restore_env(:remote_access_session_manager_test_pid, previous_test_pid)
+      restore_env(:remote_access_ssh_enabled, previous_remote_access_ssh_enabled)
       restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
       restore_env(:remote_access_target_host_override_enabled, previous_target_host_override)
       restore_env(:remote_access_target_port_override_enabled, previous_target_port_override)
@@ -60,6 +66,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   end
 
   describe "POST /api/remote-access/sessions" do
+    test "returns not found when SSH remote access is disabled", %{conn: conn} do
+      Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "not_found"
+      assert body["message"] =~ "not enabled"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
     test "creates a generic SSH session ticket without credential material in the response", %{conn: conn} do
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{

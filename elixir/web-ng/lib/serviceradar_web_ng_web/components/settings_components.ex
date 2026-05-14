@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
@@ -118,8 +119,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     RBAC.can?(current_scope, "settings.networks.manage") or
       RBAC.can?(current_scope, "settings.snmp_profiles.manage") or
       RBAC.can?(current_scope, "settings.credentials.manage") or
-      RBAC.can?(current_scope, "settings.remote_access_host_keys.manage") or
-      RBAC.can?(current_scope, "devices.remote_access.ssh.open")
+      (FeatureFlags.remote_access_ssh_enabled?() and
+         (RBAC.can?(current_scope, "settings.remote_access_host_keys.manage") or
+            RBAC.can?(current_scope, "devices.remote_access.ssh.open")))
   end
 
   defp can_networks_tab?(current_scope) do
@@ -368,12 +370,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           %{
             label: "Host Keys",
             navigate: ~p"/settings/networks/host-keys",
-            active: String.starts_with?(path, "/settings/networks/host-keys")
+            active: String.starts_with?(path, "/settings/networks/host-keys"),
+            requires_remote_access_ssh?: true
           },
           %{
             label: "Recordings",
             navigate: ~p"/settings/networks/recordings",
-            active: String.starts_with?(path, "/settings/networks/recordings")
+            active: String.starts_with?(path, "/settings/networks/recordings"),
+            requires_remote_access_ssh?: true
           },
           %{
             label: "SNMP",
@@ -385,7 +389,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         []
       end
 
-    Enum.filter(tabs, &show_discovery_tab?(&1.label, current_scope))
+    Enum.filter(tabs, &show_discovery_tab?(&1, current_scope))
   end
 
   defp network_active?(path) do
@@ -432,6 +436,13 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
     RBAC.can?(scope, permission)
   end
+
+  defp show_discovery_tab?(%{requires_remote_access_ssh?: true} = tab, scope) do
+    FeatureFlags.remote_access_ssh_enabled?() and
+      show_discovery_tab?(Map.delete(tab, :requires_remote_access_ssh?), scope)
+  end
+
+  defp show_discovery_tab?(%{label: label}, scope), do: show_discovery_tab?(label, scope)
 
   defp show_discovery_tab?(_label, nil), do: true
 
