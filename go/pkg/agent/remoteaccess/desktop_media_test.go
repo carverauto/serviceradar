@@ -543,6 +543,42 @@ func TestDesktopMediaCreditWindowRejectsDuplicateCreditAtCurrentSequence(t *test
 	}
 }
 
+func TestDesktopMediaCreditWindowStopsMediaAfterCloseAck(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(16, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	frame := DesktopMediaFrame{Payload: []byte{1}}
+	if !window.CanSend(frame) {
+		t.Fatalf("CanSend returned false before close")
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  8,
+		CloseReason:      "viewer closed",
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck close returned error: %v", err)
+	}
+	if window.CloseReason() != "viewer closed" {
+		t.Fatalf("CloseReason = %q, want viewer closed", window.CloseReason())
+	}
+	if window.CanSend(frame) {
+		t.Fatalf("CanSend returned true after close ack")
+	}
+	if err := window.Consume(frame); !errors.Is(err, ErrDesktopMediaNoCredit) {
+		t.Fatalf("Consume after close error = %v, want %v", err, ErrDesktopMediaNoCredit)
+	}
+	if !window.CanSend(DesktopMediaFrame{Flags: DesktopMediaFlagEndOfStream}) {
+		t.Fatalf("CanSend returned false for EOF after close")
+	}
+}
+
 func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 	t.Parallel()
 

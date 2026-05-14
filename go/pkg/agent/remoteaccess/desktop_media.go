@@ -183,6 +183,9 @@ func (w DesktopMediaCreditWindow) CanSend(frame DesktopMediaFrame) bool {
 	if w.paused {
 		return false
 	}
+	if w.closeReason != "" {
+		return false
+	}
 
 	return mediaFrameCreditCost(frame) <= w.remainingBytes &&
 		uint64(len(frame.Payload)) <= uint64(w.maxChunkBytes)
@@ -193,6 +196,9 @@ func (w *DesktopMediaCreditWindow) Consume(frame DesktopMediaFrame) error {
 		return nil
 	}
 	if w.paused {
+		return ErrDesktopMediaNoCredit
+	}
+	if w.closeReason != "" {
 		return ErrDesktopMediaNoCredit
 	}
 
