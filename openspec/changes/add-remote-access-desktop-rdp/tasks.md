@@ -22,6 +22,7 @@
 - [x] 2.3.5 Add adapter-facing desktop frame-rate and bitrate quota enforcement for update frames.
 - [x] 2.3.6 Add adapter-facing desktop idle timeout and session TTL enforcement.
 - [x] 2.3.7 Bound desktop quality-control requests to the per-session screen policy.
+- [x] 2.3.8 Bind desktop content-recording checks to the adapter-facing session guard target policy.
 - [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
 - [x] 2.4.1 Add safe agent-side desktop audit metadata for route, target, TLS, credential mode, policy, redirection, recording, and grant binding posture.
 - [x] 2.4.2 Add safe desktop frame audit metadata for frame statistics and redirection decisions without retaining frame payload contents.
@@ -89,6 +90,7 @@
 - [x] 5.1.8 Add focused Go tests proving desktop frame audit metadata omits payload contents and input tokens.
 - [x] 5.1.9 Add focused Go tests proving desktop termination audit reasons are capped and sanitized.
 - [x] 5.1.10 Add focused Go tests proving desktop screen and clipboard content recording is denied by default.
+- [x] 5.1.11 Add focused Go tests proving session guard content-recording checks use the target policy snapshot.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

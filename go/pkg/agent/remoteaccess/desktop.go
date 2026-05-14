@@ -328,6 +328,21 @@ func (g *DesktopSessionGuard) ValidateFrame(
 	return nil
 }
 
+// ValidateContentRecording checks whether retaining the sensitive content from
+// an already accepted frame is allowed by this session's recording policy.
+// Metadata-only audit paths do not need this check; screen pixels and clipboard
+// bytes must pass it before being persisted or exported.
+func (g *DesktopSessionGuard) ValidateContentRecording(frame DesktopFrame) error {
+	if g == nil {
+		return fmt.Errorf("%w: missing session guard", ErrInvalidDesktopFrame)
+	}
+	if frame.SessionID != g.sessionID {
+		return fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopFrame)
+	}
+
+	return ValidateDesktopContentRecording(frame, g.target.Recording)
+}
+
 // Consume applies frame-rate and bitrate quotas to desktop update frames.
 // Non-screen frames are ignored here and still use their normal validators.
 func (w *DesktopFrameQuotaWindow) Consume(frame DesktopFrame, nowUnixNano int64) error {

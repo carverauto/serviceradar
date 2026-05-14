@@ -387,6 +387,68 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 	}
 }
 
+func TestDesktopSessionGuardBindsContentRecordingToTargetPolicy(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	guard, err := NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+
+	update := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeUpdate,
+		Data:      []byte("screen"),
+	}
+	clipboard := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeClipboard,
+		Data:      []byte("clipboard"),
+	}
+	input := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input:     &DesktopInputEvent{Kind: DesktopInputKindFocus},
+	}
+
+	if err := guard.ValidateContentRecording(update); !errors.Is(err, ErrDesktopContentRecord) {
+		t.Fatalf("default screen recording error = %v, want %v", err, ErrDesktopContentRecord)
+	}
+	if err := guard.ValidateContentRecording(clipboard); !errors.Is(err, ErrDesktopContentRecord) {
+		t.Fatalf("default clipboard recording error = %v, want %v", err, ErrDesktopContentRecord)
+	}
+	if err := guard.ValidateContentRecording(input); err != nil {
+		t.Fatalf("metadata-only frame recording returned error: %v", err)
+	}
+
+	target.Recording.ScreenEnabled = true
+	target.Recording.ClipboardEnabled = true
+	guard, err = NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	if err := guard.ValidateContentRecording(update); err != nil {
+		t.Fatalf("screen recording with policy returned error: %v", err)
+	}
+	if err := guard.ValidateContentRecording(clipboard); err != nil {
+		t.Fatalf("clipboard recording with policy returned error: %v", err)
+	}
+
+	update.SessionID = "other-session"
+	if err := guard.ValidateContentRecording(update); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("session mismatch recording error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+
+	var nilGuard *DesktopSessionGuard
+	if err := nilGuard.ValidateContentRecording(input); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("nil guard recording error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	t.Parallel()
 
