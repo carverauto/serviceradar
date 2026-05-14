@@ -157,6 +157,14 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
+  @spec list_blobs(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_blobs(prefix \\ "plugins/") do
+    case backend() do
+      :filesystem -> list_blobs_filesystem(prefix)
+      :jetstream -> list_blobs_jetstream(prefix)
+    end
+  end
+
   @spec sha256(binary()) :: String.t()
   def sha256(payload) do
     :sha256
@@ -334,6 +342,40 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
+  defp list_blobs_filesystem(prefix) do
+    with {:ok, root} <- safe_path(prefix) do
+      if File.dir?(root) do
+        root
+        |> Path.join("**/*")
+        |> Path.wildcard()
+        |> Enum.filter(&File.regular?/1)
+        |> Enum.map(&filesystem_blob_info/1)
+        |> then(&{:ok, &1})
+      else
+        {:ok, []}
+      end
+    end
+  end
+
+  defp filesystem_blob_info(path) do
+    base = Path.expand(base_path())
+    relative = path |> Path.expand() |> Path.relative_to(base)
+    stat = File.stat!(path)
+
+    %{
+      key: relative,
+      size: stat.size,
+      modified_at_unix: file_time_to_unix(stat.mtime)
+    }
+  end
+
+  defp file_time_to_unix(datetime) do
+    datetime_seconds = :calendar.datetime_to_gregorian_seconds(datetime)
+    epoch_seconds = :calendar.datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}})
+    datetime_seconds - epoch_seconds
+  end
+
   defp put_blob_jetstream(object_key, payload) do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
@@ -384,6 +426,26 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       {:error, %{"code" => 404}} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp list_blobs_jetstream(prefix) do
+    fn conn ->
+      with {:ok, _} <- ensure_bucket(conn),
+           {:ok, metas} <- Object.list(conn, bucket_name()) do
+        metas
+        |> Enum.filter(fn meta -> String.starts_with?(meta.name, prefix) end)
+        |> Enum.map(fn meta ->
+          %{
+            key: meta.name,
+            size: meta.size,
+            chunks: meta.chunks,
+            digest: meta.digest
+          }
+        end)
+        |> then(&{:ok, &1})
+      end
+    end
+    |> with_jetstream()
   end
 
   defp blob_exists_filesystem(object_key) do

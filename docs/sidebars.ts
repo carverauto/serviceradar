@@ -55,6 +55,7 @@ const sidebars: SidebarsConfig = {
       label: 'Operations',
       items: [
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
+        {type: 'doc', id: 'object-store-retention', label: 'Object Store Retention'},
         {type: 'doc', id: 'troubleshooting-guide', label: 'Troubleshooting'},
       ],
     },

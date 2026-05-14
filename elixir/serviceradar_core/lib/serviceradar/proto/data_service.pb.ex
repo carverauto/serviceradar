@@ -105,6 +105,26 @@ defmodule Proto.GetObjectInfoResponse do
   field :found, 2, type: :bool
 end
 
+defmodule Proto.ListObjectsRequest do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :prefix, 1, type: :string
+  field :domain, 2, type: :string
+  field :page_size, 3, type: :uint32, json_name: "pageSize"
+  field :page_token, 4, type: :string, json_name: "pageToken"
+end
+
+defmodule Proto.ListObjectsResponse do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :objects, 1, repeated: true, type: Proto.ObjectInfo
+  field :next_page_token, 2, type: :string, json_name: "nextPageToken"
+end
+
 defmodule Proto.DataService.Service do
   @moduledoc false
 
@@ -117,6 +137,8 @@ defmodule Proto.DataService.Service do
   rpc(:DeleteObject, Proto.DeleteObjectRequest, Proto.DeleteObjectResponse)
 
   rpc(:GetObjectInfo, Proto.GetObjectInfoRequest, Proto.GetObjectInfoResponse)
+
+  rpc(:ListObjects, Proto.ListObjectsRequest, Proto.ListObjectsResponse)
 end
 
 defmodule Proto.DataService.Stub do
