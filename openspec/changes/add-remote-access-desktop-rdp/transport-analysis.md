@@ -69,18 +69,23 @@ Recommended browser path:
 
 ```text
 web-ng desktop media endpoint
-  -> binary websocket or future WebRTC/QUIC media endpoint
+  -> WebRTC signaling and media session
   -> browser worker / WASM helper
-  -> WebCodecs or WebGPU renderer
+  -> WebRTC video track or WebGPU renderer
 ```
 
-Reuse the camera relay browser transport ideas:
+Reuse the camera relay WebRTC transport ideas:
 
-- binary media frames with small headers and large payload bytes
-- capability negotiation for WebCodecs, WebGPU, Canvas2D, and fallback paths
+- web-ng/core-elx signaling endpoints and relay-scoped viewer sessions
+- WebRTC media tracks for encoded video payloads
+- WebRTC DataChannel for dirty rectangles, tiles, cursor updates, quality/backpressure, and low-latency input/control frames
+- binary media frames with small headers and large payload bytes when using DataChannel payloads
+- capability negotiation for RTCPeerConnection, DataChannel, WebGPU, WebCodecs, and Canvas2D harnesses
 - decoder/render queue limits
 - frame dropping or dirty-region coalescing when the browser falls behind
 - visible status for target identity, recording, redirection, and stream quality
+
+Do not implement a browser binary WebSocket media fallback for desktop screen payloads. WebSockets are acceptable for signaling/status/control paths that already exist in web-ng, but a second browser media transport would duplicate backpressure, recording, policy, and test obligations.
 
 Reuse the topology/God View data-plane ideas only where the data shape matches:
 
@@ -91,8 +96,8 @@ Reuse the topology/God View data-plane ideas only where the data shape matches:
 
 The renderer should support two payload families:
 
-- `video`: browser-decodable encoded frames, preferably WebCodecs first and Media Source Extensions as fallback.
-- `regions`: dirty rectangles or tile updates, preferably uploaded to WebGPU textures with Canvas2D fallback.
+- `video`: browser-decodable encoded frames, preferably as a WebRTC media track.
+- `regions`: dirty rectangles or tile updates over WebRTC DataChannel, preferably uploaded to WebGPU textures.
 
 ## Devolutions Gateway Findings
 The local Devolutions Gateway checkout is useful architecture reference for this RDP slice. Treat it as design input only until a separate exact-file license and dependency review approves any import.
@@ -167,7 +172,7 @@ Automatic deployment from core/web-ng should still deploy one agent artifact ver
 
 ## Open Questions Before Implementation
 - Whether to create a new `desktop_media.proto` service or extend the existing camera media service with a generic media session shape.
-- Whether the first browser media endpoint is a dedicated websocket or a WebRTC/QUIC-style endpoint.
+- Whether the first WebRTC implementation should carry encoded video as a media track, region/tile frames over DataChannel, or both.
 - Whether the first production renderer prioritizes encoded video frames or dirty rectangle/tile updates.
 - How much frame data, if any, may be retained for recording when screen recording is enabled.
 - Which controlled RDP target to use in CI: xrdp, a fixture server, or a Windows test host.

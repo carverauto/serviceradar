@@ -18,6 +18,8 @@ export const DESKTOP_RENDERER_WEBCODECS_VIDEO = "webcodecs_video"
 export const DESKTOP_RENDERER_WEBGPU_REGIONS = "webgpu_regions"
 export const DESKTOP_RENDERER_CANVAS_REGIONS = "canvas_regions"
 
+export const DESKTOP_TRANSPORT_WEBRTC = "webrtc_desktop_media"
+
 const PAYLOAD_FAMILY_TO_ID = {
   [DESKTOP_PAYLOAD_VIDEO]: 1,
   [DESKTOP_PAYLOAD_DIRTY_RECT]: 2,
@@ -231,6 +233,18 @@ export function detectDesktopRendererCapabilities(browser = globalThis) {
   const target = browser || {}
   const nav = target.navigator || globalThis.navigator || {}
   const canvas = target.HTMLCanvasElement?.prototype || globalThis.HTMLCanvasElement?.prototype
+  const peerConnection =
+    target.RTCPeerConnection ||
+    (typeof globalThis !== "undefined" ? globalThis.RTCPeerConnection : undefined)
+  let rtcDataChannel = false
+
+  if (typeof peerConnection === "function") {
+    try {
+      rtcDataChannel = typeof peerConnection.prototype?.createDataChannel === "function"
+    } catch (_error) {
+      rtcDataChannel = false
+    }
+  }
 
   return {
     webcodecs:
@@ -238,6 +252,62 @@ export function detectDesktopRendererCapabilities(browser = globalThis) {
       (typeof globalThis !== "undefined" && typeof globalThis.VideoDecoder === "function"),
     webgpu: Boolean(nav.gpu),
     canvas2d: typeof canvas?.getContext === "function",
+    rtc_peer_connection: typeof peerConnection === "function",
+    rtc_data_channel: rtcDataChannel,
+  }
+}
+
+function normalizeTransportList(value) {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((transport) => (typeof transport === "string" ? transport.trim() : ""))
+    .filter((transport) => transport.length > 0)
+}
+
+function transportSupported(transport, capabilities) {
+  switch (transport) {
+    case DESKTOP_TRANSPORT_WEBRTC:
+      return capabilities.rtc_peer_connection === true && capabilities.rtc_data_channel === true
+
+    default:
+      return false
+  }
+}
+
+export function selectDesktopMediaTransport(
+  metadata = {},
+  capabilities = detectDesktopRendererCapabilities()
+) {
+  const available = normalizeTransportList(metadata.availableTransports || metadata.available_transports)
+  const preferred =
+    typeof metadata.preferredTransport === "string"
+      ? metadata.preferredTransport
+      : typeof metadata.preferred_transport === "string"
+        ? metadata.preferred_transport
+        : null
+  const defaults = [DESKTOP_TRANSPORT_WEBRTC]
+  const candidates =
+    available.length > 0
+      ? [preferred, ...available.filter((transport) => transport !== preferred)].filter(Boolean)
+      : [preferred, ...defaults.filter((transport) => transport !== preferred)].filter(Boolean)
+
+  for (const transport of candidates) {
+    if (transportSupported(transport, capabilities)) {
+      return {
+        supported: true,
+        selectedTransport: transport,
+        preferredTransport: preferred || DESKTOP_TRANSPORT_WEBRTC,
+        availableTransports: available.length > 0 ? available : defaults,
+      }
+    }
+  }
+
+  return {
+    supported: false,
+    selectedTransport: null,
+    preferredTransport: preferred || DESKTOP_TRANSPORT_WEBRTC,
+    availableTransports: available.length > 0 ? available : defaults,
   }
 }
 

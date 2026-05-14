@@ -27,7 +27,7 @@ Screen update payloads are media, not terminal bytes. They need a dedicated stre
 The dedicated stream should follow the same deployment shape as the existing camera media relay path: agent gRPC to agent-gateway, gateway session tracking/admission, ERTS RPC forwarding into core-elx/web-ng, and browser delivery from the control plane. The schema should be desktop-specific, or a carefully generalized media relay schema, because camera source/profile fields do not map cleanly to RDP sessions.
 
 ## Browser Media Frame Envelope
-Production browser screen payloads should use a binary envelope, not JSON and not Arrow IPC for the pixel stream. The envelope should be compact enough for high-frequency delivery and stable enough for WebSocket, WebRTC, or future QUIC delivery.
+Production browser screen payloads should use WebRTC, not a parallel binary WebSocket media transport. DataChannel payloads use a compact binary envelope, not JSON and not Arrow IPC for the pixel stream. Encoded video payloads may use a WebRTC media track when the adapter can produce a browser-decodable stream.
 
 Minimum browser media envelope fields:
 
@@ -46,8 +46,8 @@ Minimum browser media envelope fields:
 
 Renderer expectations:
 
-- Encoded video payloads should prefer WebCodecs and use Media Source Extensions only as a fallback.
-- Dirty rectangle or tile payloads should prefer WebGPU texture updates and use Canvas2D as an early compatibility fallback.
+- Encoded video payloads should prefer a WebRTC media track; WebCodecs remains useful for harnesses or non-track decoded frame paths.
+- Dirty rectangle or tile payloads should ride WebRTC DataChannel and prefer WebGPU texture updates. Canvas2D is an early local harness path, not the production media strategy.
 - Browser workers or WASM helpers may parse envelopes, maintain dirty-region state, compute tile masks, and prepare GPU upload descriptors.
 - Roaring bitmaps may represent dirty tile masks when a fixed tile grid is used.
 - Apache Arrow IPC may carry structured metadata, frame statistics, audit overlays, or optional frame manifests. It must not be the default screen-pixel transport.

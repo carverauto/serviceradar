@@ -8,10 +8,12 @@ import {
   DESKTOP_RENDERER_CANVAS_REGIONS,
   DESKTOP_RENDERER_WEBCODECS_VIDEO,
   DESKTOP_RENDERER_WEBGPU_REGIONS,
+  DESKTOP_TRANSPORT_WEBRTC,
   detectDesktopRendererCapabilities,
   encodeDesktopMediaFrame,
   parseDesktopMediaFrame,
   parseDesktopMediaMetadata,
+  selectDesktopMediaTransport,
   selectDesktopRendererMode,
   shouldDropStaleDesktopFrame,
 } from "./media_frame"
@@ -126,10 +128,13 @@ describe("remote desktop media frame envelope", () => {
   it("detects desktop renderer capabilities from browser-like globals", () => {
     function Canvas() {}
     Canvas.prototype.getContext = () => ({})
+    function PeerConnection() {}
+    PeerConnection.prototype.createDataChannel = () => ({})
 
     expect(
       detectDesktopRendererCapabilities({
         VideoDecoder: function VideoDecoder() {},
+        RTCPeerConnection: PeerConnection,
         HTMLCanvasElement: Canvas,
         navigator: {gpu: {}},
       })
@@ -137,7 +142,40 @@ describe("remote desktop media frame envelope", () => {
       webcodecs: true,
       webgpu: true,
       canvas2d: true,
+      rtc_peer_connection: true,
+      rtc_data_channel: true,
     })
+  })
+
+  it("selects WebRTC transport when peer connection and data channel are available", () => {
+    const selection = selectDesktopMediaTransport(
+      {
+        available_transports: [DESKTOP_TRANSPORT_WEBRTC],
+      },
+      {
+        rtc_peer_connection: true,
+        rtc_data_channel: true,
+      }
+    )
+
+    expect(selection.supported).toBe(true)
+    expect(selection.selectedTransport).toBe(DESKTOP_TRANSPORT_WEBRTC)
+  })
+
+  it("rejects desktop media transport when WebRTC data channel support is unavailable", () => {
+    const selection = selectDesktopMediaTransport(
+      {
+        preferred_transport: DESKTOP_TRANSPORT_WEBRTC,
+        available_transports: [DESKTOP_TRANSPORT_WEBRTC],
+      },
+      {
+        rtc_peer_connection: true,
+        rtc_data_channel: false,
+      }
+    )
+
+    expect(selection.supported).toBe(false)
+    expect(selection.selectedTransport).toBeNull()
   })
 
   it("drops only stale non-critical frames when browser queues are saturated", () => {

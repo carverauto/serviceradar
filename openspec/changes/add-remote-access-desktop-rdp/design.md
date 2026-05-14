@@ -80,7 +80,7 @@ Golden path:
 
 ```text
 web-ng desktop session endpoint
-  -> browser desktop websocket or media endpoint
+  -> WebRTC desktop media session
   -> binary desktop media frame envelope
   -> browser worker / WASM helper for parsing, region state, and backpressure
   -> WebCodecs video surface or WebGPU dirty-region renderer
@@ -88,17 +88,20 @@ web-ng desktop session endpoint
 
 Use the camera relay browser path as the closest transport precedent:
 
-- binary websocket frames or a future WebRTC/QUIC media endpoint for screen payloads
+- WebRTC signaling and peer lifecycle through web-ng/core-elx, modeled after the camera relay WebRTC path
+- WebRTC media tracks for encoded video payloads when the adapter can produce a browser-decodable stream
+- WebRTC DataChannel for dirty rectangles, tiles, cursor updates, browser backpressure, quality control, and low-latency input/control frames
 - small fixed binary headers before large payload bytes
 - browser capability negotiation
 - decoder queue/backpressure checks
 - stale-frame drop/coalescing rather than unbounded buffering
-- fallback rendering paths when the preferred browser API is unavailable
+
+Do not add a browser binary WebSocket media fallback for desktop screen payloads. A second browser media transport creates avoidable policy, recording, backpressure, and test surface. WebSockets may still be used for WebRTC signaling, status snapshots, or non-media control where the existing web-ng patterns already use them.
 
 The first renderer should support two payload families:
 
-- Encoded video frames for paths where the adapter can produce H264, AV1, VP9, or another browser-decodable codec. Prefer WebCodecs with low-latency configuration and use Media Source Extensions only as a fallback.
-- Dirty rectangle or tile updates for administrative desktop workloads where changed regions are small. Prefer WebGPU texture updates when available, with a Canvas2D fallback for early compatibility.
+- Encoded video frames for paths where the adapter can produce H264, AV1, VP9, or another browser-decodable codec. Prefer WebRTC media tracks into a browser video surface; use WebCodecs only for non-track decoded frame paths.
+- Dirty rectangle or tile updates for administrative desktop workloads where changed regions are small. Carry these over WebRTC DataChannel and prefer WebGPU texture updates when available, with Canvas2D reserved for early local harnesses only.
 
 Use the God View/topology zero-copy pattern selectively:
 
@@ -188,7 +191,7 @@ Frame chunks should carry:
 - keyframe/full-frame marker when applicable
 - byte count and timestamp
 
-Browser media frames should use a compact binary envelope rather than JSON or Arrow IPC for screen payloads. The envelope should identify payload family (`video`, `dirty_rect`, `tile`, `cursor`, or `metadata`), codec/encoding, display dimensions, dirty region or tile metadata, sequence, keyframe/full-frame state, and timestamps. Payload bytes remain separate from the structured header so browser workers can transfer buffers without unnecessary copies.
+Browser media frames should use a compact binary envelope rather than JSON or Arrow IPC for screen payloads. The envelope should identify payload family (`video`, `dirty_rect`, `tile`, `cursor`, or `metadata`), codec/encoding, display dimensions, dirty region or tile metadata, sequence, keyframe/full-frame state, and timestamps. Payload bytes remain separate from the structured header so WebRTC DataChannel/browser workers can transfer buffers without unnecessary copies.
 
 Acknowledgements should carry:
 
