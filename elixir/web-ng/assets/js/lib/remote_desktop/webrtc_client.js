@@ -75,6 +75,7 @@ export class RemoteDesktopWebRTCClient {
     this.channels = new Map()
     this.closed = false
     this.pendingMediaAck = null
+    this.pendingMediaAckQueue = null
     this.mediaAckTimer = null
   }
 
@@ -156,6 +157,7 @@ export class RemoteDesktopWebRTCClient {
 
     this.clearMediaAckTimer()
     this.pendingMediaAck = null
+    this.pendingMediaAckQueue = null
     this.channels.clear()
     this.peerConnection?.close?.()
     this.peerConnection = null
@@ -243,28 +245,22 @@ export class RemoteDesktopWebRTCClient {
   queueMediaAck(frame) {
     const creditBytes = desktopMediaFrameCreditBytes(frame)
 
-    if (
-      this.pendingMediaAck &&
-      (this.pendingMediaAck.session_binding_id !== frame.sessionBindingId ||
-        this.pendingMediaAck.media_session_id !== frame.mediaSessionId)
-    ) {
-      this.flushPendingMediaAck()
-    }
+    if (this.pendingMediaAck && !mediaAckBindingMatches(this.pendingMediaAck, frame)) {
+      if (channelReady(this.channels.get(DESKTOP_CONTROL_CHANNEL))) {
+        this.flushPendingMediaAck()
+      }
 
-    if (!this.pendingMediaAck) {
-      this.pendingMediaAck = {
-        type: DESKTOP_MEDIA_ACK_MESSAGE,
-        session_binding_id: frame.sessionBindingId,
-        media_session_id: frame.mediaSessionId,
-        last_accepted_seq: frame.sequence,
-        credit_bytes: 0,
-        frame_count: 0,
+      if (this.pendingMediaAck && !mediaAckBindingMatches(this.pendingMediaAck, frame)) {
+        this.queueBlockedMediaAck(this.pendingMediaAck)
+        this.pendingMediaAck = null
       }
     }
 
-    this.pendingMediaAck.last_accepted_seq = frame.sequence
-    this.pendingMediaAck.credit_bytes += creditBytes
-    this.pendingMediaAck.frame_count += 1
+    if (!this.pendingMediaAck) {
+      this.pendingMediaAck = newPendingMediaAck(frame)
+    }
+
+    appendMediaAck(this.pendingMediaAck, frame, creditBytes)
 
     if (frame.endOfStream) {
       this.pendingMediaAck.close_reason = "desktop media end of stream"
@@ -283,21 +279,36 @@ export class RemoteDesktopWebRTCClient {
   }
 
   flushPendingMediaAck() {
-    if (!this.pendingMediaAck) {
+    if (!this.pendingMediaAck && !this.pendingMediaAckQueue) {
       return false
     }
 
-    this.clearMediaAckTimer()
-    const {frame_count: _frameCount, ...ack} = this.pendingMediaAck
+    const channel = this.channels.get(DESKTOP_CONTROL_CHANNEL)
 
-    if (!this.sendControl(ack)) {
+    if (!channelReady(channel)) {
       this.scheduleMediaAckFlush()
       return false
     }
 
-    this.pendingMediaAck = null
-    this.onAck(ack)
-    return true
+    this.clearMediaAckTimer()
+    let sent = false
+
+    if (this.pendingMediaAckQueue) {
+      for (const pendingAck of this.pendingMediaAckQueue) {
+        this.sendPendingMediaAck(channel, pendingAck)
+        sent = true
+      }
+
+      this.pendingMediaAckQueue = null
+    }
+
+    if (this.pendingMediaAck) {
+      this.sendPendingMediaAck(channel, this.pendingMediaAck)
+      this.pendingMediaAck = null
+      sent = true
+    }
+
+    return sent
   }
 
   sendMediaAck(frame) {
@@ -336,6 +347,20 @@ export class RemoteDesktopWebRTCClient {
     }, this.mediaAckMaxDelayMs)
   }
 
+  queueBlockedMediaAck(pendingAck) {
+    if (this.pendingMediaAckQueue) {
+      this.pendingMediaAckQueue.push(pendingAck)
+    } else {
+      this.pendingMediaAckQueue = [pendingAck]
+    }
+  }
+
+  sendPendingMediaAck(channel, pendingAck) {
+    const ack = mediaAckPayload(pendingAck)
+    channel.send(JSON.stringify(ack))
+    this.onAck(ack)
+  }
+
   clearMediaAckTimer() {
     if (!this.mediaAckTimer) {
       return
@@ -356,6 +381,45 @@ export class RemoteDesktopWebRTCClient {
 
 function desktopMediaFrameCreditBytes(frame) {
   return byteLength(frame?.metadata) + byteLength(frame?.payload)
+}
+
+function newPendingMediaAck(frame) {
+  return {
+    type: DESKTOP_MEDIA_ACK_MESSAGE,
+    session_binding_id: frame.sessionBindingId,
+    media_session_id: frame.mediaSessionId,
+    last_accepted_seq: frame.sequence,
+    credit_bytes: 0,
+    frame_count: 0,
+  }
+}
+
+function mediaAckBindingMatches(ack, frame) {
+  return (
+    ack.session_binding_id === frame.sessionBindingId && ack.media_session_id === frame.mediaSessionId
+  )
+}
+
+function appendMediaAck(ack, frame, creditBytes) {
+  ack.last_accepted_seq = frame.sequence
+  ack.credit_bytes += creditBytes
+  ack.frame_count += 1
+}
+
+function mediaAckPayload(ack) {
+  const payload = {
+    type: ack.type,
+    session_binding_id: ack.session_binding_id,
+    media_session_id: ack.media_session_id,
+    last_accepted_seq: ack.last_accepted_seq,
+    credit_bytes: ack.credit_bytes,
+  }
+
+  if (ack.close_reason) {
+    payload.close_reason = ack.close_reason
+  }
+
+  return payload
 }
 
 function byteLength(value) {

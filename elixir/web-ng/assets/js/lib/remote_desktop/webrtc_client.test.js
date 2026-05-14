@@ -326,6 +326,88 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(onAck).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps pending media acknowledgements bound to their media session", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-bindings",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onAck = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-bindings/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckCreditBytes: 65_536,
+      mediaAckFrameInterval: 10,
+      onAck,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-a",
+        mediaSessionId: "media-a",
+        sequence: 1,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-b",
+        mediaSessionId: "media-b",
+        sequence: 2,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([4, 5, 6, 7]),
+      })
+    )
+
+    expect(controlChannel.sent).toHaveLength(0)
+
+    controlChannel.open()
+
+    expect(controlChannel.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-a",
+        media_session_id: "media-a",
+        last_accepted_seq: 1,
+        credit_bytes: 3,
+      },
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-b",
+        media_session_id: "media-b",
+        last_accepted_seq: 2,
+        credit_bytes: 4,
+      },
+    ])
+    expect(onAck).toHaveBeenCalledTimes(2)
+    expect(onAck.mock.calls.map(([ack]) => ack)).toEqual(
+      controlChannel.sent.map((message) => JSON.parse(message))
+    )
+  })
+
   it("drops stale non-critical media frames before metadata parsing", async () => {
     const fetchMock = vi
       .fn()
