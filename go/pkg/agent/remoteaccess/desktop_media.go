@@ -42,6 +42,8 @@ const (
 	DesktopMediaPayloadCursor    = "cursor"
 	DesktopMediaPayloadMetadata  = "metadata"
 	DesktopMediaControlTypeAck   = "desktop_media_ack"
+	DesktopMediaQualityAuto      = "auto"
+	DesktopMediaQualityLow       = "low"
 
 	DesktopMediaDefaultInitialCreditBytes = 4 * 1024 * 1024
 	DesktopMediaDefaultMaxChunkBytes      = 256 * 1024
@@ -118,6 +120,9 @@ type DesktopMediaCreditWindow struct {
 	maxAckCredit    uint64
 	lastAcceptedSeq uint64
 	acceptedSeqSet  bool
+	paused          bool
+	qualityLevel    string
+	closeReason     string
 }
 
 func NewDesktopMediaCreditWindow(initialCreditBytes uint64, maxChunkBytes uint32) (DesktopMediaCreditWindow, error) {
@@ -158,9 +163,25 @@ func (w DesktopMediaCreditWindow) LastAcceptedSeq() (uint64, bool) {
 	return w.lastAcceptedSeq, w.acceptedSeqSet
 }
 
+func (w DesktopMediaCreditWindow) Paused() bool {
+	return w.paused
+}
+
+func (w DesktopMediaCreditWindow) QualityLevel() string {
+	return w.qualityLevel
+}
+
+func (w DesktopMediaCreditWindow) CloseReason() string {
+	return w.closeReason
+}
+
 func (w DesktopMediaCreditWindow) CanSend(frame DesktopMediaFrame) bool {
 	if frame.Flags&DesktopMediaFlagEndOfStream != 0 {
 		return true
+	}
+
+	if w.paused {
+		return false
 	}
 
 	return mediaFrameCreditCost(frame) <= w.remainingBytes &&
@@ -170,6 +191,9 @@ func (w DesktopMediaCreditWindow) CanSend(frame DesktopMediaFrame) bool {
 func (w *DesktopMediaCreditWindow) Consume(frame DesktopMediaFrame) error {
 	if frame.Flags&DesktopMediaFlagEndOfStream != 0 {
 		return nil
+	}
+	if w.paused {
+		return ErrDesktopMediaNoCredit
 	}
 
 	if uint64(len(frame.Payload)) > uint64(w.maxChunkBytes) {
@@ -199,15 +223,43 @@ func (w *DesktopMediaCreditWindow) ApplyAck(ack DesktopMediaAck, sessionBindingI
 	if err := ValidateDesktopMediaAck(ack, sessionBindingID, mediaSessionID); err != nil {
 		return err
 	}
-	if w.acceptedSeqSet && ack.LastAcceptedSeq <= w.lastAcceptedSeq {
+	if w.acceptedSeqSet && ack.LastAcceptedSeq < w.lastAcceptedSeq {
 		return fmt.Errorf("%w: stale ack sequence", ErrInvalidDesktopMediaAck)
 	}
+	if w.acceptedSeqSet && ack.LastAcceptedSeq == w.lastAcceptedSeq {
+		if ack.CreditBytes != 0 || !desktopMediaAckHasControlSignal(ack) {
+			return fmt.Errorf("%w: stale ack sequence", ErrInvalidDesktopMediaAck)
+		}
 
-	w.Adjust(min(ack.CreditBytes, w.MaxAckCreditBytes()))
+		w.applyAckControl(ack)
+
+		return nil
+	}
+
+	if ack.CreditBytes != 0 {
+		w.Adjust(min(ack.CreditBytes, w.MaxAckCreditBytes()))
+	}
 	w.lastAcceptedSeq = ack.LastAcceptedSeq
 	w.acceptedSeqSet = true
+	w.applyAckControl(ack)
 
 	return nil
+}
+
+func (w *DesktopMediaCreditWindow) applyAckControl(ack DesktopMediaAck) {
+	switch {
+	case ack.Pause:
+		w.paused = true
+	case ack.Resume:
+		w.paused = false
+	}
+
+	if ack.QualityLevel != "" {
+		w.qualityLevel = ack.QualityLevel
+	}
+	if ack.CloseReason != "" {
+		w.closeReason = ack.CloseReason
+	}
 }
 
 func NewDesktopMediaFrameStaticFields(
@@ -521,6 +573,10 @@ func ValidateDesktopMediaAck(ack DesktopMediaAck, sessionBindingID, mediaSession
 
 func mediaFrameCreditCost(frame DesktopMediaFrame) uint64 {
 	return uint64(len(frame.Metadata)) + uint64(len(frame.Payload))
+}
+
+func desktopMediaAckHasControlSignal(ack DesktopMediaAck) bool {
+	return ack.Pause || ack.Resume || ack.QualityLevel != "" || ack.CloseReason != ""
 }
 
 func reusableDesktopMediaHeader(header []byte) []byte {

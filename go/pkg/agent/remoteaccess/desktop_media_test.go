@@ -454,6 +454,95 @@ func TestDesktopMediaCreditWindowCapsAckCredit(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaCreditWindowAppliesBackpressureControl(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(16, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	frame := DesktopMediaFrame{Payload: []byte{1}}
+	if !window.CanSend(frame) {
+		t.Fatalf("CanSend returned false before pause")
+	}
+
+	pauseAck := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		CreditBytes:      4,
+		QualityLevel:     DesktopMediaQualityLow,
+		Pause:            true,
+	}
+	if err := window.ApplyAck(pauseAck, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck pause returned error: %v", err)
+	}
+	if !window.Paused() {
+		t.Fatalf("Paused returned false after pause ack")
+	}
+	if window.QualityLevel() != DesktopMediaQualityLow {
+		t.Fatalf("QualityLevel = %q, want %q", window.QualityLevel(), DesktopMediaQualityLow)
+	}
+	if window.RemainingBytes() != 20 {
+		t.Fatalf("RemainingBytes = %d, want 20", window.RemainingBytes())
+	}
+	if window.CanSend(frame) {
+		t.Fatalf("CanSend returned true while paused")
+	}
+	if err := window.Consume(frame); !errors.Is(err, ErrDesktopMediaNoCredit) {
+		t.Fatalf("Consume while paused error = %v, want %v", err, ErrDesktopMediaNoCredit)
+	}
+
+	resumeAck := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		QualityLevel:     DesktopMediaQualityAuto,
+		Resume:           true,
+	}
+	if err := window.ApplyAck(resumeAck, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck resume returned error: %v", err)
+	}
+	if window.Paused() {
+		t.Fatalf("Paused returned true after resume ack")
+	}
+	if window.QualityLevel() != DesktopMediaQualityAuto {
+		t.Fatalf("QualityLevel = %q, want %q", window.QualityLevel(), DesktopMediaQualityAuto)
+	}
+	if window.RemainingBytes() != 20 {
+		t.Fatalf("RemainingBytes after same-sequence resume = %d, want 20", window.RemainingBytes())
+	}
+	if !window.CanSend(frame) {
+		t.Fatalf("CanSend returned false after resume")
+	}
+}
+
+func TestDesktopMediaCreditWindowRejectsDuplicateCreditAtCurrentSequence(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		CreditBytes:      16,
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck returned error: %v", err)
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ApplyAck duplicate credit error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after duplicate credit = %d, want 17", window.RemainingBytes())
+	}
+}
+
 func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 	t.Parallel()
 
