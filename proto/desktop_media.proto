@@ -1,0 +1,150 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package desktopmedia;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// DesktopMediaService carries high-volume graphical desktop updates outside
+// the generic remote-access control stream.
+service DesktopMediaService {
+  // OpenDesktopMediaSession reserves an authenticated, route-bound desktop
+  // media session for a previously approved desktop control session.
+  rpc OpenDesktopMediaSession(OpenDesktopMediaSessionRequest) returns (OpenDesktopMediaSessionResponse) {}
+
+  // StreamDesktopMedia carries screen/cursor/update chunks from the agent and
+  // credit, quality, pause/resume, and close acknowledgements from the gateway.
+  rpc StreamDesktopMedia(stream DesktopMediaClientMessage) returns (stream DesktopMediaServerMessage) {}
+
+  // Heartbeat renews the desktop media lease and reports edge-side progress.
+  rpc Heartbeat(DesktopMediaHeartbeat) returns (DesktopMediaHeartbeatAck) {}
+
+  // CloseDesktopMediaSession explicitly closes an active or pending media session.
+  rpc CloseDesktopMediaSession(CloseDesktopMediaSessionRequest) returns (CloseDesktopMediaSessionResponse) {}
+}
+
+message OpenDesktopMediaSessionRequest {
+  string desktop_session_id = 1;
+  string media_session_id = 2;
+  string agent_id = 3;
+  string gateway_id = 4;
+  string target_id = 5;
+  string route_id = 6;
+  string lease_token = 7;
+  uint32 requested_initial_credit_bytes = 8;
+  uint32 requested_max_chunk_bytes = 9;
+  string encoding_hint = 10;
+}
+
+message OpenDesktopMediaSessionResponse {
+  bool accepted = 1;
+  string message = 2;
+  string media_ingest_id = 3;
+  string media_session_id = 4;
+  uint32 initial_credit_bytes = 5;
+  uint32 max_chunk_bytes = 6;
+  uint32 max_ack_credit_bytes = 7;
+  int64 lease_expires_at_unix = 8;
+}
+
+message DesktopMediaClientMessage {
+  oneof message {
+    DesktopMediaFrameChunk frame = 1;
+    DesktopMediaStreamClose close = 2;
+    DesktopMediaHeartbeat heartbeat = 3;
+  }
+}
+
+message DesktopMediaServerMessage {
+  oneof message {
+    DesktopMediaAck ack = 1;
+    DesktopMediaStreamClose close = 2;
+    DesktopMediaHeartbeatAck heartbeat = 3;
+  }
+}
+
+message DesktopMediaFrameChunk {
+  string desktop_session_id = 1;
+  string media_session_id = 2;
+  string media_ingest_id = 3;
+  string agent_id = 4;
+  uint64 sequence = 5;
+  int64 timestamp_unix_nano = 6;
+  uint32 width = 7;
+  uint32 height = 8;
+  string payload_family = 9;
+  string encoding = 10;
+  bytes metadata = 11;
+  bytes payload = 12;
+  uint32 flags = 13;
+}
+
+message DesktopMediaAck {
+  string desktop_session_id = 1;
+  string media_session_id = 2;
+  string media_ingest_id = 3;
+  string gateway_id = 4;
+  uint64 last_accepted_sequence = 5;
+  uint32 credit_bytes = 6;
+  uint32 quality_level = 7;
+  bool pause = 8;
+  bool resume = 9;
+  string close_reason = 10;
+}
+
+message DesktopMediaHeartbeat {
+  string desktop_session_id = 1;
+  string media_session_id = 2;
+  string media_ingest_id = 3;
+  string agent_id = 4;
+  uint64 last_sequence = 5;
+  uint64 sent_bytes = 6;
+  uint64 received_credit_bytes = 7;
+  uint32 viewer_count = 8;
+  int64 timestamp_unix = 9;
+}
+
+message DesktopMediaHeartbeatAck {
+  bool accepted = 1;
+  int64 lease_expires_at_unix = 2;
+  string message = 3;
+}
+
+message DesktopMediaStreamClose {
+  string desktop_session_id = 1;
+  string media_session_id = 2;
+  string media_ingest_id = 3;
+  string agent_id = 4;
+  string gateway_id = 5;
+  string reason = 6;
+  uint64 last_sequence = 7;
+}
+
+message CloseDesktopMediaSessionRequest {
+  string desktop_session_id = 1;
+  string media_session_id = 2;
+  string media_ingest_id = 3;
+  string agent_id = 4;
+  string gateway_id = 5;
+  string reason = 6;
+}
+
+message CloseDesktopMediaSessionResponse {
+  bool closed = 1;
+  string message = 2;
+}

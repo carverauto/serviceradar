@@ -58,6 +58,7 @@
 - [x] 3.1.25 Bind SRDP media frame validation to the desktop session guard route and lifetime checks.
 - [x] 3.1.26 Bind SRDP media acknowledgement validation to the desktop session guard route and lifetime checks.
 - [x] 3.1.27 Apply SRDP media acknowledgements through the desktop session guard so route/lifetime validation and credit-window mutation stay on one path.
+- [x] 3.1.28 Add the desktop media gRPC service contract for route-bound open, bidirectional frame/control streaming, heartbeat, and close semantics.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
@@ -130,6 +131,7 @@
 - [x] 5.6.15 Add focused Go tests proving SRDP media frames are accepted only through the selected desktop session route.
 - [x] 5.6.16 Add focused Go tests proving SRDP media acknowledgements are accepted only through the selected desktop session route.
 - [x] 5.6.17 Add focused Go tests proving guard-owned SRDP media ack application rejects route and replay failures before mutating sender credit state.
+- [x] 5.6.18 Add generated Go protobuf bindings for the dedicated desktop media service contract so agent/gateway implementation can compile against the stream API.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
