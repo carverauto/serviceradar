@@ -80,6 +80,7 @@ After the commands complete:
 
 - Confirm container images in GHCR (`ghcr.io/carverauto/serviceradar-*`).
 - Run `make verify_publish VERIFY_TAG="v$(cat VERSION)"` to confirm published image shape and runtime metadata for `latest`, `sha-<commit>`, and the release tag.
+- For releases that touch Armis sync, sync result streaming, ResultsRouter, inventory identity reconciliation, sweep ingestion, or mapper promotion, run `scripts/validate-large-ingestion.sh` against an isolated CNPG database before tagging.
 - Verify that the GitHub release contains the expected `.deb`, `.rpm`, `serviceradar-agent_<version>_linux_amd64.tar.gz`, `serviceradar-agent-release-manifest.json`, and `serviceradar-agent-release-manifest.sig` assets.
 - Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
 

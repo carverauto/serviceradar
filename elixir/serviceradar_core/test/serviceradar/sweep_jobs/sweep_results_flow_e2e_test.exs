@@ -6,6 +6,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -164,6 +165,92 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert execution.agent_id == agent_id
   end
 
+  test "successful ICMP or TCP evidence updates device availability when aggregate is false", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    icmp_ip = unique_ip("aggregate-icmp-#{unique_id}")
+    tcp_ip = unique_ip("aggregate-tcp-#{unique_id}")
+    partition = "partition-aggregate-#{unique_id}"
+
+    for {uid, ip} <- [{"device-icmp-#{unique_id}", icmp_ip}, {"device-tcp-#{unique_id}", tcp_ip}] do
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: uid,
+            ip: ip,
+            hostname: uid,
+            discovery_sources: ["armis"],
+            is_available: false
+          },
+          actor: actor
+        )
+        |> Ash.create()
+    end
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Aggregate Evidence #{unique_id}",
+          partition: partition,
+          agent_id: agent_id
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    execution_id = Ash.UUID.generate()
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => icmp_ip,
+                   "available" => false,
+                   "icmp_status" => %{"available" => true, "round_trip" => 5_000_000},
+                   "port_results" => [
+                     %{"port" => 22, "available" => false, "response_time" => 0}
+                   ]
+                 },
+                 %{
+                   "host_ip" => tcp_ip,
+                   "available" => false,
+                   "icmp_status" => %{"available" => false, "round_trip" => 0},
+                   "port_results" => [
+                     %{"port" => 443, "available" => true, "response_time" => 1_000_000}
+                   ]
+                 }
+               ],
+               execution_id,
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-aggregate-#{unique_id}"
+             )
+
+    assert stats.hosts_available == 2
+    assert stats.hosts_failed == 0
+
+    assert {:ok, device_page} =
+             Device
+             |> Ash.Query.filter(ip in ^[icmp_ip, tcp_ip])
+             |> Ash.read(actor: actor)
+
+    assert Enum.all?(device_page.results, & &1.is_available)
+
+    assert {:ok, host_results_page} =
+             SweepHostResult
+             |> Ash.Query.for_read(:by_execution, %{execution_id: execution_id})
+             |> Ash.read(actor: actor)
+
+    assert Enum.all?(results_from(host_results_page), &(&1.status == :available))
+  end
+
   test "ingest results creates provisional devices for available unknown sweep hosts", %{
     actor: actor,
     agent_id: agent_id
@@ -237,6 +324,229 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert host_result.status == :available
     assert host_result.device_id == device.uid
     assert host_result.open_ports == [8291]
+  end
+
+  test "ingest results resolves active device when cache contains stale duplicate IP record", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("duplicate-active-ip-#{unique_id}")
+    partition = "partition-duplicate-active-ip-#{unique_id}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-duplicate-active-ip-#{unique_id}",
+          ip: ip,
+          hostname: "authoritative-#{unique_id}",
+          discovery_sources: ["armis"],
+          is_available: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    IdentityCache.put(ip, %{
+      canonical_device_id: "sr:stale-duplicate-active-ip-#{unique_id}",
+      partition: partition,
+      metadata_hash: nil,
+      attributes: %{"ip" => ip, "partition" => partition},
+      updated_at: DateTime.utc_now()
+    })
+
+    on_exit(fn -> IdentityCache.delete(ip) end)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Duplicate Active IP #{unique_id}", partition: partition},
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "hostname" => "sweep-#{unique_id}", "available" => true}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-duplicate-active-ip-#{unique_id}"
+             )
+
+    assert stats.devices_created == 0
+    assert stats.devices_updated == 1
+
+    assert {:ok, device_page} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(ip == ^ip)
+             |> Ash.read(actor: actor)
+
+    [resolved] = results_from(device_page)
+
+    assert resolved.uid == device.uid
+    assert resolved.is_available
+    assert is_nil(resolved.deleted_at)
+  end
+
+  test "ingest results restores soft-deleted non-sweep device resolved by IP", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("restore-deleted-#{unique_id}")
+    partition = "partition-restore-deleted-#{unique_id}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-restore-deleted-#{unique_id}",
+          ip: ip,
+          hostname: "deleted-#{unique_id}",
+          discovery_sources: ["armis"],
+          is_available: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, _deleted} =
+             device
+             |> Ash.Changeset.for_update(
+               :soft_delete,
+               %{deleted_reason: "test", deleted_by: "sweep_results_flow_e2e"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition},
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "hostname" => "restored-#{unique_id}", "available" => true}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-restore-deleted-#{unique_id}"
+             )
+
+    assert stats.devices_created == 0
+    assert stats.devices_updated == 1
+
+    assert {:ok, restored_page} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^device.uid)
+             |> Ash.read(actor: actor)
+
+    [restored] = results_from(restored_page)
+
+    assert is_nil(restored.deleted_at)
+    assert is_nil(restored.deleted_by)
+    assert is_nil(restored.deleted_reason)
+    assert restored.is_available
+  end
+
+  test "ingest results ignores stale cache after active device IP changes", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    old_ip = unique_ip("changed-old-#{unique_id}")
+    new_ip = unique_ip("changed-new-#{unique_id}")
+    partition = "partition-changed-ip-#{unique_id}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-changed-ip-#{unique_id}",
+          ip: old_ip,
+          hostname: "changed-ip-#{unique_id}",
+          discovery_sources: ["netbox"],
+          is_available: true
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    IdentityCache.put(old_ip, %{
+      canonical_device_id: device.uid,
+      partition: partition,
+      metadata_hash: nil,
+      attributes: %{"ip" => old_ip, "partition" => partition},
+      updated_at: DateTime.utc_now()
+    })
+
+    on_exit(fn -> IdentityCache.delete(old_ip) end)
+
+    assert {:ok, _updated} =
+             device
+             |> Ash.Changeset.for_update(:update, %{ip: new_ip}, actor: actor)
+             |> Ash.update()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Changed IP #{unique_id}", partition: partition},
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => old_ip,
+                   "hostname" => "new-host-at-old-ip-#{unique_id}",
+                   "available" => true
+                 }
+               ],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-changed-ip-#{unique_id}"
+             )
+
+    assert stats.devices_created == 1
+    assert stats.devices_updated == 0
+
+    assert {:ok, moved_page} =
+             Device
+             |> Ash.Query.filter(uid == ^device.uid)
+             |> Ash.read(actor: actor)
+
+    [moved_device] = results_from(moved_page)
+    assert moved_device.ip == new_ip
+
+    assert {:ok, old_ip_page} =
+             Device
+             |> Ash.Query.filter(ip == ^old_ip)
+             |> Ash.read(actor: actor)
+
+    [provisional] = results_from(old_ip_page)
+
+    refute provisional.uid == device.uid
+    assert provisional.metadata["identity_state"] == "provisional"
+    assert provisional.metadata["identity_source"] == "sweep_ip_seed"
   end
 
   test "ingest results promotes available unknown hosts into mapper discovery", %{
@@ -419,6 +729,66 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     assert device.metadata["sweep_mapper_promotion"]["command_id"] ==
              "cmd-stale-cache-#{unique_id}"
+  end
+
+  test "mapper promotion skips stale device map entries without metadata writes", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("stale-promotion-map-#{unique_id}")
+    partition = "partition-stale-promotion-map-#{unique_id}"
+    active_uid = "device-stale-promotion-active-#{unique_id}"
+    stale_uid = "device-stale-promotion-stale-#{unique_id}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: active_uid,
+          ip: ip,
+          hostname: "active-owner-#{unique_id}",
+          discovery_sources: ["armis"],
+          metadata: %{},
+          is_available: true
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Sweep Stale Promotion Map #{unique_id}",
+          partition: partition,
+          agent_id: agent_id
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    stats =
+      MapperPromotion.promote(
+        [%{"host_ip" => ip, "available" => true}],
+        %{ip => %{canonical_device_id: stale_uid}},
+        group.id,
+        agent_id,
+        actor: actor,
+        dispatcher: fn _job, _opts ->
+          send(self(), :unexpected_stale_promotion_dispatch)
+          {:ok, "unexpected"}
+        end
+      )
+
+    assert stats.dispatched == 0
+    assert stats.skipped == 1
+    refute_receive :unexpected_stale_promotion_dispatch
+
+    assert {:ok, reloaded} = Ash.get(Device, device.uid, actor: actor)
+    refute Map.has_key?(reloaded.metadata || %{}, "sweep_mapper_promotion")
   end
 
   test "ingest results dispatches mapper promotion once across multiple ingest batches", %{

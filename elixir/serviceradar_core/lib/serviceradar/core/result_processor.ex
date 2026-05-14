@@ -146,7 +146,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
 
   defp build_device_update(host, context) do
     ip = get_host_ip(host)
-    available = host[:available] || host["available"] || false
+    available = host_available?(host)
     metadata = build_host_metadata(host)
 
     update = %{
@@ -206,7 +206,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
   end
 
   defp add_port_metadata(metadata, host) do
-    port_results = host[:port_results] || host["port_results"] || []
+    port_results = port_results(host)
 
     if is_list(port_results) and not Enum.empty?(port_results) do
       encode_port_results(metadata, port_results)
@@ -214,6 +214,39 @@ defmodule ServiceRadar.Core.ResultProcessor do
       metadata
     end
   end
+
+  defp host_available?(host) do
+    host[:available] == true ||
+      host["available"] == true ||
+      icmp_available?(host) ||
+      Enum.any?(port_results(host), &port_available?/1)
+  end
+
+  defp icmp_available?(host) do
+    case host[:icmp_status] || host["icmp_status"] do
+      status when is_map(status) ->
+        status[:available] == true || status["available"] == true
+
+      _ ->
+        host[:icmp_available] == true ||
+          host["icmp_available"] == true ||
+          host["icmpAvailable"] == true
+    end
+  end
+
+  defp port_results(host) do
+    host[:port_results] ||
+      host["port_results"] ||
+      host["port_scan_results"] ||
+      host["portScanResults"] ||
+      []
+  end
+
+  defp port_available?(port_result) when is_map(port_result) do
+    port_result[:available] == true || port_result["available"] == true
+  end
+
+  defp port_available?(_port_result), do: false
 
   defp encode_port_results(metadata, port_results) do
     total_ports = length(port_results)
@@ -296,7 +329,12 @@ defmodule ServiceRadar.Core.ResultProcessor do
     if Enum.empty?(unique_ips) do
       %{}
     else
-      DeviceLookup.batch_lookup_by_ip(unique_ips, Keyword.put(opts, :include_deleted, true))
+      opts =
+        opts
+        |> Keyword.put(:include_deleted, true)
+        |> Keyword.put(:use_cache, false)
+
+      DeviceLookup.batch_lookup_by_ip(unique_ips, opts)
     end
   end
 

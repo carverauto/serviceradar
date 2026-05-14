@@ -206,11 +206,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:sync_ingestor)
     sync_meta = extract_sync_meta(updates)
+    log_sync_progress("started", updates, sync_meta)
     record_sync_start(updates, actor, sync_meta)
     result = sync_ingestor().ingest_updates(updates, actor: actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
     record_sync_status(updates, actor, result, sync_meta)
+    log_sync_progress("finished", updates, sync_meta, result)
 
     result
   rescue
@@ -348,6 +350,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       sync_service_id =
         acc[:sync_service_id] || get_string(meta, ["sync_service_id", :sync_service_id])
 
+      sync_run_id =
+        acc[:sync_run_id] || get_string(meta, ["sync_run_id", :sync_run_id])
+
       total_devices =
         acc[:total_devices] || get_integer(meta, ["total_devices", :total_devices])
 
@@ -360,6 +365,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
       %{
         sync_service_id: sync_service_id,
+        sync_run_id: sync_run_id,
         total_devices: total_devices,
         chunk_index: chunk_index,
         total_chunks: total_chunks,
@@ -475,6 +481,20 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   defp decode_results(_message), do: {:error, :unsupported_payload}
+
+  defp log_sync_progress(stage, updates, sync_meta, result \\ nil) do
+    Logger.info(
+      "Sync ingestion #{stage}: " <>
+        "sync_service_id=#{inspect(sync_meta[:sync_service_id])} " <>
+        "sync_run_id=#{inspect(sync_meta[:sync_run_id])} " <>
+        "chunk_index=#{inspect(sync_meta[:chunk_index])} " <>
+        "total_chunks=#{inspect(sync_meta[:total_chunks])} " <>
+        "is_final=#{inspect(sync_meta[:is_final])} " <>
+        "update_count=#{length(updates)} " <>
+        "total_devices=#{inspect(sync_meta[:total_devices])} " <>
+        "result=#{inspect(result)}"
+    )
+  end
 
   defp sync_ingestor do
     Application.get_env(:serviceradar_core, :sync_ingestor, SyncIngestor)

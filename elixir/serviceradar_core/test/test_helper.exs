@@ -6,10 +6,10 @@ if System.get_env("SRQL_TEST_DATABASE_URL") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL") ||
      System.get_env("SRQL_TEST_DATABASE_URL_FILE") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE") do
-  ExUnit.start(exclude: [:cluster])
+  ExUnit.start(exclude: [:cluster, :large_ingestion])
   ServiceRadar.TestSupport.start_core!()
 else
-  ExUnit.start(exclude: [:integration, :cluster])
+  ExUnit.start(exclude: [:integration, :cluster, :large_ingestion])
 end
 
 # For integration tests that need the database, use:
@@ -25,3 +25,6 @@ end
 # (the helper starts one if not already alive) and start the
 # serviceradar_core Application on each peer, which transitively
 # requires the same dependencies as integration tests.
+#
+# Large ingestion release-gate tests are excluded by default. Run them explicitly with:
+# mix test --include large_ingestion --only large_ingestion

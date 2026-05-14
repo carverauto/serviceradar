@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SyncIngestor
@@ -118,6 +119,40 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
     assert [%DeviceIdentifier{} = identifier] = identifiers
     assert identifier.metadata["sync_service_id"] == sync_service_id
     assert identifier.metadata["integration_type"] == "armis"
+  end
+
+  test "sync ingestor invalidates stale IP identity cache entries after bulk upsert", %{
+    actor: actor
+  } do
+    armis_id = "armis-#{System.unique_integer([:positive])}"
+    ip = "10.13.0.#{unique_octet()}"
+
+    IdentityCache.put(ip, %{
+      canonical_device_id: "sr:stale-cache-entry",
+      partition: "default",
+      metadata_hash: nil,
+      attributes: %{"ip" => ip},
+      updated_at: DateTime.utc_now()
+    })
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "mac" => unique_mac(),
+                   "hostname" => "armis-cache-invalidated",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "armis_device_id" => armis_id,
+                     "integration_type" => "armis"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert IdentityCache.get(ip) == nil
   end
 
   defp unique_mac do

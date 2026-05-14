@@ -384,15 +384,37 @@ func (r *SyncRuntime) runArmisSync(
 
 	pageSize := armisPageSize(runner.config)
 	totalUpdates := 0
+	tokenRefreshes := 0
 
-	for _, query := range queries {
+	r.logger.Info().
+		Str("source", runner.key).
+		Str("run_id", runID).
+		Str("sync_service_id", runner.config.SyncServiceID).
+		Int("query_count", len(queries)).
+		Int("page_size", pageSize).
+		Msg("Starting Armis sync")
+
+	for queryIndex, query := range queries {
 		queryString := query.Query
 		queryLabel := query.Label
 
 		from := 0
+		pageIndex := 0
 		for {
 			resp, err := client.search(ctx, token, queryString, from, pageSize)
 			if err != nil && isArmisUnauthorized(err) {
+				tokenRefreshes++
+				r.logger.Warn().
+					Err(err).
+					Str("source", runner.key).
+					Str("run_id", runID).
+					Str("query_label", queryLabel).
+					Int("query_index", queryIndex).
+					Int("page_index", pageIndex).
+					Int("from", from).
+					Int("token_refresh_count", tokenRefreshes).
+					Msg("Armis search unauthorized; refreshing access token")
+
 				refreshedToken, tokenErr := client.accessToken(ctx, runner.config.Credentials)
 				if tokenErr == nil {
 					token = refreshedToken
@@ -426,11 +448,29 @@ func (r *SyncRuntime) runArmisSync(
 				totalUpdates += len(updates)
 			}
 
+			r.logger.Info().
+				Str("source", runner.key).
+				Str("run_id", runID).
+				Str("query_label", queryLabel).
+				Int("query_index", queryIndex).
+				Int("page_index", pageIndex).
+				Int("from", from).
+				Int("length", pageSize).
+				Int("armis_result_count", len(resp.Data.Results)).
+				Int("filtered_count", len(filtered)).
+				Int("streamed_count", len(updates)).
+				Int("run_streamed_total", totalUpdates).
+				Int("armis_total", resp.Data.Total).
+				Int("next", resp.Data.Next).
+				Int("token_refresh_count", tokenRefreshes).
+				Msg("Armis page streamed")
+
 			if resp.Data.Next <= 0 || resp.Data.Next <= from {
 				break
 			}
 
 			from = resp.Data.Next
+			pageIndex++
 		}
 	}
 

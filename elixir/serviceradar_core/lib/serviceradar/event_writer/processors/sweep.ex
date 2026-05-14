@@ -167,7 +167,14 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     else
       # Lookup existing devices
       actor = SystemActor.system(:sweep_processor)
-      device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
+
+      device_map =
+        DeviceLookup.batch_lookup_by_ip(ips,
+          actor: actor,
+          include_deleted: true,
+          use_cache: false
+        )
+
       timestamp = DateTime.truncate(DateTime.utc_now(), :second)
 
       update_availability(results, device_map, timestamp, actor)

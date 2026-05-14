@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -503,6 +505,199 @@ func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
 	}
 }
 
+func TestRunArmisSyncReleaseGateStreamsMultipleQueriesAndRefreshesToken(t *testing.T) {
+	if os.Getenv("SERVICERADAR_LARGE_INGESTION_TEST") != "1" {
+		t.Skip("set SERVICERADAR_LARGE_INGESTION_TEST=1 to run the 50k Armis release-gate test")
+	}
+
+	const (
+		defaultTotalDevices = 50000
+		pageSize            = 1000
+		queryCount          = 2
+	)
+
+	totalDevices := testEnvInt("SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT", defaultTotalDevices)
+	if totalDevices%queryCount != 0 {
+		t.Fatalf("SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT must be divisible by %d", queryCount)
+	}
+
+	perQuery := totalDevices / queryCount
+	queryStarts := map[string]int{
+		"in:devices release_gate:a": 0,
+		"in:devices release_gate:b": perQuery,
+	}
+
+	var (
+		mu                 sync.Mutex
+		tokenCalls         int
+		searchCalls        int
+		unauthorizedServed bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case armisAccessTokenPath:
+			mu.Lock()
+			tokenCalls++
+			token := "token-" + strconv.Itoa(tokenCalls)
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"` + token + `"},"success":true}`))
+		case armisSearchPath:
+			mu.Lock()
+			searchCalls++
+			shouldReject := !unauthorizedServed && r.URL.Query().Get("from") != ""
+			if shouldReject {
+				unauthorizedServed = true
+			}
+			mu.Unlock()
+
+			if shouldReject {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"message":"Invalid access token.","success":false}`))
+				return
+			}
+
+			if got := r.Header.Get("Authorization"); got == "" {
+				t.Fatalf("missing authorization header")
+			}
+
+			aql := r.URL.Query().Get("aql")
+			base, ok := queryStarts[aql]
+			if !ok {
+				t.Fatalf("unexpected aql %q", aql)
+			}
+
+			from := 0
+			if rawFrom := r.URL.Query().Get("from"); rawFrom != "" {
+				parsed, err := strconv.Atoi(rawFrom)
+				if err != nil {
+					t.Fatalf("invalid from param %q: %v", rawFrom, err)
+				}
+				from = parsed
+			}
+
+			length, err := strconv.Atoi(r.URL.Query().Get("length"))
+			if err != nil {
+				t.Fatalf("invalid length param %q: %v", r.URL.Query().Get("length"), err)
+			}
+			if length != pageSize {
+				t.Fatalf("length = %d, want %d", length, pageSize)
+			}
+
+			end := from + length
+			if end > perQuery {
+				end = perQuery
+			}
+
+			results := make([]map[string]interface{}, 0, end-from)
+			for idx := from; idx < end; idx++ {
+				deviceNumber := base + idx + 1
+				results = append(results, map[string]interface{}{
+					"id":        deviceNumber,
+					"ipAddress": releaseGateArmisIP(deviceNumber),
+					"name":      fmt.Sprintf("armis-release-gate-%d", deviceNumber),
+				})
+			}
+
+			next := 0
+			if end < perQuery {
+				next = end
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"count":   len(results),
+					"next":    next,
+					"prev":    nil,
+					"results": results,
+					"total":   perQuery,
+				},
+				"success": true,
+			}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	gateway := &fakeSyncGateway{}
+	runtime := &SyncRuntime{
+		server:  &Server{config: &ServerConfig{AgentID: "agent-a", Partition: "partition-a"}},
+		gateway: gateway,
+		logger:  createTestLogger(),
+	}
+	runner := &syncSourceRunner{
+		key: "armis",
+		config: models.SourceConfig{
+			Type:          armisSourceType,
+			Endpoint:      server.URL,
+			SyncServiceID: "sync-source-release-gate",
+			Credentials:   map[string]string{"secret_key": "secret", "page_size": strconv.Itoa(pageSize)},
+			Queries: []models.QueryConfig{
+				{Label: "release-gate-a", Query: "in:devices release_gate:a"},
+				{Label: "release-gate-b", Query: "in:devices release_gate:b"},
+			},
+		},
+	}
+
+	count, err := runtime.runArmisSync(context.Background(), runner, "run-release-gate")
+	if err != nil {
+		t.Fatalf("runArmisSync returned error: %v", err)
+	}
+	if count != totalDevices {
+		t.Fatalf("count = %d, want %d", count, totalDevices)
+	}
+	expectedTokenCalls := 1
+	expectedExtraSearches := 0
+	if perQuery > pageSize {
+		expectedTokenCalls = 2
+		expectedExtraSearches = 1
+	}
+
+	if tokenCalls != expectedTokenCalls {
+		t.Fatalf("token calls = %d, want %d", tokenCalls, expectedTokenCalls)
+	}
+
+	expectedPages := queryCount * ceilDiv(perQuery, pageSize)
+	if searchCalls != expectedPages+expectedExtraSearches {
+		t.Fatalf(
+			"search calls = %d, want %d including unauthorized retries",
+			searchCalls,
+			expectedPages+expectedExtraSearches,
+		)
+	}
+
+	streams := gateway.streamsSnapshot()
+	if len(streams) != expectedPages {
+		t.Fatalf("stream count = %d, want %d pages", len(streams), expectedPages)
+	}
+
+	seen := make(map[string]bool, totalDevices)
+	for streamIdx, stream := range streams {
+		if len(stream) == 0 {
+			t.Fatalf("stream %d was empty", streamIdx)
+		}
+		for chunkIdx, chunk := range stream {
+			assertGatewayResultsChunk(t, streamIdx, chunkIdx, len(stream), chunk)
+			for _, deviceID := range decodedSyncChunkDeviceIDs(t, []*proto.GatewayStatusChunk{chunk}) {
+				if seen[deviceID] {
+					t.Fatalf("duplicate device id %q", deviceID)
+				}
+				seen[deviceID] = true
+			}
+		}
+	}
+
+	if len(seen) != totalDevices {
+		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
+	}
+}
+
 func TestFilterArmisDevicesNormalizesCommaSeparatedIPs(t *testing.T) {
 	got := filterArmisDevices([]armisDevice{
 		{ID: 101, IPAddress: "10.122.77.227, 10.65.210.86", Name: "multi-ip"},
@@ -683,6 +878,33 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 		}
 	}
 	return deviceIDs
+}
+
+func releaseGateArmisIP(deviceNumber int) string {
+	return fmt.Sprintf(
+		"10.%d.%d.%d",
+		1+((deviceNumber/65536)%200),
+		(deviceNumber/256)%256,
+		deviceNumber%256,
+	)
+}
+
+func testEnvInt(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	return parsed
+}
+
+func ceilDiv(left, right int) int {
+	return (left + right - 1) / right
 }
 
 func TestScheduledSyncRunPrefersDiscoveryInterval(t *testing.T) {

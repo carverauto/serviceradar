@@ -27,6 +27,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   use Ash.Resource,
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.Inventory.DeviceIdentifierNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   @identifier_types [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac, :ip]
@@ -44,45 +45,47 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   @device_fields [:device_id]
 
   postgres do
-    table "device_identifiers"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("device_identifiers")
+    repo(ServiceRadar.Repo)
+    schema("platform")
   end
 
   code_interface do
-    define :lookup, action: :lookup, args: [:identifier_type, :identifier_value]
-    define :get_by_device, action: :by_device, args: [:device_id]
-    define :register, action: :register
-    define :upsert, action: :upsert
+    define(:lookup, action: :lookup, args: [:identifier_type, :identifier_value])
+    define(:get_by_device, action: :by_device, args: [:device_id])
+    define(:register, action: :register)
+    define(:upsert, action: :upsert)
   end
 
   actions do
-    defaults [:read]
+    defaults([:read])
 
     read :by_device do
-      description "Get all identifiers for a device"
-      argument :device_id, :string, allow_nil?: false
-      filter expr(device_id == ^arg(:device_id))
+      description("Get all identifiers for a device")
+      argument(:device_id, :string, allow_nil?: false)
+      filter(expr(device_id == ^arg(:device_id)))
     end
 
     read :lookup do
-      description "Lookup device by identifier type and value"
-      argument :identifier_type, :atom, allow_nil?: false
-      argument :identifier_value, :string, allow_nil?: false
-      argument :partition, :string, default: "default"
+      description("Lookup device by identifier type and value")
+      argument(:identifier_type, :atom, allow_nil?: false)
+      argument(:identifier_value, :string, allow_nil?: false)
+      argument(:partition, :string, default: "default")
 
-      filter expr(
-               identifier_type == ^arg(:identifier_type) and
-                 identifier_value == ^arg(:identifier_value) and
-                 partition == ^arg(:partition)
-             )
+      filter(
+        expr(
+          identifier_type == ^arg(:identifier_type) and
+            identifier_value == ^arg(:identifier_value) and
+            partition == ^arg(:partition)
+        )
+      )
     end
 
     read :lookup_any do
-      description "Lookup device by any matching identifier"
-      argument :identifiers, {:array, :map}, allow_nil?: false
+      description("Lookup device by any matching identifier")
+      argument(:identifiers, {:array, :map}, allow_nil?: false)
 
-      prepare fn query, _context ->
+      prepare(fn query, _context ->
         identifiers = Ash.Query.get_argument(query, :identifiers)
 
         if Enum.empty?(identifiers) do
@@ -103,56 +106,56 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
 
           Ash.Query.filter(query, {:or, conditions})
         end
-      end
+      end)
     end
 
     create :register do
-      description "Register a new identifier for a device"
+      description("Register a new identifier for a device")
 
-      accept @register_fields
+      accept(@register_fields)
 
-      change fn changeset, _context ->
+      change(fn changeset, _context ->
         now = DateTime.utc_now()
 
         changeset
         |> Ash.Changeset.change_new_attribute(:first_seen, now)
         |> Ash.Changeset.change_new_attribute(:last_seen, now)
-      end
+      end)
     end
 
     update :touch do
-      description "Update last_seen timestamp"
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
+      description("Update last_seen timestamp")
+      change(set_attribute(:last_seen, &DateTime.utc_now/0))
     end
 
     update :verify do
-      description "Mark identifier as verified"
-      change set_attribute(:verified, true)
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
+      description("Mark identifier as verified")
+      change(set_attribute(:verified, true))
+      change(set_attribute(:last_seen, &DateTime.utc_now/0))
     end
 
     update :reassign_device do
-      description "Reassign identifier to a new device (used during merges)"
-      accept @device_fields
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
+      description("Reassign identifier to a new device (used during merges)")
+      accept(@device_fields)
+      change(set_attribute(:last_seen, &DateTime.utc_now/0))
     end
 
     create :upsert do
-      description "Create or update identifier"
+      description("Create or update identifier")
 
-      accept @register_fields
+      accept(@register_fields)
 
-      upsert? true
-      upsert_identity :unique_identifier
-      upsert_fields [:device_id, :last_seen, :confidence, :source, :verified, :metadata]
+      upsert?(true)
+      upsert_identity(:unique_identifier)
+      upsert_fields([:device_id, :last_seen, :confidence, :source, :verified, :metadata])
 
-      change fn changeset, _context ->
+      change(fn changeset, _context ->
         now = DateTime.utc_now()
 
         changeset
         |> Ash.Changeset.change_new_attribute(:first_seen, now)
         |> Ash.Changeset.change_attribute(:last_seen, now)
-      end
+      end)
     end
   end
 
@@ -165,98 +168,100 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   end
 
   attributes do
-    integer_primary_key :id
+    integer_primary_key(:id)
 
     attribute :device_id, :string do
-      allow_nil? false
-      public? true
-      description "Device ID (sr:uuid format) this identifier maps to"
+      allow_nil?(false)
+      public?(true)
+      description("Device ID (sr:uuid format) this identifier maps to")
     end
 
     attribute :identifier_type, :atom do
-      allow_nil? false
-      public? true
-      constraints one_of: @identifier_types
-      description "Type of identifier (armis_device_id, mac, netbox_device_id, etc.)"
+      allow_nil?(false)
+      public?(true)
+      constraints(one_of: @identifier_types)
+      description("Type of identifier (armis_device_id, mac, netbox_device_id, etc.)")
     end
 
     attribute :identifier_value, :string do
-      allow_nil? false
-      public? true
-      description "The identifier value"
+      allow_nil?(false)
+      public?(true)
+      description("The identifier value")
     end
 
     attribute :partition, :string do
-      default "default"
-      public? true
-      description "Partition for overlapping IP spaces"
+      default("default")
+      public?(true)
+      description("Partition for overlapping IP spaces")
     end
 
     attribute :confidence, :atom do
-      default :strong
-      constraints one_of: @confidence_levels
-      public? true
-      description "Confidence level of this identifier mapping"
+      default(:strong)
+      constraints(one_of: @confidence_levels)
+      public?(true)
+      description("Confidence level of this identifier mapping")
     end
 
     attribute :source, :string do
-      public? true
-      description "Source that provided this identifier"
+      public?(true)
+      description("Source that provided this identifier")
     end
 
     attribute :first_seen, :utc_datetime do
-      public? true
-      description "When this identifier was first seen"
+      public?(true)
+      description("When this identifier was first seen")
     end
 
     attribute :last_seen, :utc_datetime do
-      public? true
-      description "When this identifier was last seen"
+      public?(true)
+      description("When this identifier was last seen")
     end
 
     attribute :verified, :boolean do
-      default false
-      public? true
-      description "Whether this identifier has been verified"
+      default(false)
+      public?(true)
+      description("Whether this identifier has been verified")
     end
 
     attribute :metadata, :map do
-      default %{}
-      public? true
-      description "Additional metadata"
+      default(%{})
+      public?(true)
+      description("Additional metadata")
     end
   end
 
   relationships do
     belongs_to :device, ServiceRadar.Inventory.Device do
-      source_attribute :device_id
-      destination_attribute :uid
-      define_attribute? false
-      allow_nil? false
-      public? true
-      description "Device this identifier belongs to"
+      source_attribute(:device_id)
+      destination_attribute(:uid)
+      define_attribute?(false)
+      allow_nil?(false)
+      public?(true)
+      description("Device this identifier belongs to")
     end
   end
 
   calculations do
-    calculate :is_strong, :boolean, expr(confidence == :strong)
+    calculate(:is_strong, :boolean, expr(confidence == :strong))
 
-    calculate :priority,
-              :integer,
-              expr(
-                cond do
-                  identifier_type == :agent_id -> 0
-                  identifier_type == :armis_device_id -> 1
-                  identifier_type == :integration_id -> 2
-                  identifier_type == :netbox_device_id -> 3
-                  identifier_type == :mac -> 4
-                  identifier_type == :ip -> 5
-                  true -> 99
-                end
-              )
+    calculate(
+      :priority,
+      :integer,
+      expr(
+        cond do
+          identifier_type == :agent_id -> 0
+          identifier_type == :armis_device_id -> 1
+          identifier_type == :integration_id -> 2
+          identifier_type == :netbox_device_id -> 3
+          identifier_type == :mac -> 4
+          identifier_type == :ip -> 5
+          true -> 99
+        end
+      )
+    )
   end
 
   identities do
-    identity :unique_identifier, [:identifier_type, :identifier_value, :partition]
+    identity(:unique_identifier, [:identifier_type, :identifier_value, :partition])
   end
 end

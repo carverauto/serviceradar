@@ -61,6 +61,7 @@ defmodule ServiceRadar.Identity.IdentityCache do
         else
           # Expired - delete and return nil
           :ets.delete(@table_name, key)
+          emit_cache_telemetry(:stale_reject, %{reason: :expired})
           emit_cache_telemetry(:expired)
           nil
         end
@@ -141,7 +142,9 @@ defmodule ServiceRadar.Identity.IdentityCache do
   """
   @spec delete(String.t()) :: :ok
   def delete(key) when is_binary(key) do
+    existed? = :ets.member(@table_name, key)
     :ets.delete(@table_name, key)
+    emit_invalidation_telemetry(if(existed?, do: 1, else: 0), :delete)
     :ok
   rescue
     ArgumentError ->
@@ -153,7 +156,9 @@ defmodule ServiceRadar.Identity.IdentityCache do
   """
   @spec clear() :: :ok
   def clear do
+    count = @table_name |> :ets.info(:size) |> normalize_size()
     :ets.delete_all_objects(@table_name)
+    emit_invalidation_telemetry(count, :clear)
     :ok
   rescue
     ArgumentError ->
@@ -295,11 +300,11 @@ defmodule ServiceRadar.Identity.IdentityCache do
     end
   end
 
-  defp emit_cache_telemetry(result) do
+  defp emit_cache_telemetry(result, metadata \\ %{}) do
     :telemetry.execute(
       [:serviceradar, :identity, :cache],
       %{count: 1},
-      %{result: result}
+      Map.put(metadata, :result, result)
     )
   end
 
@@ -310,4 +315,15 @@ defmodule ServiceRadar.Identity.IdentityCache do
       %{}
     )
   end
+
+  defp emit_invalidation_telemetry(count, reason) do
+    :telemetry.execute(
+      [:serviceradar, :identity, :cache, :invalidation],
+      %{count: count},
+      %{reason: reason}
+    )
+  end
+
+  defp normalize_size(size) when is_integer(size), do: size
+  defp normalize_size(_size), do: 0
 end

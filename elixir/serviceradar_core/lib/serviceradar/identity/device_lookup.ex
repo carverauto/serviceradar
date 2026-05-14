@@ -27,6 +27,25 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         %{kind: :mac, value: "AA:BB:CC:DD:EE:FF"},
         %{kind: :ip, value: "192.168.1.100"}
       ], ip_hint: "192.168.1.100")
+
+  ## Cache Policy
+
+  The identity cache is an explicit read optimization. Callers that create,
+  update, restore, delete, promote, suppress, or otherwise mutate inventory
+  must use the default cache-bypassing behavior. Read-only enrichment paths may
+  opt in with `use_cache: true` after verifying stale identity cannot affect a
+  write decision.
+
+  Current caller classification:
+
+  - Sweep result ingestion and sweep event-writer availability updates:
+    authoritative lookup, `use_cache: false`.
+  - Core result processing that prepares device updates: authoritative lookup,
+    `use_cache: false`.
+  - ICMP and SNMP metric ingestion: authoritative lookup before writing
+    timeseries rows, `use_cache: false`.
+  - Direct `IdentityCache` access: limited to the cache implementation and
+    tests.
   """
 
   alias ServiceRadar.Ash.Page
@@ -100,7 +119,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   - `:ip_hint` - Optional IP to append as a fallback key
   - `:partition` - Partition context for partition-scoped lookups
-  - `:use_cache` - Whether to use the identity cache (default: true)
+  - `:use_cache` - Whether to use the identity cache (default: false)
   - `:actor` - Actor for authorization context
   """
   @spec get_canonical_device([identity_key()], keyword()) ::
@@ -127,13 +146,13 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   ## Options
 
-  - `:use_cache` - Whether to use identity cache (default: true)
+  - `:use_cache` - Whether to use identity cache (default: false)
   - `:actor` - Actor for authorization context
   - `:include_detected` - Also check detected aliases as fallback (default: false)
   """
   @spec batch_lookup_by_ip([String.t()], keyword()) :: %{String.t() => canonical_record()}
   def batch_lookup_by_ip(ips, opts \\ []) when is_list(ips) do
-    use_cache = Keyword.get(opts, :use_cache, true)
+    use_cache = Keyword.get(opts, :use_cache, false)
     actor = Keyword.get(opts, :actor)
     include_detected = Keyword.get(opts, :include_detected, false)
     include_deleted = Keyword.get(opts, :include_deleted, false)
@@ -201,7 +220,12 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     )
   end
 
-  defp fetch_cache_hits(unique_ips, true), do: IdentityCache.get_batch(unique_ips)
+  defp fetch_cache_hits(unique_ips, true) do
+    {hits, misses} = IdentityCache.get_batch(unique_ips)
+    emit_authoritative_fallback_telemetry(length(misses), :cache_miss)
+    {hits, misses}
+  end
+
   defp fetch_cache_hits(unique_ips, false), do: {%{}, unique_ips}
 
   defp cache_db_results(db_results, true) do
@@ -266,7 +290,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp normalize_kind(kind), do: Map.get(@kind_map, kind, :unspecified)
 
   defp do_lookup(keys, opts) do
-    use_cache = Keyword.get(opts, :use_cache, true)
+    use_cache = Keyword.get(opts, :use_cache, false)
     actor = Keyword.get(opts, :actor)
     include_deleted = Keyword.get(opts, :include_deleted, false)
 
@@ -655,6 +679,16 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         found: result.found,
         resolved_via: result.resolved_via
       }
+    )
+  end
+
+  defp emit_authoritative_fallback_telemetry(0, _reason), do: :ok
+
+  defp emit_authoritative_fallback_telemetry(count, reason) do
+    :telemetry.execute(
+      [:serviceradar, :identity, :lookup, :authoritative_fallback],
+      %{count: count},
+      %{reason: reason}
     )
   end
 end

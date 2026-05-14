@@ -602,8 +602,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp result_available?(result) do
-    result["available"] || false
+    result["available"] == true || icmp_available?(result) || tcp_available?(result)
   end
+
+  defp icmp_available?(result) do
+    case result["icmp_status"] do
+      status when is_map(status) -> status["available"] == true
+      _ -> result["icmp_available"] == true || result["icmpAvailable"] == true
+    end
+  end
+
+  defp tcp_available?(result), do: open_ports(result) != []
 
   defp host_status(_result, true), do: :available
   defp host_status(result, false), do: if(result["error"], do: :error, else: :unavailable)
@@ -651,7 +660,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp open_ports(result) do
     ports_from_port_results =
-      case result["port_results"] do
+      case port_results(result) do
         nil ->
           []
 
@@ -670,6 +679,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Enum.filter(&valid_port?/1)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  defp port_results(result) do
+    result["port_results"] || result["port_scan_results"] || result["portScanResults"]
   end
 
   defp parse_integer(value) when is_integer(value), do: value
@@ -699,7 +712,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     icmp =
       cond do
-        is_map(icmp_status) && icmp_status["available"] == true -> "success"
+        icmp_available?(result) -> "success"
         is_map(icmp_status) -> "failed"
         true -> "no_response"
       end

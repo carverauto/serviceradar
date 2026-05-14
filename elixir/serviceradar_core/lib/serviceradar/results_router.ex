@@ -356,7 +356,7 @@ defmodule ServiceRadar.ResultsRouter do
         base = %{
           "host_ip" => host_ip,
           "hostname" => host["hostname"],
-          "available" => host_available(host, icmp_status),
+          "available" => host_available(host, icmp_status, canonical_port_results),
           "icmp_available" => icmp_available(host, icmp_status),
           "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
           "icmp_packet_loss" => icmp_packet_loss(icmp_status),
@@ -382,7 +382,9 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
-  defp port_results(host) when is_map(host), do: host["port_results"] || []
+  defp port_results(host) when is_map(host) do
+    host["port_results"] || host["port_scan_results"] || host["portScanResults"] || []
+  end
 
   defp icmp_status(host) do
     status = host["icmp_status"]
@@ -396,15 +398,14 @@ defmodule ServiceRadar.ResultsRouter do
     if icmp_status do
       icmp_status["available"] || false
     else
-      host["available"] || false
+      host["icmp_available"] || host["icmpAvailable"] || false
     end
   end
 
-  defp host_available(host, icmp_status) do
-    case host["available"] do
-      value when is_boolean(value) -> value
-      _ -> icmp_available(host, icmp_status)
-    end
+  defp host_available(host, icmp_status, port_results) do
+    host["available"] == true ||
+      icmp_available(host, icmp_status) ||
+      Enum.any?(port_results, &(&1["available"] == true))
   end
 
   defp icmp_response_time_ns(host, icmp_status) do
