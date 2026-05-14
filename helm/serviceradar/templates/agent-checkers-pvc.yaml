@@ -1,5 +1,7 @@
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
+{{- $agentCacheStorage := default (dict) (get $agentVals "cacheStorage") -}}
+{{- $agentRuntimeStorage := default (dict) (get $agentVals "runtimeStorage") -}}
 {{- if and ($agentStorage.enabled) (not $agentStorage.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -15,5 +17,41 @@ spec:
       storage: {{ default "2Gi" $agentStorage.size | quote }}
   {{- if $agentStorage.storageClassName }}
   storageClassName: {{ $agentStorage.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- if and ($agentCacheStorage.enabled) (not $agentCacheStorage.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-agent-cache
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "1Gi" $agentCacheStorage.size | quote }}
+  {{- if $agentCacheStorage.storageClassName }}
+  storageClassName: {{ $agentCacheStorage.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- if and ($agentRuntimeStorage.enabled) (not $agentRuntimeStorage.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-agent-runtime
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "5Gi" $agentRuntimeStorage.size | quote }}
+  {{- if $agentRuntimeStorage.storageClassName }}
+  storageClassName: {{ $agentRuntimeStorage.storageClassName | quote }}
   {{- end }}
 {{- end }}

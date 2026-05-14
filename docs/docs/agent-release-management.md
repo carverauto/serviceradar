@@ -15,6 +15,7 @@ Before using release management in production:
 
 - Install agents with the package-managed launcher and updater layout.
 - Ensure the agent runtime host has write access to `/var/lib/serviceradar/agent/releases` or the override set by `SERVICERADAR_AGENT_RUNTIME_ROOT`.
+- For Helm-managed in-cluster agents, keep `agent.runtimeStorage.enabled=true` so `/var/lib/serviceradar/agent` is backed by a PVC instead of pod ephemeral storage.
 - Ensure the control plane has the trusted Ed25519 public key configured before operators publish releases.
 - Ensure every managed agent has the trusted Ed25519 public key configured through `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` or a build-time `ReleaseSigningPublicKey` injection.
 - For newly onboarded agents, set `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` on `web-ng` before generating onboarding packages so the bundle can write that key into `/etc/serviceradar/kv-overrides.env` automatically during enrollment.

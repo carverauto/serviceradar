@@ -490,6 +490,7 @@ services:
     volumes:
       - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - agent-data:/var/lib/serviceradar
       - agent-checkers:/var/lib/serviceradar/checkers
       - ./logs:/var/log/serviceradar
     environment:
@@ -853,6 +854,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  agent-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-data"
   agent-checkers:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-checkers"
   cert-data:
