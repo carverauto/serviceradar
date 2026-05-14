@@ -484,6 +484,7 @@ func TestValidateDesktopFrameRequiresExplicitClipboardPolicy(t *testing.T) {
 		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolRDP,
 		FrameType: DesktopFrameTypeClipboard,
+		Direction: DesktopClipboardDirectionToBrowser,
 		Data:      []byte("clipboard text"),
 	}
 
@@ -499,6 +500,18 @@ func TestValidateDesktopFrameRequiresExplicitClipboardPolicy(t *testing.T) {
 		ClipboardMode: DesktopClipboardModeTextBoth,
 	}); err != nil {
 		t.Fatalf("enabled clipboard validation returned error: %v", err)
+	}
+	if err := ValidateDesktopFrameWithPolicy(frame, policy, DesktopRedirectionPolicy{
+		ClipboardMode: DesktopClipboardModeTextToRemote,
+	}); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("wrong-direction clipboard validation error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+
+	frame.Direction = ""
+	if err := ValidateDesktopFrameWithPolicy(frame, policy, DesktopRedirectionPolicy{
+		ClipboardMode: DesktopClipboardModeTextBoth,
+	}); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("missing-direction clipboard validation error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}
 }
 
@@ -518,6 +531,7 @@ func TestDesktopFramePayloadPolicyAwareHelpersGateClipboard(t *testing.T) {
 		SessionID: fakeRemoteSessionID,
 		Protocol:  ProtocolRDP,
 		FrameType: DesktopFrameTypeClipboard,
+		Direction: DesktopClipboardDirectionToBrowser,
 		Data:      []byte("clipboard text"),
 	}
 

@@ -64,6 +64,9 @@ const (
 	DesktopInputKindKey     = "key"
 	DesktopInputKindPointer = "pointer"
 	DesktopInputKindFocus   = "focus"
+
+	DesktopClipboardDirectionToRemote  = "to_remote"
+	DesktopClipboardDirectionToBrowser = "to_browser"
 )
 
 var (
@@ -188,6 +191,7 @@ type DesktopFrame struct {
 	Data      []byte             `json:"data,omitempty"`
 	Input     *DesktopInputEvent `json:"input,omitempty"`
 	Quality   *DesktopQuality    `json:"quality,omitempty"`
+	Direction string             `json:"direction,omitempty"`
 	Reason    string             `json:"reason,omitempty"`
 	Timestamp int64              `json:"timestamp,omitempty"`
 	Metadata  map[string]string  `json:"metadata,omitempty"`
@@ -513,7 +517,7 @@ func validateDesktopFrame(
 			return err
 		}
 	case DesktopFrameTypeClipboard:
-		if !desktopClipboardFrameAllowed(redirection) {
+		if !desktopClipboardFrameAllowed(redirection, frame.Direction) {
 			return fmt.Errorf("%w: clipboard redirection disabled", ErrInvalidDesktopFrame)
 		}
 		if len(frame.Data) > MaxTerminalFrameData {
@@ -549,14 +553,23 @@ func validateDesktopInputEvent(input DesktopInputEvent, policy DesktopScreenPoli
 	return nil
 }
 
-func desktopClipboardFrameAllowed(redirection *DesktopRedirectionPolicy) bool {
+func desktopClipboardFrameAllowed(redirection *DesktopRedirectionPolicy, direction string) bool {
 	if redirection == nil {
 		return false
 	}
 
 	policy := normalizeDesktopRedirectionPolicy(*redirection)
 
-	return policy.ClipboardMode != DesktopClipboardModeDisabled
+	switch strings.TrimSpace(direction) {
+	case DesktopClipboardDirectionToRemote:
+		return policy.ClipboardMode == DesktopClipboardModeTextToRemote ||
+			policy.ClipboardMode == DesktopClipboardModeTextBoth
+	case DesktopClipboardDirectionToBrowser:
+		return policy.ClipboardMode == DesktopClipboardModeTextToBrowser ||
+			policy.ClipboardMode == DesktopClipboardModeTextBoth
+	default:
+		return false
+	}
 }
 
 func normalizeDesktopScreenPolicy(policy DesktopScreenPolicy) DesktopScreenPolicy {
