@@ -505,5 +505,46 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.sweep_modes_results["icmp"] == "success"
       assert record.sweep_modes_results["tcp"] == "no_response"
     end
+
+    test "sweep_modes_results uses icmp_available when icmp_status is omitted" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.2",
+          "available" => true,
+          "icmp_available" => true,
+          "icmp_response_time_ns" => 6_000_000,
+          "port_results" => []
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :available
+      assert record.response_time_ms == 6
+      assert record.sweep_modes_results["icmp"] == "success"
+      assert record.sweep_modes_results["tcp"] == "no_response"
+    end
+
+    test "sweep_modes_results infers legacy ICMP success from host response time" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.2",
+          "available" => true,
+          "response_time" => 7_000_000,
+          "port_results" => []
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :available
+      assert record.response_time_ms == 7
+      assert record.sweep_modes_results["icmp"] == "success"
+      assert record.sweep_modes_results["tcp"] == "no_response"
+    end
   end
 end
