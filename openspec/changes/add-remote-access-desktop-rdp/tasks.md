@@ -37,6 +37,7 @@
 - [x] 3.1.17 Preserve desktop media ack pause/resume, quality, and close hints in the Go sender credit window without granting duplicate credit.
 - [x] 3.1.18 Reject unsupported desktop media ack quality levels before adapter code consumes sender flow-control state.
 - [x] 3.1.19 Stop normal Go desktop media sends after a close ack while still allowing EOF delivery.
+- [x] 3.1.20 Send a final browser desktop media close acknowledgement before closing WebRTC DataChannels when a media binding is known.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -78,3 +79,4 @@
 - [x] 5.7.5 Add browser media parser tests for repeated-frame parsing with stable-field caching.
 - [x] 5.7.6 Add browser WebRTC client tests proving pending ack credit is not mixed across media bindings.
 - [x] 5.7.7 Add browser WebRTC client tests for pause/resume quality hints under renderer backpressure.
+- [x] 5.7.8 Add browser WebRTC client tests for final close acknowledgements with pending and already-flushed media credit.

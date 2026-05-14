@@ -567,6 +567,152 @@ describe("RemoteDesktopWebRTCClient", () => {
     ])
   })
 
+  it("flushes pending media credit with a close reason before closing channels", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-close-pending",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onAck = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-close-pending/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckCreditBytes: 65_536,
+      mediaAckFrameInterval: 10,
+      onAck,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-close-pending",
+        mediaSessionId: "media-close-pending",
+        sequence: 30,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+
+    expect(controlChannel.sent).toHaveLength(0)
+
+    client.close("viewer closed")
+    await Promise.resolve()
+
+    expect(JSON.parse(controlChannel.sent[0])).toEqual({
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
+      session_binding_id: "session-close-pending",
+      media_session_id: "media-close-pending",
+      last_accepted_seq: 30,
+      credit_bytes: 3,
+      close_reason: "viewer closed",
+    })
+    expect(onAck).toHaveBeenCalledWith({
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
+      session_binding_id: "session-close-pending",
+      media_session_id: "media-close-pending",
+      last_accepted_seq: 30,
+      credit_bytes: 3,
+      close_reason: "viewer closed",
+    })
+    expect(controlChannel.closed).toBe(true)
+  })
+
+  it("sends a control-only close acknowledgement after media credit is already flushed", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-close-flushed",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-close-flushed/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckCreditBytes: 65_536,
+      mediaAckFrameInterval: 1,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-close-flushed",
+        mediaSessionId: "media-close-flushed",
+        sequence: 31,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+
+    client.close("viewer closed")
+    await Promise.resolve()
+
+    expect(controlChannel.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-close-flushed",
+        media_session_id: "media-close-flushed",
+        last_accepted_seq: 31,
+        credit_bytes: 3,
+      },
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-close-flushed",
+        media_session_id: "media-close-flushed",
+        last_accepted_seq: 31,
+        credit_bytes: 0,
+        close_reason: "viewer closed",
+      },
+    ])
+  })
+
   it("does not drop keyframes or metadata frames when queues are saturated", async () => {
     const fetchMock = vi
       .fn()

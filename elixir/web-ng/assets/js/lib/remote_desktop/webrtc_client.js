@@ -78,6 +78,7 @@ export class RemoteDesktopWebRTCClient {
     this.closed = false
     this.pendingMediaAck = null
     this.pendingMediaAckQueue = null
+    this.lastMediaAckBinding = null
     this.mediaAckTimer = null
     this.mediaBackpressurePaused = false
   }
@@ -154,6 +155,8 @@ export class RemoteDesktopWebRTCClient {
     const viewerSessionId = this.viewerSessionId
     this.viewerSessionId = null
 
+    this.flushMediaCloseAck(reason)
+
     for (const channel of this.channels.values()) {
       channel.close?.()
     }
@@ -161,6 +164,7 @@ export class RemoteDesktopWebRTCClient {
     this.clearMediaAckTimer()
     this.pendingMediaAck = null
     this.pendingMediaAckQueue = null
+    this.lastMediaAckBinding = null
     this.mediaBackpressurePaused = false
     this.channels.clear()
     this.peerConnection?.close?.()
@@ -267,6 +271,7 @@ export class RemoteDesktopWebRTCClient {
     }
 
     appendMediaAck(this.pendingMediaAck, frame, creditBytes)
+    this.lastMediaAckBinding = mediaAckBinding(this.pendingMediaAck)
 
     if (backpressureSignal) {
       applyMediaAckBackpressureSignal(this.pendingMediaAck, backpressureSignal)
@@ -336,6 +341,7 @@ export class RemoteDesktopWebRTCClient {
     }
 
     if (this.sendControl(ack)) {
+      this.lastMediaAckBinding = mediaAckBinding(ack)
       this.onAck(ack)
       return true
     }
@@ -364,6 +370,33 @@ export class RemoteDesktopWebRTCClient {
     } else {
       this.pendingMediaAckQueue = [pendingAck]
     }
+  }
+
+  flushMediaCloseAck(reason) {
+    if (this.pendingMediaAck) {
+      this.pendingMediaAck.close_reason = reason
+      return this.flushPendingMediaAck()
+    }
+
+    if (!this.lastMediaAckBinding) {
+      return false
+    }
+
+    const ack = {
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
+      session_binding_id: this.lastMediaAckBinding.session_binding_id,
+      media_session_id: this.lastMediaAckBinding.media_session_id,
+      last_accepted_seq: this.lastMediaAckBinding.last_accepted_seq,
+      credit_bytes: 0,
+      close_reason: reason,
+    }
+
+    if (!this.sendControl(ack)) {
+      return false
+    }
+
+    this.onAck(ack)
+    return true
   }
 
   updateMediaBackpressure({decodeQueueSize = 0, maxDecodeQueueSize = 0} = {}) {
@@ -439,6 +472,14 @@ function appendMediaAck(ack, frame, creditBytes) {
   ack.last_accepted_seq = frame.sequence
   ack.credit_bytes += creditBytes
   ack.frame_count += 1
+}
+
+function mediaAckBinding(ack) {
+  return {
+    session_binding_id: ack.session_binding_id,
+    media_session_id: ack.media_session_id,
+    last_accepted_seq: ack.last_accepted_seq,
+  }
 }
 
 function applyMediaAckBackpressureSignal(ack, signal) {
