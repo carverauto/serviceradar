@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 var ErrDesktopAdapterUnavailable = errors.New("desktop adapter unavailable")
@@ -69,6 +70,7 @@ type DesktopAdapterRuntime struct {
 	LocalAgentID     string
 	CurrentGatewayID string
 	NowUnix          func() int64
+	NowUnixNano      func() int64
 	Adapter          DesktopRDPAdapter
 }
 
@@ -91,7 +93,8 @@ func (r DesktopAdapterRuntime) OpenRDP(
 	}
 
 	nowUnix := r.nowUnix()
-	if _, err := NewDesktopSessionGuard(frame.SessionID, payload.Target, nowUnix); err != nil {
+	guard, err := NewDesktopSessionGuard(frame.SessionID, payload.Target, nowUnix)
+	if err != nil {
 		cleanupDesktopOpenPayload(&payload)
 
 		return nil, err
@@ -143,7 +146,14 @@ func (r DesktopAdapterRuntime) OpenRDP(
 
 	cleanupDesktopOpenPayload(&payload)
 
-	return session, nil
+	return &guardedDesktopAdapterSession{
+		inner:            session,
+		guard:            guard,
+		localAgentID:     localAgentID,
+		currentGatewayID: strings.TrimSpace(r.CurrentGatewayID),
+		nowUnix:          r.nowUnix,
+		nowUnixNano:      r.nowUnixNano,
+	}, nil
 }
 
 func (r DesktopAdapterRuntime) nowUnix() int64 {
@@ -152,6 +162,45 @@ func (r DesktopAdapterRuntime) nowUnix() int64 {
 	}
 
 	return nowUnix()
+}
+
+func (r DesktopAdapterRuntime) nowUnixNano() int64 {
+	if r.NowUnixNano != nil {
+		return r.NowUnixNano()
+	}
+
+	return r.nowUnix() * desktopQuotaWindowNanos
+}
+
+type guardedDesktopAdapterSession struct {
+	mu               sync.Mutex
+	inner            DesktopAdapterSession
+	guard            DesktopSessionGuard
+	localAgentID     string
+	currentGatewayID string
+	nowUnix          func() int64
+	nowUnixNano      func() int64
+}
+
+func (s *guardedDesktopAdapterSession) SendDesktopFrame(ctx context.Context, frame DesktopFrame) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.guard.ValidateFrame(
+		frame,
+		s.localAgentID,
+		s.currentGatewayID,
+		s.nowUnix(),
+		s.nowUnixNano(),
+	); err != nil {
+		return err
+	}
+
+	return s.inner.SendDesktopFrame(ctx, frame)
+}
+
+func (s *guardedDesktopAdapterSession) Close(ctx context.Context, reason string) error {
+	return s.inner.Close(ctx, reason)
 }
 
 func cleanupDesktopOpenPayload(payload *DesktopOpenPayload) {

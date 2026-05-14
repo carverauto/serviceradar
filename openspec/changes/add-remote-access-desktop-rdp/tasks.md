@@ -88,6 +88,7 @@
 - [x] 3.4.5 Reject desktop quality-control requests above the approved session frame rate, bitrate, or resolution.
 - [x] 3.4.6 Add an adapter-facing desktop session guard that composes route, lifetime, frame policy, and quota checks.
 - [x] 3.4.7 Avoid repeated target normalization in the adapter-facing desktop session guard hot path.
+- [x] 3.4.8 Wrap concrete RDP adapter sessions with the adapter-facing session guard so browser input/control frames are validated before adapter dispatch.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -118,6 +119,7 @@
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.
 - [x] 5.2.3 Add focused Go tests for brokered desktop credential grant expiry.
 - [x] 5.2.4 Add focused Go tests proving the RDP adapter runtime validates route/TLS/NLA policy, fails closed without an adapter/media sender, and clears memory-user credential material after adapter open.
+- [x] 5.2.5 Add focused Go tests proving the RDP adapter runtime rejects invalid browser input frames before they reach the concrete adapter session.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

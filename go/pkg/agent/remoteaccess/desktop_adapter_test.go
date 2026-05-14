@@ -52,6 +52,18 @@ type desktopAdapterSessionStub struct{}
 func (desktopAdapterSessionStub) SendDesktopFrame(context.Context, DesktopFrame) error { return nil }
 func (desktopAdapterSessionStub) Close(context.Context, string) error                  { return nil }
 
+type recordingDesktopAdapterSessionStub struct {
+	frames []DesktopFrame
+}
+
+func (s *recordingDesktopAdapterSessionStub) SendDesktopFrame(_ context.Context, frame DesktopFrame) error {
+	s.frames = append(s.frames, frame)
+
+	return nil
+}
+
+func (s *recordingDesktopAdapterSessionStub) Close(context.Context, string) error { return nil }
+
 type desktopMediaSenderStub struct{}
 
 func (desktopMediaSenderStub) SendDesktopMediaFrame(context.Context, DesktopMediaFrame) error {
@@ -103,6 +115,48 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 	}
 	if adapter.observedUsername != "alice@example.com" || adapter.observedPassword != "secret" {
 		t.Fatalf("adapter did not receive memory-only credential during open")
+	}
+}
+
+func TestDesktopAdapterRuntimeGuardsInputFrames(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Screen.MaxWidth = 1024
+	target.Screen.MaxHeight = 768
+	innerSession := &recordingDesktopAdapterSessionStub{}
+
+	session, err := (DesktopAdapterRuntime{
+		LocalAgentID:     desktopTestAgentID,
+		CurrentGatewayID: "gateway-1",
+		NowUnix:          func() int64 { return 1_778_000_000 },
+		NowUnixNano:      func() int64 { return 1_778_000_000_000_000_000 },
+		Adapter:          &desktopAdapterStub{session: innerSession},
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), desktopMediaSenderStub{})
+	if err != nil {
+		t.Fatalf("OpenRDP returned error: %v", err)
+	}
+
+	validFrame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input:     &DesktopInputEvent{Kind: DesktopInputKindPointer, X: 100, Y: 100},
+	}
+	if err := session.SendDesktopFrame(context.Background(), validFrame); err != nil {
+		t.Fatalf("SendDesktopFrame returned error: %v", err)
+	}
+	if len(innerSession.frames) != 1 {
+		t.Fatalf("forwarded frames = %d, want 1", len(innerSession.frames))
+	}
+
+	invalidFrame := validFrame
+	invalidFrame.Input = &DesktopInputEvent{Kind: DesktopInputKindPointer, X: 2048, Y: 100}
+	if err := session.SendDesktopFrame(context.Background(), invalidFrame); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("invalid frame error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+	if len(innerSession.frames) != 1 {
+		t.Fatalf("invalid frame was forwarded: %#v", innerSession.frames)
 	}
 }
 
