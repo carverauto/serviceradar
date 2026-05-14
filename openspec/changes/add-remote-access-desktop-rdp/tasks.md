@@ -19,6 +19,7 @@
 - [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
 - [x] 2.3.3 Enforce desktop clipboard frame direction against the configured clipboard redirection mode.
 - [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
+- [x] 2.4.1 Add safe agent-side desktop audit metadata for route, target, TLS, credential mode, policy, redirection, recording, and grant binding posture.
 
 ## 3. Agent Route And RDP Adapter
 - [ ] 3.1 Add typed desktop control frames to the agent-gateway control route and a dedicated desktop media stream for screen updates, without reusing terminal byte frames blindly.
@@ -73,6 +74,7 @@
 - [x] 5.1.4 Add focused Go tests for selected-agent route allowlists and allowed desktop login principals.
 - [x] 5.1.5 Add focused Go tests for policy-aware desktop frame encode/decode clipboard gating.
 - [x] 5.1.6 Add focused Go tests for desktop clipboard direction enforcement.
+- [x] 5.1.7 Add focused Go tests proving desktop audit metadata omits credential secrets and caller-supplied metadata.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

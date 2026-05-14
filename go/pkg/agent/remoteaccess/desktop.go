@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -273,6 +274,62 @@ func DecodeDesktopOpenFrameForAgent(frame Frame, localAgentID string) (DesktopOp
 	}
 
 	return payload, nil
+}
+
+// DesktopAuditMetadata returns metadata that is safe to persist for desktop
+// session audit/recording records. It intentionally omits usernames, passwords,
+// credential secret references, and caller-supplied metadata maps.
+func DesktopAuditMetadata(payload DesktopOpenPayload) map[string]string {
+	target := payload.Target
+	credentialMode := target.Credential.Mode
+	if payload.CredentialGrant != nil && payload.CredentialGrant.Mode != "" {
+		credentialMode = payload.CredentialGrant.Mode
+	}
+
+	return map[string]string{
+		"protocol":                       target.Protocol,
+		"target_id":                      target.TargetID,
+		"device_uid":                     target.DeviceUID,
+		"selected_agent_id":              target.Route.SelectedAgentID,
+		"selected_gateway_id":            target.Route.SelectedGateway,
+		"upstream_host":                  target.Upstream.Host,
+		"upstream_port":                  strconv.FormatUint(uint64(target.Upstream.Port), 10),
+		"tls_mode":                       target.TLS.Mode,
+		"tls_ca_bundle_id":               target.TLS.CABundleID,
+		"tls_server_name":                target.TLS.ServerName,
+		"credential_mode":                credentialMode,
+		"screen_max_width":               strconv.FormatUint(uint64(target.Screen.MaxWidth), 10),
+		"screen_max_height":              strconv.FormatUint(uint64(target.Screen.MaxHeight), 10),
+		"screen_frame_rate":              strconv.FormatUint(uint64(target.Screen.FrameRate), 10),
+		"screen_bitrate_bps":             strconv.FormatUint(uint64(target.Screen.BitrateBPS), 10),
+		"screen_idle_seconds":            strconv.FormatUint(uint64(target.Screen.IdleSeconds), 10),
+		"screen_ttl_seconds":             strconv.FormatUint(uint64(target.Screen.TTLSeconds), 10),
+		"redirection_clipboard_mode":     target.Redirection.ClipboardMode,
+		"redirection_drive":              strconv.FormatBool(target.Redirection.Drive),
+		"redirection_printer":            strconv.FormatBool(target.Redirection.Printer),
+		"redirection_audio":              strconv.FormatBool(target.Redirection.Audio),
+		"redirection_smart_card":         strconv.FormatBool(target.Redirection.SmartCard),
+		"redirection_file_copy":          strconv.FormatBool(target.Redirection.FileCopy),
+		"approval_required":              strconv.FormatBool(target.ApprovalRequired),
+		"recording_metadata_enabled":     strconv.FormatBool(target.Recording.MetadataEnabled),
+		"recording_screen_enabled":       strconv.FormatBool(target.Recording.ScreenEnabled),
+		"recording_clipboard_enabled":    strconv.FormatBool(target.Recording.ClipboardEnabled),
+		"recording_file_enabled":         strconv.FormatBool(target.Recording.FileEnabled),
+		"recording_audio_enabled":        strconv.FormatBool(target.Recording.AudioEnabled),
+		"credential_grant_expires_unix":  desktopCredentialGrantExpiresUnix(payload.CredentialGrant),
+		"credential_grant_actor_bound":   strconv.FormatBool(payload.CredentialGrant != nil && payload.CredentialGrant.ActorID != ""),
+		"credential_grant_session_bound": strconv.FormatBool(payload.CredentialGrant != nil && payload.CredentialGrant.SessionID != ""),
+		"credential_grant_target_bound":  strconv.FormatBool(payload.CredentialGrant != nil && payload.CredentialGrant.TargetID != ""),
+		"credential_grant_route_bound":   strconv.FormatBool(payload.CredentialGrant != nil && payload.CredentialGrant.RouteID != ""),
+	}
+}
+
+func desktopCredentialGrantExpiresUnix(grant *DesktopCredentialGrant) string {
+	if grant == nil || grant.ExpiresUnix == 0 {
+		return ""
+	}
+
+	return strconv.FormatInt(grant.ExpiresUnix, 10)
 }
 
 // EncodeDesktopFramePayload validates and serializes a typed desktop frame for

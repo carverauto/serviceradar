@@ -19,6 +19,7 @@ package remoteaccess
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -246,6 +247,69 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 	frame.Data = data
 	if _, err := DecodeDesktopOpenFrameForAgent(frame, desktopTestAgentID); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("grant session mismatch error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+}
+
+func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.DeviceUID = "device-1"
+	target.Route.SelectedGateway = "gateway-1"
+	target.TLS.Mode = DesktopTLSModePinnedCA
+	target.TLS.CABundleID = "ca-bundle-1"
+	target.TLS.ServerName = "windows.internal"
+	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
+	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.ApprovalRequired = true
+	target.Redirection.ClipboardMode = DesktopClipboardModeTextToBrowser
+	target.Recording = DesktopRecordingPolicy{MetadataEnabled: true}
+	target.Metadata = map[string]string{"secret": "target-secret"}
+
+	payload := DesktopOpenPayload{
+		Target:   target,
+		Metadata: map[string]string{"secret": "payload-secret"},
+		CredentialGrant: &DesktopCredentialGrant{
+			Mode:                DesktopCredentialModeBrokeredSecret,
+			Username:            "administrator",
+			Password:            "secret-password",
+			CredentialSecretRef: "secretref:rdp/admin",
+			ActorID:             "user-1",
+			SessionID:           fakeRemoteSessionID,
+			TargetID:            desktopTestTargetID,
+			RouteID:             desktopTestAgentID,
+			ExpiresUnix:         desktopTestExpiresUnix,
+		},
+	}
+
+	metadata := DesktopAuditMetadata(payload)
+	if metadata["protocol"] != ProtocolRDP ||
+		metadata["target_id"] != desktopTestTargetID ||
+		metadata["selected_agent_id"] != desktopTestAgentID ||
+		metadata["selected_gateway_id"] != "gateway-1" ||
+		metadata["credential_mode"] != DesktopCredentialModeBrokeredSecret ||
+		metadata["tls_mode"] != DesktopTLSModePinnedCA ||
+		metadata["redirection_clipboard_mode"] != DesktopClipboardModeTextToBrowser ||
+		metadata["recording_metadata_enabled"] != "true" ||
+		metadata["credential_grant_expires_unix"] != "4102444800" ||
+		metadata["credential_grant_actor_bound"] != "true" {
+		t.Fatalf("desktop audit metadata = %#v", metadata)
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	for _, forbidden := range []string{
+		"secret-password",
+		"secretref:rdp/admin",
+		"administrator",
+		"target-secret",
+		"payload-secret",
+	} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("audit metadata leaked %q: %s", forbidden, string(encoded))
+		}
 	}
 }
 
