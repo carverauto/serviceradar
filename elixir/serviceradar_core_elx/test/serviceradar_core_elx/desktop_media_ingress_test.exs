@@ -3,12 +3,15 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
 
   alias ServiceRadarCoreElx.DesktopMediaIngress
   alias ServiceRadarCoreElx.DesktopMediaIngressSupervisor
+  alias ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager
 
   setup do
     clear_ingress_sessions()
+    reset_media_manager()
 
     on_exit(fn ->
       clear_ingress_sessions()
+      reset_media_manager()
     end)
 
     :ok
@@ -35,6 +38,13 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
              DesktopMediaIngress.forward_frame(frame("desktop-ingress-1", sequence: 10), session)
 
     assert [{_, ^ingress_pid, _, _}] = DynamicSupervisor.which_children(DesktopMediaIngressSupervisor)
+
+    assert %{
+             viewer_count: 0,
+             last_sequence: 10,
+             forwarded_bytes: 7,
+             forwarded_frames: 2
+           } = MediaSessionManager.fetch_session("desktop-ingress-1")
   end
 
   test "rejects unbound frames without mutating the live session" do
@@ -104,5 +114,9 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
           :ok
       end)
     end
+  end
+
+  defp reset_media_manager do
+    if Process.whereis(MediaSessionManager), do: MediaSessionManager.reset()
   end
 end

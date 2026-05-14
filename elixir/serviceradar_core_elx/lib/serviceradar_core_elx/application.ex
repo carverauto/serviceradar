@@ -67,6 +67,7 @@ defmodule ServiceRadarCoreElx.Application do
           ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
           ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
           ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
+          ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager,
           ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager,
           ServiceRadarCoreElx.CameraMediaSessionTracker,
           {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},

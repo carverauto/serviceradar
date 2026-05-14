@@ -110,7 +110,9 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
              session_id,
              viewer_session_id,
              signaling,
-             Keyword.put(opts, :transport, @transport)
+             opts
+             |> Keyword.delete(:server)
+             |> Keyword.put(:transport, @transport)
            ) do
         :ok ->
           {:noreply, put_session(state, session)}

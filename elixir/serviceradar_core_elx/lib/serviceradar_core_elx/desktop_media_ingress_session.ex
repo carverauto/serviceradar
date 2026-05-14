@@ -9,6 +9,8 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
 
   use GenServer
 
+  alias ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager
+
   @default_max_chunk_bytes 1_048_576
 
   def start_link(session, opts \\ []) when is_map(session) do
@@ -21,8 +23,14 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
   end
 
   @impl true
-  def init({session, _opts}) do
-    {:ok, %{session: session, last_sequence: 0, sent_bytes: 0}}
+  def init({session, opts}) do
+    {:ok,
+     %{
+       session: session,
+       last_sequence: 0,
+       sent_bytes: 0,
+       media_manager: Keyword.get(opts, :media_manager, MediaSessionManager)
+     }}
   end
 
   @impl true
@@ -33,22 +41,27 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
       last_sequence = max(state.last_sequence, normalize_uint(frame.sequence))
       sent_bytes = state.sent_bytes + frame_cost
 
-      :telemetry.execute(
-        [:serviceradar, :desktop_media, :ingress, :frame],
-        %{bytes: frame_cost, sequence: frame.sequence, sent_bytes: sent_bytes},
-        %{
-          desktop_session_id: state.session.desktop_session_id,
-          media_session_id: state.session.media_session_id,
-          media_ingest_id: state.session.media_ingest_id,
-          agent_id: state.session.agent_id,
-          gateway_id: state.session.gateway_id,
-          payload_family: frame.payload_family,
-          encoding: frame.encoding
-        }
-      )
+      case state.media_manager.forward_frame(state.session.desktop_session_id, frame, session: state.session) do
+        {:ok, %Desktopmedia.DesktopMediaAck{} = ack} ->
+          :telemetry.execute(
+            [:serviceradar, :desktop_media, :ingress, :frame],
+            %{bytes: frame_cost, sequence: frame.sequence, sent_bytes: sent_bytes},
+            %{
+              desktop_session_id: state.session.desktop_session_id,
+              media_session_id: state.session.media_session_id,
+              media_ingest_id: state.session.media_ingest_id,
+              agent_id: state.session.agent_id,
+              gateway_id: state.session.gateway_id,
+              payload_family: frame.payload_family,
+              encoding: frame.encoding
+            }
+          )
 
-      {:reply, {:ok, ack_for(state.session, frame, frame_cost)},
-       %{state | last_sequence: last_sequence, sent_bytes: sent_bytes}}
+          {:reply, {:ok, ack}, %{state | last_sequence: last_sequence, sent_bytes: sent_bytes}}
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
     else
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -80,17 +93,6 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
     else
       {:error, :chunk_too_large}
     end
-  end
-
-  defp ack_for(session, frame, frame_cost) do
-    %Desktopmedia.DesktopMediaAck{
-      desktop_session_id: frame.desktop_session_id,
-      media_session_id: frame.media_session_id,
-      media_ingest_id: session.media_ingest_id,
-      gateway_id: session.gateway_id,
-      last_accepted_sequence: frame.sequence,
-      credit_bytes: frame_cost
-    }
   end
 
   defp frame_byte_count(frame), do: byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)

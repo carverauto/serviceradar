@@ -18,5 +18,5 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngress do
     Keyword.get(opts, :supervisor, DesktopMediaIngressSupervisor)
   end
 
-  defp session_opts(_opts), do: []
+  defp session_opts(opts), do: Keyword.take(opts, [:media_manager])
 end
