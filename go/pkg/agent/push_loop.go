@@ -2425,7 +2425,11 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 
 	// Build Hello request
 	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
+	var cfg ServerConfig
+	if p.server.config != nil {
+		cfg = *p.server.config
+	}
+	agentID := cfg.AgentID
 	p.server.mu.RUnlock()
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -2434,7 +2438,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	helloReq := &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
-		Capabilities:  getAgentCapabilities(),
+		Capabilities:  getAgentCapabilities(&cfg),
 		Hostname:      hostname,
 		Os:            runtime.GOOS,
 		Arch:          runtime.GOARCH,
@@ -3191,11 +3195,19 @@ func isDockerRuntime() bool {
 	return os.Getenv("container") == "docker"
 }
 
-func getAgentCapabilities() []string {
-	return agentCapabilities(remoteaccess.PlatformEnhancedRecordingAvailable())
+type agentCapabilityOptions struct {
+	enhancedBPF bool
+	desktopRDP  bool
 }
 
-func agentCapabilities(enhancedBPF bool) []string {
+func getAgentCapabilities(cfg *ServerConfig) []string {
+	return agentCapabilities(agentCapabilityOptions{
+		enhancedBPF: remoteaccess.PlatformEnhancedRecordingAvailable(),
+		desktopRDP:  remoteAccessRDPCapabilityEnabled(cfg),
+	})
+}
+
+func agentCapabilities(options agentCapabilityOptions) []string {
 	capabilities := []string{
 		"icmp",
 		"mtr",
@@ -3211,9 +3223,24 @@ func agentCapabilities(enhancedBPF bool) []string {
 		remoteaccess.CapabilityRemoteAccessRecording,
 	}
 
-	if enhancedBPF {
+	if options.enhancedBPF {
 		capabilities = append(capabilities, remoteaccess.CapabilityRemoteAccessBPF)
+	}
+	if options.desktopRDP {
+		capabilities = append(
+			capabilities,
+			remoteaccess.CapabilityRemoteAccessDesktop,
+			remoteaccess.CapabilityRemoteAccessRDP,
+		)
 	}
 
 	return capabilities
+}
+
+func remoteAccessRDPCapabilityEnabled(cfg *ServerConfig) bool {
+	if cfg == nil || cfg.RemoteAccessRDPEnabled == nil || !*cfg.RemoteAccessRDPEnabled {
+		return false
+	}
+
+	return remoteaccess.RDPAdapterBinaryAvailable(cfg.RemoteAccessRDPAdapterPath)
 }

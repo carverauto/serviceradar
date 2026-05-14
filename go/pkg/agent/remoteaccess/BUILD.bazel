@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "adapters.go",
         "desktop_adapter.go",
+        "desktop_adapter_probe.go",
         "desktop_audit.go",
         "desktop_credential.go",
         "desktop_frame.go",
@@ -44,6 +45,7 @@ go_test(
     name = "remoteaccess_test",
     srcs = [
         "adapters_test.go",
+        "desktop_adapter_probe_test.go",
         "desktop_adapter_test.go",
         "desktop_audit_test.go",
         "desktop_credential_test.go",

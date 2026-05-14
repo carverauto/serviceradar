@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -290,7 +292,7 @@ func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 
-	base := agentCapabilities(false)
+	base := agentCapabilities(agentCapabilityOptions{})
 	for _, capability := range []string{
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
@@ -305,9 +307,52 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	if slices.Contains(base, remoteaccess.CapabilityRemoteAccessBPF) {
 		t.Fatalf("base capabilities should not advertise BPF: %#v", base)
 	}
+	if slices.Contains(base, remoteaccess.CapabilityRemoteAccessRDP) ||
+		slices.Contains(base, remoteaccess.CapabilityRemoteAccessDesktop) {
+		t.Fatalf("base capabilities should not advertise RDP: %#v", base)
+	}
 
-	withBPF := agentCapabilities(true)
+	withBPF := agentCapabilities(agentCapabilityOptions{enhancedBPF: true})
 	if !slices.Contains(withBPF, remoteaccess.CapabilityRemoteAccessBPF) {
 		t.Fatalf("BPF capabilities missing %q: %#v", remoteaccess.CapabilityRemoteAccessBPF, withBPF)
+	}
+
+	withRDP := agentCapabilities(agentCapabilityOptions{desktopRDP: true})
+	for _, capability := range []string{
+		remoteaccess.CapabilityRemoteAccessDesktop,
+		remoteaccess.CapabilityRemoteAccessRDP,
+	} {
+		if !slices.Contains(withRDP, capability) {
+			t.Fatalf("RDP capabilities missing %q: %#v", capability, withRDP)
+		}
+	}
+}
+
+func TestRemoteAccessRDPCapabilityRequiresConfigAndHelper(t *testing.T) {
+	t.Parallel()
+
+	enabled := true
+	disabled := false
+	dir := t.TempDir()
+	adapterPath := filepath.Join(dir, remoteaccess.DefaultRDPAdapterBinary)
+	if err := os.WriteFile(adapterPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		cfg  *ServerConfig
+		want bool
+	}{
+		{name: "nil config", cfg: nil},
+		{name: "default disabled", cfg: &ServerConfig{RemoteAccessRDPAdapterPath: adapterPath}},
+		{name: "explicit disabled", cfg: &ServerConfig{RemoteAccessRDPEnabled: &disabled, RemoteAccessRDPAdapterPath: adapterPath}},
+		{name: "enabled missing helper", cfg: &ServerConfig{RemoteAccessRDPEnabled: &enabled, RemoteAccessRDPAdapterPath: filepath.Join(dir, "missing")}},
+		{name: "enabled executable helper", cfg: &ServerConfig{RemoteAccessRDPEnabled: &enabled, RemoteAccessRDPAdapterPath: adapterPath}, want: true},
+	}
+	for _, tc := range cases {
+		if got := remoteAccessRDPCapabilityEnabled(tc.cfg); got != tc.want {
+			t.Fatalf("%s: remoteAccessRDPCapabilityEnabled = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
