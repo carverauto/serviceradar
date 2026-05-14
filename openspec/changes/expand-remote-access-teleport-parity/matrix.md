@@ -23,7 +23,8 @@ The active OpenSpec change is `expand-remote-access-teleport-parity`.
 | Host key trust and TOFU lifecycle | Implemented foundation | More operator review and rotation workflows | ServiceRadar-owned. Teleport behavior may inform tests only. |
 | Proxmox PVE host shell | Implemented as SSH-backed console | Native VM/LXC console connector later | ServiceRadar-owned provider adapter. |
 | Native Proxmox VM/LXC console | Planned | Separate Proxmox console proposal | Do not use Teleport source; use Proxmox API docs and ServiceRadar adapter boundary. |
-| SFTP/SCP file transfer | Planned | First protocol expansion after this matrix | Current Teleport `lib/sshutils/sftp`, `session/sftputils`, `lib/sshutils/scp`, and server dependencies are license blocked. Prefer clean-room SFTP using an Apache-compatible Go SFTP library after dependency review. |
+| SFTP file transfer | Implemented | Demo hardening and SCP compatibility only if it can share the same policy, quota, recording, and audit manager | Implemented as ServiceRadar-owned clean-room code using `github.com/pkg/sftp`. Current Teleport `lib/sshutils/sftp`, `session/sftputils`, `lib/sshutils/scp`, and server dependencies remain license blocked. |
+| SCP file transfer | Planned | Separate compatibility slice after SFTP matures | Do not import Teleport SCP paths. Any SCP implementation must map into the same file-transfer manager and policy surface as SFTP. |
 | Application and TCP access | Separate proposal required | Registered upstreams, SSRF controls, origin isolation, TLS policy | Current Teleport `lib/srv/app` and reverse-proxy paths are license blocked. Clean-room implementation required. |
 | Database access | Separate proposal required | Short-lived DB credentials or mTLS, query/session audit, byte/result policy | Current Teleport `lib/srv/db` path is license blocked. Clean-room implementation required. |
 | Kubernetes API, logs, exec, port-forward | Separate proposal required | Identity impersonation or short-lived client certificates, namespace/resource/verb scope | Current Teleport Kubernetes proxy path is license blocked. Clean-room implementation required. |
@@ -141,10 +142,10 @@ The old-tag scan proves some v14 package trees did not contain AGPL headers in t
 
 ## Next Implementation Order
 
-1. SFTP-style file transfer over the existing route-bound SSH/session substrate.
-2. Application/TCP access for registered upstreams only.
-3. Database adapters with short-lived credentials or mTLS and query/session audit.
-4. Kubernetes API/logs/exec/port-forward with actor-preserving identity.
-5. Live session inventory, forced termination, reviewer join, and moderation.
-6. Production recording search/export/SIEM pipeline and redaction maturation.
-7. Production cilium/ebpf command/file/network probes and kernel support runbook.
+1. Application/TCP access for registered upstreams only.
+2. Database adapters with short-lived credentials or mTLS and query/session audit.
+3. Kubernetes API/logs/exec/port-forward with actor-preserving identity.
+4. Live session inventory, forced termination, reviewer join, and moderation.
+5. Production recording search/export/SIEM pipeline and redaction maturation.
+6. Production cilium/ebpf command/file/network probes and kernel support runbook.
+7. SCP compatibility only if it can share the SFTP file-transfer policy and audit model.
