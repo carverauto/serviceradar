@@ -1,4 +1,4 @@
-import {parseDesktopMediaFrame, parseDesktopMediaMetadata} from "./media_frame"
+import {parseDesktopMediaFrame, parseDesktopMediaMetadata, shouldDropStaleDesktopFrame} from "./media_frame"
 
 export const DESKTOP_MEDIA_CHANNEL = "desktop-media"
 export const DESKTOP_CONTROL_CHANNEL = "desktop-control"
@@ -41,6 +41,7 @@ export class RemoteDesktopWebRTCClient {
     documentRef = globalThis.document,
     onStatus = () => {},
     onFrame = () => {},
+    onFrameDropped = () => {},
     onControlMessage = () => {},
     onAck = () => {},
     onOpen = () => {},
@@ -49,6 +50,7 @@ export class RemoteDesktopWebRTCClient {
     mediaAckCreditBytes = 262_144,
     mediaAckFrameInterval = 4,
     mediaAckMaxDelayMs = 25,
+    mediaQueueState = () => ({}),
   } = {}) {
     this.signalingPath = signalingPath
     this.iceServers = iceServers
@@ -57,6 +59,7 @@ export class RemoteDesktopWebRTCClient {
     this.documentRef = documentRef
     this.onStatus = onStatus
     this.onFrame = onFrame
+    this.onFrameDropped = onFrameDropped
     this.onControlMessage = onControlMessage
     this.onAck = onAck
     this.onOpen = onOpen
@@ -65,6 +68,7 @@ export class RemoteDesktopWebRTCClient {
     this.mediaAckCreditBytes = Math.max(1, mediaAckCreditBytes)
     this.mediaAckFrameInterval = Math.max(1, mediaAckFrameInterval)
     this.mediaAckMaxDelayMs = Math.max(0, mediaAckMaxDelayMs)
+    this.mediaQueueState = typeof mediaQueueState === "function" ? mediaQueueState : () => ({})
     this.peerConnection = null
     this.viewerSessionId = null
     this.channels = new Map()
@@ -215,9 +219,14 @@ export class RemoteDesktopWebRTCClient {
   handleChannelMessage(label, data) {
     if (label === DESKTOP_MEDIA_CHANNEL) {
       const frame = parseDesktopMediaFrame(data)
-      const metadata = parseDesktopMediaMetadata(frame)
 
-      this.onFrame(frame, metadata)
+      if (shouldDropStaleDesktopFrame(frame, this.mediaQueueState())) {
+        this.onFrameDropped(frame)
+        this.queueMediaAck(frame)
+        return
+      }
+
+      this.onFrame(frame, parseDesktopMediaMetadata(frame))
       this.queueMediaAck(frame)
 
       return

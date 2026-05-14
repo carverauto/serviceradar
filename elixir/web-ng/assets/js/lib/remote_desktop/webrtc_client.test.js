@@ -7,7 +7,9 @@ import {
   RemoteDesktopWebRTCClient,
 } from "./webrtc_client"
 import {
+  DESKTOP_PAYLOAD_METADATA,
   DESKTOP_PAYLOAD_TILE,
+  DESKTOP_PAYLOAD_VIDEO,
   encodeDesktopMediaFrame,
 } from "./media_frame"
 
@@ -321,6 +323,129 @@ describe("RemoteDesktopWebRTCClient", () => {
       credit_bytes: 7,
     })
     expect(onAck).toHaveBeenCalledTimes(1)
+  })
+
+  it("drops stale non-critical media frames before metadata parsing", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-drop",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onFrame = vi.fn()
+    const onFrameDropped = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-drop/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckFrameInterval: 1,
+      mediaQueueState: () => ({decodeQueueSize: 20, maxDecodeQueueSize: 12}),
+      onFrame,
+      onFrameDropped,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-drop",
+        mediaSessionId: "media-drop",
+        sequence: 12,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        metadata: new Uint8Array([0x7b]),
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+
+    expect(onFrame).not.toHaveBeenCalled()
+    expect(onFrameDropped).toHaveBeenCalledTimes(1)
+    expect(onFrameDropped.mock.calls[0][0].sequence).toBe(12)
+    expect(JSON.parse(controlChannel.sent[0])).toEqual({
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
+      session_binding_id: "session-drop",
+      media_session_id: "media-drop",
+      last_accepted_seq: 12,
+      credit_bytes: 4,
+    })
+  })
+
+  it("does not drop keyframes or metadata frames when queues are saturated", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-critical",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onFrame = vi.fn()
+    const onFrameDropped = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-critical/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaQueueState: () => ({decodeQueueSize: 20, maxDecodeQueueSize: 12}),
+      onFrame,
+      onFrameDropped,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-critical",
+        mediaSessionId: "media-critical",
+        sequence: 13,
+        payloadFamily: DESKTOP_PAYLOAD_VIDEO,
+        encoding: "h264_annexb",
+        keyframe: true,
+        width: 640,
+        height: 480,
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-critical",
+        mediaSessionId: "media-critical",
+        sequence: 14,
+        payloadFamily: DESKTOP_PAYLOAD_METADATA,
+        metadata: {cursor: "visible"},
+      })
+    )
+
+    expect(onFrame).toHaveBeenCalledTimes(2)
+    expect(onFrameDropped).not.toHaveBeenCalled()
   })
 
   it("sends control messages only after the control channel opens", async () => {
