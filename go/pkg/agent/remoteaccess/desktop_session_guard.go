@@ -167,26 +167,68 @@ func (g *DesktopSessionGuard) ValidateMediaAck(
 	currentGatewayID string,
 	nowUnix int64,
 ) error {
-	if g == nil {
-		return fmt.Errorf("%w: missing session guard", ErrInvalidDesktopMediaAck)
-	}
-	mediaSessionID = strings.TrimSpace(mediaSessionID)
-	if mediaSessionID == "" {
-		return fmt.Errorf("%w: missing media session binding", ErrInvalidDesktopMediaAck)
-	}
-	if err := ValidateDesktopMediaAck(ack, g.sessionID, mediaSessionID); err != nil {
-		return err
-	}
-	if err := validateDesktopRouteBindingNormalized(g.target, localAgentID, currentGatewayID); err != nil {
-		return err
-	}
-	if err := ValidateDesktopSessionLifetime(g.target.Screen, g.startUnix, g.lastActivityUnix, nowUnix); err != nil {
+	if _, err := g.validateMediaAck(ack, mediaSessionID, localAgentID, currentGatewayID, nowUnix); err != nil {
 		return err
 	}
 
 	g.lastActivityUnix = nowUnix
 
 	return nil
+}
+
+// ApplyMediaAck validates a browser/gateway acknowledgement against the active
+// session guard and applies it to the sender credit window as one operation.
+// This keeps route, lifetime, session/media binding, and replay checks on the
+// same path before sender flow-control state mutates.
+func (g *DesktopSessionGuard) ApplyMediaAck(
+	window *DesktopMediaCreditWindow,
+	ack DesktopMediaAck,
+	mediaSessionID string,
+	localAgentID string,
+	currentGatewayID string,
+	nowUnix int64,
+) error {
+	expectedMediaSessionID, err := g.validateMediaAck(ack, mediaSessionID, localAgentID, currentGatewayID, nowUnix)
+	if err != nil {
+		return err
+	}
+	if window == nil {
+		return fmt.Errorf("%w: missing media credit window", ErrInvalidDesktopMediaAck)
+	}
+	if err := window.ApplyAck(ack, g.sessionID, expectedMediaSessionID); err != nil {
+		return err
+	}
+
+	g.lastActivityUnix = nowUnix
+
+	return nil
+}
+
+func (g *DesktopSessionGuard) validateMediaAck(
+	ack DesktopMediaAck,
+	mediaSessionID string,
+	localAgentID string,
+	currentGatewayID string,
+	nowUnix int64,
+) (string, error) {
+	if g == nil {
+		return "", fmt.Errorf("%w: missing session guard", ErrInvalidDesktopMediaAck)
+	}
+	mediaSessionID = strings.TrimSpace(mediaSessionID)
+	if mediaSessionID == "" {
+		return "", fmt.Errorf("%w: missing media session binding", ErrInvalidDesktopMediaAck)
+	}
+	if err := ValidateDesktopMediaAck(ack, g.sessionID, mediaSessionID); err != nil {
+		return "", err
+	}
+	if err := validateDesktopRouteBindingNormalized(g.target, localAgentID, currentGatewayID); err != nil {
+		return "", err
+	}
+	if err := ValidateDesktopSessionLifetime(g.target.Screen, g.startUnix, g.lastActivityUnix, nowUnix); err != nil {
+		return "", err
+	}
+
+	return mediaSessionID, nil
 }
 
 // ValidateContentRecording checks whether retaining the sensitive content from

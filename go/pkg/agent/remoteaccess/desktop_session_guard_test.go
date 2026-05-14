@@ -135,6 +135,121 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 	}
 }
 
+func TestDesktopSessionGuardAppliesMediaAckAfterGuardValidation(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+	target.Screen = DesktopScreenPolicy{
+		MaxWidth:    1280,
+		MaxHeight:   720,
+		FrameRate:   24,
+		BitrateBPS:  4_000_000,
+		IdleSeconds: 10,
+		TTLSeconds:  30,
+	}
+
+	guard, err := NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		CreditBytes:      16,
+	}
+	if err := guard.ApplyMediaAck(
+		&window,
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		101,
+	); err != nil {
+		t.Fatalf("ApplyMediaAck returned error: %v", err)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes = %d, want 17", window.RemainingBytes())
+	}
+	if guard.LastActivityUnix() != 101 {
+		t.Fatalf("LastActivityUnix = %d, want 101", guard.LastActivityUnix())
+	}
+
+	ack.LastAcceptedSeq = 8
+	if err := guard.ApplyMediaAck(
+		&window,
+		ack,
+		desktopMediaTestMediaSessionID,
+		"agent-2",
+		"gateway-1",
+		102,
+	); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("route-loss error = %v, want %v", err, ErrDesktopRouteLost)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after route failure = %d, want 17", window.RemainingBytes())
+	}
+	if guard.LastActivityUnix() != 101 {
+		t.Fatalf("LastActivityUnix after route failure = %d, want 101", guard.LastActivityUnix())
+	}
+
+	ack.LastAcceptedSeq = 7
+	if err := guard.ApplyMediaAck(
+		&window,
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		102,
+	); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("replay error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after replay = %d, want 17", window.RemainingBytes())
+	}
+	if guard.LastActivityUnix() != 101 {
+		t.Fatalf("LastActivityUnix after replay = %d, want 101", guard.LastActivityUnix())
+	}
+}
+
+func TestDesktopSessionGuardApplyMediaAckRejectsMissingWindow(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+
+	guard, err := NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+
+	err = guard.ApplyMediaAck(
+		nil,
+		DesktopMediaAck{
+			SessionBindingID: desktopMediaTestSessionID,
+			MediaSessionID:   desktopMediaTestMediaSessionID,
+			LastAcceptedSeq:  1,
+			CreditBytes:      16,
+		},
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		101,
+	)
+	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("missing-window error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if guard.LastActivityUnix() != 100 {
+		t.Fatalf("LastActivityUnix = %d, want 100", guard.LastActivityUnix())
+	}
+}
+
 func TestDesktopSessionGuardBindsContentRecordingToTargetPolicy(t *testing.T) {
 	t.Parallel()
 
