@@ -51,6 +51,33 @@ Key values: edge gateway address
   - If unset, the chart derives it from `ingress.host` (port 50052).
   - If neither is set, it falls back to the in-cluster service name.
 
+Key values: in-cluster agent storage
+- `agent.checkersStorage`: PVC-backed checker config at `/var/lib/serviceradar/checkers`.
+- `agent.cacheStorage`: PVC-backed agent cache at `/var/lib/serviceradar/cache`.
+- `agent.runtimeStorage`: PVC-backed managed release runtime at `/var/lib/serviceradar/agent`.
+
+Keep these enabled in production. The agent writes mutable config caches and
+managed release payloads under `/var/lib/serviceradar`; without PVC-backed
+storage those writes count against pod ephemeral storage and can trigger
+evictions under disk pressure.
+
+Example:
+
+```yaml
+agent:
+  checkersStorage:
+    enabled: true
+    storageClassName: fast-rwo
+  cacheStorage:
+    enabled: true
+    storageClassName: fast-rwo
+    size: 1Gi
+  runtimeStorage:
+    enabled: true
+    storageClassName: fast-rwo
+    size: 5Gi
+```
+
 ICMP settings: `sweep.icmp`
 - highPerf: enable raw-socket ICMP where permitted (default true).
 - rateLimit: global ICMP pps limit (default 5000).

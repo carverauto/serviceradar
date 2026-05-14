@@ -475,6 +475,17 @@ agent:
     existingClaim: ""
     size: 2Gi
     storageClassName: ""
+  cacheStorage:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  runtimeStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/agent"
+    existingClaim: ""
+    size: 5Gi
+    storageClassName: ""
   resources:
     limits:
       cpu: 500m

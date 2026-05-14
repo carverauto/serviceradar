@@ -96,6 +96,12 @@ docker compose logs cert-generator
 docker compose logs cert-permissions-fixer
 ```
 
+## Runtime Volumes
+
+Docker Compose mounts the agent's mutable runtime directory from the `agent-data` named volume at `/var/lib/serviceradar`.
+This keeps agent cache files and managed release payloads out of the container writable layer.
+Checker config remains in the separate `agent-checkers` volume mounted at `/var/lib/serviceradar/checkers`.
+
 ## Device Enrichment Rule Overrides
 
 Core loads built-in enrichment rules from `priv/device_enrichment/rules/*.yaml` and optional filesystem overrides from `/var/lib/serviceradar/rules/device-enrichment/*.yaml`.
