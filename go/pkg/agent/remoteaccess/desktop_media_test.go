@@ -206,6 +206,52 @@ func TestDesktopMediaCreditWindowConsumesAndAdjustsCredit(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaCreditWindowAppliesValidatedAck(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  42,
+		CreditBytes:      16,
+		QualityLevel:     "low",
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck returned error: %v", err)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after ack = %d, want 17", window.RemainingBytes())
+	}
+
+	ack.MediaSessionID = "other-media"
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ApplyAck mismatch error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
+func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateDesktopMediaAck(
+		DesktopMediaAck{
+			SessionBindingID: desktopMediaTestSessionID,
+			MediaSessionID:   desktopMediaTestMediaSessionID,
+			Pause:            true,
+			Resume:           true,
+		},
+		desktopMediaTestSessionID,
+		desktopMediaTestMediaSessionID,
+	)
+	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ValidateDesktopMediaAck error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
 func TestDesktopMediaCreditWindowAllowsEOFWithoutCredit(t *testing.T) {
 	t.Parallel()
 

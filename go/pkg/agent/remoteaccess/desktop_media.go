@@ -48,6 +48,7 @@ const (
 
 var (
 	ErrInvalidDesktopMediaFrame = errors.New("invalid desktop media frame")
+	ErrInvalidDesktopMediaAck   = errors.New("invalid desktop media ack")
 	ErrDesktopMediaNoCredit     = errors.New("desktop media credit exhausted")
 )
 
@@ -143,6 +144,16 @@ func (w *DesktopMediaCreditWindow) Adjust(creditBytes uint64) {
 	}
 
 	w.remainingBytes += creditBytes
+}
+
+func (w *DesktopMediaCreditWindow) ApplyAck(ack DesktopMediaAck, sessionBindingID, mediaSessionID string) error {
+	if err := ValidateDesktopMediaAck(ack, sessionBindingID, mediaSessionID); err != nil {
+		return err
+	}
+
+	w.Adjust(ack.CreditBytes)
+
+	return nil
 }
 
 func EncodeDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPolicy) ([]byte, error) {
@@ -283,6 +294,26 @@ func ValidateDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPoli
 		if frame.Width > policy.MaxWidth || frame.Height > policy.MaxHeight {
 			return fmt.Errorf("%w: dimensions exceed policy", ErrInvalidDesktopMediaFrame)
 		}
+	}
+
+	return nil
+}
+
+func ValidateDesktopMediaAck(ack DesktopMediaAck, sessionBindingID, mediaSessionID string) error {
+	if ack.SessionBindingID == "" {
+		return fmt.Errorf("%w: missing session binding id", ErrInvalidDesktopMediaAck)
+	}
+	if ack.MediaSessionID == "" {
+		return fmt.Errorf("%w: missing media session id", ErrInvalidDesktopMediaAck)
+	}
+	if sessionBindingID != "" && ack.SessionBindingID != sessionBindingID {
+		return fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopMediaAck)
+	}
+	if mediaSessionID != "" && ack.MediaSessionID != mediaSessionID {
+		return fmt.Errorf("%w: media session mismatch", ErrInvalidDesktopMediaAck)
+	}
+	if ack.Pause && ack.Resume {
+		return fmt.Errorf("%w: pause and resume cannot both be set", ErrInvalidDesktopMediaAck)
 	}
 
 	return nil
