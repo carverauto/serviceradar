@@ -470,8 +470,6 @@ func (t *Tracer) resolveHopHostnames(ctx context.Context) {
 	sem := make(chan struct{}, dnsWorkers)
 
 	for _, hop := range activeHops {
-		hop := hop
-
 		hop.mu.RLock()
 		ip := hop.Addr.String()
 		hop.mu.RUnlock()
