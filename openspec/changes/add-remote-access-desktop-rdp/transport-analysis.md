@@ -62,6 +62,23 @@ Differences from camera media:
 
 The first implementation can model this as bidirectional gRPC. If the existing client/server stack makes bidirectional streaming awkward in one layer, use an upload stream plus a control/ack RPC, but the behavior must still be credit based.
 
+## Devolutions Gateway Findings
+The local Devolutions Gateway checkout is useful architecture reference for this RDP slice. Treat it as design input only until a separate exact-file license and dependency review approves any import.
+
+Useful patterns:
+
+- The JET model uses short-lived, signed association tokens to bind a client, relay, destination, protocol, recording policy, and session. ServiceRadar should use the same shape conceptually: session-bound grants, short TTLs, public-key verification at relays, and no unsigned tokens outside local development.
+- JET explicitly treats destination username and password claims as sensitive. ServiceRadar should go further for browser-launched desktop sessions: do not put RDP passwords in browser-visible tokens. Keep per-session user credentials or brokered fallback secrets in server/agent memory only.
+- The agent tunnel separates a low-rate control stream from per-session bidirectional streams. That matches the ServiceRadar split between existing agent control traffic and a dedicated desktop media stream.
+- JMUX uses per-channel windows, window adjustment, maximum packet sizes, EOF, and close messages. The desktop media stream should use the same credit-window idea even if the wire format is gRPC rather than JMUX.
+- JMUX performance notes show that poor flow-control sizing collapses under latency. RDP validation should include delayed-link tests, credit-window exhaustion, and long-running frame bursts.
+- Traffic audit is emitted once at stream cleanup with target, outcome, duration, and byte counts. ServiceRadar should emit one terminal desktop transport audit event per stream, plus higher-level session lifecycle events.
+- The video-streamer crate includes adaptive frame skipping when encoding falls behind real time. Desktop rendering should prefer coalescing or dropping stale dirty regions over buffering old frames that the browser can no longer render usefully.
+
+Potential future consideration:
+
+- RDP preconnection PDU token injection is relevant if ServiceRadar later supports native RDP clients. It is not necessary for the first browser-rendered helper path.
+
 ## Dedicated Stream Requirements
 The desktop media stream should be bidirectional, session-scoped, and route-bound.
 

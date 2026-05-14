@@ -111,6 +111,8 @@ Desktop differs from camera media in two important ways:
 
 For that reason, the desktop media path should either be bidirectional gRPC or paired upload/control RPCs with explicit credit acknowledgements. The control stream can carry low-rate input/control during early implementation, but production screen flow control must be tied to the media stream so the agent can stop reading from the Rust helper when browser or gateway buffers are full.
 
+Devolutions Gateway provides useful precedent for this split without requiring us to adopt its whole relay stack. Its agent tunnel separates control traffic from per-session streams, JMUX uses channel windows and packet limits, JET uses short-lived association tokens, and its traffic-audit path records terminal stream metadata. ServiceRadar should mirror those architectural properties in project-owned APIs and implementation unless a later exact-file review approves importing a specific compatible crate.
+
 The first compatibility wrapper may carry small JSON desktop frames inside `Monitoring.ConsoleFrame` while the adapter shape is being proven. Production screen traffic must move to a dedicated stream before `remote_access.rdp` is advertised as an operational capability. The dedicated stream should be bidirectional so the gateway can send credit-window, quality, pause/resume, and close signals without waiting for a separate control-stream round trip.
 
 ### Why A Dedicated Stream
@@ -158,6 +160,15 @@ Acknowledgements should carry:
 - pause/resume/close reason
 
 The agent must stop reading from the Rust RDP helper, lower quality, or close the session when the gateway/browser credit window is exhausted.
+
+The first implementation should make flow control explicit rather than implicit in queue depth. Model it like a channel window:
+
+- the receiver grants an initial byte/frame window
+- every media chunk consumes credit
+- the receiver sends window adjustments as chunks are accepted by the next hop
+- the sender never exceeds the lesser of remaining credit and max chunk size
+- EOF and close remain deliverable even when no media credit remains
+- stale non-keyframe updates may be coalesced or dropped when quality is downshifted
 
 ### Local Go/Rust Boundary
 The agent-side Rust helper can still communicate with the Go agent over local stdio or a Unix-domain socket. That boundary is inside the agent host and should use length-prefixed binary frames, not JSON, for screen payloads. JSON remains acceptable for policy and low-rate control envelopes. The Go agent remains the policy, route, credential, and audit owner; the Rust helper remains the RDP protocol engine.
