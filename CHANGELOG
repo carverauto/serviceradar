@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.53
+
+Remote access feature gating and sweep result consistency hotfix.
+
+## Whats New
+
+**1.2.53**
+- Added an explicit SSH remote-access feature flag so SSH console routes, APIs, settings tabs, and device action buttons stay hidden or return 404 unless SSH remote access is enabled.
+- Hid SSH actions for Windows-family devices, including Windows CE, while keeping non-Windows network/server platforms eligible when the feature is enabled.
+- Changed the SSH console React mount path so disabled or unstarted Phoenix ReactServer no longer crashes the device details page.
+- Fixed network sweep result publication so in-progress ICMP/TCP scanner snapshots are not streamed as completed sweep results before the full sweep run finishes.
+- Added a compact Checks column to device sweep history so ICMP and TCP outcomes are visible alongside response time and open ports.
+
 # ServiceRadar v1.2.52
 
 Device availability, sweep result routing, and inventory metadata visibility hotfix.
