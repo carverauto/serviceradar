@@ -220,7 +220,7 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert_receive {:sweep_ingest, results, received_execution_id, opts}
     assert length(results) == 2
-    assert is_binary(received_execution_id)
+    assert received_execution_id == execution_id
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.10"))
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.11"))
 
@@ -275,6 +275,38 @@ defmodule ServiceRadar.ResultsRouterTest do
              %{"port" => 22, "available" => false, "response_time_ns" => 0},
              %{"port" => 443, "available" => true, "response_time_ns" => 2_000_000}
            ]
+  end
+
+  test "does not manufacture ICMP availability for TCP-only sweep results" do
+    execution_id = Ash.UUID.generate()
+
+    payload = %{
+      "execution_id" => execution_id,
+      "last_sweep" => 1_700_000_000,
+      "hosts" => [
+        %{
+          "host" => "192.168.1.13",
+          "available" => false,
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0}
+          ]
+        }
+      ]
+    }
+
+    status = %{
+      source: "results",
+      service_type: "sweep",
+      message: Jason.encode!(payload),
+      agent_id: "agent-1"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:sweep_ingest, [result], ^execution_id, _opts}
+    assert result["host_ip"] == "192.168.1.13"
+    assert result["available"] == false
+    refute Map.has_key?(result, "icmp_available")
   end
 
   test "rejects non-summary sweep payloads" do

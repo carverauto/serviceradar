@@ -530,6 +530,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     device = fetch_device_by_ip!(actor, ip)
     assert device.uid == existing_uid
     assert device.hostname == "updated-host"
+    assert device.is_available
     assert device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
     refute log =~ "Bulk device upsert hit active-IP conflict"
   end

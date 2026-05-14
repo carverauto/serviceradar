@@ -445,6 +445,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert stats.hosts_failed == 1
     end
 
+    test "TCP-only failure marks the host unavailable without inventing an ICMP failure" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "available" => false,
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0}
+          ]
+        }
+      ]
+
+      {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :unavailable
+      assert record.sweep_modes_results["icmp"] == "no_response"
+      assert record.sweep_modes_results["tcp"] == "no_response"
+      assert stats.hosts_failed == 1
+    end
+
     test "sweep_modes_results reflects actual ICMP and TCP status" do
       execution_id = Ash.UUID.generate()
 

@@ -240,21 +240,12 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp choose_execution_id(payload_id, deterministic_id) do
     cond do
-      mismatch_execution_id?(payload_id, deterministic_id) ->
-        Logger.warning(
-          "Sweep results execution_id mismatch; using deterministic execution id",
-          payload_execution_id: payload_id,
-          deterministic_execution_id: deterministic_id
-        )
-
-        deterministic_id
+      present_id?(payload_id) ->
+        payload_id
 
       missing_payload_id?(payload_id, deterministic_id) ->
         Logger.warning("Sweep results missing execution_id; using deterministic execution id")
         deterministic_id
-
-      present_id?(payload_id) ->
-        payload_id
 
       present_id?(deterministic_id) ->
         deterministic_id
@@ -264,12 +255,8 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
-  defp mismatch_execution_id?(payload_id, deterministic_id) do
-    present_id?(payload_id) and present_id?(deterministic_id) and payload_id != deterministic_id
-  end
-
   defp missing_payload_id?(payload_id, deterministic_id) do
-    is_nil(payload_id) and present_id?(deterministic_id)
+    not present_id?(payload_id) and present_id?(deterministic_id)
   end
 
   defp present_id?(value) when is_binary(value), do: value != ""
@@ -357,7 +344,6 @@ defmodule ServiceRadar.ResultsRouter do
           "host_ip" => host_ip,
           "hostname" => host["hostname"],
           "available" => host_available(host, icmp_status, canonical_port_results),
-          "icmp_available" => icmp_available(host, icmp_status),
           "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
           "icmp_packet_loss" => icmp_packet_loss(icmp_status),
           "port_results" => canonical_port_results,
@@ -365,7 +351,9 @@ defmodule ServiceRadar.ResultsRouter do
           "last_sweep_time" => last_sweep_time
         }
 
-        maybe_put_network(base, network)
+        base
+        |> maybe_put_icmp_available(host, icmp_status)
+        |> maybe_put_network(network)
 
       _ ->
         nil
@@ -399,6 +387,18 @@ defmodule ServiceRadar.ResultsRouter do
       icmp_status["available"] || false
     else
       host["icmp_available"] || host["icmpAvailable"] || false
+    end
+  end
+
+  defp maybe_put_icmp_available(result, _host, icmp_status) when is_map(icmp_status) do
+    Map.put(result, "icmp_available", icmp_available(%{}, icmp_status))
+  end
+
+  defp maybe_put_icmp_available(result, host, _icmp_status) do
+    if Map.has_key?(host, "icmp_available") or Map.has_key?(host, "icmpAvailable") do
+      Map.put(result, "icmp_available", icmp_available(host, nil))
+    else
+      result
     end
   end
 

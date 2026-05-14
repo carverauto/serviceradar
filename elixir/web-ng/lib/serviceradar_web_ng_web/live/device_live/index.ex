@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @presence_window "last_24h"
   @presence_bucket "24h"
   @presence_device_cap 200
+  @device_pubsub_refresh_debounce_ms 1_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:sysmon_profiles_by_device, %{})
      |> assign(:device_enrichment_task, nil)
      |> assign(:device_stats_task, nil)
+     |> assign(:device_refresh_timer, nil)
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
      |> assign(:managed_device_count, nil)
@@ -65,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        by_risk_level: []
      })
      |> assign(:device_stats_loading, true)
+     |> assign(:device_stats_loaded, false)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
@@ -92,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   def handle_params(params, uri, socket) do
     {:noreply,
      socket
+     |> cancel_device_refresh_timer()
      |> assign(:last_params, params)
      |> assign(:last_uri, uri)
      |> refresh_devices()}
@@ -99,15 +103,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @impl true
   def handle_info({:device_created, _uid, _device}, socket) do
-    {:noreply, refresh_devices(socket)}
+    {:noreply, schedule_device_refresh(socket)}
   end
 
   def handle_info({:device_updated, _uid, _device}, socket) do
-    {:noreply, refresh_devices(socket)}
+    {:noreply, schedule_device_refresh(socket)}
   end
 
   def handle_info({:device_deleted, _uid}, socket) do
-    {:noreply, refresh_devices(socket)}
+    {:noreply, schedule_device_refresh(socket)}
+  end
+
+  def handle_info(:refresh_devices_from_pubsub, socket) do
+    {:noreply,
+     socket
+     |> assign(:device_refresh_timer, nil)
+     |> refresh_devices(preserve_async_data?: true)}
   end
 
   def handle_info({:device_enrichments_loaded, token, enrichments}, socket) do
@@ -498,13 +509,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp refresh_devices(socket) do
+  defp refresh_devices(socket, opts \\ []) do
     params = Map.get(socket.assigns, :last_params, %{})
     uri = Map.get(socket.assigns, :last_uri, "/devices")
+    preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
+    stats_loaded? = Map.get(socket.assigns, :device_stats_loaded, false)
 
     socket =
       socket
-      |> SRQLPage.load_list(params, uri, :devices, default_limit: @default_limit, max_limit: @max_limit)
+      |> SRQLPage.load_list(params, uri, :devices,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
       |> assign_managed_device_limit_advisory()
 
     scope = Map.get(socket.assigns, :current_scope)
@@ -513,19 +529,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     token = System.unique_integer([:positive])
 
     socket =
-      assign(socket,
+      socket
+      |> assign(
         device_enrichment_token: token,
-        icmp_sparklines: %{},
-        icmp_error: nil,
-        snmp_presence: %{},
-        sysmon_presence: %{},
-        sysmon_profiles_by_device: %{},
-        total_device_count: nil,
         current_page: current_page,
         device_enrichment_task: nil,
         device_stats_task: nil,
-        device_stats_loading: true
+        device_stats_loading: not (preserve_async_data? and stats_loaded?)
       )
+      |> maybe_clear_async_device_data(preserve_async_data?)
 
     if connected?(socket) do
       socket
@@ -534,6 +546,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     else
       socket
     end
+  end
+
+  defp schedule_device_refresh(socket) do
+    if socket.assigns[:device_refresh_timer] do
+      socket
+    else
+      timer =
+        Process.send_after(
+          self(),
+          :refresh_devices_from_pubsub,
+          @device_pubsub_refresh_debounce_ms
+        )
+
+      assign(socket, :device_refresh_timer, timer)
+    end
+  end
+
+  defp cancel_device_refresh_timer(socket) do
+    if timer = socket.assigns[:device_refresh_timer] do
+      Process.cancel_timer(timer)
+    end
+
+    assign(socket, :device_refresh_timer, nil)
+  end
+
+  defp maybe_clear_async_device_data(socket, true), do: socket
+
+  defp maybe_clear_async_device_data(socket, false) do
+    assign(socket,
+      icmp_sparklines: %{},
+      icmp_error: nil,
+      snmp_presence: %{},
+      sysmon_presence: %{},
+      sysmon_profiles_by_device: %{},
+      total_device_count: nil
+    )
   end
 
   defp log_device_task_exit(kind, {:shutdown, :cancel}) do
@@ -614,7 +662,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp apply_device_stats(socket, token, stats) do
     if socket.assigns[:device_enrichment_token] == token do
-      {:noreply, assign(socket, device_stats: stats, device_stats_loading: false)}
+      {:noreply,
+       assign(socket,
+         device_stats: stats,
+         device_stats_loading: false,
+         device_stats_loaded: true
+       )}
     else
       {:noreply, socket}
     end
@@ -1286,7 +1339,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   # Add Device Modal Component
-  attr :form, :any, required: true
+  attr(:form, :any, required: true)
 
   defp add_device_modal(assigns) do
     ~H"""
@@ -1385,9 +1438,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   # Import CSV Modal Component
-  attr :uploads, :any, required: true
-  attr :csv_preview, :any, default: nil
-  attr :csv_errors, :list, default: []
+  attr(:uploads, :any, required: true)
+  attr(:csv_preview, :any, default: nil)
+  attr(:csv_errors, :list, default: [])
 
   defp import_csv_modal(assigns) do
     ~H"""
@@ -1579,8 +1632,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp error_to_string(err), do: inspect(err)
 
   # Bulk Edit Modal Component
-  attr :form, :any, required: true
-  attr :selected_count, :integer, required: true
+  attr(:form, :any, required: true)
+  attr(:selected_count, :integer, required: true)
 
   defp bulk_edit_modal(assigns) do
     ~H"""
@@ -1633,7 +1686,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   # Bulk Delete Modal Component
-  attr :selected_count, :integer, required: true
+  attr(:selected_count, :integer, required: true)
 
   defp bulk_delete_modal(assigns) do
     ~H"""
@@ -1671,8 +1724,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   # Device Stats Cards Component
-  attr :stats, :map, required: true
-  attr :loading, :boolean, default: false
+  attr(:stats, :map, required: true)
+  attr(:loading, :boolean, default: false)
 
   def device_stats_cards(assigns) do
     stats = assigns.stats || %{}
@@ -1795,11 +1848,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :items, :list, required: true
-  attr :icon, :string, required: true
-  attr :filter_field, :string, required: true
-  attr :empty_text, :string, default: "No data"
+  attr(:title, :string, required: true)
+  attr(:items, :list, required: true)
+  attr(:icon, :string, required: true)
+  attr(:filter_field, :string, required: true)
+  attr(:empty_text, :string, default: "No data")
 
   defp device_breakdown_card(assigns) do
     items = assigns.items || []
@@ -1918,7 +1971,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> String.reverse()
   end
 
-  attr :available, :any, default: nil
+  attr(:available, :any, default: nil)
 
   def availability_badge(assigns) do
     {label, variant} =
@@ -1938,9 +1991,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
-  attr :type, :string, default: nil
-  attr :type_id, :integer, default: nil
-  attr :snmp_fallback, :boolean, default: false
+  attr(:type, :string, default: nil)
+  attr(:type_id, :integer, default: nil)
+  attr(:snmp_fallback, :boolean, default: false)
 
   def device_type_badge(assigns) do
     label = device_type_label(assigns.type, assigns.type_id)
@@ -2111,7 +2164,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_text?(_value), do: false
 
-  attr :risk_level, :string, default: nil
+  attr(:risk_level, :string, default: nil)
 
   def risk_level_badge(assigns) do
     {label, variant} = risk_level_style(assigns.risk_level)
@@ -2134,7 +2187,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp risk_level_style("Info"), do: {"Info", "ghost"}
   defp risk_level_style(_), do: {"—", "ghost"}
 
-  attr :spark, :map, required: true
+  attr(:spark, :map, required: true)
 
   def icmp_sparkline(assigns) do
     points = Map.get(assigns.spark, :points, [])
@@ -2180,9 +2233,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
-  attr :device_uid, :string, default: nil
-  attr :has_snmp, :boolean, default: false
-  attr :has_sysmon, :boolean, default: false
+  attr(:device_uid, :string, default: nil)
+  attr(:has_snmp, :boolean, default: false)
+  attr(:has_sysmon, :boolean, default: false)
 
   def metrics_presence(assigns) do
     device_path =
@@ -2232,7 +2285,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
-  attr :profile, :any, default: nil
+  attr(:profile, :any, default: nil)
 
   def sysmon_profile_badge(assigns) do
     profile_name = sysmon_profile_label(assigns.profile)

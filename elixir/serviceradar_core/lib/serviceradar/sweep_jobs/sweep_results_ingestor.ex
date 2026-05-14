@@ -606,11 +606,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp icmp_available?(result) do
-    case result["icmp_status"] do
+    case result_icmp_status(result) do
       status when is_map(status) -> status["available"] == true
       _ -> result["icmp_available"] == true || result["icmpAvailable"] == true
     end
   end
+
+  defp result_icmp_status(result), do: result["icmp_status"] || result["icmpStatus"]
 
   defp tcp_available?(result), do: open_ports(result) != []
 
@@ -708,7 +710,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp build_modes_results(result) do
-    icmp_status = result["icmp_status"]
+    icmp_status = result_icmp_status(result)
 
     icmp =
       cond do

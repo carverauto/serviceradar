@@ -271,7 +271,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     # DB connection's search_path determines the schema
     available_uids =
       results
-      |> Enum.filter(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
+      |> Enum.filter(&result_available?/1)
       |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
       |> Enum.reject(&is_nil/1)
       |> Enum.map(&Map.get(device_map, &1))
@@ -289,7 +289,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     # DB connection's search_path determines the schema
     unavailable_uids =
       results
-      |> Enum.reject(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
+      |> Enum.reject(&result_available?/1)
       |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
       |> Enum.reject(&is_nil/1)
       |> Enum.map(&Map.get(device_map, &1))
@@ -300,6 +300,48 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       Repo.update_all(from(d in {"ocsf_devices", Device}, where: d.uid in ^unavailable_uids),
         set: [is_available: false, modified_time: timestamp]
       )
+    end
+  end
+
+  defp result_available?(result) when is_map(result) do
+    result["available"] == true || icmp_available?(result) || tcp_available?(result)
+  end
+
+  defp result_available?(_result), do: false
+
+  defp icmp_available?(result) do
+    case result["icmp_status"] || result["icmpStatus"] do
+      status when is_map(status) -> status["available"] == true
+      _ -> result["icmp_available"] == true || result["icmpAvailable"] == true
+    end
+  end
+
+  defp tcp_available?(result), do: open_ports(result) != []
+
+  defp open_ports(result) do
+    port_result_ports =
+      result
+      |> port_results()
+      |> Enum.filter(fn port_result -> port_result["available"] == true end)
+      |> Enum.map(fn port_result -> port_result["port"] end)
+      |> Enum.reject(&is_nil/1)
+
+    legacy_open_ports =
+      result
+      |> legacy_tcp_open_ports()
+      |> Enum.reject(&is_nil/1)
+
+    port_result_ports ++ legacy_open_ports
+  end
+
+  defp port_results(result) do
+    result["port_results"] || result["port_scan_results"] || result["portScanResults"] || []
+  end
+
+  defp legacy_tcp_open_ports(result) do
+    case result["tcp_ports_open"] || result["tcpPortsOpen"] do
+      ports when is_list(ports) -> ports
+      _ -> []
     end
   end
 
@@ -324,9 +366,10 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
     activity_id = OCSF.activity_network_scan()
     icmp_available = FieldParser.get_field(json, "icmp_available", "icmpAvailable") || false
+    scan_available = result_available?(json)
     response_time_ns = FieldParser.get_field(json, "icmp_response_time_ns", "icmpResponseTimeNs")
-    {status_id, status} = status_from_icmp(icmp_available)
-    {protocol_name, protocol_num} = protocol_from_icmp(icmp_available)
+    {status_id, status} = status_from_availability(scan_available)
+    {protocol_name, protocol_num} = protocol_from_result(json)
 
     # Determine severity based on scan results
     severity_id = determine_severity(json)
@@ -362,7 +405,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       severity: OCSF.severity_name(severity_id),
       activity_name: OCSF.network_activity_name(activity_id),
 
-      # Status based on ICMP availability
+      # Status based on ICMP or TCP availability
       status_id: status_id,
       status: status,
       status_code: nil,
@@ -433,21 +476,26 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     }
   end
 
-  defp status_from_icmp(true), do: {OCSF.status_success(), "Success"}
-  defp status_from_icmp(_), do: {OCSF.status_failure(), "Failure"}
+  defp status_from_availability(true), do: {OCSF.status_success(), "Success"}
+  defp status_from_availability(_), do: {OCSF.status_failure(), "Failure"}
 
-  defp protocol_from_icmp(true), do: {"ICMP", 1}
-  defp protocol_from_icmp(_), do: {nil, nil}
+  defp protocol_from_result(json) do
+    cond do
+      icmp_available?(json) -> {"ICMP", 1}
+      tcp_available?(json) -> {"TCP", 6}
+      true -> {nil, nil}
+    end
+  end
 
   defp determine_severity(json) do
-    icmp = json["icmp_available"] || json["icmpAvailable"]
-    open_ports = json["tcp_ports_open"] || json["tcpPortsOpen"] || []
+    available = result_available?(json)
+    open_ports = open_ports(json)
 
     cond do
       # Host not responding - informational
-      icmp == false and Enum.empty?(open_ports) -> OCSF.severity_informational()
+      not available -> OCSF.severity_informational()
       # Host responding with open ports - could be worth noting
-      icmp == true and length(open_ports) > 5 -> OCSF.severity_low()
+      length(open_ports) > 5 -> OCSF.severity_low()
       # Normal discovery result
       true -> OCSF.severity_informational()
     end
@@ -456,9 +504,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   defp build_scan_message(json) do
     ip = FieldParser.get_field(json, "host_ip", "hostIp") || json["ip"]
     hostname = json["hostname"]
-    icmp = json["icmp_available"] || json["icmpAvailable"]
 
-    status = if icmp, do: "reachable", else: "unreachable"
+    status = if result_available?(json), do: "reachable", else: "unreachable"
     host_info = if hostname, do: "#{hostname} (#{ip})", else: ip
 
     "Network scan: #{host_info} is #{status}"
@@ -482,21 +529,47 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       )
 
     open = FieldParser.encode_jsonb(FieldParser.get_field(json, "tcp_ports_open", "tcpPortsOpen"))
+    per_port_results = port_results(json)
 
-    scanned_list =
+    case_result =
       case scanned do
         list when is_list(list) -> list |> Enum.map(&to_integer/1) |> Enum.reject(&is_nil/1)
         _ -> []
       end
 
-    open_list =
+    scanned_list =
+      case_result
+      |> Kernel.++(ports_from_results(per_port_results, :scanned))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    case_result =
       case open do
         list when is_list(list) -> list |> Enum.map(&to_integer/1) |> Enum.reject(&is_nil/1)
         _ -> []
       end
 
+    open_list =
+      case_result
+      |> Kernel.++(ports_from_results(per_port_results, :open))
+      |> Enum.uniq()
+      |> Enum.sort()
+
     {scanned_list, open_list}
   end
+
+  defp ports_from_results(results, mode) when is_list(results) do
+    results
+    |> Enum.filter(fn
+      result when mode == :open and is_map(result) -> result["available"] == true
+      result when mode == :scanned -> is_map(result)
+      _ -> false
+    end)
+    |> Enum.map(fn result -> to_integer(result["port"]) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp ports_from_results(_results, _mode), do: []
 
   defp to_integer(val) when is_integer(val), do: val
 
@@ -515,7 +588,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       network_cidr networkCidr hostname mac icmp_available icmpAvailable
       icmp_response_time_ns icmpResponseTimeNs icmp_packet_loss icmpPacketLoss
       tcp_ports_scanned tcpPortsScanned tcp_ports_open tcpPortsOpen
-      port_scan_results portScanResults last_sweep_time lastSweepTime
+      port_results port_scan_results portScanResults last_sweep_time lastSweepTime
       first_seen firstSeen metadata
     )
 

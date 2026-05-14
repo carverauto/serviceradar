@@ -463,7 +463,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         model: model,
         os: infer_os(metadata, vendor_name),
         hw_info: infer_hw_info(metadata),
-        is_available: update.is_available || false,
+        is_available: update.is_available,
         owner: owner,
         metadata: metadata,
         tags: update.tags || %{},
@@ -671,7 +671,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         model: prefer_non_empty(incoming.model, existing.model),
         os: merged_os,
         hw_info: merged_hw_info,
-        is_available: incoming.is_available,
+        is_available: prefer_non_nil(incoming.is_available, existing.is_available),
         owner: prefer_non_nil(incoming.owner, existing.owner),
         metadata: merged_metadata,
         tags: merged_tags,
@@ -928,7 +928,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       metadata: %{},
       tags: %{},
       timestamp: nil,
-      is_available: false,
+      is_available: nil,
       source: "unknown"
     }
   end
@@ -1653,10 +1653,22 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp alias_not_found?(_), do: false
 
   defp get_bool(map, keys) do
-    if get_value(map, keys) do
-      true
-    else
-      false
+    case get_value(map, keys) do
+      nil -> nil
+      "" -> nil
+      true -> true
+      false -> false
+      value when is_integer(value) -> value != 0
+      value when is_binary(value) -> parse_bool_string(value)
+      _ -> nil
+    end
+  end
+
+  defp parse_bool_string(value) do
+    case String.downcase(String.trim(value)) do
+      value when value in ["true", "t", "1", "yes", "y"] -> true
+      value when value in ["false", "f", "0", "no", "n"] -> false
+      _ -> nil
     end
   end
 end
