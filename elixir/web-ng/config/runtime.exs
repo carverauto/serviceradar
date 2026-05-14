@@ -602,6 +602,39 @@ if plugin_storage_overrides != [] do
          Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
 end
 
+object_store_retention_defaults =
+  Application.get_env(:serviceradar_web_ng, :object_store_retention, [])
+
+object_store_retention_enabled =
+  to_bool.(System.get_env("OBJECT_STORE_RETENTION_ENABLED")) || false
+
+object_store_retention_cron =
+  System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
+
+object_store_retention_overrides =
+  []
+  |> maybe_put_env.(
+    :enabled?,
+    System.get_env("OBJECT_STORE_RETENTION_ENABLED"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :dry_run?,
+    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :plugin_orphan_grace_seconds,
+    System.get_env("OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS"),
+    to_int
+  )
+
+if object_store_retention_overrides != [] do
+  config :serviceradar_web_ng,
+         :object_store_retention,
+         Keyword.merge(object_store_retention_defaults, object_store_retention_overrides)
+end
+
 plugin_verification_overrides =
   []
   |> maybe_put_env.(
@@ -926,8 +959,29 @@ if config_env() != :test do
       _ -> Oban.Notifiers.Postgres
     end
 
-  # web-ng does not run scheduled jobs or acquire the Oban peer lock; core-elx remains
-  # the scheduler leader. It can still process runtime jobs within explicit budgets.
+  oban_plugins =
+    then(
+      [
+        {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+      ],
+      fn plugins ->
+        if object_store_retention_enabled do
+          plugins ++
+            [
+              {Oban.Plugins.Cron,
+               crontab: [
+                 {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
+                  args: %{"enabled" => true}, queue: :maintenance}
+               ]}
+            ]
+        else
+          plugins
+        end
+      end
+    )
+
+  # web-ng does not run the global core-elx job schedules. It only schedules
+  # web-owned cleanup work when explicitly enabled.
   queues =
     []
     |> maybe_queue.(
@@ -952,10 +1006,7 @@ if config_env() != :test do
     prefix: "platform",
     queues: queues,
     notifier: oban_notifier,
-    plugins: [
-      {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
-      # No Cron plugin - core-elx handles all scheduled jobs
-    ],
+    plugins: oban_plugins,
     # Avoid acquiring the Oban peer lock so core-elx remains the scheduler leader.
     peer: false
   ]

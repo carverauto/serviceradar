@@ -26,6 +26,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -592,6 +593,44 @@ func (n *NATSStore) GetObjectInfo(ctx context.Context, key string) (*ObjectInfo,
 	return convertObjectInfo(domain, realKey, info), true, nil
 }
 
+func (n *NATSStore) ListObjects(ctx context.Context, opts ObjectListOptions) ([]*ObjectInfo, string, error) {
+	domain := opts.Domain
+	realPrefix := opts.Prefix
+
+	if domain == "" {
+		domain, realPrefix = n.extractDomain(opts.Prefix)
+	}
+
+	store, err := n.getObjectStoreForDomain(ctx, domain)
+	if err != nil {
+		return nil, "", err
+	}
+
+	infos, err := store.List(ctx)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrNoObjectsFound) {
+			return []*ObjectInfo{}, "", nil
+		}
+
+		return nil, "", fmt.Errorf("failed to list objects with prefix %s: %w", opts.Prefix, err)
+	}
+
+	objects := make([]*ObjectInfo, 0, len(infos))
+	for _, info := range infos {
+		if info == nil || (realPrefix != "" && !strings.HasPrefix(info.Name, realPrefix)) {
+			continue
+		}
+
+		objects = append(objects, convertObjectInfo(domain, info.Name, info))
+	}
+
+	sort.Slice(objects, func(i, j int) bool {
+		return objects[i].Key < objects[j].Key
+	})
+
+	return paginateObjectInfos(objects, opts.PageSize, opts.PageToken)
+}
+
 func (n *NATSStore) Close() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -606,6 +645,37 @@ func (n *NATSStore) Close() error {
 	n.objectStores = nil
 
 	return nil
+}
+
+func paginateObjectInfos(objects []*ObjectInfo, pageSize int, pageToken string) ([]*ObjectInfo, string, error) {
+	if pageSize <= 0 || pageSize > 1000 {
+		pageSize = 1000
+	}
+
+	offset := 0
+	if pageToken != "" {
+		parsed, err := strconv.Atoi(pageToken)
+		if err != nil || parsed < 0 {
+			return nil, "", fmt.Errorf("invalid page token")
+		}
+		offset = parsed
+	}
+
+	if offset >= len(objects) {
+		return []*ObjectInfo{}, "", nil
+	}
+
+	end := offset + pageSize
+	if end > len(objects) {
+		end = len(objects)
+	}
+
+	nextToken := ""
+	if end < len(objects) {
+		nextToken = strconv.Itoa(end)
+	}
+
+	return objects[offset:end], nextToken, nil
 }
 
 // Ensure NATSStore implements both interfaces.

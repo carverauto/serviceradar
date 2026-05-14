@@ -841,6 +841,25 @@ if config_env() == :prod do
     end
 
   # Oban configuration
+  object_store_retention_enabled =
+    System.get_env("OBJECT_STORE_RETENTION_ENABLED", "false") in ~w(true 1 yes)
+
+  object_store_retention_dry_run =
+    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "true") in ~w(true 1 yes)
+
+  object_store_retention_cron =
+    System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
+
+  object_store_retention_crontab =
+    if object_store_retention_enabled do
+      [
+        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker,
+         args: %{"enabled" => true}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -858,7 +877,8 @@ if config_env() == :prod do
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
       integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
-      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
+      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "5")
     ],
     plugins: [
       Oban.Plugins.Pruner,
@@ -869,9 +889,17 @@ if config_env() == :prod do
          {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
          {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
          {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
-       ]}
+       ] ++ object_store_retention_crontab}
     ],
     peer: Oban.Peers.Database
+
+  config :serviceradar_core, :object_store_retention,
+    enabled?: object_store_retention_enabled,
+    dry_run?: object_store_retention_dry_run,
+    agent_release_keep_latest:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "5"),
+    datasvc_timeout_ms:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 
   if nats_enabled && nats_creds_file in [nil, ""] do
     raise """

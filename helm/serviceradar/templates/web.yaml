@@ -15,6 +15,7 @@
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
 {{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
+{{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
 {{- $agentReleasePublicKey := default "" $webNg.agentReleasePublicKey -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
@@ -369,15 +370,31 @@ spec:
         - name: PLUGIN_STORAGE_PATH
           value: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
         {{- end }}
+        {{- if $pluginStorage.jetstreamBucket }}
+        - name: PLUGIN_STORAGE_BUCKET
+          value: {{ $pluginStorage.jetstreamBucket | quote }}
+        {{- end }}
+        {{- if $pluginStorage.jetstreamReplicas }}
+        - name: PLUGIN_STORAGE_JS_REPLICAS
+          value: {{ $pluginStorage.jetstreamReplicas | quote }}
+        {{- end }}
         - name: PLUGIN_STORAGE_SIGNING_SECRET
           valueFrom:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: plugin-storage-signing-secret
-        {{- if $pluginStorage.jetstreamReplicas }}
-        - name: PLUGIN_STORAGE_JS_REPLICAS
-          value: {{ $pluginStorage.jetstreamReplicas | quote }}
         {{- end }}
+        - name: OBJECT_STORE_RETENTION_ENABLED
+          value: {{ default false $objectStoreRetention.enabled | quote }}
+        - name: OBJECT_STORE_RETENTION_DRY_RUN
+          value: {{ default true $objectStoreRetention.dryRun | quote }}
+        - name: OBJECT_STORE_RETENTION_CRON
+          value: {{ default "0 3 * * *" $objectStoreRetention.cron | quote }}
+        - name: OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS
+          value: {{ default 604800 $objectStoreRetention.pluginOrphanGraceSeconds | quote }}
+        {{- if $objectStoreRetention.enabled }}
+        - name: OBAN_MAINTENANCE_QUEUE_LIMIT
+          value: {{ default 1 $objectStoreRetention.webNgMaintenanceQueueLimit | quote }}
         {{- end }}
         - name: SERVICERADAR_API_KEY
           valueFrom:
