@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SyncIngestor
@@ -58,8 +59,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       Device
       |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
       |> Ash.read(actor: actor)
+      |> Page.unwrap()
 
-    devices_at_ip = List.wrap(devices_at_ip)
     assert length(devices_at_ip) == 1
     [%Device{uid: canonical_uid}] = devices_at_ip
     assert canonical_uid == existing.uid
@@ -75,9 +76,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   end
 
   defp unique_test_ip do
-    seed = System.unique_integer([:positive, :monotonic])
-    third = rem(seed, 250) + 1
-    fourth = rem(div(seed, 250), 250) + 1
-    "100.124.#{third}.#{fourth}"
+    <<third, fourth, _rest::binary>> = :crypto.hash(:sha256, Ash.UUID.generate())
+    "100.124.#{1 + rem(third, 250)}.#{1 + rem(fourth, 250)}"
   end
 end

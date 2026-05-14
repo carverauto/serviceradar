@@ -29,3 +29,20 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 - Authentication failures usually mean expired client secrets—rotate them in the integration config and confirm the agent is online.
 - Large accounts may hit rate limits; tune `page_size` and enable incremental sync by storing the `last_seen` cursor.
 - For ingestion gaps, consult the [Troubleshooting Guide](./troubleshooting-guide.md#armis) and cross-check Faker vs. production statistics.
+
+## Large Ingestion Validation
+
+Before releasing changes that touch Armis sync, sync result streaming, ResultsRouter, identity reconciliation, sweep ingestion, or mapper promotion, run the large-ingestion release gate against an isolated CNPG database:
+
+```bash
+scripts/validate-large-ingestion.sh
+```
+
+The gate exercises two paths:
+
+- The agent fetches two configured Armis queries, refreshes the access token after an intentional `401`, pages 50k fake devices, and emits the same `StreamStatus` result chunks used in production.
+- Core receives gateway-style sync chunks through `ResultsRouter`, ingests them into inventory, and asserts final device, identifier, and query-label counts.
+
+Use `$srql-fixtures-db-tests` to create the scratch CNPG database first when `SERVICERADAR_TEST_DATABASE_URL` is not already set. The validation defaults to 50k devices and 1k-device chunks; override with `SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT` and `SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE` for a smaller local smoke run.
+
+During a live run, the agent logs one `Starting Armis sync` event and one `Armis page streamed` event per page. The page log includes `run_id`, `query_label`, `page_index`, `from`, `armis_result_count`, `filtered_count`, `streamed_count`, `run_streamed_total`, `armis_total`, `next`, and `token_refresh_count`.

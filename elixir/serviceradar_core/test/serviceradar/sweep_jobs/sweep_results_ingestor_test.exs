@@ -378,6 +378,52 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert stats.hosts_available == 1
     end
 
+    test "host is available when ICMP succeeds even if aggregate available is false" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "available" => false,
+          "icmp_status" => %{"available" => true, "round_trip" => 5_000_000},
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0}
+          ]
+        }
+      ]
+
+      {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :available
+      assert record.sweep_modes_results["icmp"] == "success"
+      assert stats.hosts_available == 1
+      assert stats.hosts_failed == 0
+    end
+
+    test "host is available when TCP succeeds even if aggregate available is false" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "available" => false,
+          "icmp_status" => %{"available" => false, "round_trip" => 0},
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0},
+            %{"port" => 443, "available" => true, "response_time" => 1_000_000}
+          ]
+        }
+      ]
+
+      {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :available
+      assert record.open_ports == [443]
+      assert record.sweep_modes_results["tcp"] == "success"
+      assert stats.hosts_available == 1
+      assert stats.hosts_failed == 0
+    end
+
     test "host is unavailable when all checks fail" do
       execution_id = Ash.UUID.generate()
 

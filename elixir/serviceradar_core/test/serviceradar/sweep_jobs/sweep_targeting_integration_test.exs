@@ -11,6 +11,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -293,6 +295,74 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       refute first_ip in compiled_group["targets"]
       refute second_ip in compiled_group["targets"]
       refute "#{first_ip}, #{second_ip}" in compiled_group["targets"]
+    end
+
+    test "ignores integration network blacklist settings when compiling sweep targets", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      included_ip = unique_device_ip(unique_id, 13)
+      source_agent_id = "blacklist-source-agent-#{unique_id}"
+
+      {:ok, _agent} =
+        Agent
+        |> Ash.Changeset.for_create(:register_connected, %{uid: source_agent_id}, actor: actor)
+        |> Ash.create(actor: actor)
+
+      {:ok, _armis_source} =
+        IntegrationSource
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Armis Source #{unique_id}",
+            source_type: :armis,
+            endpoint: "https://armis.example.invalid",
+            agent_id: source_agent_id,
+            network_blacklist: ["10.0.0.0/8", "192.168.0.0/16"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-blacklist-isolated-#{unique_id}",
+            ip: included_ip,
+            hostname: "blacklist-isolated-#{unique_id}"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Blacklist Isolation Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: ~s(in:devices hostname:"blacklist-isolated-#{unique_id}"),
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
+
+      compiled_group =
+        Enum.find(entry.config["groups"], fn g ->
+          g["name"] == "Blacklist Isolation Group #{unique_id}"
+        end)
+
+      assert compiled_group
+      assert included_ip in compiled_group["targets"]
     end
 
     test "compiles sweep group combining SRQL with static_targets", %{

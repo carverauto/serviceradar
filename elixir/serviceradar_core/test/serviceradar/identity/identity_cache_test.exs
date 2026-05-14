@@ -55,6 +55,34 @@ defmodule ServiceRadar.Identity.IdentityCacheTest do
     assert IdentityCache.get("device-20") == records[20]
   end
 
+  test "delete and clear emit invalidation telemetry" do
+    attach_telemetry([[:serviceradar, :identity, :cache, :invalidation]])
+
+    IdentityCache.put("device-1", record(1))
+    IdentityCache.put("device-2", record(2))
+
+    assert :ok = IdentityCache.delete("device-1")
+
+    assert_receive {:telemetry, [:serviceradar, :identity, :cache, :invalidation], %{count: 1},
+                    %{reason: :delete}}
+
+    assert :ok = IdentityCache.clear()
+
+    assert_receive {:telemetry, [:serviceradar, :identity, :cache, :invalidation], %{count: 1},
+                    %{reason: :clear}}
+  end
+
+  test "expired entries emit stale reject telemetry" do
+    attach_telemetry([[:serviceradar, :identity, :cache]])
+
+    IdentityCache.put("expired-device", record(1), ttl_ms: -1)
+
+    assert IdentityCache.get("expired-device") == nil
+
+    assert_receive {:telemetry, [:serviceradar, :identity, :cache], %{count: 1},
+                    %{result: :stale_reject, reason: :expired}}
+  end
+
   defp record(i) do
     %{
       canonical_device_id: "device-#{i}",
@@ -63,5 +91,22 @@ defmodule ServiceRadar.Identity.IdentityCacheTest do
       attributes: %{"index" => i},
       updated_at: DateTime.utc_now()
     }
+  end
+
+  defp attach_telemetry(events) do
+    test_pid = self()
+    handler_id = "identity-cache-test-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 end

@@ -31,12 +31,14 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
 
   test "batch lookup resolves confirmed IP aliases", %{actor: actor} do
     uid = "sr:" <> Ecto.UUID.generate()
+    canonical_ip = unique_ip("canonical-alias")
+    alias_ip = unique_ip("confirmed-alias")
 
     assert {:ok, _device} =
              Device
              |> Ash.Changeset.for_create(:create, %{
                uid: uid,
-               ip: "216.17.46.98",
+               ip: canonical_ip,
                hostname: "tonka01"
              })
              |> Ash.create(actor: actor)
@@ -47,7 +49,7 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
                  device_id: uid,
                  partition: "default",
                  alias_type: :ip,
-                 alias_value: "192.168.10.1",
+                 alias_value: alias_ip,
                  metadata: %{}
                },
                actor: actor
@@ -60,13 +62,13 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
                actor: actor
              )
 
-    result = DeviceLookup.batch_lookup_by_ip(["192.168.10.1"], actor: actor)
+    result = DeviceLookup.batch_lookup_by_ip([alias_ip], actor: actor)
 
-    assert result["192.168.10.1"].canonical_device_id == uid
+    assert result[alias_ip].canonical_device_id == uid
   end
 
   test "batch lookup ignores stale identity cache by default", %{actor: actor} do
-    ip = "192.0.2.201"
+    ip = unique_ip("batch-stale")
     stale_record = stale_record("sr:" <> Ecto.UUID.generate(), ip)
 
     IdentityCache.put(ip, stale_record)
@@ -77,8 +79,18 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
     assert cached_result[ip].canonical_device_id == stale_record.canonical_device_id
   end
 
+  test "batch lookup emits authoritative fallback telemetry for cache misses", %{actor: actor} do
+    attach_telemetry([[:serviceradar, :identity, :lookup, :authoritative_fallback]])
+    ip = unique_ip("authoritative-fallback")
+
+    assert DeviceLookup.batch_lookup_by_ip([ip], actor: actor, use_cache: true) == %{}
+
+    assert_receive {:telemetry, [:serviceradar, :identity, :lookup, :authoritative_fallback],
+                    %{count: 1}, %{reason: :cache_miss}}
+  end
+
   test "single lookup ignores stale identity cache by default", %{actor: actor} do
-    ip = "192.0.2.202"
+    ip = unique_ip("single-stale")
     stale_record = stale_record("sr:" <> Ecto.UUID.generate(), ip)
 
     IdentityCache.put(ip, stale_record)
@@ -96,7 +108,7 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
   end
 
   test "device lifecycle invalidates IP identity cache", %{actor: actor} do
-    ip = "192.0.2.203"
+    ip = unique_ip("device-lifecycle")
     stale_record = stale_record("sr:" <> Ecto.UUID.generate(), ip)
 
     IdentityCache.put(ip, stale_record)
@@ -116,14 +128,15 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
 
   test "alias lifecycle invalidates IP identity cache", %{actor: actor} do
     uid = "sr:" <> Ecto.UUID.generate()
-    alias_ip = "192.0.2.204"
+    device_ip = unique_ip("alias-lifecycle-device")
+    alias_ip = unique_ip("alias-lifecycle-alias")
     stale_record = stale_record(uid, alias_ip)
 
     assert {:ok, _device} =
              Device
              |> Ash.Changeset.for_create(:create, %{
                uid: uid,
-               ip: "192.0.2.254",
+               ip: device_ip,
                hostname: "alias-cache-invalidation-test"
              })
              |> Ash.create(actor: actor)
@@ -154,5 +167,29 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
       attributes: %{"ip" => ip, "partition" => "default"},
       updated_at: DateTime.utc_now()
     }
+  end
+
+  defp unique_ip(seed) do
+    <<second, third, fourth, _rest::binary>> =
+      :crypto.hash(:sha256, "#{seed}-#{Ash.UUID.generate()}")
+
+    "10.#{1 + rem(second, 254)}.#{1 + rem(third, 254)}.#{1 + rem(fourth, 254)}"
+  end
+
+  defp attach_telemetry(events) do
+    test_pid = self()
+    handler_id = "device-lookup-test-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 end

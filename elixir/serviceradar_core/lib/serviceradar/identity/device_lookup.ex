@@ -220,7 +220,12 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     )
   end
 
-  defp fetch_cache_hits(unique_ips, true), do: IdentityCache.get_batch(unique_ips)
+  defp fetch_cache_hits(unique_ips, true) do
+    {hits, misses} = IdentityCache.get_batch(unique_ips)
+    emit_authoritative_fallback_telemetry(length(misses), :cache_miss)
+    {hits, misses}
+  end
+
   defp fetch_cache_hits(unique_ips, false), do: {%{}, unique_ips}
 
   defp cache_db_results(db_results, true) do
@@ -674,6 +679,16 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         found: result.found,
         resolved_via: result.resolved_via
       }
+    )
+  end
+
+  defp emit_authoritative_fallback_telemetry(0, _reason), do: :ok
+
+  defp emit_authoritative_fallback_telemetry(count, reason) do
+    :telemetry.execute(
+      [:serviceradar, :identity, :lookup, :authoritative_fallback],
+      %{count: count},
+      %{reason: reason}
     )
   end
 end

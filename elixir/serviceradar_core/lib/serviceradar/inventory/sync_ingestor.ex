@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -126,6 +127,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     case upsert_devices(device_records) do
       {:ok, remap} ->
+        invalidate_identity_cache_for_device_records(device_records)
+
         # An IP-conflict recovery may have rewritten device uids during the
         # device upsert. Apply the same mapping to identifier records and the
         # resolved-update tuples so downstream steps reference uids that
@@ -134,6 +137,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         resolved_updates = apply_uid_remap_to_resolved_updates(resolved_updates, remap)
 
         identifier_result = upsert_identifiers(identifier_records)
+        invalidate_identity_cache_for_identifier_records(identifier_records)
 
         _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
         alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
@@ -166,6 +170,27 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     Enum.map(resolved, fn {update, device_id} ->
       {update, Map.get(remap, device_id, device_id)}
     end)
+  end
+
+  defp invalidate_identity_cache_for_device_records(records) do
+    records
+    |> Enum.map(&Map.get(&1, :ip))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.each(&IdentityCache.delete/1)
+  end
+
+  defp invalidate_identity_cache_for_identifier_records(records) do
+    records
+    |> Enum.filter(&(&1.identifier_type in [:ip, "ip"]))
+    |> Enum.map(& &1.identifier_value)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.each(&IdentityCache.delete/1)
   end
 
   defp normalize_updates(updates) do
@@ -961,10 +986,15 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp merge_sync_meta_metadata(metadata, sync_meta)
        when is_map(metadata) and is_map(sync_meta) and map_size(sync_meta) > 0 do
-    maybe_put_sync_meta(
-      metadata,
+    metadata
+    |> maybe_put_sync_meta(
       "sync_service_id",
       sync_meta["sync_service_id"] || sync_meta[:sync_service_id]
+    )
+    |> maybe_put_sync_meta("sync_run_id", sync_meta["sync_run_id"] || sync_meta[:sync_run_id])
+    |> maybe_put_sync_meta(
+      "sync_total_devices",
+      sync_meta["total_devices"] || sync_meta[:total_devices]
     )
   end
 

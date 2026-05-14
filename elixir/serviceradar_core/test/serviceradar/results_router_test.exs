@@ -238,6 +238,45 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert opts[:is_final] == false
   end
 
+  test "derives sweep host availability from successful probes when aggregate is false" do
+    execution_id = Ash.UUID.generate()
+
+    payload = %{
+      "execution_id" => execution_id,
+      "last_sweep" => 1_700_000_000,
+      "hosts" => [
+        %{
+          "host" => "192.168.1.12",
+          "available" => false,
+          "icmp_status" => %{"available" => false},
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0},
+            %{"port" => 443, "available" => true, "response_time" => "2ms"}
+          ]
+        }
+      ]
+    }
+
+    status = %{
+      source: "results",
+      service_type: "sweep",
+      message: Jason.encode!(payload),
+      agent_id: "agent-1"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:sweep_ingest, [result], _received_execution_id, _opts}
+    assert result["host_ip"] == "192.168.1.12"
+    assert result["available"] == true
+    assert result["icmp_available"] == false
+
+    assert result["port_results"] == [
+             %{"port" => 22, "available" => false, "response_time_ns" => 0},
+             %{"port" => 443, "available" => true, "response_time_ns" => 2_000_000}
+           ]
+  end
+
   test "rejects non-summary sweep payloads" do
     execution_id = Ash.UUID.generate()
 
