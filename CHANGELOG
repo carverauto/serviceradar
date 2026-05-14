@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.52
+
+Device availability, sweep result routing, and inventory metadata visibility hotfix.
+
+## Whats New
+
+**1.2.52**
+- Fixed Armis and other sync updates that omit `is_available` so they preserve existing sweep-owned availability state instead of writing false by default.
+- Fixed sweep result handling so payload execution IDs are preserved, TCP-only scans do not manufacture ICMP failure fields, and ICMP/TCP evidence is parsed consistently across sweep ingestion paths.
+- Reduced device inventory refresh artifacts by debouncing PubSub-driven refreshes while preserving loaded stats and enrichment data.
+- Added a clean metadata summary to device details for integration, Armis, inventory, and sweep metadata such as `query_label`, without dumping raw JSON into the UI.
+- Linked the Armis and NetBox integration docs in the docs sidebar.
+
 # ServiceRadar v1.2.51
 
 Identity ingestion, Armis validation, and sweep availability hardening.
