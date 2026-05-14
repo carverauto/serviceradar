@@ -1,7 +1,7 @@
 ## 1. Design And Data Model
-- [ ] 1.1 Define registered desktop/RDP target resources, including route, TLS/NLA, credential mode, screen policy, redirection policy, approval, and recording fields.
+- [x] 1.1 Define registered desktop/RDP target resources, including route, TLS/NLA, credential mode, screen policy, redirection policy, approval, and recording fields.
 - [ ] 1.2 Define desktop session lifecycle, typed graphical frames, renderer control frames, cancellation semantics, and route binding shared by web-ng, core, agent-gateway, and agent.
-- [ ] 1.3 Define credential modes for domain-backed delegation, smart-card/certificate auth, memory-only per-session user credentials, and brokered fallback secrets.
+- [x] 1.3 Define credential modes for domain-backed delegation, smart-card/certificate auth, memory-only per-session user credentials, and brokered fallback secrets.
 - [ ] 1.4 Record exact dependency choices for RDP protocol and browser rendering before implementation.
 
 ## 2. Policy, RBAC, And API

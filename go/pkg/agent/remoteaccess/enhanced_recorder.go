@@ -26,6 +26,8 @@ const (
 	CapabilityRemoteAccessSSH       = "remote_access.ssh"
 	CapabilityRemoteAccessFile      = "remote_access.file_transfer"
 	CapabilityRemoteAccessSFTP      = "remote_access.sftp"
+	CapabilityRemoteAccessDesktop   = "remote_access.desktop"
+	CapabilityRemoteAccessRDP       = "remote_access.rdp"
 	CapabilityRemoteAccessRecording = "remote_access.recording"
 	CapabilityRemoteAccessBPF       = "remote_access.bpf"
 )
