@@ -45,6 +45,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
     {:ok,
      %{
        sessions: %{},
+       signaling_index: %{},
        session_ttl_ms:
          Keyword.get(
            opts,
@@ -112,7 +113,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
              Keyword.put(opts, :transport, @transport)
            ) do
         :ok ->
-          {:noreply, put_in(state, [:sessions, viewer_session_id], session)}
+          {:noreply, put_session(state, session)}
 
         {:error, reason} ->
           _ = Signaling.close(signaling)
@@ -138,7 +139,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
             %{"type" => "sdp_answer", "data" => %{"type" => "answer", "sdp" => answer_sdp}}
           )
 
-        {:reply, {:ok, session_response(updated)}, put_in(state, [:sessions, viewer_session_id], updated)}
+        {:reply, {:ok, session_response(updated)}, put_session(state, updated)}
 
       {:error, :viewer_session_not_found} = error ->
         {:reply, error, state}
@@ -156,7 +157,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
 
         :ok = Signaling.signal(updated.signaling, %{"type" => "ice_candidate", "data" => candidate})
 
-        {:reply, {:ok, session_response(updated)}, put_in(state, [:sessions, viewer_session_id], updated)}
+        {:reply, {:ok, session_response(updated)}, put_session(state, updated)}
 
       {:error, :viewer_session_not_found} = error ->
         {:reply, error, state}
@@ -164,12 +165,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   end
 
   def handle_call({:close_session, session_id, viewer_session_id, opts}, _from, state) do
-    case Map.pop(state.sessions, viewer_session_id) do
-      {nil, _sessions} ->
+    case Map.get(state.sessions, viewer_session_id) do
+      nil ->
         {:reply, {:error, :viewer_session_not_found}, state}
 
-      {%{session_id: ^session_id} = session, sessions} ->
+      %{session_id: ^session_id} = session ->
         close_runtime_session(state, session)
+        state = remove_session(state, session)
 
         {:reply,
          {:ok,
@@ -177,36 +179,36 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
             viewer_session_id: viewer_session_id,
             signaling_state: "closed",
             close_reason: close_reason(opts)
-          }}, %{state | sessions: sessions}}
+          }}, state}
 
-      {_session, _sessions} ->
+      _session ->
         {:reply, {:error, :viewer_session_not_found}, state}
     end
   end
 
   @impl true
   def handle_info({:expire_session, viewer_session_id}, state) do
-    case Map.pop(state.sessions, viewer_session_id) do
-      {nil, _sessions} ->
+    case Map.get(state.sessions, viewer_session_id) do
+      nil ->
         {:noreply, state}
 
-      {session, sessions} ->
+      session ->
         close_runtime_session(state, session)
-        {:noreply, %{state | sessions: sessions}}
+        {:noreply, remove_session(state, session)}
     end
   end
 
   def handle_info({:offer_timeout, viewer_session_id}, state) do
-    case Map.pop(state.sessions, viewer_session_id) do
-      {nil, _sessions} ->
+    case Map.get(state.sessions, viewer_session_id) do
+      nil ->
         {:noreply, state}
 
-      {%{pending_reply_to: from} = session, sessions} when not is_nil(from) ->
+      %{pending_reply_to: from} = session when not is_nil(from) ->
         close_runtime_session(state, session)
         GenServer.reply(from, {:error, "desktop webrtc offer timed out"})
-        {:noreply, %{state | sessions: sessions}}
+        {:noreply, remove_session(state, session)}
 
-      {_session, _sessions} ->
+      _session ->
         {:noreply, state}
     end
   end
@@ -226,7 +228,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
           |> Map.put(:pending_reply_to, nil)
 
         maybe_reply_offer(session.pending_reply_to, updated)
-        {:noreply, put_in(state, [:sessions, session.viewer_session_id], updated)}
+        {:noreply, put_session(state, updated)}
 
       :error ->
         {:noreply, state}
@@ -244,7 +246,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
           |> refresh_session(state.session_ttl_ms)
           |> Map.put(:last_remote_candidate, candidate)
 
-        {:noreply, put_in(state, [:sessions, session.viewer_session_id], updated)}
+        {:noreply, put_session(state, updated)}
 
       :error ->
         {:noreply, state}
@@ -263,7 +265,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
           |> Map.put(:signaling_state, "answer_applied")
           |> Map.put(:answer_sdp, extract_sdp(answer_data))
 
-        {:noreply, put_in(state, [:sessions, session.viewer_session_id], updated)}
+        {:noreply, put_session(state, updated)}
 
       :error ->
         {:noreply, state}
@@ -282,9 +284,28 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   end
 
   defp fetch_session_by_signaling(state, signaling_pid) when is_pid(signaling_pid) do
-    Enum.find_value(state.sessions, :error, fn {_viewer_session_id, session} ->
-      if session.signaling_pid == signaling_pid, do: {:ok, session}, else: false
-    end)
+    with viewer_session_id when is_binary(viewer_session_id) <- Map.get(state.signaling_index, signaling_pid),
+         session when is_map(session) <- Map.get(state.sessions, viewer_session_id) do
+      {:ok, session}
+    else
+      _other -> :error
+    end
+  end
+
+  defp put_session(state, session) do
+    %{
+      state
+      | sessions: Map.put(state.sessions, session.viewer_session_id, session),
+        signaling_index: Map.put(state.signaling_index, session.signaling_pid, session.viewer_session_id)
+    }
+  end
+
+  defp remove_session(state, session) do
+    %{
+      state
+      | sessions: Map.delete(state.sessions, session.viewer_session_id),
+        signaling_index: Map.delete(state.signaling_index, session.signaling_pid)
+    }
   end
 
   defp available_desktop_session({:ok, session}) when is_map(session), do: {:ok, session}
