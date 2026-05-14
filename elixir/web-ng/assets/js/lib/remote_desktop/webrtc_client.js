@@ -1,4 +1,4 @@
-import {parseDesktopMediaFrame, parseDesktopMediaMetadata, shouldDropStaleDesktopFrame} from "./media_frame"
+import {parseDesktopMediaFrame, shouldDropStaleDesktopFrame} from "./media_frame"
 
 export const DESKTOP_MEDIA_CHANNEL = "desktop-media"
 export const DESKTOP_CONTROL_CHANNEL = "desktop-control"
@@ -51,7 +51,6 @@ export class RemoteDesktopWebRTCClient {
     mediaAckFrameInterval = 4,
     mediaAckMaxDelayMs = 25,
     mediaQueueState = () => ({}),
-    eagerMediaMetadata = true,
   } = {}) {
     this.signalingPath = signalingPath
     this.iceServers = iceServers
@@ -70,7 +69,6 @@ export class RemoteDesktopWebRTCClient {
     this.mediaAckFrameInterval = Math.max(1, mediaAckFrameInterval)
     this.mediaAckMaxDelayMs = Math.max(0, mediaAckMaxDelayMs)
     this.mediaQueueState = typeof mediaQueueState === "function" ? mediaQueueState : () => ({})
-    this.eagerMediaMetadata = eagerMediaMetadata !== false
     this.peerConnection = null
     this.viewerSessionId = null
     this.channels = new Map()
@@ -228,7 +226,7 @@ export class RemoteDesktopWebRTCClient {
         return
       }
 
-      this.onFrame(frame, this.eagerMediaMetadata ? parseDesktopMediaMetadata(frame) : null)
+      this.onFrame(frame)
       this.queueMediaAck(frame)
 
       return
