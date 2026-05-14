@@ -74,6 +74,7 @@ const (
 var (
 	ErrInvalidDesktopTarget = errors.New("invalid desktop target")
 	ErrInvalidDesktopFrame  = errors.New("invalid desktop frame")
+	ErrDesktopContentRecord = errors.New("desktop content recording disabled")
 )
 
 // DesktopOpenPayload is the agent-side open-frame contract for graphical
@@ -398,6 +399,23 @@ func normalizeDesktopAuditReason(reason string, maxBytes int) (string, bool) {
 	}
 
 	return strings.TrimSpace(out.String()), truncated
+}
+
+// ValidateDesktopContentRecording returns nil only when policy explicitly
+// allows retaining the content represented by the frame.
+func ValidateDesktopContentRecording(frame DesktopFrame, policy DesktopRecordingPolicy) error {
+	switch frame.FrameType {
+	case DesktopFrameTypeUpdate:
+		if !policy.ScreenEnabled {
+			return ErrDesktopContentRecord
+		}
+	case DesktopFrameTypeClipboard:
+		if !policy.ClipboardEnabled {
+			return ErrDesktopContentRecord
+		}
+	}
+
+	return nil
 }
 
 // EncodeDesktopFramePayload validates and serializes a typed desktop frame for

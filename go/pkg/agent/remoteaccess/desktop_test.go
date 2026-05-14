@@ -403,6 +403,45 @@ func TestDesktopTerminationAuditMetadataCapsAndNormalizesReason(t *testing.T) {
 	}
 }
 
+func TestValidateDesktopContentRecordingRequiresExplicitContentPolicy(t *testing.T) {
+	t.Parallel()
+
+	update := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeUpdate,
+		Data:      []byte("screen"),
+	}
+	clipboard := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeClipboard,
+		Data:      []byte("clipboard"),
+	}
+	input := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input:     &DesktopInputEvent{Kind: DesktopInputKindFocus},
+	}
+
+	if err := ValidateDesktopContentRecording(update, DesktopRecordingPolicy{}); !errors.Is(err, ErrDesktopContentRecord) {
+		t.Fatalf("screen recording error = %v, want %v", err, ErrDesktopContentRecord)
+	}
+	if err := ValidateDesktopContentRecording(clipboard, DesktopRecordingPolicy{}); !errors.Is(err, ErrDesktopContentRecord) {
+		t.Fatalf("clipboard recording error = %v, want %v", err, ErrDesktopContentRecord)
+	}
+	if err := ValidateDesktopContentRecording(update, DesktopRecordingPolicy{ScreenEnabled: true}); err != nil {
+		t.Fatalf("screen recording with policy returned error: %v", err)
+	}
+	if err := ValidateDesktopContentRecording(clipboard, DesktopRecordingPolicy{ClipboardEnabled: true}); err != nil {
+		t.Fatalf("clipboard recording with policy returned error: %v", err)
+	}
+	if err := ValidateDesktopContentRecording(input, DesktopRecordingPolicy{}); err != nil {
+		t.Fatalf("metadata-only input recording returned error: %v", err)
+	}
+}
+
 func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing.T) {
 	t.Parallel()
 
