@@ -155,9 +155,168 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   end
 
   test "fails closed when desktop media stream forwarding is not enabled" do
-    assert_raise GRPC.RPCError, ~r/desktop media stream forwarding is not enabled/, fn ->
-      DesktopMediaServer.stream_desktop_media([], test_stream())
+    assert_raise GRPC.RPCError, ~r/desktop media frame forwarding is not enabled/, fn ->
+      stream = test_stream()
+      open_desktop_session!("desktop-stream-frame-1", "media-stream-frame-1", stream)
+
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-frame-1",
+                 media_session_id: "media-stream-frame-1",
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1, 2, 3>>
+               }}
+          }
+        ],
+        stream
+      )
     end
+  end
+
+  test "desktop media stream accepts heartbeat and close control messages" do
+    stream = test_stream(test_pid: self())
+    open_response = open_desktop_session!("desktop-stream-control-1", "media-stream-control-1", stream)
+
+    assert :ok =
+             DesktopMediaServer.stream_desktop_media(
+               [
+                 %Desktopmedia.DesktopMediaClientMessage{
+                   message:
+                     {:heartbeat,
+                      %Desktopmedia.DesktopMediaHeartbeat{
+                        desktop_session_id: "desktop-stream-control-1",
+                        media_session_id: "media-stream-control-1",
+                        media_ingest_id: open_response.media_ingest_id,
+                        agent_id: "agent-1",
+                        last_sequence: 3,
+                        sent_bytes: 512,
+                        received_credit_bytes: 256,
+                        viewer_count: 1
+                      }}
+                 },
+                 %Desktopmedia.DesktopMediaClientMessage{
+                   message:
+                     {:close,
+                      %Desktopmedia.DesktopMediaStreamClose{
+                        desktop_session_id: "desktop-stream-control-1",
+                        media_session_id: "media-stream-control-1",
+                        media_ingest_id: open_response.media_ingest_id,
+                        agent_id: "agent-1",
+                        reason: "done",
+                        last_sequence: 3
+                      }}
+                 }
+               ],
+               stream
+             )
+
+    assert_receive {:desktop_media_stream_reply,
+                    %Desktopmedia.DesktopMediaServerMessage{
+                      message:
+                        {:heartbeat,
+                         %Desktopmedia.DesktopMediaHeartbeatAck{
+                           accepted: true,
+                           message: "desktop media heartbeat accepted"
+                         }}
+                    }}
+
+    assert_receive {:desktop_media_stream_reply,
+                    %Desktopmedia.DesktopMediaServerMessage{
+                      message:
+                        {:close,
+                         %Desktopmedia.DesktopMediaStreamClose{
+                           desktop_session_id: "desktop-stream-control-1",
+                           media_session_id: "media-stream-control-1",
+                           agent_id: "agent-1",
+                           reason: "done",
+                           last_sequence: 3
+                         }}
+                    }}
+
+    assert DesktopMediaSessionTracker.fetch_session("desktop-stream-control-1") == nil
+  end
+
+  test "desktop media stream validates frame media binding before forwarding gate" do
+    stream = test_stream()
+    open_desktop_session!("desktop-stream-media-mismatch-1", "media-stream-owner-1", stream)
+
+    assert_raise GRPC.RPCError, ~r/media_session_id mismatch/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-media-mismatch-1",
+                 media_session_id: "media-other",
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+  end
+
+  test "desktop media stream rejects frames above the session chunk limit" do
+    stream = test_stream()
+
+    DesktopMediaServer.open_desktop_media_session(
+      %Desktopmedia.OpenDesktopMediaSessionRequest{
+        desktop_session_id: "desktop-stream-size-1",
+        media_session_id: "media-stream-size-1",
+        agent_id: "agent-1",
+        target_id: "target-1",
+        route_id: "route-1",
+        lease_token: "lease-stream-size-1",
+        requested_max_chunk_bytes: 2
+      },
+      stream
+    )
+
+    assert_raise GRPC.RPCError, ~r/desktop media frame exceeded max size 2/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-size-1",
+                 media_session_id: "media-stream-size-1",
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1, 2, 3>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+  end
+
+  defp open_desktop_session!(desktop_session_id, media_session_id, stream) do
+    DesktopMediaServer.open_desktop_media_session(
+      %Desktopmedia.OpenDesktopMediaSessionRequest{
+        desktop_session_id: desktop_session_id,
+        media_session_id: media_session_id,
+        agent_id: "agent-1",
+        target_id: "target-1",
+        route_id: "route-1",
+        lease_token: "lease-#{desktop_session_id}"
+      },
+      stream
+    )
+  end
+
+  defp test_stream(opts) do
+    Map.merge(test_stream(), Map.new(opts))
   end
 
   defp test_stream do

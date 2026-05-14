@@ -69,10 +69,34 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
               __STACKTRACE__
   end
 
-  def stream_desktop_media(_request_stream, _stream) do
-    raise GRPC.RPCError,
-      status: :unimplemented,
-      message: "desktop media stream forwarding is not enabled"
+  def stream_desktop_media(request_stream, stream) do
+    Enum.reduce_while(request_stream, :ok, fn
+      %Desktopmedia.DesktopMediaClientMessage{message: {:heartbeat, heartbeat}}, :ok ->
+        ack = heartbeat(heartbeat, stream)
+
+        send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
+          message: {:heartbeat, ack}
+        })
+
+      %Desktopmedia.DesktopMediaClientMessage{message: {:close, close}}, :ok ->
+        response = close_desktop_media_stream(close, stream)
+
+        send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
+          message: {:close, response}
+        })
+
+      %Desktopmedia.DesktopMediaClientMessage{message: {:frame, frame}}, :ok ->
+        validate_desktop_media_frame!(frame, stream)
+
+        raise GRPC.RPCError,
+          status: :failed_precondition,
+          message: "desktop media frame forwarding is not enabled"
+
+      _other, :ok ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "unsupported desktop media stream message"
+    end)
+
+    :ok
   end
 
   def heartbeat(%Desktopmedia.DesktopMediaHeartbeat{} = request, stream) do
@@ -145,6 +169,88 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     error in ArgumentError ->
       reraise GRPC.RPCError.exception(status: :invalid_argument, message: Exception.message(error)),
               __STACKTRACE__
+  end
+
+  defp close_desktop_media_stream(%Desktopmedia.DesktopMediaStreamClose{} = request, stream) do
+    agent_id = required_agent_id(request.agent_id)
+    identity = extract_identity_from_stream(stream)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    desktop_session_id = required_string(request.desktop_session_id, "desktop_session_id")
+    media_session_id = required_string(request.media_session_id, "media_session_id")
+
+    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{reason: request.reason}) do
+      :ok ->
+        %Desktopmedia.DesktopMediaStreamClose{
+          desktop_session_id: desktop_session_id,
+          media_session_id: media_session_id,
+          media_ingest_id: request.media_ingest_id,
+          agent_id: agent_id,
+          gateway_id: gateway_id(),
+          reason: request.reason,
+          last_sequence: request.last_sequence
+        }
+
+      {:error, %GRPC.RPCError{} = error} ->
+        raise error
+
+      {:error, :not_found} ->
+        raise GRPC.RPCError, status: :not_found, message: "desktop media session not found"
+
+      {:error, :media_session_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
+
+      {:error, :agent_id_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
+    end
+  end
+
+  defp validate_desktop_media_frame!(%Desktopmedia.DesktopMediaFrameChunk{} = frame, stream) do
+    agent_id = required_agent_id(frame.agent_id)
+    identity = extract_identity_from_stream(stream)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    desktop_session_id = required_string(frame.desktop_session_id, "desktop_session_id")
+    media_session_id = required_string(frame.media_session_id, "media_session_id")
+
+    case session_tracker().fetch_session(desktop_session_id, agent_id) do
+      {:ok, %{media_session_id: ^media_session_id} = session} ->
+        enforce_frame_size!(frame, session)
+        :ok
+
+      {:ok, _session} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
+
+      {:error, :not_found} ->
+        raise GRPC.RPCError, status: :not_found, message: "desktop media session not found"
+
+      {:error, :agent_id_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
+    end
+  rescue
+    error in ArgumentError ->
+      reraise GRPC.RPCError.exception(status: :invalid_argument, message: Exception.message(error)),
+              __STACKTRACE__
+  end
+
+  defp enforce_frame_size!(frame, session) do
+    byte_count = byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
+
+    if byte_count > session.max_chunk_bytes do
+      raise GRPC.RPCError,
+        status: :resource_exhausted,
+        message: "desktop media frame exceeded max size #{session.max_chunk_bytes}"
+    end
+  end
+
+  defp send_stream_reply(%{test_pid: test_pid}, response) when is_pid(test_pid) do
+    send(test_pid, {:desktop_media_stream_reply, response})
+    {:cont, :ok}
+  end
+
+  defp send_stream_reply(stream, response) do
+    GRPC.Server.send_reply(stream, response)
+    {:cont, :ok}
   end
 
   defp session_tracker do
