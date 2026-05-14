@@ -4,14 +4,18 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
   This process keeps viewer attachment and frame accounting state for desktop
   media without retaining screen payloads. A separate offer provider is still
-  required before WebRTC viewers can be admitted, so browser access remains
-  fail-closed until a concrete data-channel/media provider is configured.
+  required before WebRTC viewers can be admitted. The default runtime provider
+  owns the WebRTC DataChannels that carry SRDP media and browser control
+  acknowledgements.
   """
 
   use GenServer
 
+  alias ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider
+
   @default_unavailable "desktop media plane is not available"
   @default_max_browser_ack_credit_bytes 2 * 1_048_576
+  @default_offer_provider DataChannelProvider
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -153,11 +157,19 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
   defp resolve_offer_provider(opts) do
     provider =
-      Keyword.get(opts, :offer_provider) ||
-        Application.get_env(:serviceradar_core_elx, :remote_desktop_media_offer_provider)
+      cond do
+        Keyword.has_key?(opts, :offer_provider) ->
+          Keyword.fetch!(opts, :offer_provider)
+
+        configured = Application.get_env(:serviceradar_core_elx, :remote_desktop_media_offer_provider) ->
+          configured
+
+        true ->
+          @default_offer_provider
+      end
 
     cond do
-      is_nil(provider) ->
+      provider in [nil, false] ->
         {:error, @default_unavailable}
 
       Code.ensure_loaded?(provider) and function_exported?(provider, :add_webrtc_viewer, 4) ->

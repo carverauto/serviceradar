@@ -1,5 +1,5 @@
 defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager
 
@@ -27,12 +27,15 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
     :ok
   end
 
-  test "fails closed for WebRTC viewers until an offer provider is configured" do
+  test "fails closed for WebRTC viewers when the offer provider is disabled" do
     server = unique_server_name()
     start_supervised!({MediaSessionManager, name: server})
 
     assert {:error, "desktop media plane is not available"} =
-             MediaSessionManager.add_webrtc_viewer("desktop-manager-closed-1", "viewer-1", %{pid: self()}, server: server)
+             MediaSessionManager.add_webrtc_viewer("desktop-manager-closed-1", "viewer-1", %{pid: self()},
+               server: server,
+               offer_provider: false
+             )
   end
 
   test "tracks configured viewers and waits for browser credit before granting frame credit" do

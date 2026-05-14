@@ -295,7 +295,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
              WebRTCSignalingManager.create_session(Ecto.UUID.generate(), server: server_name)
   end
 
-  test "returns unavailable until a desktop media manager is configured" do
+  test "returns unavailable when the desktop media offer provider is disabled" do
     session_id = Ecto.UUID.generate()
     server_name = unique_server_name()
 
@@ -304,7 +304,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
     )
 
     assert {:error, "desktop media plane is not available"} =
-             WebRTCSignalingManager.create_session(session_id, server: server_name)
+             WebRTCSignalingManager.create_session(session_id, server: server_name, offer_provider: false)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
