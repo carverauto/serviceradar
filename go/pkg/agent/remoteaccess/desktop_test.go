@@ -235,8 +235,8 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 		t.Fatalf("SelectedAgentID = %q, want %q", got.Target.Route.SelectedAgentID, desktopTestAgentID)
 	}
 
-	if _, err := DecodeDesktopOpenFrameForAgent(frame, "agent-2"); !errors.Is(err, ErrInvalidDesktopTarget) {
-		t.Fatalf("route mismatch error = %v, want %v", err, ErrInvalidDesktopTarget)
+	if _, err := DecodeDesktopOpenFrameForAgent(frame, "agent-2"); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("route mismatch error = %v, want %v", err, ErrDesktopRouteLost)
 	}
 
 	payload.CredentialGrant.SessionID = "other-session"
@@ -247,6 +247,29 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 	frame.Data = data
 	if _, err := DecodeDesktopOpenFrameForAgent(frame, desktopTestAgentID); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("grant session mismatch error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+}
+
+func TestValidateDesktopRouteBindingDetectsRouteLoss(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+
+	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, "gateway-1"); err != nil {
+		t.Fatalf("ValidateDesktopRouteBinding returned error: %v", err)
+	}
+	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, ""); err != nil {
+		t.Fatalf("ValidateDesktopRouteBinding without gateway returned error: %v", err)
+	}
+	if err := ValidateDesktopRouteBinding(target, "agent-2", "gateway-1"); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("agent route-loss error = %v, want %v", err, ErrDesktopRouteLost)
+	}
+	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, "gateway-2"); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("gateway route-loss error = %v, want %v", err, ErrDesktopRouteLost)
+	}
+	if err := ValidateDesktopRouteBinding(target, "", "gateway-1"); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing local agent error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
 }
 

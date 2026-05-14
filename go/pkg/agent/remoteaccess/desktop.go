@@ -77,6 +77,7 @@ var (
 	ErrDesktopContentRecord  = errors.New("desktop content recording disabled")
 	ErrDesktopQuotaExceeded  = errors.New("desktop quota exceeded")
 	ErrDesktopSessionExpired = errors.New("desktop session expired")
+	ErrDesktopRouteLost      = errors.New("desktop route lost")
 )
 
 const desktopQuotaWindowNanos int64 = 1_000_000_000
@@ -302,6 +303,31 @@ func ValidateDesktopSessionLifetime(
 	return nil
 }
 
+// ValidateDesktopRouteBinding verifies that a still-running desktop session is
+// on the selected agent and, when supplied, selected gateway route.
+func ValidateDesktopRouteBinding(target DesktopTarget, localAgentID string, currentGatewayID string) error {
+	target, err := NormalizeDesktopTarget(target)
+	if err != nil {
+		return err
+	}
+
+	localAgentID = strings.TrimSpace(localAgentID)
+	currentGatewayID = strings.TrimSpace(currentGatewayID)
+	if localAgentID == "" {
+		return fmt.Errorf("%w: missing local agent binding", ErrInvalidDesktopTarget)
+	}
+	if target.Route.SelectedAgentID != localAgentID {
+		return fmt.Errorf("%w: selected agent changed", ErrDesktopRouteLost)
+	}
+	if currentGatewayID != "" &&
+		target.Route.SelectedGateway != "" &&
+		target.Route.SelectedGateway != currentGatewayID {
+		return fmt.Errorf("%w: selected gateway changed", ErrDesktopRouteLost)
+	}
+
+	return nil
+}
+
 // DecodeDesktopOpenPayload decodes and validates a trusted desktop open-frame
 // payload before an agent adapter dials the target.
 func DecodeDesktopOpenPayload(data []byte) (DesktopOpenPayload, error) {
@@ -351,8 +377,8 @@ func DecodeDesktopOpenFrameForAgent(frame Frame, localAgentID string) (DesktopOp
 	if err != nil {
 		return payload, err
 	}
-	if payload.Target.Route.SelectedAgentID != localAgentID {
-		return payload, fmt.Errorf("%w: selected route does not match local agent", ErrInvalidDesktopTarget)
+	if err := ValidateDesktopRouteBinding(payload.Target, localAgentID, ""); err != nil {
+		return payload, err
 	}
 	if payload.CredentialGrant != nil &&
 		payload.CredentialGrant.SessionID != "" &&

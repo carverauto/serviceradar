@@ -62,6 +62,7 @@
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
 - [x] 3.4.3 Add desktop idle timeout and session TTL validation for adapter close behavior.
+- [x] 3.4.4 Add desktop selected-route validation for adapter route-loss close behavior.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -94,6 +95,7 @@
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
 - [x] 5.3.3 Add focused Go tests for desktop update frame-rate and bitrate quota enforcement.
 - [x] 5.3.4 Add focused Go tests for desktop idle timeout and session TTL enforcement.
+- [x] 5.3.5 Add focused Go tests for selected-agent and selected-gateway route-loss detection.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
