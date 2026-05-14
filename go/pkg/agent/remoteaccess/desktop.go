@@ -315,11 +315,13 @@ func NormalizeDesktopTarget(target DesktopTarget) (DesktopTarget, error) {
 	target.Protocol = strings.TrimSpace(target.Protocol)
 	target.Route.SelectedAgentID = strings.TrimSpace(target.Route.SelectedAgentID)
 	target.Route.SelectedGateway = strings.TrimSpace(target.Route.SelectedGateway)
+	target.Route.AllowedAgentIDs = normalizeDesktopStringList(target.Route.AllowedAgentIDs)
 	target.Upstream.Host = strings.TrimSpace(target.Upstream.Host)
 	target.TLS.Mode = strings.TrimSpace(target.TLS.Mode)
 	target.TLS.CABundleID = strings.TrimSpace(target.TLS.CABundleID)
 	target.TLS.ServerName = strings.TrimSpace(target.TLS.ServerName)
 	target.Credential.Mode = strings.TrimSpace(target.Credential.Mode)
+	target.Credential.AllowedPrincipals = normalizeDesktopStringList(target.Credential.AllowedPrincipals)
 	target.Credential.CredentialSecretRef = strings.TrimSpace(target.Credential.CredentialSecretRef)
 
 	if target.Protocol == "" {
@@ -393,6 +395,9 @@ func NormalizeDesktopCredentialGrant(
 	case DesktopCredentialModeMemoryUser:
 		if grant.Username == "" || grant.Password == "" {
 			return grant, fmt.Errorf("%w: memory user credential grant requires username and password", ErrInvalidDesktopTarget)
+		}
+		if !desktopStringListAllows(target.Credential.AllowedPrincipals, grant.Username) {
+			return grant, fmt.Errorf("%w: credential grant principal not allowed by target policy", ErrInvalidDesktopTarget)
 		}
 	}
 
@@ -520,6 +525,9 @@ func validateDesktopTarget(target DesktopTarget) error {
 	if target.Route.SelectedAgentID == "" {
 		return fmt.Errorf("%w: missing selected agent", ErrInvalidDesktopTarget)
 	}
+	if !desktopStringListAllows(target.Route.AllowedAgentIDs, target.Route.SelectedAgentID) {
+		return fmt.Errorf("%w: selected agent outside allowed route set", ErrInvalidDesktopTarget)
+	}
 	if target.Upstream.Host == "" || target.Upstream.Port == 0 || target.Upstream.Port > 65_535 {
 		return fmt.Errorf("%w: invalid upstream", ErrInvalidDesktopTarget)
 	}
@@ -558,6 +566,40 @@ func validateDesktopScreenPolicy(policy DesktopScreenPolicy) error {
 	}
 
 	return nil
+}
+
+func normalizeDesktopStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := values[:0]
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			normalized = append(normalized, value)
+		}
+	}
+
+	return normalized
+}
+
+func desktopStringListAllows(allowed []string, value string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+
+	return desktopStringListContains(allowed, value)
+}
+
+func desktopStringListContains(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+
+	return false
 }
 
 func validDesktopProtocol(protocol string) bool {

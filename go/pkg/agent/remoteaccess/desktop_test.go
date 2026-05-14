@@ -95,6 +95,12 @@ func TestNormalizeDesktopTargetRejectsUntrustedOrUnsafePolicy(t *testing.T) {
 			},
 		},
 		{
+			name: "selected agent outside allowed route set",
+			mutate: func(target *DesktopTarget) {
+				target.Route.AllowedAgentIDs = []string{"agent-2"}
+			},
+		},
+		{
 			name: "missing upstream",
 			mutate: func(target *DesktopTarget) {
 				target.Upstream.Host = ""
@@ -330,6 +336,7 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 	t.Parallel()
 
 	target := validDesktopTarget()
+	target.Credential.AllowedPrincipals = []string{"alice", "DOMAIN\\bob"}
 	grant := DesktopCredentialGrant{
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice",
@@ -349,6 +356,12 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 	grant.Password = ""
 	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("missing password error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+
+	grant.Username = "mallory"
+	grant.Password = "secret"
+	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("disallowed principal error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
 }
 
