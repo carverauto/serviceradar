@@ -124,11 +124,12 @@ jobs:
 
       - name: Ensure rpmbuild available for rules_pkg toolchain
         run: |
-          ./scripts/cleanup-ci-apt-sources.sh
-          sudo apt-get update -y
-          sudo apt-get install -y rpm rpm2cpio
           if ! command -v rpmbuild >/dev/null 2>&1; then
-            echo "rpmbuild not found after install" >&2
+            echo "rpmbuild is required; rebuild the Forgejo CI image with rpm tools instead of installing them at runtime." >&2
+            exit 1
+          fi
+          if ! command -v rpm2cpio >/dev/null 2>&1; then
+            echo "rpm2cpio is required; rebuild the Forgejo CI image with rpm tools instead of installing them at runtime." >&2
             exit 1
           fi
           rpmbuild --version
@@ -311,8 +312,8 @@ jobs:
           fi
 
           if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/cleanup-ci-apt-sources.sh
-            sudo apt-get update -qq && sudo apt-get install -y -qq skopeo >/dev/null 2>&1
+            echo "skopeo is required; rebuild the Forgejo CI image with skopeo instead of installing it at runtime." >&2
+            exit 1
           fi
 
           verify_tags=(latest "sha-${GITHUB_SHA}")
