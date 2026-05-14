@@ -65,6 +65,7 @@
 - [x] 3.4.3 Add desktop idle timeout and session TTL validation for adapter close behavior.
 - [x] 3.4.4 Add desktop selected-route validation for adapter route-loss close behavior.
 - [x] 3.4.5 Reject desktop quality-control requests above the approved session frame rate, bitrate, or resolution.
+- [x] 3.4.6 Add an adapter-facing desktop session guard that composes route, lifetime, frame policy, and quota checks.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -99,6 +100,7 @@
 - [x] 5.3.4 Add focused Go tests for desktop idle timeout and session TTL enforcement.
 - [x] 5.3.5 Add focused Go tests for selected-agent and selected-gateway route-loss detection.
 - [x] 5.3.6 Add focused Go tests for desktop quality-control requests above session policy.
+- [x] 5.3.7 Add focused Go tests for adapter-facing desktop session guard behavior.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.

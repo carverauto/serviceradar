@@ -231,8 +231,101 @@ type DesktopFrameQuotaWindow struct {
 	bitCount            uint64
 }
 
+// DesktopSessionGuard centralizes the per-frame checks an adapter must perform
+// while a desktop session is active. It keeps route binding, lifetime,
+// redirection policy, and update-frame quotas on one path so adapter code does
+// not accidentally validate only part of the session contract.
+type DesktopSessionGuard struct {
+	sessionID        string
+	target           DesktopTarget
+	startUnix        int64
+	lastActivityUnix int64
+	quota            DesktopFrameQuotaWindow
+}
+
 func NewDesktopFrameQuotaWindow(policy DesktopScreenPolicy) DesktopFrameQuotaWindow {
 	return DesktopFrameQuotaWindow{policy: normalizeDesktopScreenPolicy(policy)}
+}
+
+func NewDesktopSessionGuard(sessionID string, target DesktopTarget, startUnix int64) (DesktopSessionGuard, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return DesktopSessionGuard{}, fmt.Errorf("%w: missing session binding", ErrInvalidDesktopFrame)
+	}
+	if startUnix <= 0 {
+		return DesktopSessionGuard{}, fmt.Errorf("%w: invalid session timestamp", ErrInvalidDesktopFrame)
+	}
+
+	target, err := NormalizeDesktopTarget(target)
+	if err != nil {
+		return DesktopSessionGuard{}, err
+	}
+
+	return DesktopSessionGuard{
+		sessionID:        sessionID,
+		target:           target,
+		startUnix:        startUnix,
+		lastActivityUnix: startUnix,
+		quota:            NewDesktopFrameQuotaWindow(target.Screen),
+	}, nil
+}
+
+func (g *DesktopSessionGuard) SessionID() string {
+	if g == nil {
+		return ""
+	}
+
+	return g.sessionID
+}
+
+func (g *DesktopSessionGuard) Target() DesktopTarget {
+	if g == nil {
+		return DesktopTarget{}
+	}
+
+	return g.target
+}
+
+func (g *DesktopSessionGuard) LastActivityUnix() int64 {
+	if g == nil {
+		return 0
+	}
+
+	return g.lastActivityUnix
+}
+
+// ValidateFrame applies the current session guard before an adapter consumes or
+// emits a desktop frame. Accepted frames update last-activity time after all
+// validation and quota checks succeed.
+func (g *DesktopSessionGuard) ValidateFrame(
+	frame DesktopFrame,
+	localAgentID string,
+	currentGatewayID string,
+	nowUnix int64,
+	nowUnixNano int64,
+) error {
+	if g == nil {
+		return fmt.Errorf("%w: missing session guard", ErrInvalidDesktopFrame)
+	}
+	if frame.SessionID != g.sessionID {
+		return fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopFrame)
+	}
+	if err := ValidateDesktopRouteBinding(g.target, localAgentID, currentGatewayID); err != nil {
+		return err
+	}
+	if err := ValidateDesktopSessionLifetime(g.target.Screen, g.startUnix, g.lastActivityUnix, nowUnix); err != nil {
+		return err
+	}
+	if err := ValidateDesktopFrameWithPolicy(frame, g.target.Screen, g.target.Redirection); err != nil {
+		return err
+	}
+	if err := g.quota.Consume(frame, nowUnixNano); err != nil {
+		return err
+	}
+
+	g.lastActivityUnix = nowUnix
+
+	return nil
 }
 
 // Consume applies frame-rate and bitrate quotas to desktop update frames.

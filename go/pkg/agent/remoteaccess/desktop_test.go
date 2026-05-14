@@ -273,6 +273,120 @@ func TestValidateDesktopRouteBindingDetectsRouteLoss(t *testing.T) {
 	}
 }
 
+func TestDesktopSessionGuardComposesRouteLifetimePolicyAndQuota(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+	target.Screen = DesktopScreenPolicy{
+		MaxWidth:    1280,
+		MaxHeight:   720,
+		FrameRate:   1,
+		BitrateBPS:  1024,
+		IdleSeconds: 10,
+		TTLSeconds:  30,
+	}
+	target.Redirection.ClipboardMode = DesktopClipboardModeTextBoth
+
+	guard, err := NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	if guard.SessionID() != fakeRemoteSessionID || guard.LastActivityUnix() != 100 {
+		t.Fatalf("guard identity/activity = %q/%d", guard.SessionID(), guard.LastActivityUnix())
+	}
+	if got := guard.Target(); got.Screen.FrameRate != 1 || got.Redirection.ClipboardMode != DesktopClipboardModeTextBoth {
+		t.Fatalf("guard target = %#v", got)
+	}
+
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeUpdate,
+		Width:     1280,
+		Height:    720,
+		Data:      []byte{0x01},
+	}
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 101, 1); err != nil {
+		t.Fatalf("ValidateFrame returned error: %v", err)
+	}
+	if guard.LastActivityUnix() != 101 {
+		t.Fatalf("LastActivityUnix = %d, want 101", guard.LastActivityUnix())
+	}
+
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 102, 2); !errors.Is(err, ErrDesktopQuotaExceeded) {
+		t.Fatalf("quota error = %v, want %v", err, ErrDesktopQuotaExceeded)
+	}
+
+	clipboard := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeClipboard,
+		Direction: DesktopClipboardDirectionToRemote,
+		Data:      []byte("text"),
+	}
+	if err := guard.ValidateFrame(clipboard, desktopTestAgentID, "gateway-1", 103, 3); err != nil {
+		t.Fatalf("clipboard frame returned error: %v", err)
+	}
+}
+
+func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+	target.Screen = DesktopScreenPolicy{
+		MaxWidth:    1280,
+		MaxHeight:   720,
+		FrameRate:   24,
+		BitrateBPS:  4_000_000,
+		IdleSeconds: 10,
+		TTLSeconds:  30,
+	}
+
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input:     &DesktopInputEvent{Kind: DesktopInputKindFocus, Focused: true},
+	}
+
+	guard, err := NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	frame.SessionID = "other-session"
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 101, 1); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+
+	guard, err = NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	frame.SessionID = fakeRemoteSessionID
+	if err := guard.ValidateFrame(frame, "agent-2", "gateway-1", 101, 1); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("route-loss error = %v, want %v", err, ErrDesktopRouteLost)
+	}
+
+	guard, err = NewDesktopSessionGuard(fakeRemoteSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 110, 1); !errors.Is(err, ErrDesktopSessionExpired) {
+		t.Fatalf("idle-expired error = %v, want %v", err, ErrDesktopSessionExpired)
+	}
+
+	if _, err := NewDesktopSessionGuard("", target, 100); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("missing session error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+
+	var nilGuard *DesktopSessionGuard
+	if err := nilGuard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 101, 1); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("nil guard error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	t.Parallel()
 
