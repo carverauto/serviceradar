@@ -363,10 +363,58 @@ func TestDesktopMediaCreditWindowAppliesValidatedAck(t *testing.T) {
 	if window.RemainingBytes() != 17 {
 		t.Fatalf("RemainingBytes after ack = %d, want 17", window.RemainingBytes())
 	}
+	if seq, ok := window.LastAcceptedSeq(); !ok || seq != 42 {
+		t.Fatalf("LastAcceptedSeq = %d, %v; want 42, true", seq, ok)
+	}
 
 	ack.MediaSessionID = "other-media"
 	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
 		t.Fatalf("ApplyAck mismatch error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
+func TestDesktopMediaCreditWindowRejectsReplayAcks(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		CreditBytes:      16,
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck returned error: %v", err)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after first ack = %d, want 17", window.RemainingBytes())
+	}
+
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ApplyAck replay error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after replay ack = %d, want 17", window.RemainingBytes())
+	}
+
+	ack.LastAcceptedSeq = 6
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ApplyAck out-of-order error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if window.RemainingBytes() != 17 {
+		t.Fatalf("RemainingBytes after stale ack = %d, want 17", window.RemainingBytes())
+	}
+
+	ack.LastAcceptedSeq = 8
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck next sequence returned error: %v", err)
+	}
+	if window.RemainingBytes() != 33 {
+		t.Fatalf("RemainingBytes after next ack = %d, want 33", window.RemainingBytes())
 	}
 }
 

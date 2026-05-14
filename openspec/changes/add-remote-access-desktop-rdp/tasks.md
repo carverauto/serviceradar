@@ -29,6 +29,7 @@
 - [x] 3.1.9 Drop stale non-critical browser media frames under renderer backpressure before metadata parsing/render dispatch while still returning consumed credit.
 - [x] 3.1.10 Make renderer-owned raw metadata bytes the only browser media-frame contract; do not eagerly parse metadata JSON in the WebRTC receive loop.
 - [x] 3.1.11 Use a per-client desktop media parser cache for stable session/media/encoding strings so repeated frames avoid repeated `TextDecoder` work.
+- [x] 3.1.12 Track accepted desktop media ack sequence on the sender credit window and reject replayed/out-of-order acks before granting credit.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -56,6 +57,7 @@
 - [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
 - [x] 5.6.3 Add focused Go tests proving desktop media split-frame encoding reuses header buffers and avoids metadata/payload copies.
 - [x] 5.6.4 Add Go desktop media hot-path benchmarks for contiguous encoding, split-frame/static-field encoding, copying decode, and no-copy decode.
+- [x] 5.6.5 Add focused Go tests proving desktop media credit windows reject replayed/out-of-order acks without granting duplicate credit.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

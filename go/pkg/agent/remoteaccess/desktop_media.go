@@ -112,8 +112,10 @@ type desktopMediaAckMessage struct {
 }
 
 type DesktopMediaCreditWindow struct {
-	remainingBytes uint64
-	maxChunkBytes  uint32
+	remainingBytes  uint64
+	maxChunkBytes   uint32
+	lastAcceptedSeq uint64
+	acceptedSeqSet  bool
 }
 
 func NewDesktopMediaCreditWindow(initialCreditBytes uint64, maxChunkBytes uint32) (DesktopMediaCreditWindow, error) {
@@ -139,6 +141,10 @@ func (w DesktopMediaCreditWindow) RemainingBytes() uint64 {
 
 func (w DesktopMediaCreditWindow) MaxChunkBytes() uint32 {
 	return w.maxChunkBytes
+}
+
+func (w DesktopMediaCreditWindow) LastAcceptedSeq() (uint64, bool) {
+	return w.lastAcceptedSeq, w.acceptedSeqSet
 }
 
 func (w DesktopMediaCreditWindow) CanSend(frame DesktopMediaFrame) bool {
@@ -182,8 +188,13 @@ func (w *DesktopMediaCreditWindow) ApplyAck(ack DesktopMediaAck, sessionBindingI
 	if err := ValidateDesktopMediaAck(ack, sessionBindingID, mediaSessionID); err != nil {
 		return err
 	}
+	if w.acceptedSeqSet && ack.LastAcceptedSeq <= w.lastAcceptedSeq {
+		return fmt.Errorf("%w: stale ack sequence", ErrInvalidDesktopMediaAck)
+	}
 
 	w.Adjust(ack.CreditBytes)
+	w.lastAcceptedSeq = ack.LastAcceptedSeq
+	w.acceptedSeqSet = true
 
 	return nil
 }
