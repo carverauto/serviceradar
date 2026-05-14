@@ -72,6 +72,7 @@
 - [x] 3.1.39 Add a core-elx SRDP media-frame envelope encoder that matches the Go agent and browser parser contracts for WebRTC DataChannel handoff.
 - [x] 3.1.40 Add a supervised core-elx ExWebRTC DataChannel media provider for server-created desktop media/control channels, SRDP frame sends, and browser ack routing.
 - [x] 3.1.41 Make the supervised core-elx DataChannel provider the default desktop WebRTC offer provider so runtime sessions do not depend on an out-of-band app-env knob.
+- [x] 3.1.42 Wrap adapter-facing desktop media senders with the session guard so SRDP frames are validated before entering the dedicated media stream.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -120,6 +121,7 @@
 - [x] 5.2.3 Add focused Go tests for brokered desktop credential grant expiry.
 - [x] 5.2.4 Add focused Go tests proving the RDP adapter runtime validates route/TLS/NLA policy, fails closed without an adapter/media sender, and clears memory-user credential material after adapter open.
 - [x] 5.2.5 Add focused Go tests proving the RDP adapter runtime rejects invalid browser input frames before they reach the concrete adapter session.
+- [x] 5.2.6 Add focused Go tests proving the RDP adapter runtime rejects invalid SRDP media frames before they reach the concrete media sender.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

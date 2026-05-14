@@ -124,6 +124,14 @@ func (r DesktopAdapterRuntime) OpenRDP(
 		return nil, ErrDesktopAdapterUnavailable
 	}
 
+	guardedState := &guardedDesktopAdapterState{
+		guard:            guard,
+		localAgentID:     localAgentID,
+		currentGatewayID: strings.TrimSpace(r.CurrentGatewayID),
+		nowUnix:          r.nowUnix,
+		nowUnixNano:      r.nowUnixNano,
+	}
+
 	session, err := r.Adapter.Open(ctx, DesktopAdapterOpenRequest{
 		SessionID:        frame.SessionID,
 		LocalAgentID:     localAgentID,
@@ -131,7 +139,7 @@ func (r DesktopAdapterRuntime) OpenRDP(
 		StartUnix:        nowUnix,
 		Target:           payload.Target,
 		CredentialGrant:  payload.CredentialGrant,
-		MediaSender:      mediaSender,
+		MediaSender:      &guardedDesktopMediaSender{inner: mediaSender, state: guardedState},
 	})
 	if err != nil {
 		cleanupDesktopOpenPayload(&payload)
@@ -147,12 +155,8 @@ func (r DesktopAdapterRuntime) OpenRDP(
 	cleanupDesktopOpenPayload(&payload)
 
 	return &guardedDesktopAdapterSession{
-		inner:            session,
-		guard:            guard,
-		localAgentID:     localAgentID,
-		currentGatewayID: strings.TrimSpace(r.CurrentGatewayID),
-		nowUnix:          r.nowUnix,
-		nowUnixNano:      r.nowUnixNano,
+		inner: session,
+		state: guardedState,
 	}, nil
 }
 
@@ -172,9 +176,8 @@ func (r DesktopAdapterRuntime) nowUnixNano() int64 {
 	return r.nowUnix() * desktopQuotaWindowNanos
 }
 
-type guardedDesktopAdapterSession struct {
+type guardedDesktopAdapterState struct {
 	mu               sync.Mutex
-	inner            DesktopAdapterSession
 	guard            DesktopSessionGuard
 	localAgentID     string
 	currentGatewayID string
@@ -182,16 +185,21 @@ type guardedDesktopAdapterSession struct {
 	nowUnixNano      func() int64
 }
 
-func (s *guardedDesktopAdapterSession) SendDesktopFrame(ctx context.Context, frame DesktopFrame) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+type guardedDesktopAdapterSession struct {
+	inner DesktopAdapterSession
+	state *guardedDesktopAdapterState
+}
 
-	if err := s.guard.ValidateFrame(
+func (s *guardedDesktopAdapterSession) SendDesktopFrame(ctx context.Context, frame DesktopFrame) error {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+
+	if err := s.state.guard.ValidateFrame(
 		frame,
-		s.localAgentID,
-		s.currentGatewayID,
-		s.nowUnix(),
-		s.nowUnixNano(),
+		s.state.localAgentID,
+		s.state.currentGatewayID,
+		s.state.nowUnix(),
+		s.state.nowUnixNano(),
 	); err != nil {
 		return err
 	}
@@ -201,6 +209,27 @@ func (s *guardedDesktopAdapterSession) SendDesktopFrame(ctx context.Context, fra
 
 func (s *guardedDesktopAdapterSession) Close(ctx context.Context, reason string) error {
 	return s.inner.Close(ctx, reason)
+}
+
+type guardedDesktopMediaSender struct {
+	inner DesktopMediaSender
+	state *guardedDesktopAdapterState
+}
+
+func (s *guardedDesktopMediaSender) SendDesktopMediaFrame(ctx context.Context, frame DesktopMediaFrame) error {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+
+	if err := s.state.guard.ValidateMediaFrame(
+		frame,
+		s.state.localAgentID,
+		s.state.currentGatewayID,
+		s.state.nowUnix(),
+	); err != nil {
+		return err
+	}
+
+	return s.inner.SendDesktopMediaFrame(ctx, frame)
 }
 
 func cleanupDesktopOpenPayload(payload *DesktopOpenPayload) {

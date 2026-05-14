@@ -64,9 +64,13 @@ func (s *recordingDesktopAdapterSessionStub) SendDesktopFrame(_ context.Context,
 
 func (s *recordingDesktopAdapterSessionStub) Close(context.Context, string) error { return nil }
 
-type desktopMediaSenderStub struct{}
+type desktopMediaSenderStub struct {
+	frames []DesktopMediaFrame
+}
 
-func (desktopMediaSenderStub) SendDesktopMediaFrame(context.Context, DesktopMediaFrame) error {
+func (s *desktopMediaSenderStub) SendDesktopMediaFrame(_ context.Context, frame DesktopMediaFrame) error {
+	s.frames = append(s.frames, frame)
+
 	return nil
 }
 
@@ -94,7 +98,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 		Adapter:          adapter,
 	}
 
-	session, err := runtime.OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), desktopMediaSenderStub{})
+	session, err := runtime.OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), &desktopMediaSenderStub{})
 	if err != nil {
 		t.Fatalf("OpenRDP returned error: %v", err)
 	}
@@ -132,7 +136,7 @@ func TestDesktopAdapterRuntimeGuardsInputFrames(t *testing.T) {
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		NowUnixNano:      func() int64 { return 1_778_000_000_000_000_000 },
 		Adapter:          &desktopAdapterStub{session: innerSession},
-	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), desktopMediaSenderStub{})
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), &desktopMediaSenderStub{})
 	if err != nil {
 		t.Fatalf("OpenRDP returned error: %v", err)
 	}
@@ -160,6 +164,53 @@ func TestDesktopAdapterRuntimeGuardsInputFrames(t *testing.T) {
 	}
 }
 
+func TestDesktopAdapterRuntimeGuardsMediaFrames(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Screen.MaxWidth = 1024
+	target.Screen.MaxHeight = 768
+	adapter := &desktopAdapterStub{}
+	mediaSender := &desktopMediaSenderStub{}
+
+	_, err := (DesktopAdapterRuntime{
+		LocalAgentID:     desktopTestAgentID,
+		CurrentGatewayID: "gateway-1",
+		NowUnix:          func() int64 { return 1_778_000_000 },
+		Adapter:          adapter,
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), mediaSender)
+	if err != nil {
+		t.Fatalf("OpenRDP returned error: %v", err)
+	}
+
+	validFrame := DesktopMediaFrame{
+		SessionBindingID:  fakeRemoteSessionID,
+		MediaSessionID:    "media-1",
+		Sequence:          1,
+		TimestampUnixNano: 1_778_000_000_000_000_000,
+		Width:             800,
+		Height:            600,
+		PayloadFamily:     DesktopMediaPayloadDirtyRect,
+		Encoding:          "raw_rgba",
+		Payload:           []byte{1, 2, 3, 4},
+	}
+	if err := adapter.request.MediaSender.SendDesktopMediaFrame(context.Background(), validFrame); err != nil {
+		t.Fatalf("SendDesktopMediaFrame returned error: %v", err)
+	}
+	if len(mediaSender.frames) != 1 {
+		t.Fatalf("forwarded media frames = %d, want 1", len(mediaSender.frames))
+	}
+
+	invalidFrame := validFrame
+	invalidFrame.Width = 2048
+	if err := adapter.request.MediaSender.SendDesktopMediaFrame(context.Background(), invalidFrame); !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("invalid media frame error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+	}
+	if len(mediaSender.frames) != 1 {
+		t.Fatalf("invalid media frame was forwarded: %#v", mediaSender.frames)
+	}
+}
+
 func TestDesktopAdapterRuntimeOpenRDPFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -169,7 +220,7 @@ func TestDesktopAdapterRuntimeOpenRDPFailsClosed(t *testing.T) {
 	if _, err := (DesktopAdapterRuntime{
 		LocalAgentID: desktopTestAgentID,
 		NowUnix:      func() int64 { return 1_778_000_000 },
-	}).OpenRDP(context.Background(), frame, desktopMediaSenderStub{}); !errors.Is(err, ErrDesktopAdapterUnavailable) {
+	}).OpenRDP(context.Background(), frame, &desktopMediaSenderStub{}); !errors.Is(err, ErrDesktopAdapterUnavailable) {
 		t.Fatalf("missing adapter error = %v, want %v", err, ErrDesktopAdapterUnavailable)
 	}
 
@@ -178,7 +229,7 @@ func TestDesktopAdapterRuntimeOpenRDPFailsClosed(t *testing.T) {
 		CurrentGatewayID: "gateway-2",
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		Adapter:          &desktopAdapterStub{},
-	}).OpenRDP(context.Background(), frame, desktopMediaSenderStub{}); !errors.Is(err, ErrDesktopRouteLost) {
+	}).OpenRDP(context.Background(), frame, &desktopMediaSenderStub{}); !errors.Is(err, ErrDesktopRouteLost) {
 		t.Fatalf("wrong gateway error = %v, want %v", err, ErrDesktopRouteLost)
 	}
 
