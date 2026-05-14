@@ -332,6 +332,36 @@ func desktopCredentialGrantExpiresUnix(grant *DesktopCredentialGrant) string {
 	return strconv.FormatInt(grant.ExpiresUnix, 10)
 }
 
+// DesktopFrameAuditMetadata returns frame metadata suitable for audit and
+// recording records without retaining screen pixels, clipboard data, key names,
+// button names, or other frame payload contents.
+func DesktopFrameAuditMetadata(frame DesktopFrame) map[string]string {
+	metadata := map[string]string{
+		"session_id":     frame.SessionID,
+		"protocol":       frame.Protocol,
+		"frame_type":     frame.FrameType,
+		"width":          strconv.FormatUint(uint64(frame.Width), 10),
+		"height":         strconv.FormatUint(uint64(frame.Height), 10),
+		"encoding":       frame.Encoding,
+		"payload_bytes":  strconv.Itoa(len(frame.Data)),
+		"direction":      frame.Direction,
+		"timestamp_unix": strconv.FormatInt(frame.Timestamp, 10),
+		"has_input":      strconv.FormatBool(frame.Input != nil),
+		"has_quality":    strconv.FormatBool(frame.Quality != nil),
+	}
+	if frame.Input != nil {
+		metadata["input_kind"] = frame.Input.Kind
+	}
+	if frame.Quality != nil {
+		metadata["quality_max_frame_rate"] = strconv.FormatUint(uint64(frame.Quality.MaxFrameRate), 10)
+		metadata["quality_max_bitrate_bps"] = strconv.FormatUint(uint64(frame.Quality.MaxBitrate), 10)
+		metadata["quality_width"] = strconv.FormatUint(uint64(frame.Quality.Width), 10)
+		metadata["quality_height"] = strconv.FormatUint(uint64(frame.Quality.Height), 10)
+	}
+
+	return metadata
+}
+
 // EncodeDesktopFramePayload validates and serializes a typed desktop frame for
 // transport inside the existing ConsoleFrame data field.
 func EncodeDesktopFramePayload(frame DesktopFrame, policy DesktopScreenPolicy) ([]byte, error) {

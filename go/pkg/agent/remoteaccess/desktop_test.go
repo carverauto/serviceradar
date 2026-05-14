@@ -313,6 +313,61 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	}
 }
 
+func TestDesktopFrameAuditMetadataOmitsPayloadContents(t *testing.T) {
+	t.Parallel()
+
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeClipboard,
+		Width:     1280,
+		Height:    720,
+		Encoding:  "utf-8",
+		Data:      []byte("sensitive clipboard content"),
+		Input: &DesktopInputEvent{
+			Kind:   DesktopInputKindKey,
+			Key:    "SensitiveKey",
+			Button: "SensitiveButton",
+		},
+		Quality: &DesktopQuality{
+			MaxFrameRate: 24,
+			MaxBitrate:   4_000_000,
+			Width:        1280,
+			Height:       720,
+		},
+		Direction: DesktopClipboardDirectionToBrowser,
+		Timestamp: 1_778_000_000,
+		Reason:    "sensitive close reason",
+		Metadata:  map[string]string{"secret": "frame-secret"},
+	}
+
+	metadata := DesktopFrameAuditMetadata(frame)
+	if metadata["session_id"] != fakeRemoteSessionID ||
+		metadata["frame_type"] != DesktopFrameTypeClipboard ||
+		metadata["payload_bytes"] != "27" ||
+		metadata["input_kind"] != DesktopInputKindKey ||
+		metadata["quality_max_frame_rate"] != "24" ||
+		metadata["direction"] != DesktopClipboardDirectionToBrowser {
+		t.Fatalf("desktop frame audit metadata = %#v", metadata)
+	}
+
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	for _, forbidden := range []string{
+		"sensitive clipboard content",
+		"SensitiveKey",
+		"SensitiveButton",
+		"sensitive close reason",
+		"frame-secret",
+	} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("frame audit metadata leaked %q: %s", forbidden, string(encoded))
+		}
+	}
+}
+
 func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing.T) {
 	t.Parallel()
 
