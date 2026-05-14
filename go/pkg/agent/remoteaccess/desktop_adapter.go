@@ -24,7 +24,10 @@ import (
 	"sync"
 )
 
-var ErrDesktopAdapterUnavailable = errors.New("desktop adapter unavailable")
+var (
+	ErrDesktopAdapterUnavailable = errors.New("desktop adapter unavailable")
+	ErrDesktopAdapterClosed      = errors.New("desktop adapter closed")
+)
 
 // DesktopMediaSender is the adapter-facing media sink for SRDP screen updates.
 // Implementations typically wrap the dedicated desktop media gRPC stream.
@@ -183,6 +186,7 @@ type guardedDesktopAdapterState struct {
 	currentGatewayID string
 	nowUnix          func() int64
 	nowUnixNano      func() int64
+	closed           bool
 }
 
 type guardedDesktopAdapterSession struct {
@@ -191,16 +195,7 @@ type guardedDesktopAdapterSession struct {
 }
 
 func (s *guardedDesktopAdapterSession) SendDesktopFrame(ctx context.Context, frame DesktopFrame) error {
-	s.state.mu.Lock()
-	defer s.state.mu.Unlock()
-
-	if err := s.state.guard.ValidateFrame(
-		frame,
-		s.state.localAgentID,
-		s.state.currentGatewayID,
-		s.state.nowUnix(),
-		s.state.nowUnixNano(),
-	); err != nil {
+	if err := s.state.validateFrame(frame); err != nil {
 		return err
 	}
 
@@ -208,6 +203,10 @@ func (s *guardedDesktopAdapterSession) SendDesktopFrame(ctx context.Context, fra
 }
 
 func (s *guardedDesktopAdapterSession) Close(ctx context.Context, reason string) error {
+	if !s.state.markClosed() {
+		return nil
+	}
+
 	return s.inner.Close(ctx, reason)
 }
 
@@ -217,19 +216,62 @@ type guardedDesktopMediaSender struct {
 }
 
 func (s *guardedDesktopMediaSender) SendDesktopMediaFrame(ctx context.Context, frame DesktopMediaFrame) error {
-	s.state.mu.Lock()
-	defer s.state.mu.Unlock()
-
-	if err := s.state.guard.ValidateMediaFrame(
-		frame,
-		s.state.localAgentID,
-		s.state.currentGatewayID,
-		s.state.nowUnix(),
-	); err != nil {
+	if err := s.state.validateMediaFrame(frame); err != nil {
 		return err
 	}
 
 	return s.inner.SendDesktopMediaFrame(ctx, frame)
+}
+
+func (s *guardedDesktopAdapterState) validateFrame(frame DesktopFrame) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrDesktopAdapterClosed
+	}
+	if err := s.guard.ValidateFrame(
+		frame,
+		s.localAgentID,
+		s.currentGatewayID,
+		s.nowUnix(),
+		s.nowUnixNano(),
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *guardedDesktopAdapterState) validateMediaFrame(frame DesktopMediaFrame) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrDesktopAdapterClosed
+	}
+	if err := s.guard.ValidateMediaFrame(
+		frame,
+		s.localAgentID,
+		s.currentGatewayID,
+		s.nowUnix(),
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *guardedDesktopAdapterState) markClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return false
+	}
+	s.closed = true
+
+	return true
 }
 
 func cleanupDesktopOpenPayload(payload *DesktopOpenPayload) {

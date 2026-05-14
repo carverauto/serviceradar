@@ -81,6 +81,7 @@
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
 - [x] 3.3.3 Reject expired brokered desktop credential grants before adapter use.
 - [x] 3.3.4 Drop adapter-open credential grant material immediately after the adapter open call, including failure paths.
+- [x] 3.3.5 Mark guarded RDP adapter sessions closed before calling concrete adapter cleanup so post-close input and media frames fail closed.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -90,6 +91,7 @@
 - [x] 3.4.6 Add an adapter-facing desktop session guard that composes route, lifetime, frame policy, and quota checks.
 - [x] 3.4.7 Avoid repeated target normalization in the adapter-facing desktop session guard hot path.
 - [x] 3.4.8 Wrap concrete RDP adapter sessions with the adapter-facing session guard so browser input/control frames are validated before adapter dispatch.
+- [x] 3.4.9 Release the adapter guard lock before forwarding accepted input/media frames so concrete adapter callbacks cannot deadlock the policy guard.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -122,6 +124,7 @@
 - [x] 5.2.4 Add focused Go tests proving the RDP adapter runtime validates route/TLS/NLA policy, fails closed without an adapter/media sender, and clears memory-user credential material after adapter open.
 - [x] 5.2.5 Add focused Go tests proving the RDP adapter runtime rejects invalid browser input frames before they reach the concrete adapter session.
 - [x] 5.2.6 Add focused Go tests proving the RDP adapter runtime rejects invalid SRDP media frames before they reach the concrete media sender.
+- [x] 5.2.7 Add focused Go tests proving guarded RDP adapter sessions close idempotently and reject post-close input/media frames.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

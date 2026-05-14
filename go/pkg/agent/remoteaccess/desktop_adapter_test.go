@@ -53,7 +53,9 @@ func (desktopAdapterSessionStub) SendDesktopFrame(context.Context, DesktopFrame)
 func (desktopAdapterSessionStub) Close(context.Context, string) error                  { return nil }
 
 type recordingDesktopAdapterSessionStub struct {
-	frames []DesktopFrame
+	frames       []DesktopFrame
+	closeCount   int
+	closeReasons []string
 }
 
 func (s *recordingDesktopAdapterSessionStub) SendDesktopFrame(_ context.Context, frame DesktopFrame) error {
@@ -62,7 +64,12 @@ func (s *recordingDesktopAdapterSessionStub) SendDesktopFrame(_ context.Context,
 	return nil
 }
 
-func (s *recordingDesktopAdapterSessionStub) Close(context.Context, string) error { return nil }
+func (s *recordingDesktopAdapterSessionStub) Close(_ context.Context, reason string) error {
+	s.closeCount++
+	s.closeReasons = append(s.closeReasons, reason)
+
+	return nil
+}
 
 type desktopMediaSenderStub struct {
 	frames []DesktopMediaFrame
@@ -208,6 +215,69 @@ func TestDesktopAdapterRuntimeGuardsMediaFrames(t *testing.T) {
 	}
 	if len(mediaSender.frames) != 1 {
 		t.Fatalf("invalid media frame was forwarded: %#v", mediaSender.frames)
+	}
+}
+
+func TestDesktopAdapterRuntimeStopsFramesAfterClose(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Screen.MaxWidth = 1024
+	target.Screen.MaxHeight = 768
+	innerSession := &recordingDesktopAdapterSessionStub{}
+	adapter := &desktopAdapterStub{session: innerSession}
+	mediaSender := &desktopMediaSenderStub{}
+
+	session, err := (DesktopAdapterRuntime{
+		LocalAgentID:     desktopTestAgentID,
+		CurrentGatewayID: "gateway-1",
+		NowUnix:          func() int64 { return 1_778_000_000 },
+		NowUnixNano:      func() int64 { return 1_778_000_000_000_000_000 },
+		Adapter:          adapter,
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), mediaSender)
+	if err != nil {
+		t.Fatalf("OpenRDP returned error: %v", err)
+	}
+
+	if err := session.Close(context.Background(), "operator"); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := session.Close(context.Background(), "duplicate"); err != nil {
+		t.Fatalf("second Close returned error: %v", err)
+	}
+	if innerSession.closeCount != 1 || len(innerSession.closeReasons) != 1 || innerSession.closeReasons[0] != "operator" {
+		t.Fatalf("inner close state = count:%d reasons:%v", innerSession.closeCount, innerSession.closeReasons)
+	}
+
+	inputFrame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input:     &DesktopInputEvent{Kind: DesktopInputKindPointer, X: 100, Y: 100},
+	}
+	if err := session.SendDesktopFrame(context.Background(), inputFrame); !errors.Is(err, ErrDesktopAdapterClosed) {
+		t.Fatalf("post-close input error = %v, want %v", err, ErrDesktopAdapterClosed)
+	}
+	if len(innerSession.frames) != 0 {
+		t.Fatalf("post-close input frame was forwarded: %#v", innerSession.frames)
+	}
+
+	mediaFrame := DesktopMediaFrame{
+		SessionBindingID:  fakeRemoteSessionID,
+		MediaSessionID:    "media-1",
+		Sequence:          1,
+		TimestampUnixNano: 1_778_000_000_000_000_000,
+		Width:             800,
+		Height:            600,
+		PayloadFamily:     DesktopMediaPayloadDirtyRect,
+		Encoding:          "raw_rgba",
+		Payload:           []byte{1, 2, 3, 4},
+	}
+	if err := adapter.request.MediaSender.SendDesktopMediaFrame(context.Background(), mediaFrame); !errors.Is(err, ErrDesktopAdapterClosed) {
+		t.Fatalf("post-close media error = %v, want %v", err, ErrDesktopAdapterClosed)
+	}
+	if len(mediaSender.frames) != 0 {
+		t.Fatalf("post-close media frame was forwarded: %#v", mediaSender.frames)
 	}
 }
 
