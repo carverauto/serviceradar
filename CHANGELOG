@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.51
+
+Identity ingestion, Armis validation, and sweep availability hardening.
+
+## Whats New
+
+**1.2.51**
+- Fixed identity-cache invalidation for device identifiers and aliases so ingestion, sweep-created devices, and mapper promotion resolve fresh inventory state instead of stale cache entries.
+- Hardened sync ingestion and ResultsRouter coverage with large Armis-style stream validation, including 50k-device faker runs, query-label counts, and Armis token-refresh pagination behavior.
+- Fixed sweep availability reconciliation so ICMP or TCP success evidence marks devices available even when an aggregate host result is false.
+- Documented Armis `metadata.query_label` SRQL filters for segmenting imported devices by configured Armis search query labels such as `managed` and `unmanaged`.
+
 # ServiceRadar v1.2.50
 
 Sweep mapper promotion and Armis token refresh hotfix.
