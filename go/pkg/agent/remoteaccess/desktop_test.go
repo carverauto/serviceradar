@@ -502,6 +502,56 @@ func TestValidateDesktopFrameRequiresExplicitClipboardPolicy(t *testing.T) {
 	}
 }
 
+func TestDesktopFramePayloadPolicyAwareHelpersGateClipboard(t *testing.T) {
+	t.Parallel()
+
+	policy := DesktopScreenPolicy{
+		MaxWidth:   1280,
+		MaxHeight:  720,
+		FrameRate:  24,
+		BitrateBPS: 4_000_000,
+	}
+	redirection := DesktopRedirectionPolicy{
+		ClipboardMode: DesktopClipboardModeTextBoth,
+	}
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeClipboard,
+		Data:      []byte("clipboard text"),
+	}
+
+	if _, err := EncodeDesktopFramePayload(frame, policy); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("default encode clipboard error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+
+	data, err := EncodeDesktopFramePayloadWithPolicy(frame, policy, redirection)
+	if err != nil {
+		t.Fatalf("EncodeDesktopFramePayloadWithPolicy returned error: %v", err)
+	}
+	if _, err := DecodeDesktopFramePayload(data, policy); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("default decode clipboard error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+
+	got, err := DecodeDesktopFramePayloadForSessionWithPolicy(
+		data,
+		policy,
+		redirection,
+		fakeRemoteSessionID,
+	)
+	if err != nil {
+		t.Fatalf("DecodeDesktopFramePayloadForSessionWithPolicy returned error: %v", err)
+	}
+	if got.FrameType != DesktopFrameTypeClipboard || string(got.Data) != "clipboard text" {
+		t.Fatalf("decoded clipboard frame = %#v", got)
+	}
+
+	_, err = DecodeDesktopFramePayloadForSessionWithPolicy(data, policy, redirection, "other-session")
+	if !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func TestDesktopFramePayloadRoundTripsThroughConsoleFrameData(t *testing.T) {
 	t.Parallel()
 

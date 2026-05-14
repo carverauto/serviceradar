@@ -16,6 +16,7 @@
 - [x] 2.2.5 Index core-elx desktop WebRTC viewer sessions by signaling PID so Membrane signaling events avoid linear session scans.
 - [ ] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
 - [x] 2.3.1 Reject desktop clipboard frames unless an explicit redirection policy enables clipboard access.
+- [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
 - [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
 
 ## 3. Agent Route And RDP Adapter
@@ -69,6 +70,7 @@
 - [x] 5.1.2 Add core-elx tests for desktop WebRTC signaling lifecycle, missing sessions, unsupported protocols, answers, candidates, and expiry.
 - [x] 5.1.3 Add focused Go tests for desktop clipboard redirection denial by default and explicit policy opt-in.
 - [x] 5.1.4 Add focused Go tests for selected-agent route allowlists and allowed desktop login principals.
+- [x] 5.1.5 Add focused Go tests for policy-aware desktop frame encode/decode clipboard gating.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

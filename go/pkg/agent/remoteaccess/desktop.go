@@ -274,7 +274,17 @@ func DecodeDesktopOpenFrameForAgent(frame Frame, localAgentID string) (DesktopOp
 // EncodeDesktopFramePayload validates and serializes a typed desktop frame for
 // transport inside the existing ConsoleFrame data field.
 func EncodeDesktopFramePayload(frame DesktopFrame, policy DesktopScreenPolicy) ([]byte, error) {
-	if err := ValidateDesktopFrame(frame, policy); err != nil {
+	return EncodeDesktopFramePayloadWithPolicy(frame, policy, DesktopRedirectionPolicy{})
+}
+
+// EncodeDesktopFramePayloadWithPolicy validates and serializes a typed desktop
+// frame with an explicit redirection policy.
+func EncodeDesktopFramePayloadWithPolicy(
+	frame DesktopFrame,
+	policy DesktopScreenPolicy,
+	redirection DesktopRedirectionPolicy,
+) ([]byte, error) {
+	if err := ValidateDesktopFrameWithPolicy(frame, policy, redirection); err != nil {
 		return nil, err
 	}
 
@@ -289,11 +299,21 @@ func EncodeDesktopFramePayload(frame DesktopFrame, policy DesktopScreenPolicy) (
 // DecodeDesktopFramePayload decodes and validates a typed desktop frame carried
 // inside the existing ConsoleFrame data field.
 func DecodeDesktopFramePayload(data []byte, policy DesktopScreenPolicy) (DesktopFrame, error) {
+	return DecodeDesktopFramePayloadWithPolicy(data, policy, DesktopRedirectionPolicy{})
+}
+
+// DecodeDesktopFramePayloadWithPolicy decodes and validates a typed desktop
+// frame with an explicit redirection policy.
+func DecodeDesktopFramePayloadWithPolicy(
+	data []byte,
+	policy DesktopScreenPolicy,
+	redirection DesktopRedirectionPolicy,
+) (DesktopFrame, error) {
 	var frame DesktopFrame
 	if err := json.Unmarshal(data, &frame); err != nil {
 		return frame, fmt.Errorf("%w: decode frame payload: %w", ErrInvalidDesktopFrame, err)
 	}
-	if err := ValidateDesktopFrame(frame, policy); err != nil {
+	if err := ValidateDesktopFrameWithPolicy(frame, policy, redirection); err != nil {
 		return frame, err
 	}
 
@@ -307,12 +327,24 @@ func DecodeDesktopFramePayloadForSession(
 	policy DesktopScreenPolicy,
 	sessionID string,
 ) (DesktopFrame, error) {
+	return DecodeDesktopFramePayloadForSessionWithPolicy(data, policy, DesktopRedirectionPolicy{}, sessionID)
+}
+
+// DecodeDesktopFramePayloadForSessionWithPolicy decodes a typed desktop frame,
+// applies redirection policy, and rejects frames not bound to the expected
+// remote-access session.
+func DecodeDesktopFramePayloadForSessionWithPolicy(
+	data []byte,
+	policy DesktopScreenPolicy,
+	redirection DesktopRedirectionPolicy,
+	sessionID string,
+) (DesktopFrame, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return DesktopFrame{}, fmt.Errorf("%w: missing session binding", ErrInvalidDesktopFrame)
 	}
 
-	frame, err := DecodeDesktopFramePayload(data, policy)
+	frame, err := DecodeDesktopFramePayloadWithPolicy(data, policy, redirection)
 	if err != nil {
 		return frame, err
 	}
