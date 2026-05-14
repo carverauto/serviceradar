@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,10 +15,13 @@ import (
 )
 
 type fakeControlStreamClient struct {
+	mu   sync.Mutex
 	sent []*proto.ControlStreamRequest
 }
 
 func (f *fakeControlStreamClient) Send(req *proto.ControlStreamRequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sent = append(f.sent, req)
 	return nil
 }
@@ -290,6 +294,8 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	for _, capability := range []string{
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessFile,
+		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
 	} {
 		if !slices.Contains(base, capability) {

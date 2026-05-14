@@ -1,8 +1,10 @@
-import React, {useEffect, useMemo, useState} from "react"
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react"
 
 import RemoteAccessTerminal from "./RemoteAccessTerminal.jsx"
 
 const STORE_PREFIX = "serviceradar.remoteAccess.sshKey.v1."
+const FILE_TRANSFER_CHUNK_BYTES = 65_536
+const MAX_TRANSFER_EVENTS = 48
 
 function csrfToken() {
   return document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
@@ -71,9 +73,74 @@ function errorMessage(error) {
   return "Unable to open SSH session."
 }
 
+function apiError(payload, fallback) {
+  const error = new Error(payload?.message || payload?.error || fallback)
+  error.code = payload?.error || ""
+  return error
+}
+
+function joinPath(basePath, name) {
+  const base = basePath || "/"
+
+  if (!name) {
+    return base
+  }
+
+  return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`
+}
+
+function parentPath(path) {
+  const normalized = path && path.startsWith("/") ? path : "/"
+  const trimmed = normalized.replace(/\/+$/u, "")
+  const index = trimmed.lastIndexOf("/")
+
+  if (index <= 0) {
+    return "/"
+  }
+
+  return trimmed.slice(0, index)
+}
+
+function baseName(path) {
+  const normalized = path || ""
+  const parts = normalized.split("/").filter(Boolean)
+  return parts.at(-1) || "download"
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0)
+
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KiB`
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+}
+
+function bytesFromBase64(value) {
+  const binary = atob(value || "")
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+}
+
+function bytesToBase64(bytes) {
+  let binary = ""
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+
+  return btoa(binary)
+}
+
 export function Component({
   deviceUid = "",
   createPath = "/api/remote-access/sessions",
+  fileTransferPath = "/api/remote-access/file-transfers",
+  approvalId = "",
   title = "SSH remote access",
   allowRememberedKeys = false,
   allowSkipVerifyHostKeyPolicy = false,
@@ -96,6 +163,18 @@ export function Component({
   const [credential, setCredential] = useState(null)
   const [error, setError] = useState("")
   const [opening, setOpening] = useState(false)
+  const [accessApprovalId, setAccessApprovalId] = useState(approvalId)
+  const [approvalRequired, setApprovalRequired] = useState(false)
+  const [remotePath, setRemotePath] = useState("/")
+  const [entries, setEntries] = useState([])
+  const [fileTransferError, setFileTransferError] = useState("")
+  const [fileTransferBusy, setFileTransferBusy] = useState(false)
+  const [uploadDestination, setUploadDestination] = useState("/")
+  const [transferEvents, setTransferEvents] = useState([])
+  const socketControlRef = useRef(null)
+  const pendingUploadsRef = useRef(new Map())
+  const startedUploadsRef = useRef(new Set())
+  const downloadBuffersRef = useRef(new Map())
 
   useEffect(() => {
     if (!allowRememberedKeys) {
@@ -150,6 +229,14 @@ export function Component({
     }
   }, [allowTargetPortOverride, targetPort])
 
+  useEffect(() => {
+    setAccessApprovalId(approvalId)
+  }, [approvalId])
+
+  useEffect(() => {
+    setUploadDestination(remotePath)
+  }, [remotePath])
+
   const attachPayload = useMemo(() => {
     if (!credential) {
       return null
@@ -168,10 +255,228 @@ export function Component({
     setPrivateKey(await file.text())
   }
 
+  const addTransferEvent = useCallback((event) => {
+    setTransferEvents((current) => [{at: new Date().toISOString(), ...event}, ...current].slice(0, MAX_TRANSFER_EVENTS))
+  }, [])
+
+  const createFileTransfer = useCallback(
+    async (operation, path, extra = {}) => {
+      if (!session?.id) {
+        throw new Error("SSH session is not active.")
+      }
+
+      const response = await fetch(fileTransferPath, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-csrf-token": csrfToken(),
+        },
+        body: JSON.stringify({
+          session_id: session.id,
+          operation,
+          path,
+          ...extra,
+        }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw apiError(payload, "Remote file transfer failed.")
+      }
+
+      return payload.data
+    },
+    [fileTransferPath, session],
+  )
+
+  const streamUpload = useCallback(
+    async (transferId, upload) => {
+      const control = socketControlRef.current
+
+      if (!control) {
+        throw new Error("SSH websocket is not ready.")
+      }
+
+      let sequence = 1
+      let offset = 0
+
+      while (offset < upload.file.size) {
+        const nextOffset = Math.min(offset + FILE_TRANSFER_CHUNK_BYTES, upload.file.size)
+        const bytes = new Uint8Array(await upload.file.slice(offset, nextOffset).arrayBuffer())
+        const sent = control.sendFileTransferData({
+          transfer_id: transferId,
+          sequence,
+          offset,
+          data: bytesToBase64(bytes),
+          eof: false,
+        })
+
+        if (!sent) {
+          throw new Error("SSH websocket is closed.")
+        }
+
+        sequence += 1
+        offset = nextOffset
+      }
+
+      const sent = control.sendFileTransferData({
+        transfer_id: transferId,
+        sequence,
+        offset,
+        data: "",
+        eof: true,
+      })
+
+      if (!sent) {
+        throw new Error("SSH websocket is closed.")
+      }
+
+      addTransferEvent({transferId, status: "uploaded", path: upload.path})
+    },
+    [addTransferEvent],
+  )
+
+  const handleFileTransferMessage = useCallback(
+    (message) => {
+      const payload = message.payload || {}
+      const transferId = payload.transfer_id || ""
+
+      if (message.frame_type === "file_transfer_progress") {
+        addTransferEvent({transferId, status: payload.status || "progress"})
+
+        const upload = pendingUploadsRef.current.get(transferId)
+        if (upload && !upload.started && payload.status === "started") {
+          upload.started = true
+          streamUpload(transferId, upload).catch((uploadError) => {
+            pendingUploadsRef.current.delete(transferId)
+            setFileTransferError(errorMessage(uploadError))
+            addTransferEvent({transferId, status: "failed", path: upload.path})
+          })
+        } else if (!upload && payload.status === "started") {
+          startedUploadsRef.current.add(transferId)
+        }
+
+        return
+      }
+
+      if (message.frame_type === "file_transfer_data") {
+        const download = downloadBuffersRef.current.get(transferId)
+        if (!download) {
+          return
+        }
+
+        if (payload.data) {
+          download.chunks.push(bytesFromBase64(payload.data))
+        }
+
+        if (payload.eof) {
+          downloadBuffersRef.current.delete(transferId)
+          const url = URL.createObjectURL(new Blob(download.chunks))
+          const link = document.createElement("a")
+          link.href = url
+          link.download = download.name
+          document.body.appendChild(link)
+          link.click()
+          link.remove()
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+          addTransferEvent({transferId, status: "downloaded", path: download.path})
+        }
+
+        return
+      }
+
+      if (message.frame_type === "file_transfer_outcome") {
+        pendingUploadsRef.current.delete(transferId)
+        setFileTransferBusy(false)
+        addTransferEvent({transferId, status: payload.status || "completed"})
+
+        if (Array.isArray(payload.entries)) {
+          setEntries(payload.entries)
+        }
+
+        return
+      }
+
+      if (message.frame_type === "file_transfer_error") {
+        pendingUploadsRef.current.delete(transferId)
+        downloadBuffersRef.current.delete(transferId)
+        setFileTransferBusy(false)
+        setFileTransferError(payload.message || "Remote file transfer failed.")
+        addTransferEvent({transferId, status: payload.status || "failed"})
+      }
+    },
+    [addTransferEvent, streamUpload],
+  )
+
+  async function listDirectory(path = remotePath) {
+    const nextPath = path.trim() || "/"
+    setFileTransferBusy(true)
+    setFileTransferError("")
+    setRemotePath(nextPath)
+
+    try {
+      const transfer = await createFileTransfer("list", nextPath)
+      addTransferEvent({transferId: transfer.id, status: "requested", path: nextPath})
+    } catch (listError) {
+      setFileTransferBusy(false)
+      setFileTransferError(errorMessage(listError))
+    }
+  }
+
+  async function downloadEntry(entry) {
+    const path = entry.path || joinPath(remotePath, entry.name)
+    setFileTransferError("")
+
+    try {
+      const transfer = await createFileTransfer("download", path, {display_name: entry.name || baseName(path)})
+      downloadBuffersRef.current.set(transfer.id, {
+        chunks: [],
+        name: entry.name || baseName(path),
+        path,
+      })
+      addTransferEvent({transferId: transfer.id, status: "requested", path})
+    } catch (downloadError) {
+      setFileTransferError(errorMessage(downloadError))
+    }
+  }
+
+  async function uploadFile(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+
+    if (!file) {
+      return
+    }
+
+    const destination = uploadDestination.trim() || remotePath || "/"
+    const path = destination.endsWith("/") || destination === remotePath ? joinPath(destination, file.name) : destination
+    setFileTransferError("")
+
+    try {
+      const transfer = await createFileTransfer("upload", path, {display_name: file.name})
+      const upload = {file, path, started: false}
+      pendingUploadsRef.current.set(transfer.id, upload)
+      addTransferEvent({transferId: transfer.id, status: "requested", path})
+
+      if (startedUploadsRef.current.delete(transfer.id)) {
+        upload.started = true
+        streamUpload(transfer.id, upload).catch((uploadError) => {
+          pendingUploadsRef.current.delete(transfer.id)
+          setFileTransferError(errorMessage(uploadError))
+          addTransferEvent({transferId: transfer.id, status: "failed", path})
+        })
+      }
+    } catch (uploadError) {
+      setFileTransferError(errorMessage(uploadError))
+    }
+  }
+
   async function openSession(event) {
     event.preventDefault()
     setOpening(true)
     setError("")
+    setApprovalRequired(false)
 
     const key = normalizeKey(privateKey)
     const publicKeyValue = normalizeKey(publicKey)
@@ -220,6 +525,10 @@ export function Component({
       body.target_port = parsedTargetPort
     }
 
+    if (accessApprovalId.trim()) {
+      body.approval_id = accessApprovalId.trim()
+    }
+
     try {
       const response = await fetch(createPath, {
         method: "POST",
@@ -234,7 +543,7 @@ export function Component({
       const payload = await response.json()
 
       if (!response.ok) {
-        throw new Error(payload?.message || payload?.error)
+        throw apiError(payload, "Unable to open SSH session.")
       }
 
       if (allowRememberedKeys && rememberKey && credentialMode === "user_present") {
@@ -257,6 +566,14 @@ export function Component({
       setCredential(nextCredential)
       setSession(payload.data)
     } catch (openError) {
+      if (
+        openError?.code === "approval_required" ||
+        openError?.code === "approval_pending" ||
+        openError?.code === "approval_checker_required"
+      ) {
+        setApprovalRequired(true)
+      }
+
       setError(errorMessage(openError))
     } finally {
       setOpening(false)
@@ -265,17 +582,156 @@ export function Component({
 
   if (session && credential) {
     return (
-      <RemoteAccessTerminal
-        sessionId={session.id}
-        ticket={session.ticket}
-        websocketPath={session.websocket_path}
-        title={title}
-        subtitle={`${session.target_host}:${session.target_port} via ${session.agent_id}`}
-        streamLabel="SSH"
-        closeLabel="SSH session"
-        attachPayload={attachPayload}
-        terminalModuleLoader={terminalModuleLoader}
-      />
+      <div className="grid h-full min-h-0 bg-slate-950 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-h-0">
+          <RemoteAccessTerminal
+            sessionId={session.id}
+            ticket={session.ticket}
+            websocketPath={session.websocket_path}
+            title={title}
+            subtitle={`${session.target_host}:${session.target_port} via ${session.agent_id}`}
+            streamLabel="SSH"
+            closeLabel="SSH session"
+            attachPayload={attachPayload}
+            terminalModuleLoader={terminalModuleLoader}
+            onFileTransferMessage={handleFileTransferMessage}
+            socketControlRef={socketControlRef}
+          />
+        </div>
+
+        <aside className="flex min-h-0 flex-col border-t border-slate-800 bg-slate-900 text-slate-100 lg:border-l lg:border-t-0">
+          <div className="border-b border-slate-800 px-4 py-3">
+            <div className="text-sm font-semibold">Files</div>
+            <div className="mt-1 truncate text-xs text-slate-400">{remotePath}</div>
+          </div>
+
+          <div className="space-y-3 border-b border-slate-800 p-4">
+            <div className="join flex w-full">
+              <input
+                className="input join-item input-bordered input-sm min-w-0 flex-1 bg-slate-950 text-slate-100"
+                value={remotePath}
+                onChange={(event) => setRemotePath(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    listDirectory()
+                  }
+                }}
+              />
+              <button
+                className="btn join-item btn-sm"
+                type="button"
+                title="Parent directory"
+                onClick={() => listDirectory(parentPath(remotePath))}
+                disabled={fileTransferBusy}
+              >
+                ..
+              </button>
+              <button
+                className="btn join-item btn-sm"
+                type="button"
+                title="Refresh directory"
+                onClick={() => listDirectory()}
+                disabled={fileTransferBusy}
+              >
+                {fileTransferBusy ? <span className="loading loading-spinner loading-xs" /> : "↻"}
+              </button>
+            </div>
+
+            <label className="form-control">
+              <div className="label py-1">
+                <span className="label-text text-slate-300">Upload path</span>
+              </div>
+              <input
+                className="input input-bordered input-sm bg-slate-950 text-slate-100"
+                value={uploadDestination}
+                onChange={(event) => setUploadDestination(event.target.value)}
+              />
+            </label>
+            <input
+              className="file-input file-input-bordered file-input-sm w-full bg-slate-950 text-slate-100"
+              type="file"
+              onChange={uploadFile}
+            />
+
+            {fileTransferError ? (
+              <div className="rounded border border-red-900/60 bg-red-950 px-3 py-2 text-xs text-red-100">
+                {fileTransferError}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto">
+            {entries.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-slate-400">No directory entries loaded.</div>
+            ) : (
+              <table className="table table-xs table-pin-rows">
+                <thead>
+                  <tr className="border-slate-800 text-slate-400">
+                    <th>Name</th>
+                    <th className="text-right">Size</th>
+                    <th className="w-16"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => {
+                    const path = entry.path || joinPath(remotePath, entry.name)
+
+                    return (
+                      <tr className="border-slate-800" key={`${entry.name}:${path}`}>
+                        <td className="max-w-48 truncate">
+                          {entry.is_dir ? (
+                            <button
+                              className="link text-left text-sky-300"
+                              type="button"
+                              onClick={() => listDirectory(path)}
+                            >
+                              {entry.name}/
+                            </button>
+                          ) : (
+                            <span title={entry.mode}>{entry.name}</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap text-right text-slate-400">
+                          {entry.is_dir ? "dir" : formatBytes(entry.size)}
+                        </td>
+                        <td className="text-right">
+                          {!entry.is_dir ? (
+                            <button
+                              className="btn btn-ghost btn-xs"
+                              type="button"
+                              title="Download"
+                              onClick={() => downloadEntry({...entry, path})}
+                            >
+                              ↓
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="max-h-36 overflow-auto border-t border-slate-800 p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Transfers</div>
+            {transferEvents.length === 0 ? (
+              <div className="text-xs text-slate-500">No transfers yet.</div>
+            ) : (
+              <div className="space-y-1">
+                {transferEvents.map((event, index) => (
+                  <div className="truncate text-xs text-slate-300" key={`${event.transferId}:${event.at}:${index}`}>
+                    <span className="text-slate-500">{event.status}</span>{" "}
+                    <span title={event.path || event.transferId}>{event.path || event.transferId}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
     )
   }
 
@@ -360,6 +816,19 @@ export function Component({
                 placeholder="Use inventory target"
                 value={targetHost}
                 onChange={(event) => setTargetHost(event.target.value)}
+              />
+            </label>
+          ) : null}
+
+          {approvalRequired || accessApprovalId ? (
+            <label className="form-control">
+              <div className="label">
+                <span className="label-text">Approval ID</span>
+              </div>
+              <input
+                className="input input-bordered"
+                value={accessApprovalId}
+                onChange={(event) => setAccessApprovalId(event.target.value)}
               />
             </label>
           ) : null}

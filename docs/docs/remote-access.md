@@ -5,7 +5,7 @@ title: Remote Access
 
 # Remote Access
 
-ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. It is not a complete Teleport replacement yet: native Proxmox VM/LXC `termproxy` or `vncwebsocket` consoles, SFTP/SCP, database access, Kubernetes access, RDP, and application access are follow-up capabilities.
+ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. Native Proxmox VM/LXC `termproxy` or `vncwebsocket` consoles, SFTP/SCP, database access, Kubernetes access, RDP, and application access are follow-up capabilities.
 
 The intended enterprise model is short-lived SSH user certificates backed by your identity provider, ServiceRadar RBAC, and an edge agent that can reach the target. Operators should avoid reusable agent-local SSH secrets.
 

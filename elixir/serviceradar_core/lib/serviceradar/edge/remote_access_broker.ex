@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
@@ -19,6 +20,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
+  @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
   @callback close(pid(), term()) :: :ok
 
@@ -27,6 +29,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @default_terminal_type "xterm-256color"
   @default_ssh_host_key_policy "known_hosts"
   @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
+  @file_transfer_frame_types ~w(
+    file_transfer_progress
+    file_transfer_data
+    file_transfer_outcome
+    file_transfer_error
+  )
 
   def child_spec({session, owner, opts}) do
     %{
@@ -42,6 +50,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
     GenServer.call(pid, {:send_input, data})
+  end
+
+  def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_file_transfer_data, payload})
   end
 
   def resize(pid, cols, rows) when is_pid(pid) and is_integer(cols) and is_integer(rows) do
@@ -64,6 +76,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       required_gateway_node: Keyword.get(opts, :required_gateway_node),
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
+      file_transfers: Keyword.get(opts, :file_transfers, RemoteAccessFileTransfers),
       lifecycle: Keyword.get(opts, :lifecycle, lifecycle_for(session)),
       recordings: Keyword.get(opts, :recordings, RemoteAccessRecordings),
       recording: nil,
@@ -107,6 +120,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     result = send_frame(state, "data", data, nil, nil, nil)
     write_audit(state, :remote_access_session_input, %{input_bytes: byte_size(data)})
     state = if result == :ok, do: count_recording_input(state, data), else: state
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_file_transfer_data, payload}, _from, state) do
+    result = send_frame(state, "file_transfer_data", Jason.encode!(payload), nil, nil, nil)
     {:reply, result, state}
   end
 
@@ -161,6 +179,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:noreply, state}
   end
 
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when frame_type in @file_transfer_frame_types do
+    _ = handle_file_transfer_frame(frame, state)
+    send(state.owner, {:remote_access_file_transfer_frame, frame})
+    {:noreply, state}
+  end
+
   defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
        when frame_type in ["close", "error"] do
     send(state.owner, {:remote_access_closed, reason || frame_type})
@@ -171,6 +196,18 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   defp handle_remote_access_frame(_frame, state), do: {:noreply, state}
+
+  defp handle_file_transfer_frame(frame, state) do
+    state.file_transfers.handle_agent_frame(frame,
+      audit_actor: state.audit_actor,
+      audit_writer: state.audit_writer,
+      recording: state.recording
+    )
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
   defp owns_remote_access_frame?(session, frame) do
     string_value(frame, "session_id") == session_id(session) and

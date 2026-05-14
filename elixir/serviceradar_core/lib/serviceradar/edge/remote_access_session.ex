@@ -404,6 +404,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       destination_attribute :session_id
       public? true
     end
+
+    has_many :file_transfers, ServiceRadar.Edge.RemoteAccessFileTransfer do
+      source_attribute :id
+      destination_attribute :session_id
+      public? true
+    end
   end
 
   identities do

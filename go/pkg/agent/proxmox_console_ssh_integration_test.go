@@ -136,6 +136,237 @@ func TestProxmoxConsoleManagerAuthenticatesToTrustedUserCATarget(t *testing.T) {
 	}, sender)
 }
 
+func TestProxmoxConsoleManagerTransfersFilesAgainstTrustedUserCATarget(t *testing.T) {
+	t.Parallel()
+
+	target := integrationSSHTargetFromEnv(t)
+	if target.Host == "" {
+		target = startLocalTrustedUserCATarget(t)
+	}
+	if target.RemoteDir == "" {
+		t.Skip("SERVICERADAR_REMOTE_ACCESS_SSH_TEST_DIR is required for external file-transfer integration targets")
+	}
+
+	userPrivateKey, userPublicKey := generateIntegrationUserKey(t)
+	ca, err := sshca.New(target.CAPrivateKey, nil, sshca.WithMaxTTL(time.Hour))
+	if err != nil {
+		t.Fatalf("initialize ServiceRadar SSH CA: %v", err)
+	}
+
+	signed, err := ca.SignUserCertificate(sshca.UserCertificateRequest{
+		PublicKey:  userPublicKey,
+		KeyID:      fmt.Sprintf("sr:remote-access:%s:test-actor:%s:ssh:%s", target.SessionID, target.AgentID, target.Host),
+		Principals: []string{target.Principal},
+		TTL:        5 * time.Minute,
+		Serial:     44,
+	})
+	if err != nil {
+		t.Fatalf("sign user certificate: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	manager := newProxmoxConsoleManagerWithAgentID(target.AgentID, createTestLogger())
+	sender := newFakeProxmoxConsoleSender()
+	openTrustedUserCASession(t, ctx, manager, sender, target, userPrivateKey, signed.AuthorizedKey)
+
+	const uploadPayload = "serviceradar-sftp-proof\n"
+	uploadPath := target.RemoteDir + "/serviceradar-sftp-proof.txt"
+	manager.HandleFileTransferFrame(
+		ctx,
+		integrationFileTransferRequestFrame(t, target, remoteaccess.FileTransferOperationUpload, uploadPath),
+		sender,
+	)
+	manager.HandleFileTransferFrame(ctx, integrationFileTransferDataFrame(t, target, 1, 0, []byte(uploadPayload), false), sender)
+	manager.HandleFileTransferFrame(ctx, integrationFileTransferDataFrame(t, target, 2, int64(len(uploadPayload)), nil, true), sender)
+	assertIntegrationFileTransferOutcome(t, sender, remoteaccess.FileTransferStatusCompleted, int64(len(uploadPayload)), 15*time.Second)
+
+	manager.HandleFileTransferFrame(
+		ctx,
+		integrationFileTransferRequestFrame(t, target, remoteaccess.FileTransferOperationDownload, uploadPath),
+		sender,
+	)
+	assertIntegrationDownloadPayload(t, sender, uploadPayload, 15*time.Second)
+
+	manager.HandleFrame(ctx, &proto.ConsoleFrame{
+		SessionId: target.SessionID,
+		FrameType: consoleFrameTypeClose,
+		Reason:    "integration complete",
+	}, sender)
+}
+
+func openTrustedUserCASession(
+	t *testing.T,
+	ctx context.Context,
+	manager *proxmoxConsoleManager,
+	sender *fakeProxmoxConsoleSender,
+	target integrationSSHTarget,
+	userPrivateKey []byte,
+	userCertificate []byte,
+) {
+	t.Helper()
+
+	openPayload := remoteaccess.SSHOpenPayload{
+		Protocol:       remoteaccess.ProtocolSSH,
+		SessionID:      target.SessionID,
+		AgentID:        target.AgentID,
+		Target:         remoteaccess.SSHTarget{Host: target.Host, Port: target.Port},
+		CredentialMode: remoteaccess.SSHCredentialModeSSHCertificate,
+		SSH: remoteaccess.SSHAuth{
+			Username:    target.Username,
+			PrivateKey:  string(userPrivateKey),
+			Certificate: string(userCertificate),
+		},
+		SSHHostKeyPolicy: "skip_verify",
+		TerminalType:     "xterm-256color",
+		TimeoutMS:        10_000,
+	}
+	openData, err := json.Marshal(openPayload)
+	if err != nil {
+		t.Fatalf("marshal open payload: %v", err)
+	}
+
+	manager.HandleFrame(ctx, &proto.ConsoleFrame{
+		SessionId: target.SessionID,
+		FrameType: consoleFrameTypeOpen,
+		Cols:      100,
+		Rows:      30,
+		Data:      openData,
+	}, sender)
+
+	ready := nextIntegrationFrame(t, sender, consoleFrameTypeReady, 15*time.Second)
+	if ready.GetSessionId() != target.SessionID {
+		t.Fatalf("ready SessionId = %q, want %q", ready.GetSessionId(), target.SessionID)
+	}
+}
+
+func integrationFileTransferRequestFrame(
+	t *testing.T,
+	target integrationSSHTarget,
+	operation remoteaccess.FileTransferOperation,
+	path string,
+) *proto.ConsoleFrame {
+	t.Helper()
+
+	direction, err := remoteaccess.DirectionForOperation(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := remoteaccess.FileTransferRequestPayload{
+		Protocol:   remoteaccess.ProtocolSFTP,
+		TransferID: fmt.Sprintf("integration-%s", operation),
+		SessionID:  target.SessionID,
+		Operation:  operation,
+		Direction:  direction,
+		Path:       path,
+		Policy: remoteaccess.FileTransferPolicy{
+			AllowedOperations: []remoteaccess.FileTransferOperation{operation},
+			AllowedPathRules:  []string{target.RemoteDir},
+			MaxFiles:          10,
+			MaxBytes:          1024,
+		},
+		Approved: true,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &proto.ConsoleFrame{
+		SessionId: target.SessionID,
+		FrameType: remoteaccess.FrameTypeFileTransferRequest,
+		Data:      data,
+	}
+}
+
+func integrationFileTransferDataFrame(
+	t *testing.T,
+	target integrationSSHTarget,
+	sequence uint64,
+	offset int64,
+	data []byte,
+	eof bool,
+) *proto.ConsoleFrame {
+	t.Helper()
+
+	payload := remoteaccess.FileTransferDataPayload{
+		TransferID: "integration-upload",
+		Sequence:   sequence,
+		Offset:     offset,
+		Data:       data,
+		EOF:        eof,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &proto.ConsoleFrame{
+		SessionId: target.SessionID,
+		FrameType: remoteaccess.FrameTypeFileTransferData,
+		Data:      encoded,
+	}
+}
+
+func assertIntegrationFileTransferOutcome(
+	t *testing.T,
+	sender *fakeProxmoxConsoleSender,
+	status remoteaccess.FileTransferStatus,
+	bytesTransferred int64,
+	timeout time.Duration,
+) {
+	t.Helper()
+
+	frame := nextIntegrationFrame(t, sender, remoteaccess.FrameTypeFileTransferOutcome, timeout)
+	var payload remoteaccess.FileTransferOutcomePayload
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		t.Fatalf("decode file-transfer outcome: %v", err)
+	}
+	if payload.Status != status {
+		t.Fatalf("file-transfer status = %q, want %q", payload.Status, status)
+	}
+	if payload.BytesTransferred != bytesTransferred {
+		t.Fatalf("bytes_transferred = %d, want %d", payload.BytesTransferred, bytesTransferred)
+	}
+}
+
+func assertIntegrationDownloadPayload(
+	t *testing.T,
+	sender *fakeProxmoxConsoleSender,
+	expected string,
+	timeout time.Duration,
+) {
+	t.Helper()
+
+	var output bytes.Buffer
+	deadline := time.After(timeout)
+	for {
+		select {
+		case frame := <-sender.ch:
+			switch frame.GetFrameType() {
+			case remoteaccess.FrameTypeFileTransferData:
+				var payload remoteaccess.FileTransferDataPayload
+				if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+					t.Fatalf("decode file-transfer data: %v", err)
+				}
+				_, _ = output.Write(payload.Data)
+				if payload.EOF {
+					if output.String() != expected {
+						t.Fatalf("download payload = %q, want %q", output.String(), expected)
+					}
+					return
+				}
+			case remoteaccess.FrameTypeFileTransferError:
+				t.Fatalf("received file-transfer error: %s", string(frame.GetData()))
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for download payload\noutput:\n%s", output.String())
+		}
+	}
+}
+
 func nextIntegrationFrame(
 	t *testing.T,
 	sender *fakeProxmoxConsoleSender,
@@ -154,6 +385,9 @@ func nextIntegrationFrame(
 			if frame.GetFrameType() == consoleFrameTypeError {
 				t.Fatalf("received error frame while waiting for %q: %s", frameType, frame.GetReason())
 			}
+			if frame.GetFrameType() == remoteaccess.FrameTypeFileTransferError {
+				t.Fatalf("received file-transfer error while waiting for %q: %s", frameType, string(frame.GetData()))
+			}
 		case <-deadline:
 			t.Fatalf("timed out waiting for console frame type %q", frameType)
 		}
@@ -167,6 +401,7 @@ type integrationSSHTarget struct {
 	Principal    string
 	AgentID      string
 	SessionID    string
+	RemoteDir    string
 	CAPrivateKey []byte
 }
 
@@ -200,6 +435,7 @@ func integrationSSHTargetFromEnv(t *testing.T) integrationSSHTarget {
 		Principal:    envDefault("SERVICERADAR_REMOTE_ACCESS_SSH_PRINCIPAL", "sr-test-operator"),
 		AgentID:      envDefault("SERVICERADAR_REMOTE_ACCESS_AGENT_ID", "demo-agent"),
 		SessionID:    envDefault("SERVICERADAR_REMOTE_ACCESS_SESSION_ID", "demo-agent-sshca-session"),
+		RemoteDir:    strings.TrimRight(os.Getenv("SERVICERADAR_REMOTE_ACCESS_SSH_TEST_DIR"), "/"),
 		CAPrivateKey: caKey,
 	}
 }
@@ -211,6 +447,10 @@ func startLocalTrustedUserCATarget(t *testing.T) integrationSSHTarget {
 	sshKeygenPath := requireAgentIntegrationCommand(t, "ssh-keygen")
 	username := currentIntegrationUsername(t)
 	tmpDir := t.TempDir()
+	remoteDir := filepath.Join(tmpDir, "remote")
+	if err := os.Mkdir(remoteDir, 0o700); err != nil {
+		t.Fatalf("create remote dir: %v", err)
+	}
 
 	caKeyPath := filepath.Join(tmpDir, "ca_ed25519")
 	hostKeyPath := filepath.Join(tmpDir, "host_ed25519")
@@ -237,6 +477,7 @@ KbdInteractiveAuthentication no
 ChallengeResponseAuthentication no
 PubkeyAuthentication yes
 AuthenticationMethods publickey
+Subsystem sftp internal-sftp
 UsePAM no
 PermitTTY yes
 StrictModes no
@@ -269,6 +510,7 @@ LogLevel VERBOSE
 		Principal:    "sr-test-operator",
 		AgentID:      "agent-1",
 		SessionID:    "agent-routed-sshca-session",
+		RemoteDir:    remoteDir,
 		CAPrivateKey: readAgentIntegrationFile(t, caKeyPath),
 	}
 }

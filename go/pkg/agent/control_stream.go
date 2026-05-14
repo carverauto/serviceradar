@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -377,6 +378,12 @@ func (p *PushLoop) controlStreamHeartbeatLoop(ctx context.Context, sender *contr
 
 func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
 	if frame.GetSessionId() == "" {
+		return
+	}
+
+	switch frame.GetFrameType() {
+	case remoteaccess.FrameTypeFileTransferRequest, remoteaccess.FrameTypeFileTransferData:
+		p.handleFileTransferFrame(frame, sender)
 		return
 	}
 

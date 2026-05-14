@@ -3206,6 +3206,8 @@ func agentCapabilities(enhancedBPF bool) []string {
 		"sysmon",
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessFile,
+		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
 	}
 

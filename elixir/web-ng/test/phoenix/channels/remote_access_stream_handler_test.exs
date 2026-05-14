@@ -82,6 +82,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       :ok
     end
 
+    def send_file_transfer_data(pid, payload) do
+      send(pid, {:send_file_transfer_data, self(), payload})
+      :ok
+    end
+
     def resize(pid, cols, rows) do
       send(pid, {:resize, self(), cols, rows})
       :ok
@@ -96,6 +101,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       receive do
         {:send_input, caller, data} ->
           send(state.session.metadata["test_pid"], {:broker_input, caller, data})
+          loop(state)
+
+        {:send_file_transfer_data, caller, payload} ->
+          send(state.session.metadata["test_pid"], {:broker_file_transfer_data, caller, payload})
           loop(state)
 
         {:resize, caller, cols, rows} ->
@@ -587,6 +596,77 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     refute response =~ "srra_test_ticket"
 
     RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "broker file-transfer frames are forwarded as typed websocket messages" do
+    {:ok, state} = init_state("session-transfer")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-transfer"), [opcode: :text]}, state)
+
+    frame = %{
+      session_id: "session-transfer",
+      frame_type: "file_transfer_outcome",
+      data:
+        Jason.encode!(%{
+          transfer_id: "transfer-1",
+          status: "completed",
+          entries: [%{name: "app.log", path: "/var/log/app.log", is_dir: false}]
+        })
+    }
+
+    assert {:push, {:text, response}, after_transfer} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_file_transfer_frame, frame}, attached)
+
+    assert %{
+             "type" => "file_transfer",
+             "session_id" => "session-transfer",
+             "frame_type" => "file_transfer_outcome",
+             "payload" => %{
+               "transfer_id" => "transfer-1",
+               "status" => "completed",
+               "entries" => [%{"name" => "app.log"}]
+             }
+           } = Jason.decode!(response)
+
+    assert after_transfer.attached?
+    refute response =~ "srra_test_ticket"
+    refute response =~ "credential"
+
+    RemoteAccessStreamHandler.terminate(:normal, after_transfer)
+  end
+
+  test "browser file-transfer data frames are forwarded to the broker after attach" do
+    {:ok, state} = init_state("session-upload")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-upload"), [opcode: :text]}, state)
+
+    payload = %{
+      type: "file_transfer_data",
+      transfer_id: "transfer-upload",
+      sequence: 1,
+      offset: 0,
+      data: Base.encode64("hello"),
+      eof: false
+    }
+
+    assert {:ok, after_data} =
+             RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+    assert_receive {:broker_file_transfer_data, _caller,
+                    %{
+                      transfer_id: "transfer-upload",
+                      sequence: 1,
+                      offset: 0,
+                      data: encoded,
+                      eof: false
+                    }}
+
+    assert Base.decode64!(encoded) == "hello"
+    assert after_data.attached?
+
+    RemoteAccessStreamHandler.terminate(:normal, after_data)
   end
 
   test "idle timeout expires session and renders explicit browser error" do
