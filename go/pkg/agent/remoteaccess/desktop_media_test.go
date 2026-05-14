@@ -580,6 +580,41 @@ func TestDesktopMediaCreditWindowStopsMediaAfterCloseAck(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaCreditWindowRejectsAcksAfterClose(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	closeAck := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  8,
+		CloseReason:      "viewer closed",
+	}
+	if err := window.ApplyAck(closeAck, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck close returned error: %v", err)
+	}
+
+	creditAck := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  9,
+		CreditBytes:      16,
+	}
+	if err := window.ApplyAck(creditAck, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ApplyAck after close error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if window.RemainingBytes() != 1 {
+		t.Fatalf("RemainingBytes after post-close ack = %d, want 1", window.RemainingBytes())
+	}
+	if seq, ok := window.LastAcceptedSeq(); !ok || seq != 8 {
+		t.Fatalf("LastAcceptedSeq = %d, %v; want 8, true", seq, ok)
+	}
+}
+
 func TestValidateDesktopMediaAckRejectsAmbiguousFlowControl(t *testing.T) {
 	t.Parallel()
 

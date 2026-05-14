@@ -231,6 +231,9 @@ func (w *DesktopMediaCreditWindow) ApplyAck(ack DesktopMediaAck, sessionBindingI
 	if err := ValidateDesktopMediaAck(ack, sessionBindingID, mediaSessionID); err != nil {
 		return err
 	}
+	if w.closeReason != "" {
+		return fmt.Errorf("%w: media stream already closed", ErrInvalidDesktopMediaAck)
+	}
 	if w.acceptedSeqSet && ack.LastAcceptedSeq < w.lastAcceptedSeq {
 		return fmt.Errorf("%w: stale ack sequence", ErrInvalidDesktopMediaAck)
 	}
