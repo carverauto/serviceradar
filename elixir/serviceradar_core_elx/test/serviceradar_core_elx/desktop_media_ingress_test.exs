@@ -27,14 +27,15 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
               media_ingest_id: "ingest-desktop-ingress-1",
               gateway_id: "gateway-1",
               last_accepted_sequence: 9,
-              credit_bytes: 4
+              credit_bytes: 0,
+              pause: true
             }} =
              DesktopMediaIngress.forward_frame(frame("desktop-ingress-1", sequence: 9, payload: <<1, 2, 3, 4>>), session)
 
     assert [{_, ingress_pid, _, _}] = DynamicSupervisor.which_children(DesktopMediaIngressSupervisor)
     assert is_pid(ingress_pid)
 
-    assert {:ok, %Desktopmedia.DesktopMediaAck{last_accepted_sequence: 10, credit_bytes: 3}} =
+    assert {:ok, %Desktopmedia.DesktopMediaAck{last_accepted_sequence: 10, credit_bytes: 0, pause: true}} =
              DesktopMediaIngress.forward_frame(frame("desktop-ingress-1", sequence: 10), session)
 
     assert [{_, ^ingress_pid, _, _}] = DynamicSupervisor.which_children(DesktopMediaIngressSupervisor)

@@ -11,6 +11,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   use GenServer
 
   @default_unavailable "desktop media plane is not available"
+  @default_max_browser_ack_credit_bytes 2 * 1_048_576
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -28,6 +29,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
   def forward_frame(session_id, %Desktopmedia.DesktopMediaFrameChunk{} = frame, opts \\ []) when is_binary(session_id) do
     GenServer.call(server_name(opts), {:forward_frame, session_id, frame, opts}, Keyword.get(opts, :timeout, 15_000))
+  end
+
+  def apply_browser_ack(session_id, viewer_session_id, ack, opts \\ [])
+      when is_binary(session_id) and is_binary(viewer_session_id) and is_map(ack) do
+    GenServer.call(server_name(opts), {:apply_browser_ack, session_id, viewer_session_id, ack})
   end
 
   def fetch_session(session_id, opts \\ []) when is_binary(session_id) do
@@ -96,18 +102,35 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
     frame_cost = frame_byte_count(frame)
     viewer_count = map_size(session.viewers)
+    credit_bytes = next_credit_grant(session)
 
     updated =
       session
       |> Map.put(:last_sequence, max(session.last_sequence, normalize_uint(frame.sequence)))
       |> Map.update!(:forwarded_bytes, &(&1 + frame_cost))
       |> Map.update!(:forwarded_frames, &(&1 + 1))
+      |> Map.update!(:pending_credit_bytes, &max(&1 - credit_bytes, 0))
+      |> maybe_pause_for_viewers(viewer_count)
       |> Map.put(:updated_at_unix, now_unix())
       |> put_last_frame_metadata(frame, frame_cost, viewer_count)
 
     emit_frame_event(updated, frame, frame_cost, viewer_count)
 
-    {:reply, {:ok, ack_for(updated, frame, frame_cost, viewer_count)}, put_in(state, [:sessions, session_id], updated)}
+    {:reply, {:ok, ack_for(updated, frame, credit_bytes, viewer_count)}, put_in(state, [:sessions, session_id], updated)}
+  end
+
+  def handle_call({:apply_browser_ack, session_id, viewer_session_id, ack}, _from, state) do
+    case Map.get(state.sessions, session_id) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      %{viewers: viewers} = session ->
+        if Map.has_key?(viewers, viewer_session_id) do
+          apply_bound_browser_ack(state, session, viewer_session_id, ack)
+        else
+          {:reply, {:error, :viewer_session_not_found}, state}
+        end
+    end
   end
 
   def handle_call({:fetch_session, session_id}, _from, state) do
@@ -147,8 +170,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       gateway_id: nil,
       viewers: %{},
       last_sequence: 0,
+      last_accepted_sequence: 0,
       forwarded_bytes: 0,
       forwarded_frames: 0,
+      pending_credit_bytes: 0,
+      paused: false,
+      quality_level: nil,
+      close_reason: nil,
       last_frame: nil,
       created_at_unix: now,
       updated_at_unix: now
@@ -177,15 +205,52 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     })
   end
 
-  defp ack_for(session, frame, frame_cost, viewer_count) do
+  defp apply_bound_browser_ack(state, session, viewer_session_id, ack) do
+    accepted_sequence = ack_sequence(ack)
+
+    cond do
+      ack_media_session_id(ack) not in [nil, "", session.media_session_id] ->
+        {:reply, {:error, :media_session_mismatch}, state}
+
+      accepted_sequence < session.last_accepted_sequence ->
+        {:reply, {:error, :replayed_ack}, state}
+
+      accepted_sequence == session.last_accepted_sequence and ack_credit_bytes(ack) > 0 ->
+        {:reply, {:error, :duplicate_credit_ack}, state}
+
+      true ->
+        credit_bytes = min(ack_credit_bytes(ack), max_browser_ack_credit_bytes())
+
+        updated =
+          session
+          |> Map.put(:last_accepted_sequence, max(session.last_accepted_sequence, accepted_sequence))
+          |> Map.update!(:pending_credit_bytes, &(&1 + credit_bytes))
+          |> maybe_put(:quality_level, ack_quality_level(ack))
+          |> maybe_put(:close_reason, ack_close_reason(ack))
+          |> maybe_pause_from_ack(ack)
+          |> Map.put(:updated_at_unix, now_unix())
+
+        emit_browser_ack_event(updated, viewer_session_id, ack, credit_bytes)
+
+        {:reply, {:ok, sanitize_session(updated)}, put_in(state, [:sessions, session.session_id], updated)}
+    end
+  end
+
+  defp next_credit_grant(%{pending_credit_bytes: pending_credit_bytes}) do
+    min(normalize_uint(pending_credit_bytes), max_browser_ack_credit_bytes())
+  end
+
+  defp ack_for(session, frame, credit_bytes, viewer_count) do
     %Desktopmedia.DesktopMediaAck{
       desktop_session_id: frame.desktop_session_id,
       media_session_id: frame.media_session_id,
       media_ingest_id: session.media_ingest_id || frame.media_ingest_id,
       gateway_id: session.gateway_id || "",
       last_accepted_sequence: frame.sequence,
-      credit_bytes: frame_cost,
-      pause: viewer_count == 0
+      credit_bytes: credit_bytes,
+      quality_level: session.quality_level || 0,
+      pause: viewer_count == 0 or session.paused,
+      close_reason: session.close_reason || ""
     }
   end
 
@@ -201,8 +266,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       gateway_id: session.gateway_id,
       viewer_count: map_size(session.viewers),
       last_sequence: session.last_sequence,
+      last_accepted_sequence: session.last_accepted_sequence,
       forwarded_bytes: session.forwarded_bytes,
       forwarded_frames: session.forwarded_frames,
+      pending_credit_bytes: session.pending_credit_bytes,
+      paused: session.paused,
+      quality_level: session.quality_level,
+      close_reason: session.close_reason,
       last_frame: session.last_frame,
       created_at_unix: session.created_at_unix,
       updated_at_unix: session.updated_at_unix
@@ -236,6 +306,90 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
         encoding: frame.encoding
       }
     )
+  end
+
+  defp emit_browser_ack_event(session, viewer_session_id, ack, credit_bytes) do
+    :telemetry.execute(
+      [:serviceradar, :desktop_media, :browser, :ack],
+      %{
+        credit_bytes: credit_bytes,
+        last_accepted_sequence: session.last_accepted_sequence,
+        pending_credit_bytes: session.pending_credit_bytes
+      },
+      %{
+        session_id: session.session_id,
+        viewer_session_id: viewer_session_id,
+        media_session_id: session.media_session_id,
+        pause: ack_bool(ack, :pause, "pause"),
+        resume: ack_bool(ack, :resume, "resume"),
+        close_reason_present: ack_close_reason(ack) not in [nil, ""]
+      }
+    )
+  end
+
+  defp maybe_pause_for_viewers(session, 0), do: Map.put(session, :paused, true)
+  defp maybe_pause_for_viewers(session, _viewer_count), do: session
+
+  defp maybe_pause_from_ack(session, ack) do
+    cond do
+      ack_bool(ack, :pause, "pause") -> Map.put(session, :paused, true)
+      ack_bool(ack, :resume, "resume") -> Map.put(session, :paused, false)
+      true -> session
+    end
+  end
+
+  defp ack_media_session_id(ack), do: string_ack_value(ack, :media_session_id, "media_session_id")
+
+  defp ack_sequence(ack) do
+    ack
+    |> int_ack_value(:last_accepted_sequence, "last_accepted_sequence", "last_accepted_seq")
+    |> normalize_uint()
+  end
+
+  defp ack_credit_bytes(ack) do
+    ack
+    |> int_ack_value(:credit_bytes, "credit_bytes")
+    |> normalize_uint()
+  end
+
+  defp ack_quality_level(ack) do
+    case int_ack_value(ack, :quality_level, "quality_level") do
+      value when is_integer(value) and value > 0 -> value
+      _other -> nil
+    end
+  end
+
+  defp ack_close_reason(ack) do
+    case string_ack_value(ack, :close_reason, "close_reason") do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp ack_bool(ack, atom_key, string_key) do
+    Map.get(ack, atom_key, Map.get(ack, string_key, false)) == true
+  end
+
+  defp int_ack_value(ack, atom_key, string_key) do
+    Map.get(ack, atom_key, Map.get(ack, string_key, 0))
+  end
+
+  defp int_ack_value(ack, atom_key, string_key, legacy_string_key) do
+    Map.get(ack, atom_key, Map.get(ack, string_key, Map.get(ack, legacy_string_key, 0)))
+  end
+
+  defp string_ack_value(ack, atom_key, string_key) do
+    ack
+    |> Map.get(atom_key, Map.get(ack, string_key, ""))
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp max_browser_ack_credit_bytes do
+    case Application.get_env(:serviceradar_core_elx, :remote_desktop_media_max_browser_ack_credit_bytes) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> @default_max_browser_ack_credit_bytes
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map
