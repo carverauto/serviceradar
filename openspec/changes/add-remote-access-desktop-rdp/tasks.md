@@ -11,6 +11,7 @@
 - [x] 2.2.1 Add web-ng WebRTC signaling endpoints for an existing RDP remote-access session: create offer, submit answer, add ICE candidates, and close viewer session.
 - [x] 2.2.2 Gate desktop WebRTC signaling behind `remote_access_desktop_rdp_enabled` and reject non-RDP remote-access sessions.
 - [x] 2.2.3 Include desktop WebRTC transport, signaling path, and ICE server metadata on RDP remote-access session responses.
+- [x] 2.2.4 Add a supervised core-elx desktop WebRTC signaling owner behind the web-ng ERTS RPC facade.
 - [ ] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
 - [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
 
@@ -36,6 +37,7 @@
 ## 5. Validation And Demo
 - [ ] 5.1 Add unit tests for resource normalization, override rejection, RBAC, approval, redirection gates, quota enforcement, and audit records.
 - [x] 5.1.1 Add RBAC catalog tests for RDP open permission and Phoenix controller tests for desktop WebRTC signaling gates.
+- [x] 5.1.2 Add core-elx tests for desktop WebRTC signaling lifecycle, missing sessions, unsupported protocols, answers, candidates, and expiry.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
