@@ -272,7 +272,7 @@ type fakeRemoteFileTransferFile struct {
 
 func (f fakeRemoteFileTransferFile) Close() error {
 	if f.onClose != nil {
-		f.onClose(append([]byte(nil), f.Buffer.Bytes()...))
+		f.onClose(append([]byte(nil), f.Bytes()...))
 	}
 
 	return nil
