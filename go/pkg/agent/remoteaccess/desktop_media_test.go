@@ -468,6 +468,114 @@ func TestDesktopMediaCreditWindowAppliesValidatedAck(t *testing.T) {
 	}
 }
 
+func TestDesktopSessionGuardValidatesMediaAcks(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+	target.Screen = DesktopScreenPolicy{
+		MaxWidth:    1280,
+		MaxHeight:   720,
+		FrameRate:   24,
+		BitrateBPS:  4_000_000,
+		IdleSeconds: 10,
+		TTLSeconds:  30,
+	}
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  1,
+		CreditBytes:      1024,
+		QualityLevel:     DesktopMediaQualityLow,
+	}
+
+	guard, err := NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	if err := guard.ValidateMediaAck(
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		101,
+	); err != nil {
+		t.Fatalf("ValidateMediaAck returned error: %v", err)
+	}
+	if guard.LastActivityUnix() != 101 {
+		t.Fatalf("LastActivityUnix = %d, want 101", guard.LastActivityUnix())
+	}
+
+	ack.MediaSessionID = "other-media"
+	if err := guard.ValidateMediaAck(
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		102,
+	); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("media mismatch error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+
+	ack.MediaSessionID = desktopMediaTestMediaSessionID
+	if err := guard.ValidateMediaAck(
+		ack,
+		desktopMediaTestMediaSessionID,
+		"agent-2",
+		"gateway-1",
+		102,
+	); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("route-loss error = %v, want %v", err, ErrDesktopRouteLost)
+	}
+
+	if err := guard.ValidateMediaAck(
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		111,
+	); !errors.Is(err, ErrDesktopSessionExpired) {
+		t.Fatalf("idle-expired error = %v, want %v", err, ErrDesktopSessionExpired)
+	}
+
+	guard, err = NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	ack.QualityLevel = "ultra"
+	if err := guard.ValidateMediaAck(
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		101,
+	); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("quality error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+
+	ack.QualityLevel = DesktopMediaQualityLow
+	if err := guard.ValidateMediaAck(
+		ack,
+		"",
+		desktopTestAgentID,
+		"gateway-1",
+		101,
+	); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("missing expected media id error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+
+	var nilGuard *DesktopSessionGuard
+	if err := nilGuard.ValidateMediaAck(
+		ack,
+		desktopMediaTestMediaSessionID,
+		desktopTestAgentID,
+		"gateway-1",
+		101,
+	); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("nil guard error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
 func TestDesktopMediaCreditWindowRejectsReplayAcks(t *testing.T) {
 	t.Parallel()
 

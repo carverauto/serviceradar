@@ -363,6 +363,37 @@ func (g *DesktopSessionGuard) ValidateMediaFrame(
 	return nil
 }
 
+// ValidateMediaAck applies the session guard to a browser/gateway SRDP media
+// acknowledgement before the ack mutates sender credit-window state.
+func (g *DesktopSessionGuard) ValidateMediaAck(
+	ack DesktopMediaAck,
+	mediaSessionID string,
+	localAgentID string,
+	currentGatewayID string,
+	nowUnix int64,
+) error {
+	if g == nil {
+		return fmt.Errorf("%w: missing session guard", ErrInvalidDesktopMediaAck)
+	}
+	mediaSessionID = strings.TrimSpace(mediaSessionID)
+	if mediaSessionID == "" {
+		return fmt.Errorf("%w: missing media session binding", ErrInvalidDesktopMediaAck)
+	}
+	if err := ValidateDesktopMediaAck(ack, g.sessionID, mediaSessionID); err != nil {
+		return err
+	}
+	if err := validateDesktopRouteBindingNormalized(g.target, localAgentID, currentGatewayID); err != nil {
+		return err
+	}
+	if err := ValidateDesktopSessionLifetime(g.target.Screen, g.startUnix, g.lastActivityUnix, nowUnix); err != nil {
+		return err
+	}
+
+	g.lastActivityUnix = nowUnix
+
+	return nil
+}
+
 // ValidateContentRecording checks whether retaining the sensitive content from
 // an already accepted frame is allowed by this session's recording policy.
 // Metadata-only audit paths do not need this check; screen pixels and clipboard
