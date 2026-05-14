@@ -2658,14 +2658,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp latency_ms(_), do: 0.0
 
   defp agent_device_row?(row) when is_map(row) do
-    agent_id = Map.get(row, "agent_id")
-    sources = Map.get(row, "discovery_sources") || []
-    agent_list = Map.get(row, "agent_list") || []
-
-    (is_binary(agent_id) and agent_id != "") or
-      (is_list(agent_list) and agent_list != []) or
-      Enum.any?(sources, &(&1 == "agent"))
+    row
+    |> agent_list()
+    |> List.wrap()
+    |> Enum.any?(&is_map/1)
   end
+
+  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)

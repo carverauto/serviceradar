@@ -716,12 +716,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       cond do
         icmp_available?(result) -> "success"
         is_map(icmp_status) -> "failed"
+        result["icmp_available"] == true -> "success"
+        legacy_icmp_success?(result) -> "success"
         true -> "no_response"
       end
 
     tcp = if Enum.empty?(open_ports(result)), do: "no_response", else: "success"
 
     %{"icmp" => icmp, "tcp" => tcp}
+  end
+
+  defp legacy_icmp_success?(result) do
+    result_available?(result) and response_time_ms(result) != nil and
+      Enum.empty?(open_ports(result))
   end
 
   defp bulk_insert_host_results([]), do: :ok
