@@ -234,6 +234,48 @@ func TestValidateDesktopFrameEnforcesGraphicalPolicy(t *testing.T) {
 	}
 }
 
+func TestDesktopFramePayloadRoundTripsThroughConsoleFrameData(t *testing.T) {
+	t.Parallel()
+
+	policy := DesktopScreenPolicy{
+		MaxWidth:   1280,
+		MaxHeight:  720,
+		FrameRate:  24,
+		BitrateBPS: 4_000_000,
+	}
+	frame := DesktopFrame{
+		SessionID: "session-1",
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeInput,
+		Input: &DesktopInputEvent{
+			Kind: DesktopInputKindPointer,
+			X:    640,
+			Y:    360,
+		},
+	}
+
+	data, err := EncodeDesktopFramePayload(frame, policy)
+	if err != nil {
+		t.Fatalf("EncodeDesktopFramePayload returned error: %v", err)
+	}
+
+	got, err := DecodeDesktopFramePayload(data, policy)
+	if err != nil {
+		t.Fatalf("DecodeDesktopFramePayload returned error: %v", err)
+	}
+	if got.SessionID != frame.SessionID || got.FrameType != frame.FrameType || got.Input == nil {
+		t.Fatalf("decoded frame = %#v", got)
+	}
+	if got.Input.Kind != DesktopInputKindPointer || got.Input.X != 640 || got.Input.Y != 360 {
+		t.Fatalf("decoded input = %#v", got.Input)
+	}
+
+	_, err = DecodeDesktopFramePayload([]byte(`{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.resize","width":9999,"height":720}`), policy)
+	if !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("invalid decoded frame error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func validDesktopTarget() DesktopTarget {
 	return DesktopTarget{
 		TargetID: desktopTestTargetID,

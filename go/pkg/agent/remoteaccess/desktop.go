@@ -220,6 +220,35 @@ func DecodeDesktopOpenPayload(data []byte) (DesktopOpenPayload, error) {
 	return payload, nil
 }
 
+// EncodeDesktopFramePayload validates and serializes a typed desktop frame for
+// transport inside the existing ConsoleFrame data field.
+func EncodeDesktopFramePayload(frame DesktopFrame, policy DesktopScreenPolicy) ([]byte, error) {
+	if err := ValidateDesktopFrame(frame, policy); err != nil {
+		return nil, err
+	}
+
+	data, err := json.Marshal(frame)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode frame payload: %w", ErrInvalidDesktopFrame, err)
+	}
+
+	return data, nil
+}
+
+// DecodeDesktopFramePayload decodes and validates a typed desktop frame carried
+// inside the existing ConsoleFrame data field.
+func DecodeDesktopFramePayload(data []byte, policy DesktopScreenPolicy) (DesktopFrame, error) {
+	var frame DesktopFrame
+	if err := json.Unmarshal(data, &frame); err != nil {
+		return frame, fmt.Errorf("%w: decode frame payload: %w", ErrInvalidDesktopFrame, err)
+	}
+	if err := ValidateDesktopFrame(frame, policy); err != nil {
+		return frame, err
+	}
+
+	return frame, nil
+}
+
 // NormalizeDesktopTarget applies secure defaults and validates the registered
 // desktop target policy snapshot.
 func NormalizeDesktopTarget(target DesktopTarget) (DesktopTarget, error) {
