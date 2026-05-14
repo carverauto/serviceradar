@@ -334,6 +334,35 @@ func (g *DesktopSessionGuard) ValidateFrame(
 	return nil
 }
 
+// ValidateMediaFrame applies the session guard to a dedicated SRDP media frame
+// before the gateway or adapter accepts screen/cursor/media payloads.
+func (g *DesktopSessionGuard) ValidateMediaFrame(
+	frame DesktopMediaFrame,
+	localAgentID string,
+	currentGatewayID string,
+	nowUnix int64,
+) error {
+	if g == nil {
+		return fmt.Errorf("%w: missing session guard", ErrInvalidDesktopMediaFrame)
+	}
+	if frame.SessionBindingID != g.sessionID {
+		return fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopMediaFrame)
+	}
+	if err := validateDesktopRouteBindingNormalized(g.target, localAgentID, currentGatewayID); err != nil {
+		return err
+	}
+	if err := ValidateDesktopSessionLifetime(g.target.Screen, g.startUnix, g.lastActivityUnix, nowUnix); err != nil {
+		return err
+	}
+	if err := ValidateDesktopMediaFrame(frame, g.target.Screen); err != nil {
+		return err
+	}
+
+	g.lastActivityUnix = nowUnix
+
+	return nil
+}
+
 // ValidateContentRecording checks whether retaining the sensitive content from
 // an already accepted frame is allowed by this session's recording policy.
 // Metadata-only audit paths do not need this check; screen pixels and clipboard

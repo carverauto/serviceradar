@@ -150,6 +150,70 @@ func TestDesktopMediaFrameValidation(t *testing.T) {
 	}
 }
 
+func TestDesktopSessionGuardValidatesMediaFrames(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Route.SelectedGateway = "gateway-1"
+	target.Screen = DesktopScreenPolicy{
+		MaxWidth:    1280,
+		MaxHeight:   720,
+		FrameRate:   24,
+		BitrateBPS:  4_000_000,
+		IdleSeconds: 10,
+		TTLSeconds:  30,
+	}
+	guard, err := NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+
+	frame := DesktopMediaFrame{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		Sequence:         1,
+		Width:            1280,
+		Height:           720,
+		PayloadFamily:    DesktopMediaPayloadDirtyRect,
+		Encoding:         "rgba",
+		Payload:          []byte{1, 2, 3, 4},
+	}
+	if err := guard.ValidateMediaFrame(frame, desktopTestAgentID, "gateway-1", 101); err != nil {
+		t.Fatalf("ValidateMediaFrame returned error: %v", err)
+	}
+	if guard.LastActivityUnix() != 101 {
+		t.Fatalf("LastActivityUnix = %d, want 101", guard.LastActivityUnix())
+	}
+
+	frame.SessionBindingID = "other-session"
+	if err := guard.ValidateMediaFrame(frame, desktopTestAgentID, "gateway-1", 102); !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+	}
+
+	frame.SessionBindingID = desktopMediaTestSessionID
+	if err := guard.ValidateMediaFrame(frame, "agent-2", "gateway-1", 102); !errors.Is(err, ErrDesktopRouteLost) {
+		t.Fatalf("route-loss error = %v, want %v", err, ErrDesktopRouteLost)
+	}
+
+	if err := guard.ValidateMediaFrame(frame, desktopTestAgentID, "gateway-1", 111); !errors.Is(err, ErrDesktopSessionExpired) {
+		t.Fatalf("idle-expired error = %v, want %v", err, ErrDesktopSessionExpired)
+	}
+
+	guard, err = NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
+	if err != nil {
+		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
+	}
+	frame.Width = 1281
+	if err := guard.ValidateMediaFrame(frame, desktopTestAgentID, "gateway-1", 101); !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("policy error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+	}
+
+	var nilGuard *DesktopSessionGuard
+	if err := nilGuard.ValidateMediaFrame(frame, desktopTestAgentID, "gateway-1", 101); !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("nil guard error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+	}
+}
+
 func TestDesktopMediaFrameRejectsTruncatedPayload(t *testing.T) {
 	t.Parallel()
 
