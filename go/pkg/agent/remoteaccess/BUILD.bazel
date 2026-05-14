@@ -38,8 +38,11 @@ go_test(
     srcs = [
         "adapters_test.go",
         "desktop_audit_test.go",
+        "desktop_credential_test.go",
+        "desktop_frame_test.go",
         "desktop_media_test.go",
         "desktop_session_guard_test.go",
+        "desktop_target_test.go",
         "desktop_test.go",
         "enhanced_recorder_test.go",
         "enhanced_recording_linux_test.go",
