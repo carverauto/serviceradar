@@ -86,11 +86,12 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
         })
 
       %Desktopmedia.DesktopMediaClientMessage{message: {:frame, frame}}, :ok ->
-        validate_desktop_media_frame!(frame, stream)
+        {agent_id, session} = validate_desktop_media_frame!(frame, stream)
+        ack = forward_desktop_media_frame!(frame, session, agent_id)
 
-        raise GRPC.RPCError,
-          status: :failed_precondition,
-          message: "desktop media frame forwarding is not enabled"
+        send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
+          message: {:ack, ack}
+        })
 
       _other, :ok ->
         raise GRPC.RPCError, status: :invalid_argument, message: "unsupported desktop media stream message"
@@ -216,7 +217,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     case session_tracker().fetch_session(desktop_session_id, agent_id) do
       {:ok, %{media_session_id: ^media_session_id} = session} ->
         enforce_frame_size!(frame, session)
-        :ok
+        {agent_id, session}
 
       {:ok, _session} ->
         raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
@@ -234,7 +235,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   end
 
   defp enforce_frame_size!(frame, session) do
-    byte_count = byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
+    byte_count = frame_byte_count(frame)
 
     if byte_count > session.max_chunk_bytes do
       raise GRPC.RPCError,
@@ -242,6 +243,100 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
         message: "desktop media frame exceeded max size #{session.max_chunk_bytes}"
     end
   end
+
+  defp forward_desktop_media_frame!(frame, session, agent_id) do
+    forwarder = frame_forwarder()
+
+    if is_nil(forwarder) do
+      raise GRPC.RPCError,
+        status: :failed_precondition,
+        message: "desktop media frame forwarding is not enabled"
+    end
+
+    frame_cost = frame_byte_count(frame)
+
+    case forwarder.forward_frame(frame, session) do
+      {:ok, %Desktopmedia.DesktopMediaAck{} = ack} ->
+        ack = normalize_forwarded_ack!(ack, frame, session)
+
+        with {:ok, _session} <-
+               session_tracker().record_frame(session.desktop_session_id, session.media_session_id, agent_id, %{
+                 sequence: frame.sequence,
+                 credit_cost: frame_cost
+               }),
+             {:ok, _session} <-
+               session_tracker().apply_ack(session.desktop_session_id, session.media_session_id, %{
+                 last_accepted_sequence: ack.last_accepted_sequence,
+                 credit_bytes: ack.credit_bytes,
+                 quality_level: ack.quality_level,
+                 pause: ack.pause,
+                 resume: ack.resume,
+                 close_reason: ack.close_reason
+               }) do
+          ack
+        else
+          {:error, :not_found} ->
+            raise GRPC.RPCError, status: :not_found, message: "desktop media session not found"
+
+          {:error, :media_session_mismatch} ->
+            raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
+
+          {:error, :agent_id_mismatch} ->
+            raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
+        end
+
+      {:error, %GRPC.RPCError{} = error} ->
+        raise error
+
+      {:error, reason} ->
+        raise GRPC.RPCError,
+          status: :unavailable,
+          message: "desktop media frame forward failed: #{inspect(reason)}"
+    end
+  end
+
+  defp normalize_forwarded_ack!(ack, frame, session) do
+    desktop_session_id = default_ack_id(ack.desktop_session_id, frame.desktop_session_id)
+    media_session_id = default_ack_id(ack.media_session_id, frame.media_session_id)
+    media_ingest_id = default_ack_id(ack.media_ingest_id, session.media_ingest_id)
+
+    cond do
+      desktop_session_id != frame.desktop_session_id ->
+        raise GRPC.RPCError,
+          status: :permission_denied,
+          message: "desktop_session_id mismatch"
+
+      media_session_id != frame.media_session_id ->
+        raise GRPC.RPCError,
+          status: :permission_denied,
+          message: "media_session_id mismatch"
+
+      media_ingest_id != session.media_ingest_id ->
+        raise GRPC.RPCError,
+          status: :permission_denied,
+          message: "media_ingest_id mismatch"
+
+      true ->
+        %{
+          ack
+          | desktop_session_id: desktop_session_id,
+            media_session_id: media_session_id,
+            media_ingest_id: media_ingest_id,
+            gateway_id: default_ack_id(ack.gateway_id, gateway_id())
+        }
+    end
+  end
+
+  defp default_ack_id(nil, default), do: default
+
+  defp default_ack_id(value, default) do
+    case value |> to_string() |> String.trim() do
+      "" -> default
+      normalized -> normalized
+    end
+  end
+
+  defp frame_byte_count(frame), do: byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
 
   defp send_stream_reply(%{test_pid: test_pid}, response) when is_pid(test_pid) do
     send(test_pid, {:desktop_media_stream_reply, response})
@@ -259,6 +354,10 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
       :desktop_media_session_tracker_module,
       DesktopMediaSessionTracker
     )
+  end
+
+  defp frame_forwarder do
+    Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder)
   end
 
   defp identity_resolver do

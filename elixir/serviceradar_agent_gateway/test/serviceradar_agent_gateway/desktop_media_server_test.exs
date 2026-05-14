@@ -5,10 +5,20 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
+  alias ServiceRadarAgentGateway.TestSupport.DesktopMediaFrameForwarderStub
 
   setup do
     previous_identity_resolver =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_identity_resolver)
+
+    previous_frame_forwarder =
+      Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder)
+
+    previous_frame_forwarder_result =
+      Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder_result)
+
+    previous_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :desktop_media_server_test_pid)
 
     previous_tracker =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_session_tracker_module)
@@ -34,6 +44,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
       DesktopMediaSessionTracker
     )
 
+    Application.put_env(:serviceradar_agent_gateway, :desktop_media_server_test_pid, self())
+
     on_exit(fn ->
       DesktopMediaSessionTracker
       |> :sys.get_state()
@@ -42,6 +54,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
       :sys.replace_state(DesktopMediaSessionTracker, fn _state -> previous_state end)
 
       restore_env(:desktop_media_identity_resolver, previous_identity_resolver)
+      restore_env(:desktop_media_frame_forwarder, previous_frame_forwarder)
+      restore_env(:desktop_media_frame_forwarder_result, previous_frame_forwarder_result)
+      restore_env(:desktop_media_server_test_pid, previous_test_pid)
       restore_env(:desktop_media_session_tracker_module, previous_tracker)
     end)
 
@@ -176,6 +191,161 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
         stream
       )
     end
+  end
+
+  test "desktop media stream forwards frames through configured forwarder and applies ack credit" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
+    stream = test_stream(test_pid: self())
+    open_response = open_desktop_session!("desktop-stream-forward-1", "media-stream-forward-1", stream)
+
+    assert :ok =
+             DesktopMediaServer.stream_desktop_media(
+               [
+                 %Desktopmedia.DesktopMediaClientMessage{
+                   message:
+                     {:frame,
+                      %Desktopmedia.DesktopMediaFrameChunk{
+                        desktop_session_id: "desktop-stream-forward-1",
+                        media_session_id: "media-stream-forward-1",
+                        media_ingest_id: open_response.media_ingest_id,
+                        agent_id: "agent-1",
+                        sequence: 11,
+                        payload: <<1, 2, 3>>
+                      }}
+                 }
+               ],
+               stream
+             )
+
+    assert_receive {:forward_desktop_media_frame,
+                    %Desktopmedia.DesktopMediaFrameChunk{
+                      desktop_session_id: "desktop-stream-forward-1",
+                      media_session_id: "media-stream-forward-1",
+                      sequence: 11,
+                      payload: <<1, 2, 3>>
+                    }, %{desktop_session_id: "desktop-stream-forward-1", media_session_id: "media-stream-forward-1"}}
+
+    assert_receive {:desktop_media_stream_reply,
+                    %Desktopmedia.DesktopMediaServerMessage{
+                      message:
+                        {:ack,
+                         %Desktopmedia.DesktopMediaAck{
+                           desktop_session_id: "desktop-stream-forward-1",
+                           media_session_id: "media-stream-forward-1",
+                           media_ingest_id: media_ingest_id,
+                           last_accepted_sequence: 11,
+                           credit_bytes: 3
+                         }}
+                    }}
+
+    assert media_ingest_id == open_response.media_ingest_id
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session("desktop-stream-forward-1", "agent-1")
+
+    assert session.last_sequence == 11
+    assert session.sent_bytes == 3
+    assert session.last_accepted_sequence == 11
+    assert session.received_credit_bytes == 3
+  end
+
+  test "desktop media stream does not mutate counters when configured forwarder fails" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder_result,
+      {:error, :downstream_unavailable}
+    )
+
+    stream = test_stream()
+    open_desktop_session!("desktop-stream-forward-fail-1", "media-stream-forward-fail-1", stream)
+
+    assert_raise GRPC.RPCError, ~r/desktop media frame forward failed/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-forward-fail-1",
+                 media_session_id: "media-stream-forward-fail-1",
+                 agent_id: "agent-1",
+                 sequence: 7,
+                 payload: <<1, 2, 3>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session("desktop-stream-forward-fail-1", "agent-1")
+
+    assert session.last_sequence == 0
+    assert session.sent_bytes == 0
+    assert session.last_accepted_sequence == 0
+    assert session.received_credit_bytes == 0
+  end
+
+  test "desktop media stream rejects mismatched downstream acknowledgements before mutating counters" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder_result,
+      {:ok,
+       %Desktopmedia.DesktopMediaAck{
+         desktop_session_id: "desktop-other",
+         media_session_id: "media-stream-ack-mismatch-1",
+         last_accepted_sequence: 7,
+         credit_bytes: 3
+       }}
+    )
+
+    stream = test_stream()
+    open_desktop_session!("desktop-stream-ack-mismatch-1", "media-stream-ack-mismatch-1", stream)
+
+    assert_raise GRPC.RPCError, ~r/desktop_session_id mismatch/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-ack-mismatch-1",
+                 media_session_id: "media-stream-ack-mismatch-1",
+                 agent_id: "agent-1",
+                 sequence: 7,
+                 payload: <<1, 2, 3>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session("desktop-stream-ack-mismatch-1", "agent-1")
+
+    assert session.last_sequence == 0
+    assert session.sent_bytes == 0
+    assert session.last_accepted_sequence == 0
+    assert session.received_credit_bytes == 0
   end
 
   test "desktop media stream accepts heartbeat and close control messages" do
