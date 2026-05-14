@@ -368,6 +368,17 @@ func NormalizeDesktopCredentialGrant(
 	grant DesktopCredentialGrant,
 	target DesktopTarget,
 ) (DesktopCredentialGrant, error) {
+	return NormalizeDesktopCredentialGrantAt(grant, target, nowUnix())
+}
+
+// NormalizeDesktopCredentialGrantAt validates a desktop credential grant at a
+// caller-provided Unix timestamp. Tests and adapters with trusted clocks can
+// use this to make brokered-secret TTL decisions explicit.
+func NormalizeDesktopCredentialGrantAt(
+	grant DesktopCredentialGrant,
+	target DesktopTarget,
+	nowUnix int64,
+) (DesktopCredentialGrant, error) {
 	grant.Mode = strings.TrimSpace(grant.Mode)
 	grant.Username = strings.TrimSpace(grant.Username)
 	grant.CredentialSecretRef = strings.TrimSpace(grant.CredentialSecretRef)
@@ -405,6 +416,9 @@ func NormalizeDesktopCredentialGrant(
 		}
 		if grant.ActorID == "" || grant.SessionID == "" || grant.RouteID == "" || grant.ExpiresUnix <= 0 {
 			return grant, fmt.Errorf("%w: brokered credential grant requires actor, session, route, and ttl binding", ErrInvalidDesktopTarget)
+		}
+		if nowUnix > 0 && grant.ExpiresUnix <= nowUnix {
+			return grant, fmt.Errorf("%w: brokered credential grant expired", ErrInvalidDesktopTarget)
 		}
 	case DesktopCredentialModeMemoryUser:
 		if grant.Username == "" || grant.Password == "" {

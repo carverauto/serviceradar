@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	desktopTestTargetID = "rdp-target-1"
-	desktopTestAgentID  = "agent-1"
-	desktopTestHost     = "windows.internal"
+	desktopTestTargetID    = "rdp-target-1"
+	desktopTestAgentID     = "agent-1"
+	desktopTestHost        = "windows.internal"
+	desktopTestExpiresUnix = 4_102_444_800
 )
 
 func TestNormalizeDesktopTargetAppliesSecureDefaults(t *testing.T) {
@@ -165,7 +166,7 @@ func TestDecodeDesktopOpenPayloadValidatesTargetAndGrantBinding(t *testing.T) {
 			SessionID:           "session-1",
 			TargetID:            desktopTestTargetID,
 			RouteID:             desktopTestAgentID,
-			ExpiresUnix:         1_778_000_000,
+			ExpiresUnix:         desktopTestExpiresUnix,
 		},
 	}
 	data, err := json.Marshal(payload)
@@ -210,7 +211,7 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 			SessionID:           fakeRemoteSessionID,
 			TargetID:            desktopTestTargetID,
 			RouteID:             desktopTestAgentID,
-			ExpiresUnix:         1_778_000_000,
+			ExpiresUnix:         desktopTestExpiresUnix,
 		},
 	}
 	data, err := json.Marshal(payload)
@@ -263,7 +264,7 @@ func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing
 		SessionID:           "session-1",
 		TargetID:            desktopTestTargetID,
 		RouteID:             desktopTestAgentID,
-		ExpiresUnix:         1_778_000_000,
+		ExpiresUnix:         desktopTestExpiresUnix,
 	}
 
 	if _, err := NormalizeDesktopCredentialGrant(validGrant, target); err != nil {
@@ -330,6 +331,14 @@ func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing
 			}
 		})
 	}
+
+	if _, err := NormalizeDesktopCredentialGrantAt(
+		validGrant,
+		target,
+		desktopTestExpiresUnix+1,
+	); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("expired grant error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
 }
 
 func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.T) {
@@ -377,7 +386,7 @@ func TestDesktopCredentialGrantDropSensitive(t *testing.T) {
 		SessionID:           "session-1",
 		TargetID:            desktopTestTargetID,
 		RouteID:             desktopTestAgentID,
-		ExpiresUnix:         1_778_000_000,
+		ExpiresUnix:         desktopTestExpiresUnix,
 	}
 
 	grant.DropSensitive()
@@ -386,7 +395,7 @@ func TestDesktopCredentialGrantDropSensitive(t *testing.T) {
 	}
 	if grant.ActorID != "user-1" || grant.SessionID != "session-1" ||
 		grant.TargetID != desktopTestTargetID || grant.RouteID != desktopTestAgentID ||
-		grant.ExpiresUnix != 1_778_000_000 {
+		grant.ExpiresUnix != desktopTestExpiresUnix {
 		t.Fatalf("binding fields should be retained: %#v", grant)
 	}
 
