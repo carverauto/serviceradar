@@ -905,7 +905,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> render_click()
 
-      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      source_id = source.id
+      profile_id = profile.id
+
+      assert_receive {:open_session, ^source_id, ^profile_id, opts}
       assert opts[:scope].user.role == :viewer
       assert render(view) =~ "Opening"
       assert render(view) =~ "Stop Relay"
@@ -952,7 +955,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> render_click()
 
-      assert_receive {:open_session, ^source.id, ^profile.id, opts}
+      source_id = source.id
+      profile_id = profile.id
+
+      assert_receive {:open_session, ^source_id, ^profile_id, opts}
       assert opts[:insecure_skip_verify] == true
     end
 
