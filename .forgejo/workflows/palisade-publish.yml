@@ -42,7 +42,7 @@ on:
 jobs:
   publish:
     name: Publish palisade to hex.pm
-    runs-on: ubuntu-24.04
+    runs-on: serviceradar-ubuntu-24.04
     defaults:
       run:
         working-directory: elixir/palisade
