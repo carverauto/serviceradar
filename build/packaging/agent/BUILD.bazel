@@ -26,3 +26,24 @@ pkg_tar(
     package_dir = "/",
     extension = "tar.gz",
 )
+
+pkg_files(
+    name = "agent_rdp_release_runtime_files",
+    srcs = [
+        "//go/cmd/agent:agent",
+        "//rust/rdp-adapter:rdp_adapter",
+    ],
+    prefix = "/",
+    renames = {
+        "//go/cmd/agent:agent": "serviceradar-agent",
+        "//rust/rdp-adapter:rdp_adapter": "serviceradar-rdp-adapter",
+    },
+    attributes = pkg_attributes(mode = "0755"),
+)
+
+pkg_tar(
+    name = "agent_rdp_release_runtime_archive",
+    srcs = [":agent_rdp_release_runtime_files"],
+    package_dir = "/",
+    extension = "tar.gz",
+)

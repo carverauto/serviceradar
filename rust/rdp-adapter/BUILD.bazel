@@ -1,0 +1,24 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "rdp_adapter_lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+)
+
+rust_binary(
+    name = "rdp_adapter",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    edition = "2021",
+    deps = [":rdp_adapter_lib"],
+)
+
+rust_test(
+    name = "rdp_adapter_test",
+    crate = ":rdp_adapter_lib",
+)

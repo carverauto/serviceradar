@@ -1,0 +1,211 @@
+use std::error::Error;
+use std::fmt;
+use std::io::{self, ErrorKind, Read, Write};
+
+const HEADER_LEN: usize = 5;
+const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
+
+const MSG_OPEN: u8 = 1;
+const MSG_INPUT: u8 = 2;
+const MSG_ACK: u8 = 4;
+const MSG_CLOSE: u8 = 5;
+const MSG_ERROR: u8 = 6;
+
+const BACKEND_UNAVAILABLE: &str = "IronRDP backend is not linked into this helper build";
+
+#[derive(Debug)]
+pub enum ProtocolError {
+    Io(io::Error),
+    InvalidFrameLength(u32),
+    MissingOpenPayload,
+    BackendUnavailable,
+    UnexpectedMessage(u8),
+}
+
+impl fmt::Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(err) => write!(f, "rdp helper io error: {err}"),
+            Self::InvalidFrameLength(length) => {
+                write!(f, "rdp helper frame length is invalid: {length}")
+            }
+            Self::MissingOpenPayload => write!(f, "rdp helper open frame payload is required"),
+            Self::BackendUnavailable => write!(f, "{BACKEND_UNAVAILABLE}"),
+            Self::UnexpectedMessage(message_type) => {
+                write!(
+                    f,
+                    "rdp helper received unexpected message type: {message_type}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for ProtocolError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for ProtocolError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct Frame {
+    message_type: u8,
+    payload: Vec<u8>,
+}
+
+pub fn run_stdio<R, W>(reader: &mut R, writer: &mut W) -> Result<(), ProtocolError>
+where
+    R: Read,
+    W: Write,
+{
+    while let Some(frame) = read_frame(reader)? {
+        match frame.message_type {
+            MSG_OPEN => {
+                if frame.payload.is_empty() {
+                    write_error_frame(writer, "rdp helper open frame payload is required")?;
+                    return Err(ProtocolError::MissingOpenPayload);
+                }
+
+                write_error_frame(writer, BACKEND_UNAVAILABLE)?;
+                return Err(ProtocolError::BackendUnavailable);
+            }
+            MSG_CLOSE => return Ok(()),
+            MSG_INPUT | MSG_ACK => {
+                write_error_frame(writer, "rdp helper session is not open")?;
+                return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+            }
+            message_type => {
+                write_error_frame(writer, "rdp helper message type is unsupported")?;
+                return Err(ProtocolError::UnexpectedMessage(message_type));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_frame<R: Read>(reader: &mut R) -> Result<Option<Frame>, ProtocolError> {
+    let mut header = [0u8; HEADER_LEN];
+
+    match reader.read_exact(&mut header[..1]) {
+        Ok(()) => {}
+        Err(err) if err.kind() == ErrorKind::UnexpectedEof => return Ok(None),
+        Err(err) => return Err(ProtocolError::Io(err)),
+    }
+
+    reader.read_exact(&mut header[1..])?;
+
+    let frame_length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
+    if frame_length == 0 || frame_length > MAX_FRAME_LENGTH {
+        return Err(ProtocolError::InvalidFrameLength(frame_length));
+    }
+
+    let payload_length = frame_length - 1;
+    let mut payload = vec![0u8; payload_length as usize];
+    reader.read_exact(&mut payload)?;
+
+    Ok(Some(Frame {
+        message_type: header[4],
+        payload,
+    }))
+}
+
+fn write_error_frame<W: Write>(writer: &mut W, message: &str) -> Result<(), ProtocolError> {
+    write_frame(writer, MSG_ERROR, message.as_bytes())
+}
+
+fn write_frame<W: Write>(
+    writer: &mut W,
+    message_type: u8,
+    payload: &[u8],
+) -> Result<(), ProtocolError> {
+    let frame_length = payload
+        .len()
+        .checked_add(1)
+        .and_then(|length| u32::try_from(length).ok())
+        .ok_or(ProtocolError::InvalidFrameLength(u32::MAX))?;
+
+    if frame_length > MAX_FRAME_LENGTH {
+        return Err(ProtocolError::InvalidFrameLength(frame_length));
+    }
+
+    writer.write_all(&frame_length.to_be_bytes())?;
+    writer.write_all(&[message_type])?;
+    writer.write_all(payload)?;
+    writer.flush()?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OPEN_PAYLOAD: &[u8] = br#"{"schema":"serviceradar.rdp.helper.open.v1"}"#;
+
+    #[test]
+    fn run_stdio_writes_error_for_open_until_backend_is_linked() {
+        let mut input = Vec::new();
+        write_frame(&mut input, MSG_OPEN, OPEN_PAYLOAD).expect("write open frame");
+
+        let mut output = Vec::new();
+        let err = run_stdio(&mut input.as_slice(), &mut output).expect_err("backend unavailable");
+
+        assert!(matches!(err, ProtocolError::BackendUnavailable));
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: BACKEND_UNAVAILABLE.as_bytes().to_vec(),
+            })
+        );
+    }
+
+    #[test]
+    fn run_stdio_accepts_close_before_open() {
+        let mut input = Vec::new();
+        write_frame(&mut input, MSG_CLOSE, b"").expect("write close frame");
+
+        let mut output = Vec::new();
+
+        run_stdio(&mut input.as_slice(), &mut output).expect("close succeeds");
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn read_frame_rejects_oversized_frame() {
+        let mut input = Vec::new();
+        input.extend_from_slice(&(MAX_FRAME_LENGTH + 1).to_be_bytes());
+        input.push(MSG_OPEN);
+
+        let err = read_frame(&mut input.as_slice()).expect_err("oversized frame rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidFrameLength(length) if length == MAX_FRAME_LENGTH + 1
+        ));
+    }
+
+    #[test]
+    fn write_frame_rejects_oversized_payload() {
+        let payload = vec![0u8; MAX_FRAME_LENGTH as usize];
+        let mut output = Vec::new();
+
+        let err = write_frame(&mut output, MSG_ERROR, &payload).expect_err("payload rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidFrameLength(length) if length == MAX_FRAME_LENGTH + 1
+        ));
+        assert!(output.is_empty());
+    }
+}
