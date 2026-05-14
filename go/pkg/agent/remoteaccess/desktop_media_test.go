@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -605,6 +606,23 @@ func TestValidateDesktopMediaAckRejectsUnsupportedQualityLevel(t *testing.T) {
 			SessionBindingID: desktopMediaTestSessionID,
 			MediaSessionID:   desktopMediaTestMediaSessionID,
 			QualityLevel:     "ultra",
+		},
+		desktopMediaTestSessionID,
+		desktopMediaTestMediaSessionID,
+	)
+	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ValidateDesktopMediaAck error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+}
+
+func TestValidateDesktopMediaAckRejectsOversizedCloseReason(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateDesktopMediaAck(
+		DesktopMediaAck{
+			SessionBindingID: desktopMediaTestSessionID,
+			MediaSessionID:   desktopMediaTestMediaSessionID,
+			CloseReason:      strings.Repeat("x", DesktopMediaMaxCloseReason+1),
 		},
 		desktopMediaTestSessionID,
 		desktopMediaTestMediaSessionID,

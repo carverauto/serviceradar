@@ -4,6 +4,7 @@ import {
   DESKTOP_CONTROL_CHANNEL,
   DESKTOP_MEDIA_ACK_MESSAGE,
   DESKTOP_MEDIA_CHANNEL,
+  DESKTOP_MEDIA_MAX_CLOSE_REASON,
   DESKTOP_MEDIA_QUALITY_AUTO,
   DESKTOP_MEDIA_QUALITY_LOW,
   RemoteDesktopWebRTCClient,
@@ -711,6 +712,65 @@ describe("RemoteDesktopWebRTCClient", () => {
         close_reason: "viewer closed",
       },
     ])
+  })
+
+  it("caps final media close acknowledgement reasons", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-close-long",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-close-long/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckFrameInterval: 1,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-close-long",
+        mediaSessionId: "media-close-long",
+        sequence: 32,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1]),
+      })
+    )
+
+    const longReason = ` ${"x".repeat(DESKTOP_MEDIA_MAX_CLOSE_REASON + 20)} `
+    client.close(longReason)
+    await Promise.resolve()
+
+    const closeAck = JSON.parse(controlChannel.sent[1])
+    const deleteBody = JSON.parse(fetchMock.mock.calls[2][1].body)
+
+    expect(closeAck.close_reason).toBe("x".repeat(DESKTOP_MEDIA_MAX_CLOSE_REASON))
+    expect(deleteBody.reason).toBe("x".repeat(DESKTOP_MEDIA_MAX_CLOSE_REASON))
   })
 
   it("does not drop keyframes or metadata frames when queues are saturated", async () => {

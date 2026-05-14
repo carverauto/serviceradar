@@ -5,6 +5,8 @@ export const DESKTOP_CONTROL_CHANNEL = "desktop-control"
 export const DESKTOP_MEDIA_ACK_MESSAGE = "desktop_media_ack"
 export const DESKTOP_MEDIA_QUALITY_LOW = "low"
 export const DESKTOP_MEDIA_QUALITY_AUTO = "auto"
+export const DESKTOP_MEDIA_MAX_CLOSE_REASON = 256
+const DEFAULT_DESKTOP_MEDIA_CLOSE_REASON = "viewer closed remote desktop WebRTC session"
 
 function csrfHeaders(documentRef = globalThis.document) {
   const csrfToken = documentRef?.querySelector?.("meta[name='csrf-token']")?.getAttribute("content")
@@ -146,16 +148,17 @@ export class RemoteDesktopWebRTCClient {
     return true
   }
 
-  close(reason = "viewer closed remote desktop WebRTC session") {
+  close(reason = DEFAULT_DESKTOP_MEDIA_CLOSE_REASON) {
     if (this.closed) {
       return
     }
 
     this.closed = true
+    const closeReason = normalizeDesktopMediaCloseReason(reason)
     const viewerSessionId = this.viewerSessionId
     this.viewerSessionId = null
 
-    this.flushMediaCloseAck(reason)
+    this.flushMediaCloseAck(closeReason)
 
     for (const channel of this.channels.values()) {
       channel.close?.()
@@ -173,7 +176,7 @@ export class RemoteDesktopWebRTCClient {
     if (viewerSessionId && this.signalingPath) {
       void this.fetchJson(`${this.signalingPath}/${viewerSessionId}`, {
         method: "DELETE",
-        body: JSON.stringify({reason}),
+        body: JSON.stringify({reason: closeReason}),
         keepalive: true,
       }).catch((error) => this.onError(error))
     }
@@ -480,6 +483,16 @@ function mediaAckBinding(ack) {
     media_session_id: ack.media_session_id,
     last_accepted_seq: ack.last_accepted_seq,
   }
+}
+
+function normalizeDesktopMediaCloseReason(reason) {
+  const value = typeof reason === "string" ? reason : DEFAULT_DESKTOP_MEDIA_CLOSE_REASON
+  const trimmed = value.trim()
+  const normalized = trimmed.length > 0 ? trimmed : DEFAULT_DESKTOP_MEDIA_CLOSE_REASON
+
+  return normalized.length > DESKTOP_MEDIA_MAX_CLOSE_REASON
+    ? normalized.slice(0, DESKTOP_MEDIA_MAX_CLOSE_REASON)
+    : normalized
 }
 
 function applyMediaAckBackpressureSignal(ack, signal) {

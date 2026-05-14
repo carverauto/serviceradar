@@ -22,13 +22,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 )
 
 const (
-	DesktopMediaMagic       = "SRDP"
-	DesktopMediaVersion     = 1
-	DesktopMediaHeaderSize  = 48
-	DesktopMediaMaxMetadata = 64 * 1024
+	DesktopMediaMagic          = "SRDP"
+	DesktopMediaVersion        = 1
+	DesktopMediaHeaderSize     = 48
+	DesktopMediaMaxMetadata    = 64 * 1024
+	DesktopMediaMaxCloseReason = 256
 
 	DesktopMediaFlagKeyframe      uint8 = 0x01
 	DesktopMediaFlagFullFrame     uint8 = 0x02
@@ -575,6 +577,9 @@ func ValidateDesktopMediaAck(ack DesktopMediaAck, sessionBindingID, mediaSession
 	}
 	if !validDesktopMediaQualityLevel(ack.QualityLevel) {
 		return fmt.Errorf("%w: unsupported quality level", ErrInvalidDesktopMediaAck)
+	}
+	if len(strings.TrimSpace(ack.CloseReason)) > DesktopMediaMaxCloseReason {
+		return fmt.Errorf("%w: close reason exceeds maximum", ErrInvalidDesktopMediaAck)
 	}
 
 	return nil
