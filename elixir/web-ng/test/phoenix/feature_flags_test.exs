@@ -34,4 +34,26 @@ defmodule ServiceRadarWebNGWeb.FeatureFlagsTest do
     Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, true)
     assert FeatureFlags.remote_access_ssh_enabled?()
   end
+
+  test "remote_access_desktop_rdp_enabled?/0 is false by default" do
+    original = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, original)
+    end)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, false)
+    refute FeatureFlags.remote_access_desktop_rdp_enabled?()
+  end
+
+  test "remote_access_desktop_rdp_enabled?/0 returns true when enabled" do
+    original = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, original)
+    end)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+    assert FeatureFlags.remote_access_desktop_rdp_enabled?()
+  end
 end

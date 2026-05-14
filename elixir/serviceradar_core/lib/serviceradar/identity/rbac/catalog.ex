@@ -97,6 +97,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.rdp.open",
+          label: "Open RDP remote access",
+          description:
+            "Open graphical RDP remote-access sessions through approved desktop targets",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.requests.review",
           label: "Review remote-access requests",
           description: "Approve and deny approval-gated remote-access requests",

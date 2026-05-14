@@ -26,6 +26,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_remote_access_ssh_enabled =
       Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
 
+    previous_remote_access_desktop_rdp_enabled =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+
+    previous_remote_access_desktop_webrtc_ice_servers =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_ice_servers)
+
     previous_target_host_override =
       Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled)
 
@@ -52,6 +58,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       restore_env(:remote_access_session_manager_close_result, previous_close_result)
       restore_env(:remote_access_session_manager_test_pid, previous_test_pid)
       restore_env(:remote_access_ssh_enabled, previous_remote_access_ssh_enabled)
+      restore_env(:remote_access_desktop_rdp_enabled, previous_remote_access_desktop_rdp_enabled)
+      restore_env(:remote_access_desktop_webrtc_ice_servers, previous_remote_access_desktop_webrtc_ice_servers)
       restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
       restore_env(:remote_access_target_host_override_enabled, previous_target_host_override)
       restore_env(:remote_access_target_port_override_enabled, previous_target_port_override)
@@ -106,6 +114,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["data"]["websocket_path"] =~ "/v1/remote-access/sessions/"
       refute body["data"]["websocket_path"] =~ "srra_test_ticket_value"
       refute Map.has_key?(body["data"], "attach_ticket_hash")
+      refute Map.has_key?(body["data"], "desktop_webrtc_transport")
       refute inspect(body) =~ "must-not-return"
 
       assert_receive {:open_remote_access_session, "linux-1", request, opts}
@@ -574,6 +583,62 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert_receive {:close_remote_access_session, ^session_id, opts}
       assert opts[:reason] == "operator_requested"
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "returns desktop WebRTC metadata for RDP sessions", %{conn: conn} do
+      session_id = Ecto.UUID.generate()
+
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_desktop_webrtc_ice_servers,
+        [%{urls: ["stun:stun.example.com:3478"]}]
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_close_result,
+        {:ok,
+         %ServiceRadar.Edge.RemoteAccessSession{
+           id: session_id,
+           device_uid: "windows-1",
+           target_kind: :inventory_device,
+           target_host: "windows-1.example.com",
+           target_port: 3389,
+           protocol: :rdp,
+           adapter: :rdp,
+           agent_id: "agent-1",
+           gateway_id: "gateway-1",
+           credential_custody_mode: :user_present,
+           status: :closing,
+           rbac_decision: :allowed,
+           attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+           idle_timeout_seconds: 900,
+           absolute_timeout_seconds: 3600,
+           close_reason: "operator_requested",
+           inserted_at: DateTime.utc_now(),
+           updated_at: DateTime.utc_now()
+         }}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions/#{session_id}/close", %{
+          "reason" => "operator_requested"
+        })
+
+      body = json_response(conn, 200)
+
+      assert body["data"]["protocol"] == "rdp"
+      assert body["data"]["target_port"] == 3389
+      assert body["data"]["desktop_webrtc_enabled"] == true
+      assert body["data"]["desktop_webrtc_transport"] == "webrtc_desktop_media"
+
+      assert body["data"]["desktop_webrtc_signaling_path"] ==
+               "/api/remote-access/sessions/#{session_id}/webrtc/session"
+
+      assert body["data"]["desktop_webrtc_ice_servers"] == [%{"urls" => ["stun:stun.example.com:3478"]}]
+      refute Map.has_key?(body["data"], "ticket")
     end
   end
 

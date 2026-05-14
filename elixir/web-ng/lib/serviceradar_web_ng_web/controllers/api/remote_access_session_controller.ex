@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.RemoteDesktopWebRTC
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
@@ -534,6 +535,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       inserted_at: format_value(session.inserted_at),
       updated_at: format_value(session.updated_at)
     }
+
+    data =
+      if format_value(session.protocol) == "rdp" do
+        Map.merge(data, RemoteDesktopWebRTC.metadata(session))
+      else
+        data
+      end
 
     if is_binary(ticket), do: Map.put(data, :ticket, ticket), else: data
   end

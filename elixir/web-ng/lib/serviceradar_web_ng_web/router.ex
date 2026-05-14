@@ -325,6 +325,26 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
+    post("/remote-access/sessions/:id/webrtc/session", RemoteDesktopWebRTCController, :create_session)
+
+    post(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id/answer",
+      RemoteDesktopWebRTCController,
+      :submit_answer
+    )
+
+    post(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id/candidates",
+      RemoteDesktopWebRTCController,
+      :add_candidate
+    )
+
+    delete(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id",
+      RemoteDesktopWebRTCController,
+      :close_session
+    )
+
     get("/remote-access/file-transfers", RemoteAccessFileTransferController, :index)
     post("/remote-access/file-transfers", RemoteAccessFileTransferController, :create)
     get("/remote-access/recordings/:id", RemoteAccessRecordingController, :show)

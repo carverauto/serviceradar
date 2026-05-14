@@ -12,4 +12,9 @@ defmodule ServiceRadarWebNGWeb.FeatureFlags do
   def remote_access_ssh_enabled? do
     Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false) == true
   end
+
+  @spec remote_access_desktop_rdp_enabled?() :: boolean()
+  def remote_access_desktop_rdp_enabled? do
+    Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, false) == true
+  end
 end
