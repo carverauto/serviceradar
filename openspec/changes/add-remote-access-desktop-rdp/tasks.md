@@ -190,6 +190,8 @@
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
+  - [x] Add release-publisher support for an explicit optional RDP-enabled runtime bundle artifact that is omitted from default releases.
+  - [ ] Add the real IronRDP helper build target and produce the RDP-enabled bundle from that reviewed helper artifact.
 - [x] 6.2 Add Forgejo release metadata fields for artifact capabilities, helper protocol version, compatibility range, checksums, signatures, SBOM/license review, and deployment requirements.
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
