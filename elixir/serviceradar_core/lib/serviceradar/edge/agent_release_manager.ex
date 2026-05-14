@@ -347,16 +347,18 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   defp dispatch_release_command(target, rollout, release, artifact, agent, actor) do
     with {:ok, transport} <- ReleaseArtifactDelivery.gateway_transport(target, release, agent) do
-      payload = %{
-        "release_id" => release.id,
-        "rollout_id" => rollout.id,
-        "target_id" => target.id,
-        "version" => release.version,
-        "manifest" => release.manifest,
-        "signature" => release.signature,
-        "artifact" => artifact,
-        "artifact_transport" => transport
-      }
+      payload =
+        compact_map(%{
+          "release_id" => release.id,
+          "rollout_id" => rollout.id,
+          "target_id" => target.id,
+          "version" => release.version,
+          "manifest" => release.manifest,
+          "signature" => release.signature,
+          "artifact" => artifact,
+          "artifact_transport" => transport,
+          "helper_install" => helper_install_payload(artifact)
+        })
 
       context = %{
         rollout_id: rollout.id,
@@ -380,6 +382,21 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp helper_install_payload(artifact) do
+    if AgentReleaseArtifactPolicy.rdp_artifact?(artifact) do
+      compact_map(%{
+        "enabled" => true,
+        "capability" => "remote_access.rdp",
+        "helper_protocol_version" =>
+          map_get_any(artifact, [:helper_protocol_version, "helper_protocol_version"], nil),
+        "compatible_agent_versions" =>
+          map_get_any(artifact, [:compatible_agent_versions, "compatible_agent_versions"], %{}),
+        "deployment_requirements" =>
+          map_get_any(artifact, [:deployment_requirements, "deployment_requirements"], %{})
+      })
     end
   end
 

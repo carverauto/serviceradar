@@ -116,6 +116,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert payload["version"] == "1.1.0"
     assert payload["artifact"]["url"] =~ "agent-1.1.0-linux-amd64"
     assert payload["artifact_transport"]["kind"] == "gateway_https"
+    refute Map.has_key?(payload, "helper_install")
     assert context.desired_version == "1.1.0"
 
     target =
@@ -133,6 +134,56 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
     assert updated_agent.desired_version == "1.1.0"
     assert updated_agent.release_rollout_state == :dispatched
+  end
+
+  test "create_rollout includes RDP helper install plan only for RDP artifacts", %{
+    agent_id: agent_id
+  } do
+    previous = Application.get_env(:serviceradar_core, :remote_access_desktop_rdp_enabled)
+    Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, true)
+
+    on_exit(fn ->
+      restore_env(:remote_access_desktop_rdp_enabled, previous)
+    end)
+
+    release_attrs =
+      signed_release_attrs("1.1.1",
+        artifact: %{
+          "capabilities" => ["agent", "remote_access.rdp"],
+          "helper_protocol_version" => "srdp-helper-v1",
+          "compatible_agent_versions" => %{"min" => "1.1.0", "max" => "1.2.x"},
+          "deployment_requirements" => %{
+            "helper" => "serviceradar-rdp-adapter",
+            "install_path" => "/usr/local/bin/serviceradar-rdp-adapter"
+          }
+        }
+      )
+
+    {:ok, release} = AgentReleaseManager.publish_release(release_attrs)
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    assert {:ok, _rollout} =
+             AgentReleaseManager.create_rollout(%{
+               release_id: release.id,
+               agent_ids: [agent_id],
+               batch_size: 1
+             })
+
+    assert_receive {:send_command, command, _context}, 1_000
+    payload = Jason.decode!(command.payload_json)
+
+    assert payload["artifact"]["capabilities"] == ["agent", "remote_access.rdp"]
+
+    assert payload["helper_install"] == %{
+             "enabled" => true,
+             "capability" => "remote_access.rdp",
+             "helper_protocol_version" => "srdp-helper-v1",
+             "compatible_agent_versions" => %{"min" => "1.1.0", "max" => "1.2.x"},
+             "deployment_requirements" => %{
+               "helper" => "serviceradar-rdp-adapter",
+               "install_path" => "/usr/local/bin/serviceradar-rdp-adapter"
+             }
+           }
   end
 
   test "result updates target and agent state", %{
@@ -730,6 +781,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
         "sha256" => String.duplicate("a", 64)
       }
       |> maybe_put_capabilities(Keyword.get(opts, :capabilities, []))
+      |> Map.merge(Keyword.get(opts, :artifact, %{}))
 
     manifest = %{
       "version" => version,
