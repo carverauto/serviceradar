@@ -32,6 +32,7 @@
 - [x] 3.1.12 Track accepted desktop media ack sequence on the sender credit window and reject replayed/out-of-order acks before granting credit.
 - [x] 3.1.13 Cap per-ack desktop media credit grants on the sender credit window so one oversized browser ack cannot inflate the send window.
 - [x] 3.1.14 Keep browser desktop media acknowledgements binding-aware when pending acks cannot flush immediately.
+- [x] 3.1.15 Avoid full reused-header zeroing in the Go desktop media frame hot path while still resetting reserved bytes.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -61,6 +62,7 @@
 - [x] 5.6.4 Add Go desktop media hot-path benchmarks for contiguous encoding, split-frame/static-field encoding, copying decode, and no-copy decode.
 - [x] 5.6.5 Add focused Go tests proving desktop media credit windows reject replayed/out-of-order acks without granting duplicate credit.
 - [x] 5.6.6 Add focused Go tests proving oversized desktop media ack credit is capped before being added to the sender credit window.
+- [x] 5.6.7 Add focused Go tests proving dirty reused desktop media headers reset reserved bytes without copying payload data.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

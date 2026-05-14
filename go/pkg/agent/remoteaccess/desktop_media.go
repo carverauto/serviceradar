@@ -331,6 +331,7 @@ func buildDesktopMediaFrameParts(
 	header[4] = DesktopMediaVersion
 	header[5] = frame.Flags
 	header[6] = desktopMediaPayloadFamilyID(frame.PayloadFamily)
+	header[7] = 0
 	binary.BigEndian.PutUint64(header[8:16], frame.Sequence)
 	binary.BigEndian.PutUint64(header[16:24], uint64(frame.TimestampUnixNano))
 	binary.BigEndian.PutUint32(header[24:28], frame.Width)
@@ -340,6 +341,7 @@ func buildDesktopMediaFrameParts(
 	binary.BigEndian.PutUint16(header[40:42], uint16(len(encoding)))
 	binary.BigEndian.PutUint16(header[42:44], uint16(len(sessionID)))
 	binary.BigEndian.PutUint16(header[44:46], uint16(len(mediaSessionID)))
+	binary.BigEndian.PutUint16(header[46:48], 0)
 
 	return DesktopMediaFrameParts{
 		Header:           header,
@@ -526,10 +528,6 @@ func reusableDesktopMediaHeader(header []byte) []byte {
 		header = make([]byte, DesktopMediaHeaderSize)
 	} else {
 		header = header[:DesktopMediaHeaderSize]
-	}
-
-	for i := range header {
-		header[i] = 0
 	}
 
 	return header

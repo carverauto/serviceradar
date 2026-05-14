@@ -175,6 +175,10 @@ func TestDesktopMediaFramePartsReuseHeaderAndPreservePayloadSlice(t *testing.T) 
 	t.Parallel()
 
 	header := make([]byte, DesktopMediaHeaderSize)
+	for index := range header {
+		header[index] = 0xff
+	}
+
 	payload := []byte{1, 2, 3, 4}
 	metadata := []byte(`{"tile":1}`)
 	frame := DesktopMediaFrame{
@@ -195,6 +199,9 @@ func TestDesktopMediaFramePartsReuseHeaderAndPreservePayloadSlice(t *testing.T) 
 
 	if &parts.Header[0] != &header[0] {
 		t.Fatalf("header was not reused")
+	}
+	if parts.Header[7] != 0 || binary.BigEndian.Uint16(parts.Header[46:48]) != 0 {
+		t.Fatalf("reserved header bytes were not reset: %#v", parts.Header)
 	}
 	if &parts.Payload[0] != &payload[0] {
 		t.Fatalf("payload was copied")
