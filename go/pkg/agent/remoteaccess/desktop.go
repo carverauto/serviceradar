@@ -75,7 +75,10 @@ var (
 	ErrInvalidDesktopTarget = errors.New("invalid desktop target")
 	ErrInvalidDesktopFrame  = errors.New("invalid desktop frame")
 	ErrDesktopContentRecord = errors.New("desktop content recording disabled")
+	ErrDesktopQuotaExceeded = errors.New("desktop quota exceeded")
 )
+
+const desktopQuotaWindowNanos int64 = 1_000_000_000
 
 // DesktopOpenPayload is the agent-side open-frame contract for graphical
 // desktop protocols. It contains trusted target policy compiled by core, not
@@ -215,6 +218,56 @@ type DesktopQuality struct {
 	MaxBitrate   uint32 `json:"max_bitrate_bps,omitempty"`
 	Width        uint32 `json:"width,omitempty"`
 	Height       uint32 `json:"height,omitempty"`
+}
+
+// DesktopFrameQuotaWindow tracks per-second screen update quotas for adapter
+// code before the dedicated desktop media stream carries production traffic.
+type DesktopFrameQuotaWindow struct {
+	policy              DesktopScreenPolicy
+	windowStartUnixNano int64
+	frameCount          uint32
+	bitCount            uint64
+}
+
+func NewDesktopFrameQuotaWindow(policy DesktopScreenPolicy) DesktopFrameQuotaWindow {
+	return DesktopFrameQuotaWindow{policy: normalizeDesktopScreenPolicy(policy)}
+}
+
+// Consume applies frame-rate and bitrate quotas to desktop update frames.
+// Non-screen frames are ignored here and still use their normal validators.
+func (w *DesktopFrameQuotaWindow) Consume(frame DesktopFrame, nowUnixNano int64) error {
+	if frame.FrameType != DesktopFrameTypeUpdate {
+		return nil
+	}
+	if nowUnixNano <= 0 {
+		return fmt.Errorf("%w: missing quota timestamp", ErrInvalidDesktopFrame)
+	}
+
+	if w.policy.FrameRate == 0 || w.policy.BitrateBPS == 0 {
+		w.policy = normalizeDesktopScreenPolicy(w.policy)
+	}
+	if w.windowStartUnixNano == 0 ||
+		nowUnixNano < w.windowStartUnixNano ||
+		nowUnixNano-w.windowStartUnixNano >= desktopQuotaWindowNanos {
+		w.windowStartUnixNano = nowUnixNano
+		w.frameCount = 0
+		w.bitCount = 0
+	}
+
+	if w.frameCount >= w.policy.FrameRate {
+		return fmt.Errorf("%w: frame rate", ErrDesktopQuotaExceeded)
+	}
+
+	frameBits := uint64(len(frame.Data)) * 8
+	maxBits := uint64(w.policy.BitrateBPS)
+	if frameBits > maxBits || w.bitCount > maxBits-frameBits {
+		return fmt.Errorf("%w: bitrate", ErrDesktopQuotaExceeded)
+	}
+
+	w.frameCount++
+	w.bitCount += frameBits
+
+	return nil
 }
 
 // DecodeDesktopOpenPayload decodes and validates a trusted desktop open-frame

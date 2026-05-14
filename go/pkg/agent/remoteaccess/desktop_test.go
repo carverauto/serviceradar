@@ -442,6 +442,57 @@ func TestValidateDesktopContentRecordingRequiresExplicitContentPolicy(t *testing
 	}
 }
 
+func TestDesktopFrameQuotaWindowEnforcesFrameRateAndBitrate(t *testing.T) {
+	t.Parallel()
+
+	policy := DesktopScreenPolicy{
+		MaxWidth:   1280,
+		MaxHeight:  720,
+		FrameRate:  2,
+		BitrateBPS: 16,
+	}
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeUpdate,
+		Width:     1280,
+		Height:    720,
+		Data:      []byte{0x01},
+	}
+	quota := NewDesktopFrameQuotaWindow(policy)
+
+	if err := quota.Consume(frame, 1); err != nil {
+		t.Fatalf("first frame quota returned error: %v", err)
+	}
+	if err := quota.Consume(frame, 2); err != nil {
+		t.Fatalf("second frame quota returned error: %v", err)
+	}
+	if err := quota.Consume(frame, 3); !errors.Is(err, ErrDesktopQuotaExceeded) {
+		t.Fatalf("frame-rate quota error = %v, want %v", err, ErrDesktopQuotaExceeded)
+	}
+
+	quota = NewDesktopFrameQuotaWindow(policy)
+	frame.Data = []byte{0x01, 0x02, 0x03}
+	if err := quota.Consume(frame, 1); !errors.Is(err, ErrDesktopQuotaExceeded) {
+		t.Fatalf("bitrate quota error = %v, want %v", err, ErrDesktopQuotaExceeded)
+	}
+
+	quota = NewDesktopFrameQuotaWindow(policy)
+	frame.Data = []byte{0x01}
+	if err := quota.Consume(frame, 1); err != nil {
+		t.Fatalf("frame before reset returned error: %v", err)
+	}
+	if err := quota.Consume(frame, desktopQuotaWindowNanos+1); err != nil {
+		t.Fatalf("frame after reset returned error: %v", err)
+	}
+	if err := quota.Consume(DesktopFrame{FrameType: DesktopFrameTypeInput}, 0); err != nil {
+		t.Fatalf("non-update frame quota returned error: %v", err)
+	}
+	if err := quota.Consume(frame, 0); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("missing timestamp error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing.T) {
 	t.Parallel()
 

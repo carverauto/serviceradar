@@ -19,6 +19,7 @@
 - [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
 - [x] 2.3.3 Enforce desktop clipboard frame direction against the configured clipboard redirection mode.
 - [x] 2.3.4 Deny desktop screen and clipboard content recording unless matching content-recording policy is explicitly enabled.
+- [x] 2.3.5 Add adapter-facing desktop frame-rate and bitrate quota enforcement for update frames.
 - [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
 - [x] 2.4.1 Add safe agent-side desktop audit metadata for route, target, TLS, credential mode, policy, redirection, recording, and grant binding posture.
 - [x] 2.4.2 Add safe desktop frame audit metadata for frame statistics and redirection decisions without retaining frame payload contents.
@@ -58,6 +59,7 @@
 - [x] 3.3.3 Reject expired brokered desktop credential grants before adapter use.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
+- [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -88,6 +90,7 @@
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
+- [x] 5.3.3 Add focused Go tests for desktop update frame-rate and bitrate quota enforcement.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
