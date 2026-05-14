@@ -79,6 +79,7 @@
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
 - [x] 3.2.3 Gate `remote_access.desktop` and `remote_access.rdp` capability advertisement on explicit agent config plus a locally executable per-session RDP helper.
 - [x] 3.2.4 Add a bounded local IPC frame protocol for the per-session RDP helper so screen payloads use length-prefixed binary frames instead of ad hoc JSON.
+- [x] 3.2.5 Add the agent-side per-session RDP helper adapter wrapper that sends the trusted open payload, routes input/control frames to the helper, forwards SRDP media frames to the gateway sender, and tears down on close.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -130,6 +131,7 @@
 - [x] 5.2.7 Add focused Go tests proving guarded RDP adapter sessions close idempotently and reject post-close input/media frames.
 - [x] 5.2.8 Add focused Go tests proving RDP capability advertisement stays disabled until config enables it and the helper binary is executable.
 - [x] 5.2.9 Add focused Go tests proving the RDP helper IPC protocol round-trips frames and rejects invalid, oversized, and truncated messages.
+- [x] 5.2.10 Add focused Go tests proving the RDP helper adapter sends open credentials only to the helper, clears credential grants, routes input/close frames, forwards helper SRDP media frames, and reports helper errors.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
@@ -185,3 +187,10 @@
 - [x] 5.7.8 Add browser WebRTC client tests for final close acknowledgements with pending and already-flushed media credit.
 - [x] 5.7.9 Add browser WebRTC client tests proving close acknowledgement reasons are normalized and capped.
 - [x] 5.7.10 Add browser WebRTC client tests proving close acknowledgement reasons are capped by UTF-8 byte length.
+
+## 6. Optional Packaging And EdgeOps Distribution
+- [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
+- [ ] 6.2 Add Forgejo release metadata fields for artifact capabilities, helper protocol version, compatibility range, checksums, signatures, SBOM/license review, and deployment requirements.
+- [ ] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
+- [ ] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
+- [ ] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.

@@ -250,6 +250,24 @@ TELEPORT_SRC=$HOME/src/teleport scripts/check-teleport-license-paths.sh \
 
 The current checkout reports AGPL transitive dependencies through Teleport API/types/auth/logging/proto and desktop protocol paths. Treat Teleport behavior as product and architecture reference only. Use ServiceRadar-owned session/policy code and separately reviewed RDP dependencies.
 
+## Optional Agent Packaging
+The base ServiceRadar agent must remain the default artifact for most deployments. IronRDP and the `serviceradar-rdp-adapter` helper should be shipped only through an explicit remote-access/RDP artifact path, not silently embedded in every agent install.
+
+Recommended release shape:
+
+- `serviceradar-agent`: base agent artifact, no IronRDP helper, no `remote_access.rdp` advertisement.
+- `serviceradar-rdp-adapter`: signed helper artifact built from the reviewed IronRDP crate set.
+- optional `serviceradar-agent-rdp` or `serviceradar-agent-remote-access` bundle: base agent plus the matching helper for one-click deployments that want desktop access.
+
+Forgejo release metadata should describe feature capabilities, compatibility, checksums, signatures, SBOM/license material, and helper requirements for each artifact. EdgeOps/web-ng should filter the available agent artifacts by deployment policy:
+
+- deployments without the remote-access/RDP feature enabled see only base agent artifacts
+- deployments with RDP enabled see the RDP helper/bundle artifacts and their compatibility status
+- one-click deploys install the base agent plus helper only when the selected artifact declares `remote_access.rdp`
+- installed agents still advertise `remote_access.rdp` only after local config enables RDP and the helper binary is executable
+
+This keeps the default agent small, reduces the default attack surface, and makes the additional Rust/RDP dependency chain visible to operators who intentionally opt into it. Helper and agent versions should be pinned together or express an explicit compatibility range so an agent update cannot accidentally run an incompatible helper protocol.
+
 ## Validation
 - Unit tests for desktop target/resource normalization rejecting client-selected upstream hosts, ports, credentials, redirection features, routes, quotas, and recording overrides.
 - RBAC and approval tests proving access and redirection features are denied without explicit permission.
