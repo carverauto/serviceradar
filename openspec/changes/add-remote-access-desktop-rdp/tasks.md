@@ -28,6 +28,7 @@
 - [x] 3.1.8 Coalesce browser desktop media acknowledgements and return actual consumed byte credit instead of fixed per-frame credit.
 - [x] 3.1.9 Drop stale non-critical browser media frames under renderer backpressure before metadata parsing/render dispatch while still returning consumed credit.
 - [x] 3.1.10 Make renderer-owned raw metadata bytes the only browser media-frame contract; do not eagerly parse metadata JSON in the WebRTC receive loop.
+- [x] 3.1.11 Use a per-client desktop media parser cache for stable session/media/encoding strings so repeated frames avoid repeated `TextDecoder` work.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -60,3 +61,4 @@
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
 - [x] 5.7.3 Add browser WebRTC client tests for stale-frame drop behavior, critical-frame preservation, and ack credit after drops.
 - [x] 5.7.4 Add browser WebRTC client tests proving metadata bytes stay renderer-owned and are not eagerly parsed in the receive loop.
+- [x] 5.7.5 Add browser media parser tests for repeated-frame parsing with stable-field caching.

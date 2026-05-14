@@ -9,6 +9,7 @@ import {
   DESKTOP_RENDERER_WEBCODECS_VIDEO,
   DESKTOP_RENDERER_WEBGPU_REGIONS,
   DESKTOP_TRANSPORT_WEBRTC,
+  createDesktopMediaFrameParser,
   detectDesktopRendererCapabilities,
   encodeDesktopMediaFrame,
   parseDesktopMediaFrame,
@@ -76,6 +77,55 @@ describe("remote desktop media frame envelope", () => {
       tileSize: 64,
       roaringDirtyTiles: "base64-roaring-bitmap",
     })
+  })
+
+  it("parses repeated media-session frames through a stable-field parser", () => {
+    const parseFrame = createDesktopMediaFrameParser()
+    const first = parseFrame(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-cache",
+        mediaSessionId: "media-cache",
+        sequence: 1,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        width: 1280,
+        height: 720,
+        payload: new Uint8Array([1]),
+      })
+    )
+    const second = parseFrame(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-cache",
+        mediaSessionId: "media-cache",
+        sequence: 2,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        width: 1280,
+        height: 720,
+        payload: new Uint8Array([2]),
+      })
+    )
+    const changed = parseFrame(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-cache",
+        mediaSessionId: "media-cache-2",
+        sequence: 3,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "bgra",
+        width: 1280,
+        height: 720,
+        payload: new Uint8Array([3]),
+      })
+    )
+
+    expect(first.sessionBindingId).toBe("session-cache")
+    expect(second.sessionBindingId).toBe("session-cache")
+    expect(second.mediaSessionId).toBe("media-cache")
+    expect(second.encoding).toBe("rgba_zstd")
+    expect(second.sequence).toBe(2)
+    expect(Array.from(second.payload)).toEqual([2])
+    expect(changed.mediaSessionId).toBe("media-cache-2")
+    expect(changed.encoding).toBe("bgra")
   })
 
   it("rejects malformed frames", () => {

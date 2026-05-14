@@ -43,6 +43,30 @@ function stringFromBytes(bytes) {
   return textDecoder.decode(bytes)
 }
 
+function sameBytes(left, right) {
+  if (!left || left.byteLength !== right.byteLength) return false
+
+  for (let index = 0; index < right.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false
+  }
+
+  return true
+}
+
+function stableStringFromBytes(bytes, cache, field) {
+  if (!cache) return stringFromBytes(bytes)
+
+  const cached = cache[field]
+  if (cached && sameBytes(cached.bytes, bytes)) {
+    return cached.value
+  }
+
+  const value = stringFromBytes(bytes)
+  cache[field] = {bytes: bytes.slice(), value}
+
+  return value
+}
+
 function hasFrameMagic(bytes) {
   return (
     bytes[0] === FRAME_MAGIC_BYTES[0] &&
@@ -156,6 +180,16 @@ export function encodeDesktopMediaFrame(frame = {}) {
 }
 
 export function parseDesktopMediaFrame(data) {
+  return parseDesktopMediaFrameWithCache(data)
+}
+
+export function createDesktopMediaFrameParser() {
+  const stableStringCache = {}
+
+  return (data) => parseDesktopMediaFrameWithCache(data, stableStringCache)
+}
+
+function parseDesktopMediaFrameWithCache(data, stableStringCache = null) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
 
   if (bytes.byteLength < FRAME_HEADER_SIZE) {
@@ -201,11 +235,23 @@ export function parseDesktopMediaFrame(data) {
   }
 
   let offset = FRAME_HEADER_SIZE
-  const sessionBindingId = stringFromBytes(bytes.subarray(offset, offset + sessionLength))
+  const sessionBindingId = stableStringFromBytes(
+    bytes.subarray(offset, offset + sessionLength),
+    stableStringCache,
+    "sessionBindingId"
+  )
   offset += sessionLength
-  const mediaSessionId = stringFromBytes(bytes.subarray(offset, offset + mediaSessionLength))
+  const mediaSessionId = stableStringFromBytes(
+    bytes.subarray(offset, offset + mediaSessionLength),
+    stableStringCache,
+    "mediaSessionId"
+  )
   offset += mediaSessionLength
-  const encoding = stringFromBytes(bytes.subarray(offset, offset + encodingLength))
+  const encoding = stableStringFromBytes(
+    bytes.subarray(offset, offset + encodingLength),
+    stableStringCache,
+    "encoding"
+  )
   offset += encodingLength
   const metadata = bytes.subarray(offset, offset + metadataLength)
   offset += metadataLength
