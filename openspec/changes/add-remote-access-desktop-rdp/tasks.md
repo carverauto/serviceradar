@@ -50,5 +50,6 @@
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.
 - [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
 - [x] 5.6.3 Add focused Go tests proving desktop media split-frame encoding reuses header buffers and avoids metadata/payload copies.
+- [x] 5.6.4 Add Go desktop media hot-path benchmarks for contiguous encoding, split-frame/static-field encoding, copying decode, and no-copy decode.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.

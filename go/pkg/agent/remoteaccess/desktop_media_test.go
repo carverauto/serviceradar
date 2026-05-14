@@ -213,6 +213,59 @@ func TestDesktopMediaFramePartsReuseHeaderAndPreservePayloadSlice(t *testing.T) 
 	}
 }
 
+func TestDesktopMediaFramePartsWithStaticFieldsAvoidsStableFieldCopies(t *testing.T) {
+	t.Parallel()
+
+	staticFields, err := NewDesktopMediaFrameStaticFields(
+		desktopMediaTestSessionID,
+		desktopMediaTestMediaSessionID,
+		"rgba",
+	)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaFrameStaticFields returned error: %v", err)
+	}
+
+	frame := DesktopMediaFrame{
+		Width:         640,
+		Height:        480,
+		PayloadFamily: DesktopMediaPayloadTile,
+		Metadata:      []byte(`{"tile":1}`),
+		Payload:       []byte{1, 2, 3, 4},
+	}
+	parts, err := BuildDesktopMediaFramePartsWithStaticFields(
+		frame,
+		DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480},
+		make([]byte, DesktopMediaHeaderSize),
+		staticFields,
+	)
+	if err != nil {
+		t.Fatalf("BuildDesktopMediaFramePartsWithStaticFields returned error: %v", err)
+	}
+
+	if &parts.SessionBindingID[0] != &staticFields.sessionBindingID[0] {
+		t.Fatalf("session binding bytes were copied")
+	}
+	if &parts.MediaSessionID[0] != &staticFields.mediaSessionID[0] {
+		t.Fatalf("media session bytes were copied")
+	}
+	if &parts.Encoding[0] != &staticFields.encoding[0] {
+		t.Fatalf("encoding bytes were copied")
+	}
+
+	got, err := DecodeDesktopMediaFrame(
+		parts.AppendTo(make([]byte, 0, parts.Len())),
+		DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480},
+	)
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaFrame returned error: %v", err)
+	}
+	if got.SessionBindingID != desktopMediaTestSessionID ||
+		got.MediaSessionID != desktopMediaTestMediaSessionID ||
+		got.Encoding != "rgba" {
+		t.Fatalf("decoded static fields = %#v", got)
+	}
+}
+
 func TestDecodeDesktopMediaFrameViewAliasesPayload(t *testing.T) {
 	t.Parallel()
 

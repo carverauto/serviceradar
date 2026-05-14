@@ -17,7 +17,6 @@
 package remoteaccess
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -81,6 +80,19 @@ type DesktopMediaFrameParts struct {
 	Encoding         []byte
 	Metadata         []byte
 	Payload          []byte
+}
+
+// DesktopMediaFrameStaticFields stores per-session frame fields in both string
+// and byte form so high-volume media loops can avoid re-encoding stable values
+// for every screen update.
+type DesktopMediaFrameStaticFields struct {
+	SessionBindingID string
+	MediaSessionID   string
+	Encoding         string
+
+	sessionBindingID []byte
+	mediaSessionID   []byte
+	encoding         []byte
 }
 
 type DesktopMediaAck struct {
@@ -176,6 +188,37 @@ func (w *DesktopMediaCreditWindow) ApplyAck(ack DesktopMediaAck, sessionBindingI
 	return nil
 }
 
+func NewDesktopMediaFrameStaticFields(
+	sessionBindingID,
+	mediaSessionID,
+	encoding string,
+) (DesktopMediaFrameStaticFields, error) {
+	sessionID := []byte(sessionBindingID)
+	mediaID := []byte(mediaSessionID)
+	encodingBytes := []byte(encoding)
+
+	if sessionBindingID == "" {
+		return DesktopMediaFrameStaticFields{}, fmt.Errorf("%w: missing session binding id", ErrInvalidDesktopMediaFrame)
+	}
+	if mediaSessionID == "" {
+		return DesktopMediaFrameStaticFields{}, fmt.Errorf("%w: missing media session id", ErrInvalidDesktopMediaFrame)
+	}
+	if len(sessionID) > math.MaxUint16 ||
+		len(mediaID) > math.MaxUint16 ||
+		len(encodingBytes) > math.MaxUint16 {
+		return DesktopMediaFrameStaticFields{}, fmt.Errorf("%w: string field too large", ErrInvalidDesktopMediaFrame)
+	}
+
+	return DesktopMediaFrameStaticFields{
+		SessionBindingID: sessionBindingID,
+		MediaSessionID:   mediaSessionID,
+		Encoding:         encoding,
+		sessionBindingID: sessionID,
+		mediaSessionID:   mediaID,
+		encoding:         encodingBytes,
+	}, nil
+}
+
 func EncodeDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPolicy) ([]byte, error) {
 	parts, err := BuildDesktopMediaFrameParts(frame, policy, nil)
 	if err != nil {
@@ -193,13 +236,57 @@ func BuildDesktopMediaFrameParts(
 	policy DesktopScreenPolicy,
 	header []byte,
 ) (DesktopMediaFrameParts, error) {
-	if err := ValidateDesktopMediaFrame(frame, policy); err != nil {
-		return DesktopMediaFrameParts{}, err
-	}
-
 	sessionID := []byte(frame.SessionBindingID)
 	mediaSessionID := []byte(frame.MediaSessionID)
 	encoding := []byte(frame.Encoding)
+
+	return buildDesktopMediaFrameParts(frame, policy, header, sessionID, mediaSessionID, encoding)
+}
+
+func BuildDesktopMediaFramePartsWithStaticFields(
+	frame DesktopMediaFrame,
+	policy DesktopScreenPolicy,
+	header []byte,
+	staticFields DesktopMediaFrameStaticFields,
+) (DesktopMediaFrameParts, error) {
+	if staticFields.SessionBindingID == "" || staticFields.MediaSessionID == "" {
+		return DesktopMediaFrameParts{}, fmt.Errorf("%w: missing static frame fields", ErrInvalidDesktopMediaFrame)
+	}
+	if frame.SessionBindingID != "" && frame.SessionBindingID != staticFields.SessionBindingID {
+		return DesktopMediaFrameParts{}, fmt.Errorf("%w: session binding mismatch", ErrInvalidDesktopMediaFrame)
+	}
+	if frame.MediaSessionID != "" && frame.MediaSessionID != staticFields.MediaSessionID {
+		return DesktopMediaFrameParts{}, fmt.Errorf("%w: media session mismatch", ErrInvalidDesktopMediaFrame)
+	}
+	if frame.Encoding != "" && frame.Encoding != staticFields.Encoding {
+		return DesktopMediaFrameParts{}, fmt.Errorf("%w: encoding mismatch", ErrInvalidDesktopMediaFrame)
+	}
+
+	frame.SessionBindingID = staticFields.SessionBindingID
+	frame.MediaSessionID = staticFields.MediaSessionID
+	frame.Encoding = staticFields.Encoding
+
+	return buildDesktopMediaFrameParts(
+		frame,
+		policy,
+		header,
+		staticFields.sessionBindingID,
+		staticFields.mediaSessionID,
+		staticFields.encoding,
+	)
+}
+
+func buildDesktopMediaFrameParts(
+	frame DesktopMediaFrame,
+	policy DesktopScreenPolicy,
+	header []byte,
+	sessionID []byte,
+	mediaSessionID []byte,
+	encoding []byte,
+) (DesktopMediaFrameParts, error) {
+	if err := ValidateDesktopMediaFrame(frame, policy); err != nil {
+		return DesktopMediaFrameParts{}, err
+	}
 
 	if len(sessionID) > math.MaxUint16 ||
 		len(mediaSessionID) > math.MaxUint16 ||
@@ -279,7 +366,7 @@ func decodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy, copyPayloa
 	if len(data) < DesktopMediaHeaderSize {
 		return frame, fmt.Errorf("%w: truncated header", ErrInvalidDesktopMediaFrame)
 	}
-	if !bytes.Equal(data[0:4], []byte(DesktopMediaMagic)) {
+	if !hasDesktopMediaMagic(data) {
 		return frame, fmt.Errorf("%w: magic mismatch", ErrInvalidDesktopMediaFrame)
 	}
 	if data[4] != DesktopMediaVersion {
@@ -424,6 +511,13 @@ func reusableDesktopMediaHeader(header []byte) []byte {
 	}
 
 	return header
+}
+
+func hasDesktopMediaMagic(data []byte) bool {
+	return data[0] == DesktopMediaMagic[0] &&
+		data[1] == DesktopMediaMagic[1] &&
+		data[2] == DesktopMediaMagic[2] &&
+		data[3] == DesktopMediaMagic[3]
 }
 
 func desktopMediaPayloadFamilyID(family string) uint8 {

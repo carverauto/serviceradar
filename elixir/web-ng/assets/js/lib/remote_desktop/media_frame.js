@@ -1,6 +1,6 @@
-const FRAME_MAGIC = "SRDP"
 const FRAME_VERSION = 1
 const FRAME_HEADER_SIZE = 48
+const FRAME_MAGIC_BYTES = new Uint8Array([0x53, 0x52, 0x44, 0x50])
 
 const FLAG_KEYFRAME = 0x01
 const FLAG_FULL_FRAME = 0x02
@@ -41,6 +41,15 @@ function bytesFromString(value) {
 
 function stringFromBytes(bytes) {
   return textDecoder.decode(bytes)
+}
+
+function hasFrameMagic(bytes) {
+  return (
+    bytes[0] === FRAME_MAGIC_BYTES[0] &&
+    bytes[1] === FRAME_MAGIC_BYTES[1] &&
+    bytes[2] === FRAME_MAGIC_BYTES[2] &&
+    bytes[3] === FRAME_MAGIC_BYTES[3]
+  )
 }
 
 function bytesFromPayload(value) {
@@ -116,7 +125,7 @@ export function encodeDesktopMediaFrame(frame = {}) {
   const bytes = new Uint8Array(totalLength)
   const view = new DataView(bytes.buffer)
 
-  bytes.set(bytesFromString(FRAME_MAGIC), 0)
+  bytes.set(FRAME_MAGIC_BYTES, 0)
   view.setUint8(4, FRAME_VERSION)
   view.setUint8(5, frameFlags(frame))
   view.setUint8(6, payloadFamilyId)
@@ -154,9 +163,8 @@ export function parseDesktopMediaFrame(data) {
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const magic = stringFromBytes(bytes.subarray(0, 4))
 
-  if (magic !== FRAME_MAGIC) {
+  if (!hasFrameMagic(bytes)) {
     throw new Error("desktop media frame magic mismatch")
   }
 
