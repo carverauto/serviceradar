@@ -33,6 +33,7 @@
 - [x] 3.1.13 Cap per-ack desktop media credit grants on the sender credit window so one oversized browser ack cannot inflate the send window.
 - [x] 3.1.14 Keep browser desktop media acknowledgements binding-aware when pending acks cannot flush immediately.
 - [x] 3.1.15 Avoid full reused-header zeroing in the Go desktop media frame hot path while still resetting reserved bytes.
+- [x] 3.1.16 Piggyback browser pause/resume and quality hints on desktop media acknowledgements when renderer queues cross backpressure thresholds.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -70,3 +71,4 @@
 - [x] 5.7.4 Add browser WebRTC client tests proving metadata bytes stay renderer-owned and are not eagerly parsed in the receive loop.
 - [x] 5.7.5 Add browser media parser tests for repeated-frame parsing with stable-field caching.
 - [x] 5.7.6 Add browser WebRTC client tests proving pending ack credit is not mixed across media bindings.
+- [x] 5.7.7 Add browser WebRTC client tests for pause/resume quality hints under renderer backpressure.

@@ -3,6 +3,8 @@ import {createDesktopMediaFrameParser, shouldDropStaleDesktopFrame} from "./medi
 export const DESKTOP_MEDIA_CHANNEL = "desktop-media"
 export const DESKTOP_CONTROL_CHANNEL = "desktop-control"
 export const DESKTOP_MEDIA_ACK_MESSAGE = "desktop_media_ack"
+export const DESKTOP_MEDIA_QUALITY_LOW = "low"
+export const DESKTOP_MEDIA_QUALITY_AUTO = "auto"
 
 function csrfHeaders(documentRef = globalThis.document) {
   const csrfToken = documentRef?.querySelector?.("meta[name='csrf-token']")?.getAttribute("content")
@@ -77,6 +79,7 @@ export class RemoteDesktopWebRTCClient {
     this.pendingMediaAck = null
     this.pendingMediaAckQueue = null
     this.mediaAckTimer = null
+    this.mediaBackpressurePaused = false
   }
 
   async connect() {
@@ -158,6 +161,7 @@ export class RemoteDesktopWebRTCClient {
     this.clearMediaAckTimer()
     this.pendingMediaAck = null
     this.pendingMediaAckQueue = null
+    this.mediaBackpressurePaused = false
     this.channels.clear()
     this.peerConnection?.close?.()
     this.peerConnection = null
@@ -222,15 +226,16 @@ export class RemoteDesktopWebRTCClient {
   handleChannelMessage(label, data) {
     if (label === DESKTOP_MEDIA_CHANNEL) {
       const frame = this.mediaFrameParser(data)
+      const queueState = this.mediaQueueState()
 
-      if (shouldDropStaleDesktopFrame(frame, this.mediaQueueState())) {
+      if (shouldDropStaleDesktopFrame(frame, queueState)) {
         this.onFrameDropped(frame)
-        this.queueMediaAck(frame)
+        this.queueMediaAck(frame, queueState)
         return
       }
 
       this.onFrame(frame)
-      this.queueMediaAck(frame)
+      this.queueMediaAck(frame, queueState)
 
       return
     }
@@ -242,8 +247,9 @@ export class RemoteDesktopWebRTCClient {
     }
   }
 
-  queueMediaAck(frame) {
+  queueMediaAck(frame, queueState = {}) {
     const creditBytes = desktopMediaFrameCreditBytes(frame)
+    const backpressureSignal = this.updateMediaBackpressure(queueState)
 
     if (this.pendingMediaAck && !mediaAckBindingMatches(this.pendingMediaAck, frame)) {
       if (channelReady(this.channels.get(DESKTOP_CONTROL_CHANNEL))) {
@@ -261,6 +267,11 @@ export class RemoteDesktopWebRTCClient {
     }
 
     appendMediaAck(this.pendingMediaAck, frame, creditBytes)
+
+    if (backpressureSignal) {
+      applyMediaAckBackpressureSignal(this.pendingMediaAck, backpressureSignal)
+      return this.flushPendingMediaAck()
+    }
 
     if (frame.endOfStream) {
       this.pendingMediaAck.close_reason = "desktop media end of stream"
@@ -355,6 +366,30 @@ export class RemoteDesktopWebRTCClient {
     }
   }
 
+  updateMediaBackpressure({decodeQueueSize = 0, maxDecodeQueueSize = 0} = {}) {
+    if (maxDecodeQueueSize <= 0) {
+      return null
+    }
+
+    if (!this.mediaBackpressurePaused && decodeQueueSize > maxDecodeQueueSize) {
+      this.mediaBackpressurePaused = true
+      return {
+        pause: true,
+        qualityLevel: DESKTOP_MEDIA_QUALITY_LOW,
+      }
+    }
+
+    if (this.mediaBackpressurePaused && decodeQueueSize <= Math.floor(maxDecodeQueueSize / 2)) {
+      this.mediaBackpressurePaused = false
+      return {
+        resume: true,
+        qualityLevel: DESKTOP_MEDIA_QUALITY_AUTO,
+      }
+    }
+
+    return null
+  }
+
   sendPendingMediaAck(channel, pendingAck) {
     const ack = mediaAckPayload(pendingAck)
     channel.send(JSON.stringify(ack))
@@ -406,6 +441,12 @@ function appendMediaAck(ack, frame, creditBytes) {
   ack.frame_count += 1
 }
 
+function applyMediaAckBackpressureSignal(ack, signal) {
+  ack.pause = signal.pause === true
+  ack.resume = signal.resume === true
+  ack.quality_level = signal.qualityLevel
+}
+
 function mediaAckPayload(ack) {
   const payload = {
     type: ack.type,
@@ -417,6 +458,15 @@ function mediaAckPayload(ack) {
 
   if (ack.close_reason) {
     payload.close_reason = ack.close_reason
+  }
+  if (ack.quality_level) {
+    payload.quality_level = ack.quality_level
+  }
+  if (ack.pause) {
+    payload.pause = true
+  }
+  if (ack.resume) {
+    payload.resume = true
   }
 
   return payload

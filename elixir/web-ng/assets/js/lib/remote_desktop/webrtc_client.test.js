@@ -4,6 +4,8 @@ import {
   DESKTOP_CONTROL_CHANNEL,
   DESKTOP_MEDIA_ACK_MESSAGE,
   DESKTOP_MEDIA_CHANNEL,
+  DESKTOP_MEDIA_QUALITY_AUTO,
+  DESKTOP_MEDIA_QUALITY_LOW,
   RemoteDesktopWebRTCClient,
 } from "./webrtc_client"
 import {
@@ -467,7 +469,102 @@ describe("RemoteDesktopWebRTCClient", () => {
       media_session_id: "media-drop",
       last_accepted_seq: 12,
       credit_bytes: 4,
+      quality_level: DESKTOP_MEDIA_QUALITY_LOW,
+      pause: true,
     })
+  })
+
+  it("sends pause and resume hints with media acknowledgements under browser backpressure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-pressure",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const queueStates = [
+      {decodeQueueSize: 20, maxDecodeQueueSize: 12},
+      {decodeQueueSize: 18, maxDecodeQueueSize: 12},
+      {decodeQueueSize: 4, maxDecodeQueueSize: 12},
+    ]
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-pressure/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckCreditBytes: 65_536,
+      mediaAckFrameInterval: 10,
+      mediaQueueState: () => queueStates.shift() || {decodeQueueSize: 0, maxDecodeQueueSize: 12},
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-pressure",
+        mediaSessionId: "media-pressure",
+        sequence: 20,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1]),
+      })
+    )
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-pressure",
+        mediaSessionId: "media-pressure",
+        sequence: 21,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([2]),
+      })
+    )
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-pressure",
+        mediaSessionId: "media-pressure",
+        sequence: 22,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([3]),
+      })
+    )
+
+    expect(controlChannel.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-pressure",
+        media_session_id: "media-pressure",
+        last_accepted_seq: 20,
+        credit_bytes: 1,
+        quality_level: DESKTOP_MEDIA_QUALITY_LOW,
+        pause: true,
+      },
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-pressure",
+        media_session_id: "media-pressure",
+        last_accepted_seq: 22,
+        credit_bytes: 2,
+        quality_level: DESKTOP_MEDIA_QUALITY_AUTO,
+        resume: true,
+      },
+    ])
   })
 
   it("does not drop keyframes or metadata frames when queues are saturated", async () => {
