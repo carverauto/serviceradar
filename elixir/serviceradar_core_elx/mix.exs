@@ -44,6 +44,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:grpc, "~> 0.9"},
       {:membrane_core, "1.2.6"},
       {:membrane_webrtc_plugin, "~> 0.26.3"},
+      {:ex_sctp, "~> 0.1.2"},
       {:boombox, path: "vendor/boombox"},
       {:bandit, "~> 1.10"},
       {:plug, "~> 1.18"},

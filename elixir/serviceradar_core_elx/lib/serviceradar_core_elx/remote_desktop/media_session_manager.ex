@@ -56,6 +56,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       session = Map.get(state.sessions, session_id, new_session(session_id))
 
       viewer = %{
+        offer_provider: provider,
+        offer_provider_opts: provider_runtime_opts(opts),
         viewer_session_id: viewer_session_id,
         signaling_pid: signaling_pid(signaling),
         transport: Keyword.get(opts, :transport),
@@ -82,6 +84,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
       session ->
         {viewer, viewers} = Map.pop(session.viewers, viewer_session_id)
+        if viewer, do: remove_provider_viewer(viewer, session_id)
 
         updated =
           session
@@ -100,23 +103,30 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       |> Map.get(session_id, new_session(session_id))
       |> merge_frame_session_metadata(Keyword.get(opts, :session, %{}))
 
-    frame_cost = frame_byte_count(frame)
-    viewer_count = map_size(session.viewers)
-    credit_bytes = next_credit_grant(session)
+    case forward_frame_to_viewers(session.viewers, session_id, frame) do
+      :ok ->
+        frame_cost = frame_byte_count(frame)
+        viewer_count = map_size(session.viewers)
+        credit_bytes = next_credit_grant(session)
 
-    updated =
-      session
-      |> Map.put(:last_sequence, max(session.last_sequence, normalize_uint(frame.sequence)))
-      |> Map.update!(:forwarded_bytes, &(&1 + frame_cost))
-      |> Map.update!(:forwarded_frames, &(&1 + 1))
-      |> Map.update!(:pending_credit_bytes, &max(&1 - credit_bytes, 0))
-      |> maybe_pause_for_viewers(viewer_count)
-      |> Map.put(:updated_at_unix, now_unix())
-      |> put_last_frame_metadata(frame, frame_cost, viewer_count)
+        updated =
+          session
+          |> Map.put(:last_sequence, max(session.last_sequence, normalize_uint(frame.sequence)))
+          |> Map.update!(:forwarded_bytes, &(&1 + frame_cost))
+          |> Map.update!(:forwarded_frames, &(&1 + 1))
+          |> Map.update!(:pending_credit_bytes, &max(&1 - credit_bytes, 0))
+          |> maybe_pause_for_viewers(viewer_count)
+          |> Map.put(:updated_at_unix, now_unix())
+          |> put_last_frame_metadata(frame, frame_cost, viewer_count)
 
-    emit_frame_event(updated, frame, frame_cost, viewer_count)
+        emit_frame_event(updated, frame, frame_cost, viewer_count)
 
-    {:reply, {:ok, ack_for(updated, frame, credit_bytes, viewer_count)}, put_in(state, [:sessions, session_id], updated)}
+        {:reply, {:ok, ack_for(updated, frame, credit_bytes, viewer_count)},
+         put_in(state, [:sessions, session_id], updated)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call({:apply_browser_ack, session_id, viewer_session_id, ack}, _from, state) do
@@ -325,6 +335,45 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
         close_reason_present: ack_close_reason(ack) not in [nil, ""]
       }
     )
+  end
+
+  defp forward_frame_to_viewers(viewers, _session_id, _frame) when map_size(viewers) == 0, do: :ok
+
+  defp forward_frame_to_viewers(viewers, session_id, frame) do
+    Enum.reduce_while(viewers, :ok, fn {viewer_session_id, viewer}, :ok ->
+      case forward_frame_to_viewer(viewer, session_id, viewer_session_id, frame) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp forward_frame_to_viewer(
+         %{offer_provider: provider, offer_provider_opts: opts},
+         session_id,
+         viewer_session_id,
+         frame
+       ) do
+    if function_exported?(provider, :forward_frame, 4) do
+      provider.forward_frame(session_id, viewer_session_id, frame, opts)
+    else
+      :ok
+    end
+  end
+
+  defp remove_provider_viewer(
+         %{offer_provider: provider, offer_provider_opts: opts, viewer_session_id: viewer_session_id},
+         session_id
+       ) do
+    if function_exported?(provider, :remove_webrtc_viewer, 3) do
+      _ = provider.remove_webrtc_viewer(session_id, viewer_session_id, opts)
+    end
+
+    :ok
+  end
+
+  defp provider_runtime_opts(opts) do
+    Keyword.take(opts, [:registry, :supervisor, :timeout])
   end
 
   defp maybe_pause_for_viewers(session, 0), do: Map.put(session, :paused, true)
