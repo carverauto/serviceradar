@@ -400,6 +400,25 @@ func NormalizeDesktopCredentialGrant(
 }
 
 func ValidateDesktopFrame(frame DesktopFrame, policy DesktopScreenPolicy) error {
+	return validateDesktopFrame(frame, policy, nil)
+}
+
+// ValidateDesktopFrameWithPolicy validates a desktop frame against both screen
+// and redirection policy. Use this for any path that accepts clipboard or other
+// local resource redirection frames.
+func ValidateDesktopFrameWithPolicy(
+	frame DesktopFrame,
+	policy DesktopScreenPolicy,
+	redirection DesktopRedirectionPolicy,
+) error {
+	return validateDesktopFrame(frame, policy, &redirection)
+}
+
+func validateDesktopFrame(
+	frame DesktopFrame,
+	policy DesktopScreenPolicy,
+	redirection *DesktopRedirectionPolicy,
+) error {
 	if frame.SessionID == "" {
 		return fmt.Errorf("%w: missing session id", ErrInvalidDesktopFrame)
 	}
@@ -425,6 +444,9 @@ func ValidateDesktopFrame(frame DesktopFrame, policy DesktopScreenPolicy) error 
 			return fmt.Errorf("%w: invalid input event", ErrInvalidDesktopFrame)
 		}
 	case DesktopFrameTypeClipboard:
+		if !desktopClipboardFrameAllowed(redirection) {
+			return fmt.Errorf("%w: clipboard redirection disabled", ErrInvalidDesktopFrame)
+		}
 		if len(frame.Data) > MaxTerminalFrameData {
 			return fmt.Errorf("%w: clipboard data exceeds maximum", ErrInvalidDesktopFrame)
 		}
@@ -444,6 +466,16 @@ func ValidateDesktopFrame(frame DesktopFrame, policy DesktopScreenPolicy) error 
 	}
 
 	return nil
+}
+
+func desktopClipboardFrameAllowed(redirection *DesktopRedirectionPolicy) bool {
+	if redirection == nil {
+		return false
+	}
+
+	policy := normalizeDesktopRedirectionPolicy(*redirection)
+
+	return policy.ClipboardMode != DesktopClipboardModeDisabled
 }
 
 func normalizeDesktopScreenPolicy(policy DesktopScreenPolicy) DesktopScreenPolicy {

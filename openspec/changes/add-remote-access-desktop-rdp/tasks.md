@@ -14,6 +14,7 @@
 - [x] 2.2.4 Add a supervised core-elx desktop WebRTC signaling owner behind the web-ng ERTS RPC facade.
 - [x] 2.2.5 Index core-elx desktop WebRTC viewer sessions by signaling PID so Membrane signaling events avoid linear session scans.
 - [ ] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
+- [x] 2.3.1 Reject desktop clipboard frames unless an explicit redirection policy enables clipboard access.
 - [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
 
 ## 3. Agent Route And RDP Adapter
@@ -62,6 +63,7 @@
 - [ ] 5.1 Add unit tests for resource normalization, override rejection, RBAC, approval, redirection gates, quota enforcement, and audit records.
 - [x] 5.1.1 Add RBAC catalog tests for RDP open permission and Phoenix controller tests for desktop WebRTC signaling gates.
 - [x] 5.1.2 Add core-elx tests for desktop WebRTC signaling lifecycle, missing sessions, unsupported protocols, answers, candidates, and expiry.
+- [x] 5.1.3 Add focused Go tests for desktop clipboard redirection denial by default and explicit policy opt-in.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.

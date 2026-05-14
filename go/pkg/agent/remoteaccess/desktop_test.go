@@ -401,6 +401,37 @@ func TestValidateDesktopFrameEnforcesGraphicalPolicy(t *testing.T) {
 	}
 }
 
+func TestValidateDesktopFrameRequiresExplicitClipboardPolicy(t *testing.T) {
+	t.Parallel()
+
+	policy := DesktopScreenPolicy{
+		MaxWidth:   1280,
+		MaxHeight:  720,
+		FrameRate:  24,
+		BitrateBPS: 4_000_000,
+	}
+	frame := DesktopFrame{
+		SessionID: fakeRemoteSessionID,
+		Protocol:  ProtocolRDP,
+		FrameType: DesktopFrameTypeClipboard,
+		Data:      []byte("clipboard text"),
+	}
+
+	if err := ValidateDesktopFrame(frame, policy); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("default clipboard validation error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+	if err := ValidateDesktopFrameWithPolicy(frame, policy, DesktopRedirectionPolicy{
+		ClipboardMode: DesktopClipboardModeDisabled,
+	}); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("disabled clipboard validation error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+	if err := ValidateDesktopFrameWithPolicy(frame, policy, DesktopRedirectionPolicy{
+		ClipboardMode: DesktopClipboardModeTextBoth,
+	}); err != nil {
+		t.Fatalf("enabled clipboard validation returned error: %v", err)
+	}
+}
+
 func TestDesktopFramePayloadRoundTripsThroughConsoleFrameData(t *testing.T) {
 	t.Parallel()
 
