@@ -304,6 +304,50 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     assert is_nil(updated_agent.last_update_error)
   end
 
+  test "create_rollout ignores RDP artifacts unless remote access desktop is enabled", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    original_enabled = Application.get_env(:serviceradar_core, :remote_access_desktop_rdp_enabled)
+
+    on_exit(fn ->
+      restore_env(:remote_access_desktop_rdp_enabled, original_enabled)
+    end)
+
+    version = "1.2.#{System.unique_integer([:positive])}"
+    release_attrs = signed_release_attrs(version, capabilities: ["remote_access.rdp"])
+    {:ok, release} = AgentReleaseManager.publish_release(release_attrs)
+
+    Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, false)
+
+    assert {:error, %{errors: [%{message: unsupported_message}]}} =
+             AgentReleaseManager.create_rollout(%{
+               release_id: release.id,
+               agent_ids: [agent_id],
+               batch_size: 1
+             })
+
+    assert unsupported_message ==
+             "unsupported agent platforms for release cohort: #{agent_id} (linux/amd64)"
+
+    Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, true)
+
+    assert {:ok, rollout} =
+             AgentReleaseManager.create_rollout(%{
+               release_id: release.id,
+               agent_ids: [agent_id],
+               batch_size: 1
+             })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert target
+  end
+
   test "create_rollout uses live tracker platform metadata when persisted metadata is missing", %{
     actor: actor,
     release: release
@@ -677,17 +721,19 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     {pid, metadata}
   end
 
-  defp signed_release_attrs(version) do
+  defp signed_release_attrs(version, opts \\ []) do
+    artifact =
+      %{
+        "os" => "linux",
+        "arch" => "amd64",
+        "url" => "https://example.com/releases/agent-#{version}-linux-amd64.tar.gz",
+        "sha256" => String.duplicate("a", 64)
+      }
+      |> maybe_put_capabilities(Keyword.get(opts, :capabilities, []))
+
     manifest = %{
       "version" => version,
-      "artifacts" => [
-        %{
-          "os" => "linux",
-          "arch" => "amd64",
-          "url" => "https://example.com/releases/agent-#{version}-linux-amd64.tar.gz",
-          "sha256" => String.duplicate("a", 64)
-        }
-      ]
+      "artifacts" => [artifact]
     }
 
     %{
@@ -696,6 +742,14 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       signature: sign_manifest(manifest)
     }
   end
+
+  defp maybe_put_capabilities(artifact, []), do: artifact
+
+  defp maybe_put_capabilities(artifact, capabilities),
+    do: Map.put(artifact, "capabilities", capabilities)
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
   defp sign_manifest(manifest) do
     {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)

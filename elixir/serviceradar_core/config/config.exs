@@ -116,6 +116,9 @@ config :serviceradar_core,
   remote_access_ssh_certificate_policy: %{}
 
 config :serviceradar_core,
+  remote_access_desktop_rdp_enabled: false
+
+config :serviceradar_core,
   run_startup_migrations: false
 
 # Sweep SRQL paging configuration

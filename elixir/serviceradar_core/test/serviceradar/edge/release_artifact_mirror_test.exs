@@ -18,7 +18,12 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
             "os" => "linux",
             "arch" => "amd64",
             "format" => "tar.gz",
-            "entrypoint" => "serviceradar-agent"
+            "entrypoint" => "serviceradar-agent",
+            "capabilities" => ["agent", "remote_access.rdp"],
+            "helper_protocol_version" => "srdp-helper-v1",
+            "compatible_agent_versions" => %{"min" => "1.2.0", "max" => "1.3.x"},
+            "checksums" => %{"sha256" => @artifact_sha256},
+            "deployment_requirements" => %{"helper" => "serviceradar-rdp-adapter"}
           }
         ]
       }
@@ -31,6 +36,15 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     upload_object = fn metadata, data, _opts ->
       assert metadata.key =~ "agent-releases/1.2.3/"
       assert metadata.sha256 == @artifact_sha256
+
+      assert Jason.decode!(metadata.attributes["release_artifact_metadata"]) == %{
+               "capabilities" => ["agent", "remote_access.rdp"],
+               "compatible_agent_versions" => %{"min" => "1.2.0", "max" => "1.3.x"},
+               "checksums" => %{"sha256" => @artifact_sha256},
+               "deployment_requirements" => %{"helper" => "serviceradar-rdp-adapter"},
+               "helper_protocol_version" => "srdp-helper-v1"
+             }
+
       assert data == @artifact_body
       {:ok, %Proto.UploadObjectResponse{}}
     end
@@ -47,7 +61,15 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     assert storage["status"] == "mirrored"
     assert storage["backend"] == "datasvc_object_store"
     assert storage["artifact_count"] == 1
-    assert [%{"object_key" => object_key}] = storage["artifacts"]
+
+    assert [
+             %{
+               "object_key" => object_key,
+               "capabilities" => ["agent", "remote_access.rdp"],
+               "helper_protocol_version" => "srdp-helper-v1"
+             }
+           ] = storage["artifacts"]
+
     assert object_key =~ "agent-releases/1.2.3/"
   end
 

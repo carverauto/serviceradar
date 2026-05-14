@@ -54,7 +54,7 @@ The `publish_packages` binary performs the following:
 2. Creates or updates the GitHub release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
 3. Uploads each generated `.deb` and `.rpm` file, replacing existing assets when `--overwrite_assets` (default `true`).
 4. Uploads a rollout-ready `serviceradar-agent_<version>_linux_amd64.tar.gz` runtime archive for self-update delivery.
-5. Generates and signs `serviceradar-agent-release-manifest.json` plus `serviceradar-agent-release-manifest.sig`, then uploads both assets to the same GitHub release.
+5. Generates and signs `serviceradar-agent-release-manifest.json` plus `serviceradar-agent-release-manifest.sig`, then uploads both assets to the same GitHub release. The default managed-agent manifest marks the archive with `capabilities: ["agent"]` and a `checksums.sha256` entry so EdgeOps can distinguish base-agent artifacts from optional helper or RDP-enabled bundles.
 
 ### Useful flags
 
@@ -73,6 +73,18 @@ The `publish_packages` binary performs the following:
 - `GITHUB_TOKEN` / `GH_TOKEN` – Required unless `--dry_run` is set.
 - `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` / `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE` – Required unless `--dry_run` is set so the publisher can sign the agent release manifest assets.
 - `COMMIT_SHA`, `STABLE_COMMIT_SHA`, or `GITHUB_SHA` – Optional; used automatically when `--commit` is omitted.
+
+### Agent manifest metadata
+
+Each artifact may carry deployment metadata used by EdgeOps and one-click installs:
+
+- `capabilities`: artifact feature labels such as `agent` or `remote_access.rdp`.
+- `helper_protocol_version`: helper control protocol version, used by helper-backed artifacts.
+- `compatible_agent_versions`: object with `min` / `max` bounds for helper compatibility.
+- `checksums`, `signatures`, `sbom`, `license_review`: integrity and review references for the artifact and helper payloads.
+- `deployment_requirements`: object describing required helper binaries, services, or host settings.
+
+Deployments that do not set `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true` hide artifacts whose capabilities include `remote_access.rdp` or `remote_access.desktop`.
 
 ## Step 3 – Verify the release
 

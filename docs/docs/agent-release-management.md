@@ -18,7 +18,7 @@ Before using release management in production:
 - Ensure the control plane has the trusted Ed25519 public key configured before operators publish releases.
 - Ensure every managed agent package embeds the trusted Ed25519 public key through build-time `ReleaseSigningPublicKey` injection.
 - Publish artifacts over HTTPS.
-- Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format` and `entrypoint`.
+- Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format`, `entrypoint`, `capabilities`, `helper_protocol_version`, `compatible_agent_versions`, `checksums`, `signatures`, `sbom`, `license_review`, and `deployment_requirements`.
 - If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
 
 ## Publish A Release
@@ -52,7 +52,7 @@ Recommended repository-release asset convention:
 - `serviceradar-agent-release-manifest.sig`
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
 
-The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional `format` / `entrypoint` fields.
+The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional capability and helper metadata. Base agent artifacts should use `capabilities: ["agent"]`. RDP-capable helper or bundle artifacts should include `remote_access.rdp`, the helper protocol version, compatible agent version range, checksums, signature references, SBOM/license-review references, and any deployment requirements needed by the one-click installer.
 
 The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work.
 
@@ -72,6 +72,9 @@ Relevant agent settings:
 - Package-managed agents verify release manifests with the build-time embedded `ReleaseSigningPublicKey`.
 - Package-managed agents use fixed package-owned paths for the updater, seed binary, and mutable runtime root.
 - The control plane still reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` at runtime for release import and validation.
+- RDP-capable agent/helper artifacts must declare `remote_access.rdp` in their manifest `capabilities`.
+- RDP-capable artifacts are hidden from the EdgeOps release catalog and rejected by rollout artifact selection unless `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true`.
+- Keep the default base-agent release artifact free of the IronRDP helper so standard deployments do not install desktop remote-access components.
 
 Onboarding propagation:
 

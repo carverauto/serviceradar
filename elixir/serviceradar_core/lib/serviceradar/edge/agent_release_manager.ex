@@ -10,6 +10,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentRelease
+  alias ServiceRadar.Edge.AgentReleaseArtifactPolicy
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.ReleaseArtifactDelivery
@@ -447,7 +448,8 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
         artifact_os = map_get_any(artifact, [:os, "os"], nil)
         artifact_arch = map_get_any(artifact, [:arch, "arch"], nil)
 
-        (is_nil(artifact_os) or artifact_os == os) and
+        AgentReleaseArtifactPolicy.enabled?(artifact) and
+          (is_nil(artifact_os) or artifact_os == os) and
           (is_nil(artifact_arch) or artifact_arch == arch)
       end)
 

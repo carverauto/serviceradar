@@ -7,6 +7,13 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
 
   @release_public_key_env "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
   @required_artifact_fields ~w(url sha256 os arch)
+  @artifact_object_metadata_fields ~w(
+    compatible_agent_versions
+    checksums
+    license_review
+    deployment_requirements
+  )
+  @artifact_object_list_metadata_fields ~w(signatures sbom)
 
   @type field_error :: %{field: atom(), message: String.t()}
 
@@ -108,29 +115,129 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
         end
       end)
 
-    case normalize_string(artifact["url"]) do
-      "" ->
-        errors
+    errors =
+      case normalize_string(artifact["url"]) do
+        "" ->
+          errors
 
-      url ->
-        case ReleaseFetchPolicy.validate(url) do
-          :ok ->
-            errors
+        url ->
+          case ReleaseFetchPolicy.validate(url) do
+            :ok ->
+              errors
 
-          _ ->
-            [
-              %{
-                field: :manifest,
-                message: "release artifact #{index} url must use a trusted public https host"
-              }
-              | errors
-            ]
-        end
-    end
+            _ ->
+              [
+                %{
+                  field: :manifest,
+                  message: "release artifact #{index} url must use a trusted public https host"
+                }
+                | errors
+              ]
+          end
+      end
+
+    errors
+    |> validate_artifact_capabilities(artifact, index)
+    |> validate_artifact_string_metadata(artifact, index, "helper_protocol_version")
+    |> validate_artifact_object_metadata(artifact, index)
+    |> validate_artifact_object_list_metadata(artifact, index)
   end
 
   defp validate_artifact(errors, _artifact, index) do
     [%{field: :manifest, message: "release artifact #{index} must be an object"} | errors]
+  end
+
+  defp validate_artifact_capabilities(errors, artifact, index) do
+    case Map.fetch(artifact, "capabilities") do
+      :error ->
+        errors
+
+      {:ok, capabilities}
+      when is_list(capabilities) ->
+        if Enum.all?(capabilities, &non_empty_string?/1) do
+          errors
+        else
+          [
+            %{
+              field: :manifest,
+              message: "release artifact #{index} capabilities must contain non-empty strings"
+            }
+            | errors
+          ]
+        end
+
+      {:ok, _capabilities} ->
+        [
+          %{field: :manifest, message: "release artifact #{index} capabilities must be a list"}
+          | errors
+        ]
+    end
+  end
+
+  defp validate_artifact_string_metadata(errors, artifact, index, field) do
+    case Map.fetch(artifact, field) do
+      :error ->
+        errors
+
+      {:ok, value} ->
+        if is_binary(value) and normalize_string(value) != "" do
+          errors
+        else
+          [
+            %{
+              field: :manifest,
+              message: "release artifact #{index} #{field} must be a non-empty string"
+            }
+            | errors
+          ]
+        end
+    end
+  end
+
+  defp validate_artifact_object_metadata(errors, artifact, index) do
+    Enum.reduce(@artifact_object_metadata_fields, errors, fn field, acc ->
+      case Map.fetch(artifact, field) do
+        :error ->
+          acc
+
+        {:ok, value} when is_map(value) ->
+          acc
+
+        {:ok, _value} ->
+          [
+            %{field: :manifest, message: "release artifact #{index} #{field} must be an object"}
+            | acc
+          ]
+      end
+    end)
+  end
+
+  defp validate_artifact_object_list_metadata(errors, artifact, index) do
+    Enum.reduce(@artifact_object_list_metadata_fields, errors, fn field, acc ->
+      case Map.fetch(artifact, field) do
+        :error ->
+          acc
+
+        {:ok, values} when is_list(values) ->
+          if Enum.all?(values, &is_map/1) do
+            acc
+          else
+            [
+              %{
+                field: :manifest,
+                message: "release artifact #{index} #{field} must contain objects"
+              }
+              | acc
+            ]
+          end
+
+        {:ok, _values} ->
+          [
+            %{field: :manifest, message: "release artifact #{index} #{field} must be a list"}
+            | acc
+          ]
+      end
+    end)
   end
 
   defp validate_manifest_signature(manifest, signature) do
@@ -269,6 +376,9 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_key(key) when is_binary(key), do: key
   defp normalize_key(key), do: to_string(key)
+
+  defp non_empty_string?(value) when is_binary(value), do: normalize_string(value) != ""
+  defp non_empty_string?(_value), do: false
 
   defp normalize_string(nil), do: ""
   defp normalize_string(value) when is_binary(value), do: String.trim(value)

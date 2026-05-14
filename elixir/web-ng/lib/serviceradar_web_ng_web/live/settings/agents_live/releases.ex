@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Edge.AgentRelease
+  alias ServiceRadar.Edge.AgentReleaseArtifactPolicy
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
@@ -387,7 +388,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> Ash.Query.limit(25)
     |> Ash.read(scope: scope)
     |> case do
-      {:ok, releases} -> releases
+      {:ok, releases} -> Enum.filter(releases, &release_has_deployable_artifact?/1)
       {:error, _} -> []
     end
   end
@@ -1770,7 +1771,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     agent_arch = metadata_field(metadata, [:arch, "arch"])
 
     release.manifest
-    |> artifact_list()
+    |> deployable_artifact_list()
     |> Enum.any?(fn artifact ->
       artifact_matches_platform?(
         artifact_field(artifact, "os"),
@@ -1910,12 +1911,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     Enum.map(releases, fn release -> {release.version, release.version} end)
   end
 
+  defp release_has_deployable_artifact?(release) do
+    release.manifest
+    |> deployable_artifact_list()
+    |> Enum.any?()
+  end
+
   defp artifact_list(%{"artifacts" => artifacts}) when is_list(artifacts), do: artifacts
   defp artifact_list(%{artifacts: artifacts}) when is_list(artifacts), do: artifacts
   defp artifact_list(_manifest), do: []
 
+  defp deployable_artifact_list(manifest) do
+    manifest
+    |> artifact_list()
+    |> Enum.filter(&AgentReleaseArtifactPolicy.enabled?/1)
+  end
+
   defp artifact_platforms(%{"artifacts" => artifacts}) when is_list(artifacts) do
     artifacts
+    |> Enum.filter(&AgentReleaseArtifactPolicy.enabled?/1)
     |> Enum.map(&artifact_platform_label/1)
     |> Enum.reject(&blank?/1)
     |> Enum.uniq()
@@ -1930,8 +1944,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     platform_label(artifact_field(artifact, "os"), artifact_field(artifact, "arch"))
   end
 
-  defp artifact_count(%{"artifacts" => artifacts}) when is_list(artifacts), do: length(artifacts)
-  defp artifact_count(%{artifacts: artifacts}) when is_list(artifacts), do: length(artifacts)
+  defp artifact_count(%{"artifacts" => artifacts}) when is_list(artifacts) do
+    artifacts
+    |> Enum.filter(&AgentReleaseArtifactPolicy.enabled?/1)
+    |> length()
+  end
+
+  defp artifact_count(%{artifacts: artifacts}) when is_list(artifacts),
+    do: artifact_count(%{"artifacts" => artifacts})
+
   defp artifact_count(_manifest), do: 0
 
   defp rollout_progress_text(summary) do

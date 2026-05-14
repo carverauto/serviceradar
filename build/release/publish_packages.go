@@ -111,12 +111,32 @@ type agentReleaseManifest struct {
 }
 
 type agentReleaseManifestArtifact struct {
-	URL        string `json:"url"`
-	SHA256     string `json:"sha256"`
-	OS         string `json:"os"`
-	Arch       string `json:"arch"`
-	Format     string `json:"format,omitempty"`
-	Entrypoint string `json:"entrypoint,omitempty"`
+	URL                     string                            `json:"url"`
+	SHA256                  string                            `json:"sha256"`
+	OS                      string                            `json:"os"`
+	Arch                    string                            `json:"arch"`
+	Format                  string                            `json:"format,omitempty"`
+	Entrypoint              string                            `json:"entrypoint,omitempty"`
+	Capabilities            []string                          `json:"capabilities,omitempty"`
+	HelperProtocolVersion   string                            `json:"helper_protocol_version,omitempty"`
+	CompatibleAgentVersions *agentReleaseManifestVersionRange `json:"compatible_agent_versions,omitempty"`
+	Checksums               map[string]string                 `json:"checksums,omitempty"`
+	Signatures              []agentReleaseManifestReference   `json:"signatures,omitempty"`
+	SBOM                    []agentReleaseManifestReference   `json:"sbom,omitempty"`
+	LicenseReview           *agentReleaseManifestReference    `json:"license_review,omitempty"`
+	DeploymentRequirements  map[string]interface{}            `json:"deployment_requirements,omitempty"`
+}
+
+type agentReleaseManifestVersionRange struct {
+	Min string `json:"min,omitempty"`
+	Max string `json:"max,omitempty"`
+}
+
+type agentReleaseManifestReference struct {
+	Name      string `json:"name,omitempty"`
+	URL       string `json:"url,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
 }
 
 type publishConfig struct {
@@ -430,6 +450,12 @@ func buildManagedAgentManifestAssets(
 				Arch:       defaultAgentRuntimeArch,
 				Format:     defaultAgentRuntimeFormat,
 				Entrypoint: defaultAgentRuntimeEntrypoint,
+				Capabilities: []string{
+					"agent",
+				},
+				Checksums: map[string]string{
+					"sha256": runtimeDigest,
+				},
 			},
 		},
 	}
@@ -438,12 +464,16 @@ func buildManagedAgentManifestAssets(
 		"version": manifest.Version,
 		"artifacts": []interface{}{
 			map[string]interface{}{
-				"url":        manifest.Artifacts[0].URL,
-				"sha256":     manifest.Artifacts[0].SHA256,
-				"os":         manifest.Artifacts[0].OS,
-				"arch":       manifest.Artifacts[0].Arch,
-				"format":     manifest.Artifacts[0].Format,
-				"entrypoint": manifest.Artifacts[0].Entrypoint,
+				"url":          manifest.Artifacts[0].URL,
+				"sha256":       manifest.Artifacts[0].SHA256,
+				"os":           manifest.Artifacts[0].OS,
+				"arch":         manifest.Artifacts[0].Arch,
+				"format":       manifest.Artifacts[0].Format,
+				"entrypoint":   manifest.Artifacts[0].Entrypoint,
+				"capabilities": []interface{}{"agent"},
+				"checksums": map[string]interface{}{
+					"sha256": manifest.Artifacts[0].SHA256,
+				},
 			},
 		},
 	}

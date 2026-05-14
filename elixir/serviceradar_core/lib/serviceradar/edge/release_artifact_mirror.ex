@@ -10,6 +10,16 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   @max_artifact_bytes 256 * 1024 * 1024
   @storage_backend "datasvc_object_store"
   @max_redirects 10
+  @artifact_metadata_fields ~w(
+    capabilities
+    helper_protocol_version
+    compatible_agent_versions
+    checksums
+    signatures
+    sbom
+    license_review
+    deployment_requirements
+  )
 
   @type prepare_opts :: [
           timeout: non_neg_integer(),
@@ -96,6 +106,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     arch = map_get_any(artifact, ["arch", :arch])
     format = map_get_any(artifact, ["format", :format])
     entrypoint = map_get_any(artifact, ["entrypoint", :entrypoint])
+    artifact_metadata = Map.take(artifact, @artifact_metadata_fields)
 
     with {:ok, source_url} <-
            require_present(source_url, "release artifact #{index + 1} is missing url"),
@@ -112,11 +123,12 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
              os: os,
              arch: arch,
              format: format,
-             entrypoint: entrypoint
+             entrypoint: entrypoint,
+             artifact_metadata: artifact_metadata
            }),
          {:ok, _response} <- upload_object.(metadata, data, timeout: timeout) do
       {:ok,
-       compact_map(%{
+       %{
          "url" => source_url,
          "sha256" => sha256,
          "os" => os,
@@ -127,7 +139,9 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
          "file_name" => file_name,
          "content_type" => metadata.content_type,
          "size_bytes" => byte_size(data)
-       })}
+       }
+       |> Map.merge(artifact_metadata)
+       |> compact_map()}
     else
       {:error, reason} ->
         {:error, "failed to mirror release artifact #{index + 1}: #{format_reason(reason)}"}
@@ -272,6 +286,8 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
           "arch" => Map.get(attrs, :arch),
           "format" => Map.get(attrs, :format),
           "entrypoint" => Map.get(attrs, :entrypoint),
+          "release_artifact_metadata" =>
+            encoded_metadata(Map.get(attrs, :artifact_metadata, %{})),
           "release_distribution_backend" => @storage_backend
         })
     }
@@ -471,4 +487,10 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end)
     |> Map.new()
   end
+
+  defp encoded_metadata(metadata) when is_map(metadata) and map_size(metadata) > 0 do
+    Jason.encode!(metadata)
+  end
+
+  defp encoded_metadata(_metadata), do: nil
 end

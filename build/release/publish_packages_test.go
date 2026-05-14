@@ -100,6 +100,12 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 	if artifact.SHA256 != hex.EncodeToString(digest[:]) {
 		t.Fatalf("artifact SHA256 = %q", artifact.SHA256)
 	}
+	if len(artifact.Capabilities) != 1 || artifact.Capabilities[0] != "agent" {
+		t.Fatalf("artifact Capabilities = %v, want [agent]", artifact.Capabilities)
+	}
+	if artifact.Checksums["sha256"] != artifact.SHA256 {
+		t.Fatalf("artifact Checksums[sha256] = %q, want artifact SHA256", artifact.Checksums["sha256"])
+	}
 
 	signatureValue, err := os.ReadFile(filepath.Join(tempDir, defaultAgentManifestSigAssetName))
 	if err != nil {

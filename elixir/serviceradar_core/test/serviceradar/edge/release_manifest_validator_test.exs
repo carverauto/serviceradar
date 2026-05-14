@@ -61,6 +61,25 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
     assert "release artifact 1 url must use a trusted public https host" in messages
   end
 
+  test "rejects malformed optional artifact metadata" do
+    manifest =
+      "1.2.3"
+      |> valid_manifest()
+      |> put_in(["artifacts", Access.at(0), "capabilities"], "remote_access.rdp")
+      |> put_in(["artifacts", Access.at(0), "helper_protocol_version"], "")
+      |> put_in(["artifacts", Access.at(0), "deployment_requirements"], ["helper"])
+      |> put_in(["artifacts", Access.at(0), "sbom"], ["sbom.spdx.json"])
+
+    assert {:error, errors} =
+             ReleaseManifestValidator.validate("1.2.3", manifest, sign_manifest(manifest))
+
+    messages = Enum.map(errors, & &1.message)
+    assert "release artifact 1 capabilities must be a list" in messages
+    assert "release artifact 1 helper_protocol_version must be a non-empty string" in messages
+    assert "release artifact 1 deployment_requirements must be an object" in messages
+    assert "release artifact 1 sbom must contain objects" in messages
+  end
+
   defp valid_manifest(version) do
     %{
       "version" => version,
@@ -71,7 +90,10 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
           "url" => "https://example.com/releases/#{version}/serviceradar-agent.tar.gz",
           "sha256" => String.duplicate("a", 64),
           "format" => "tar.gz",
-          "entrypoint" => "serviceradar-agent"
+          "entrypoint" => "serviceradar-agent",
+          "capabilities" => ["agent"],
+          "checksums" => %{"sha256" => String.duplicate("a", 64)},
+          "deployment_requirements" => %{}
         }
       ]
     }

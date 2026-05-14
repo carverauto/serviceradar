@@ -173,6 +173,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   setup do
     original_client = Application.get_env(:serviceradar_web_ng, :agent_release_import_http_client)
 
+    original_rdp_enabled =
+      Application.get_env(:serviceradar_core, :remote_access_desktop_rdp_enabled)
+
     original_mirror =
       Application.get_env(:serviceradar_core, :agent_release_artifact_mirror_module)
 
@@ -202,6 +205,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           original_mirror
         )
       end
+
+      restore_core_env(:remote_access_desktop_rdp_enabled, original_rdp_enabled)
     end)
 
     :ok
@@ -426,6 +431,38 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
              "Unsupported agents will be skipped; the rollout will target the compatible subset."
 
     refute has_element?(lv, "#create-rollout-form button[disabled]")
+  end
+
+  test "hides RDP-only agent releases when remote access desktop is disabled", %{
+    conn: conn,
+    scope: scope
+  } do
+    version = "2.2.#{System.unique_integer([:positive])}"
+    manifest = rdp_release_manifest(version)
+
+    {:ok, _release} =
+      AgentReleaseManager.publish_release(
+        %{
+          version: version,
+          signature: sign_manifest(manifest),
+          manifest: manifest
+        },
+        scope: scope
+      )
+
+    Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, false)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    refute html =~ version
+    refute has_element?(lv, "[id='use-release-#{version}']")
+
+    Application.put_env(:serviceradar_core, :remote_access_desktop_rdp_enabled, true)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ version
+    assert has_element?(lv, "[id='use-release-#{version}']")
   end
 
   test "treats atom-key agent metadata as compatible in rollout preview", %{
@@ -1612,6 +1649,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     }
   end
 
+  defp rdp_release_manifest(version) do
+    %{
+      "version" => version,
+      "artifacts" => [
+        %{
+          "os" => "linux",
+          "arch" => "amd64",
+          "format" => "tar.gz",
+          "entrypoint" => "serviceradar-agent-rdp",
+          "capabilities" => ["agent", "remote_access.rdp"],
+          "url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent-rdp-linux-amd64.tar.gz",
+          "sha256" => String.duplicate("b", 64)
+        }
+      ]
+    }
+  end
+
   defp sign_manifest(manifest) do
     {:ok, payload} = ReleaseManifestValidator.canonical_json(manifest)
     private_key = Base.decode64!(@release_private_key)
@@ -1620,4 +1675,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     |> :crypto.sign(:none, payload, [private_key, :ed25519])
     |> Base.encode64()
   end
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end
