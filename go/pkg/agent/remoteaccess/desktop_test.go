@@ -365,6 +365,35 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 	}
 }
 
+func TestDesktopCredentialGrantDropSensitive(t *testing.T) {
+	t.Parallel()
+
+	grant := DesktopCredentialGrant{
+		Mode:                DesktopCredentialModeMemoryUser,
+		Username:            "alice",
+		Password:            "secret",
+		CredentialSecretRef: "secretref:rdp/admin",
+		ActorID:             "user-1",
+		SessionID:           "session-1",
+		TargetID:            desktopTestTargetID,
+		RouteID:             desktopTestAgentID,
+		ExpiresUnix:         1_778_000_000,
+	}
+
+	grant.DropSensitive()
+	if grant.Username != "" || grant.Password != "" || grant.CredentialSecretRef != "" {
+		t.Fatalf("sensitive fields not cleared: %#v", grant)
+	}
+	if grant.ActorID != "user-1" || grant.SessionID != "session-1" ||
+		grant.TargetID != desktopTestTargetID || grant.RouteID != desktopTestAgentID ||
+		grant.ExpiresUnix != 1_778_000_000 {
+		t.Fatalf("binding fields should be retained: %#v", grant)
+	}
+
+	var nilGrant *DesktopCredentialGrant
+	nilGrant.DropSensitive()
+}
+
 func TestValidateDesktopFrameEnforcesGraphicalPolicy(t *testing.T) {
 	t.Parallel()
 

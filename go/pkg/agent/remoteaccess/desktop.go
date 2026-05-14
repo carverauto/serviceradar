@@ -133,6 +133,20 @@ type DesktopCredentialGrant struct {
 	ExpiresUnix         int64  `json:"expires_unix,omitempty"`
 }
 
+// DropSensitive clears session credential material from the grant once an
+// adapter no longer needs it. Password is string-backed because grants arrive
+// over JSON, so this releases references rather than promising allocator-level
+// memory scrubbing.
+func (grant *DesktopCredentialGrant) DropSensitive() {
+	if grant == nil {
+		return
+	}
+
+	grant.Username = ""
+	grant.Password = ""
+	grant.CredentialSecretRef = ""
+}
+
 type DesktopScreenPolicy struct {
 	MaxWidth    uint32 `json:"max_width"`
 	MaxHeight   uint32 `json:"max_height"`
