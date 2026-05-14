@@ -493,6 +493,38 @@ func TestDesktopFrameQuotaWindowEnforcesFrameRateAndBitrate(t *testing.T) {
 	}
 }
 
+func TestValidateDesktopSessionLifetimeEnforcesIdleAndTTL(t *testing.T) {
+	t.Parallel()
+
+	policy := DesktopScreenPolicy{
+		MaxWidth:    1280,
+		MaxHeight:   720,
+		FrameRate:   24,
+		BitrateBPS:  4_000_000,
+		IdleSeconds: 10,
+		TTLSeconds:  30,
+	}
+
+	if err := ValidateDesktopSessionLifetime(policy, 100, 105, 109); err != nil {
+		t.Fatalf("active session returned error: %v", err)
+	}
+	if err := ValidateDesktopSessionLifetime(policy, 100, 105, 115); !errors.Is(err, ErrDesktopSessionExpired) {
+		t.Fatalf("idle timeout error = %v, want %v", err, ErrDesktopSessionExpired)
+	}
+	if err := ValidateDesktopSessionLifetime(policy, 100, 125, 130); !errors.Is(err, ErrDesktopSessionExpired) {
+		t.Fatalf("ttl timeout error = %v, want %v", err, ErrDesktopSessionExpired)
+	}
+	if err := ValidateDesktopSessionLifetime(policy, 100, 0, 109); err != nil {
+		t.Fatalf("missing last activity fallback returned error: %v", err)
+	}
+	if err := ValidateDesktopSessionLifetime(policy, 100, 105, 99); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("clock regression error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+	if err := ValidateDesktopSessionLifetime(policy, 0, 0, 109); !errors.Is(err, ErrInvalidDesktopFrame) {
+		t.Fatalf("invalid timestamp error = %v, want %v", err, ErrInvalidDesktopFrame)
+	}
+}
+
 func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing.T) {
 	t.Parallel()
 

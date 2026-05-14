@@ -72,10 +72,11 @@ const (
 )
 
 var (
-	ErrInvalidDesktopTarget = errors.New("invalid desktop target")
-	ErrInvalidDesktopFrame  = errors.New("invalid desktop frame")
-	ErrDesktopContentRecord = errors.New("desktop content recording disabled")
-	ErrDesktopQuotaExceeded = errors.New("desktop quota exceeded")
+	ErrInvalidDesktopTarget  = errors.New("invalid desktop target")
+	ErrInvalidDesktopFrame   = errors.New("invalid desktop frame")
+	ErrDesktopContentRecord  = errors.New("desktop content recording disabled")
+	ErrDesktopQuotaExceeded  = errors.New("desktop quota exceeded")
+	ErrDesktopSessionExpired = errors.New("desktop session expired")
 )
 
 const desktopQuotaWindowNanos int64 = 1_000_000_000
@@ -266,6 +267,37 @@ func (w *DesktopFrameQuotaWindow) Consume(frame DesktopFrame, nowUnixNano int64)
 
 	w.frameCount++
 	w.bitCount += frameBits
+
+	return nil
+}
+
+// ValidateDesktopSessionLifetime enforces the idle and absolute TTL policy for
+// an adapter session. Timestamps are Unix seconds; callers should update
+// lastActivityUnix whenever user input, screen traffic, or explicit heartbeat
+// activity is accepted for the session.
+func ValidateDesktopSessionLifetime(
+	policy DesktopScreenPolicy,
+	startUnix int64,
+	lastActivityUnix int64,
+	nowUnix int64,
+) error {
+	if startUnix <= 0 || nowUnix <= 0 {
+		return fmt.Errorf("%w: invalid session timestamp", ErrInvalidDesktopFrame)
+	}
+	if lastActivityUnix <= 0 {
+		lastActivityUnix = startUnix
+	}
+
+	policy = normalizeDesktopScreenPolicy(policy)
+	if nowUnix < startUnix || nowUnix < lastActivityUnix {
+		return fmt.Errorf("%w: clock moved backwards", ErrInvalidDesktopFrame)
+	}
+	if nowUnix-startUnix >= int64(policy.TTLSeconds) {
+		return fmt.Errorf("%w: ttl", ErrDesktopSessionExpired)
+	}
+	if nowUnix-lastActivityUnix >= int64(policy.IdleSeconds) {
+		return fmt.Errorf("%w: idle", ErrDesktopSessionExpired)
+	}
 
 	return nil
 }
