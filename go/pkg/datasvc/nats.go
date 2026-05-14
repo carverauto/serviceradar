@@ -651,7 +651,7 @@ func paginateObjectInfos(objects []*ObjectInfo, pageSize int, pageToken string) 
 	if pageToken != "" {
 		parsed, err := strconv.Atoi(pageToken)
 		if err != nil || parsed < 0 {
-			return nil, "", fmt.Errorf("invalid page token")
+			return nil, "", errInvalidPageToken
 		}
 		offset = parsed
 	}
