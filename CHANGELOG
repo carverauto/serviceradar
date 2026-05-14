@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.56
+
+Forgejo release and CI workflow fixes for the non-root runner image.
+
+## Whats New
+
+**1.2.56**
+- Removed runtime `sudo` package installation from Forgejo release, OCI publish, and Rust test workflows now that required OS tools are baked into the non-root Forgejo CI image.
+- Added explicit CI tool preflight failures so missing runner-image dependencies are reported as image rebuild work instead of failing mid-job with sudo or package-manager errors.
+
 # ServiceRadar v1.2.55
 
 Manual device creation reliability, telemetry export hardening, MTR hostname enrichment, and safer agent control-session handling for clustered deployments.
