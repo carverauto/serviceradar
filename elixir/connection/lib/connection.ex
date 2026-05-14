@@ -1,4 +1,8 @@
 defmodule Connection do
+  # This module intentionally mirrors GenServer-style callback dispatch with
+  # function-level catch/else clauses.
+  # credo:disable-for-this-file Jump.CredoChecks.AvoidFunctionLevelElse
+
   @moduledoc """
   A behaviour module for implementing connection processes.
 
