@@ -8961,6 +8961,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       <th>Time</th>
                       <th>Agent</th>
                       <th>Status</th>
+                      <th>Checks</th>
                       <th>Response</th>
                       <th>Ports</th>
                     </tr>
@@ -8985,6 +8986,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                             <span class="size-1.5 rounded-full bg-current"></span>
                             {status_label(result.status)}
                           </span>
+                        </td>
+                        <td class="text-xs whitespace-nowrap">
+                          {format_sweep_checks(result)}
                         </td>
                         <td class="font-mono text-xs">
                           {format_response_time(result.response_time_ms)}
@@ -9105,6 +9109,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_ports_compact([]), do: "—"
   defp format_ports_compact(ports) when length(ports) <= 3, do: Enum.join(ports, ", ")
   defp format_ports_compact(ports), do: "#{length(ports)} ports"
+
+  defp format_sweep_checks(%{sweep_modes_results: modes}) when is_map(modes) do
+    modes
+    |> sweep_check_parts()
+    |> case do
+      [] -> "—"
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  defp format_sweep_checks(_), do: "—"
+
+  defp sweep_check_parts(modes) do
+    Enum.reject([sweep_mode_part(modes, "icmp", "ICMP"), sweep_mode_part(modes, "tcp", "TCP")], &is_nil/1)
+  end
+
+  defp sweep_mode_part(modes, key, label) do
+    case Map.get(modes, key) || Map.get(modes, sweep_mode_atom_key(key)) do
+      nil -> nil
+      value -> "#{label} #{sweep_mode_status_label(value)}"
+    end
+  end
+
+  defp sweep_mode_atom_key("icmp"), do: :icmp
+  defp sweep_mode_atom_key("tcp"), do: :tcp
+
+  defp sweep_mode_status_label("success"), do: "ok"
+  defp sweep_mode_status_label(:success), do: "ok"
+  defp sweep_mode_status_label("failed"), do: "failed"
+  defp sweep_mode_status_label(:failed), do: "failed"
+  defp sweep_mode_status_label("no_response"), do: "no response"
+  defp sweep_mode_status_label(:no_response), do: "no response"
+  defp sweep_mode_status_label(value), do: to_string(value)
 
   defp get_sweep_agent_id(result) do
     case result do
