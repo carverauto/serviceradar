@@ -42,6 +42,7 @@ func DesktopAuditMetadata(payload DesktopOpenPayload) map[string]string {
 		"upstream_port":                  strconv.FormatUint(uint64(target.Upstream.Port), 10),
 		"tls_mode":                       target.TLS.Mode,
 		"tls_ca_bundle_id":               target.TLS.CABundleID,
+		"nla_mode":                       target.TLS.NLAMode,
 		"tls_server_name":                target.TLS.ServerName,
 		"credential_mode":                credentialMode,
 		"screen_max_width":               strconv.FormatUint(uint64(target.Screen.MaxWidth), 10),

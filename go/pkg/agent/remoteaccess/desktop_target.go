@@ -94,6 +94,7 @@ func NormalizeDesktopTarget(target DesktopTarget) (DesktopTarget, error) {
 	target.Upstream.Host = strings.TrimSpace(target.Upstream.Host)
 	target.TLS.Mode = strings.TrimSpace(target.TLS.Mode)
 	target.TLS.CABundleID = strings.TrimSpace(target.TLS.CABundleID)
+	target.TLS.NLAMode = strings.TrimSpace(target.TLS.NLAMode)
 	target.TLS.ServerName = strings.TrimSpace(target.TLS.ServerName)
 	target.Credential.Mode = strings.TrimSpace(target.Credential.Mode)
 	target.Credential.AllowedPrincipals = normalizeDesktopStringList(target.Credential.AllowedPrincipals)
@@ -107,6 +108,9 @@ func NormalizeDesktopTarget(target DesktopTarget) (DesktopTarget, error) {
 	}
 	if target.TLS.Mode == "" {
 		target.TLS.Mode = DesktopDefaultTLSPolicy
+	}
+	if target.TLS.NLAMode == "" && target.Protocol == ProtocolRDP {
+		target.TLS.NLAMode = DesktopDefaultNLAPolicy
 	}
 	target.Screen = normalizeDesktopScreenPolicy(target.Screen)
 	target.Redirection = normalizeDesktopRedirectionPolicy(target.Redirection)
@@ -175,6 +179,9 @@ func validateDesktopTarget(target DesktopTarget) error {
 	}
 	if !validDesktopTLSMode(target.TLS.Mode) {
 		return fmt.Errorf("%w: invalid tls mode", ErrInvalidDesktopTarget)
+	}
+	if !validDesktopNLAMode(target.TLS.NLAMode) {
+		return fmt.Errorf("%w: invalid nla mode", ErrInvalidDesktopTarget)
 	}
 	if !validDesktopCredentialMode(target.Credential.Mode) {
 		return fmt.Errorf("%w: invalid credential mode", ErrInvalidDesktopTarget)
@@ -247,6 +254,15 @@ func desktopStringListContains(values []string, value string) bool {
 func validDesktopTLSMode(mode string) bool {
 	switch mode {
 	case DesktopTLSModeVerify, DesktopTLSModePinnedCA, DesktopTLSModeInsecure, DesktopTLSModeSystem, DesktopTLSModeTOFU:
+		return true
+	default:
+		return false
+	}
+}
+
+func validDesktopNLAMode(mode string) bool {
+	switch mode {
+	case "", DesktopNLAModeRequired, DesktopNLAModeDisabled:
 		return true
 	default:
 		return false

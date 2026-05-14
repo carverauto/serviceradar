@@ -31,6 +31,7 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	target.Route.SelectedGateway = "gateway-1"
 	target.TLS.Mode = DesktopTLSModePinnedCA
 	target.TLS.CABundleID = "ca-bundle-1"
+	target.TLS.NLAMode = DesktopNLAModeRequired
 	target.TLS.ServerName = "windows.internal"
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
 	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
@@ -62,6 +63,7 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 		metadata["selected_gateway_id"] != "gateway-1" ||
 		metadata["credential_mode"] != DesktopCredentialModeBrokeredSecret ||
 		metadata["tls_mode"] != DesktopTLSModePinnedCA ||
+		metadata["nla_mode"] != DesktopNLAModeRequired ||
 		metadata["redirection_clipboard_mode"] != DesktopClipboardModeTextToBrowser ||
 		metadata["recording_metadata_enabled"] != "true" ||
 		metadata["credential_grant_expires_unix"] != "4102444800" ||

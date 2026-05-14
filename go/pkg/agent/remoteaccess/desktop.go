@@ -32,6 +32,9 @@ const (
 	DesktopTLSModeSystem     = "system"
 	DesktopTLSModeTOFU       = "tofu"
 	DesktopDefaultTLSPolicy  = DesktopTLSModeVerify
+	DesktopNLAModeRequired   = "required"
+	DesktopNLAModeDisabled   = "disabled"
+	DesktopDefaultNLAPolicy  = DesktopNLAModeRequired
 	DesktopDefaultRDPPort    = 3389
 	DesktopDefaultMaxWidth   = 1920
 	DesktopDefaultMaxHeight  = 1080
@@ -124,6 +127,7 @@ type DesktopUpstream struct {
 type DesktopTLSPolicy struct {
 	Mode       string `json:"mode"`
 	CABundleID string `json:"ca_bundle_id,omitempty"`
+	NLAMode    string `json:"nla_mode,omitempty"`
 	ServerName string `json:"server_name,omitempty"`
 }
 
