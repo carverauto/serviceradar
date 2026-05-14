@@ -11,6 +11,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   use GRPC.Server, service: Desktopmedia.DesktopMediaService.Service
 
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
+  alias ServiceRadarAgentGateway.DesktopMediaForwarder
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
 
   require Logger
@@ -357,7 +358,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   end
 
   defp frame_forwarder do
-    Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder)
+    Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder, DesktopMediaForwarder)
   end
 
   defp identity_resolver do

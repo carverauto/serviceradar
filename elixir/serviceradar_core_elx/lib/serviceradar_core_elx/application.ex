@@ -70,7 +70,9 @@ defmodule ServiceRadarCoreElx.Application do
           ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager,
           ServiceRadarCoreElx.CameraMediaSessionTracker,
           {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
-          ServiceRadarCoreElx.CameraMediaIngressSupervisor
+          ServiceRadarCoreElx.CameraMediaIngressSupervisor,
+          {Registry, keys: :unique, name: ServiceRadarCoreElx.DesktopMediaIngressRegistry},
+          ServiceRadarCoreElx.DesktopMediaIngressSupervisor
         ]
 
     Logger.info("Core-ELX initialized - serviceradar_core handles cluster infrastructure")

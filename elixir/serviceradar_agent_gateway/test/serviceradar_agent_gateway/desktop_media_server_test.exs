@@ -34,6 +34,12 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
 
     Application.put_env(
       :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      nil
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
       :desktop_media_identity_resolver,
       CameraMediaIdentityResolverStub
     )

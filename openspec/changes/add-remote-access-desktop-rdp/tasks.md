@@ -65,6 +65,7 @@
 - [x] 3.1.32 Register the agent-gateway desktop media gRPC service with mTLS identity checks, fail-closed stream behavior, and tracker-backed open/heartbeat/close semantics.
 - [x] 3.1.33 Add session-bound desktop media stream handling for heartbeat/close control messages while rejecting frame payloads until the core/browser forwarder is implemented.
 - [x] 3.1.34 Add a configurable agent-gateway desktop media frame forwarder seam that records frame counters and applies downstream acknowledgements only after a forwarder accepts the frame.
+- [x] 3.1.35 Add an ERTS RPC desktop media forwarder and core-elx per-session ingress boundary for gateway-accepted frame chunks.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
@@ -144,6 +145,7 @@
 - [x] 5.6.22 Add focused Elixir tests proving the desktop media gRPC server opens, heartbeats, closes, rejects mismatched identities, and fails the media stream closed until forwarding is implemented.
 - [x] 5.6.23 Add focused Elixir tests proving desktop media stream control replies, frame binding checks, and max chunk enforcement run before frame forwarding is enabled.
 - [x] 5.6.24 Add focused Elixir tests proving configured desktop media frame forwarding emits acknowledgements, updates tracker counters, and leaves state unchanged on forwarder failure.
+- [x] 5.6.25 Add focused Elixir tests proving the desktop media ERTS forwarder probes core, retries nodedown, and the core-elx ingress validates binding and chunk size.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
