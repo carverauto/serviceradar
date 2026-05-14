@@ -51,6 +51,7 @@
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
 - [x] 3.3.3 Reject expired brokered desktop credential grants before adapter use.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
+- [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
@@ -74,6 +75,7 @@
 - [x] 5.2.3 Add focused Go tests for brokered desktop credential grant expiry.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
+- [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.

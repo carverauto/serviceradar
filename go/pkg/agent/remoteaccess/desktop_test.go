@@ -439,6 +439,25 @@ func TestValidateDesktopFrameEnforcesGraphicalPolicy(t *testing.T) {
 			FrameType: DesktopFrameTypeInput,
 			Input:     &DesktopInputEvent{Kind: "unknown"},
 		},
+		{
+			SessionID: "session-1",
+			Protocol:  ProtocolRDP,
+			FrameType: DesktopFrameTypeInput,
+			Input: &DesktopInputEvent{
+				Kind: DesktopInputKindPointer,
+				X:    1281,
+				Y:    360,
+			},
+		},
+		{
+			SessionID: "session-1",
+			Protocol:  ProtocolRDP,
+			FrameType: DesktopFrameTypeInput,
+			Input: &DesktopInputEvent{
+				Kind: DesktopInputKindKey,
+				Key:  string(make([]byte, DesktopMaxInputTokenSize+1)),
+			},
+		},
 	}
 
 	for _, frame := range tests {

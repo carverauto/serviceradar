@@ -47,6 +47,7 @@ const (
 	DesktopMaxFrameRate      = 60
 	DesktopMaxBitrateBPS     = 100_000_000
 	DesktopMaxFrameData      = 1_048_576
+	DesktopMaxInputTokenSize = 128
 
 	DesktopClipboardModeDisabled      = "disabled"
 	DesktopClipboardModeTextToRemote  = "text_to_remote"
@@ -476,6 +477,9 @@ func validateDesktopFrame(
 		if frame.Input == nil || !validDesktopInputKind(frame.Input.Kind) {
 			return fmt.Errorf("%w: invalid input event", ErrInvalidDesktopFrame)
 		}
+		if err := validateDesktopInputEvent(*frame.Input, policy); err != nil {
+			return err
+		}
 	case DesktopFrameTypeClipboard:
 		if !desktopClipboardFrameAllowed(redirection) {
 			return fmt.Errorf("%w: clipboard redirection disabled", ErrInvalidDesktopFrame)
@@ -496,6 +500,18 @@ func validateDesktopFrame(
 	case DesktopFrameTypeDisconnect:
 	default:
 		return fmt.Errorf("%w: unsupported frame type", ErrInvalidDesktopFrame)
+	}
+
+	return nil
+}
+
+func validateDesktopInputEvent(input DesktopInputEvent, policy DesktopScreenPolicy) error {
+	if len(input.Key) > DesktopMaxInputTokenSize || len(input.Button) > DesktopMaxInputTokenSize {
+		return fmt.Errorf("%w: input token exceeds maximum", ErrInvalidDesktopFrame)
+	}
+	if input.Kind == DesktopInputKindPointer &&
+		(input.X > policy.MaxWidth || input.Y > policy.MaxHeight) {
+		return fmt.Errorf("%w: pointer coordinates exceed policy", ErrInvalidDesktopFrame)
 	}
 
 	return nil
