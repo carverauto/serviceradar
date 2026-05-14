@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "adapters.go",
         "desktop.go",
+        "desktop_media.go",
         "enhanced_recorder.go",
         "enhanced_recording_ebpf.go",
         "enhanced_recording_ebpf_loss.go",
@@ -34,6 +35,7 @@ go_test(
     name = "remoteaccess_test",
     srcs = [
         "adapters_test.go",
+        "desktop_media_test.go",
         "desktop_test.go",
         "enhanced_recorder_test.go",
         "enhanced_recording_linux_test.go",

@@ -20,6 +20,7 @@
 - [ ] 3.1.1 Reuse the camera media relay architecture where practical: agent gRPC, gateway admission/session tracking, ERTS RPC forwarding, core-elx/web-ng ingress, chunk limits, heartbeat, and close semantics.
 - [ ] 3.1.2 Add desktop-specific bidirectional credits/acks, quality downgrade, pause/resume, and browser backpressure handling before advertising `remote_access.rdp`.
 - [ ] 3.1.3 Model desktop media flow control on a channel-window pattern: initial credit, max chunk size, window adjustment, EOF, close, and stale-frame coalescing/drop behavior.
+- [x] 3.1.4 Add the Go-side SRDP binary desktop media frame envelope and credit-window helper that matches the browser parser contract.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -43,4 +44,5 @@
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
+- [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, and credit-window exhaustion/adjustment.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
