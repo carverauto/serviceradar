@@ -628,3 +628,102 @@ func (g *GatewayClient) CloseRelaySession(ctx context.Context, req *proto.CloseR
 
 	return resp, nil
 }
+
+// OpenDesktopMediaSession reserves an authenticated desktop media ingress session.
+func (g *GatewayClient) OpenDesktopMediaSession(
+	ctx context.Context,
+	req *proto.OpenDesktopMediaSessionRequest,
+) (*proto.OpenDesktopMediaSessionResponse, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewDesktopMediaServiceClient(conn)
+	resp, err := client.OpenDesktopMediaSession(ctx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to open desktop media session at gateway")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to open desktop media session: %w", err)
+	}
+
+	return resp, nil
+}
+
+// StreamDesktopMedia opens the bidirectional desktop media stream for screen frames and flow-control acks.
+func (g *GatewayClient) StreamDesktopMedia(
+	ctx context.Context,
+) (grpc.BidiStreamingClient[proto.DesktopMediaClientMessage, proto.DesktopMediaServerMessage], error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewDesktopMediaServiceClient(conn)
+	stream, err := client.StreamDesktopMedia(ctx)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to create desktop media stream")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to create desktop media stream: %w", err)
+	}
+
+	return stream, nil
+}
+
+// HeartbeatDesktopMediaSession renews the lease for an active desktop media session.
+func (g *GatewayClient) HeartbeatDesktopMediaSession(
+	ctx context.Context,
+	req *proto.DesktopMediaHeartbeat,
+) (*proto.DesktopMediaHeartbeatAck, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewDesktopMediaServiceClient(conn)
+	resp, err := client.Heartbeat(ctx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to heartbeat desktop media session")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to heartbeat desktop media session: %w", err)
+	}
+
+	return resp, nil
+}
+
+// CloseDesktopMediaSession closes an active desktop media session at the gateway.
+func (g *GatewayClient) CloseDesktopMediaSession(
+	ctx context.Context,
+	req *proto.CloseDesktopMediaSessionRequest,
+) (*proto.CloseDesktopMediaSessionResponse, error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	client := proto.NewDesktopMediaServiceClient(conn)
+	resp, err := client.CloseDesktopMediaSession(ctx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to close desktop media session")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to close desktop media session: %w", err)
+	}
+
+	return resp, nil
+}
