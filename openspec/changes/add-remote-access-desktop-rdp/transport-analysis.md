@@ -62,6 +62,38 @@ Differences from camera media:
 
 The first implementation can model this as bidirectional gRPC. If the existing client/server stack makes bidirectional streaming awkward in one layer, use an upload stream plus a control/ack RPC, but the behavior must still be credit based.
 
+## Browser Delivery Golden Path
+Desktop screen payloads should reach the browser through a media-oriented binary path, not through JSON control frames or Arrow IPC record batches.
+
+Recommended browser path:
+
+```text
+web-ng desktop media endpoint
+  -> binary websocket or future WebRTC/QUIC media endpoint
+  -> browser worker / WASM helper
+  -> WebCodecs or WebGPU renderer
+```
+
+Reuse the camera relay browser transport ideas:
+
+- binary media frames with small headers and large payload bytes
+- capability negotiation for WebCodecs, WebGPU, Canvas2D, and fallback paths
+- decoder/render queue limits
+- frame dropping or dirty-region coalescing when the browser falls behind
+- visible status for target identity, recording, redirection, and stream quality
+
+Reuse the topology/God View data-plane ideas only where the data shape matches:
+
+- WebGPU texture updates make sense for dirty rectangles, tiles, cursor composition, watermarks, and overlays.
+- WASM makes sense for parsing frame envelopes, maintaining region/tile state, computing dirty masks, and producing GPU upload descriptors.
+- Roaring bitmaps may be useful for fixed-grid dirty tile masks or changed-region sets.
+- Apache Arrow IPC is useful for structured metadata, audit/stat snapshots, overlay datasets, or optional frame manifests. It should not wrap bulk screen pixels because the framebuffer is dense image/video data, not columnar analytical data.
+
+The renderer should support two payload families:
+
+- `video`: browser-decodable encoded frames, preferably WebCodecs first and Media Source Extensions as fallback.
+- `regions`: dirty rectangles or tile updates, preferably uploaded to WebGPU textures with Canvas2D fallback.
+
 ## Devolutions Gateway Findings
 The local Devolutions Gateway checkout is useful architecture reference for this RDP slice. Treat it as design input only until a separate exact-file license and dependency review approves any import.
 
@@ -135,7 +167,7 @@ Automatic deployment from core/web-ng should still deploy one agent artifact ver
 
 ## Open Questions Before Implementation
 - Whether to create a new `desktop_media.proto` service or extend the existing camera media service with a generic media session shape.
-- Whether the browser receives frame chunks through a Phoenix channel, a dedicated websocket, or another media endpoint.
-- Whether the first renderer should consume bitmap dirty rectangles, encoded images, or a video-like stream.
+- Whether the first browser media endpoint is a dedicated websocket or a WebRTC/QUIC-style endpoint.
+- Whether the first production renderer prioritizes encoded video frames or dirty rectangle/tile updates.
 - How much frame data, if any, may be retained for recording when screen recording is enabled.
 - Which controlled RDP target to use in CI: xrdp, a fixture server, or a Windows test host.

@@ -22,6 +22,8 @@
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
 - [ ] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
+- [ ] 4.2.1 Implement the browser media golden path: binary frame envelopes, WebCodecs video renderer, WebGPU dirty-region/tile renderer, Canvas2D fallback, WASM helper boundary, and explicit browser backpressure.
+- [ ] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [ ] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
 
@@ -32,3 +34,4 @@
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
+- [ ] 5.7 Add browser renderer tests for WebCodecs capability selection, WebGPU/Canvas fallback, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.

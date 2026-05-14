@@ -73,6 +73,42 @@ RDP needs a separate graphical renderer path:
 
 Dependency choice is an implementation task. Candidate RDP libraries or renderers must pass license, maintenance, platform, security, and browser compatibility review before adoption.
 
+## Browser Delivery And Rendering
+The browser path should reuse the ServiceRadar media/data-plane lessons without forcing RDP pixels into the topology data model.
+
+Golden path:
+
+```text
+web-ng desktop session endpoint
+  -> browser desktop websocket or media endpoint
+  -> binary desktop media frame envelope
+  -> browser worker / WASM helper for parsing, region state, and backpressure
+  -> WebCodecs video surface or WebGPU dirty-region renderer
+```
+
+Use the camera relay browser path as the closest transport precedent:
+
+- binary websocket frames or a future WebRTC/QUIC media endpoint for screen payloads
+- small fixed binary headers before large payload bytes
+- browser capability negotiation
+- decoder queue/backpressure checks
+- stale-frame drop/coalescing rather than unbounded buffering
+- fallback rendering paths when the preferred browser API is unavailable
+
+The first renderer should support two payload families:
+
+- Encoded video frames for paths where the adapter can produce H264, AV1, VP9, or another browser-decodable codec. Prefer WebCodecs with low-latency configuration and use Media Source Extensions only as a fallback.
+- Dirty rectangle or tile updates for administrative desktop workloads where changed regions are small. Prefer WebGPU texture updates when available, with a Canvas2D fallback for early compatibility.
+
+Use the God View/topology zero-copy pattern selectively:
+
+- WASM is appropriate for parsing binary envelopes, maintaining region/tile state, computing masks, applying policy-safe transforms, and preparing GPU upload descriptors.
+- WebGPU is appropriate for applying dirty rectangles or tiles directly into a desktop texture and compositing cursors, watermarks, and recording indicators.
+- Roaring bitmaps may be used for dirty tile sets or changed-region masks when a fixed tile grid is selected.
+- Apache Arrow IPC should be reserved for structured metadata, audit/stat snapshots, overlay data, or optional frame manifests. It is not the primary screen-pixel transport because RDP screen payloads are dense image/video data rather than columnar analytical rows.
+
+The browser renderer must not receive target credentials, brokered secrets, RDP files, or connection details that would let it bypass ServiceRadar routing. It receives only a session-bound media token, display policy, target label/identity, visible recording/redirection state, and renderable frame payloads.
+
 ## Transport Strategy
 The existing agent control stream is appropriate for session lifecycle and low-rate control events. It is not the production transport for 1080p or high-frame-rate graphical updates.
 
@@ -151,6 +187,8 @@ Frame chunks should carry:
 - payload bytes
 - keyframe/full-frame marker when applicable
 - byte count and timestamp
+
+Browser media frames should use a compact binary envelope rather than JSON or Arrow IPC for screen payloads. The envelope should identify payload family (`video`, `dirty_rect`, `tile`, `cursor`, or `metadata`), codec/encoding, display dimensions, dirty region or tile metadata, sequence, keyframe/full-frame state, and timestamps. Payload bytes remain separate from the structured header so browser workers can transfer buffers without unnecessary copies.
 
 Acknowledgements should carry:
 

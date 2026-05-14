@@ -26,6 +26,33 @@ Screen update payloads are media, not terminal bytes. They need a dedicated stre
 
 The dedicated stream should follow the same deployment shape as the existing camera media relay path: agent gRPC to agent-gateway, gateway session tracking/admission, ERTS RPC forwarding into core-elx/web-ng, and browser delivery from the control plane. The schema should be desktop-specific, or a carefully generalized media relay schema, because camera source/profile fields do not map cleanly to RDP sessions.
 
+## Browser Media Frame Envelope
+Production browser screen payloads should use a binary envelope, not JSON and not Arrow IPC for the pixel stream. The envelope should be compact enough for high-frequency delivery and stable enough for WebSocket, WebRTC, or future QUIC delivery.
+
+Minimum browser media envelope fields:
+
+- `magic` and `version`
+- `session_id` or compact session binding ID
+- `media_session_id`
+- `sequence`
+- `payload_family`: `video`, `dirty_rect`, `tile`, `cursor`, or `metadata`
+- `encoding`: codec or pixel/tile encoding
+- `width` and `height`
+- dirty rectangle or tile metadata length
+- flags for keyframe, full frame, cursor update, end-of-stream, and discontinuity
+- presentation timestamp
+- payload length
+- payload bytes
+
+Renderer expectations:
+
+- Encoded video payloads should prefer WebCodecs and use Media Source Extensions only as a fallback.
+- Dirty rectangle or tile payloads should prefer WebGPU texture updates and use Canvas2D as an early compatibility fallback.
+- Browser workers or WASM helpers may parse envelopes, maintain dirty-region state, compute tile masks, and prepare GPU upload descriptors.
+- Roaring bitmaps may represent dirty tile masks when a fixed tile grid is used.
+- Apache Arrow IPC may carry structured metadata, frame statistics, audit overlays, or optional frame manifests. It must not be the default screen-pixel transport.
+- The browser must drop or coalesce stale non-keyframe updates when render queues exceed policy, then send backpressure/quality acknowledgements upstream.
+
 ## Lifecycle
 1. web-ng requests a session for a registered RDP target.
 2. core resolves RBAC, approval, route, target policy, credential mode, and recording policy.
