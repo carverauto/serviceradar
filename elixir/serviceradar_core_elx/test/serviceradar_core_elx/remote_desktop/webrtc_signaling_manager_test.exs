@@ -71,6 +71,12 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
       :ok
     end
 
+    def apply_browser_ack(session_id, viewer_session_id, ack, opts) do
+      send(test_pid(), {:apply_browser_ack, session_id, viewer_session_id, ack, opts})
+
+      Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_media_ack_result, {:ok, %{}})
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
     end
@@ -78,12 +84,14 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
 
   setup do
     previous_fetch_result = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_fetch_result)
+    previous_media_ack_result = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_media_ack_result)
     previous_test_pid = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
 
     Application.put_env(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid, self())
 
     on_exit(fn ->
       restore_env(:remote_desktop_webrtc_fetch_result, previous_fetch_result)
+      restore_env(:remote_desktop_webrtc_media_ack_result, previous_media_ack_result)
       restore_env(:remote_desktop_webrtc_test_pid, previous_test_pid)
     end)
 
@@ -132,6 +140,78 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
 
     assert {:ok, %{signaling_state: "candidate_buffered"}} =
              WebRTCSignalingManager.add_ice_candidate(session_id, viewer_session_id, candidate, server: server_name)
+  end
+
+  test "routes browser media acknowledgements through the configured media manager" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+    media_ack_result = {:ok, %{pending_credit_bytes: 4_096, last_accepted_sequence: 7}}
+
+    Application.put_env(:serviceradar_core_elx, :remote_desktop_webrtc_media_ack_result, media_ack_result)
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name, session_tracker: SessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name)
+
+    ack = %{"media_session_id" => "media-1", "last_accepted_seq" => 7, "credit_bytes" => 4_096}
+
+    assert {:ok,
+            %{
+              viewer_session_id: ^viewer_session_id,
+              media_ack_state: %{pending_credit_bytes: 4_096, last_accepted_sequence: 7}
+            }} =
+             WebRTCSignalingManager.apply_media_ack(session_id, viewer_session_id, ack, server: server_name)
+
+    assert_receive {:apply_browser_ack, ^session_id, ^viewer_session_id, ^ack, opts}
+    refute Keyword.has_key?(opts, :server)
+  end
+
+  test "propagates browser media acknowledgement rejections" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    Application.put_env(:serviceradar_core_elx, :remote_desktop_webrtc_media_ack_result, {:error, :replayed_ack})
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name, session_tracker: SessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name)
+
+    assert {:error, :replayed_ack} =
+             WebRTCSignalingManager.apply_media_ack(
+               session_id,
+               viewer_session_id,
+               %{"media_session_id" => "media-1", "last_accepted_seq" => 3},
+               server: server_name
+             )
+  end
+
+  test "rejects browser media acknowledgements for unknown viewers" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name, session_tracker: SessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name)
+
+    assert {:error, :viewer_session_not_found} =
+             WebRTCSignalingManager.apply_media_ack(
+               session_id,
+               "missing-#{viewer_session_id}",
+               %{"media_session_id" => "media-1", "last_accepted_seq" => 1},
+               server: server_name
+             )
   end
 
   test "expires idle viewer signaling sessions" do
