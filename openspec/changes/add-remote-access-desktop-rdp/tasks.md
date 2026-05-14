@@ -39,6 +39,7 @@
 - [x] 3.1.19 Stop normal Go desktop media sends after a close ack while still allowing EOF delivery.
 - [x] 3.1.20 Send a final browser desktop media close acknowledgement before closing WebRTC DataChannels when a media binding is known.
 - [x] 3.1.21 Cap desktop media close-reason strings on browser emission and Go ack validation.
+- [x] 3.1.22 Enforce desktop media close-reason caps by UTF-8 byte length and store trimmed Go close reasons.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -73,6 +74,7 @@
 - [x] 5.6.9 Add focused Go tests proving unsupported desktop media ack quality levels are rejected.
 - [x] 5.6.10 Add focused Go tests proving close acks stop normal media sends without blocking EOF.
 - [x] 5.6.11 Add focused Go tests proving oversized desktop media close reasons are rejected.
+- [x] 5.6.12 Add focused Go tests proving close ack reasons are trimmed before being stored in sender state.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
@@ -83,3 +85,4 @@
 - [x] 5.7.7 Add browser WebRTC client tests for pause/resume quality hints under renderer backpressure.
 - [x] 5.7.8 Add browser WebRTC client tests for final close acknowledgements with pending and already-flushed media credit.
 - [x] 5.7.9 Add browser WebRTC client tests proving close acknowledgement reasons are normalized and capped.
+- [x] 5.7.10 Add browser WebRTC client tests proving close acknowledgement reasons are capped by UTF-8 byte length.

@@ -7,6 +7,7 @@ export const DESKTOP_MEDIA_QUALITY_LOW = "low"
 export const DESKTOP_MEDIA_QUALITY_AUTO = "auto"
 export const DESKTOP_MEDIA_MAX_CLOSE_REASON = 256
 const DEFAULT_DESKTOP_MEDIA_CLOSE_REASON = "viewer closed remote desktop WebRTC session"
+const textEncoder = new TextEncoder()
 
 function csrfHeaders(documentRef = globalThis.document) {
   const csrfToken = documentRef?.querySelector?.("meta[name='csrf-token']")?.getAttribute("content")
@@ -489,10 +490,26 @@ function normalizeDesktopMediaCloseReason(reason) {
   const value = typeof reason === "string" ? reason : DEFAULT_DESKTOP_MEDIA_CLOSE_REASON
   const trimmed = value.trim()
   const normalized = trimmed.length > 0 ? trimmed : DEFAULT_DESKTOP_MEDIA_CLOSE_REASON
+  const encoded = textEncoder.encode(normalized)
 
-  return normalized.length > DESKTOP_MEDIA_MAX_CLOSE_REASON
-    ? normalized.slice(0, DESKTOP_MEDIA_MAX_CLOSE_REASON)
-    : normalized
+  if (encoded.byteLength <= DESKTOP_MEDIA_MAX_CLOSE_REASON) {
+    return normalized
+  }
+
+  let truncated = ""
+  let usedBytes = 0
+
+  for (const char of normalized) {
+    const charBytes = textEncoder.encode(char).byteLength
+    if (usedBytes + charBytes > DESKTOP_MEDIA_MAX_CLOSE_REASON) {
+      break
+    }
+
+    truncated += char
+    usedBytes += charBytes
+  }
+
+  return truncated
 }
 
 function applyMediaAckBackpressureSignal(ack, signal) {

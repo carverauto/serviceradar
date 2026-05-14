@@ -265,8 +265,8 @@ func (w *DesktopMediaCreditWindow) applyAckControl(ack DesktopMediaAck) {
 	if ack.QualityLevel != "" {
 		w.qualityLevel = ack.QualityLevel
 	}
-	if ack.CloseReason != "" {
-		w.closeReason = ack.CloseReason
+	if closeReason := strings.TrimSpace(ack.CloseReason); closeReason != "" {
+		w.closeReason = closeReason
 	}
 }
 

@@ -773,6 +773,65 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(deleteBody.reason).toBe("x".repeat(DESKTOP_MEDIA_MAX_CLOSE_REASON))
   })
 
+  it("caps final media close acknowledgement reasons by UTF-8 bytes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-close-wide",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-close-wide/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckFrameInterval: 1,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-close-wide",
+        mediaSessionId: "media-close-wide",
+        sequence: 33,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1]),
+      })
+    )
+
+    client.close("é".repeat(DESKTOP_MEDIA_MAX_CLOSE_REASON))
+    await Promise.resolve()
+
+    const closeAck = JSON.parse(controlChannel.sent[1])
+
+    expect(new TextEncoder().encode(closeAck.close_reason).byteLength).toBeLessThanOrEqual(
+      DESKTOP_MEDIA_MAX_CLOSE_REASON
+    )
+    expect(closeAck.close_reason).toBe("é".repeat(DESKTOP_MEDIA_MAX_CLOSE_REASON / 2))
+  })
+
   it("does not drop keyframes or metadata frames when queues are saturated", async () => {
     const fetchMock = vi
       .fn()
