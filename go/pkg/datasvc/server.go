@@ -24,7 +24,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -460,7 +459,7 @@ func (s *Server) ListObjects(ctx context.Context, req *proto.ListObjectsRequest)
 		PageToken: req.GetPageToken(),
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "invalid page token") {
+		if errors.Is(err, errInvalidPageToken) {
 			return nil, status.Error(codes.InvalidArgument, "invalid page token")
 		}
 
