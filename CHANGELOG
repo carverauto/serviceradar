@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.55
+
+Manual device creation reliability, telemetry export hardening, MTR hostname enrichment, and safer agent control-session handling for clustered deployments.
+
+## Whats New
+
+**1.2.55**
+- Fixed hostname-only manual device creation by resolving hostnames at create time, requiring an IP address when DNS resolution fails, and moving the LiveView flow behind a reusable creator module.
+- Fixed OTLP log export for complex metadata so map, list, boolean, integer, float, and binary values are converted safely instead of crashing or being dropped incorrectly.
+- Added reverse-DNS enrichment for MTR hops before snapshots are persisted, reusing the MTR DNS cache path and covering the behavior with focused tests.
+- Pruned stale agent control-session registry entries when remote PIDs are no longer alive, preventing dependency-triggered config pushes from crashing async tasks after gateway restarts or cluster churn.
+- Hardened CI for the non-root Forgejo runner image by removing sudo assumptions, setting up Rust for Elixir quality checks, and fixing existing datasvc and Elixir quality failures.
+
 # ServiceRadar v1.2.12
 
 First-party Wasm release signing, Harbor-published upload-signature sidecars, and the final release-path hardening needed for immutable OCI and plugin publication.
