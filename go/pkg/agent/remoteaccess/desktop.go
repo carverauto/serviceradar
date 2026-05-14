@@ -307,14 +307,34 @@ func NormalizeDesktopCredentialGrant(
 	if grant.Mode != target.Credential.Mode {
 		return grant, fmt.Errorf("%w: credential grant mode does not match target policy", ErrInvalidDesktopTarget)
 	}
-	if grant.TargetID != "" && grant.TargetID != target.TargetID {
+	if grant.TargetID == "" {
+		if grant.Mode == DesktopCredentialModeBrokeredSecret {
+			return grant, fmt.Errorf("%w: brokered credential grant requires target binding", ErrInvalidDesktopTarget)
+		}
+		grant.TargetID = target.TargetID
+	}
+	if grant.TargetID != target.TargetID {
 		return grant, fmt.Errorf("%w: credential grant target mismatch", ErrInvalidDesktopTarget)
 	}
-	if grant.Mode == DesktopCredentialModeBrokeredSecret && grant.CredentialSecretRef == "" {
-		return grant, fmt.Errorf("%w: brokered credential grant requires secret reference", ErrInvalidDesktopTarget)
-	}
-	if grant.Mode == DesktopCredentialModeMemoryUser && grant.Username == "" {
-		return grant, fmt.Errorf("%w: memory user credential grant requires username", ErrInvalidDesktopTarget)
+
+	switch grant.Mode {
+	case DesktopCredentialModeBrokeredSecret:
+		if grant.CredentialSecretRef == "" {
+			return grant, fmt.Errorf("%w: brokered credential grant requires secret reference", ErrInvalidDesktopTarget)
+		}
+		if grant.CredentialSecretRef != target.Credential.CredentialSecretRef {
+			return grant, fmt.Errorf("%w: brokered credential grant secret mismatch", ErrInvalidDesktopTarget)
+		}
+		if grant.Password != "" {
+			return grant, fmt.Errorf("%w: brokered credential grant must not include password", ErrInvalidDesktopTarget)
+		}
+		if grant.ActorID == "" || grant.SessionID == "" || grant.RouteID == "" || grant.ExpiresUnix <= 0 {
+			return grant, fmt.Errorf("%w: brokered credential grant requires actor, session, route, and ttl binding", ErrInvalidDesktopTarget)
+		}
+	case DesktopCredentialModeMemoryUser:
+		if grant.Username == "" || grant.Password == "" {
+			return grant, fmt.Errorf("%w: memory user credential grant requires username and password", ErrInvalidDesktopTarget)
+		}
 	}
 
 	return grant, nil

@@ -44,6 +44,7 @@
 - [x] 3.1.24 Enforce Go desktop media max chunk limits against metadata plus payload credit cost, not payload bytes alone.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
+- [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 
 ## 4. Operator And User Experience
@@ -61,6 +62,7 @@
 - [x] 5.1.1 Add RBAC catalog tests for RDP open permission and Phoenix controller tests for desktop WebRTC signaling gates.
 - [x] 5.1.2 Add core-elx tests for desktop WebRTC signaling lifecycle, missing sessions, unsupported protocols, answers, candidates, and expiry.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
+- [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
