@@ -3663,6 +3663,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
+              <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
+
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.camera_streams_section
@@ -3799,7 +3801,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               interface_metrics_layout={@interface_metrics_layout}
             />
           </div>
-          
+
     <!-- Flows Tab Content -->
           <div :if={@active_tab == "flows" and @has_flows}>
             <.flows_tab_content
@@ -3838,7 +3840,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               limit={@logs_limit}
             />
           </div>
-          
+
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
@@ -3850,7 +3852,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
             </div>
           </div>
-          
+
     <!-- MTR Diagnostics Tab Content -->
           <div :if={@active_tab == "mtr"}>
             <% mtr_dashboard = mtr_trace_dashboard(@mtr_traces, @mtr_pending_jobs, @mtr_trends) %>
@@ -4456,6 +4458,228 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> to_string()
     |> String.trim()
     |> String.downcase()
+  end
+
+  # ---------------------------------------------------------------------------
+  # Metadata Summary Section
+  # ---------------------------------------------------------------------------
+
+  attr(:device_row, :map, required: true)
+
+  def metadata_summary_section(assigns) do
+    groups = metadata_summary_groups(assigns.device_row)
+    additional_keys = additional_metadata_keys(assigns.device_row, groups)
+
+    assigns =
+      assigns
+      |> assign(:metadata_groups, groups)
+      |> assign(:additional_metadata_keys, additional_keys)
+      |> assign(:has_metadata_summary, groups != [] or additional_keys != [])
+
+    ~H"""
+    <div :if={@has_metadata_summary} class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-circle-stack" class="size-4 text-secondary" />
+          <span class="text-sm font-semibold">Metadata</span>
+        </div>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div
+          :if={@metadata_groups != []}
+          class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
+        >
+          <div
+            :for={group <- @metadata_groups}
+            class="min-w-0 border-l border-base-200 pl-3"
+          >
+            <div class="mb-2 flex items-center gap-2">
+              <.icon name={group.icon} class="size-4 text-base-content/60" />
+              <span class="text-xs font-semibold text-base-content/60">
+                {group.title}
+              </span>
+            </div>
+
+            <div class="space-y-1.5 text-sm">
+              <.metadata_kv
+                :for={item <- group.items}
+                label={item.label}
+                value={item.value}
+                mono={item.mono}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div :if={@additional_metadata_keys != []} class="space-y-2">
+          <div class="text-xs font-semibold text-base-content/50">
+            Additional metadata keys
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              :for={key <- Enum.take(@additional_metadata_keys, 24)}
+              class="badge badge-ghost badge-sm font-mono"
+              title={key}
+            >
+              {key}
+            </span>
+            <span :if={length(@additional_metadata_keys) > 24} class="badge badge-ghost badge-sm">
+              +{length(@additional_metadata_keys) - 24} more
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:mono, :boolean, default: false)
+
+  defp metadata_kv(assigns) do
+    ~H"""
+    <div class="flex items-start justify-between gap-3">
+      <span class="shrink-0 text-xs text-base-content/50">{@label}</span>
+      <span
+        class={[
+          "min-w-0 text-right text-sm font-medium text-base-content break-words",
+          @mono && "font-mono text-xs"
+        ]}
+        title={@value}
+      >
+        {@value}
+      </span>
+    </div>
+    """
+  end
+
+  defp metadata_summary_groups(row) do
+    metadata = row_metadata(row)
+
+    Enum.reject(
+      [
+        metadata_group("Integration", "hero-arrow-path-rounded-square", [
+          metadata_item("Type", metadata_lookup(metadata, "integration_type")),
+          metadata_item("Query label", metadata_lookup(metadata, "query_label")),
+          metadata_item("Sync service", metadata_lookup(metadata, "sync_service_id"), mono: true),
+          metadata_item("Sync run", metadata_lookup(metadata, "sync_run_id"), mono: true),
+          metadata_item("Total devices", metadata_lookup(metadata, "sync_total_devices"))
+        ]),
+        metadata_group("Armis", "hero-shield-check", [
+          metadata_item("Device ID", metadata_lookup(metadata, "armis_device_id"), mono: true),
+          metadata_item("Type", metadata_lookup(metadata, "armis_type")),
+          metadata_item("Category", metadata_lookup(metadata, "armis_category")),
+          metadata_item("Boundaries", metadata_lookup(metadata, "armis_boundaries")),
+          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
+          metadata_item("Tags", metadata_lookup(metadata, "armis_tags"))
+        ]),
+        metadata_group("Inventory", "hero-identification", [
+          metadata_item("Manufacturer", metadata_lookup(metadata, "manufacturer")),
+          metadata_item("Model", metadata_lookup(metadata, "model")),
+          metadata_item("OS", metadata_lookup(metadata, "operating_system")),
+          metadata_item("Identity source", metadata_lookup(metadata, "identity_source")),
+          metadata_item("Identity state", metadata_lookup(metadata, "identity_state"))
+        ]),
+        metadata_group("Sweep", "hero-signal", [
+          metadata_item("Available count", metadata_lookup(metadata, "scan_available_count")),
+          metadata_item("Unavailable count", metadata_lookup(metadata, "scan_unavailable_count")),
+          metadata_item("Availability", metadata_lookup(metadata, "scan_availability_percent"))
+        ])
+      ],
+      &(&1.items == [])
+    )
+  end
+
+  defp metadata_group(title, icon, items) do
+    %{title: title, icon: icon, items: Enum.reject(items, &is_nil/1)}
+  end
+
+  defp metadata_item(label, value, opts \\ []) do
+    if metadata_present?(value) do
+      %{label: label, value: format_metadata_value(value), mono: Keyword.get(opts, :mono, false)}
+    end
+  end
+
+  defp metadata_lookup(metadata, key) when is_map(metadata) do
+    Map.get(metadata, key)
+  end
+
+  defp metadata_present?(nil), do: false
+  defp metadata_present?(""), do: false
+  defp metadata_present?(value) when is_list(value), do: value != []
+  defp metadata_present?(value) when is_map(value), do: map_size(value) > 0
+  defp metadata_present?(_value), do: true
+
+  defp format_metadata_value(nil), do: "—"
+  defp format_metadata_value(""), do: "—"
+  defp format_metadata_value(true), do: "Yes"
+  defp format_metadata_value(false), do: "No"
+
+  defp format_metadata_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.slice(0, 160)
+  end
+
+  defp format_metadata_value(value) when is_number(value), do: to_string(value)
+
+  defp format_metadata_value(value) when is_list(value) do
+    values =
+      value
+      |> Enum.map(&format_metadata_value/1)
+      |> Enum.reject(&(&1 in ["", "—"]))
+
+    shown = Enum.take(values, 4)
+    suffix = if length(values) > 4, do: " +#{length(values) - 4}", else: ""
+
+    Enum.join(shown, ", ") <> suffix
+  end
+
+  defp format_metadata_value(value) when is_map(value), do: "#{map_size(value)} fields"
+  defp format_metadata_value(value), do: value |> to_string() |> String.slice(0, 160)
+
+  defp additional_metadata_keys(row, groups) do
+    shown_keys =
+      groups
+      |> metadata_summary_keys()
+      |> MapSet.new()
+
+    row
+    |> row_metadata()
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&MapSet.member?(shown_keys, &1))
+    |> Enum.reject(&String.starts_with?(&1, "scan_available_ip_"))
+    |> Enum.reject(&String.starts_with?(&1, "scan_unavailable_ip_"))
+    |> Enum.sort()
+  end
+
+  defp metadata_summary_keys(_groups) do
+    ~w(
+      armis_boundaries
+      armis_category
+      armis_device_id
+      armis_risk_level
+      armis_tags
+      armis_type
+      identity_source
+      identity_state
+      integration_type
+      manufacturer
+      model
+      operating_system
+      query_label
+      scan_availability_percent
+      scan_available_count
+      scan_available_ips
+      scan_unavailable_count
+      scan_unavailable_ips
+      sync_run_id
+      sync_service_id
+      sync_total_devices
+    )
   end
 
   # ---------------------------------------------------------------------------

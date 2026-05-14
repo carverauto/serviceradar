@@ -38,6 +38,8 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'agent-release-management', label: 'Agent Release Management'},
         {type: 'doc', id: 'falco-integration', label: 'Falco Integration'},
         {type: 'doc', id: 'trivy-integration', label: 'Trivy Integration'},
+        {type: 'doc', id: 'armis', label: 'Armis Integration'},
+        {type: 'doc', id: 'netbox', label: 'NetBox Integration'},
         {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugins'},
         {type: 'doc', id: 'ansible', label: 'Ansible Integration'},
         {type: 'doc', id: 'remote-access', label: 'Remote Access'},
