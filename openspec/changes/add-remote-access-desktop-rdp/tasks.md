@@ -24,6 +24,7 @@
 - [x] 3.1.5 Add browser-side desktop media acknowledgements over the WebRTC control DataChannel with session/media binding and fresh credit.
 - [x] 3.1.6 Add the Go-side browser control-message decoder for desktop media acknowledgements.
 - [x] 3.1.7 Add production-oriented low-copy desktop media helpers for reusable headers, vectored writes, and no-copy frame views.
+- [x] 3.1.8 Coalesce browser desktop media acknowledgements and return actual consumed byte credit instead of fixed per-frame credit.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
@@ -53,3 +54,4 @@
 - [x] 5.6.4 Add Go desktop media hot-path benchmarks for contiguous encoding, split-frame/static-field encoding, copying decode, and no-copy decode.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
+- [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

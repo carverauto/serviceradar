@@ -214,6 +214,7 @@ describe("RemoteDesktopWebRTCClient", () => {
       documentRef: documentStub(),
       peerConnectionFactory: () => peer,
       mediaAckCreditBytes: 65_536,
+      mediaAckFrameInterval: 1,
       onAck,
     })
 
@@ -240,15 +241,86 @@ describe("RemoteDesktopWebRTCClient", () => {
       session_binding_id: "session-ack",
       media_session_id: "media-ack",
       last_accepted_seq: 10,
-      credit_bytes: 65_536,
+      credit_bytes: 3,
     })
     expect(onAck).toHaveBeenCalledWith({
       type: DESKTOP_MEDIA_ACK_MESSAGE,
       session_binding_id: "session-ack",
       media_session_id: "media-ack",
       last_accepted_seq: 10,
-      credit_bytes: 65_536,
+      credit_bytes: 3,
     })
+  })
+
+  it("coalesces media acknowledgements with consumed byte credit", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-coalesce",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onAck = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-coalesce/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckCreditBytes: 65_536,
+      mediaAckFrameInterval: 2,
+      onAck,
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-coalesce",
+        mediaSessionId: "media-coalesce",
+        sequence: 10,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+
+    expect(controlChannel.sent).toHaveLength(0)
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-coalesce",
+        mediaSessionId: "media-coalesce",
+        sequence: 11,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([4, 5, 6, 7]),
+      })
+    )
+
+    expect(controlChannel.sent).toHaveLength(1)
+    expect(JSON.parse(controlChannel.sent[0])).toEqual({
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
+      session_binding_id: "session-coalesce",
+      media_session_id: "media-coalesce",
+      last_accepted_seq: 11,
+      credit_bytes: 7,
+    })
+    expect(onAck).toHaveBeenCalledTimes(1)
   })
 
   it("sends control messages only after the control channel opens", async () => {

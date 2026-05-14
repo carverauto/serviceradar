@@ -47,6 +47,8 @@ export class RemoteDesktopWebRTCClient {
     onClose = () => {},
     onError = () => {},
     mediaAckCreditBytes = 262_144,
+    mediaAckFrameInterval = 4,
+    mediaAckMaxDelayMs = 25,
   } = {}) {
     this.signalingPath = signalingPath
     this.iceServers = iceServers
@@ -60,11 +62,15 @@ export class RemoteDesktopWebRTCClient {
     this.onOpen = onOpen
     this.onClose = onClose
     this.onError = onError
-    this.mediaAckCreditBytes = mediaAckCreditBytes
+    this.mediaAckCreditBytes = Math.max(1, mediaAckCreditBytes)
+    this.mediaAckFrameInterval = Math.max(1, mediaAckFrameInterval)
+    this.mediaAckMaxDelayMs = Math.max(0, mediaAckMaxDelayMs)
     this.peerConnection = null
     this.viewerSessionId = null
     this.channels = new Map()
     this.closed = false
+    this.pendingMediaAck = null
+    this.mediaAckTimer = null
   }
 
   async connect() {
@@ -143,6 +149,8 @@ export class RemoteDesktopWebRTCClient {
       channel.close?.()
     }
 
+    this.clearMediaAckTimer()
+    this.pendingMediaAck = null
     this.channels.clear()
     this.peerConnection?.close?.()
     this.peerConnection = null
@@ -193,7 +201,12 @@ export class RemoteDesktopWebRTCClient {
 
     channel.binaryType = "arraybuffer"
     this.channels.set(label, channel)
-    channel.addEventListener("open", () => this.onOpen(label))
+    channel.addEventListener("open", () => {
+      this.onOpen(label)
+      if (label === DESKTOP_CONTROL_CHANNEL) {
+        this.flushPendingMediaAck()
+      }
+    })
     channel.addEventListener("close", () => this.onClose(label))
     channel.addEventListener("error", (event) => this.onError(event?.error || event))
     channel.addEventListener("message", (event) => this.handleChannelMessage(label, event.data))
@@ -205,7 +218,7 @@ export class RemoteDesktopWebRTCClient {
       const metadata = parseDesktopMediaMetadata(frame)
 
       this.onFrame(frame, metadata)
-      this.sendMediaAck(frame)
+      this.queueMediaAck(frame)
 
       return
     }
@@ -217,13 +230,73 @@ export class RemoteDesktopWebRTCClient {
     }
   }
 
+  queueMediaAck(frame) {
+    const creditBytes = desktopMediaFrameCreditBytes(frame)
+
+    if (
+      this.pendingMediaAck &&
+      (this.pendingMediaAck.session_binding_id !== frame.sessionBindingId ||
+        this.pendingMediaAck.media_session_id !== frame.mediaSessionId)
+    ) {
+      this.flushPendingMediaAck()
+    }
+
+    if (!this.pendingMediaAck) {
+      this.pendingMediaAck = {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: frame.sessionBindingId,
+        media_session_id: frame.mediaSessionId,
+        last_accepted_seq: frame.sequence,
+        credit_bytes: 0,
+        frame_count: 0,
+      }
+    }
+
+    this.pendingMediaAck.last_accepted_seq = frame.sequence
+    this.pendingMediaAck.credit_bytes += creditBytes
+    this.pendingMediaAck.frame_count += 1
+
+    if (frame.endOfStream) {
+      this.pendingMediaAck.close_reason = "desktop media end of stream"
+      return this.flushPendingMediaAck()
+    }
+
+    if (
+      this.pendingMediaAck.credit_bytes >= this.mediaAckCreditBytes ||
+      this.pendingMediaAck.frame_count >= this.mediaAckFrameInterval
+    ) {
+      return this.flushPendingMediaAck()
+    }
+
+    this.scheduleMediaAckFlush()
+    return false
+  }
+
+  flushPendingMediaAck() {
+    if (!this.pendingMediaAck) {
+      return false
+    }
+
+    this.clearMediaAckTimer()
+    const {frame_count: _frameCount, ...ack} = this.pendingMediaAck
+
+    if (!this.sendControl(ack)) {
+      this.scheduleMediaAckFlush()
+      return false
+    }
+
+    this.pendingMediaAck = null
+    this.onAck(ack)
+    return true
+  }
+
   sendMediaAck(frame) {
     const ack = {
       type: DESKTOP_MEDIA_ACK_MESSAGE,
       session_binding_id: frame.sessionBindingId,
       media_session_id: frame.mediaSessionId,
       last_accepted_seq: frame.sequence,
-      credit_bytes: this.mediaAckCreditBytes,
+      credit_bytes: desktopMediaFrameCreditBytes(frame),
     }
 
     if (frame.endOfStream) {
@@ -238,6 +311,30 @@ export class RemoteDesktopWebRTCClient {
     return false
   }
 
+  scheduleMediaAckFlush() {
+    if (
+      this.mediaAckTimer ||
+      this.mediaAckMaxDelayMs <= 0 ||
+      !channelReady(this.channels.get(DESKTOP_CONTROL_CHANNEL))
+    ) {
+      return
+    }
+
+    this.mediaAckTimer = globalThis.setTimeout(() => {
+      this.mediaAckTimer = null
+      this.flushPendingMediaAck()
+    }, this.mediaAckMaxDelayMs)
+  }
+
+  clearMediaAckTimer() {
+    if (!this.mediaAckTimer) {
+      return
+    }
+
+    globalThis.clearTimeout(this.mediaAckTimer)
+    this.mediaAckTimer = null
+  }
+
   fetchJson(url, options = {}) {
     return this.fetchImpl(url, {
       credentials: "same-origin",
@@ -245,4 +342,12 @@ export class RemoteDesktopWebRTCClient {
       ...options,
     }).then(jsonResponse)
   }
+}
+
+function desktopMediaFrameCreditBytes(frame) {
+  return byteLength(frame?.metadata) + byteLength(frame?.payload)
+}
+
+function byteLength(value) {
+  return value?.byteLength || 0
 }
