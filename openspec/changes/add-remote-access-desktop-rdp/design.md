@@ -6,7 +6,8 @@ browser graphical renderer
   -> web-ng desktop access endpoint
   -> core policy/session/recording manager
   -> agent-gateway selected route
-  -> existing agent-initiated control stream
+  -> existing agent-initiated control stream for lifecycle/control
+  -> dedicated desktop media stream for high-volume screen updates
   -> agent desktop/RDP adapter
   -> registered private RDP target
 ```
@@ -66,11 +67,102 @@ RDP needs a separate graphical renderer path:
 
 - browser renderer consumes typed frame/update messages rather than terminal byte streams
 - control frames handle resize, keyboard, pointer, focus, clipboard, stream quality, and close events
-- agent frames enforce max frame rate, max bitrate, max resolution, and backpressure
+- agent and gateway media frames enforce max frame rate, max bitrate, max resolution, credit windows, and backpressure
 - browser UI makes target identity, recording status, redirection state, and approval state visible
 - renderer implementation must be isolated from terminal code so future desktop protocols do not leak terminal assumptions
 
 Dependency choice is an implementation task. Candidate RDP libraries or renderers must pass license, maintenance, platform, security, and browser compatibility review before adoption.
+
+## Transport Strategy
+The existing agent control stream is appropriate for session lifecycle and low-rate control events. It is not the production transport for 1080p or high-frame-rate graphical updates.
+
+Use the control stream for:
+
+- `open`, `ready`, `close`, `error`, heartbeat, and outcome frames
+- target policy snapshot delivery
+- credential grant delivery
+- keyboard, pointer, resize, focus, clipboard-policy decisions, and quality-control messages
+- revocation, approval changes, and forced termination
+
+Use a dedicated desktop media stream for:
+
+- screen update chunks
+- cursor bitmap updates
+- frame metadata and timing
+- stream byte counters
+- browser/gateway backpressure acknowledgements
+
+The preferred implementation path is to reuse the shape of the existing camera media relay pipeline instead of creating an unrelated transport stack:
+
+```text
+agent desktop media gRPC
+  -> agent-gateway admission/session tracker
+  -> ERTS RPC forwarder
+  -> core-elx/web-ng ingress
+  -> browser renderer channel
+```
+
+This should be a desktop-specific media service or a carefully generalized media service, not an overload of camera source/profile semantics. Reuse the proven pieces: edge-facing gRPC admission, gateway session tracking, chunk limits, heartbeat/lease handling, ERTS forwarding into core, and explicit close semantics.
+
+Desktop differs from camera media in two important ways:
+
+- camera media is mostly agent-to-core upload, while desktop requires browser-to-agent feedback for quality, pause/resume, input, and close
+- camera viewers can tolerate streaming latency, while desktop interactivity needs tighter backpressure and faster quality downshift
+
+For that reason, the desktop media path should either be bidirectional gRPC or paired upload/control RPCs with explicit credit acknowledgements. The control stream can carry low-rate input/control during early implementation, but production screen flow control must be tied to the media stream so the agent can stop reading from the Rust helper when browser or gateway buffers are full.
+
+The first compatibility wrapper may carry small JSON desktop frames inside `Monitoring.ConsoleFrame` while the adapter shape is being proven. Production screen traffic must move to a dedicated stream before `remote_access.rdp` is advertised as an operational capability. The dedicated stream should be bidirectional so the gateway can send credit-window, quality, pause/resume, and close signals without waiting for a separate control-stream round trip.
+
+### Why A Dedicated Stream
+RDP screen traffic is bursty and potentially large. Even when RDP sends changed regions rather than full frames, a busy desktop can produce many updates per second. Sending that through the generic control stream would couple desktop rendering to unrelated agent control messages such as commands, config pushes, heartbeats, SSH console traffic, and file-transfer control frames.
+
+Risks of using the generic control stream for production screen data:
+
+- head-of-line blocking for command/config/control traffic
+- large BEAM PubSub messages and process mailboxes under frame bursts
+- weak browser backpressure feedback
+- hard-to-enforce per-session byte and frame budgets
+- difficult separation between metadata recording and sensitive screen content
+- worse failure isolation when a desktop session misbehaves
+
+### Stream Shape
+The dedicated desktop stream should be session-scoped and route-bound:
+
+```text
+control stream:
+  gateway -> agent: open session with trusted target policy and credential grant
+  agent -> gateway: ready with desktop_media_session_id and max_chunk_bytes
+
+desktop media stream:
+  agent <-> gateway: DesktopMediaFrame / DesktopMediaAck
+  gateway <-> web-ng/browser channel: renderable frame chunks and backpressure
+```
+
+Frame chunks should carry:
+
+- `session_id`
+- `media_session_id`
+- `sequence`
+- frame/update type
+- width, height, pixel format or encoding
+- dirty-region metadata where available
+- payload bytes
+- keyframe/full-frame marker when applicable
+- byte count and timestamp
+
+Acknowledgements should carry:
+
+- last accepted sequence
+- remaining credit bytes or frames
+- target quality level when downshifting
+- pause/resume/close reason
+
+The agent must stop reading from the Rust RDP helper, lower quality, or close the session when the gateway/browser credit window is exhausted.
+
+### Local Go/Rust Boundary
+The agent-side Rust helper can still communicate with the Go agent over local stdio or a Unix-domain socket. That boundary is inside the agent host and should use length-prefixed binary frames, not JSON, for screen payloads. JSON remains acceptable for policy and low-rate control envelopes. The Go agent remains the policy, route, credential, and audit owner; the Rust helper remains the RDP protocol engine.
+
+Start one helper process per RDP session. This gives clear credential lifetime, crash isolation, and cleanup behavior. A warm helper pool can be considered later only if startup time or session density becomes a measured problem.
 
 ## Redirection And Exfiltration Controls
 All desktop redirection features are disabled by default.
@@ -109,7 +201,8 @@ The current checkout reports AGPL transitive dependencies through Teleport API/t
 ## Validation
 - Unit tests for desktop target/resource normalization rejecting client-selected upstream hosts, ports, credentials, redirection features, routes, quotas, and recording overrides.
 - RBAC and approval tests proving access and redirection features are denied without explicit permission.
-- Agent adapter tests proving TLS/NLA policy, credential non-persistence, frame quotas, resize handling, backpressure, timeout, and route-loss cleanup.
+- Agent adapter tests proving TLS/NLA policy, credential non-persistence, frame quotas, credit-window backpressure, resize handling, timeout, and route-loss cleanup.
+- Desktop media stream tests proving unrelated control-stream traffic is not blocked by frame bursts.
 - Renderer tests proving keyboard, pointer, resize, focus, and close events map to typed frames without terminal assumptions.
 - Recording tests proving metadata is stored and screen/clipboard/file/audio content is not retained by default.
 - Demo proof with a private Windows RDP target or controlled RDP test server reachable only from an agent.
