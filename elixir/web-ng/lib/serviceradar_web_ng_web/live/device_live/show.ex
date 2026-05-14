@@ -10585,22 +10585,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp truthy?(value), do: value in [true, "true", "on", "1", 1]
 
   defp agent_device?(row) when is_map(row) do
-    agent_id = Map.get(row, "agent_id")
-    sources = Map.get(row, "discovery_sources") || []
-    agent_list = Map.get(row, "agent_list") || []
-
-    (is_binary(agent_id) and agent_id != "") or
-      (is_list(agent_list) and agent_list != []) or
-      Enum.any?(sources, &(&1 == "agent"))
+    row
+    |> linked_agent_list()
+    |> Enum.any?()
   end
 
   defp agent_device?(_), do: false
 
   defp agent_label(row) do
-    case Map.get(row, "agent_id") do
-      value when is_binary(value) and value != "" -> value
-      _ -> "Agent"
+    row
+    |> linked_agent_list()
+    |> List.first()
+    |> case do
+      %{} = agent ->
+        agent_value(agent, "name") || agent_value(agent, "uid") || agent_value(agent, "agent_id") ||
+          "Agent"
+
+      value when is_binary(value) and value != "" ->
+        value
+
+      _ ->
+        "Agent"
     end
+  end
+
+  defp linked_agent_list(row) when is_map(row) do
+    row
+    |> agent_list()
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+  end
+
+  defp linked_agent_list(_), do: []
+
+  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+
+  defp agent_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || agent_atom_value(map, key)
+  end
+
+  defp agent_atom_value(map, key) do
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 
   defp device_display_name(nil), do: "Device"
