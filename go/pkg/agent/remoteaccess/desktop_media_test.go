@@ -350,6 +350,29 @@ func TestDesktopMediaCreditWindowConsumesAndAdjustsCredit(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaCreditWindowMaxChunkIncludesMetadata(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(16, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	frame := DesktopMediaFrame{
+		Metadata: []byte{1, 2, 3, 4, 5},
+		Payload:  []byte{6, 7, 8, 9},
+	}
+	if window.CanSend(frame) {
+		t.Fatalf("CanSend returned true for metadata plus payload over max chunk")
+	}
+	if err := window.Consume(frame); !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("Consume error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+	}
+	if window.RemainingBytes() != 16 {
+		t.Fatalf("RemainingBytes after rejected chunk = %d, want 16", window.RemainingBytes())
+	}
+}
+
 func TestDesktopMediaCreditWindowAppliesValidatedAck(t *testing.T) {
 	t.Parallel()
 

@@ -189,8 +189,9 @@ func (w DesktopMediaCreditWindow) CanSend(frame DesktopMediaFrame) bool {
 		return false
 	}
 
-	return mediaFrameCreditCost(frame) <= w.remainingBytes &&
-		uint64(len(frame.Payload)) <= uint64(w.maxChunkBytes)
+	cost := mediaFrameCreditCost(frame)
+
+	return cost <= w.remainingBytes && cost <= uint64(w.maxChunkBytes)
 }
 
 func (w *DesktopMediaCreditWindow) Consume(frame DesktopMediaFrame) error {
@@ -204,11 +205,10 @@ func (w *DesktopMediaCreditWindow) Consume(frame DesktopMediaFrame) error {
 		return ErrDesktopMediaNoCredit
 	}
 
-	if uint64(len(frame.Payload)) > uint64(w.maxChunkBytes) {
-		return fmt.Errorf("%w: payload exceeds max chunk", ErrInvalidDesktopMediaFrame)
-	}
-
 	cost := mediaFrameCreditCost(frame)
+	if cost > uint64(w.maxChunkBytes) {
+		return fmt.Errorf("%w: frame exceeds max chunk", ErrInvalidDesktopMediaFrame)
+	}
 	if cost > w.remainingBytes {
 		return ErrDesktopMediaNoCredit
 	}
