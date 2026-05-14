@@ -50,6 +50,30 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          require_ci_tools() {
+            missing=()
+            for tool in gcc g++ make pkg-config protoc cmake flex bison rpmbuild rpm2cpio psql; do
+              if ! command -v "${tool}" >/dev/null 2>&1; then
+                missing+=("${tool}")
+              fi
+            done
+
+            if ! pkg-config --exists openssl; then
+              missing+=("openssl-pkg-config")
+            fi
+
+            if ((${#missing[@]})); then
+              printf 'missing required CI tools: %s\n' "${missing[*]}" >&2
+              echo "This job is running non-root; rebuild the Forgejo CI image with the missing OS tools instead of installing them at runtime." >&2
+              exit 1
+            fi
+          }
+
+          if [[ "$(id -u)" != "0" ]]; then
+            require_ci_tools
+            exit 0
+          fi
+
           ensure_pkg_config() {
             if command -v pkg-config >/dev/null 2>&1; then
               return
