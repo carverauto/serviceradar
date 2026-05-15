@@ -38,6 +38,7 @@ Crates.io import check:
 - The published `ironrdp-connector = 0.8.0` is not the same dependency surface as the pinned local IronRDP checkout. It depends on `sspi = 0.18` and `picky = 7.0.0-rc.20`.
 - `picky = 7.0.0-rc.20` pins several pre-release crypto crates with exact requirements, including `digest = 0.11.0-rc.3`, `hmac = 0.13.0-rc.2`, and `sha2 = 0.11.0-rc.2`.
 - A same-workspace import of the published connector forces the root `Cargo.lock` away from existing stable crypto crate versions. Do not land that import in the shared ServiceRadar Rust workspace.
+- `rust/rdp-connector-probe` is a review-only isolated Cargo workspace with its own `Cargo.lock`. It proves the connector graph can compile without perturbing the root ServiceRadar Rust lockfile.
 - The production IronRDP helper should use an isolated optional helper dependency graph, for example a separate helper workspace/lockfile or Bazel crate-universe repository, so CredSSP/PKI dependencies cannot perturb SRQL, collectors, or other Rust services.
 
 ServiceRadar connector import requirements:
@@ -67,6 +68,6 @@ The feature-linked helper target must still fail closed until the connector loop
 
 ## Follow-Up Before Import
 - Verify the selected IronRDP commit's crate licenses from the upstream checkout, not from Teleport's AGPL workspace.
-- Decide whether the optional IronRDP connector helper needs a separate Rust workspace/lockfile or Bazel crate-universe repository to keep the connector crypto graph isolated from the root ServiceRadar workspace.
+- Decide whether the production optional IronRDP connector helper uses the review probe's separate Rust workspace/lockfile pattern or a dedicated Bazel crate-universe repository to keep the connector crypto graph isolated from the root ServiceRadar workspace.
 - Update Bazel/Rust dependency manifests in the same commit that imports the crates.
 - Add protocol integration tests against a controlled RDP test server before enabling runtime capability advertisement.

@@ -5,6 +5,7 @@
 - [x] 1.4 Record exact dependency choices for RDP protocol and browser rendering before implementation.
 - [x] 1.4.1 Record the IronRDP connector import gate, including `ironrdp-connector`, `sspi`, `picky`, disabled client/redirection crates, and no agent-local TOFU trust state.
 - [x] 1.4.2 Record the published `ironrdp-connector` root-lockfile conflict and require an isolated optional helper dependency graph before importing CredSSP/PKI crates.
+- [x] 1.4.3 Add a review-only isolated IronRDP connector probe workspace with its own lockfile so connector/CredSSP/PKI dependencies do not perturb the root Rust workspace.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
