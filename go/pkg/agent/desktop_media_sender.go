@@ -154,7 +154,19 @@ func newDesktopMediaGatewaySender(
 	}
 
 	if mediaIngestID == "" {
-		return nil, fmt.Errorf("%w: missing media ingest binding", remoteaccess.ErrInvalidDesktopMediaFrame)
+		err := fmt.Errorf("%w: missing media ingest binding", remoteaccess.ErrInvalidDesktopMediaFrame)
+		if closeErr := closeAcceptedDesktopMediaGatewaySession(
+			ctx,
+			gateway,
+			normalized,
+			responseMediaSessionID,
+			mediaIngestID,
+			"desktop media ingest binding rejected",
+		); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+
+		return nil, err
 	}
 
 	stream, err := gateway.StreamDesktopMedia(ctx)
@@ -471,9 +483,6 @@ func closeAcceptedDesktopMediaGatewaySession(
 		mediaSessionID = cfg.MediaSessionID
 	}
 	mediaIngestID = strings.TrimSpace(mediaIngestID)
-	if mediaIngestID == "" {
-		return nil
-	}
 
 	_, err := gateway.CloseDesktopMediaSession(ctx, &proto.CloseDesktopMediaSessionRequest{
 		DesktopSessionId: cfg.DesktopSessionID,

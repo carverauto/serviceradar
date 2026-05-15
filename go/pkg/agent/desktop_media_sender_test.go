@@ -334,6 +334,34 @@ func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenMediaBindingMismatche
 	}
 }
 
+func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenMediaIngestMissing(t *testing.T) {
+	t.Parallel()
+
+	gateway := &fakeDesktopMediaGateway{
+		openResp: &proto.OpenDesktopMediaSessionResponse{
+			Accepted:       true,
+			MediaSessionId: testDesktopMediaID,
+			MaxChunkBytes:  remoteaccess.DesktopMediaDefaultMaxChunkBytes,
+		},
+		stream: newFakeDesktopMediaStream(),
+	}
+
+	if _, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("missing ingest error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+	if gateway.closeCount != 1 ||
+		gateway.closeReq.GetMediaSessionId() != testDesktopMediaID ||
+		gateway.closeReq.GetMediaIngestId() != "" ||
+		gateway.closeReq.GetReason() == "" {
+		t.Fatalf("gateway close after missing ingest = count %d request %#v", gateway.closeCount, gateway.closeReq)
+	}
+}
+
 func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *testing.T) {
 	t.Parallel()
 
