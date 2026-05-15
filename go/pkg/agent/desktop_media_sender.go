@@ -120,30 +120,53 @@ func newDesktopMediaGatewaySender(
 	if !openResp.GetAccepted() {
 		return nil, fmt.Errorf("%w: %s", errDesktopMediaSessionRejected, strings.TrimSpace(openResp.GetMessage()))
 	}
+	responseMediaSessionID := strings.TrimSpace(openResp.GetMediaSessionId())
+	mediaIngestID := strings.TrimSpace(openResp.GetMediaIngestId())
 	if openResp.GetMaxChunkBytes() > remoteaccess.DesktopMaxFrameData {
-		return nil, fmt.Errorf("%w: gateway max chunk exceeds desktop policy", remoteaccess.ErrInvalidDesktopMediaFrame)
+		err := fmt.Errorf("%w: gateway max chunk exceeds desktop policy", remoteaccess.ErrInvalidDesktopMediaFrame)
+		if closeErr := closeAcceptedDesktopMediaGatewaySession(
+			ctx,
+			gateway,
+			normalized,
+			responseMediaSessionID,
+			mediaIngestID,
+			"desktop media gateway max chunk rejected",
+		); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+
+		return nil, err
 	}
-	if strings.TrimSpace(openResp.GetMediaSessionId()) != "" &&
-		openResp.GetMediaSessionId() != normalized.MediaSessionID {
-		return nil, fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+	if responseMediaSessionID != "" && responseMediaSessionID != normalized.MediaSessionID {
+		err := fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+		if closeErr := closeAcceptedDesktopMediaGatewaySession(
+			ctx,
+			gateway,
+			normalized,
+			responseMediaSessionID,
+			mediaIngestID,
+			"desktop media session binding rejected",
+		); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+
+		return nil, err
 	}
 
-	mediaIngestID := strings.TrimSpace(openResp.GetMediaIngestId())
 	if mediaIngestID == "" {
 		return nil, fmt.Errorf("%w: missing media ingest binding", remoteaccess.ErrInvalidDesktopMediaFrame)
 	}
 
 	stream, err := gateway.StreamDesktopMedia(ctx)
 	if err != nil {
-		_, closeErr := gateway.CloseDesktopMediaSession(ctx, &proto.CloseDesktopMediaSessionRequest{
-			DesktopSessionId: normalized.DesktopSessionID,
-			MediaSessionId:   normalized.MediaSessionID,
-			MediaIngestId:    mediaIngestID,
-			AgentId:          normalized.AgentID,
-			GatewayId:        normalized.GatewayID,
-			Reason:           normalizeDesktopMediaTerminalReason("desktop media stream open failed"),
-		})
-		if closeErr != nil {
+		if closeErr := closeAcceptedDesktopMediaGatewaySession(
+			ctx,
+			gateway,
+			normalized,
+			responseMediaSessionID,
+			mediaIngestID,
+			"desktop media stream open failed",
+		); closeErr != nil {
 			return nil, errors.Join(err, closeErr)
 		}
 
@@ -418,6 +441,35 @@ func normalizeDesktopMediaGatewaySenderConfig(
 	}
 
 	return cfg, nil
+}
+
+func closeAcceptedDesktopMediaGatewaySession(
+	ctx context.Context,
+	gateway desktopMediaGateway,
+	cfg desktopMediaGatewaySenderConfig,
+	mediaSessionID string,
+	mediaIngestID string,
+	reason string,
+) error {
+	mediaSessionID = strings.TrimSpace(mediaSessionID)
+	if mediaSessionID == "" {
+		mediaSessionID = cfg.MediaSessionID
+	}
+	mediaIngestID = strings.TrimSpace(mediaIngestID)
+	if mediaIngestID == "" {
+		return nil
+	}
+
+	_, err := gateway.CloseDesktopMediaSession(ctx, &proto.CloseDesktopMediaSessionRequest{
+		DesktopSessionId: cfg.DesktopSessionID,
+		MediaSessionId:   mediaSessionID,
+		MediaIngestId:    mediaIngestID,
+		AgentId:          cfg.AgentID,
+		GatewayId:        cfg.GatewayID,
+		Reason:           normalizeDesktopMediaTerminalReason(reason),
+	})
+
+	return err
 }
 
 func desktopMediaMaxChunkBytes(responseMax uint32, requestedMax uint32) uint32 {

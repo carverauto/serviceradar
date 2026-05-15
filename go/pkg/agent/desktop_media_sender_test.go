@@ -298,6 +298,40 @@ func TestDesktopMediaGatewaySenderRejectsOversizedChunkNegotiation(t *testing.T)
 	); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
 		t.Fatalf("gateway max chunk error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
 	}
+	if gateway.closeCount != 1 ||
+		gateway.closeReq.GetMediaSessionId() != testDesktopMediaID ||
+		gateway.closeReq.GetMediaIngestId() != testDesktopMediaIngestID {
+		t.Fatalf("gateway close after max chunk rejection = count %d request %#v", gateway.closeCount, gateway.closeReq)
+	}
+}
+
+func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenMediaBindingMismatches(t *testing.T) {
+	t.Parallel()
+
+	gateway := &fakeDesktopMediaGateway{
+		openResp: &proto.OpenDesktopMediaSessionResponse{
+			Accepted:       true,
+			MediaIngestId:  testDesktopMediaIngestID,
+			MediaSessionId: "other-media",
+			MaxChunkBytes:  remoteaccess.DesktopMediaDefaultMaxChunkBytes,
+		},
+		stream: newFakeDesktopMediaStream(),
+	}
+
+	if _, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("media binding error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+	if gateway.closeCount != 1 ||
+		gateway.closeReq.GetMediaSessionId() != "other-media" ||
+		gateway.closeReq.GetMediaIngestId() != testDesktopMediaIngestID ||
+		gateway.closeReq.GetReason() == "" {
+		t.Fatalf("gateway close after media mismatch = count %d request %#v", gateway.closeCount, gateway.closeReq)
+	}
 }
 
 func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *testing.T) {
