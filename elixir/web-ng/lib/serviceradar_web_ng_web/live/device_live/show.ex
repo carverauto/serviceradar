@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.InterfaceSettings
@@ -88,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sysmon_profile_info, nil)
      |> assign(:available_profiles, [])
      |> assign(:availability, nil)
+     |> assign(:agent_availability, [])
      |> assign(:healthcheck_summary, nil)
      |> assign(:sweep_results, nil)
      |> assign(:process_metrics, nil)
@@ -514,6 +516,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       safe_yield_many(parallel_tasks ++ [metrics_task, process_task], 30_000)
 
     availability = Map.get(parallel_results, :availability, %{})
+    agent_availability = Map.get(parallel_results, :agent_availability, [])
     healthcheck_summary = Map.get(parallel_results, :healthcheck, %{})
     sweep_results = Map.get(parallel_results, :sweep, [])
     {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
@@ -613,6 +616,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:active_camera_relay_session, active_camera_relay_session)
      |> assign(:last_camera_relay_session, last_camera_relay_session)
      |> assign(:availability, availability)
+     |> assign(:agent_availability, agent_availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
      |> assign(:device_snmp_credential, device_snmp_credential)
@@ -634,6 +638,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        }) do
     base_tasks = [
       Task.async(fn -> {:availability, load_availability(srql_module, uid, scope)} end),
+      Task.async(fn -> {:agent_availability, load_agent_availability(scope, uid)} end),
       Task.async(fn -> {:healthcheck, load_healthcheck_summary(srql_module, uid, scope)} end),
       Task.async(fn -> {:sweep, load_sweep_results(socket.assigns.current_scope, device_ip)} end),
       Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
@@ -914,6 +919,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:show_stale_aliases, show_stale)
      |> assign(:ip_aliases, ip_aliases)
      |> assign(:ip_alias_error, ip_alias_error)}
+  end
+
+  def handle_event("set_availability_source", %{"agent_id" => agent_id}, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    availability_source_agent_id =
+      agent_id
+      |> to_string()
+      |> String.trim()
+      |> case do
+        "" -> nil
+        value -> value
+      end
+
+    case load_device(scope, device_uid) do
+      {:ok, device} ->
+        result =
+          device
+          |> Ash.Changeset.for_update(:set_availability_source, %{
+            availability_source_agent_id: availability_source_agent_id
+          })
+          |> Ash.update(scope: scope)
+
+        case result do
+          {:ok, _updated} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Availability source updated")
+             |> push_patch(to: device_show_path(socket, device_uid))}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to update availability source: #{format_ash_error(reason)}")}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+    end
   end
 
   def handle_event(
@@ -3137,6 +3180,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
 
               <.availability_section :if={is_map(@availability)} availability={@availability} />
+
+              <.agent_availability_section
+                :if={is_list(@agent_availability)}
+                rows={@agent_availability}
+                device_row={@device_row}
+              />
 
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
@@ -6696,6 +6745,134 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  attr :rows, :list, required: true
+  attr :device_row, :map, default: %{}
+
+  def agent_availability_section(assigns) do
+    primary_agent_id = device_availability_source_agent_id(assigns.device_row)
+
+    assigns =
+      assigns
+      |> assign(:primary_agent_id, primary_agent_id)
+      |> assign(:row_count, length(assigns.rows))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-map-pin" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Agent Availability</span>
+            <span :if={@row_count > 0} class="text-xs text-base-content/50">({@row_count})</span>
+          </div>
+          <form :if={@rows != []} phx-change="set_availability_source" class="flex items-center gap-2">
+            <label for="availability-source-agent" class="text-xs text-base-content/60">
+              Canonical source
+            </label>
+            <select
+              id="availability-source-agent"
+              name="agent_id"
+              class="select select-bordered select-xs w-48"
+            >
+              <option value="" selected={!present?(@primary_agent_id)}>Fallback</option>
+              <%= for row <- @rows do %>
+                <option value={row.agent_id} selected={row.agent_id == @primary_agent_id}>
+                  {availability_agent_label(row)}
+                </option>
+              <% end %>
+            </select>
+          </form>
+          <div :if={@rows == []} class="text-xs text-base-content/60">Canonical source: fallback</div>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div :if={@rows == []} class="text-sm text-base-content/60">
+          No per-agent sweep availability has been recorded for this device yet.
+        </div>
+
+        <div :if={@rows != []} class="overflow-x-auto">
+          <table class="table table-xs">
+            <thead>
+              <tr class="text-xs text-base-content/60">
+                <th>Agent</th>
+                <th>Status</th>
+                <th>Checked</th>
+                <th>Response</th>
+                <th>Ports</th>
+                <th>Checks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for row <- @rows do %>
+                <tr class="hover:bg-base-200/40">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-xs">{availability_agent_label(row)}</span>
+                      <span
+                        :if={row.agent_id == @primary_agent_id}
+                        class="badge badge-primary badge-xs"
+                      >
+                        source
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class={[
+                      "inline-flex items-center gap-1",
+                      row.is_available && "text-success",
+                      !row.is_available && "text-error"
+                    ]}>
+                      <span class="size-1.5 rounded-full bg-current"></span>
+                      {if row.is_available, do: "Available", else: "Unavailable"}
+                    </span>
+                  </td>
+                  <td class="font-mono text-xs">{format_sweep_time(row.checked_at)}</td>
+                  <td class="font-mono text-xs">{format_response_time(row.response_time_ms)}</td>
+                  <td class="font-mono text-xs">{format_ports_compact(row.open_ports || [])}</td>
+                  <td class="text-xs text-base-content/70">
+                    {format_mode_results(row.sweep_modes_results)}
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp device_availability_source_agent_id(device_row) when is_map(device_row) do
+    Map.get(device_row, "availability_source_agent_id") ||
+      Map.get(device_row, :availability_source_agent_id)
+  end
+
+  defp device_availability_source_agent_id(_), do: nil
+
+  defp availability_agent_label(%{agent_name: name, agent_id: agent_id}) when is_binary(name) and name != "" do
+    "#{name} (#{truncate_agent_id(agent_id)})"
+  end
+
+  defp availability_agent_label(%{agent_id: agent_id}), do: truncate_agent_id(agent_id)
+  defp availability_agent_label(_), do: "—"
+
+  defp format_mode_results(results) when is_map(results) do
+    results
+    |> Enum.map_join(" · ", fn {mode, status} -> "#{String.upcase(to_string(mode))} #{format_mode_status(status)}" end)
+    |> case do
+      "" -> "—"
+      text -> text
+    end
+  end
+
+  defp format_mode_results(_), do: "—"
+
+  defp format_mode_status("success"), do: "ok"
+  defp format_mode_status("failed"), do: "failed"
+  defp format_mode_status("no_response"), do: "no response"
+  defp format_mode_status(status), do: to_string(status)
+
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
   defp format_pct(_), do: "—"
@@ -6817,6 +6994,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       segments: segments
     }
   end
+
+  defp load_agent_availability(_scope, nil), do: []
+
+  defp load_agent_availability(scope, device_uid) when is_binary(device_uid) do
+    query = Ash.Query.for_read(DeviceAgentAvailability, :by_device, %{device_uid: device_uid})
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) -> rows
+      _ -> []
+    end
+  end
+
+  defp load_agent_availability(_scope, _device_uid), do: []
 
   defp format_bytes(bytes) when is_number(bytes) do
     cond do

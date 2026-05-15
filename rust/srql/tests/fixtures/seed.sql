@@ -1,4 +1,5 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
+TRUNCATE device_agent_availability;
 TRUNCATE ocsf_devices;
 WITH base AS (
     SELECT NOW() AS now_ts
@@ -22,6 +23,7 @@ INSERT INTO ocsf_devices (
         os,
         gateway_id,
         agent_id,
+        availability_source_agent_id,
         discovery_sources,
         is_available,
         metadata
@@ -43,6 +45,7 @@ SELECT 'device-alpha',
     'Info',
     '{"name":"IOS-XE","version":"17.9.3"}'::jsonb,
     'gateway-1',
+    'agent-1',
     'agent-1',
     ARRAY ['sweep','armis'],
     TRUE,
@@ -67,6 +70,7 @@ SELECT 'device-beta',
     '{"name":"NX-OS","version":"10.2(4)"}'::jsonb,
     'gateway-1',
     'agent-2',
+    NULL,
     ARRAY ['armis'],
     FALSE,
     '{"site":"dfw-edge","packet_loss_bucket":"medium"}'::jsonb
@@ -90,6 +94,7 @@ SELECT 'device-gamma',
     '{"name":"PAN-OS","version":"11.1.0"}'::jsonb,
     'gateway-2',
     'agent-3',
+    NULL,
     ARRAY ['sweep'],
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"high"}'::jsonb
@@ -113,9 +118,57 @@ SELECT 'device-delta',
     '{"name":"IOS","version":"15.2"}'::jsonb,
     'gateway-2',
     'agent-3',
+    NULL,
     ARRAY ['sweep'],
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO device_agent_availability (
+        device_uid,
+        agent_id,
+        agent_name,
+        is_available,
+        checked_at,
+        response_time_ms,
+        open_ports,
+        sweep_modes_results,
+        metadata
+    )
+SELECT 'device-alpha',
+    'agent-1',
+    'Agent One',
+    TRUE,
+    base.now_ts - INTERVAL '30 minutes',
+    12,
+    ARRAY [22, 443],
+    '{"icmp":"success","tcp":"success"}'::jsonb,
+    '{}'::jsonb
+FROM base
+UNION ALL
+SELECT 'device-alpha',
+    'agent-2',
+    'Agent Two',
+    FALSE,
+    base.now_ts - INTERVAL '20 minutes',
+    NULL,
+    ARRAY []::INT[],
+    '{"icmp":"failed","tcp":"no_response"}'::jsonb,
+    '{}'::jsonb
+FROM base
+UNION ALL
+SELECT 'device-beta',
+    'agent-1',
+    'Agent One',
+    TRUE,
+    base.now_ts - INTERVAL '25 minutes',
+    18,
+    ARRAY [80],
+    '{"icmp":"success","tcp":"success"}'::jsonb,
+    '{}'::jsonb
 FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
